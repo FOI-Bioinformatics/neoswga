@@ -327,6 +327,18 @@ class MechanisticModel:
             1.0 - math.exp(-p['dmso_melt_rate'] * c.dmso_percent)
         )
 
+        # DMSO-formamide antagonism reduces structure-melting effect
+        # When both are present at high concentrations, their combined
+        # destabilizing effect is less than expected (competition for sites)
+        if c.dmso_percent > 2.0 and c.formamide_percent > 1.0:
+            antagonism = self.params['interactions']['dmso_formamide_antagonism']
+            combined_reduction = (
+                antagonism
+                * (c.dmso_percent - 2.0)
+                * (c.formamide_percent - 1.0)
+            )
+            dmso_melt *= (1 - min(0.5, combined_reduction))
+
         # Betaine also helps melt structure
         betaine_melt = p['betaine_max_effect'] * (
             1.0 - math.exp(-p['betaine_melt_rate'] * c.betaine_m)
@@ -424,8 +436,35 @@ class MechanisticModel:
         stability *= (1 + p['glycerol_stability'] * glycerol)
         speed *= (1 - p['glycerol_speed_penalty'] * glycerol)
 
-        # DMSO-Mg interaction
+        # Additive interactions
         interactions = self.params['interactions']
+
+        # Betaine-trehalose synergy (enhanced enzyme stability)
+        # Both stabilize proteins through different mechanisms - combined effect
+        # is greater than sum of individual effects
+        if betaine > 0.5 and c.trehalose_m > 0.1:
+            synergy = (
+                interactions['betaine_trehalose_synergy']
+                * min(betaine, 1.5)
+                * min(c.trehalose_m, 0.5)
+            )
+            stability *= (1 + synergy)
+            # Slight processivity boost from combined stabilization
+            processivity *= (1 + 0.3 * synergy)
+
+        # DMSO-formamide antagonism (both destabilizers compete)
+        # At high concentrations, they may compete for binding sites on enzyme,
+        # reducing their individual effects (less destabilization than expected)
+        if dmso > 2.0 and c.formamide_percent > 1.0:
+            antagonism = (
+                interactions['dmso_formamide_antagonism']
+                * (dmso - 2.0)
+                * (c.formamide_percent - 1.0)
+            )
+            # Antagonism reduces destabilizing penalty (stability improves slightly)
+            stability *= (1 + antagonism * 0.5)
+
+        # DMSO-Mg interaction
         if dmso > interactions['dmso_mg_threshold'] and mg < 3.0:
             chelation = (
                 interactions['dmso_mg_chelation']

@@ -1425,15 +1425,23 @@ def run_step4(args):
         return
 
     logger.info("Primer set optimization")
-    logger.info(f"Optimization method: {args.optimization_method}")
-    logger.info(f"Position cache: {args.use_position_cache}")
-    logger.info(f"Background filter: {args.use_background_filter}")
 
     try:
         from neoswga.core import parameter
 
         # Set json_file if provided
         merge_args_to_parameter(args, parameter, ['json_file'])
+
+        # Auto-select equiphi29 optimizer when polymerase=equiphi29 and method is default
+        json_data = getattr(parameter, '_json_data', {})
+        polymerase = json_data.get('polymerase', 'phi29')
+        if polymerase == 'equiphi29' and args.optimization_method == 'hybrid':
+            logger.info("Auto-selecting equiphi29 optimizer for equiphi29 polymerase")
+            args.optimization_method = 'equiphi29'
+
+        logger.info(f"Optimization method: {args.optimization_method}")
+        logger.info(f"Position cache: {args.use_position_cache}")
+        logger.info(f"Background filter: {args.use_background_filter}")
 
         # GPU acceleration (with auto-detection)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)

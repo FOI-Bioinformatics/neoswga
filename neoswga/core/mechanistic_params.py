@@ -159,7 +159,8 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         'phi29': {
             'optimal_temp': 30.0,     # C
             'processivity': 70000,    # bp, Blanco 1989
-            'extension_rate': 167,    # nt/s at optimal temp
+            'processivity_step': 0.99857,  # Per 100bp step for stochastic model
+            'extension_rate': 150,    # nt/s at optimal temp (median of 100-170 range)
             'dmso_threshold': 5.0,    # % before steep inhibition
             'dmso_mild_coef': 0.02,   # activity reduction per % below threshold
             'dmso_steep_coef': 0.12,  # activity reduction per % above threshold
@@ -168,7 +169,8 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         'equiphi29': {
             'optimal_temp': 42.0,
             'processivity': 80000,
-            'extension_rate': 200,
+            'processivity_step': 0.99875,  # Per 100bp step for stochastic model
+            'extension_rate': 200,    # nt/s (thermally enhanced)
             'dmso_threshold': 4.0,    # slightly less tolerant
             'dmso_mild_coef': 0.025,
             'dmso_steep_coef': 0.15,
@@ -177,6 +179,7 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         'bst': {
             'optimal_temp': 63.0,
             'processivity': 2000,
+            'processivity_step': 0.9512,   # Per 100bp step for stochastic model
             'extension_rate': 100,
             'dmso_threshold': 3.0,
             'dmso_mild_coef': 0.03,
@@ -186,6 +189,7 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         'klenow': {
             'optimal_temp': 37.0,
             'processivity': 10000,
+            'processivity_step': 0.99005,  # Per 100bp step for stochastic model
             'extension_rate': 50,
             'dmso_threshold': 5.0,
             'dmso_mild_coef': 0.02,

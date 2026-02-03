@@ -400,6 +400,163 @@ def create_equiphi29_optimizer(genome_fasta: str,
     )
 
 
+# =============================================================================
+# Factory Registration
+# =============================================================================
+
+from neoswga.core.optimizer_factory import OptimizerFactory
+from neoswga.core.base_optimizer import (
+    BaseOptimizer, OptimizationResult, OptimizationStatus,
+    PrimerSetMetrics, OptimizerConfig
+)
+
+
+@OptimizerFactory.register(
+    'equiphi29',
+    aliases=['equiphi', 'eq29'],
+    description='EquiPhi29-optimized selection for 42C with longer primers (12-15bp)'
+)
+class EquiPhi29OptimizerAdapter(BaseOptimizer):
+    """
+    Adapter to make EquiPhi29Optimizer conform to BaseOptimizer interface.
+
+    This adapter enables EquiPhi29Optimizer to be used via the unified
+    optimizer factory and CLI interface.
+
+    EquiPhi29 advantages:
+    - Better performance on GC-rich genomes (>65% GC)
+    - Fewer primers needed (15% reduction)
+    - Longer extension distances (80kb vs 70kb)
+    - Higher temperature stability (42C)
+    """
+
+    def __init__(
+        self,
+        position_cache,
+        fg_prefixes: List[str],
+        fg_seq_lengths: List[int],
+        bg_prefixes: Optional[List[str]] = None,
+        bg_seq_lengths: Optional[List[int]] = None,
+        config: Optional[OptimizerConfig] = None,
+        genome_gc_content: float = 0.50,
+        **kwargs
+    ):
+        """
+        Initialize EquiPhi29 optimizer adapter.
+
+        Args:
+            position_cache: PositionCache with primer positions
+            fg_prefixes: Target genome identifiers
+            fg_seq_lengths: Target genome lengths
+            bg_prefixes: Background genome identifiers (optional)
+            bg_seq_lengths: Background genome lengths (optional)
+            config: OptimizerConfig for base class
+            genome_gc_content: Target genome GC content (0-1)
+            **kwargs: Additional arguments (ignored)
+        """
+        super().__init__(
+            position_cache=position_cache,
+            fg_prefixes=fg_prefixes,
+            fg_seq_lengths=fg_seq_lengths,
+            bg_prefixes=bg_prefixes,
+            bg_seq_lengths=bg_seq_lengths,
+            config=config
+        )
+
+        self.genome_gc_content = genome_gc_content
+
+        # Create the underlying EquiPhi29Optimizer
+        self._optimizer = EquiPhi29Optimizer(
+            position_cache=position_cache,
+            fg_prefixes=fg_prefixes,
+            fg_seq_lengths=fg_seq_lengths,
+            bg_prefixes=bg_prefixes,
+            bg_seq_lengths=bg_seq_lengths,
+            genome_gc_content=genome_gc_content
+        )
+
+    @property
+    def name(self) -> str:
+        """Human-readable optimizer name."""
+        return "equiphi29"
+
+    @property
+    def description(self) -> str:
+        """One-line description of the optimizer."""
+        return "EquiPhi29-optimized selection for 42C with longer primers (12-15bp)"
+
+    def optimize(
+        self,
+        candidates: List[str],
+        target_size: Optional[int] = None,
+        fixed_primers: Optional[List[str]] = None,
+        **kwargs
+    ) -> OptimizationResult:
+        """
+        Find optimal primer set using EquiPhi29-specific optimization.
+
+        Args:
+            candidates: Pool of candidate primer sequences
+            target_size: Desired number of primers (overrides config if provided)
+            fixed_primers: Optional list of primers that must be included
+            **kwargs: Additional parameters (verbose, validate_with_simulation, etc.)
+
+        Returns:
+            OptimizationResult with selected primers and metrics
+        """
+        candidates = self._validate_candidates(candidates)
+        target = target_size or self.config.target_set_size
+
+        verbose = kwargs.get('verbose', self.config.verbose)
+        validate_with_simulation = kwargs.get('validate_with_simulation', False)
+        genome_sequence = kwargs.get('genome_sequence', None)
+
+        try:
+            # Run EquiPhi29Optimizer
+            hybrid_result = self._optimizer.optimize(
+                candidates=candidates,
+                target_primer_count=target,
+                verbose=verbose,
+                validate_with_simulation=validate_with_simulation,
+                genome_sequence=genome_sequence
+            )
+
+            # Handle fixed primers (merge with result)
+            selected_primers = list(hybrid_result.primers)
+            if fixed_primers:
+                for primer in fixed_primers:
+                    if primer not in selected_primers:
+                        selected_primers.insert(0, primer)
+                # Re-trim to target size if needed
+                selected_primers = selected_primers[:target]
+
+            # Compute metrics using base class method
+            metrics = self.compute_metrics(selected_primers)
+
+            # Calculate overall score
+            # EquiPhi29 score: weighted combination of coverage and connectivity
+            score = (
+                0.5 * hybrid_result.final_coverage +
+                0.3 * min(1.0, hybrid_result.final_connectivity) +
+                0.2 * min(1.0, hybrid_result.final_predicted_amplification / 10.0)
+            )
+
+            return OptimizationResult(
+                primers=tuple(selected_primers),
+                score=score,
+                status=OptimizationStatus.SUCCESS,
+                metrics=metrics,
+                iterations=1,
+                optimizer_name=self.name,
+                message=f"EquiPhi29 optimization: {hybrid_result.final_coverage:.1%} coverage, "
+                        f"{hybrid_result.final_connectivity:.2f} connectivity"
+            )
+
+        except Exception as e:
+            logger.error(f"EquiPhi29 optimization failed: {e}")
+            return OptimizationResult.failure(self.name, str(e))
+
+
 if __name__ == '__main__':
     # Example usage
     logging.basicConfig(level=logging.INFO)

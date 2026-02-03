@@ -4,16 +4,23 @@ Automatic primer set size optimization using Pareto frontier analysis.
 Determines optimal number of primers based on:
 - Coverage vs fg/bg ratio tradeoff (Pareto frontier)
 - Application profile (discovery, clinical, enrichment, metagenomics)
-- Reaction conditions (affects primer effectiveness)
+- Reaction conditions (affects primer effectiveness via mechanistic model)
 
 Key insight: Coverage and specificity (fg/bg ratio) are NOT a simple tradeoff.
 Good primer selection can improve BOTH metrics by choosing primers that:
 1. Have high fg/bg binding site ratios (selective)
 2. Bind to unique regions of the target genome (coverage)
 
+Additive-aware optimization:
+    When MechanisticEffects is provided, the optimizer accounts for how
+    reaction conditions (additives, temperature) affect primer effectiveness:
+    - Enhanced processivity (betaine, DMSO) -> fewer primers needed for coverage
+    - Enhanced binding (SSB) -> more efficient primer utilization
+    - Temperature effects -> adjusted coverage estimates
+
 The Pareto frontier approach:
 1. Generates primer sets at different sizes
-2. Computes (coverage, fg_bg_ratio) for each
+2. Computes (coverage, fg_bg_ratio) for each, adjusted for mechanistic effects
 3. Identifies Pareto-optimal points (no other point dominates)
 4. Selects best point based on application priority
 
@@ -31,6 +38,15 @@ Usage:
 
     # Quick estimate (without position data)
     size = quick_size_estimate('clinical', genome_length=1_000_000)
+
+    # Additive-aware recommendation with mechanistic model
+    from neoswga.core.mechanistic_model import MechanisticModel
+    from neoswga.core.reaction_conditions import get_enhanced_conditions
+
+    conditions = get_enhanced_conditions()
+    model = MechanisticModel(conditions)
+    effects = model.calculate_effects('ATCGATCGATCG', template_gc=0.5)
+    rec = recommend_set_size('clinical', 1_000_000, 12, effects, processivity=80000)
 """
 
 import math
@@ -209,6 +225,12 @@ class ParetoFrontierGenerator:
 
     This is ~4x faster than full optimization at all sizes while still
     finding the true Pareto frontier.
+
+    Additive-aware optimization:
+        When mech_effects is provided, coverage estimates account for
+        enhanced processivity from additives:
+        - effective_processivity = base_processivity * processivity_factor
+        - This allows fewer primers to achieve the same coverage
     """
 
     def __init__(
@@ -221,6 +243,7 @@ class ParetoFrontierGenerator:
         bg_seq_lengths: Optional[List[int]] = None,
         optimizer: Optional['BaseOptimizer'] = None,
         processivity: int = 70000,
+        mech_effects: Optional['MechanisticEffects'] = None,
     ):
         """
         Initialize the Pareto frontier generator.
@@ -234,7 +257,9 @@ class ParetoFrontierGenerator:
             fg_seq_lengths: Foreground genome lengths
             bg_seq_lengths: Background genome lengths
             optimizer: BaseOptimizer instance for full optimization
-            processivity: Polymerase processivity in bp (default: 70000 for phi29)
+            processivity: Base polymerase processivity in bp (default: 70000 for phi29)
+            mech_effects: Optional MechanisticEffects for additive-aware estimation.
+                         If provided, processivity is adjusted by processivity_factor.
         """
         self.primer_pool = primer_pool
         self.cache = position_cache
@@ -243,7 +268,21 @@ class ParetoFrontierGenerator:
         self.fg_seq_lengths = fg_seq_lengths or []
         self.bg_seq_lengths = bg_seq_lengths or []
         self.optimizer = optimizer
-        self.processivity = processivity
+        self.mech_effects = mech_effects
+
+        # Apply mechanistic effects to processivity
+        if mech_effects is not None:
+            self.processivity = int(processivity * mech_effects.processivity_factor)
+            self._effective_binding = mech_effects.effective_binding_rate
+            logger.info(
+                f"Additive-aware optimization: "
+                f"processivity={self.processivity:,} bp "
+                f"(base={processivity:,} * factor={mech_effects.processivity_factor:.2f}), "
+                f"effective_binding={self._effective_binding:.2f}"
+            )
+        else:
+            self.processivity = processivity
+            self._effective_binding = 0.8  # Default assumption
 
         # Computed properties
         self.fg_total_length = sum(fg_seq_lengths) if fg_seq_lengths else 0
@@ -351,11 +390,17 @@ class ParetoFrontierGenerator:
         For each size N:
         1. Rank primers by fg/bg ratio (highest first)
         2. Take top N primers
-        3. Estimate coverage from binding sites + processivity
+        3. Estimate coverage from binding sites + effective processivity
         4. Calculate fg/bg ratio from total sites
 
         This is fast but may overestimate coverage (ignores position overlap)
         and underestimate fg/bg ratio (ignores position-aware selection).
+
+        Additive-aware:
+            When mech_effects was provided to the generator, coverage
+            estimates use the enhanced processivity and effective binding
+            rate, resulting in more accurate predictions for reactions
+            with additives.
         """
         # Sort primers by fg/bg ratio (descending)
         if 'fg_bg_ratio' in self.primer_pool.columns:
@@ -393,10 +438,12 @@ class ParetoFrontierGenerator:
                 bg_sites = int(expected_sites_per_primer * self.bg_total_length * size) if self.bg_total_length > 0 else size * 10
                 bg_sites = max(1, bg_sites)
 
-            # Estimate coverage
+            # Estimate coverage with effective binding rate
+            # Coverage model: 1 - exp(-sites * processivity * binding_rate / genome_length)
             if self.fg_total_length > 0:
-                # Use coverage model: 1 - exp(-sites * processivity / genome_length)
-                coverage_factor = fg_sites * self.processivity / self.fg_total_length
+                # Effective sites account for binding efficiency
+                effective_fg_sites = fg_sites * self._effective_binding
+                coverage_factor = effective_fg_sites * self.processivity / self.fg_total_length
                 # Cap at reasonable value to prevent overflow
                 coverage_factor = min(coverage_factor, 20)
                 fg_coverage = 1 - math.exp(-coverage_factor)
@@ -404,7 +451,8 @@ class ParetoFrontierGenerator:
                 fg_coverage = min(0.95, 0.1 * size)  # Linear approximation
 
             if self.bg_total_length > 0:
-                bg_coverage_factor = bg_sites * self.processivity / self.bg_total_length
+                effective_bg_sites = bg_sites * self._effective_binding
+                bg_coverage_factor = effective_bg_sites * self.processivity / self.bg_total_length
                 bg_coverage_factor = min(bg_coverage_factor, 20)
                 bg_coverage = 1 - math.exp(-bg_coverage_factor)
             else:
@@ -802,6 +850,19 @@ def recommend_set_size(
     Combines first-principles estimation with application-specific
     requirements for coverage and fg/bg ratio (specificity).
 
+    Additive-aware optimization:
+        The mech_effects parameter contains factors that modify the
+        calculation based on reaction conditions (additives, temperature):
+        - processivity_factor: Enhanced processivity from betaine/DMSO
+          means fewer primers needed to achieve the same coverage
+        - effective_binding_rate: Better binding efficiency from
+          optimal Tm and accessibility means more efficient primers
+
+        For example, with betaine 1.5M + DMSO 5%:
+        - processivity_factor ~ 1.1 (10% boost)
+        - effective_binding_rate ~ 0.85 (better than baseline 0.8)
+        Result: ~15% fewer primers needed for same coverage
+
     Args:
         application: Application profile name
             - 'discovery': Maximize sensitivity for pathogen discovery
@@ -810,8 +871,11 @@ def recommend_set_size(
             - 'metagenomics': Capture diversity
         genome_length: Target genome length in bp
         primer_length: Primer length in bp
-        mech_effects: MechanisticEffects from mechanistic model
-        processivity: Base polymerase processivity (default 70000 for phi29)
+        mech_effects: MechanisticEffects from mechanistic model. This
+                     provides processivity_factor and effective_binding_rate
+                     that account for reaction conditions.
+        processivity: Base polymerase processivity (default 70000 for phi29).
+                     This is multiplied by mech_effects.processivity_factor.
         min_fg_bg_ratio: Override for minimum fg/bg ratio (optional)
         target_coverage: Override for target coverage (optional)
 
@@ -824,13 +888,21 @@ def recommend_set_size(
             - rationale: Description of the application
             - base_estimate: Raw estimate before application adjustment
             - priority: Selection priority ('coverage', 'specificity', 'balanced')
+            - effective_processivity: Processivity used in calculation
+            - additive_adjustment: Percentage adjustment from additives
 
             # Legacy fields (for backward compatibility):
             - min_specificity: Same as min_fg_bg_ratio / 10 (deprecated)
 
     Example:
-        >>> recommendation = recommend_set_size('clinical', 1_000_000, 12, effects)
-        >>> print(f"Use {recommendation['recommended_size']} primers")
+        >>> from neoswga.core.mechanistic_model import MechanisticModel
+        >>> from neoswga.core.reaction_conditions import get_enhanced_conditions
+        >>> conditions = get_enhanced_conditions()  # 42C, 5% DMSO, 1M betaine
+        >>> model = MechanisticModel(conditions)
+        >>> effects = model.calculate_effects('ATCGATCGATCG', template_gc=0.5)
+        >>> rec = recommend_set_size('clinical', 1_000_000, 12, effects)
+        >>> print(f"Use {rec['recommended_size']} primers")
+        >>> print(f"Additive adjustment: {rec['additive_adjustment']:.0f}%")
     """
     # Get application profile
     try:
@@ -877,6 +949,23 @@ def recommend_set_size(
     min_size, max_size = profile['typical_size']
     recommended = max(min_size, min(max_size, adjusted))
 
+    # Calculate effective processivity and additive adjustment
+    effective_processivity = int(processivity * mech_effects.processivity_factor)
+
+    # Additive adjustment shows how much the mechanistic model changes the estimate
+    # Baseline assumption: processivity_factor=1.0, effective_binding_rate=0.8
+    baseline_estimate = estimate_optimal_set_size(
+        genome_length=genome_length,
+        primer_length=primer_length,
+        target_coverage=cov_target,
+        processivity=processivity,
+        mech_effects=create_baseline_effects(),
+    )
+    if baseline_estimate > 0:
+        additive_adjustment = ((baseline_estimate - base_estimate) / baseline_estimate) * 100
+    else:
+        additive_adjustment = 0.0
+
     return {
         'recommended_size': recommended,
         'size_range': profile['typical_size'],
@@ -886,6 +975,10 @@ def recommend_set_size(
         'rationale': profile['description'],
         'base_estimate': base_estimate,
         'application': application,
+        'effective_processivity': effective_processivity,
+        'additive_adjustment': additive_adjustment,
+        'processivity_factor': mech_effects.processivity_factor,
+        'effective_binding_rate': mech_effects.effective_binding_rate,
         # Legacy field for backward compatibility
         'min_specificity': profile.get('min_specificity', ratio_constraint / 10),
     }
@@ -1028,13 +1121,19 @@ def get_size_recommendation_summary(
         f"Min fg/bg ratio: {rec['min_fg_bg_ratio']:.1f}",
         f"",
         f"Base estimate (first principles): {rec['base_estimate']}",
+        f"Additive adjustment: {rec['additive_adjustment']:+.1f}%",
         f"",
         f"Input parameters:",
         f"  Genome length: {genome_length:,} bp",
         f"  Primer length: {primer_length} bp",
-        f"  Processivity: {processivity:,} bp",
-        f"  Effective binding: {mech_effects.effective_binding_rate:.2f}",
+        f"  Base processivity: {processivity:,} bp",
+        f"  Effective processivity: {rec['effective_processivity']:,} bp",
+        f"",
+        f"Mechanistic model effects:",
         f"  Processivity factor: {mech_effects.processivity_factor:.2f}",
+        f"  Speed factor: {mech_effects.speed_factor:.2f}",
+        f"  Effective binding: {mech_effects.effective_binding_rate:.2f}",
+        f"  Accessibility: {mech_effects.accessibility_factor:.2f}",
     ]
 
     return "\n".join(lines)

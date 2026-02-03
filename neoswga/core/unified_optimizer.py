@@ -116,6 +116,7 @@ def _ensure_optimizers_registered():
             from . import network_optimizer  # Network connectivity
             from . import genetic_algorithm  # Evolutionary optimization
             from . import background_aware_optimizer  # Clinical/background-aware
+            from . import equiphi29_optimizer  # EquiPhi29-specific (42C, 12-15bp primers)
         except ImportError as e:
             logger.warning(f"Some optimizer modules not available: {e}")
 

@@ -535,23 +535,37 @@ class ReactionConditions:
         min_temp, max_temp = self.get_polymerase_range()
         return min_temp <= self.temp <= max_temp
 
-    def max_primer_length(self) -> int:
+    def max_primer_length(self, primer_gc: Optional[float] = None) -> int:
         """
         Calculate maximum recommended primer length for these conditions.
 
         Longer primers provide exponentially better specificity:
         - 15bp: 4^15 = 1.07 billion combinations (baseline)
-        - 16bp: 4^16 = 4.29 billion (4× improvement)
-        - 17bp: 4^17 = 17.2 billion (16× improvement)
-        - 18bp: 4^18 = 68.7 billion (64× improvement)
+        - 16bp: 4^16 = 4.29 billion (4x improvement)
+        - 17bp: 4^17 = 17.2 billion (16x improvement)
+        - 18bp: 4^18 = 68.7 billion (64x improvement)
 
-        SWGA (isothermal 30°C) can handle longer primers better than PCR (55-60°C)
-        because lower reaction temperature = larger ΔT = more stable binding.
+        SWGA (isothermal 30C) can handle longer primers better than PCR (55-60C)
+        because lower reaction temperature = larger delta-T = more stable binding.
+
+        GC-aware adjustment:
+            High-GC primers (>60%) are more difficult to denature and require
+            more additive support for longer lengths. Low-GC primers (<40%)
+            can be longer with less additive support.
+
+            - GC > 60%: Reduce max by 1-2 bp or require more betaine
+            - GC < 40%: Can be 1-2 bp longer with same additive support
 
         Literature support:
-        - Henke et al. (1997): 18bp primers work with 1M betaine at 55°C (PCR)
-        - Musso et al. (2006): 20bp primers work with 2M betaine + 5% DMSO at 60°C (PCR)
+        - Henke et al. (1997): 18bp primers work with 1M betaine at 55C (PCR)
+        - Musso et al. (2006): 20bp primers work with 2M betaine + 5% DMSO at 60C (PCR)
+        - Rees et al. (1993): High-GC sequences need more betaine for equalization
         - If it works in PCR, it works better in SWGA due to lower temperature
+
+        Args:
+            primer_gc: Optional primer GC content (0-1). If provided, adjusts
+                      the maximum length based on GC content. Default None
+                      assumes balanced (50%) GC content.
 
         Returns:
             Maximum k-mer length (6-18)
@@ -573,6 +587,29 @@ class ReactionConditions:
         # EquiPhi29 at higher temp can handle longer primers
         if self.polymerase == 'equiphi29' and self.temp >= 42:
             base_max += 1
+
+        # GC-aware adjustment
+        if primer_gc is not None:
+            if primer_gc > 0.70:
+                # Very high GC: significantly harder to denature
+                # Need extra betaine support or reduce length by 2
+                if self.betaine_m < 2.0:
+                    base_max -= 2
+                elif self.betaine_m < 1.5:
+                    base_max -= 1
+            elif primer_gc > 0.60:
+                # High GC: moderately harder
+                # Reduce by 1 unless strong betaine support
+                if self.betaine_m < 1.5:
+                    base_max -= 1
+            elif primer_gc < 0.30:
+                # Very low GC: easier to denature, can be longer
+                base_max += 1
+            elif primer_gc < 0.40:
+                # Low GC: slightly easier
+                # Only add if other conditions support it
+                if self.betaine_m >= 0.5 or self.dmso_percent >= 3.0:
+                    base_max += 1
 
         # Graduated cap based on additive support
         # Start with the incrementally calculated maximum
@@ -596,7 +633,29 @@ class ReactionConditions:
                 supported_max = 17  # Insufficient support for 18bp
 
         # Absolute maximum cap at 18bp (literature-validated limit)
-        return min(supported_max, 18)
+        return max(6, min(supported_max, 18))
+
+    def max_safe_primer_length(self, primer_gc: Optional[float] = None) -> int:
+        """
+        Alias for max_primer_length with GC-awareness.
+
+        This is the primary method for determining safe primer lengths
+        when reaction conditions and primer GC content are known.
+
+        Args:
+            primer_gc: Primer GC content (0-1). If None, uses 0.5 (balanced).
+
+        Returns:
+            Maximum safe primer length (6-18)
+
+        Example:
+            >>> conditions = get_enhanced_conditions()
+            >>> conditions.max_safe_primer_length(primer_gc=0.65)
+            15
+            >>> conditions.max_safe_primer_length(primer_gc=0.35)
+            17
+        """
+        return self.max_primer_length(primer_gc=primer_gc)
 
     def min_primer_length(self) -> int:
         """
@@ -606,6 +665,57 @@ class ReactionConditions:
             Minimum k-mer length (typically 6)
         """
         return 6  # Standard minimum for specificity
+
+    def is_primer_length_safe(self, primer: str) -> Tuple[bool, str]:
+        """
+        Check if a primer length is safe for these reaction conditions.
+
+        This method calculates the primer's GC content and checks whether
+        its length is within the safe range for the current conditions.
+
+        Args:
+            primer: DNA sequence to check
+
+        Returns:
+            Tuple of (is_safe, message)
+            - is_safe: True if primer length is within safe range
+            - message: Explanation if not safe, or confirmation if safe
+
+        Example:
+            >>> conditions = get_standard_conditions()  # No additives
+            >>> is_safe, msg = conditions.is_primer_length_safe('ATCGATCGATCGATCG')
+            >>> print(is_safe, msg)
+            False "16bp primer exceeds max 12bp for 50% GC without additives"
+        """
+        primer_length = len(primer)
+        if primer_length < 1:
+            return False, "Primer cannot be empty"
+
+        # Calculate GC content
+        gc = (primer.upper().count('G') + primer.upper().count('C')) / primer_length
+
+        # Get safe max for this GC content
+        safe_max = self.max_safe_primer_length(primer_gc=gc)
+        safe_min = self.min_primer_length()
+
+        if primer_length < safe_min:
+            return False, f"{primer_length}bp primer is below minimum {safe_min}bp"
+
+        if primer_length > safe_max:
+            # Provide specific advice based on GC content
+            if gc > 0.60:
+                return False, (
+                    f"{primer_length}bp primer with {gc:.0%} GC exceeds max {safe_max}bp. "
+                    f"High-GC primers need more betaine (current: {self.betaine_m}M). "
+                    f"Try betaine >= 1.5M or reduce primer length."
+                )
+            else:
+                return False, (
+                    f"{primer_length}bp primer exceeds max {safe_max}bp for {gc:.0%} GC. "
+                    f"Add betaine >= 1.0M and/or DMSO >= 5% for longer primers."
+                )
+
+        return True, f"{primer_length}bp primer is within safe range (max {safe_max}bp for {gc:.0%} GC)"
 
     def gc_content_range(self) -> Tuple[float, float]:
         """
@@ -830,20 +940,28 @@ class ReactionConditions:
 # ========================================
 
 def get_standard_conditions() -> ReactionConditions:
-    """Standard phi29 SWGA conditions (original swga2)."""
+    """Standard phi29 SWGA conditions (original swga2).
+
+    Includes typical Mg2+ concentration for polymerase activity.
+    """
     return ReactionConditions(
         temp=30.0,
         polymerase='phi29',
-        na_conc=50.0
+        na_conc=50.0,
+        mg_conc=2.5,  # Optimal for phi29 activity
     )
 
 
 def get_equiphi_conditions() -> ReactionConditions:
-    """EquiPhi29 optimized conditions."""
+    """EquiPhi29 optimized conditions.
+
+    Includes typical Mg2+ concentration for polymerase activity.
+    """
     return ReactionConditions(
         temp=42.0,
         polymerase='equiphi29',
-        na_conc=50.0
+        na_conc=50.0,
+        mg_conc=2.5,  # Optimal for equiphi29 activity
     )
 
 
@@ -852,13 +970,15 @@ def get_enhanced_conditions() -> ReactionConditions:
     Enhanced conditions with additives for longer primers.
 
     Uses betaine and DMSO to enable 13-15mer primers.
+    Includes optimal Mg2+ concentration.
     """
     return ReactionConditions(
         temp=42.0,
         dmso_percent=5.0,
         betaine_m=1.0,
         polymerase='equiphi29',
-        na_conc=50.0
+        na_conc=50.0,
+        mg_conc=2.5,  # Optimal for polymerase activity
     )
 
 
