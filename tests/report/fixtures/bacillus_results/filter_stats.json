@@ -1,0 +1,9 @@
+{
+    "total_kmers": 2097152,
+    "after_frequency": 125000,
+    "after_background": 8500,
+    "after_gini": 2200,
+    "after_thermodynamic": 850,
+    "after_complexity": 420,
+    "final_candidates": 6
+}

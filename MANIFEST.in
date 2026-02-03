@@ -1,0 +1,43 @@
+# Include documentation
+include README.md
+include LICENSE.txt
+include CLAUDE.md
+include ENHANCEMENTS_QUICKSTART.md
+include ENHANCEMENTS_SUMMARY.md
+include IMPLEMENTATION_REPORT.md
+include FINAL_IMPLEMENTATION_SUMMARY.md
+
+# Include configuration files
+include pyproject.toml
+include setup.py
+include requirements.txt
+
+# Include Python files
+recursive-include neoswga *.py
+recursive-include neoswga/core *.py
+
+# Exclude compiled files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude __pycache__
+global-exclude .DS_Store
+
+# Exclude test files and caches
+prune tests/__pycache__
+prune .pytest_cache
+prune .mypy_cache
+prune htmlcov
+prune dist
+prune build
+prune *.egg-info
+
+# Exclude version control
+prune .git
+exclude .gitignore
+exclude .gitattributes
+
+# Exclude IDE files
+exclude .vscode
+exclude .idea
+prune .vscode
+prune .idea

@@ -1,0 +1,16 @@
+{
+    "fg": "/Users/andreassjodin/Code/swga-dev/test/bacillus_GCF_000008445.1_ASM844v1_genomic.fna",
+    "bg": "/Users/andreassjodin/Code/swga-dev/test/human_chr22.fna",
+    "fg_size": 5220000,
+    "bg_size": 50818468,
+    "fg_gc": 0.35,
+    "min_k": 10,
+    "max_k": 12,
+    "polymerase": "phi29",
+    "reaction_temp": 30.0,
+    "num_primers": 6,
+    "max_primer": 500,
+    "min_fg_freq": 0.0001,
+    "max_bg_freq": 0.00005,
+    "max_gini": 0.5
+}

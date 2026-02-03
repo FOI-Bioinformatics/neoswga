@@ -1,0 +1,41 @@
+# Core dependencies (original swga2)
+et-xmlfile==1.0.1
+h5py>=2.10.0
+jdcal==1.4.1
+joblib>=0.14.1
+melt==1.0.3
+numpy>=1.18.0
+openpyxl==3.0.2
+pandas>=1.0.0
+python-dateutil==2.8.1
+pytz==2019.3
+scikit-learn>=0.21.3
+scipy>=1.4.1
+six==1.13.0
+sortedcontainers==2.1.0
+
+# Enhanced modules - Required
+networkx>=2.5
+biopython>=1.78
+
+# Enhanced modules - Optional (GPU acceleration)
+# Uncomment for GPU support (requires CUDA):
+# cupy-cuda11x>=11.0.0
+# OR for CUDA 12.x:
+# cupy-cuda12x>=12.0.0
+
+# Enhanced modules - Optional (visualization)
+matplotlib>=3.3.0
+seaborn>=0.11.0
+
+# Advanced optimization algorithms - Optional
+# Uncomment for advanced features:
+# pymoo>=0.6.0              # Multi-objective evolutionary algorithm (MOEA)
+# mip>=1.15.0               # Integer Linear Programming (dominating set)
+# pybloom-live>=4.0.0       # Bloom filters (background filtering)
+
+# Enhanced modules - Optional (deep learning primer embeddings)
+# Uncomment for deep learning features:
+# tensorflow>=2.8.0
+# OR
+# torch>=1.10.0

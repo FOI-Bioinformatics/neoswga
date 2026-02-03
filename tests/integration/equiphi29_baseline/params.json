@@ -1,0 +1,48 @@
+{
+  "fg_genomes": ["data/francisella.fna"],
+  "bg_genomes": [],
+  "fg_prefixes": ["data/francisella"],
+  "bg_prefixes": [],
+  "data_dir": "results",
+
+  "genome_gc": 0.3226,
+  "polymerase": "equiphi29",
+
+  "min_k": 12,
+  "max_k": 12,
+
+  "gc_tolerance": 0.15,
+  "gc_min": 0.20,
+  "gc_max": 0.47,
+
+  "reaction_temp": 42.0,
+  "dmso_percent": 5.0,
+  "betaine_m": 1.0,
+  "na_conc": 50.0,
+  "mg_conc": 2.0,
+
+  "min_fg_freq": 1e-6,
+  "max_bg_freq": 1e-6,
+  "max_gini": 0.8,
+  "max_primer": 200,
+  "min_amp_pred": 5,
+
+  "min_tm": 15,
+  "max_tm": 50,
+  "max_dimer_bp": 3,
+  "max_self_dimer_bp": 4,
+
+  "num_primers": 6,
+  "target_set_size": 6,
+  "optimization_method": "network",
+  "max_sets": 3,
+  "iterations": 5,
+  "cpus": 4,
+
+  "fg_circular": true,
+  "bg_circular": false,
+  "verbose": true,
+
+  "_test_id": "T5",
+  "_description": "EquiPhi29 baseline with 12mer primers at 42C"
+}

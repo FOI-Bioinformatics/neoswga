@@ -1,0 +1,137 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Project-specific
+# Large test output directories (regenerated as needed)
+francisella_equiphi29/
+francisella_test/
+neoswga_results/
+
+# Benchmark outputs (regenerated)
+benchmarks/benchmark_results.csv
+benchmarks/checkpoint.json
+
+# H5 position files (large, regenerated)
+*.h5
+
+# Jellyfish k-mer database files (large, regenerated)
+*.jf
+
+# Coverage reports (regenerated)
+htmlcov/
+.coverage
+
+# Jellyfish k-mer files (large, regenerated)
+*_*mer_all.txt
+
+# Pipeline output files (keep in results directories only)
+step*_output.txt
+step*_debug*.txt
+
+# Temporary conda error logs
+h5py
+
+# Validation test results (regenerated)
+validation_tests/results/
+
+# ML model files (large, can be retrained)
+neoswga/core/models/*.p
+
+# Large genome files in test data (download separately)
+tests/integration/**/human_*.fna
+tests/integration/**/human_*.fasta

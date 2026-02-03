@@ -1,0 +1,46 @@
+{
+  "fg_genomes": ["data/francisella.fna"],
+  "bg_genomes": ["data/human_sample.fna"],
+  "fg_prefixes": ["data/francisella"],
+  "bg_prefixes": ["data/human_sample"],
+  "data_dir": "results",
+
+  "genome_gc": 0.3226,
+  "polymerase": "phi29",
+
+  "min_k": 10,
+  "max_k": 10,
+
+  "gc_tolerance": 0.15,
+  "gc_min": 0.20,
+  "gc_max": 0.47,
+
+  "reaction_temp": 30.0,
+  "na_conc": 50.0,
+  "mg_conc": 0.0,
+
+  "min_fg_freq": 1e-5,
+  "max_bg_freq": 5e-5,
+  "max_gini": 0.6,
+  "max_primer": 500,
+  "min_amp_pred": 5,
+
+  "min_tm": 10,
+  "max_tm": 40,
+  "max_dimer_bp": 3,
+  "max_self_dimer_bp": 4,
+
+  "num_primers": 6,
+  "target_set_size": 6,
+  "optimization_method": "hybrid",
+  "max_sets": 3,
+  "iterations": 5,
+  "cpus": 4,
+
+  "fg_circular": true,
+  "bg_circular": false,
+  "verbose": true,
+
+  "_test_id": "T8",
+  "_description": "Phi29 with human background (tests background filtering)"
+}
