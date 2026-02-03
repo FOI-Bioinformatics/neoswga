@@ -623,6 +623,14 @@ Documentation:
                                   'clinical (minimize false positives), '
                                   'enrichment (balanced, default), '
                                   'metagenomics (capture diversity)')
+    optimize_parser.add_argument('--min-fg-bg-ratio', type=float,
+                             help='Minimum foreground/background binding site ratio. '
+                                  'Overrides application profile default. Higher values = more selective.')
+    optimize_parser.add_argument('--show-frontier', action='store_true',
+                             help='Show Pareto frontier of coverage vs fg/bg ratio tradeoffs '
+                                  '(requires matplotlib for plotting)')
+    optimize_parser.add_argument('--quick-estimate', action='store_true',
+                             help='Use quick estimation only for auto-size (skip full optimization at multiple sizes)')
 
     # Mechanistic model for optimization
     optimize_parser.add_argument('--use-mechanistic-model', action='store_true',
@@ -1449,6 +1457,9 @@ def run_step4(args):
         # Automatic set size optimization (overrides num_primers if enabled)
         auto_size = getattr(args, 'auto_size', False)
         application = getattr(args, 'application', 'enrichment')
+        min_fg_bg_ratio = getattr(args, 'min_fg_bg_ratio', None)
+        show_frontier = getattr(args, 'show_frontier', False)
+        quick_estimate = getattr(args, 'quick_estimate', False)
 
         if auto_size:
             logger.info("=" * 60)
@@ -1503,13 +1514,14 @@ def run_step4(args):
                 processivity_map = {'phi29': 70000, 'equiphi29': 80000, 'bst': 2000, 'klenow': 10000}
                 processivity = processivity_map.get(polymerase, 70000)
 
-                # Get recommendation
+                # Get recommendation (supports new min_fg_bg_ratio parameter)
                 recommendation = recommend_set_size(
                     application=application,
                     genome_length=genome_length,
                     primer_length=primer_length,
                     mech_effects=mech_effects,
                     processivity=processivity,
+                    min_fg_bg_ratio=min_fg_bg_ratio,
                 )
 
                 auto_num_primers = recommendation['recommended_size']
@@ -1517,11 +1529,12 @@ def run_step4(args):
                 parameter.target_set_size = auto_num_primers
 
                 logger.info(f"Application profile: {application}")
+                logger.info(f"  Priority: {recommendation['priority']}")
                 logger.info(f"  {recommendation['rationale']}")
                 logger.info(f"Genome length: {genome_length:,} bp")
                 logger.info(f"Primer length: {primer_length} bp")
                 logger.info(f"Target coverage: {recommendation['target_coverage']:.0%}")
-                logger.info(f"Min specificity: {recommendation['min_specificity']:.0%}")
+                logger.info(f"Min fg/bg ratio: {recommendation['min_fg_bg_ratio']:.1f}")
                 logger.info(f"Recommended set size: {auto_num_primers} primers")
                 logger.info(f"  (typical range: {recommendation['size_range'][0]}-{recommendation['size_range'][1]})")
                 logger.info("=" * 60)
@@ -1569,6 +1582,91 @@ def run_step4(args):
             logger.info(f"Score: {scores[0]:.4f}")
         else:
             logger.warning("No primer sets found")
+
+        # Show Pareto frontier analysis (optional)
+        if show_frontier and results and cache is not None:
+            try:
+                import pandas as pd
+                from neoswga.core.set_size_optimizer import (
+                    ParetoFrontierGenerator, select_from_frontier
+                )
+                from neoswga.core.pareto_frontier import (
+                    generate_frontier_report, summarize_frontier_for_cli, plot_frontier
+                )
+
+                logger.info("")
+                logger.info("=" * 60)
+                logger.info("Pareto Frontier Analysis")
+                logger.info("=" * 60)
+
+                # Load step2 or step3 DataFrame for primer pool
+                data_dir = parameter.data_dir
+                step3_file = os.path.join(data_dir, 'step3_df.csv')
+                step2_file = os.path.join(data_dir, 'step2_df.csv')
+
+                if os.path.exists(step3_file):
+                    primer_pool = pd.read_csv(step3_file)
+                elif os.path.exists(step2_file):
+                    primer_pool = pd.read_csv(step2_file)
+                else:
+                    raise FileNotFoundError("No primer pool CSV found")
+
+                # Get genome lengths
+                fg_lengths = getattr(parameter, 'fg_lengths', [1_000_000])
+                bg_lengths = getattr(parameter, 'bg_lengths', [])
+                fg_prefixes = parameter.fg_prefixes
+                bg_prefixes = getattr(parameter, 'bg_prefixes', [])
+
+                # Create frontier generator
+                generator = ParetoFrontierGenerator(
+                    primer_pool=primer_pool,
+                    position_cache=cache,
+                    fg_prefixes=fg_prefixes,
+                    bg_prefixes=bg_prefixes,
+                    fg_seq_lengths=fg_lengths,
+                    bg_seq_lengths=bg_lengths,
+                    processivity=70000,
+                )
+
+                # Generate frontier (quick estimation only if requested)
+                frontier_result = generator.generate_frontier(
+                    min_size=4,
+                    max_size=min(20, len(primer_pool)),
+                    quick_only=quick_estimate,
+                    verbose=not args.quiet,
+                )
+
+                # Select from frontier based on application
+                selected, explanation = select_from_frontier(
+                    frontier_result.pareto_points,
+                    application=application,
+                    min_fg_bg_ratio=min_fg_bg_ratio,
+                )
+                frontier_result.selected_point = selected
+                frontier_result.selection_explanation = explanation
+
+                # Display summary
+                logger.info(summarize_frontier_for_cli(frontier_result, application))
+                logger.info("")
+                logger.info(explanation)
+
+                # Try to save plot
+                try:
+                    fig = plot_frontier(frontier_result, application=application)
+                    plot_path = os.path.join(data_dir, 'pareto_frontier.png')
+                    fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+                    logger.info(f"Pareto frontier plot saved to: {plot_path}")
+                    import matplotlib.pyplot as plt
+                    plt.close(fig)
+                except Exception as e:
+                    logger.debug(f"Could not save frontier plot: {e}")
+
+                logger.info("=" * 60)
+
+            except Exception as e:
+                logger.warning(f"Pareto frontier analysis failed: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
 
         # Phase 5: Stochastic validation (optional)
         validate_simulation = getattr(args, 'validate_simulation', False)

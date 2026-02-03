@@ -26,18 +26,102 @@ References:
 from typing import Dict, Any, Tuple
 
 
+# =============================================================================
+# Additive Tm Correction Parameters (Arrhenius-based)
+# =============================================================================
+# Literature-based parameters for temperature-dependent Tm corrections.
+# Uses Arrhenius kinetics: dTm(T) = dTm_ref * exp(-Ea/R * (1/T - 1/T_ref))
+#
+# References:
+#   - Chester & Marshak (1993) Anal Biochem 209:284-290 (DMSO multi-temp)
+#   - Rees et al. (1993) Biochemistry 32:137-144 (betaine)
+#   - Henke et al. (1997) NAR 25:3957-3958 (betaine PCR)
+#   - Blake & Delcourt (1996) NAR 24:2095-2103 (formamide)
+#   - McConaughy et al. (1969) Biochemistry 8:3289-3295 (formamide)
+#   - Spiess et al. (2004) Biotechniques 36:732-736 (trehalose)
+#   - Lesnick & Bhalla (1995) NAR 23:4665-4666 (urea)
+#   - Hutton (1977) NAR 4:3537-3555 (urea)
+#   - Melchior & von Hippel (1973) PNAS 70:298-302 (TMAC)
+#   - Cheng et al. (1994) PNAS 91:5695-5699 (ethanol)
+# =============================================================================
+
+ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
+    'dmso': {
+        'ref_coef': -0.55,            # C per % at T_ref (Chester 1993)
+        'ref_temp': 310.15,           # K (37C)
+        'activation_energy': 2500.0,  # J/mol (estimated from Chester 1993)
+        'max_concentration': 10.0,    # %
+        'gc_dependent': False,
+        'description': 'Destabilizes AT base pairs, reduces secondary structure',
+    },
+    'betaine': {
+        'ref_coef': -1.2,             # C per M at T_ref (Rees 1993, Henke 1997)
+        'ref_temp': 310.15,           # K (37C)
+        'activation_energy': 1800.0,  # J/mol (estimated from Rees 1993)
+        'max_concentration': 2.5,     # M
+        'gc_dependent': True,
+        'gc_equalization_conc': 5.2,  # M for full GC independence (Rees 1993)
+        'description': 'Equalizes AT/GC stability, enables longer primers',
+    },
+    'formamide': {
+        'ref_coef': -0.65,            # C per % (Blake 1996)
+        'ref_temp': 310.15,           # K (37C)
+        'activation_energy': 3000.0,  # J/mol (estimated from McConaughy 1969)
+        'max_concentration': 10.0,    # %
+        'gc_dependent': False,
+        'description': 'Destabilizes hydrogen bonding',
+    },
+    'trehalose': {
+        'ref_coef': -3.0,             # C per M (Spiess 2004 re-evaluated)
+        'ref_temp': 310.15,           # K (37C)
+        'activation_energy': 1500.0,  # J/mol (estimated)
+        'max_concentration': 1.0,     # M
+        'gc_dependent': False,
+        'description': 'Stabilizes proteins, modifies water structure',
+    },
+    'urea': {
+        'ref_coef': -2.5,             # C per M (Lesnick 1995, corrected from -5.0)
+        'ref_temp': 310.15,           # K (37C)
+        'activation_energy': 2000.0,  # J/mol (estimated from Hutton 1977)
+        'max_concentration': 2.0,     # M
+        'gc_dependent': True,
+        'gc_preference': 1.3,         # 30% stronger effect on GC-rich sequences
+        'description': 'Preferentially destabilizes GC base pairs',
+    },
+    'tmac': {
+        'ref_coef': -0.5,             # C per M uniform component (minimal)
+        'ref_temp': 310.15,           # K (37C)
+        'activation_energy': 1000.0,  # J/mol (estimated)
+        'max_concentration': 0.1,     # M (practical SWGA range)
+        'gc_dependent': True,
+        'gc_equalization_conc': 3.0,  # M for full GC independence (Melchior 1973)
+        'description': 'Equalizes AT/GC Tm, isostabilizing agent',
+    },
+    'ethanol': {
+        'ref_coef': -0.4,             # C per % (Cheng 1994)
+        'ref_temp': 310.15,           # K (37C)
+        'activation_energy': 2200.0,  # J/mol (estimated)
+        'max_concentration': 5.0,     # %
+        'gc_dependent': False,
+        'description': 'Reduces secondary structure formation',
+    },
+}
+
+
 MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
     # Pathway 1: Tm modification
     # How additives affect primer melting temperature
+    # NOTE: Use ADDITIVE_TM_PARAMS for Arrhenius-based corrections
     'tm': {
         # Uniform Tm corrections (C per unit concentration)
-        'dmso_coef': -0.6,            # C per %, Varadaraj 1994
+        # Recalibrated based on literature (see ADDITIVE_TM_PARAMS)
+        'dmso_coef': -0.55,           # C per %, Chester 1993, Varadaraj 1994
         'formamide_coef': -0.65,      # C per %, Blake 1996
-        'trehalose_coef': -5.0,       # C per M, Spiess 2004
-        'ethanol_coef': -0.5,         # C per %, Cheng 1994
-        'betaine_uniform_coef': -0.5, # C per M, Rees 1993
-        'urea_coef': -5.0,            # C per M, Hutton 1977
-        'tmac_uniform_coef': -10.0,   # C per M, Melchior 1973
+        'trehalose_coef': -3.0,       # C per M, Spiess 2004 (recalibrated)
+        'ethanol_coef': -0.4,         # C per %, Cheng 1994 (recalibrated)
+        'betaine_uniform_coef': -1.2, # C per M, Rees 1993, Henke 1997 (recalibrated)
+        'urea_coef': -2.5,            # C per M, Lesnick 1995 (recalibrated from -5.0)
+        'tmac_uniform_coef': -0.5,    # C per M, Melchior 1973 (recalibrated)
 
         # GC normalization sigmoid parameters
         # Betaine reaches full GC equalization at ~5.2M (Rees 1993)
@@ -168,30 +252,61 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
 
 
 # Application profiles for automatic set size optimization
+#
+# The coverage vs fg/bg ratio tradeoff is NOT a simple inverse relationship.
+# Good primer selection can improve BOTH coverage AND specificity by choosing
+# primers with high fg/bg ratios that also bind unique target regions.
+#
+# The Pareto frontier approach generates sets of different sizes and shows
+# the achievable (coverage, fg_bg_ratio) combinations. Application profiles
+# determine where to select on this frontier:
+#
+# - priority='coverage': maximize coverage while meeting fg_bg_ratio constraint
+# - priority='specificity': maximize fg_bg_ratio while meeting coverage needs
+# - priority='balanced': find the knee of the curve (best tradeoff)
+#
+# Note: 'min_specificity' is DEPRECATED, use 'default_min_fg_bg_ratio' instead.
+# The fg/bg ratio is a more meaningful metric than abstract "specificity".
 APPLICATION_PROFILES: Dict[str, Dict[str, Any]] = {
     'discovery': {
-        'target_coverage': 0.90,
-        'min_specificity': 0.60,
+        'priority': 'coverage',
+        'default_target_coverage': 0.90,
+        'default_min_fg_bg_ratio': 2.0,
         'typical_size': (10, 15),
         'description': 'Pathogen discovery - maximize sensitivity',
+        # Legacy fields for backward compatibility
+        'target_coverage': 0.90,
+        'min_specificity': 0.60,
     },
     'clinical': {
-        'target_coverage': 0.70,
-        'min_specificity': 0.90,
+        'priority': 'specificity',
+        'default_target_coverage': 0.70,
+        'default_min_fg_bg_ratio': 10.0,
         'typical_size': (6, 10),
         'description': 'Clinical diagnostics - minimize false positives',
+        # Legacy fields for backward compatibility
+        'target_coverage': 0.70,
+        'min_specificity': 0.90,
     },
     'enrichment': {
-        'target_coverage': 0.80,
-        'min_specificity': 0.75,
+        'priority': 'balanced',
+        'default_target_coverage': 0.80,
+        'default_min_fg_bg_ratio': 5.0,
         'typical_size': (8, 12),
         'description': 'Sequencing enrichment - balanced approach',
+        # Legacy fields for backward compatibility
+        'target_coverage': 0.80,
+        'min_specificity': 0.75,
     },
     'metagenomics': {
-        'target_coverage': 0.95,
-        'min_specificity': 0.50,
+        'priority': 'coverage',
+        'default_target_coverage': 0.95,
+        'default_min_fg_bg_ratio': 1.5,
         'typical_size': (15, 20),
         'description': 'Metagenomics - capture diversity',
+        # Legacy fields for backward compatibility
+        'target_coverage': 0.95,
+        'min_specificity': 0.50,
     },
 }
 
@@ -270,3 +385,38 @@ def list_polymerases() -> Dict[str, Tuple[float, int]]:
             result[name] = (params['optimal_temp'], params['processivity'])
 
     return result
+
+
+def get_additive_tm_params(additive: str) -> Dict[str, Any]:
+    """
+    Get Arrhenius-based Tm correction parameters for an additive.
+
+    Args:
+        additive: Additive name (dmso, betaine, formamide, trehalose,
+                  urea, tmac, ethanol)
+
+    Returns:
+        Dictionary with ref_coef, ref_temp, activation_energy, max_concentration,
+        gc_dependent, and additive-specific parameters
+
+    Raises:
+        ValueError: If additive is not recognized
+    """
+    additive_lower = additive.lower()
+    if additive_lower not in ADDITIVE_TM_PARAMS:
+        available = list(ADDITIVE_TM_PARAMS.keys())
+        raise ValueError(
+            f"Unknown additive '{additive}'. "
+            f"Available: {', '.join(available)}"
+        )
+    return ADDITIVE_TM_PARAMS[additive_lower]
+
+
+def list_additives() -> Dict[str, str]:
+    """
+    List available additives with descriptions.
+
+    Returns:
+        Dictionary mapping additive name to description
+    """
+    return {name: params['description'] for name, params in ADDITIVE_TM_PARAMS.items()}
