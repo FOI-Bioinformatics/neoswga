@@ -135,3 +135,6 @@ neoswga/core/models/*.p
 # Large genome files in test data (download separately)
 tests/integration/**/human_*.fna
 tests/integration/**/human_*.fasta
+
+# Integration test output data (regenerated)
+tests/integration/**/data/
