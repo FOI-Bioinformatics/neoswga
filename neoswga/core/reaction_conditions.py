@@ -264,9 +264,14 @@ class ReactionConditions:
             raise ValueError(f"Formamide {self.formamide_percent}% outside valid range (0-10%)")
 
     def calculate_tm_correction(self, gc_content: float = 0.5,
-                                 primer_length: int = 10) -> float:
+                                 primer_length: int = 10,
+                                 use_arrhenius: bool = True) -> float:
         """
         Calculate total Tm correction from all additives.
+
+        By default, uses Arrhenius-based temperature-dependent corrections
+        for more accurate predictions. Set use_arrhenius=False for
+        fixed-coefficient calculations (backward compatible).
 
         Args:
             gc_content: GC content of the sequence as fraction (0-1).
@@ -275,54 +280,54 @@ class ReactionConditions:
             primer_length: Length of the primer in base pairs.
                           Used for length-dependent GC correction scaling.
                           Default 10 for backwards compatibility.
+            use_arrhenius: If True (default), use temperature-dependent
+                          Arrhenius-based corrections. If False, use
+                          fixed coefficients.
 
         Returns:
             Total Tm shift in degrees Celsius (negative = Tm lowering)
 
         References:
-            - DMSO: Varadaraj & Skinner (1994) Gene 140:1-5
-            - Betaine: Rees et al. (1993) Biochemistry; Henke et al. (1997) NAR 25:3957
-            - Trehalose: Spiess et al. (2004) Biotechniques 36:732-736
-            - Formamide: Blake & Delcourt (1996) NAR 24:2095-2103
-            - Ethanol: Cheng et al. (1994) PNAS 91:5695-5699
-            - Urea: Hutton (1977) NAR 4:3537-3555
-            - TMAC: Melchior & von Hippel (1973) PNAS 70:298-302
+            - DMSO: Chester & Marshak (1993); Varadaraj & Skinner (1994)
+            - Betaine: Rees et al. (1993); Henke et al. (1997)
+            - Trehalose: Spiess et al. (2004)
+            - Formamide: Blake & Delcourt (1996); McConaughy (1969)
+            - Ethanol: Cheng et al. (1994)
+            - Urea: Lesnick & Bhalla (1995); Hutton (1977)
+            - TMAC: Melchior & von Hippel (1973)
         """
+        if use_arrhenius:
+            # Use Arrhenius-based temperature-dependent corrections
+            return self.additives.calculate_tm_correction(
+                gc_content, primer_length,
+                reaction_temp_celsius=self.temp
+            )
+
+        # Legacy fixed-coefficient calculation (for backward compatibility)
         correction = 0.0
 
-        # DMSO: -0.6C per percent
-        # Empirical data: 10% DMSO lowers Tm by ~6C
-        correction -= 0.6 * self.dmso_percent
+        # DMSO: -0.55C per percent (recalibrated from -0.6)
+        correction -= 0.55 * self.dmso_percent
 
-        # Betaine: GC-dependent effect
-        # At 5.2M betaine: AT and GC base pairs have equal stability (Rees 1993)
-        # Also has a small uniform Tm reduction (-0.5C per M)
-        # The GC-dependent effect normalizes Tm towards 50% GC behavior
-        correction -= 0.5 * self.betaine_m  # Uniform component
+        # Betaine: -1.2C per M (recalibrated from -0.5)
+        correction -= 1.2 * self.betaine_m
 
-        # Trehalose: -5C per molar
-        # Empirical: 0.4M trehalose lowers Tm by ~2C
-        correction -= 5.0 * self.trehalose_m
+        # Trehalose: -3.0C per M (recalibrated from -5.0)
+        correction -= 3.0 * self.trehalose_m
 
         # Formamide: -0.65C per percent
-        # Empirical: 10% formamide lowers Tm by ~6.5C
         correction -= 0.65 * self.formamide_percent
 
-        # Ethanol: -0.5C per percent
-        # Reduces secondary structure formation
-        # Empirical: 5% ethanol lowers Tm by ~2.5C
-        correction -= 0.5 * self.ethanol_percent
+        # Ethanol: -0.4C per percent (recalibrated from -0.5)
+        correction -= 0.4 * self.ethanol_percent
 
-        # Urea: -0.5C per 0.1M (or -5C per M)
-        # Denatures GC-rich regions, useful for extreme GC genomes
-        correction -= 5.0 * self.urea_m
+        # Urea: -2.5C per M (recalibrated from -5.0)
+        correction -= 2.5 * self.urea_m
 
-        # TMAC: small uniform reduction at low concentrations
-        # At 0.01-0.1M: ~-1C per 0.1M (GC-dependent effect handled separately)
-        correction -= 1.0 * self.tmac_m * 10  # -1C per 0.1M
+        # TMAC: -0.5C per M (recalibrated from -10.0)
+        correction -= 0.5 * self.tmac_m
 
         # GC-dependent corrections for TMAC and betaine
-        # These additives equalize AT and GC contributions to Tm
         gc_correction = self._calculate_gc_normalization(gc_content, primer_length)
         correction += gc_correction
 
@@ -397,7 +402,7 @@ class ReactionConditions:
         return gc_correction
 
     def adjust_tm(self, tm_base: float, gc_content: float = 0.5,
-                  primer_length: int = 10) -> float:
+                  primer_length: int = 10, use_arrhenius: bool = True) -> float:
         """
         Apply all corrections to base Tm.
 
@@ -407,11 +412,15 @@ class ReactionConditions:
                         Default 0.5 for backwards compatibility.
             primer_length: Length of the primer in base pairs.
                           Default 10 for backwards compatibility.
+            use_arrhenius: If True (default), use temperature-dependent
+                          Arrhenius-based corrections.
 
         Returns:
             Effective Tm accounting for all additives
         """
-        correction = self.calculate_tm_correction(gc_content, primer_length)
+        correction = self.calculate_tm_correction(
+            gc_content, primer_length, use_arrhenius=use_arrhenius
+        )
         return tm_base + correction
 
     def calculate_effective_tm(self, seq: str, primer_conc: float = 0.5e-6) -> float:

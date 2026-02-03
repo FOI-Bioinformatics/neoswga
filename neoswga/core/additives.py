@@ -34,8 +34,269 @@ References:
 """
 
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 import math
+
+
+# =============================================================================
+# Arrhenius-Based Tm Correction Calculator
+# =============================================================================
+
+class ArrheniusTmCorrector:
+    """
+    Calculate temperature-dependent Tm corrections using Arrhenius kinetics.
+
+    The Tm correction from an additive varies with reaction temperature.
+    This class models this using the Arrhenius equation:
+
+        dTm(T) = dTm_ref * exp(-Ea/R * (1/T - 1/T_ref))
+
+    Where:
+        dTm_ref: Reference Tm correction at T_ref (typically 37C)
+        Ea: Activation energy for the additive's destabilizing effect
+        R: Gas constant (8.314 J/mol*K)
+        T, T_ref: Temperatures in Kelvin
+
+    Literature basis:
+        - Chester & Marshak (1993) measured DMSO effects at multiple temps
+        - Rees et al. (1993) measured betaine effects at 25C, 37C, 65C
+        - Hutton (1977) measured urea effects at multiple temps
+
+    Example:
+        >>> corrector = ArrheniusTmCorrector(42.0)  # EquiPhi29 at 42C
+        >>> correction = corrector.calculate_correction(
+        ...     'dmso', concentration=5.0, gc_content=0.5
+        ... )
+        >>> print(f"DMSO correction at 42C: {correction:.1f}C")
+        DMSO correction at 42C: -2.9C
+    """
+
+    R = 8.314  # Gas constant in J/mol*K
+
+    def __init__(self, reaction_temp_celsius: float):
+        """
+        Initialize the Arrhenius Tm corrector.
+
+        Args:
+            reaction_temp_celsius: Reaction temperature in Celsius
+        """
+        self.reaction_temp_celsius = reaction_temp_celsius
+        self.reaction_temp_k = reaction_temp_celsius + 273.15
+        self._params = None  # Lazy-loaded
+
+    @property
+    def params(self) -> Dict[str, Dict[str, Any]]:
+        """Lazy-load additive parameters."""
+        if self._params is None:
+            from neoswga.core.mechanistic_params import ADDITIVE_TM_PARAMS
+            self._params = ADDITIVE_TM_PARAMS
+        return self._params
+
+    def calculate_correction(
+        self,
+        additive: str,
+        concentration: float,
+        gc_content: float = 0.5,
+        primer_length: int = 10
+    ) -> float:
+        """
+        Calculate Tm correction for an additive at the reaction temperature.
+
+        Args:
+            additive: Additive name (dmso, betaine, formamide, etc.)
+            concentration: Additive concentration (% for DMSO/formamide/ethanol,
+                          M for betaine/trehalose/urea/tmac)
+            gc_content: GC fraction of primer (0-1), used for GC-dependent
+                       additives like betaine, TMAC, and urea
+            primer_length: Primer length in bp, used for GC normalization scaling
+
+        Returns:
+            Tm correction in degrees Celsius (negative = Tm lowering)
+
+        Raises:
+            ValueError: If additive is not recognized
+        """
+        additive_lower = additive.lower()
+        if additive_lower not in self.params:
+            available = list(self.params.keys())
+            raise ValueError(
+                f"Unknown additive '{additive}'. "
+                f"Available: {', '.join(available)}"
+            )
+
+        params = self.params[additive_lower]
+
+        # Arrhenius temperature scaling factor
+        temp_factor = self._arrhenius_factor(
+            params['activation_energy'],
+            params['ref_temp']
+        )
+
+        # Effective coefficient at this temperature
+        effective_coef = params['ref_coef'] * temp_factor
+
+        # Base correction from concentration
+        correction = effective_coef * concentration
+
+        # GC-dependent adjustment if applicable
+        if params.get('gc_dependent', False):
+            gc_adjustment = self._gc_adjustment(
+                additive_lower, params, gc_content, concentration, primer_length
+            )
+            correction += gc_adjustment
+
+        return correction
+
+    def _arrhenius_factor(self, activation_energy: float, ref_temp_k: float) -> float:
+        """
+        Calculate Arrhenius temperature scaling factor.
+
+        Args:
+            activation_energy: Activation energy in J/mol
+            ref_temp_k: Reference temperature in Kelvin
+
+        Returns:
+            Scaling factor (>1 at higher temps, <1 at lower temps)
+        """
+        exponent = -activation_energy / self.R * (
+            1.0 / self.reaction_temp_k - 1.0 / ref_temp_k
+        )
+        return math.exp(exponent)
+
+    def _gc_adjustment(
+        self,
+        additive: str,
+        params: Dict[str, Any],
+        gc_content: float,
+        concentration: float,
+        primer_length: int
+    ) -> float:
+        """
+        Calculate GC-dependent adjustment for an additive.
+
+        For betaine and TMAC: GC equalization effect moves Tm toward 50% GC.
+        For urea: Preferentially destabilizes GC base pairs.
+
+        Args:
+            additive: Additive name
+            params: Additive parameters dictionary
+            gc_content: GC content fraction (0-1)
+            concentration: Additive concentration
+            primer_length: Primer length in bp
+
+        Returns:
+            Additional Tm correction for GC effect
+        """
+        gc_deviation = gc_content - 0.5
+
+        if additive in ('betaine', 'tmac'):
+            # GC equalization effect
+            eq_conc = params.get('gc_equalization_conc', 5.0)
+            # Sigmoid equalization factor
+            equalization = self._sigmoid(concentration, eq_conc / 3.0, 1.5)
+
+            # Length-dependent scaling (Wallace rule: dTm/d(gc) = 2*length)
+            scale = 2.0 * primer_length
+
+            # Correction moves Tm towards 50% GC
+            return -scale * gc_deviation * equalization
+
+        elif additive == 'urea':
+            # Preferential GC destabilization
+            gc_preference = params.get('gc_preference', 1.3)
+
+            # Extra destabilization for GC-rich sequences
+            if gc_content > 0.5:
+                extra_factor = (gc_preference - 1.0) * (gc_content - 0.5) * 2.0
+                # Return additional correction (already negative from base)
+                return params['ref_coef'] * concentration * extra_factor
+
+        return 0.0
+
+    @staticmethod
+    def _sigmoid(x: float, midpoint: float, steepness: float) -> float:
+        """Sigmoidal dose-response function."""
+        return 1.0 / (1.0 + math.exp(-steepness * (x - midpoint)))
+
+    def calculate_total_correction(
+        self,
+        additives: Dict[str, float],
+        gc_content: float = 0.5,
+        primer_length: int = 10
+    ) -> float:
+        """
+        Calculate total Tm correction from multiple additives.
+
+        Args:
+            additives: Dictionary mapping additive names to concentrations
+                      e.g., {'dmso': 5.0, 'betaine': 1.0}
+            gc_content: GC content fraction (0-1)
+            primer_length: Primer length in bp
+
+        Returns:
+            Total Tm correction in degrees Celsius
+        """
+        total = 0.0
+        for additive, concentration in additives.items():
+            if concentration > 0:
+                total += self.calculate_correction(
+                    additive, concentration, gc_content, primer_length
+                )
+        return total
+
+    def get_temperature_sensitivity(self, additive: str) -> float:
+        """
+        Get temperature sensitivity for an additive.
+
+        Higher activation energy means more temperature-dependent effect.
+
+        Args:
+            additive: Additive name
+
+        Returns:
+            Activation energy in J/mol (higher = more temp sensitive)
+        """
+        params = self.params.get(additive.lower())
+        if params is None:
+            raise ValueError(f"Unknown additive: {additive}")
+        return params['activation_energy']
+
+    def compare_temperatures(
+        self,
+        additive: str,
+        concentration: float,
+        temp1_celsius: float,
+        temp2_celsius: float,
+        gc_content: float = 0.5
+    ) -> Tuple[float, float, float]:
+        """
+        Compare Tm correction at two different temperatures.
+
+        Useful for understanding how additive effects change between
+        phi29 (30C) and equiphi29 (42C) conditions.
+
+        Args:
+            additive: Additive name
+            concentration: Additive concentration
+            temp1_celsius: First temperature (C)
+            temp2_celsius: Second temperature (C)
+            gc_content: GC content fraction
+
+        Returns:
+            (correction_at_temp1, correction_at_temp2, ratio)
+        """
+        # Calculate at temp1
+        corrector1 = ArrheniusTmCorrector(temp1_celsius)
+        corr1 = corrector1.calculate_correction(additive, concentration, gc_content)
+
+        # Calculate at temp2
+        corrector2 = ArrheniusTmCorrector(temp2_celsius)
+        corr2 = corrector2.calculate_correction(additive, concentration, gc_content)
+
+        # Ratio (avoiding division by zero)
+        ratio = corr2 / corr1 if abs(corr1) > 0.01 else 1.0
+
+        return (corr1, corr2, ratio)
 
 
 @dataclass(frozen=True)
@@ -96,7 +357,8 @@ class AdditiveConcentrations:
     def calculate_tm_correction(
         self,
         gc_content: float = 0.5,
-        primer_length: int = 10
+        primer_length: int = 10,
+        reaction_temp_celsius: Optional[float] = None
     ) -> float:
         """
         Calculate total Tm correction from all additives.
@@ -105,18 +367,35 @@ class AdditiveConcentrations:
         - Uniform corrections (DMSO, trehalose, formamide, etc.)
         - GC-dependent corrections (betaine, TMAC)
 
+        When reaction_temp_celsius is provided, uses Arrhenius-based
+        temperature-dependent corrections for more accurate predictions.
+
         Args:
             gc_content: GC fraction of primer (0-1)
             primer_length: Primer length in bp
+            reaction_temp_celsius: Optional reaction temperature for
+                Arrhenius-based corrections. If None, uses fixed coefficients
+                (backward compatible).
 
         Returns:
             Total Tm correction in degrees Celsius (negative = Tm lowering)
 
         Example:
             >>> additives = AdditiveConcentrations(dmso_percent=5.0, betaine_m=1.0)
+            >>> # Fixed coefficients (backward compatible)
             >>> additives.calculate_tm_correction(gc_content=0.6, primer_length=12)
-            -4.2  # DMSO lowers Tm, betaine normalizes GC
+            -4.8
+            >>> # Arrhenius-based at 42C (equiphi29)
+            >>> additives.calculate_tm_correction(gc_content=0.6, primer_length=12,
+            ...                                    reaction_temp_celsius=42.0)
+            -5.1
         """
+        if reaction_temp_celsius is not None:
+            return self._calculate_tm_correction_arrhenius(
+                gc_content, primer_length, reaction_temp_celsius
+            )
+
+        # Legacy fixed-coefficient calculation
         correction = 0.0
 
         # Uniform corrections (GC-independent)
@@ -133,38 +412,90 @@ class AdditiveConcentrations:
 
         return correction
 
+    def _calculate_tm_correction_arrhenius(
+        self,
+        gc_content: float,
+        primer_length: int,
+        reaction_temp_celsius: float
+    ) -> float:
+        """
+        Calculate Tm correction using Arrhenius-based temperature dependence.
+
+        Uses literature-based activation energies to model how additive
+        effects change with temperature.
+
+        Args:
+            gc_content: GC fraction (0-1)
+            primer_length: Primer length in bp
+            reaction_temp_celsius: Reaction temperature in Celsius
+
+        Returns:
+            Total Tm correction in degrees Celsius
+        """
+        corrector = ArrheniusTmCorrector(reaction_temp_celsius)
+
+        # Build additives dictionary
+        additives_dict = {}
+        if self.dmso_percent > 0:
+            additives_dict['dmso'] = self.dmso_percent
+        if self.betaine_m > 0:
+            additives_dict['betaine'] = self.betaine_m
+        if self.trehalose_m > 0:
+            additives_dict['trehalose'] = self.trehalose_m
+        if self.formamide_percent > 0:
+            additives_dict['formamide'] = self.formamide_percent
+        if self.ethanol_percent > 0:
+            additives_dict['ethanol'] = self.ethanol_percent
+        if self.urea_m > 0:
+            additives_dict['urea'] = self.urea_m
+        if self.tmac_m > 0:
+            additives_dict['tmac'] = self.tmac_m
+
+        return corrector.calculate_total_correction(
+            additives_dict, gc_content, primer_length
+        )
+
     def _dmso_correction(self) -> float:
         """
         DMSO Tm correction.
 
-        DMSO lowers Tm by approximately 0.6C per percent.
+        DMSO lowers Tm by approximately 0.55C per percent.
         Mechanism: Destabilizes AT base pairs, reduces secondary structure.
 
-        Reference: Varadaraj & Skinner (1994) Gene 140:1-5
+        Literature: Chester & Marshak (1993) measured -0.5 to -0.6C/%
+        at 37C. We use -0.55C/% as the reference value.
+
+        Reference: Varadaraj & Skinner (1994) Gene; Chester & Marshak (1993)
         """
-        return -0.6 * self.dmso_percent
+        return -0.55 * self.dmso_percent
 
     def _betaine_uniform_correction(self) -> float:
         """
         Betaine uniform Tm correction (GC-independent component).
 
-        Betaine has a small uniform Tm reduction of ~0.5C per M,
+        Betaine has a uniform Tm reduction of ~1.2C per M,
         in addition to its GC-dependent effect.
 
-        Reference: Rees et al. (1993) Biochemistry
+        Literature: Rees et al. (1993) measured -1.0 to -1.5C/M
+        at 37C. We use -1.2C/M as the reference value.
+
+        Reference: Rees et al. (1993) Biochemistry; Henke et al. (1997) NAR
         """
-        return -0.5 * self.betaine_m
+        return -1.2 * self.betaine_m
 
     def _trehalose_correction(self) -> float:
         """
         Trehalose Tm correction.
 
-        Trehalose lowers Tm by approximately 5C per M.
+        Trehalose lowers Tm by approximately 3C per M.
         Mechanism: Stabilizes proteins, modifies water structure.
+
+        Literature: Spiess et al. (2004) measured ~2-4C/M depending
+        on conditions. We use -3.0C/M as a recalibrated value.
 
         Reference: Spiess et al. (2004) Biotechniques 36:732-736
         """
-        return -5.0 * self.trehalose_m
+        return -3.0 * self.trehalose_m
 
     def _formamide_correction(self) -> float:
         """
@@ -181,34 +512,44 @@ class AdditiveConcentrations:
         """
         Ethanol Tm correction.
 
-        Ethanol lowers Tm by approximately 0.5C per percent.
+        Ethanol lowers Tm by approximately 0.4C per percent.
         Mechanism: Reduces secondary structure formation.
+
+        Literature: Cheng et al. (1994) measured ~0.3-0.5C/%.
+        We use -0.4C/% as the recalibrated value.
 
         Reference: Cheng et al. (1994) PNAS 91:5695-5699
         """
-        return -0.5 * self.ethanol_percent
+        return -0.4 * self.ethanol_percent
 
     def _urea_correction(self) -> float:
         """
         Urea Tm correction.
 
-        Urea lowers Tm by approximately 5C per M.
+        Urea lowers Tm by approximately 2.5C per M.
         Mechanism: Denatures GC-rich regions by disrupting stacking.
 
-        Reference: Hutton (1977) NAR 4:3537-3555
+        Literature: Lesnick & Bhalla (1995) measured -2.0 to -3.0C/M.
+        Previous value of -5.0C/M was too high.
+
+        Reference: Lesnick & Bhalla (1995) NAR; Hutton (1977) NAR
         """
-        return -5.0 * self.urea_m
+        return -2.5 * self.urea_m
 
     def _tmac_uniform_correction(self) -> float:
         """
         TMAC uniform Tm correction (GC-independent component).
 
         At low concentrations (0.01-0.1M), TMAC has a small uniform
-        Tm reduction of ~1C per 0.1M.
+        Tm reduction of ~0.5C per M. The primary effect of TMAC is
+        GC-dependent (handled separately).
+
+        Literature: Melchior & von Hippel (1973) showed that TMAC's
+        main effect is GC equalization, with minimal uniform reduction.
 
         Reference: Melchior & von Hippel (1973) PNAS 70:298-302
         """
-        return -10.0 * self.tmac_m  # -1C per 0.1M
+        return -0.5 * self.tmac_m
 
     def _gc_normalization_correction(
         self,
