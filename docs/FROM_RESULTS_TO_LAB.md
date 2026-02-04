@@ -107,78 +107,83 @@ Export all formats at once with a single command:
 neoswga export -d ./results/ -o ./order/ --project MyPathogen
 
 # This creates:
-#   order/MyPathogen_primers_idt.csv       (IDT bulk upload)
-#   order/MyPathogen_primers_twist.csv     (Twist upload)
-#   order/MyPathogen_primers_fasta.fasta   (FASTA format)
-#   order/MyPathogen_primers_list.txt      (Simple list)
-#   order/MyPathogen_order_sheet.csv       (Lab worksheet)
+#   order/MyPathogen_primers.fasta         (FASTA with metadata)
+#   order/MyPathogen_order_idt.csv         (IDT bulk upload)
+#   order/MyPathogen_protocol.md           (Lab protocol)
 ```
 
 ### Export Options
 
-**Select specific primer set:**
+**Different vendor formats:**
 ```bash
-# Export only set 0 (best set)
-neoswga export -d ./results/ -o ./order/ --set 0
+# IDT format (default)
+neoswga export -d ./results/ -o ./order/ --vendor idt
 
-# Export multiple sets for comparison
-neoswga export -d ./results/ -o ./order/ --set 0 --set 1 --set 2
+# Twist Bioscience format
+neoswga export -d ./results/ -o ./order/ --vendor twist
+
+# Sigma-Aldrich format
+neoswga export -d ./results/ -o ./order/ --vendor sigma
+
+# Generic CSV format
+neoswga export -d ./results/ -o ./order/ --vendor generic
 ```
 
-**Specify scale and purification:**
+**Single format export:**
 ```bash
-# Order at 100 nmol scale with HPLC purification
-neoswga export -d ./results/ -o ./order/ \
-  --scale "100 nmol" \
-  --purification "HPLC"
+# FASTA only
+neoswga export -d ./results/ -o ./order/ --format fasta
+
+# Vendor CSV only
+neoswga export -d ./results/ -o ./order/ --format csv --vendor idt
+
+# Protocol only
+neoswga export -d ./results/ -o ./order/ --format protocol
 ```
 
-**Custom naming:**
+**With custom parameters file:**
 ```bash
-# Use custom primer name prefix
-neoswga export -d ./results/ -o ./order/ \
-  --project MyPathogen \
-  --primer-prefix "MPR"
-# Creates: MPR_001, MPR_002, etc.
+# Use params.json for reaction conditions in protocol
+neoswga export -d ./results/ -o ./order/ -j params.json --project MyPathogen
 ```
 
 ### Output File Formats
 
-**IDT Format (primers_idt.csv):**
+**IDT Format (order_idt.csv):**
 ```
 Name,Sequence,Scale,Purification
-MyPathogen_P001,ATCGATCGATCG,25 nmol,Desalt
-MyPathogen_P002,GCTAGCTAGCTA,25 nmol,Desalt
+MyPathogen_001,ATCGATCGATCG,25nm,STD
+MyPathogen_002,GCTAGCTAGCTA,25nm,STD
 ```
 - Ready for IDT bulk input
 - Upload directly to cart
 
-**Twist Format (primers_twist.csv):**
+**Twist Format (order_twist.csv):**
 ```
-Name,Sequence,Notes
-MyPathogen_P001,ATCGATCGATCG,SWGA primer set
-MyPathogen_P002,GCTAGCTAGCTA,SWGA primer set
+Name,Sequence
+MyPathogen_001,ATCGATCGATCG
+MyPathogen_002,GCTAGCTAGCTA
 ```
 - Compatible with Twist Bioscience ordering
-- Includes project notes
 
-**FASTA Format (primers_fasta.fasta):**
+**Generic CSV Format (order_generic.csv):**
 ```
->MyPathogen_P001
+name,sequence,length,tm,gc
+MyPathogen_001,ATCGATCGATCG,12,36.0,50.0%
+MyPathogen_002,GCTAGCTAGCTA,12,36.0,50.0%
+```
+- Includes Tm and GC content
+- Use for labs with custom ordering systems
+
+**FASTA Format (primers.fasta):**
+```
+>MyPathogen_001 Tm=36.0C GC=50.0% len=12
 ATCGATCGATCG
->MyPathogen_P002
+>MyPathogen_002 Tm=36.0C GC=50.0% len=12
 GCTAGCTAGCTA
 ```
-- Standard sequence format
+- Standard sequence format with metadata
 - For archival and analysis
-
-**Order Sheet (order_sheet.csv):**
-```
-Primer_Name,Sequence,Length,GC%,Tm,Stock_Conc,Date_Ordered,Date_Received,Lot_Number,Notes
-MyPathogen_P001,ATCGATCGATCG,12,50.0,42.3,100 uM,,,,"Set 0"
-```
-- Lab tracking worksheet
-- Fill in dates and lot numbers when primers arrive
 
 ---
 
@@ -649,18 +654,17 @@ neoswga interpret -d ./results/
 ### Export Cheat Sheet
 
 ```bash
-# Standard export
+# Standard export (all formats)
 neoswga export -d ./results/ -o ./order/ --project MyProject
 
-# Custom specifications
-neoswga export -d ./results/ -o ./order/ \
-  --project MyProject \
-  --scale "100 nmol" \
-  --purification "HPLC" \
-  --set 0
+# Specific vendor
+neoswga export -d ./results/ -o ./order/ --vendor twist --project MyProject
 
-# Multiple sets
-neoswga export -d ./results/ -o ./order/ --set 0 --set 1 --set 2
+# Single format
+neoswga export -d ./results/ -o ./order/ --format fasta --project MyProject
+
+# With params file for protocol conditions
+neoswga export -d ./results/ -o ./order/ -j params.json --project MyProject
 ```
 
 ### Reaction Setup Card (Phi29, 30C)
