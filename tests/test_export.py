@@ -162,3 +162,53 @@ class TestProtocolExport:
         # Should have a table with all primers
         for primer in primers:
             assert primer in protocol
+
+
+class TestPrimerExporter:
+    """Test unified PrimerExporter class."""
+
+    def test_exporter_from_results_dir(self, tmp_path):
+        """Create exporter from results directory."""
+        from neoswga.core.export import PrimerExporter
+
+        # Create mock step4 file
+        step4_path = tmp_path / "step4_improved_df.csv"
+        step4_path.write_text(
+            "primer,set_index,score,coverage\n"
+            "ATCGATCG,0,0.85,0.75\n"
+            "GCTAGCTA,0,0.85,0.75\n"
+        )
+
+        exporter = PrimerExporter.from_results_dir(str(tmp_path))
+
+        assert len(exporter.primers) == 2
+        assert "ATCGATCG" in exporter.primers
+        assert "GCTAGCTA" in exporter.primers
+
+    def test_exporter_export_all(self, tmp_path):
+        """Export all formats at once."""
+        from neoswga.core.export import PrimerExporter
+
+        primers = ["ATCGATCG", "GCTAGCTA"]
+        exporter = PrimerExporter(primers)
+
+        output_dir = tmp_path / "export"
+        exporter.export_all(str(output_dir), project_name="TestProject")
+
+        assert (output_dir / "TestProject_primers.fasta").exists()
+        assert (output_dir / "TestProject_order_idt.csv").exists()
+        assert (output_dir / "TestProject_protocol.md").exists()
+
+    def test_exporter_summary(self):
+        """Get export summary."""
+        from neoswga.core.export import PrimerExporter
+
+        primers = ["ATCGATCG", "GCTAGCTA", "TTAATTAA"]
+        exporter = PrimerExporter(primers)
+
+        summary = exporter.get_summary()
+
+        assert summary["num_primers"] == 3
+        assert "mean_length" in summary
+        assert "mean_gc" in summary
+        assert "estimated_cost" in summary

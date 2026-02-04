@@ -319,3 +319,237 @@ def export_protocol(
         f.write(protocol)
 
     logger.info(f"Exported protocol to {output_path}")
+
+
+@dataclass
+class ExportSummary:
+    """Summary of exported primer set."""
+    num_primers: int
+    mean_length: float
+    mean_gc: float
+    mean_tm: float
+    min_tm: float
+    max_tm: float
+    estimated_cost: float  # USD
+
+
+class PrimerExporter:
+    """
+    Unified primer export handler.
+
+    Provides convenient methods to export primers in multiple formats
+    and generate ordering summaries.
+
+    Usage:
+        # From primer list
+        exporter = PrimerExporter(["ATCGATCG", "GCTAGCTA"])
+
+        # From results directory
+        exporter = PrimerExporter.from_results_dir("./results/")
+
+        # Export all formats
+        exporter.export_all("./export/", project_name="MyProject")
+
+        # Or individually
+        exporter.export_fasta("primers.fasta")
+        exporter.export_vendor_csv("order.csv", vendor="idt")
+        exporter.export_protocol("protocol.md")
+    """
+
+    def __init__(
+        self,
+        primers: List[str],
+        polymerase: str = "phi29",
+        temperature: float = 30.0,
+        betaine_m: float = 0.0,
+        dmso_percent: float = 0.0,
+        trehalose_m: float = 0.0,
+        mg_conc: float = 2.5,
+    ):
+        """
+        Initialize exporter with primers and reaction conditions.
+
+        Args:
+            primers: List of primer sequences
+            polymerase: Polymerase type
+            temperature: Reaction temperature (C)
+            betaine_m: Betaine concentration (M)
+            dmso_percent: DMSO percentage
+            trehalose_m: Trehalose concentration (M)
+            mg_conc: Mg2+ concentration (mM)
+        """
+        self.primers = primers
+        self.polymerase = polymerase
+        self.temperature = temperature
+        self.betaine_m = betaine_m
+        self.dmso_percent = dmso_percent
+        self.trehalose_m = trehalose_m
+        self.mg_conc = mg_conc
+
+    @classmethod
+    def from_results_dir(
+        cls,
+        results_dir: str,
+        params_file: Optional[str] = None
+    ) -> 'PrimerExporter':
+        """
+        Create exporter from pipeline results directory.
+
+        Args:
+            results_dir: Path to results directory containing step4_improved_df.csv
+            params_file: Optional path to params.json for reaction conditions
+
+        Returns:
+            PrimerExporter instance
+        """
+        import json
+
+        results_path = Path(results_dir)
+
+        # Load primers from step4 output
+        step4_file = results_path / "step4_improved_df.csv"
+        if not step4_file.exists():
+            raise FileNotFoundError(f"Step 4 results not found: {step4_file}")
+
+        primers = []
+        with open(step4_file, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                primer = row.get('primer', row.get('sequence', ''))
+                if primer and primer not in primers:
+                    primers.append(primer)
+
+        if not primers:
+            raise ValueError("No primers found in step4 results")
+
+        # Load reaction conditions from params.json if available
+        kwargs = {}
+        params_path = params_file or (results_path / "params.json")
+        if Path(params_path).exists():
+            with open(params_path, 'r') as f:
+                params = json.load(f)
+                kwargs['polymerase'] = params.get('polymerase', 'phi29')
+                kwargs['temperature'] = params.get('reaction_temp', 30.0)
+                kwargs['betaine_m'] = params.get('betaine_m', 0.0)
+                kwargs['dmso_percent'] = params.get('dmso_percent', 0.0)
+                kwargs['trehalose_m'] = params.get('trehalose_m', 0.0)
+                kwargs['mg_conc'] = params.get('mg_conc', 2.5)
+
+        return cls(primers, **kwargs)
+
+    def export_fasta(self, output_path: str, **kwargs) -> None:
+        """Export primers to FASTA format."""
+        export_to_fasta(self.primers, output_path, **kwargs)
+
+    def export_vendor_csv(
+        self, output_path: str, vendor: str = "idt", **kwargs
+    ) -> None:
+        """Export primers in vendor-specific CSV format."""
+        export_to_vendor_csv(self.primers, output_path, vendor=vendor, **kwargs)
+
+    def export_protocol(self, output_path: str, **kwargs) -> None:
+        """Export wet-lab protocol."""
+        # Use instance conditions as defaults
+        protocol_kwargs = {
+            'polymerase': self.polymerase,
+            'temperature': self.temperature,
+            'betaine_m': self.betaine_m,
+            'dmso_percent': self.dmso_percent,
+            'trehalose_m': self.trehalose_m,
+            'mg_conc': self.mg_conc,
+        }
+        protocol_kwargs.update(kwargs)
+        export_protocol(self.primers, output_path, **protocol_kwargs)
+
+    def export_all(
+        self,
+        output_dir: str,
+        project_name: str = "SWGA",
+        vendors: Optional[List[str]] = None
+    ) -> Dict[str, str]:
+        """
+        Export all formats to a directory.
+
+        Args:
+            output_dir: Output directory path
+            project_name: Project name for file naming
+            vendors: List of vendors for CSV export (default: ["idt"])
+
+        Returns:
+            Dictionary mapping format to output path
+        """
+        if vendors is None:
+            vendors = ["idt"]
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        outputs = {}
+
+        # FASTA
+        fasta_path = output_path / f"{project_name}_primers.fasta"
+        self.export_fasta(
+            str(fasta_path), prefix=project_name, include_metadata=True
+        )
+        outputs["fasta"] = str(fasta_path)
+
+        # Vendor CSVs
+        for vendor in vendors:
+            csv_path = output_path / f"{project_name}_order_{vendor}.csv"
+            self.export_vendor_csv(
+                str(csv_path), vendor=vendor, project_name=project_name
+            )
+            outputs[f"csv_{vendor}"] = str(csv_path)
+
+        # Protocol
+        protocol_path = output_path / f"{project_name}_protocol.md"
+        self.export_protocol(str(protocol_path))
+        outputs["protocol"] = str(protocol_path)
+
+        logger.info(f"Exported all formats to {output_dir}")
+        return outputs
+
+    def get_summary(self) -> Dict[str, Any]:
+        """
+        Get summary statistics for the primer set.
+
+        Returns:
+            Dictionary with summary statistics
+        """
+        if not self.primers:
+            return {"num_primers": 0}
+
+        lengths = [len(p) for p in self.primers]
+        gcs = [calculate_gc(p) for p in self.primers]
+        tms = [calculate_simple_tm(p) for p in self.primers]
+
+        # Estimate cost: approximately $5 per primer at 25nmol scale
+        estimated_cost = len(self.primers) * 5.0
+
+        return {
+            "num_primers": len(self.primers),
+            "mean_length": sum(lengths) / len(lengths),
+            "mean_gc": sum(gcs) / len(gcs),
+            "mean_tm": sum(tms) / len(tms),
+            "min_tm": min(tms),
+            "max_tm": max(tms),
+            "estimated_cost": estimated_cost,
+            "polymerase": self.polymerase,
+            "temperature": self.temperature,
+        }
+
+    def print_summary(self) -> None:
+        """Print formatted summary to console."""
+        summary = self.get_summary()
+
+        print("\n" + "=" * 50)
+        print("PRIMER SET SUMMARY")
+        print("=" * 50)
+        print(f"  Primers: {summary['num_primers']}")
+        print(f"  Mean length: {summary['mean_length']:.1f} bp")
+        print(f"  Mean GC: {summary['mean_gc']:.1%}")
+        print(f"  Tm range: {summary['min_tm']:.1f} - {summary['max_tm']:.1f} C")
+        print(f"  Polymerase: {summary['polymerase']}")
+        print(f"  Temperature: {summary['temperature']} C")
+        print(f"  Estimated cost: ${summary['estimated_cost']:.2f}")
+        print("=" * 50 + "\n")
