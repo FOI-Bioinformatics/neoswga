@@ -107,8 +107,9 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
   - `quality.py`: Quality grading (A-F) with component scoring
   - `executive_summary.py`: One-page HTML summary report
   - `technical_report.py`: Comprehensive technical analysis report
+  - `visualizations.py`: Interactive Plotly charts (optional dependency)
   - `validation.py`: Input validation before report generation
-  - `utils.py`: Shared utilities for report generation
+  - `utils.py`: Shared utilities and chart color schemes
 
 **Experimental/Advanced** (in `neoswga/core/experimental/`, not fully integrated):
 - `cooperative_binding_selector.py`: Network-based cooperative binding model
@@ -201,9 +202,11 @@ neoswga suggest --genome target.fna  # Auto-calculates GC
 neoswga interpret -d results/
 
 # Generate quality report after pipeline completes
-neoswga report -d results/              # Executive summary (default)
-neoswga report -d results/ --level full # Full technical report
-neoswga report -d results/ --check      # Validate only, don't generate
+neoswga report -d results/                        # Executive summary (default)
+neoswga report -d results/ --level full           # Full technical report
+neoswga report -d results/ --interactive          # With interactive Plotly charts
+neoswga report -d results/ --level full --interactive  # Full report with charts
+neoswga report -d results/ --check                # Validate only, don't generate
 
 # Validate mechanistic model against expected behavior
 neoswga validate-model               # Run all validation tests
@@ -404,6 +407,47 @@ print(f"Target coverage: {recommendation['target_coverage']:.0%}")
 | `enrichment` | 80% | 75% | 8-12 | Sequencing enrichment, balanced |
 | `metagenomics` | 95% | 50% | 15-20 | Capture diversity |
 
+### Report Visualizations
+
+Interactive Plotly charts for reports (optional dependency):
+
+```python
+from neoswga.core.report.visualizations import (
+    is_plotly_available,
+    render_filtering_funnel,
+    render_component_radar,
+    render_tm_gc_distribution,
+    render_coverage_specificity_scatter,
+    render_primer_heatmap,
+    render_dimer_network_heatmap,
+    render_dimer_network_graph,
+)
+
+# Check if Plotly is installed
+if is_plotly_available():
+    # Render filtering funnel chart
+    funnel_html = render_filtering_funnel([
+        ("Total k-mers", 100000),
+        ("After frequency filter", 50000),
+        ("After background filter", 10000),
+        ("Final candidates", 100),
+    ])
+
+    # Render dimer interaction heatmap
+    dimer_html = render_dimer_network_heatmap(primers, max_primers=15)
+```
+
+**Available chart functions**:
+- `render_filtering_funnel()`: Pipeline filtering stages as funnel chart
+- `render_component_radar()`: Quality component scores as radar chart
+- `render_tm_gc_distribution()`: Tm histogram and Tm vs GC scatter
+- `render_coverage_specificity_scatter()`: Coverage vs specificity with Pareto frontier
+- `render_primer_heatmap()`: Primer metrics comparison heatmap
+- `render_dimer_network_heatmap()`: Primer-dimer interaction matrix
+- `render_dimer_network_graph()`: Network graph of strong dimer interactions
+
+All functions return empty string when Plotly is not installed (graceful degradation).
+
 ## Testing
 
 ```bash
@@ -515,7 +559,7 @@ neoswga/
     # Reporting
     report/                # Quality report generation
       metrics.py, quality.py, executive_summary.py,
-      technical_report.py, validation.py, utils.py
+      technical_report.py, visualizations.py, validation.py, utils.py
 
     # Utilities
     utility.py, parameter.py, validation.py, genome_io.py
