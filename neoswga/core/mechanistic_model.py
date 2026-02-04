@@ -39,6 +39,11 @@ from dataclasses import dataclass
 from typing import Dict, Optional, TYPE_CHECKING
 
 from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS, get_polymerase_params
+from neoswga.core.additive_interactions import (
+    AdditiveInteractionRegistry,
+    Pathway,
+    get_default_registry,
+)
 
 if TYPE_CHECKING:
     from neoswga.core.reaction_conditions import ReactionConditions
@@ -107,12 +112,15 @@ class MechanisticModel:
         params: Literature-based model parameters
     """
 
-    def __init__(self, conditions: 'ReactionConditions'):
+    def __init__(self, conditions: 'ReactionConditions',
+                 interaction_registry: Optional[AdditiveInteractionRegistry] = None):
         """
         Initialize mechanistic model with reaction conditions.
 
         Args:
             conditions: ReactionConditions object with temp, additives, polymerase
+            interaction_registry: Optional custom interaction registry.
+                                 Uses default if not provided.
         """
         self.conditions = conditions
         self.params = MECHANISTIC_MODEL_PARAMS
@@ -120,8 +128,12 @@ class MechanisticModel:
         # Get polymerase-specific parameters
         self._poly_params = get_polymerase_params(conditions.polymerase)
 
-        # Pre-calculate condition-dependent enzyme activity (doesn't depend on primer)
-        self._enzyme_activity = self._calculate_enzyme_activity()
+        # Initialize additive interaction registry
+        self._interaction_registry = interaction_registry or get_default_registry()
+
+        # Note: enzyme activity calculation is now deferred to calculate_effects
+        # because it needs template_gc for interaction modifiers
+        self._enzyme_activity_cache: Dict[float, Dict[str, float]] = {}
 
     def calculate_effects(
         self,
@@ -144,14 +156,23 @@ class MechanisticModel:
         tm_correction = self._calculate_tm_correction(primer_gc, primer_length)
         effective_tm = self._calculate_effective_tm(primer, primer_gc, tm_correction)
 
+        # Apply Tm interaction modifiers
+        tm_modifier = self._interaction_registry.calculate_pathway_modifier(
+            Pathway.TM, self.conditions, template_gc
+        )
+        # Tm modifier affects the correction, not the base Tm
+        if tm_modifier != 1.0:
+            tm_correction *= tm_modifier
+            effective_tm = self._calculate_effective_tm(primer, primer_gc, tm_correction)
+
         # Pathway 2: Template accessibility
         accessibility = self._calculate_accessibility(template_gc)
 
-        # Pathway 3: Enzyme activity (pre-calculated)
-        enzyme = self._enzyme_activity
+        # Pathway 3: Enzyme activity (with interaction modifiers)
+        enzyme = self._get_enzyme_activity(template_gc)
 
         # Pathway 4: Binding kinetics
-        kinetics = self._calculate_kinetics(effective_tm)
+        kinetics = self._calculate_kinetics(effective_tm, template_gc)
 
         # Combined binding rate
         base_binding = self._tm_to_binding_prob(effective_tm)
@@ -355,18 +376,65 @@ class MechanisticModel:
 
         accessibility = 1.0 - max(0, structure_remaining)
 
+        # Apply interaction framework modifiers
+        access_mod = self._interaction_registry.calculate_pathway_modifier(
+            Pathway.ACCESSIBILITY, self.conditions, template_gc
+        )
+        accessibility *= access_mod
+
         return max(0.1, min(1.0, accessibility))
 
     # =========================================================================
     # Pathway 3: Enzyme Activity
     # =========================================================================
 
-    def _calculate_enzyme_activity(self) -> Dict[str, float]:
+    def _get_enzyme_activity(self, template_gc: float = 0.5) -> Dict[str, float]:
         """
-        Calculate enzyme activity modifiers.
+        Get enzyme activity with interaction modifiers (cached by template_gc).
 
-        This includes processivity, speed, and stability factors
-        based on additives and temperature.
+        Args:
+            template_gc: Template GC content for GC-dependent interactions
+
+        Returns:
+            Dictionary with processivity_factor, speed_factor, stability_factor
+        """
+        # Round to 2 decimals for cache key
+        cache_key = round(template_gc, 2)
+
+        if cache_key not in self._enzyme_activity_cache:
+            # Calculate base activity
+            base = self._calculate_base_enzyme_activity()
+
+            # Apply interaction framework modifiers
+            proc_mod = self._interaction_registry.calculate_pathway_modifier(
+                Pathway.PROCESSIVITY, self.conditions, template_gc
+            )
+            speed_mod = self._interaction_registry.calculate_pathway_modifier(
+                Pathway.SPEED, self.conditions, template_gc
+            )
+            stability_mod = self._interaction_registry.calculate_pathway_modifier(
+                Pathway.STABILITY, self.conditions, template_gc
+            )
+
+            # Apply modifiers
+            processivity = base['processivity_factor'] * proc_mod
+            speed = base['speed_factor'] * speed_mod
+            stability = base['stability_factor'] * stability_mod
+
+            self._enzyme_activity_cache[cache_key] = {
+                'processivity_factor': max(0.1, min(1.2, processivity)),
+                'speed_factor': max(0.3, min(1.1, speed)),
+                'stability_factor': max(0.2, min(1.3, stability)),
+            }
+
+        return self._enzyme_activity_cache[cache_key]
+
+    def _calculate_base_enzyme_activity(self) -> Dict[str, float]:
+        """
+        Calculate base enzyme activity modifiers from individual additives.
+
+        This method computes the base effects without additive interactions.
+        Interactions are applied separately via the AdditiveInteractionRegistry.
 
         Returns:
             Dictionary with processivity_factor, speed_factor, stability_factor
@@ -436,35 +504,9 @@ class MechanisticModel:
         stability *= (1 + p['glycerol_stability'] * glycerol)
         speed *= (1 - p['glycerol_speed_penalty'] * glycerol)
 
-        # Additive interactions
+        # DMSO-Mg chelation (kept here due to inverse Mg relationship)
+        # High DMSO chelates Mg2+, but effect decreases as Mg increases
         interactions = self.params['interactions']
-
-        # Betaine-trehalose synergy (enhanced enzyme stability)
-        # Both stabilize proteins through different mechanisms - combined effect
-        # is greater than sum of individual effects
-        if betaine > 0.5 and c.trehalose_m > 0.1:
-            synergy = (
-                interactions['betaine_trehalose_synergy']
-                * min(betaine, 1.5)
-                * min(c.trehalose_m, 0.5)
-            )
-            stability *= (1 + synergy)
-            # Slight processivity boost from combined stabilization
-            processivity *= (1 + 0.3 * synergy)
-
-        # DMSO-formamide antagonism (both destabilizers compete)
-        # At high concentrations, they may compete for binding sites on enzyme,
-        # reducing their individual effects (less destabilization than expected)
-        if dmso > 2.0 and c.formamide_percent > 1.0:
-            antagonism = (
-                interactions['dmso_formamide_antagonism']
-                * (dmso - 2.0)
-                * (c.formamide_percent - 1.0)
-            )
-            # Antagonism reduces destabilizing penalty (stability improves slightly)
-            stability *= (1 + antagonism * 0.5)
-
-        # DMSO-Mg interaction
         if dmso > interactions['dmso_mg_threshold'] and mg < 3.0:
             chelation = (
                 interactions['dmso_mg_chelation']
@@ -472,6 +514,10 @@ class MechanisticModel:
                 * (3.0 - mg) / 3.0
             )
             processivity *= (1 - chelation)
+
+        # Note: Most additive interactions are now handled by AdditiveInteractionRegistry
+        # in _get_enzyme_activity(). Only DMSO-Mg chelation is kept here due to its
+        # complex inverse relationship with Mg concentration.
 
         return {
             'processivity_factor': max(0.1, min(1.2, processivity)),
@@ -483,7 +529,8 @@ class MechanisticModel:
     # Pathway 4: Binding Kinetics
     # =========================================================================
 
-    def _calculate_kinetics(self, effective_tm: float) -> Dict[str, float]:
+    def _calculate_kinetics(self, effective_tm: float,
+                             template_gc: float = 0.5) -> Dict[str, float]:
         """
         Calculate binding kinetics modifiers.
 
@@ -492,6 +539,7 @@ class MechanisticModel:
 
         Args:
             effective_tm: Primer effective Tm (C)
+            template_gc: Template GC content for interaction modifiers
 
         Returns:
             Dictionary with kon_factor and koff_factor
@@ -527,6 +575,17 @@ class MechanisticModel:
         # Additives can increase koff (destabilizing)
         koff_factor *= (1 + p['betaine_koff_penalty'] * c.betaine_m)
         koff_factor *= (1 + p['dmso_koff_penalty'] * c.dmso_percent)
+
+        # Apply interaction framework modifiers
+        kon_mod = self._interaction_registry.calculate_pathway_modifier(
+            Pathway.KON, self.conditions, template_gc
+        )
+        koff_mod = self._interaction_registry.calculate_pathway_modifier(
+            Pathway.KOFF, self.conditions, template_gc
+        )
+
+        kon_factor *= kon_mod
+        koff_factor *= koff_mod
 
         return {
             'kon_factor': max(0.1, min(3.0, kon_factor)),
@@ -589,14 +648,31 @@ class MechanisticModel:
         """
         return 1.0 / (1.0 + math.exp(-steepness * (x - midpoint)))
 
-    def get_enzyme_parameters(self) -> Dict[str, float]:
+    def get_enzyme_parameters(self, template_gc: float = 0.5) -> Dict[str, float]:
         """
-        Get the pre-calculated enzyme activity parameters.
+        Get enzyme activity parameters with interaction modifiers.
+
+        Args:
+            template_gc: Template GC content (default 0.5 for GC-neutral)
 
         Returns:
             Dictionary with processivity_factor, speed_factor, stability_factor
         """
-        return self._enzyme_activity.copy()
+        return self._get_enzyme_activity(template_gc).copy()
+
+    def get_interaction_report(self, template_gc: float = 0.5) -> str:
+        """
+        Get a report of active additive interactions.
+
+        Args:
+            template_gc: Template GC content
+
+        Returns:
+            Human-readable report of active interactions
+        """
+        return self._interaction_registry.get_interaction_report(
+            self.conditions, template_gc
+        )
 
     def __repr__(self) -> str:
         """String representation."""
