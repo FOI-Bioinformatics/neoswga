@@ -80,6 +80,7 @@ Example `params.json`:
 ## Documentation
 
 - **[User Guide](docs/user-guide.md)**: Comprehensive usage documentation
+- **[SWGA Science](docs/SWGA_SCIENCE.md)**: Thermodynamics, polymerases, and reaction additives
 - **[Algorithm Details](docs/development/algorithms.md)**: Filtering and optimization algorithms
 - **[Parameter Reference](docs/user-guide.md#parameters)**: All configuration options
 - **[Changelog](docs/CHANGELOG.md)**: Version history

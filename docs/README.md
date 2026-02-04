@@ -6,8 +6,15 @@ Documentation for NeoSWGA, a tool for designing primer sets for selective whole-
 
 - **[Quick Start](QUICK_START.md)** - Get started in minutes
 - **[User Guide](user-guide.md)** - Comprehensive usage documentation
+- **[SWGA Science](SWGA_SCIENCE.md)** - Scientific background and additive guide
 - **[API Reference](API_REFERENCE.md)** - Complete API documentation
 - **[Changelog](CHANGELOG.md)** - Version history and release notes
+
+## Scientific Background
+
+| Document | Description |
+|----------|-------------|
+| [SWGA Science](SWGA_SCIENCE.md) | Thermodynamics, polymerases, and additives |
 
 ## User Guides
 
