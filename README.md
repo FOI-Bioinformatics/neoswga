@@ -84,6 +84,7 @@ Example `params.json`:
 - **[Algorithm Details](docs/development/algorithms.md)**: Filtering and optimization algorithms
 - **[Parameter Reference](docs/user-guide.md#parameters)**: All configuration options
 - **[Changelog](docs/CHANGELOG.md)**: Version history
+- **[From Results to Lab](docs/FROM_RESULTS_TO_LAB.md)**: Export primers and lab workflow
 
 ## Based on SOAPswga
 

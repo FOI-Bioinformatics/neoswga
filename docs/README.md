@@ -28,6 +28,7 @@ Documentation for NeoSWGA, a tool for designing primer sets for selective whole-
 | [Simulator Guide](simulator-guide.md) | SWGA replication simulator |
 | [Adaptive QA Guide](adaptive-qa-guide.md) | AT-rich and GC-rich genomes |
 | [Migration Guide](migration-guide.md) | Migrating from SOAPswga |
+| [From Results to Lab](FROM_RESULTS_TO_LAB.md) | Export, ordering, and lab setup |
 
 ## Reference Documentation
 
