@@ -198,24 +198,56 @@ GCTAGCTAGCTA
 | **Sigma-Aldrich** | 3-5 days | $ | Budget option, global availability |
 | **Eurofins Genomics** | 2-3 days | $$ | European labs |
 
+### Primer Modifications (Recommended)
+
+SWGA primers benefit from chemical modifications for Phi29 compatibility:
+
+| Modification | Purpose | Notation (IDT) |
+|--------------|---------|----------------|
+| **3' Phosphorothioate (PTO)** | Protects against Phi29 3'->5' exonuclease | `ATCGAT*C*G` |
+| **5' C18 spacer** | Blocks template-independent amplification | `/5SpC18/ATCG...` |
+
+**Export with modifications:**
+```bash
+# Standard (default) - 3' PTO protection
+neoswga export -d ./results/ -o ./order/ --modifications standard
+
+# Low-input (clinical, rare targets) - PTO + C18 spacer (tdMDA approach)
+neoswga export -d ./results/ -o ./order/ --modifications low-input
+
+# Bare primers (testing/validation only)
+neoswga export -d ./results/ -o ./order/ --no-modifications
+```
+
+**Modification profiles:**
+
+| Profile | Modifications | Use Case |
+|---------|---------------|----------|
+| `standard` | 3' PTO (2 bonds) | General SWGA, exonuclease protection |
+| `low-input` | 3' PTO + 5' C18 | Clinical samples, <1% target (tdMDA) |
+| `none` | Bare primers | Testing/validation only |
+
+**Reference:** Wang et al. (2017) BioTechniques 63:21-26 (tdMDA approach for low-input samples)
+
 ### Order Specifications
 
 **Standard SWGA primers (6-12 bp):**
 
 | Parameter | Recommendation | Notes |
 |-----------|----------------|-------|
-| **Scale** | 25 nmol | Sufficient for 100+ reactions |
+| **Scale** | 25 nmol (100nm for modifications) | IDT requires 100nm for modified oligos |
 | **Purification** | Desalt (standard) | Adequate for most applications |
 | **Format** | Dry or 100 uM in TE | Dry for long-term storage |
-| **Modifications** | None | No 5' or 3' modifications needed |
+| **Modifications** | 3' PTO (default) | See profile options above |
 
 **Long primers (15-18 bp, EquiPhi29):**
 
 | Parameter | Recommendation | Notes |
 |-----------|----------------|-------|
-| **Scale** | 25-50 nmol | Larger scale recommended |
+| **Scale** | 25-50 nmol (100nm for mods) | Larger scale recommended |
 | **Purification** | HPLC | Higher quality for longer oligos |
 | **Format** | 100 uM in TE | Ready-to-use |
+| **Modifications** | 3' PTO recommended | Higher specificity benefit |
 
 ### Vendor-Specific Instructions
 
@@ -224,15 +256,22 @@ GCTAGCTAGCTA
 **Web ordering:**
 1. Go to https://www.idtdna.com/
 2. Select "Bulk Input"
-3. Upload `*_primers_idt.csv` file
-4. Review cart, select shipping
-5. Typical turnaround: 1-2 business days (standard desalt)
+3. Upload `*_order_idt.csv` file (includes modification syntax)
+4. Review cart - verify modifications are recognized (asterisks for PTO)
+5. Select 100nm scale minimum for modified primers
+6. Typical turnaround: 1-2 business days (standard desalt)
 
 **Tips:**
 - Order before 2 PM EST for same-day processing
+- Modified primers (with `*`) require 100nm scale minimum
 - Use "Standard Desalt" for 6-12 bp primers
 - Upgrade to "HPLC" only for primers >15 bp or critical applications
 - Request "dry" format for long-term storage
+
+**Modification syntax (automatically applied by NeoSWGA export):**
+- `*` between bases = phosphorothioate bond
+- `/5SpC18/` at start = 5' C18 spacer
+- Example: `/5SpC18/ATCGATCGA*T*C*G`
 
 #### Twist Bioscience
 
@@ -654,8 +693,17 @@ neoswga interpret -d ./results/
 ### Export Cheat Sheet
 
 ```bash
-# Standard export (all formats)
+# Standard export (all formats, standard modifications)
 neoswga export -d ./results/ -o ./order/ --project MyProject
+
+# Low-input mode (for clinical/rare targets)
+neoswga export -d ./results/ -o ./order/ --modifications low-input --project MyProject
+
+# Bare primers (no modifications, for testing)
+neoswga export -d ./results/ -o ./order/ --no-modifications --project MyProject
+
+# Custom PTO bond count
+neoswga export -d ./results/ -o ./order/ --pto-bonds 3 --project MyProject
 
 # Specific vendor
 neoswga export -d ./results/ -o ./order/ --vendor twist --project MyProject

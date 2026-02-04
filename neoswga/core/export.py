@@ -17,12 +17,82 @@ Usage:
 
 import csv
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+class ModificationProfile(Enum):
+    """Modification profiles for primer synthesis.
+
+    SWGA primers benefit from chemical modifications for Phi29 compatibility:
+    - 3' Phosphorothioate (PTO) bonds protect against exonuclease degradation
+    - 5' C18 spacer blocks template-independent amplification (tdMDA approach)
+
+    Reference: Wang et al. (2017) BioTechniques 63:21-26
+    """
+    NONE = "none"
+    STANDARD = "standard"
+    LOW_INPUT = "low-input"
+
+
+@dataclass
+class PrimerModifications:
+    """Primer modification configuration.
+
+    Attributes:
+        pto_bonds: Number of 3' phosphorothioate bonds (default: 2)
+        five_prime_block: 5' blocking group ('c18', 'c3', or None)
+        profile: The modification profile used
+
+    Example:
+        Standard: ATCGATCGAT*C*G (2 PTO bonds at 3' end)
+        Low-input: /5SpC18/ATCGATCGAT*C*G (C18 spacer + PTO)
+    """
+    pto_bonds: int = 2
+    five_prime_block: Optional[str] = None  # 'c18', 'c3', or None
+    profile: ModificationProfile = ModificationProfile.STANDARD
+
+    @classmethod
+    def from_profile(cls, profile: str) -> 'PrimerModifications':
+        """Create modification config from profile name.
+
+        Args:
+            profile: Profile name ('none', 'standard', 'low-input')
+
+        Returns:
+            PrimerModifications instance
+
+        Raises:
+            ValueError: If profile name is unknown
+        """
+        profiles = {
+            'none': cls(
+                pto_bonds=0,
+                five_prime_block=None,
+                profile=ModificationProfile.NONE
+            ),
+            'standard': cls(
+                pto_bonds=2,
+                five_prime_block=None,
+                profile=ModificationProfile.STANDARD
+            ),
+            'low-input': cls(
+                pto_bonds=2,
+                five_prime_block='c18',
+                profile=ModificationProfile.LOW_INPUT
+            ),
+        }
+        if profile not in profiles:
+            raise ValueError(
+                f"Unknown modification profile: '{profile}'. "
+                f"Available profiles: {', '.join(profiles.keys())}"
+            )
+        return profiles[profile]
 
 
 def calculate_gc(seq: str) -> float:
@@ -88,6 +158,117 @@ VENDOR_FORMATS: Dict[str, Dict[str, Any]] = {
         "defaults": {},
     },
 }
+
+# Vendor-specific modification syntax
+# Reference: IDT ordering guide, Sigma custom oligo guide
+VENDOR_MODIFICATION_SYNTAX: Dict[str, Dict[str, Any]] = {
+    "idt": {
+        "pto_symbol": "*",
+        "c18_prefix": "/5SpC18/",
+        "c3_prefix": "/5SpC3/",
+        "supports_mods": True,
+        "min_scale_for_mods": "100nm",
+        "notes": "Modifications require 100nm scale minimum",
+    },
+    "twist": {
+        "pto_symbol": "*",
+        "c18_prefix": "",
+        "c3_prefix": "",
+        "supports_mods": False,
+        "notes": "Contact Twist directly for modified oligos",
+    },
+    "sigma": {
+        "pto_symbol": "*",
+        "c18_prefix": "/5SpC18/",
+        "c3_prefix": "/5SpC3/",
+        "supports_mods": True,
+        "min_scale_for_mods": "0.1 umol",
+        "notes": "Uses IDT-compatible syntax",
+    },
+    "generic": {
+        "pto_symbol": "*",
+        "c18_prefix": "[C18]-",
+        "c3_prefix": "[C3]-",
+        "supports_mods": True,
+        "notes": "Generic notation for documentation",
+    },
+}
+
+
+def apply_modifications(
+    sequence: str,
+    modifications: PrimerModifications,
+    vendor: str = "generic"
+) -> str:
+    """Apply chemical modifications to primer sequence using vendor syntax.
+
+    Modifications applied:
+    - 3' Phosphorothioate (PTO) bonds: Protect against Phi29 3'->5' exonuclease
+    - 5' C18 spacer: Block template-independent amplification (tdMDA)
+
+    Args:
+        sequence: Raw primer sequence (e.g., 'ATCGATCGATCG')
+        modifications: PrimerModifications configuration
+        vendor: Target vendor for syntax ('idt', 'twist', 'sigma', 'generic')
+
+    Returns:
+        Modified sequence string (e.g., '/5SpC18/ATCGATCGAT*C*G')
+
+    Example:
+        >>> mods = PrimerModifications.from_profile('standard')
+        >>> apply_modifications('ATCGATCG', mods, vendor='idt')
+        'ATCGAT*C*G'
+
+        >>> mods = PrimerModifications.from_profile('low-input')
+        >>> apply_modifications('ATCGATCG', mods, vendor='idt')
+        '/5SpC18/ATCGAT*C*G'
+    """
+    if modifications.profile == ModificationProfile.NONE:
+        return sequence
+
+    vendor = vendor.lower()
+    syntax = VENDOR_MODIFICATION_SYNTAX.get(
+        vendor, VENDOR_MODIFICATION_SYNTAX["generic"]
+    )
+
+    # Warn if vendor doesn't support modifications
+    if not syntax.get("supports_mods", True):
+        if modifications.pto_bonds > 0 or modifications.five_prime_block:
+            logger.warning(
+                f"Vendor '{vendor}' may not support modifications directly. "
+                f"{syntax.get('notes', 'Contact vendor for custom synthesis.')}"
+            )
+
+    result = sequence
+
+    # Apply 3' PTO bonds
+    # PTO bonds are inserted between the last N nucleotides
+    # Example: ATCGATCG with 2 PTO -> ATCGAT*C*G
+    if modifications.pto_bonds > 0:
+        pto = syntax["pto_symbol"]
+        n = modifications.pto_bonds
+        if len(result) > n:
+            # Split into prefix and the last n+1 nucleotides
+            prefix = result[:-n-1]
+            suffix = result[-n-1:]
+            # Insert PTO between each of the last n+1 nucleotides
+            modified_suffix = pto.join(suffix)
+            result = prefix + modified_suffix
+        elif len(result) > 1:
+            # Short sequence: insert PTO between all nucleotides
+            result = pto.join(result)
+
+    # Apply 5' blocking group
+    if modifications.five_prime_block == 'c18':
+        prefix = syntax.get("c18_prefix", "[C18]-")
+        if prefix:  # Only add if vendor supports it
+            result = prefix + result
+    elif modifications.five_prime_block == 'c3':
+        prefix = syntax.get("c3_prefix", "[C3]-")
+        if prefix:
+            result = prefix + result
+
+    return result
 
 
 def export_to_vendor_csv(
@@ -365,6 +546,7 @@ class PrimerExporter:
         dmso_percent: float = 0.0,
         trehalose_m: float = 0.0,
         mg_conc: float = 2.5,
+        modifications: Optional[PrimerModifications] = None,
     ):
         """
         Initialize exporter with primers and reaction conditions.
@@ -377,6 +559,7 @@ class PrimerExporter:
             dmso_percent: DMSO percentage
             trehalose_m: Trehalose concentration (M)
             mg_conc: Mg2+ concentration (mM)
+            modifications: Primer modification config (default: standard profile)
         """
         self.primers = primers
         self.polymerase = polymerase
@@ -385,6 +568,7 @@ class PrimerExporter:
         self.dmso_percent = dmso_percent
         self.trehalose_m = trehalose_m
         self.mg_conc = mg_conc
+        self.modifications = modifications or PrimerModifications.from_profile('standard')
 
     @classmethod
     def from_results_dir(
@@ -444,8 +628,13 @@ class PrimerExporter:
     def export_vendor_csv(
         self, output_path: str, vendor: str = "idt", **kwargs
     ) -> None:
-        """Export primers in vendor-specific CSV format."""
-        export_to_vendor_csv(self.primers, output_path, vendor=vendor, **kwargs)
+        """Export primers in vendor-specific CSV format with modifications applied."""
+        # Apply modifications to primers
+        modified_primers = [
+            apply_modifications(p, self.modifications, vendor)
+            for p in self.primers
+        ]
+        export_to_vendor_csv(modified_primers, output_path, vendor=vendor, **kwargs)
 
     def export_protocol(self, output_path: str, **kwargs) -> None:
         """Export wet-lab protocol."""
@@ -536,6 +725,9 @@ class PrimerExporter:
             "estimated_cost": estimated_cost,
             "polymerase": self.polymerase,
             "temperature": self.temperature,
+            "modification_profile": self.modifications.profile.value,
+            "pto_bonds": self.modifications.pto_bonds,
+            "five_prime_block": self.modifications.five_prime_block,
         }
 
     def print_summary(self) -> None:
@@ -552,4 +744,10 @@ class PrimerExporter:
         print(f"  Polymerase: {summary['polymerase']}")
         print(f"  Temperature: {summary['temperature']} C")
         print(f"  Estimated cost: ${summary['estimated_cost']:.2f}")
+        print("-" * 50)
+        print("  MODIFICATIONS")
+        print(f"  Profile: {summary['modification_profile']}")
+        print(f"  3' PTO bonds: {summary['pto_bonds']}")
+        block = summary['five_prime_block'] or 'none'
+        print(f"  5' blocking: {block}")
         print("=" * 50 + "\n")

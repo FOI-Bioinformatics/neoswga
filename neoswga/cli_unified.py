@@ -825,6 +825,18 @@ Examples:
                                help='Export format (default: all)')
     export_parser.add_argument('-j', '--json-file',
                                help='params.json for reaction conditions')
+    export_parser.add_argument('--modifications',
+                               choices=['none', 'standard', 'low-input'],
+                               default='standard',
+                               help="Modification profile: none (bare primers), "
+                                    "standard (3' PTO for exonuclease protection), "
+                                    "low-input (3' PTO + 5' C18 spacer for tdMDA) "
+                                    "(default: standard)")
+    export_parser.add_argument('--pto-bonds', type=int, default=None,
+                               help="Override number of 3' phosphorothioate bonds (default: 2)")
+    export_parser.add_argument('--no-modifications', action='store_true',
+                               help='Export bare sequences without modifications '
+                                    '(equivalent to --modifications none)')
     export_parser.set_defaults(func=run_export)
 
     # =========================================================================
@@ -2218,15 +2230,25 @@ def run_report(args):
 
 def run_export(args):
     """Export primers for synthesis ordering."""
-    from neoswga.core.export import PrimerExporter
+    from neoswga.core.export import PrimerExporter, PrimerModifications
     from pathlib import Path
 
     try:
+        # Determine modification profile
+        if getattr(args, 'no_modifications', False):
+            mods = PrimerModifications.from_profile('none')
+        else:
+            mods = PrimerModifications.from_profile(args.modifications)
+            # Override PTO bonds if specified
+            if args.pto_bonds is not None:
+                mods.pto_bonds = args.pto_bonds
+
         # Load exporter from results
         exporter = PrimerExporter.from_results_dir(
             args.dir,
             params_file=getattr(args, 'json_file', None)
         )
+        exporter.modifications = mods
 
         # Print summary
         exporter.print_summary()
@@ -3503,6 +3525,7 @@ def main():
         'validate-model': run_validate_model,
         'interpret': run_interpret,
         'report': run_report,
+        'export': run_export,
         'start': run_start,
         'suggest': run_suggest,
         'optimize-conditions': optimize_conditions,
