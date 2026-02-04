@@ -791,6 +791,43 @@ Documentation:
                                help='Suppress progress messages')
 
     # =========================================================================
+    # EXPORT: Primer export for synthesis ordering
+    # =========================================================================
+    export_parser = subparsers.add_parser(
+        'export',
+        help='Export primers for synthesis ordering',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""
+Export optimized primers in formats ready for synthesis ordering.
+
+Generates:
+  - FASTA file with primer sequences
+  - Vendor-ready CSV (IDT, Twist, Sigma)
+  - Wet-lab protocol with reaction conditions
+
+Examples:
+  neoswga export -d ./results/
+  neoswga export -d ./results/ -o ./order/ --vendor idt --project MyProject
+  neoswga export -d ./results/ --format fasta --output primers.fasta
+"""
+    )
+    export_parser.add_argument('-d', '--dir', required=True,
+                               help='Results directory containing step4_improved_df.csv')
+    export_parser.add_argument('-o', '--output', default='./export',
+                               help='Output directory (default: ./export)')
+    export_parser.add_argument('--project', default='SWGA',
+                               help='Project name for file naming (default: SWGA)')
+    export_parser.add_argument('--vendor', default='idt',
+                               choices=['idt', 'twist', 'sigma', 'generic'],
+                               help='Vendor format for CSV (default: idt)')
+    export_parser.add_argument('--format', choices=['all', 'fasta', 'csv', 'protocol'],
+                               default='all',
+                               help='Export format (default: all)')
+    export_parser.add_argument('-j', '--json-file',
+                               help='params.json for reaction conditions')
+    export_parser.set_defaults(func=run_export)
+
+    # =========================================================================
     # SETUP: Interactive workflow selector
     # =========================================================================
     subparsers.add_parser('start',
@@ -2174,6 +2211,65 @@ def run_report(args):
         sys.exit(1)
     except Exception as e:
         logger.error(f"Failed to generate report: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+def run_export(args):
+    """Export primers for synthesis ordering."""
+    from neoswga.core.export import PrimerExporter
+    from pathlib import Path
+
+    try:
+        # Load exporter from results
+        exporter = PrimerExporter.from_results_dir(
+            args.dir,
+            params_file=getattr(args, 'json_file', None)
+        )
+
+        # Print summary
+        exporter.print_summary()
+
+        output_dir = Path(args.output)
+
+        if args.format == 'all':
+            outputs = exporter.export_all(
+                str(output_dir),
+                project_name=args.project,
+                vendors=[args.vendor]
+            )
+            print("\nExported files:")
+            for fmt, path in outputs.items():
+                print(f"  {fmt}: {path}")
+
+        elif args.format == 'fasta':
+            output_dir.mkdir(parents=True, exist_ok=True)
+            fasta_path = output_dir / f"{args.project}_primers.fasta"
+            exporter.export_fasta(str(fasta_path), prefix=args.project, include_metadata=True)
+            print(f"Exported: {fasta_path}")
+
+        elif args.format == 'csv':
+            output_dir.mkdir(parents=True, exist_ok=True)
+            csv_path = output_dir / f"{args.project}_order_{args.vendor}.csv"
+            exporter.export_vendor_csv(str(csv_path), vendor=args.vendor, project_name=args.project)
+            print(f"Exported: {csv_path}")
+
+        elif args.format == 'protocol':
+            output_dir.mkdir(parents=True, exist_ok=True)
+            protocol_path = output_dir / f"{args.project}_protocol.md"
+            exporter.export_protocol(str(protocol_path))
+            print(f"Exported: {protocol_path}")
+
+        print("\nPrimers ready for ordering!")
+
+    except FileNotFoundError as e:
+        logger.error(str(e))
+        print(f"Error: {e}")
+        print("Make sure to run the full pipeline (count-kmers, filter, score, optimize) first.")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

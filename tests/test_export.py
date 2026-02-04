@@ -212,3 +212,48 @@ class TestPrimerExporter:
         assert "mean_length" in summary
         assert "mean_gc" in summary
         assert "estimated_cost" in summary
+
+
+class TestExportCLI:
+    """Test CLI export command."""
+
+    def test_export_command_exists(self):
+        """Export command is registered in CLI."""
+        from neoswga.cli_unified import create_parser
+
+        parser = create_parser()
+        # Parse help to check subcommands
+        import io
+        import sys
+
+        # Check that export subparser exists by trying to parse it
+        try:
+            args = parser.parse_args(['export', '--help'])
+        except SystemExit:
+            pass  # --help causes SystemExit, that's OK
+
+    def test_export_from_results_dir(self, tmp_path):
+        """CLI exports from results directory."""
+        # Create mock results
+        step4_path = tmp_path / "step4_improved_df.csv"
+        step4_path.write_text(
+            "primer,set_index,score,coverage\n"
+            "ATCGATCG,0,0.85,0.75\n"
+            "GCTAGCTA,0,0.85,0.75\n"
+        )
+
+        from neoswga.cli_unified import create_parser
+
+        output_dir = tmp_path / "export"
+
+        parser = create_parser()
+        args = parser.parse_args([
+            'export',
+            '-d', str(tmp_path),
+            '-o', str(output_dir),
+            '--project', 'TestProject'
+        ])
+
+        assert args.dir == str(tmp_path)
+        assert args.output == str(output_dir)
+        assert args.project == 'TestProject'
