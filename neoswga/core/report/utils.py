@@ -10,6 +10,30 @@ from typing import Any, Dict, Optional
 from neoswga.core.report.quality import QualityGrade
 
 
+# Color scheme for interactive charts (Plotly visualizations)
+CHART_COLORS = {
+    "primary": "#2c5282",
+    "secondary": "#4299e1",
+    "success": "#48bb78",
+    "warning": "#ecc94b",
+    "danger": "#f56565",
+    "info": "#4299e1",
+    "muted": "#a0aec0",
+    # Gradient for funnel charts
+    "funnel_gradient": [
+        "#2c5282", "#3182ce", "#4299e1", "#63b3ed", "#90cdf4", "#bee3f8"
+    ],
+    # Radar chart styling
+    "radar_fill": "rgba(66, 153, 225, 0.3)",
+    "radar_line": "#2c5282",
+    # Rating-based colors
+    "excellent": "#48bb78",
+    "good": "#4299e1",
+    "acceptable": "#ecc94b",
+    "poor": "#f56565",
+}
+
+
 def escape_for_html(value: Any) -> str:
     """
     Escape a value for safe HTML rendering.

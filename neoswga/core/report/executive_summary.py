@@ -34,6 +34,10 @@ from neoswga.core.report.utils import (
     GRADE_DESCRIPTIONS,
     ENRICHMENT_EXCELLENT_THRESHOLD,
 )
+from neoswga.core.report.visualizations import (
+    is_plotly_available,
+    render_component_radar,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -387,6 +391,9 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- Interactive Charts (if available) -->
+        {interactive_charts}
+
         <!-- Primer Table -->
         <div class="section">
             <h2>Primer Set ({primer_count} primers)</h2>
@@ -500,12 +507,13 @@ def create_executive_summary(
     )
 
 
-def render_executive_summary(summary: ExecutiveSummary) -> str:
+def render_executive_summary(summary: ExecutiveSummary, interactive: bool = False) -> str:
     """
     Render executive summary to HTML.
 
     Args:
         summary: ExecutiveSummary data
+        interactive: If True, include interactive Plotly charts (requires plotly)
 
     Returns:
         HTML string
@@ -568,6 +576,25 @@ def render_executive_summary(summary: ExecutiveSummary) -> str:
         else "Background Genome"
     ))
 
+    # Generate interactive charts if requested and Plotly is available
+    interactive_charts = ""
+    if interactive and is_plotly_available():
+        # Render component radar chart
+        radar_html = render_component_radar(
+            quality.components,
+            include_plotlyjs='cdn',
+            height=350,
+        )
+        if radar_html:
+            interactive_charts = f'''
+        <div class="section">
+            <h2>Quality Analysis</h2>
+            {radar_html}
+        </div>
+'''
+    elif interactive:
+        logger.debug("Interactive charts requested but Plotly not available")
+
     # Render template
     html = EXECUTIVE_SUMMARY_TEMPLATE.format(
         # Colors
@@ -627,6 +654,8 @@ def render_executive_summary(summary: ExecutiveSummary) -> str:
         recommendation=escape_format_braces(html_escape(quality.recommendation)),
         recommendation_details=escape_format_braces(html_escape(quality.recommendation_details)),
         considerations_html=_format_considerations(quality.considerations),
+        # Interactive charts
+        interactive_charts=interactive_charts,
     )
 
     return html
@@ -635,6 +664,7 @@ def render_executive_summary(summary: ExecutiveSummary) -> str:
 def generate_executive_summary(
     results_dir: str,
     output_file: Optional[str] = None,
+    interactive: bool = False,
 ) -> ExecutiveSummary:
     """
     Generate executive summary report from pipeline results.
@@ -642,6 +672,7 @@ def generate_executive_summary(
     Args:
         results_dir: Path to results directory
         output_file: Output HTML file path (optional)
+        interactive: If True, include interactive Plotly charts (requires plotly)
 
     Returns:
         ExecutiveSummary object
@@ -649,6 +680,9 @@ def generate_executive_summary(
     Example:
         summary = generate_executive_summary('results/', 'report.html')
         print(f"Grade: {summary.quality.grade.value}")
+
+        # With interactive charts
+        summary = generate_executive_summary('results/', 'report.html', interactive=True)
     """
     logger.info(f"Generating executive summary for {results_dir}")
 
@@ -663,7 +697,7 @@ def generate_executive_summary(
 
     # Render and save if output file specified
     if output_file:
-        html = render_executive_summary(summary)
+        html = render_executive_summary(summary, interactive=interactive)
         output_path = Path(output_file).resolve()
 
         try:

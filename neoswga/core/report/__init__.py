@@ -4,6 +4,7 @@ Report generation module for NeoSWGA.
 Provides comprehensive reporting capabilities:
 - Executive summary (one-page quality assessment)
 - Technical report (detailed multi-page analysis)
+- Interactive Plotly visualizations (optional)
 - Data export (CSV, JSON)
 
 Usage:
@@ -19,6 +20,13 @@ Usage:
     generate_technical_report(
         results_dir='results/',
         output_file='technical_report.html'
+    )
+
+    # Interactive report (requires plotly)
+    generate_executive_summary(
+        results_dir='results/',
+        output_file='summary.html',
+        interactive=True
     )
 """
 
@@ -39,6 +47,16 @@ from neoswga.core.report.quality import (
     QualityGrade,
     calculate_quality_grade,
 )
+from neoswga.core.report.visualizations import (
+    is_plotly_available,
+    render_filtering_funnel,
+    render_component_radar,
+    render_tm_gc_distribution,
+    render_coverage_specificity_scatter,
+    render_primer_heatmap,
+    render_dimer_network_heatmap,
+    render_dimer_network_graph,
+)
 
 __all__ = [
     # Executive summary
@@ -54,4 +72,13 @@ __all__ = [
     # Quality
     'QualityGrade',
     'calculate_quality_grade',
+    # Visualizations
+    'is_plotly_available',
+    'render_filtering_funnel',
+    'render_component_radar',
+    'render_tm_gc_distribution',
+    'render_coverage_specificity_scatter',
+    'render_primer_heatmap',
+    'render_dimer_network_heatmap',
+    'render_dimer_network_graph',
 ]

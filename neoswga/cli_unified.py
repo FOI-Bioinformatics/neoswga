@@ -787,6 +787,8 @@ Documentation:
                                help='Report level: summary (1-page) or full (technical report)')
     report_parser.add_argument('--check', action='store_true',
                                help='Validate only, do not generate report')
+    report_parser.add_argument('--interactive', action='store_true',
+                               help='Include interactive Plotly charts (requires plotly)')
     report_parser.add_argument('-q', '--quiet', action='store_true',
                                help='Suppress progress messages')
 
@@ -2087,6 +2089,16 @@ def run_report(args):
     results_dir = Path(args.dir)
     quiet = getattr(args, 'quiet', False)
     check_only = getattr(args, 'check', False)
+    interactive = getattr(args, 'interactive', False)
+
+    # Check if interactive mode is requested but Plotly is not available
+    if interactive:
+        from neoswga.core.report.visualizations import is_plotly_available
+        if not is_plotly_available():
+            print("Warning: Interactive charts requested but Plotly is not installed.")
+            print("Install with: pip install plotly  (or: pip install neoswga[interactive])")
+            print("Continuing without interactive charts...")
+            interactive = False
 
     def progress(msg):
         """Print progress message unless quiet mode."""
@@ -2191,14 +2203,20 @@ def run_report(args):
 
             progress("Collecting pipeline metrics...")
             progress("Calculating quality grade...")
-            progress("Generating technical report...")
+            if interactive:
+                progress("Generating technical report with interactive charts...")
+            else:
+                progress("Generating technical report...")
 
-            data = generate_technical_report(args.dir, output_path)
+            data = generate_technical_report(args.dir, output_path, interactive=interactive)
             print(f"\nQuality Grade: {data.quality.grade.value} "
                   f"({data.quality.composite_score:.2f}/1.00)")
             print(f"Recommendation: {data.quality.recommendation}")
             print(f"Primers analyzed: {data.metrics.primer_count}")
-            print(f"\nTechnical report saved to: {output_path}")
+            if interactive:
+                print(f"\nTechnical report with interactive charts saved to: {output_path}")
+            else:
+                print(f"\nTechnical report saved to: {output_path}")
 
         else:
             # Executive summary (default)
@@ -2210,13 +2228,19 @@ def run_report(args):
 
             progress("Collecting pipeline metrics...")
             progress("Calculating quality grade...")
-            progress("Generating executive summary...")
+            if interactive:
+                progress("Generating executive summary with interactive charts...")
+            else:
+                progress("Generating executive summary...")
 
-            summary = generate_executive_summary(args.dir, output_path)
+            summary = generate_executive_summary(args.dir, output_path, interactive=interactive)
             print(f"\nQuality Grade: {summary.quality.grade.value} "
                   f"({summary.quality.composite_score:.2f}/1.00)")
             print(f"Recommendation: {summary.quality.recommendation}")
-            print(f"\nReport saved to: {output_path}")
+            if interactive:
+                print(f"\nReport with interactive charts saved to: {output_path}")
+            else:
+                print(f"\nReport saved to: {output_path}")
 
     except FileNotFoundError as e:
         logger.error(str(e))

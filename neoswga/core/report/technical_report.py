@@ -36,6 +36,16 @@ from neoswga.core.report.utils import (
     get_rating_class,
     get_progress_class,
 )
+from neoswga.core.report.visualizations import (
+    is_plotly_available,
+    render_filtering_funnel,
+    render_component_radar,
+    render_tm_gc_distribution,
+    render_coverage_specificity_scatter,
+    render_primer_heatmap,
+    render_dimer_network_heatmap,
+    render_dimer_network_graph,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -956,6 +966,7 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
             <div class="funnel">
                 {funnel_html}
             </div>
+            {interactive_funnel}
         </div>
 
         <!-- Section 3: Coverage Analysis -->
@@ -1008,6 +1019,8 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
 
             {gaps_html}
+
+            {interactive_coverage}
         </div>
 
         <!-- Section 4: Specificity Analysis -->
@@ -1095,6 +1108,7 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
             </div>
 
             <h3>Primer Tm Distribution</h3>
+            {interactive_tm_gc}
             <table>
                 <thead>
                     <tr>
@@ -1117,6 +1131,8 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
 
             <p>Comprehensive analysis of each primer in the set.</p>
 
+            {interactive_heatmap}
+
             {primer_profiles_html}
         </div>
 
@@ -1127,6 +1143,8 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
             <p>Analysis of potential primer-dimer formation between primers in the set.</p>
 
             {interaction_assessment_html}
+
+            {interactive_dimer_heatmap}
 
             <h3>Top Interactions</h3>
             <table>
@@ -1518,12 +1536,13 @@ def _render_protocol(params: Dict, quality: QualityAssessment) -> str:
     """
 
 
-def render_technical_report(data: TechnicalReportData) -> str:
+def render_technical_report(data: TechnicalReportData, interactive: bool = False) -> str:
     """
     Render technical report to HTML.
 
     Args:
         data: TechnicalReportData with all collected information
+        interactive: If True, include interactive Plotly charts (requires plotly)
 
     Returns:
         HTML string
@@ -1615,6 +1634,84 @@ def render_technical_report(data: TechnicalReportData) -> str:
         metrics.background_genome.name if metrics.background_genome else "Background"
     ))
 
+    # Generate interactive charts if requested and Plotly is available
+    interactive_funnel = ""
+    interactive_coverage = ""
+    interactive_tm_gc = ""
+    interactive_heatmap = ""
+    interactive_dimer_heatmap = ""
+
+    if interactive and is_plotly_available():
+        # Use 'cdn' for first chart, False for subsequent to avoid loading
+        # Plotly.js multiple times
+        include_js = 'cdn'
+
+        # Filtering funnel chart
+        funnel_chart = render_filtering_funnel(
+            data.filtering_stages,
+            include_plotlyjs=include_js,
+            height=350,
+        )
+        if funnel_chart:
+            interactive_funnel = f'<div class="interactive-chart">{funnel_chart}</div>'
+            include_js = False  # Only include Plotly.js once
+
+        # Coverage vs specificity scatter
+        coverage_chart = render_coverage_specificity_scatter(
+            metrics.primers,
+            genome_size=fg_size,
+            include_plotlyjs=include_js,
+            height=400,
+        )
+        if coverage_chart:
+            interactive_coverage = f'''
+            <h3>Coverage vs Specificity</h3>
+            <div class="interactive-chart">{coverage_chart}</div>
+'''
+            include_js = False
+
+        # Tm/GC distribution
+        tm_gc_chart = render_tm_gc_distribution(
+            metrics.primers,
+            reaction_temp=reaction_temp,
+            include_plotlyjs=include_js,
+            height=350,
+        )
+        if tm_gc_chart:
+            interactive_tm_gc = f'<div class="interactive-chart">{tm_gc_chart}</div>'
+            include_js = False
+
+        # Primer heatmap
+        heatmap_chart = render_primer_heatmap(
+            metrics.primers,
+            include_plotlyjs=include_js,
+            height=400,
+        )
+        if heatmap_chart:
+            interactive_heatmap = f'''
+            <h3>Primer Metrics Overview</h3>
+            <div class="interactive-chart">{heatmap_chart}</div>
+'''
+            include_js = False
+
+        # Dimer network heatmap
+        dimer_heatmap_chart = render_dimer_network_heatmap(
+            metrics.primers,
+            include_plotlyjs=include_js,
+            height=500,
+            max_primers=20,
+            show_values=True,
+        )
+        if dimer_heatmap_chart:
+            interactive_dimer_heatmap = f'''
+            <h3>Interaction Heatmap</h3>
+            <p>Estimated delta G (kcal/mol) for heterodimer formation. More negative values
+            indicate stronger binding and higher dimer formation risk.</p>
+            <div class="interactive-chart">{dimer_heatmap_chart}</div>
+'''
+    elif interactive:
+        logger.debug("Interactive charts requested but Plotly not available")
+
     # Render all sections
     html = TECHNICAL_REPORT_TEMPLATE.format(
         # Colors
@@ -1673,6 +1770,12 @@ def render_technical_report(data: TechnicalReportData) -> str:
         final_recommendation_html=_render_final_recommendation(quality),
         considerations_html=_render_considerations(quality.considerations),
         protocol_html=_render_protocol(metrics.parameters, quality),
+        # Interactive charts
+        interactive_funnel=interactive_funnel,
+        interactive_coverage=interactive_coverage,
+        interactive_tm_gc=interactive_tm_gc,
+        interactive_heatmap=interactive_heatmap,
+        interactive_dimer_heatmap=interactive_dimer_heatmap,
     )
 
     return html
@@ -1681,6 +1784,7 @@ def render_technical_report(data: TechnicalReportData) -> str:
 def generate_technical_report(
     results_dir: str,
     output_file: Optional[str] = None,
+    interactive: bool = False,
 ) -> TechnicalReportData:
     """
     Generate comprehensive technical report from pipeline results.
@@ -1688,6 +1792,7 @@ def generate_technical_report(
     Args:
         results_dir: Path to results directory
         output_file: Output HTML file path (optional)
+        interactive: If True, include interactive Plotly charts (requires plotly)
 
     Returns:
         TechnicalReportData object
@@ -1695,6 +1800,9 @@ def generate_technical_report(
     Example:
         data = generate_technical_report('results/', 'technical_report.html')
         print(f"Grade: {data.quality.grade.value}")
+
+        # With interactive charts
+        data = generate_technical_report('results/', 'report.html', interactive=True)
     """
     logger.info(f"Generating technical report for {results_dir}")
 
@@ -1703,7 +1811,7 @@ def generate_technical_report(
 
     # Render and save if output file specified
     if output_file:
-        html = render_technical_report(data)
+        html = render_technical_report(data, interactive=interactive)
         output_path = Path(output_file).resolve()
 
         try:
