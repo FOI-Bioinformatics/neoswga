@@ -127,6 +127,11 @@ def _ensure_optimizers_registered():
             pass  # python-mip not installed
 
         try:
+            from . import normalized_optimizer  # Normalized scoring with strategy presets
+        except ImportError:
+            pass  # Should always work, but be safe
+
+        try:
             from . import moea_optimizer  # MOEA (requires pymoo)
         except ImportError:
             pass  # pymoo not installed

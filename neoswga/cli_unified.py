@@ -569,16 +569,24 @@ Documentation:
     optimize_parser.add_argument('--optimization-method',
                              choices=['hybrid', 'greedy', 'dominating-set', 'weighted-set-cover',
                                      'network', 'genetic', 'background-aware', 'legacy-bfs',
-                                     'milp', 'equiphi29', 'moea'],
+                                     'milp', 'equiphi29', 'moea', 'normalized'],
                              default='hybrid',
                              help='Optimization method. '
                                   'Standard: hybrid (default, network + greedy), greedy (fast BFS). '
                                   'Fast: dominating-set (8x faster, ln(n) approximation), '
                                   'weighted-set-cover (Tm-weighted set cover). '
                                   'Clinical: background-aware (10-20x background reduction). '
+                                  'Strategy-based: normalized (configurable weights via --strategy). '
                                   'Other: network (Tm-weighted graph), genetic (GA-based), '
                                   'legacy-bfs (original algorithm), milp (exact ILP), '
                                   'equiphi29 (EquiPhi29-specific), moea (multi-objective)')
+    optimize_parser.add_argument('--strategy',
+                             choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
+                             default='balanced',
+                             help='Strategy preset for normalized optimizer: '
+                                  'clinical (high specificity), discovery (max coverage), '
+                                  'fast (quick screening), balanced (equal weights), '
+                                  'enrichment (sequencing). Only used with --optimization-method=normalized')
     optimize_parser.add_argument('--method-guide', action='store_true',
                              help='Show optimization method selection guide and exit')
 
@@ -1402,6 +1410,7 @@ Method Comparison:
 | hybrid          | Medium | Excellent | Good        | General use (default)  |
 | dominating-set  | Fast   | Excellent | Fair        | Large pools, quick     |
 | background-aware| Slow   | Good      | Excellent   | Clinical, low bg       |
+| normalized      | Medium | Varies    | Varies      | Configurable weights   |
 | network         | Medium | Good      | Good        | Tm-balanced sets       |
 | genetic         | Slow   | Good      | Good        | Multi-objective        |
 | moea            | Slow   | Good      | Good        | Pareto optimization    |
@@ -1409,12 +1418,26 @@ Method Comparison:
 | greedy          | Fast   | Fair      | Fair        | Simple baseline        |
 +-----------------+--------+-----------+-------------+------------------------+
 
+Strategy Presets (for --optimization-method=normalized):
++-------------+--------------------------------------------------+
+| Strategy    | Description                                      |
++-------------+--------------------------------------------------+
+| clinical    | High specificity (40% background weight)         |
+| discovery   | Max coverage (40% coverage weight)               |
+| fast        | Quick screening (no background penalty)          |
+| balanced    | Equal weights across all objectives              |
+| enrichment  | Sequencing enrichment (balanced coverage/amp)    |
++-------------+--------------------------------------------------+
+
 Usage Examples:
   # Default (hybrid)
   neoswga optimize -j params.json
 
   # Fast screening
   neoswga optimize -j params.json --optimization-method=dominating-set
+
+  # Strategy-based with clinical preset
+  neoswga optimize -j params.json --optimization-method=normalized --strategy=clinical
 
   # Clinical samples (low background)
   neoswga optimize -j params.json --optimization-method=background-aware
@@ -1582,6 +1605,11 @@ def run_step4(args):
         if minimize_primers:
             logger.info(f"Minimal primer selection enabled (target coverage: {target_coverage:.1%})")
 
+        # Get strategy for normalized optimizer
+        strategy = getattr(args, 'strategy', 'balanced')
+        if args.optimization_method == 'normalized':
+            logger.info(f"Using normalized optimizer with strategy: {strategy}")
+
         # Run unified optimization
         results, scores, cache = optimize_step4(
             use_cache=args.use_position_cache,
@@ -1590,7 +1618,8 @@ def run_step4(args):
             verbose=not args.quiet,
             uniformity_weight=uniformity_weight,
             minimize_primers=minimize_primers,
-            target_coverage=target_coverage
+            target_coverage=target_coverage,
+            strategy=strategy,  # Pass strategy for normalized optimizer
         )
 
         if results:
