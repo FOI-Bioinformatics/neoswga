@@ -802,6 +802,14 @@ Documentation:
     suggest_parser.add_argument('--context', '-c', choices=['standard', 'clinical', 'high_throughput', 'low_input'],
                                default='standard',
                                help='Application context (default: standard)')
+    suggest_parser.add_argument('--polymerase', choices=['phi29', 'equiphi29', 'bst', 'klenow'],
+                               default='phi29',
+                               help='Polymerase type (default: phi29)')
+    suggest_parser.add_argument('--optimize-for', choices=['amplification', 'specificity', 'coverage', 'processivity'],
+                               default='amplification',
+                               help='Optimization goal (default: amplification)')
+    suggest_parser.add_argument('--use-optimizer', action='store_true',
+                               help='Use advanced multi-additive optimizer (grid search)')
 
     # =========================================================================
     # ADVANCED: Optimize conditions
@@ -2150,8 +2158,6 @@ def run_start(args):
 
 def run_suggest(args):
     """Suggest optimal reaction conditions"""
-    from neoswga.core.condition_suggester import suggest_conditions
-
     genome_gc = args.genome_gc
 
     # Calculate GC from genome file if provided
@@ -2168,12 +2174,48 @@ def run_suggest(args):
         logger.error("Provide at least --genome-gc or --genome or --primer-length")
         sys.exit(1)
 
-    suggest_conditions(
-        genome_gc=genome_gc,
-        primer_length=args.primer_length,
-        context=args.context,
-        verbose=True
-    )
+    # Use advanced optimizer if requested or if polymerase/optimize-for specified
+    use_optimizer = getattr(args, 'use_optimizer', False)
+    polymerase = getattr(args, 'polymerase', 'phi29')
+    optimize_for = getattr(args, 'optimize_for', 'amplification')
+
+    if use_optimizer or polymerase != 'phi29' or optimize_for != 'amplification':
+        # Use new AdditiveOptimizer
+        from neoswga.core.additive_optimizer import AdditiveOptimizer
+        from neoswga.core.mechanistic_params import get_polymerase_params
+
+        # Determine primer length if not provided
+        primer_length = args.primer_length
+        if primer_length is None:
+            poly_params = get_polymerase_params(polymerase)
+            primer_length = int((poly_params['primer_length_range'][0] +
+                                poly_params['primer_length_range'][1]) / 2)
+            logger.info(f"Using default primer length for {polymerase}: {primer_length}bp")
+
+        # Default GC if not provided
+        if genome_gc is None:
+            genome_gc = 0.5
+            logger.info("No GC content provided, using default 50%")
+
+        optimizer = AdditiveOptimizer(polymerase=polymerase)
+        recommendation = optimizer.optimize(
+            primer_length=primer_length,
+            template_gc=genome_gc,
+            optimize_for=optimize_for,
+        )
+
+        # Print detailed recommendation
+        print(recommendation.summary())
+
+    else:
+        # Use original suggest_conditions for backward compatibility
+        from neoswga.core.condition_suggester import suggest_conditions
+        suggest_conditions(
+            genome_gc=genome_gc,
+            primer_length=args.primer_length,
+            context=args.context,
+            verbose=True
+        )
 
 
 def show_presets():
