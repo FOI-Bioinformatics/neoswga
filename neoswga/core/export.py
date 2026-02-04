@@ -67,3 +67,96 @@ def export_to_fasta(
             f.write(f"{header}\n{primer}\n")
 
     logger.info(f"Exported {len(primers)} primers to {output_path}")
+
+
+# Vendor format specifications
+VENDOR_FORMATS: Dict[str, Dict[str, Any]] = {
+    "idt": {
+        "columns": ["Name", "Sequence", "Scale", "Purification"],
+        "defaults": {"Scale": "25nm", "Purification": "STD"},
+    },
+    "twist": {
+        "columns": ["Name", "Sequence"],
+        "defaults": {},
+    },
+    "sigma": {
+        "columns": ["Oligo Name", "Sequence (5' to 3')", "Scale", "Purification"],
+        "defaults": {"Scale": "0.025 umol", "Purification": "Desalt"},
+    },
+    "generic": {
+        "columns": ["name", "sequence", "length", "tm", "gc"],
+        "defaults": {},
+    },
+}
+
+
+def export_to_vendor_csv(
+    primers: List[str],
+    output_path: str,
+    vendor: str = "generic",
+    project_name: str = "SWGA",
+    scale: Optional[str] = None,
+    purification: Optional[str] = None
+) -> None:
+    """
+    Export primers in vendor-specific CSV format.
+
+    Args:
+        primers: List of primer sequences.
+        output_path: Path for output file.
+        vendor: Vendor name ('idt', 'twist', 'sigma', 'generic').
+        project_name: Project/order name prefix.
+        scale: Override default synthesis scale.
+        purification: Override default purification method.
+    """
+    vendor = vendor.lower()
+    if vendor not in VENDOR_FORMATS:
+        logger.warning(f"Unknown vendor '{vendor}', using generic format")
+        vendor = "generic"
+
+    fmt = VENDOR_FORMATS[vendor]
+    columns = fmt["columns"]
+    defaults = fmt["defaults"].copy()
+
+    if scale:
+        for col in ["Scale", "scale"]:
+            if col in columns:
+                defaults[col] = scale
+    if purification:
+        for col in ["Purification", "purification"]:
+            if col in columns:
+                defaults[col] = purification
+
+    with open(output_path, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=columns)
+        writer.writeheader()
+
+        for i, primer in enumerate(primers, 1):
+            row = defaults.copy()
+            name = f"{project_name}_{i:03d}"
+
+            # Map to vendor-specific column names
+            if "Name" in columns:
+                row["Name"] = name
+            if "Oligo Name" in columns:
+                row["Oligo Name"] = name
+            if "name" in columns:
+                row["name"] = name
+
+            if "Sequence" in columns:
+                row["Sequence"] = primer
+            if "Sequence (5' to 3')" in columns:
+                row["Sequence (5' to 3')"] = primer
+            if "sequence" in columns:
+                row["sequence"] = primer
+
+            if "length" in columns:
+                row["length"] = len(primer)
+            if "tm" in columns:
+                row["tm"] = f"{calculate_simple_tm(primer):.1f}"
+            if "gc" in columns:
+                row["gc"] = f"{calculate_gc(primer):.1%}"
+
+            writer.writerow(row)
+
+    logger.info(f"Exported {len(primers)} primers to {output_path} ({vendor} format)")
