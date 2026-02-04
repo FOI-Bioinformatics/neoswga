@@ -257,3 +257,86 @@ class TestExportCLI:
         assert args.dir == str(tmp_path)
         assert args.output == str(output_dir)
         assert args.project == 'TestProject'
+
+
+class TestExportIntegration:
+    """Integration tests for complete export workflow."""
+
+    def test_full_export_workflow(self, tmp_path):
+        """Test complete export from results to all formats."""
+        from neoswga.core.export import PrimerExporter
+        import json
+
+        # Create realistic mock results
+        results_dir = tmp_path / "results"
+        results_dir.mkdir()
+
+        # Step 4 results
+        step4_content = """primer,set_index,score,coverage,bg_coverage,selectivity,mean_gap,optimizer
+ATCGATCGATCG,0,0.847,0.78,0.12,6.5,15000,hybrid
+GCTAGCTAGCTA,0,0.847,0.78,0.12,6.5,15000,hybrid
+TTAATTAATTAA,0,0.847,0.78,0.12,6.5,15000,hybrid
+CCGGCCGGCCGG,0,0.847,0.78,0.12,6.5,15000,hybrid
+AACCAACCAACC,0,0.847,0.78,0.12,6.5,15000,hybrid
+TTGGTTGGTTGG,0,0.847,0.78,0.12,6.5,15000,hybrid
+"""
+        (results_dir / "step4_improved_df.csv").write_text(step4_content)
+
+        # Params file
+        params = {
+            "polymerase": "equiphi29",
+            "reaction_temp": 42.0,
+            "betaine_m": 1.0,
+            "dmso_percent": 5.0,
+            "mg_conc": 2.5,
+        }
+        (results_dir / "params.json").write_text(json.dumps(params))
+
+        # Run export
+        exporter = PrimerExporter.from_results_dir(str(results_dir))
+
+        export_dir = tmp_path / "export"
+        outputs = exporter.export_all(str(export_dir), project_name="IntegrationTest")
+
+        # Verify all outputs
+        assert len(outputs) == 3  # fasta, csv, protocol
+
+        # Check FASTA content
+        fasta_content = (export_dir / "IntegrationTest_primers.fasta").read_text()
+        assert ">IntegrationTest_001" in fasta_content
+        assert "ATCGATCGATCG" in fasta_content
+        assert "Tm=" in fasta_content
+
+        # Check CSV content
+        csv_content = (export_dir / "IntegrationTest_order_idt.csv").read_text()
+        assert "Name" in csv_content
+        assert "IntegrationTest_001" in csv_content
+        assert "25nm" in csv_content.lower()
+
+        # Check protocol content
+        protocol_content = (export_dir / "IntegrationTest_protocol.md").read_text()
+        assert "equiphi29" in protocol_content.lower() or "EquiPhi29" in protocol_content
+        assert "42" in protocol_content
+        assert "Betaine" in protocol_content
+        assert "DMSO" in protocol_content
+
+    def test_summary_accuracy(self):
+        """Verify summary calculations are accurate."""
+        from neoswga.core.export import PrimerExporter
+
+        # Known primers with calculable properties
+        primers = [
+            "AAAAAAAAAA",  # 10-mer, 0% GC, Tm = 20
+            "GGGGGGGGGG",  # 10-mer, 100% GC, Tm = 40
+            "ATCGATCGAT",  # 10-mer, 40% GC, Tm = 28
+        ]
+
+        exporter = PrimerExporter(primers)
+        summary = exporter.get_summary()
+
+        assert summary["num_primers"] == 3
+        assert summary["mean_length"] == 10.0
+        assert abs(summary["mean_gc"] - 0.467) < 0.01  # (0 + 1 + 0.4) / 3
+        assert summary["min_tm"] == 20.0
+        assert summary["max_tm"] == 40.0
+        assert summary["estimated_cost"] == 15.0  # 3 * $5
