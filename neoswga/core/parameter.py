@@ -681,6 +681,3 @@ def read_args_from_json(in_fname):
     with open(in_fname, 'r') as json_file:
         data = json.load(json_file)
     return data
-
-if __name__ == "__main__":
-    print(get_all_files("/Users/janeyu/Desktop/primer_data_dir/genomes/"))

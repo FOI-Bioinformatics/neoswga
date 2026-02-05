@@ -246,12 +246,3 @@ def append_positions_to_h5py_file(task):
     if len(filtered_list) > 0:
         kmer_dict = get_all_positions_per_k(list(set(filtered_list)), fname_genome, circular, fname_prefix)
         write_to_h5py(kmer_dict, fname_prefix)
-
-if __name__ == "__main__":
-    k = 6
-    # output_prefix = 'kmer_files/myco'
-
-    # test_txt = parameter.data_dir + output_prefix + '_' + str(k) + 'mer.txt'
-
-    kmer_dict = get_all_positions_per_k(["AACC"], seq_fname='/Users/janeyu/Documents/primer_stuff/soapswga/examples/simple_plasmid_example/pcDNA.fasta', circular=False)
-    print(len(kmer_dict["AACC"]))

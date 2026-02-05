@@ -138,3 +138,18 @@ tests/integration/**/human_*.fasta
 
 # Integration test output data (regenerated)
 tests/integration/**/data/
+
+# Integration test working directories (local experiments)
+tests/integration/francisella_clinical/
+tests/integration/francisella_e2e/
+tests/integration/equiphi29_long/
+tests/integration/equiphi29_validation/
+tests/integration/equiphi29_full_factorial/
+
+# Test data H5 files (large, regenerated)
+test_data/*.h5
+
+# Example generated files (run examples locally)
+examples/**/kmer_files/
+examples/**/step*.csv
+examples/**/*.h5
