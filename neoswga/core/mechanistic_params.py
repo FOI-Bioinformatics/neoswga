@@ -55,9 +55,15 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         'description': 'Destabilizes AT base pairs, reduces secondary structure',
     },
     'betaine': {
-        'ref_coef': -1.2,             # C per M at T_ref (Rees 1993, Henke 1997)
+        # Published value: -1.0 C/M (Rees 1993), -1.3 C/M (Henke 1997 PCR context).
+        # Using -1.2 C/M as a weighted average of the two studies. The Rees
+        # (1993) value was measured on long DNA, while Henke (1997) measured on
+        # short PCR amplicons closer to SWGA primer lengths. Neither study was
+        # performed at SWGA-relevant concentrations (0.5-2.5 M), so the value
+        # represents a literature consensus rather than a single source.
+        'ref_coef': -1.2,             # C per M at T_ref
         'ref_temp': 310.15,           # K (37C)
-        'activation_energy': 1800.0,  # J/mol (estimated from Rees 1993)
+        'activation_energy': 1800.0,  # J/mol (estimated from Rees 1993 multi-temp data)
         'max_concentration': 2.5,     # M
         'gc_dependent': True,
         'gc_equalization_conc': 5.2,  # M for full GC independence (Rees 1993)
@@ -72,17 +78,29 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         'description': 'Destabilizes hydrogen bonding',
     },
     'trehalose': {
-        'ref_coef': -3.0,             # C per M (Spiess 2004 re-evaluated)
+        # Published value: Spiess et al. (2004) reported Tm depression of
+        # ~2-4 C/M depending on sequence context. We use -3.0 C/M as the
+        # midpoint of their observed range. Their measurements used real-time
+        # PCR with short amplicons at 0.2-0.8 M trehalose, which is within
+        # the practical SWGA concentration range.
+        'ref_coef': -3.0,             # C per M (midpoint of Spiess 2004 range)
         'ref_temp': 310.15,           # K (37C)
-        'activation_energy': 1500.0,  # J/mol (estimated)
+        'activation_energy': 1500.0,  # J/mol (estimated; no multi-temp data available)
         'max_concentration': 1.0,     # M
         'gc_dependent': False,
         'description': 'Stabilizes proteins, modifies water structure',
     },
     'urea': {
-        'ref_coef': -2.5,             # C per M (Lesnick 1995, corrected from -5.0)
+        # Published values: Hutton (1977) reported -5.0 C/M for long genomic
+        # DNA at high urea concentrations (4-8 M). Lesnick & Bhalla (1995)
+        # measured -2.0 to -3.0 C/M for short oligonucleotides at 0.5-2 M,
+        # which is the concentration range relevant to SWGA. The discrepancy
+        # is likely due to cooperative denaturation effects in long DNA that
+        # do not apply to short primer-template duplexes. We use -2.5 C/M
+        # as the midpoint of the Lesnick (1995) range.
+        'ref_coef': -2.5,             # C per M (Lesnick 1995, short oligos)
         'ref_temp': 310.15,           # K (37C)
-        'activation_energy': 2000.0,  # J/mol (estimated from Hutton 1977)
+        'activation_energy': 2000.0,  # J/mol (estimated from Hutton 1977 multi-temp data)
         'max_concentration': 2.0,     # M
         'gc_dependent': True,
         'gc_preference': 1.3,         # 30% stronger effect on GC-rich sequences
@@ -113,15 +131,15 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
     # How additives affect primer melting temperature
     # NOTE: Use ADDITIVE_TM_PARAMS for Arrhenius-based corrections
     'tm': {
-        # Uniform Tm corrections (C per unit concentration)
-        # Recalibrated based on literature (see ADDITIVE_TM_PARAMS)
+        # Uniform Tm corrections (C per unit concentration).
+        # See ADDITIVE_TM_PARAMS above for detailed provenance of each value.
         'dmso_coef': -0.55,           # C per %, Chester 1993, Varadaraj 1994
         'formamide_coef': -0.65,      # C per %, Blake 1996
-        'trehalose_coef': -3.0,       # C per M, Spiess 2004 (recalibrated)
-        'ethanol_coef': -0.4,         # C per %, Cheng 1994 (recalibrated)
-        'betaine_uniform_coef': -1.2, # C per M, Rees 1993, Henke 1997 (recalibrated)
-        'urea_coef': -2.5,            # C per M, Lesnick 1995 (recalibrated from -5.0)
-        'tmac_uniform_coef': -0.5,    # C per M, Melchior 1973 (recalibrated)
+        'trehalose_coef': -3.0,       # C per M, midpoint of Spiess 2004 range
+        'ethanol_coef': -0.4,         # C per %, Cheng 1994
+        'betaine_uniform_coef': -1.2, # C per M, avg of Rees 1993 / Henke 1997
+        'urea_coef': -2.5,            # C per M, Lesnick 1995 (short oligos)
+        'tmac_uniform_coef': -0.5,    # C per M, Melchior 1973
 
         # GC normalization sigmoid parameters
         # Betaine reaches full GC equalization at ~5.2M (Rees 1993)

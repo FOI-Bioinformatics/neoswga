@@ -572,14 +572,16 @@ Documentation:
                                      'milp', 'equiphi29', 'moea', 'normalized'],
                              default='hybrid',
                              help='Optimization method. '
-                                  'Standard: hybrid (default, network + greedy), greedy (fast BFS). '
-                                  'Fast: dominating-set (8x faster, ln(n) approximation), '
-                                  'weighted-set-cover (Tm-weighted set cover). '
-                                  'Clinical: background-aware (10-20x background reduction). '
-                                  'Strategy-based: normalized (configurable weights via --strategy). '
-                                  'Other: network (Tm-weighted graph), genetic (GA-based), '
+                                  'Quick guide: hybrid (default, general use), '
+                                  'dominating-set (8x faster for large pools), '
+                                  'background-aware (clinical, 10-20x bg reduction). '
+                                  'Other: greedy (fast BFS), '
+                                  'weighted-set-cover (Tm-weighted set cover), '
+                                  'normalized (configurable weights via --strategy), '
+                                  'network (Tm-weighted graph), genetic (GA-based), '
                                   'legacy-bfs (original algorithm), milp (exact ILP), '
-                                  'equiphi29 (EquiPhi29-specific), moea (multi-objective)')
+                                  'equiphi29 (EquiPhi29-specific), moea (multi-objective). '
+                                  'Use --method-guide for detailed comparison.')
     optimize_parser.add_argument('--strategy',
                              choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
                              default='balanced',

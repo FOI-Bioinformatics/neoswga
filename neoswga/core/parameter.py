@@ -50,6 +50,10 @@ class PipelineParameters:
     max_tm: float = 45.0
     max_gini: float = 0.6
     max_primer: int = 500
+    # Unitless amplification prediction score (scale ~0-20). Combines Tm
+    # optimality, GC content, 3' stability, and binding energy features.
+    # Higher values indicate stronger predicted amplification; the default
+    # of 10.0 retains above-average primers.
     min_amp_pred: float = 10.0
 
     # Dimer constraints

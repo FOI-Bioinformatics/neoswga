@@ -201,23 +201,34 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             remediation="Re-run 'neoswga score -j params.json' (Step 3)."
         )
 
-    # Check position files (at least one should exist)
-    missing_positions = []
-    found_any = False
-    for prefix in fg_prefixes:
-        for k in range(6, 13):
-            pos_file = f"{prefix}_{k}mer_positions.h5"
-            if os.path.exists(pos_file):
-                found_any = True
-                break
-        if found_any:
-            break
+    # Check position files for each primer length present in step3_df.csv.
+    # Derive required k values from actual primer lengths rather than
+    # scanning a fixed 6-12 range, so we detect missing files precisely.
+    required_k_values = set()
+    try:
+        for primer in df['primer']:
+            required_k_values.add(len(str(primer)))
+    except (KeyError, TypeError):
+        # Fallback: if 'primer' column is the index, iterate the index
+        for primer in df.index:
+            required_k_values.add(len(str(primer)))
 
-    if not found_any:
+    missing_positions = []
+    for prefix in fg_prefixes:
+        for k in sorted(required_k_values):
+            pos_file = f"{prefix}_{k}mer_positions.h5"
+            if not os.path.exists(pos_file):
+                missing_positions.append(pos_file)
+
+    if missing_positions:
+        k_values_str = ', '.join(str(k) for k in sorted(required_k_values))
         return StepValidationResult(
             valid=False,
             missing_files=missing_positions,
-            error_message="Position files not found. Step 4 requires binding positions from Step 2.",
+            error_message=(
+                f"Position files not found for primer lengths ({k_values_str}bp). "
+                f"Step 4 requires binding positions from Step 2."
+            ),
             remediation="Position files are generated during Step 2. Re-run 'neoswga filter -j params.json'."
         )
 
@@ -539,6 +550,9 @@ def step3(validate_prerequisites=True):
         results = rf_preprocessing.predict_new_primers(df_pred)
     results.sort_values(by=["on.target.pred"], ascending=[False], inplace=True)
 
+    # min_amp_pred: unitless amplification prediction score (~0-20 scale).
+    # Combines Tm optimality, GC content, 3' stability, and binding energy.
+    # Default 10.0 retains above-average primers.
     step3_df = results[results["on.target.pred"] >= parameter.min_amp_pred]
 
     step2_df = step2_df.set_index("primer")

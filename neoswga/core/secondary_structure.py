@@ -25,10 +25,22 @@ import neoswga.core.reaction_conditions as rc
 # ========================================
 # Loop and Bulge Penalties
 # ========================================
+# Loop initiation penalties from Serra & Turner (1995) Methods Enzymol
+# 259:242-261, refined by Mathews et al. (1999) J Mol Biol 288:911-940.
+# For loops larger than 6 nt, Jacobson-Stockmayer extrapolation is used:
+#   G_loop(n) = G_loop(6) + 1.75 * RT * ln(n/6)
+# (Jacobson & Stockmayer (1950) J Chem Phys 18:1600-1606).
+#
+# Bulge penalties follow Mathews et al. (1999) and Freier et al. (1986)
+# PNAS 83:9373-9377 for single-nucleotide bulges.
 
 def loop_penalty(size: int) -> float:
     """
     Calculate thermodynamic penalty for loops.
+
+    Empirical values for 3-6 nt from Serra & Turner (1995) and
+    Mathews et al. (1999). Larger loops use Jacobson-Stockmayer
+    extrapolation.
 
     Args:
         size: Loop size in nucleotides
@@ -39,17 +51,20 @@ def loop_penalty(size: int) -> float:
     if size < 3:
         return 1000.0  # Physically impossible
     elif size <= 6:
-        # Small loops: empirical values
+        # Small loops: empirical values (Serra & Turner 1995, Table 1)
         penalties = {3: 5.6, 4: 5.0, 5: 5.2, 6: 5.4}
         return penalties[size]
     else:
-        # Larger loops: logarithmic scaling
+        # Larger loops: Jacobson-Stockmayer logarithmic extrapolation
         return 5.4 + 1.75 * np.log(size / 6.0)
 
 
 def bulge_penalty(size: int) -> float:
     """
     Calculate thermodynamic penalty for bulges.
+
+    Single-nucleotide bulge value from Freier et al. (1986) PNAS 83:9373-9377.
+    Multi-nucleotide bulges from Mathews et al. (1999) J Mol Biol 288:911-940.
 
     Args:
         size: Bulge size in nucleotides
@@ -60,12 +75,12 @@ def bulge_penalty(size: int) -> float:
     if size == 0:
         return 0.0
     elif size == 1:
-        return 3.3  # Single nucleotide bulge
+        return 3.3  # Single nucleotide bulge (Freier 1986)
     elif size <= 6:
-        # Small bulges
+        # Small bulges (Mathews 1999)
         return 3.3 + 1.7 * (size - 1)
     else:
-        # Larger bulges
+        # Larger bulges: linear extrapolation beyond 6 nt
         return 3.3 + 1.7 * 5 + 2.0 * (size - 6)
 
 

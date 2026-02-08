@@ -17,6 +17,7 @@ from unittest.mock import Mock, patch, MagicMock
 from neoswga.core.kmer_counter import (
     check_jellyfish_available,
     require_jellyfish,
+    get_jellyfish_version,
     MultiGenomeKmerCounter,
     count_kmers_in_sequence,
     run_jellyfish,
@@ -301,6 +302,91 @@ class TestGetPrimerListFromKmers:
         # Should not raise, just warn
         primers = get_primer_list_from_kmers([prefix], kmer_lengths=range(6, 7))
         assert primers == []
+
+
+# =============================================================================
+# Jellyfish Version Tests
+# =============================================================================
+
+class TestJellyfishVersion:
+    """Tests for jellyfish version parsing."""
+
+    def test_parses_version_2_output(self):
+        """Test parsing 'jellyfish 2.3.1' output."""
+        mock_result = MagicMock()
+        mock_result.stdout = 'jellyfish 2.3.1\n'
+        mock_result.stderr = ''
+
+        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
+            with patch('subprocess.run', return_value=mock_result):
+                version = get_jellyfish_version()
+                assert version == '2.3.1'
+
+    def test_parses_bare_version_string(self):
+        """Test parsing '2.3.0' output without program name."""
+        mock_result = MagicMock()
+        mock_result.stdout = '2.3.0\n'
+        mock_result.stderr = ''
+
+        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
+            with patch('subprocess.run', return_value=mock_result):
+                version = get_jellyfish_version()
+                assert version == '2.3.0'
+
+    def test_returns_none_when_not_available(self):
+        """Test that None is returned when jellyfish is not installed."""
+        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=False):
+            assert get_jellyfish_version() is None
+
+    def test_require_jellyfish_rejects_version_1(self):
+        """Test that version 1.x is rejected."""
+        mock_result = MagicMock()
+        mock_result.stdout = 'jellyfish 1.1.12\n'
+        mock_result.stderr = ''
+
+        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
+            with patch('subprocess.run', return_value=mock_result):
+                with pytest.raises(RuntimeError, match="Jellyfish 2.x"):
+                    require_jellyfish()
+
+    def test_require_jellyfish_accepts_version_2(self):
+        """Test that version 2.x is accepted."""
+        mock_result = MagicMock()
+        mock_result.stdout = 'jellyfish 2.3.1\n'
+        mock_result.stderr = ''
+
+        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
+            with patch('subprocess.run', return_value=mock_result):
+                # Should not raise
+                require_jellyfish()
+
+
+# =============================================================================
+# K-mer Tm Filtering Exception Tests
+# =============================================================================
+
+class TestKmerTmFilteringExceptions:
+    """Tests for narrowed exception handling in get_primer_list_from_kmers."""
+
+    def test_skips_ambiguous_bases_gracefully(self, temp_dir):
+        """Test that k-mers with ambiguous bases are skipped without crashing."""
+        prefix = os.path.join(temp_dir, 'test')
+        kmer_file = f"{prefix}_6mer_all.txt"
+        with open(kmer_file, 'w') as f:
+            # Valid k-mer followed by one with ambiguous base
+            f.write('ATCGAT 10\n')
+            f.write('NNNNAT 10\n')
+
+        primers = get_primer_list_from_kmers(
+            [prefix],
+            kmer_lengths=range(6, 7),
+            min_tm=0.0,
+            max_tm=100.0
+        )
+
+        # ATCGAT should be included, NNNNAT should be skipped
+        assert isinstance(primers, list)
+        assert 'NNNNAT' not in primers
 
 
 # =============================================================================

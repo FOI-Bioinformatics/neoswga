@@ -111,6 +111,74 @@ def is_dimer_fast(seq_1, seq_2, max_dimer_bp=3):
     return False
 
 
+def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None):
+    """
+    Thermodynamic dimer check based on free energy of the longest complementary region.
+
+    Complements the sequence-based ``is_dimer()`` by evaluating whether the
+    longest complementary stretch is thermodynamically stable at the reaction
+    temperature. This reduces false positives from short complementary runs
+    that lack sufficient binding energy.
+
+    The default threshold of -6.0 kcal/mol follows the guideline of
+    Rychlik (1995) Mol Biotechnol 3:129-134 for primer-dimer avoidance.
+
+    Args:
+        seq_1: First primer sequence (5' to 3').
+        seq_2: Second primer sequence (5' to 3').
+        delta_g_threshold: Maximum (most negative) delta-G in kcal/mol for
+            the interaction to be considered a dimer. Default -6.0.
+        conditions: Optional ReactionConditions for temperature. If None,
+            uses 37 C.
+
+    Returns:
+        True if the longest complementary region has delta-G <= threshold
+        (i.e., the interaction is thermodynamically stable enough to form
+        a dimer).
+    """
+    from neoswga.core.thermodynamics import (
+        reverse_complement, calculate_free_energy,
+    )
+
+    seq_2_rc = reverse_complement(seq_2)
+
+    # Find the longest common substring (complementary region)
+    len1, len2 = len(seq_1), len(seq_2_rc)
+    longest_run = 0
+    best_start_1 = 0
+
+    # Sliding window to find longest complementary stretch
+    prev = [0] * (len2 + 1)
+    for i in range(1, len1 + 1):
+        curr = [0] * (len2 + 1)
+        for j in range(1, len2 + 1):
+            if seq_1[i - 1] == seq_2_rc[j - 1]:
+                curr[j] = prev[j - 1] + 1
+                if curr[j] > longest_run:
+                    longest_run = curr[j]
+                    best_start_1 = i - curr[j]
+        prev = curr
+
+    if longest_run < 2:
+        return False
+
+    # Extract the longest complementary region from seq_1
+    binding_seq = seq_1[best_start_1:best_start_1 + longest_run]
+
+    # Calculate free energy of the duplex at reaction temperature
+    temperature = 37.0
+    if conditions is not None:
+        temperature = conditions.temp
+
+    try:
+        delta_g = calculate_free_energy(binding_seq, temperature=temperature)
+    except (KeyError, ValueError):
+        # Fall back to a rough estimate if the NN lookup fails
+        delta_g = -1.5 * longest_run
+
+    return delta_g <= delta_g_threshold
+
+
 def _check_dimer_pair(args):
     """Worker function for parallel dimer checking."""
     i, j, primer_i, primer_j, max_dimer_bp, max_self_dimer_bp = args

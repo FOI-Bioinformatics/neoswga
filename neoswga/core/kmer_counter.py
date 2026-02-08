@@ -35,13 +35,46 @@ def check_jellyfish_available() -> bool:
     return shutil.which('jellyfish') is not None
 
 
+def get_jellyfish_version() -> Optional[str]:
+    """Parse the Jellyfish version from ``jellyfish --version``.
+
+    Returns:
+        Version string (e.g. '2.3.1'), or None if unavailable.
+    """
+    if not check_jellyfish_available():
+        return None
+    try:
+        result = subprocess.run(
+            ['jellyfish', '--version'],
+            capture_output=True, text=True, timeout=10
+        )
+        # Output is typically "jellyfish 2.3.1" or just "2.3.1"
+        text = result.stdout.strip() or result.stderr.strip()
+        for token in text.split():
+            if token[0].isdigit():
+                return token
+    except (subprocess.TimeoutExpired, OSError):
+        pass
+    return None
+
+
 def require_jellyfish():
-    """Raise error if Jellyfish is not available."""
+    """Raise error if Jellyfish is not available or is version 1.x."""
     if not check_jellyfish_available():
         raise RuntimeError(
             "Jellyfish is required but not found in PATH. "
             "Please install Jellyfish: https://github.com/gmarcais/Jellyfish"
         )
+    version = get_jellyfish_version()
+    if version:
+        logger.info(f"Jellyfish version: {version}")
+        major = version.split('.')[0]
+        if major == '1':
+            raise RuntimeError(
+                f"Jellyfish version {version} detected. NeoSWGA requires "
+                f"Jellyfish 2.x (1.x has an incompatible CLI). "
+                f"Please upgrade: https://github.com/gmarcais/Jellyfish"
+            )
 
 
 class MultiGenomeKmerCounter:
@@ -374,8 +407,9 @@ def get_primer_list_from_kmers(prefixes: List[str],
                             tm = melting.temp(curr_kmer)
                             if min_tm < tm < max_tm:
                                 primer_list.append(curr_kmer)
-                        except Exception:
-                            # Skip k-mers that fail Tm calculation
-                            pass
+                        except (ValueError, TypeError, KeyError) as e:
+                            # Skip k-mers with invalid sequences (e.g. ambiguous bases
+                            # cause KeyError in the melting library's complement lookup)
+                            logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
 
     return primer_list

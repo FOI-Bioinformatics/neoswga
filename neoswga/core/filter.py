@@ -290,6 +290,11 @@ def get_all_rates(
 
     results = []
 
+    # When a k-mer is absent from the count dictionary (count is None), it passes
+    # the frequency filter. This is intentional: k-mers missing from the jellyfish
+    # output may still have binding sites found by downstream string search. The
+    # subsequent Gini index and scoring steps provide additional filtering, so
+    # retaining these candidates at this stage avoids premature exclusion.
     for primer in primer_list:
         fg_count = primer_to_fg_count.get(primer, None)
         fg_bool = (fg_count is None or fg_count / fg_total_length > parameter.min_fg_freq)

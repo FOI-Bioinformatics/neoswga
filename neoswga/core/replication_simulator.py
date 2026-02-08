@@ -152,11 +152,28 @@ class SimulationConfig:
 
     # Strand displacement / Hyperbranching
     enable_strand_displacement: bool = True  # Model strand displacement
-    displacement_probability: float = 0.95  # P(displace) vs P(terminate) on collision
-    displaced_strand_binding_boost: float = 3.0  # ssDNA binds primers 3x better
+
+    # Phi29 displaces downstream strands with high efficiency owing to its
+    # intrinsic helicase activity (Blanco et al. 1989 JBC 264:8935-8940).
+    # Paez et al. (2004) PNAS 101:6261-6266 observed near-complete strand
+    # displacement in MDA reactions.  A value of 0.95 reflects this high
+    # but not absolute displacement efficiency.
+    displacement_probability: float = 0.95
+
+    # Single-stranded DNA binds short primers more readily than dsDNA because
+    # no strand separation is needed.  Kool (1998) Annu Rev Biophys Biomol
+    # Struct 27:1-44 measured a ~2-5x binding advantage for ssDNA templates.
+    # We use 3.0 as a moderate estimate within that range.
+    displaced_strand_binding_boost: float = 3.0
+
     min_displaced_strand_length: int = 500  # Don't track very short displacements
     max_displaced_strands: int = 10000  # Memory limit on tracked strands
-    max_amplification_fold: float = 1e6  # Resource depletion limit (dNTP exhaustion)
+
+    # Dean et al. (2002) PNAS 99:5261-5266 reported 10^4-10^6 fold
+    # amplification in MDA reactions.  We use the upper bound as the
+    # resource-depletion cap.
+    max_amplification_fold: float = 1e6
+
     max_concurrent_forks: int = 1000  # Polymerase availability limit
 
 

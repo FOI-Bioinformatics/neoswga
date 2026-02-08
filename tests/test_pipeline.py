@@ -218,7 +218,7 @@ class TestValidateStep4Prerequisites:
         step3_file.write_text("primer,fg_freq,bg_freq,amp_pred\nACGT,100,10,5\n")
 
         # Position file format is {prefix}_{k}mer_positions.h5
-        positions_file = tmp_path / "target_6mer_positions.h5"
+        positions_file = tmp_path / "target_4mer_positions.h5"
         positions_file.write_bytes(b"dummy")  # Just need file to exist
 
         result = validate_step4_prerequisites(
@@ -237,6 +237,48 @@ class TestValidateStep4Prerequisites:
 
         assert result.valid is False
         assert "step3_df.csv" in str(result.missing_files)
+
+    def test_detects_missing_position_files_for_specific_k(self, tmp_path):
+        """Test that missing position files for specific primer lengths are detected."""
+        # Create step3_df.csv with 8bp and 10bp primers
+        step3_file = tmp_path / "step3_df.csv"
+        step3_file.write_text(
+            "primer,fg_freq,bg_freq,amp_pred\n"
+            "ATCGATCG,100,10,5\n"       # 8bp primer
+            "GCTAGCTAGC,80,8,4\n"        # 10bp primer
+        )
+
+        # Only create position file for k=8, not for k=10
+        pos_8 = tmp_path / "target_8mer_positions.h5"
+        pos_8.write_bytes(b"dummy")
+
+        result = validate_step4_prerequisites(
+            data_dir=str(tmp_path),
+            fg_prefixes=[str(tmp_path / "target")]
+        )
+
+        assert result.valid is False
+        assert any("10mer_positions.h5" in f for f in result.missing_files)
+
+    def test_valid_when_all_required_position_files_exist(self, tmp_path):
+        """Test validation passes when position files match primer lengths."""
+        step3_file = tmp_path / "step3_df.csv"
+        step3_file.write_text(
+            "primer,fg_freq,bg_freq,amp_pred\n"
+            "ATCGATCG,100,10,5\n"       # 8bp
+            "GCTAGCTAGC,80,8,4\n"        # 10bp
+        )
+
+        # Create position files for both k=8 and k=10
+        (tmp_path / "target_8mer_positions.h5").write_bytes(b"dummy")
+        (tmp_path / "target_10mer_positions.h5").write_bytes(b"dummy")
+
+        result = validate_step4_prerequisites(
+            data_dir=str(tmp_path),
+            fg_prefixes=[str(tmp_path / "target")]
+        )
+
+        assert result.valid is True
 
 
 # =============================================================================
