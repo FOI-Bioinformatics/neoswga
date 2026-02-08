@@ -575,9 +575,23 @@ tests/
   integration/             # Integration test scenarios
   report/                  # Report module tests
   test_*.py                # Unit tests
+examples/
+  plasmid_example/         # Self-contained example (pcDNA vs pLTR plasmids)
 scripts/                   # Development utilities
 validation_tests/          # Validation test suite
 docs/                      # Documentation
   archive/                 # Historical documents
   validation/              # Validation reports
+```
+
+## Running the Example
+
+The `examples/plasmid_example/` provides a quick test with two small plasmids:
+
+```bash
+cd examples/plasmid_example
+neoswga count-kmers -j params.json
+neoswga filter -j params.json
+neoswga score -j params.json
+neoswga optimize -j params.json
 ```
