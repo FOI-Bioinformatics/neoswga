@@ -98,7 +98,7 @@ class GreedyConfig(OptimizerConfig):
     score_cache_size: int = 100000  # Maximum entries in score cache
 
 
-@OptimizerFactory.register('greedy', aliases=['bfs', 'greedy-bfs'])
+@OptimizerFactory.register('greedy', aliases=['bfs', 'greedy-bfs', 'greedy-dropout', 'dropout'])
 class GreedyOptimizer(BaseOptimizer):
     """
     Greedy breadth-first search optimizer.
@@ -351,13 +351,34 @@ class GreedyOptimizer(BaseOptimizer):
         all_states = finished_states + ctx.top_states
         all_states.sort(key=lambda s: s.score, reverse=True)
 
-        return SearchResult(
+        base_result = SearchResult(
             states=all_states,
             best_score=best_score,
             iterations_completed=iteration,
             converged=True,
             message=f"Completed {iteration} iterations",
         )
+
+        # Apply dropout if enabled and we have enough iterations
+        if (self.greedy_config.enable_dropout and
+                base_result.iterations_completed >= self.greedy_config.drop_out_iteration):
+
+            if ctx.config.verbose:
+                logger.info("Applying dropout layer")
+
+            dropped_states = self._apply_dropout(ctx, base_result.states)
+            combined = base_result.states + dropped_states
+            combined.sort(key=lambda s: s.score, reverse=True)
+
+            return SearchResult(
+                states=combined[:ctx.config.max_sets],
+                best_score=max(s.score for s in combined),
+                iterations_completed=base_result.iterations_completed,
+                converged=base_result.converged,
+                message=base_result.message + " (with dropout)",
+            )
+
+        return base_result
 
     def _expand_state(
         self,
@@ -483,55 +504,17 @@ class GreedyOptimizer(BaseOptimizer):
 
         return improvement < self.config.convergence_threshold
 
-
-@OptimizerFactory.register('greedy-dropout', aliases=['dropout'])
-class GreedyDropoutOptimizer(GreedyOptimizer):
-    """
-    Greedy optimizer with dropout layer for escaping local optima.
-
-    Periodically removes a primer from each set and re-evaluates,
-    allowing the algorithm to backtrack from suboptimal choices.
-    """
-
-    @property
-    def name(self) -> str:
-        return "greedy-dropout"
-
-    @property
-    def description(self) -> str:
-        return "Greedy BFS with dropout for escaping local optima"
-
-    def _run_bfs(self, ctx: BFSSearchContext, target_size: int) -> SearchResult:
-        """Run BFS with periodic dropout."""
-        result = super()._run_bfs(ctx, target_size)
-
-        # Apply dropout if enabled and we have enough iterations
-        if (self.greedy_config.enable_dropout and
-            result.iterations_completed >= self.greedy_config.drop_out_iteration):
-
-            if ctx.config.verbose:
-                logger.info("Applying dropout layer")
-
-            dropped_states = self._apply_dropout(ctx, result.states)
-            all_states = result.states + dropped_states
-            all_states.sort(key=lambda s: s.score, reverse=True)
-
-            return SearchResult(
-                states=all_states[:ctx.config.max_sets],
-                best_score=max(s.score for s in all_states),
-                iterations_completed=result.iterations_completed,
-                converged=result.converged,
-                message=result.message + " (with dropout)",
-            )
-
-        return result
-
     def _apply_dropout(
         self,
         ctx: BFSSearchContext,
         states: List[SearchState]
     ) -> List[SearchState]:
-        """Apply dropout by removing each primer from top states."""
+        """
+        Apply dropout by removing each primer from top states.
+
+        This allows the algorithm to escape local optima by exploring
+        subsets of existing solutions.
+        """
         dropped_states = []
 
         for state in states[:ctx.config.max_sets]:
@@ -546,9 +529,8 @@ class GreedyDropoutOptimizer(GreedyOptimizer):
                 cache_key = frozenset(new_primers)
                 cached_score = self._score_cache.get(cache_key)
                 if cached_score is None:
-                    # Would need to recompute positions and score
-                    # For now, use a heuristic penalty
-                    new_score = state.score * 0.95  # 5% penalty
+                    # Heuristic penalty for dropped primer
+                    new_score = state.score * 0.95
                     self._score_cache.set(cache_key, new_score)
                 else:
                     new_score = cached_score

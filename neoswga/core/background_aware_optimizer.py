@@ -346,15 +346,11 @@ class BackgroundAwareOptimizer:
         total_genome_length = sum(self.fg_seq_lengths)
 
         for primer in primers:
-            positions = self.cache.get_positions(primer, self.fg_prefixes[0])
-            if positions:
-                for pos in positions[0]:  # Forward strand
-                    covered_positions.add(pos)
-                for pos in positions[1]:  # Reverse strand
-                    covered_positions.add(pos)
+            positions = self.cache.get_positions(self.fg_prefixes[0], primer, 'both')
+            for pos in positions:
+                covered_positions.add(pos)
 
-        coverage = len(covered_positions) / total_genome_length
-        return coverage
+        return len(covered_positions) / total_genome_length if total_genome_length > 0 else 0.0
 
     def _count_background_sites(self, primers: List[str]) -> int:
         """Count total background binding sites for primer set."""
@@ -365,9 +361,8 @@ class BackgroundAwareOptimizer:
 
         for primer in primers:
             for bg_prefix in self.bg_prefixes:
-                positions = self.cache.get_positions(primer, bg_prefix)
-                if positions:
-                    total_sites += len(positions[0]) + len(positions[1])
+                positions = self.cache.get_positions(bg_prefix, primer, 'both')
+                total_sites += len(positions)
 
         return total_sites
 
@@ -520,10 +515,8 @@ def compare_optimizers(candidates: List[str],
     )
     standard_result = standard_opt.optimize(candidates, num_primers=num_primers)
     standard_bg = sum(
-        len(position_cache.get_positions(p, bg_prefixes[0])[0]) +
-        len(position_cache.get_positions(p, bg_prefixes[0])[1])
+        len(position_cache.get_positions(bg_prefixes[0], p, 'both'))
         for p in standard_result.primers
-        if position_cache.get_positions(p, bg_prefixes[0])
     )
 
     # Background-aware optimizer
@@ -566,8 +559,9 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
     """
     Background-aware optimizer implementing BaseOptimizer interface.
 
-    Three-stage optimizer with explicit background minimization
-    for clinical applications (10-20x background reduction).
+    Delegates to HybridOptimizer with background_pruning=True, providing
+    three-stage optimization (coverage + background pruning + network
+    refinement) for clinical applications requiring low background binding.
     """
 
     def __init__(
@@ -584,7 +578,23 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             position_cache, fg_prefixes, fg_seq_lengths,
             bg_prefixes, bg_seq_lengths, config
         )
-        self._optimizer = BackgroundAwareOptimizer(
+
+        # Delegate to HybridOptimizer with background pruning enabled
+        from neoswga.core.hybrid_optimizer import HybridOptimizer
+        self._hybrid = HybridOptimizer(
+            position_cache=position_cache,
+            fg_prefixes=fg_prefixes,
+            fg_seq_lengths=fg_seq_lengths,
+            bg_prefixes=bg_prefixes or [],
+            bg_seq_lengths=bg_seq_lengths or [],
+            background_pruning=True,
+            background_weight=kwargs.get('background_weight', 2.0),
+            min_coverage_threshold=kwargs.get('min_coverage_threshold', 0.95),
+            polymerase=kwargs.get('polymerase', 'phi29'),
+        )
+
+        # Keep the direct optimizer for backward compat (standalone use)
+        self._direct_optimizer = BackgroundAwareOptimizer(
             position_cache=position_cache,
             fg_prefixes=fg_prefixes,
             bg_prefixes=bg_prefixes or [],
@@ -598,7 +608,7 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
 
     @property
     def description(self) -> str:
-        return "Three-stage optimizer with 10-20x background reduction for clinical use"
+        return "Three-stage optimizer with background reduction for clinical use"
 
     @property
     def supports_background(self) -> bool:
@@ -610,7 +620,7 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
         target_size: Optional[int] = None,
         **kwargs
     ) -> OptimizationResult:
-        """Run background-aware optimization."""
+        """Run background-aware optimization via HybridOptimizer."""
         if not self.bg_prefixes:
             return OptimizationResult.failure(
                 self.name,
@@ -624,9 +634,9 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             logger.info(f"Running background-aware optimization: {len(candidates)} candidates")
 
         try:
-            result = self._optimizer.optimize(
+            result = self._hybrid.optimize(
                 candidates=candidates,
-                num_primers=target,
+                final_count=target,
                 verbose=self.config.verbose,
             )
 
@@ -635,12 +645,13 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
 
             return OptimizationResult(
                 primers=tuple(primers),
-                score=result.final_coverage,
+                score=result.final_predicted_amplification,
                 status=OptimizationStatus.SUCCESS if primers else OptimizationStatus.NO_CONVERGENCE,
                 metrics=metrics,
                 iterations=3,  # Three stages
                 optimizer_name=self.name,
-                message=f"Background reduction: {result.background_reduction_vs_naive:.1f}x",
+                message=f"Coverage: {result.final_coverage:.1%}, "
+                        f"Connectivity: {result.final_connectivity:.2f}",
             )
 
         except Exception as e:

@@ -19,7 +19,7 @@ Version: 3.0 - Phase 2.1
 
 import logging
 from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
 import numpy as np
 
@@ -27,6 +27,67 @@ from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.network_optimizer import NetworkOptimizer, AmplificationNetwork
 
 logger = logging.getLogger(__name__)
+
+
+# =========================================================================
+# Polymerase presets for polymerase-aware optimization
+# =========================================================================
+
+@dataclass
+class PolymeraseConfig:
+    """Per-polymerase configuration defaults for hybrid optimization."""
+    max_extension: int = 70000
+    thermo_filter: bool = False
+    primer_multiplier: float = 1.0
+    reaction_temp: float = 30.0
+    min_primer_tm: float = 20.0
+    max_primer_tm: float = 50.0
+    min_gc: float = 0.25
+    max_gc: float = 0.75
+
+
+# Standard polymerase presets
+POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
+    'phi29': PolymeraseConfig(
+        max_extension=70000,
+        thermo_filter=False,
+        primer_multiplier=1.0,
+        reaction_temp=30.0,
+        min_primer_tm=20.0,
+        max_primer_tm=50.0,
+    ),
+    'equiphi29': PolymeraseConfig(
+        max_extension=80000,
+        thermo_filter=True,
+        primer_multiplier=0.85,
+        reaction_temp=42.0,
+        min_primer_tm=37.0,
+        max_primer_tm=62.0,
+        min_gc=0.25,
+        max_gc=0.75,
+    ),
+    'bst': PolymeraseConfig(
+        max_extension=10000,
+        thermo_filter=True,
+        primer_multiplier=1.0,
+        reaction_temp=60.0,
+        min_primer_tm=50.0,
+        max_primer_tm=75.0,
+    ),
+    'klenow': PolymeraseConfig(
+        max_extension=5000,
+        thermo_filter=False,
+        primer_multiplier=1.0,
+        reaction_temp=37.0,
+        min_primer_tm=20.0,
+        max_primer_tm=55.0,
+    ),
+}
+
+
+def _get_polymerase_config(polymerase: str) -> PolymeraseConfig:
+    """Get polymerase config, falling back to phi29 defaults."""
+    return POLYMERASE_PRESETS.get(polymerase, POLYMERASE_PRESETS['phi29'])
 
 
 @dataclass
@@ -104,7 +165,12 @@ class HybridOptimizer:
                  bg_seq_lengths: Optional[List[int]] = None,
                  bin_size: int = 10000,
                  max_extension: int = 70000,
-                 uniformity_weight: float = 0.0):
+                 uniformity_weight: float = 0.0,
+                 polymerase: str = 'phi29',
+                 genome_gc_content: Optional[float] = None,
+                 background_pruning: bool = False,
+                 background_weight: float = 2.0,
+                 min_coverage_threshold: float = 0.95):
         """
         Initialize hybrid optimizer.
 
@@ -115,8 +181,20 @@ class HybridOptimizer:
             bg_prefixes: Background genome identifiers (optional)
             bg_seq_lengths: Background genome lengths (optional)
             bin_size: Bin size for coverage analysis (bp)
-            max_extension: Maximum Phi29 extension distance (bp)
+            max_extension: Maximum extension distance (bp), overridden by
+                polymerase preset if not explicitly provided
             uniformity_weight: Weight for coverage uniformity (0.0-1.0)
+            polymerase: Polymerase type ('phi29', 'equiphi29', 'bst', 'klenow').
+                Applies preset config for thermo-filtering and extension distance.
+            genome_gc_content: Target genome GC content (0-1). Used for
+                GC-adaptive adjustments when polymerase requires it.
+            background_pruning: Enable background-pruning stage between coverage
+                and network refinement. Removes primers with high background
+                binding while maintaining coverage above min_coverage_threshold.
+            background_weight: Weight for background sites in pruning score.
+                Higher values favor more aggressive background removal.
+            min_coverage_threshold: Minimum coverage to maintain during
+                background pruning (0.0-1.0).
         """
         self.position_cache = position_cache
         self.fg_prefixes = fg_prefixes
@@ -124,8 +202,27 @@ class HybridOptimizer:
         self.bg_prefixes = bg_prefixes or []
         self.bg_seq_lengths = bg_seq_lengths or []
         self.bin_size = bin_size
-        self.max_extension = max_extension
         self.uniformity_weight = uniformity_weight
+
+        # Polymerase-aware configuration
+        self.polymerase = polymerase
+        self.poly_config = _get_polymerase_config(polymerase)
+        self.genome_gc_content = genome_gc_content
+
+        # Apply polymerase preset for max_extension (caller can override)
+        if max_extension == 70000 and polymerase != 'phi29':
+            self.max_extension = self.poly_config.max_extension
+        else:
+            self.max_extension = max_extension
+
+        # GC-adaptive adjustments for polymerases that benefit from it
+        if genome_gc_content is not None and self.poly_config.thermo_filter:
+            self._adjust_for_gc(genome_gc_content)
+
+        # Background pruning configuration
+        self.background_pruning = background_pruning
+        self.background_weight = background_weight
+        self.min_coverage_threshold = min_coverage_threshold
 
         # Initialize both optimizers
         self.dominating_optimizer = DominatingSetOptimizer(
@@ -141,13 +238,32 @@ class HybridOptimizer:
             bg_prefixes=self.bg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bg_seq_lengths=self.bg_seq_lengths,
-            max_extension=max_extension,
+            max_extension=self.max_extension,
             uniformity_weight=uniformity_weight
         )
 
         logger.info("Hybrid optimizer initialized")
+        logger.info(f"  Polymerase: {polymerase}")
         logger.info(f"  Bin size: {bin_size:,} bp")
-        logger.info(f"  Max extension: {max_extension:,} bp")
+        logger.info(f"  Max extension: {self.max_extension:,} bp")
+        if self.poly_config.thermo_filter:
+            logger.info(f"  Thermo-filtering: enabled ({self.poly_config.reaction_temp}C)")
+        if background_pruning:
+            logger.info(f"  Background pruning: enabled (weight={background_weight})")
+
+    def _adjust_for_gc(self, gc: float):
+        """
+        Adjust polymerase config based on genome GC content.
+
+        GC-rich genomes benefit from higher betaine, longer primers, and
+        wider GC acceptance ranges. AT-rich genomes use shorter primers.
+        """
+        if gc > 0.65:
+            self.poly_config.max_gc = 0.80
+            logger.info("  GC-rich genome detected - widening GC acceptance")
+        elif gc < 0.35:
+            self.poly_config.min_gc = 0.20
+            logger.info("  AT-rich genome detected - widening GC acceptance")
 
     def optimize(self, candidates: List[str],
                 final_count: int = 12,
@@ -187,14 +303,30 @@ class HybridOptimizer:
         candidates_filtered = [c for c in candidates if c.upper() not in fixed_primers]
 
         if verbose:
+            stages = "Two-Stage"
+            if self.poly_config.thermo_filter:
+                stages = "Multi-Stage (thermo-filter + coverage + network)"
+            if self.background_pruning:
+                stages = "Multi-Stage (coverage + bg-pruning + network)"
+            if self.poly_config.thermo_filter and self.background_pruning:
+                stages = "Multi-Stage (thermo-filter + coverage + bg-pruning + network)"
             logger.info("="*80)
-            logger.info("HYBRID OPTIMIZATION (Two-Stage)")
+            logger.info(f"HYBRID OPTIMIZATION ({stages})")
             logger.info("="*80)
             logger.info(f"Input: {len(candidates)} candidates")
+            logger.info(f"Polymerase: {self.polymerase}")
             if n_fixed > 0:
                 logger.info(f"Fixed primers: {n_fixed} (pre-selected)")
                 logger.info(f"Candidates after exclusion: {len(candidates_filtered)}")
             logger.info(f"Target: {final_count} final primers")
+
+        # =================================================================
+        # PRE-STAGE: Thermodynamic Filtering (polymerase-dependent)
+        # =================================================================
+        if self.poly_config.thermo_filter and candidates_filtered:
+            candidates_filtered = self._thermo_filter_candidates(
+                candidates_filtered, verbose=verbose
+            )
 
         # Adjust target count for fixed primers
         target_new = final_count - n_fixed
@@ -226,11 +358,21 @@ class HybridOptimizer:
                 total_runtime=time.time() - total_start
             )
 
+        # Apply primer count multiplier from polymerase preset
+        adjusted_final_count = max(6, int(final_count * self.poly_config.primer_multiplier))
+        if adjusted_final_count != final_count and verbose:
+            logger.info(f"Adjusted target from {final_count} to {adjusted_final_count} "
+                       f"({self.polymerase} multiplier: {self.poly_config.primer_multiplier})")
+            final_count = adjusted_final_count
+
         # Auto-determine Stage 1 count if not specified
         if stage1_count is None:
             # Stage 1 should select more primers than final
-            # Rule of thumb: 1.5-2× the final count
+            # Rule of thumb: 1.5-2x the final count
             stage1_count = max(final_count + 8, int(final_count * 1.67))
+            # When background pruning is enabled, select more for pruning headroom
+            if self.background_pruning:
+                stage1_count = max(stage1_count, final_count * 2)
             stage1_count = min(stage1_count, len(candidates))
 
         if verbose:
@@ -287,7 +429,7 @@ class HybridOptimizer:
         # If Stage 1 gave us fewer primers than target, use them all
         if len(stage1_primers) <= final_count:
             if verbose:
-                logger.info(f"\nStage 1 selected ≤ {final_count} primers, skipping Stage 2")
+                logger.info(f"\nStage 1 selected <= {final_count} primers, skipping Stage 2")
 
             # Calculate network metrics for these primers
             network = self._build_network(stage1_primers)
@@ -313,6 +455,37 @@ class HybridOptimizer:
                 runtime_simulation=0.0,
                 total_runtime=total_runtime
             )
+
+        # ===================================================================
+        # STAGE 1.5 (OPTIONAL): Background Pruning
+        # ===================================================================
+
+        stage1_5_runtime = 0.0
+        if self.background_pruning and self.bg_prefixes:
+            if verbose:
+                logger.info("\n" + "-"*80)
+                logger.info("STAGE 1.5: Background Pruning")
+                logger.info("-"*80)
+
+            stage1_5_start = time.time()
+
+            # Target: keep enough primers for network refinement, prune the rest
+            bg_prune_target = int(final_count * 1.5)
+
+            stage1_primers, prune_coverage, prune_bg_sites = self._prune_background(
+                stage1_primers,
+                target_size=bg_prune_target,
+                verbose=verbose,
+            )
+            stage1_coverage = prune_coverage
+            stage1_5_runtime = time.time() - stage1_5_start
+
+            if verbose:
+                logger.info(f"\nBackground pruning complete:")
+                logger.info(f"  Primers: {len(stage1_primers)}")
+                logger.info(f"  Coverage: {prune_coverage:.1%}")
+                logger.info(f"  Background sites: {prune_bg_sites}")
+                logger.info(f"  Runtime: {stage1_5_runtime:.2f}s")
 
         # ===================================================================
         # STAGE 2: Network Refinement (Amplification Optimization)
@@ -550,6 +723,155 @@ class HybridOptimizer:
         coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
         return coverage
 
+    def _thermo_filter_candidates(
+        self,
+        candidates: List[str],
+        verbose: bool = True
+    ) -> List[str]:
+        """
+        Apply thermodynamic filtering based on polymerase requirements.
+
+        Filters candidates by Tm range and GC content appropriate for
+        the configured polymerase.
+        """
+        if verbose:
+            logger.info("\n" + "-"*80)
+            logger.info(f"PRE-STAGE: Thermodynamic Filtering ({self.polymerase}, "
+                       f"{self.poly_config.reaction_temp}C)")
+            logger.info("-"*80)
+
+        try:
+            from neoswga.core.thermodynamic_filter import (
+                ThermodynamicFilter, ThermodynamicCriteria
+            )
+
+            criteria = ThermodynamicCriteria(
+                min_tm=self.poly_config.min_primer_tm,
+                max_tm=self.poly_config.max_primer_tm,
+                target_tm=self.poly_config.reaction_temp + 5,
+                na_conc=50.0,
+                mg_conc=0.0,
+                max_homodimer_dg=-10.0,
+                max_heterodimer_dg=-10.0,
+                max_hairpin_dg=-3.0,
+                min_gc=self.poly_config.min_gc,
+                max_gc=self.poly_config.max_gc,
+                reaction_temp=self.poly_config.reaction_temp,
+            )
+
+            thermo_filter = ThermodynamicFilter(criteria)
+            filtered, stats = thermo_filter.filter_candidates(
+                candidates,
+                check_heterodimers=True,
+                max_heterodimer_fraction=0.3,
+            )
+
+            if verbose:
+                logger.info(f"Filtered: {len(filtered)}/{len(candidates)} passed")
+                if stats.get('mean_tm') is not None:
+                    logger.info(f"  Mean Tm: {stats['mean_tm']:.1f}C")
+                if stats.get('mean_gc') is not None:
+                    logger.info(f"  Mean GC: {stats['mean_gc']:.1%}")
+
+            if len(filtered) == 0:
+                logger.warning("No primers passed thermodynamic filtering, "
+                             "using unfiltered candidates")
+                return candidates
+
+            return filtered
+
+        except ImportError:
+            logger.warning("Thermodynamic filter not available, skipping")
+            return candidates
+
+    def _prune_background(
+        self,
+        primers: List[str],
+        target_size: int,
+        verbose: bool = False
+    ) -> Tuple[List[str], float, int]:
+        """
+        Greedy background pruning: remove primers with worst background/coverage ratio.
+
+        Iteratively removes the primer whose removal causes the largest
+        reduction in background binding relative to coverage loss. Stops
+        when coverage drops below min_coverage_threshold or target_size
+        is reached.
+
+        Args:
+            primers: Initial primer set from coverage stage
+            target_size: Target number of primers after pruning
+            verbose: Print removal details
+
+        Returns:
+            (pruned_primers, final_coverage, final_background_sites)
+        """
+        current_primers = list(primers)
+        current_coverage = self._calculate_coverage(current_primers)
+
+        if verbose:
+            logger.info(f"  Background pruning: {len(current_primers)} -> {target_size} primers")
+            logger.info(f"  Initial: coverage={current_coverage:.1%}, "
+                       f"background={self._count_background_sites(current_primers)} sites")
+
+        removed_count = 0
+
+        while len(current_primers) > target_size:
+            best_removal = None
+            best_score = -np.inf
+
+            for primer in current_primers:
+                test_set = [p for p in current_primers if p != primer]
+                test_coverage = self._calculate_coverage(test_set)
+                coverage_loss = current_coverage - test_coverage
+
+                if test_coverage < self.min_coverage_threshold:
+                    continue
+
+                primer_bg_sites = self._count_background_sites([primer])
+
+                if coverage_loss > 0:
+                    score = primer_bg_sites / coverage_loss * self.background_weight
+                else:
+                    score = primer_bg_sites * 1000
+
+                if score > best_score:
+                    best_score = score
+                    best_removal = primer
+
+            if best_removal is None:
+                if verbose:
+                    logger.info(f"  Stopping: coverage threshold reached")
+                break
+
+            current_primers.remove(best_removal)
+            current_coverage = self._calculate_coverage(current_primers)
+            removed_count += 1
+
+            if verbose and removed_count % 2 == 0:
+                logger.info(f"    Removed {removed_count} primers, "
+                           f"coverage={current_coverage:.1%}, "
+                           f"background={self._count_background_sites(current_primers)} sites")
+
+        final_coverage = self._calculate_coverage(current_primers)
+        final_bg_sites = self._count_background_sites(current_primers)
+
+        return current_primers, final_coverage, final_bg_sites
+
+    def _count_background_sites(self, primers: List[str]) -> int:
+        """Count total background binding sites for primer set."""
+        if not primers or not self.bg_prefixes:
+            return 0
+
+        total_sites = 0
+        for primer in primers:
+            for bg_prefix in self.bg_prefixes:
+                fwd = self.position_cache.get_positions(bg_prefix, primer, 'forward')
+                rev = self.position_cache.get_positions(bg_prefix, primer, 'reverse')
+                total_sites += len(fwd) + len(rev)
+
+        return total_sites
+
 
 # =============================================================================
 # Factory Registration - BaseOptimizer Interface
@@ -588,8 +910,15 @@ class HybridBaseOptimizer(BaseOptimizer):
             position_cache=position_cache,
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
+            bg_prefixes=bg_prefixes,
+            bg_seq_lengths=bg_seq_lengths,
             bin_size=kwargs.get('bin_size', 10000),
             max_extension=kwargs.get('max_extension', 70000),
+            polymerase=kwargs.get('polymerase', 'phi29'),
+            genome_gc_content=kwargs.get('genome_gc_content'),
+            background_pruning=kwargs.get('background_pruning', False),
+            background_weight=kwargs.get('background_weight', 2.0),
+            min_coverage_threshold=kwargs.get('min_coverage_threshold', 0.95),
         )
 
     @property

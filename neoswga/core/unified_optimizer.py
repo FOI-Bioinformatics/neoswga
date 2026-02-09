@@ -117,6 +117,7 @@ def _ensure_optimizers_registered():
             from . import genetic_algorithm  # Evolutionary optimization
             from . import background_aware_optimizer  # Clinical/background-aware
             from . import equiphi29_optimizer  # EquiPhi29-specific (42C, 12-15bp primers)
+            from . import tiling_optimizer  # Interval-based tiling coverage
         except ImportError as e:
             logger.warning(f"Some optimizer modules not available: {e}")
 
@@ -143,6 +144,49 @@ def _ensure_optimizers_registered():
 
         _optimizers_registered = True
         logger.debug("Optimizer registration complete")
+
+
+def _prefilter_by_background(cache, candidates, fg_prefixes, bg_prefixes,
+                              min_ratio=1.0, max_removal_fraction=0.20, verbose=False):
+    """Remove candidates with poor foreground/background binding ratio.
+
+    Keeps all primers with ratio >= min_ratio. If that would remove more
+    than max_removal_fraction of candidates, keeps the top
+    (1 - max_removal_fraction) by ratio instead.
+
+    Args:
+        cache: PositionCache with loaded positions
+        candidates: List of candidate primer sequences
+        fg_prefixes: Foreground genome prefixes
+        bg_prefixes: Background genome prefixes
+        min_ratio: Minimum fg/bg ratio to keep (default 1.0)
+        max_removal_fraction: Maximum fraction of candidates to remove (default 0.20)
+        verbose: Log filtering details
+
+    Returns:
+        Filtered list of candidates (never empty)
+    """
+    ratios = []
+    for primer in candidates:
+        fg_count = sum(len(cache.get_positions(p, primer, 'both')) for p in fg_prefixes)
+        bg_count = sum(len(cache.get_positions(p, primer, 'both')) for p in bg_prefixes)
+        ratios.append((fg_count / (bg_count + 1), primer))
+
+    # Keep primers above threshold
+    above = [(r, p) for r, p in ratios if r >= min_ratio]
+
+    # Ensure we don't remove too many
+    min_keep = int(len(candidates) * (1 - max_removal_fraction))
+    if len(above) < min_keep:
+        ratios.sort(reverse=True)
+        above = ratios[:min_keep]
+
+    filtered = [p for _, p in above]
+    removed = len(candidates) - len(filtered)
+    if removed > 0 and verbose:
+        logger.info(f"  Background pre-filter: removed {removed} candidates with poor fg/bg ratio")
+
+    return filtered if filtered else candidates  # never return empty
 
 
 def run_optimization(
@@ -221,7 +265,16 @@ def run_optimization(
 
     # Create position cache
     with progress_context("Loading position data", disable=not verbose):
-        cache = PositionCache(fg_prefixes, candidates)
+        cache = PositionCache(fg_prefixes + (bg_prefixes or []), candidates)
+
+    # Optional: pre-filter candidates by fg/bg binding ratio
+    if bg_prefixes and kwargs.get('bg_prefilter', True):
+        candidates = _prefilter_by_background(
+            cache, candidates, fg_prefixes, bg_prefixes,
+            min_ratio=kwargs.get('bg_min_ratio', 1.0),
+            max_removal_fraction=kwargs.get('bg_max_removal', 0.20),
+            verbose=verbose,
+        )
 
     # Build optimizer config
     config = OptimizerConfig(

@@ -538,7 +538,7 @@ if __name__ == "__main__":
 
     # Efficient position database
     db = gpu_acceleration.create_position_database(['target_kmers'])
-    positions = db.get_positions('ATCGAT', 'target_kmers')
+    positions = db.get_positions('target_kmers', 'ATCGAT')
 
     # Batch loading
     all_positions = db.batch_get_positions(primers, 'target_kmers')

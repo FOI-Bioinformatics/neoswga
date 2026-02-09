@@ -568,8 +568,8 @@ Documentation:
     # Optimization method (unified factory handles all methods)
     optimize_parser.add_argument('--optimization-method',
                              choices=['hybrid', 'greedy', 'dominating-set', 'weighted-set-cover',
-                                     'network', 'genetic', 'background-aware', 'legacy-bfs',
-                                     'milp', 'equiphi29', 'moea', 'normalized'],
+                                     'network', 'genetic', 'background-aware',
+                                     'milp', 'equiphi29', 'moea', 'normalized', 'tiling'],
                              default='hybrid',
                              help='Optimization method. '
                                   'Quick guide: hybrid (default, general use), '
@@ -579,7 +579,7 @@ Documentation:
                                   'weighted-set-cover (Tm-weighted set cover), '
                                   'normalized (configurable weights via --strategy), '
                                   'network (Tm-weighted graph), genetic (GA-based), '
-                                  'legacy-bfs (original algorithm), milp (exact ILP), '
+                                  'milp (exact ILP), '
                                   'equiphi29 (EquiPhi29-specific), moea (multi-objective). '
                                   'Use --method-guide for detailed comparison.')
     optimize_parser.add_argument('--strategy',
@@ -608,6 +608,9 @@ Documentation:
     # Background filtering
     optimize_parser.add_argument('--use-background-filter', action='store_true', default=False,
                              help='Use Bloom filter for background filtering')
+    optimize_parser.add_argument('--no-bg-prefilter', action='store_true', default=False,
+                             help='Disable automatic background pre-filtering of candidates '
+                                  '(enabled by default when background genome data is available)')
     optimize_parser.add_argument('--background-bloom-path', type=str,
                              help='Path to pre-built Bloom filter')
     optimize_parser.add_argument('--background-sampled-path', type=str,
@@ -1516,12 +1519,11 @@ def run_step4(args):
         # Set json_file if provided
         merge_args_to_parameter(args, parameter, ['json_file'])
 
-        # Auto-select equiphi29 optimizer when polymerase=equiphi29 and method is default
+        # Pass polymerase info to optimizer (hybrid handles polymerase-specific config)
         json_data = getattr(parameter, '_json_data', {})
         polymerase = json_data.get('polymerase', 'phi29')
-        if polymerase == 'equiphi29' and args.optimization_method == 'hybrid':
-            logger.info("Auto-selecting equiphi29 optimizer for equiphi29 polymerase")
-            args.optimization_method = 'equiphi29'
+        if polymerase != 'phi29':
+            logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
         logger.info(f"Optimization method: {args.optimization_method}")
         logger.info(f"Position cache: {args.use_position_cache}")
@@ -1663,6 +1665,9 @@ def run_step4(args):
         if args.optimization_method == 'normalized':
             logger.info(f"Using normalized optimizer with strategy: {strategy}")
 
+        # Background pre-filter flag (enabled by default, --no-bg-prefilter disables)
+        bg_prefilter = not getattr(args, 'no_bg_prefilter', False)
+
         # Run unified optimization
         results, scores, cache = optimize_step4(
             use_cache=args.use_position_cache,
@@ -1673,6 +1678,8 @@ def run_step4(args):
             minimize_primers=minimize_primers,
             target_coverage=target_coverage,
             strategy=strategy,  # Pass strategy for normalized optimizer
+            polymerase=polymerase,  # Pass polymerase for hybrid preset config
+            bg_prefilter=bg_prefilter,  # Background pre-filtering of candidates
         )
 
         if results:

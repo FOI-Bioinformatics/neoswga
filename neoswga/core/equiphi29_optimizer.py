@@ -418,16 +418,19 @@ from neoswga.core.base_optimizer import (
 )
 class EquiPhi29OptimizerAdapter(BaseOptimizer):
     """
-    Adapter to make EquiPhi29Optimizer conform to BaseOptimizer interface.
+    EquiPhi29 optimizer adapter that delegates to HybridOptimizer with
+    polymerase='equiphi29'.
 
-    This adapter enables EquiPhi29Optimizer to be used via the unified
-    optimizer factory and CLI interface.
+    This adapter provides backward compatibility for the 'equiphi29' factory
+    registration. The actual polymerase-aware optimization is now handled
+    by HybridOptimizer's polymerase preset system.
 
     EquiPhi29 advantages:
     - Better performance on GC-rich genomes (>65% GC)
-    - Fewer primers needed (15% reduction)
+    - Fewer primers needed (15% reduction via primer_multiplier)
     - Longer extension distances (80kb vs 70kb)
     - Higher temperature stability (42C)
+    - Automatic thermo-filtering for 42C reaction conditions
     """
 
     def __init__(
@@ -441,19 +444,6 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
         genome_gc_content: float = 0.50,
         **kwargs
     ):
-        """
-        Initialize EquiPhi29 optimizer adapter.
-
-        Args:
-            position_cache: PositionCache with primer positions
-            fg_prefixes: Target genome identifiers
-            fg_seq_lengths: Target genome lengths
-            bg_prefixes: Background genome identifiers (optional)
-            bg_seq_lengths: Background genome lengths (optional)
-            config: OptimizerConfig for base class
-            genome_gc_content: Target genome GC content (0-1)
-            **kwargs: Additional arguments (ignored)
-        """
         super().__init__(
             position_cache=position_cache,
             fg_prefixes=fg_prefixes,
@@ -465,24 +455,23 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
 
         self.genome_gc_content = genome_gc_content
 
-        # Create the underlying EquiPhi29Optimizer
-        self._optimizer = EquiPhi29Optimizer(
+        # Delegate to HybridOptimizer with equiphi29 polymerase preset
+        self._hybrid = HybridOptimizer(
             position_cache=position_cache,
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
-            genome_gc_content=genome_gc_content
+            polymerase='equiphi29',
+            genome_gc_content=genome_gc_content,
         )
 
     @property
     def name(self) -> str:
-        """Human-readable optimizer name."""
         return "equiphi29"
 
     @property
     def description(self) -> str:
-        """One-line description of the optimizer."""
         return "EquiPhi29-optimized selection for 42C with longer primers (12-15bp)"
 
     def optimize(
@@ -493,63 +482,40 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
         **kwargs
     ) -> OptimizationResult:
         """
-        Find optimal primer set using EquiPhi29-specific optimization.
+        Run EquiPhi29-specific optimization via HybridOptimizer.
 
-        Args:
-            candidates: Pool of candidate primer sequences
-            target_size: Desired number of primers (overrides config if provided)
-            fixed_primers: Optional list of primers that must be included
-            **kwargs: Additional parameters (verbose, validate_with_simulation, etc.)
-
-        Returns:
-            OptimizationResult with selected primers and metrics
+        The hybrid optimizer handles thermo-filtering, GC-adaptive config,
+        and primer count adjustment via the equiphi29 polymerase preset.
         """
         candidates = self._validate_candidates(candidates)
         target = target_size or self.config.target_set_size
 
-        verbose = kwargs.get('verbose', self.config.verbose)
-        validate_with_simulation = kwargs.get('validate_with_simulation', False)
-        genome_sequence = kwargs.get('genome_sequence', None)
-
         try:
-            # Run EquiPhi29Optimizer
-            hybrid_result = self._optimizer.optimize(
+            result = self._hybrid.optimize(
                 candidates=candidates,
-                target_primer_count=target,
-                verbose=verbose,
-                validate_with_simulation=validate_with_simulation,
-                genome_sequence=genome_sequence
+                final_count=target,
+                fixed_primers=fixed_primers,
+                verbose=self.config.verbose,
             )
 
-            # Handle fixed primers (merge with result)
-            selected_primers = list(hybrid_result.primers)
-            if fixed_primers:
-                for primer in fixed_primers:
-                    if primer not in selected_primers:
-                        selected_primers.insert(0, primer)
-                # Re-trim to target size if needed
-                selected_primers = selected_primers[:target]
+            primers = result.primers
+            metrics = self.compute_metrics(primers)
 
-            # Compute metrics using base class method
-            metrics = self.compute_metrics(selected_primers)
-
-            # Calculate overall score
-            # EquiPhi29 score: weighted combination of coverage and connectivity
             score = (
-                0.5 * hybrid_result.final_coverage +
-                0.3 * min(1.0, hybrid_result.final_connectivity) +
-                0.2 * min(1.0, hybrid_result.final_predicted_amplification / 10.0)
+                0.5 * result.final_coverage +
+                0.3 * min(1.0, result.final_connectivity) +
+                0.2 * min(1.0, result.final_predicted_amplification / 10.0)
             )
 
             return OptimizationResult(
-                primers=tuple(selected_primers),
+                primers=tuple(primers),
                 score=score,
-                status=OptimizationStatus.SUCCESS,
+                status=OptimizationStatus.SUCCESS if primers else OptimizationStatus.NO_CONVERGENCE,
                 metrics=metrics,
                 iterations=1,
                 optimizer_name=self.name,
-                message=f"EquiPhi29 optimization: {hybrid_result.final_coverage:.1%} coverage, "
-                        f"{hybrid_result.final_connectivity:.2f} connectivity"
+                message=f"EquiPhi29: {result.final_coverage:.1%} coverage, "
+                        f"{result.final_connectivity:.2f} connectivity",
             )
 
         except Exception as e:
