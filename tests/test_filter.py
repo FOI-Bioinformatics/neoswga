@@ -19,6 +19,15 @@ from neoswga.core.filter import filter_extra
 # Test Fixtures
 # =============================================================================
 
+@pytest.fixture(autouse=True)
+def reset_reaction_conditions():
+    """Reset cached reaction conditions between tests."""
+    from neoswga.core.filter import reset_reaction_conditions
+    reset_reaction_conditions()
+    yield
+    reset_reaction_conditions()
+
+
 @pytest.fixture
 def mock_parameter():
     """Mock the parameter module with standard settings."""
@@ -28,7 +37,19 @@ def mock_parameter():
         mock_param.gc_min = 0.375
         mock_param.gc_max = 0.625
         mock_param.verbose = False
-        mock_param.default_max_self_dimer_bp = 4
+        mock_param.max_self_dimer_bp = 4
+        mock_param.genome_gc = None
+        mock_param.polymerase = 'phi29'
+        mock_param.reaction_temp = 30.0
+        mock_param.na_conc = 50.0
+        mock_param.mg_conc = 0.0
+        mock_param.dmso_percent = 0.0
+        mock_param.betaine_m = 0.0
+        mock_param.trehalose_m = 0.0
+        mock_param.formamide_percent = 0.0
+        mock_param.ethanol_percent = 0.0
+        mock_param.urea_m = 0.0
+        mock_param.tmac_m = 0.0
         yield mock_param
 
 
@@ -352,6 +373,9 @@ class TestEdgeCases:
 
         Boundaries are inclusive: primers at exactly gc_min or gc_max are accepted.
         """
+        # Widen Tm range so short primer Tm doesn't interfere with this GC test
+        mock_parameter.min_tm = 0
+        mock_parameter.max_tm = 100
         mock_parameter.gc_min = 0.5
         mock_parameter.gc_max = 0.5
 

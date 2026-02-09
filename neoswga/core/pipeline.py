@@ -339,15 +339,18 @@ def _apply_gc_adaptive_defaults():
             parameter.reaction_temp = adaptive_params.reaction_temp
             logger.info(f"GC-adaptive: Setting reaction temp to {adaptive_params.reaction_temp}C")
 
-        # Apply k-mer range if using defaults
-        current_min_k = getattr(parameter, 'min_k', None)
-        current_max_k = getattr(parameter, 'max_k', None)
-        if current_min_k is None or current_max_k is None:
-            if current_min_k is None:
-                parameter.min_k = adaptive_params.kmer_range[0]
-            if current_max_k is None:
-                parameter.max_k = adaptive_params.kmer_range[1]
+        # Apply k-mer range only if user did not explicitly set min_k/max_k
+        # in their params.json. Check _json_data (raw JSON) since module
+        # globals always have a default value.
+        user_set_min_k = 'min_k' in parameter._json_data
+        user_set_max_k = 'max_k' in parameter._json_data
+        if not user_set_min_k and not user_set_max_k:
+            parameter.min_k = adaptive_params.kmer_range[0]
+            parameter.max_k = adaptive_params.kmer_range[1]
             logger.info(f"GC-adaptive: Setting k-mer range to "
+                       f"{parameter.min_k}-{parameter.max_k}bp")
+        elif user_set_min_k or user_set_max_k:
+            logger.info(f"GC-adaptive: Preserving user-specified k-mer range "
                        f"{parameter.min_k}-{parameter.max_k}bp")
 
         # Apply betaine if not explicitly set and recommended
@@ -457,7 +460,11 @@ def step2(all_primers=None, validate_prerequisites=True):
         max_k = getattr(parameter, 'max_k', 12)
         kmer_lengths = range(min_k, max_k + 1)
         with progress_context("Loading candidate k-mers"):
-            all_primers = get_primer_list_from_kmers(fg_prefixes, kmer_lengths=kmer_lengths)
+            all_primers = get_primer_list_from_kmers(
+                fg_prefixes, kmer_lengths=kmer_lengths,
+                min_tm=getattr(parameter, 'min_tm', 15),
+                max_tm=getattr(parameter, 'max_tm', 55)
+            )
         logger.info(f"Loaded {len(all_primers)} candidate primers")
 
     with progress_context("Computing foreground/background rates"):

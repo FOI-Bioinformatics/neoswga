@@ -371,18 +371,26 @@ def get_kmer_to_count_dict(f_in_name: str) -> Dict[str, int]:
 def get_primer_list_from_kmers(prefixes: List[str],
                                 kmer_lengths: Optional[range] = None,
                                 min_tm: float = 15.0,
-                                max_tm: float = 55.0) -> List[str]:
+                                max_tm: float = 55.0,
+                                wide_tm_margin: float = 15.0) -> List[str]:
     """
     Get all k-mers from jellyfish output files, filtered by Tm.
+
+    Uses a wide margin around the Tm window because melting.temp() (simple
+    approximation) can disagree with the SantaLucia nearest-neighbor Tm used
+    in filter_extra() by 10-20C for long primers. The precise Tm filter in
+    filter_extra() makes the final decision.
 
     Args:
         prefixes: List of path prefixes for jellyfish output files
         kmer_lengths: Range of k-mer lengths (default: 6-12)
         min_tm: Minimum melting temperature (default: 15.0)
         max_tm: Maximum melting temperature (default: 55.0)
+        wide_tm_margin: Margin added to both sides of the Tm window to
+            avoid premature rejection of long primers (default: 15.0)
 
     Returns:
-        List of k-mer sequences that pass Tm filter
+        List of k-mer sequences that pass Tm pre-filter
     """
     import melting
 
@@ -390,6 +398,9 @@ def get_primer_list_from_kmers(prefixes: List[str],
 
     if kmer_lengths is None:
         kmer_lengths = range(6, 13)
+
+    wide_min = min_tm - wide_tm_margin
+    wide_max = max_tm + wide_tm_margin
 
     for prefix in prefixes:
         for k in kmer_lengths:
@@ -405,7 +416,7 @@ def get_primer_list_from_kmers(prefixes: List[str],
                         curr_kmer = parts[0]
                         try:
                             tm = melting.temp(curr_kmer)
-                            if min_tm < tm < max_tm:
+                            if wide_min < tm < wide_max:
                                 primer_list.append(curr_kmer)
                         except (ValueError, TypeError, KeyError) as e:
                             # Skip k-mers with invalid sequences (e.g. ambiguous bases

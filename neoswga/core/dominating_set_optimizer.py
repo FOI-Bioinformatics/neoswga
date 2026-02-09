@@ -161,6 +161,7 @@ class DominatingSetOptimizer:
 
     def optimize_greedy(self, candidates: List[str], max_primers: int = 20,
                        fixed_primers: Optional[List[str]] = None,
+                       min_coverage: Optional[float] = None,
                        verbose: bool = True) -> Dict:
         """
         Greedy set cover algorithm.
@@ -175,10 +176,14 @@ class DominatingSetOptimizer:
             fixed_primers: Optional list of primers that are already selected
                 and must be included. Their coverage is pre-computed and
                 the algorithm selects additional primers to complement them.
+            min_coverage: Optional minimum coverage fraction (0.0-1.0).
+                When set, the algorithm stops adding primers once the
+                coverage target is met, even if max_primers is not reached.
             verbose: Print progress
 
         Returns:
-            Dictionary with selected primers and coverage stats
+            Dictionary with selected primers and coverage stats.
+            Includes 'coverage_target' and 'target_met' when min_coverage is set.
         """
         fixed_primers = fixed_primers or []
         n_fixed = len(fixed_primers)
@@ -255,6 +260,16 @@ class DominatingSetOptimizer:
                 coverage = len(covered_regions) / len(graph.regions)
                 logger.info(f"  {iteration + 1} primers: {coverage:.1%} coverage")
 
+            # Check if coverage target is met
+            if min_coverage is not None and graph.regions:
+                current_coverage = len(covered_regions) / len(graph.regions)
+                if current_coverage >= min_coverage:
+                    if verbose:
+                        logger.info(f"Coverage target {min_coverage:.1%} met "
+                                    f"({current_coverage:.1%}) with "
+                                    f"{len(selected) - n_fixed} new primers")
+                    break
+
         # Final statistics
         coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
         uncovered = graph.regions - covered_regions
@@ -273,7 +288,9 @@ class DominatingSetOptimizer:
             'covered_regions': len(covered_regions),
             'total_regions': len(graph.regions),
             'uncovered_regions': len(uncovered),
-            'graph': graph
+            'graph': graph,
+            'coverage_target': min_coverage,
+            'target_met': min_coverage is not None and coverage >= min_coverage,
         }
 
         if verbose:

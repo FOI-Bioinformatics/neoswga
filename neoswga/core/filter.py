@@ -87,6 +87,31 @@ MAX_GC_AT_3PRIME_END = 2  # Max 2 of 3 bases can be G/C
 HOMOPOLYMER_PATTERNS = tuple(base * MAX_HOMOPOLYMER_RUN for base in 'ACGT')
 
 
+def _scale_freq_threshold(base_threshold: float, primer_length: int,
+                          reference_k: int = 10) -> float:
+    """
+    Scale a frequency threshold inversely with primer length.
+
+    Longer primers have exponentially fewer exact match sites in a genome.
+    A 15bp primer typically has 5-20 sites in a 5 Mbp genome, while a 10bp
+    primer may have thousands. This function adjusts the threshold so that
+    long primers are not eliminated by thresholds calibrated for short ones.
+
+    Args:
+        base_threshold: Frequency threshold calibrated for reference_k-mers
+        primer_length: Actual primer length
+        reference_k: Reference primer length (default: 10)
+
+    Returns:
+        Scaled threshold
+    """
+    if primer_length <= reference_k:
+        return base_threshold
+    length_diff = reference_k - primer_length
+    scale_factor = 4.0 ** length_diff  # e.g. 4^(-5) = 1/1024 for 15bp
+    return base_threshold * scale_factor
+
+
 def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str, int]:
     """
     Get background rates using a pre-built Bloom filter.
@@ -231,9 +256,25 @@ def filter_extra(primer: str) -> bool:
         return False
 
     # Rule 3: GC clamp (last 5 bases)
+    # Adaptive based on genome GC content to avoid eliminating valid primers
+    # for AT-rich (e.g. Plasmodium ~25% GC) or GC-rich (e.g. Mycobacterium ~65% GC) targets
     gc_in_last_5 = _count_gc(primer[-5:])
-    if gc_in_last_5 > MAX_GC_IN_LAST_5_BASES or gc_in_last_5 == 0:
-        logger.debug(f"GC clamp filter: {primer} GC_last5={gc_in_last_5}")
+    genome_gc = getattr(parameter, 'genome_gc', None)
+    if genome_gc is not None and genome_gc < 0.30:
+        # AT-rich genome: allow 0 GC in last 5, reject >3
+        gc_clamp_min = 0
+        gc_clamp_max = MAX_GC_IN_LAST_5_BASES
+    elif genome_gc is not None and genome_gc > 0.70:
+        # GC-rich genome: allow up to 4 GC in last 5, require >=1 AT
+        gc_clamp_min = 1
+        gc_clamp_max = 4
+    else:
+        # Standard: 1-3 GC in last 5
+        gc_clamp_min = 1
+        gc_clamp_max = MAX_GC_IN_LAST_5_BASES
+    if gc_in_last_5 > gc_clamp_max or gc_in_last_5 < gc_clamp_min:
+        logger.debug(f"GC clamp filter: {primer} GC_last5={gc_in_last_5} "
+                     f"(allowed {gc_clamp_min}-{gc_clamp_max})")
         return False
 
     # Rule 1: 3' end cannot have all 3 bases as G/C
@@ -248,7 +289,7 @@ def filter_extra(primer: str) -> bool:
         return False
 
     # Self-dimer check
-    if dimer.is_dimer(primer, primer, parameter.default_max_self_dimer_bp):
+    if dimer.is_dimer(primer, primer, parameter.max_self_dimer_bp):
         logger.debug(f"Self-dimer filter: {primer}")
         return False
 
@@ -295,11 +336,18 @@ def get_all_rates(
     # output may still have binding sites found by downstream string search. The
     # subsequent Gini index and scoring steps provide additional filtering, so
     # retaining these candidates at this stage avoids premature exclusion.
+    #
+    # Frequency thresholds are scaled by primer length: longer primers have
+    # exponentially fewer exact match sites, so fixed thresholds calibrated
+    # for short primers would eliminate nearly all long (15-18bp) candidates.
     for primer in primer_list:
+        primer_len = len(primer)
+        scaled_min_fg = _scale_freq_threshold(parameter.min_fg_freq, primer_len)
+        scaled_max_bg = _scale_freq_threshold(parameter.max_bg_freq, primer_len)
         fg_count = primer_to_fg_count.get(primer, None)
-        fg_bool = (fg_count is None or fg_count / fg_total_length > parameter.min_fg_freq)
+        fg_bool = (fg_count is None or fg_count / fg_total_length > scaled_min_fg)
         bg_count = primer_to_bg_count.get(primer, None)
-        bg_bool = (bg_count is None or bg_count / bg_total_length < parameter.max_bg_freq)
+        bg_bool = (bg_count is None or bg_count / bg_total_length < scaled_max_bg)
         results.append([primer, fg_count, bg_count, fg_bool, bg_bool])
 
     df = pd.DataFrame(results, columns=['primer', 'fg_count', 'bg_count', 'fg_bool', 'bg_bool'])

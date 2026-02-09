@@ -511,6 +511,14 @@ def get_params(args):
     if max_k > 18:
         print(f"Warning: max_k={max_k} exceeds supported maximum of 18bp")
 
+    # Auto-scale dimer thresholds based on max_k: a fixed 3bp match is
+    # meaningful for 6bp primers (50%) but negligible for 18bp primers (17%).
+    # Only auto-scale if the user did not explicitly set these values.
+    if 'max_dimer_bp' not in _json_data and args.max_dimer_bp is None:
+        max_dimer_bp = data['max_dimer_bp'] = max(3, int(max_k * 0.25))
+    if 'max_self_dimer_bp' not in _json_data and args.max_self_dimer_bp is None:
+        max_self_dimer_bp = data['max_self_dimer_bp'] = max(4, int(max_k * 0.28))
+
     # Long primer mode: auto-enable for k >= 15
     # Enables k-mer sampling, GPU acceleration, and memory optimizations
     long_primer_mode = data.get('long_primer_mode', False)
