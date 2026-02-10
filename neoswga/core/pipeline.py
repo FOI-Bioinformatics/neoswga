@@ -388,7 +388,7 @@ def _apply_gc_adaptive_defaults():
 
 def step1():
     """
-    Creates files of all k-mers of length 6 to 12 which is located in the path specificed by --kmer_fore and --kmer_b .
+    Creates files of all k-mers of length 6 to 12 at the paths specified by --kmer-fore and --kmer-back.
     """
     _initialize()  # Lazy initialization
     for prefix in fg_prefixes + bg_prefixes:

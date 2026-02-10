@@ -39,8 +39,8 @@ neoswga count-kmers -j params.json [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `-j, --json` | path | required | Parameter JSON file |
-| `-x, --fasta_fore` | path | - | Target genome FASTA |
-| `-y, --fasta_back` | path | - | Background genome FASTA |
+| `-x, --fasta-fore` | path | - | Target genome FASTA |
+| `-y, --fasta-back` | path | - | Background genome FASTA |
 | `--min-k` | int | 6 | Minimum k-mer length |
 | `--max-k` | int | 12 | Maximum k-mer length |
 | `--cpus` | int | 8 | Number of CPUs |

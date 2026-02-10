@@ -390,43 +390,76 @@ PRESETS = {
 }
 
 
+# Command groups for organized help display
+COMMAND_GROUPS = [
+    ('Pipeline', [
+        'count-kmers', 'filter', 'score', 'optimize', 'design',
+    ]),
+    ('Setup', [
+        'init', 'start', 'validate', 'validate-params', 'show-presets', 'suggest',
+    ]),
+    ('Results', [
+        'interpret', 'report', 'export',
+    ]),
+    ('Analysis', [
+        'analyze-set', 'analyze-genome', 'analyze-dimers', 'analyze-stability',
+    ]),
+    ('Advanced', [
+        'auto-pipeline', 'multi-genome', 'simulate', 'optimize-conditions',
+        'build-filter', 'background-list', 'background-add',
+    ]),
+    ('Experimental', [
+        'active-learn', 'expand-primers', 'predict-efficiency', 'ml-predict',
+        'design-oligos', 'validate-model',
+    ]),
+]
+
+
+class GroupedHelpFormatter(argparse.RawDescriptionHelpFormatter):
+    """Formatter that displays subcommands under category headers."""
+
+    def _format_action(self, action):
+        # Only customise the subparsers listing
+        if not isinstance(action, argparse._SubParsersAction):
+            return super()._format_action(action)
+
+        parts = []
+        # Build a lookup from command name to its help string
+        cmd_help = {}
+        for choice_action in action._choices_actions:
+            cmd_help[choice_action.dest] = choice_action.help or ''
+
+        for group_name, commands in COMMAND_GROUPS:
+            parts.append(f'\n  {group_name}:')
+            for cmd in commands:
+                help_text = cmd_help.get(cmd, '')
+                parts.append(f'    {cmd:<24s}{help_text}')
+
+        parts.append('')
+        return '\n'.join(parts) + '\n'
+
+
 def create_parser():
     """Create unified argument parser"""
 
     parser = argparse.ArgumentParser(
         prog='neoswga',
-        description='Unified NeoSWGA Pipeline - Selective Whole Genome Amplification',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
-Quick Start:
-  # Setup wizard - creates params.json with recommended settings
+        description='NeoSWGA - Selective Whole Genome Amplification primer design',
+        formatter_class=GroupedHelpFormatter,
+        epilog='''Quick Start:
   neoswga init --genome target.fasta --background host.fasta
+  neoswga count-kmers -j params.json
+  neoswga filter -j params.json
+  neoswga score -j params.json
+  neoswga optimize -j params.json
 
-  # Or discover features interactively
-  neoswga start
-
-Standard Pipeline:
-  neoswga count-kmers -j params.json    # Step 1: Generate k-mer counts
-  neoswga filter -j params.json         # Step 2: Filter candidate primers
-  neoswga score -j params.json          # Step 3: Score amplification potential
-  neoswga optimize -j params.json       # Step 4: Find optimal primer sets
-
-Validation and Interpretation:
-  neoswga validate-params -j params.json   # Check configuration
-  neoswga interpret -d results/            # Quality assessment
-
-Optimization Methods:
-  neoswga optimize -j params.json --optimization-method=hybrid           # Default
-  neoswga optimize -j params.json --optimization-method=dominating-set   # 8x faster
-  neoswga optimize -j params.json --optimization-method=background-aware # Clinical
-
-Documentation:
-  README.md  - Quick start and overview
-  CLAUDE.md  - Architecture and developer reference
+Run "neoswga <command> --help" for details on a specific command.
         '''
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Command to run')
+    subparsers = parser.add_subparsers(
+        dest='command', title='commands', metavar='<command>'
+    )
 
     # =========================================================================
     # STEP 1: K-mer preprocessing
@@ -434,10 +467,10 @@ Documentation:
     count_kmers_parser = subparsers.add_parser('count-kmers',
                                                help='K-mer preprocessing with primer length control')
     add_common_options(count_kmers_parser)
-    count_kmers_parser.add_argument('-x', '--fasta_fore', help='Target genome FASTA')
-    count_kmers_parser.add_argument('-y', '--fasta_back', help='Background genome FASTA')
-    count_kmers_parser.add_argument('-k', '--kmer_fore', help='Target k-mer prefix')
-    count_kmers_parser.add_argument('-l', '--kmer_back', help='Background k-mer prefix')
+    count_kmers_parser.add_argument('-x', '--fasta-fore', help='Target genome FASTA')
+    count_kmers_parser.add_argument('-y', '--fasta-back', help='Background genome FASTA')
+    count_kmers_parser.add_argument('-k', '--kmer-fore', help='Target k-mer prefix')
+    count_kmers_parser.add_argument('-l', '--kmer-back', help='Background k-mer prefix')
 
     # Primer length control (defaults from params.json, or 6-12 if not specified)
     count_kmers_parser.add_argument('--min-k', type=int, default=None,
@@ -1131,6 +1164,17 @@ Examples:
     bg_add_parser.add_argument('--overwrite', action='store_true',
                                help='Overwrite existing entry with same name')
 
+    # Validate that all registered commands appear in COMMAND_GROUPS
+    grouped_cmds = {cmd for _, cmds in COMMAND_GROUPS for cmd in cmds}
+    registered_cmds = set(subparsers.choices.keys()) if hasattr(subparsers, 'choices') else set()
+    missing = registered_cmds - grouped_cmds
+    if missing:
+        import warnings
+        warnings.warn(
+            f"Commands not listed in COMMAND_GROUPS: {', '.join(sorted(missing))}",
+            stacklevel=2,
+        )
+
     return parser
 
 
@@ -1186,8 +1230,7 @@ def add_common_options(parser):
     """Add options common to all steps"""
     parser.add_argument('-j', '--json-file', type=str,
                        help='Parameters JSON file')
-    parser.add_argument('-z', '--data_dir', type=str,
-                       help='Data directory')
+    parser.add_argument('-z', '--data-dir', type=str, help='Data directory')
     parser.add_argument('--polymerase', choices=['phi29', 'equiphi29', 'bst', 'klenow'],
                        help='Polymerase type: phi29 (30-40C), equiphi29 (42-45C), bst (60-65C), klenow (25-40C)')
     parser.add_argument('--verbose', action='store_true',
