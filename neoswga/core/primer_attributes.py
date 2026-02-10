@@ -54,31 +54,86 @@ def get_gini(primer, fname_prefixes):
     gini = neoswga.core.utility.gini(positions_diffs)
     return gini
 
+def _load_positions_from_h5(primer_list, fname_prefix):
+    """Try to load primer positions from existing HDF5 files.
+
+    After step 2 creates position files, this avoids a redundant full
+    genome scan by reading positions directly from HDF5.
+
+    Args:
+        primer_list: List of primer sequences (all same k).
+        fname_prefix: Path prefix for HDF5 files.
+
+    Returns:
+        Dictionary mapping primer -> list of positions, or None if the
+        HDF5 file does not exist or cannot be read.
+    """
+    if not primer_list:
+        return None
+    k = len(primer_list[0])
+    h5_path = fname_prefix + '_' + str(k) + 'mer_positions.h5'
+    try:
+        kmer_dict = {}
+        with h5py.File(h5_path, 'r') as f:
+            for primer in primer_list:
+                if primer in f:
+                    kmer_dict[primer] = list(f[primer][:])
+                else:
+                    kmer_dict[primer] = []
+        return kmer_dict
+    except (FileNotFoundError, OSError):
+        return None
+
+
 # This probably belongs in a different file--its not a primer attribute.
-def get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_length, circular):
+def get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_length, circular, position_cache=None):
     """
     Measures the gini index of the gaps between all adjacent positions any primer in primer_list may bind to.
+
+    Attempts to use the in-memory position cache first, then falls back
+    to HDF5 files, then to a full genome scan.
 
     Args:
         primer_list: The list of primers to consider.
         fname_prefix: The path prefix to the h5py file.
         fname_genome: The path to the fasta file.
         seq_length: The length of the genome contained in fname_genome.
+        circular: Whether the genome is circular.
+        position_cache: Optional dict mapping (prefix, primer) -> positions
+            from get_positions(). Avoids HDF5 round-trip when available.
 
     Returns:
         primer_to_ginis: A dictionary of primers to a tuple of the gini indices (the first being computed from the
         forward strand, and the second being computed from the reverse strand).
     """
-    # primer_list, fname_prefix, fname_genome, seq_length, k = task
     rc_primer_list = [reverse_complement(primer) for primer in primer_list]
     all_primer_list = list(set(primer_list + rc_primer_list))
-    kmer_dict = neoswga.core.string_search.get_all_positions_per_k(kmer_list=all_primer_list, seq_fname=fname_genome, circular=circular, fname_prefix=fname_prefix)
+
+    kmer_dict = None
+
+    # Try in-memory cache first (fastest, avoids all I/O)
+    if position_cache is not None:
+        kmer_dict = {}
+        for primer in all_primer_list:
+            kmer_dict[primer] = position_cache.get((fname_prefix, primer), [])
+
+    # Try HDF5 files next
+    if kmer_dict is None:
+        kmer_dict = _load_positions_from_h5(all_primer_list, fname_prefix)
+
+    if kmer_dict is None:
+        # Fallback: scan genome (standalone usage without prior position creation)
+        kmer_dict = neoswga.core.string_search.get_all_positions_per_k(
+            kmer_list=all_primer_list, seq_fname=fname_genome,
+            circular=circular, fname_prefix=fname_prefix
+        )
+
     ginis = []
 
     for primer in primer_list:
-        position_diffs_forward = neoswga.core.utility.get_positional_gap_lengths(kmer_dict[primer], circular, seq_length=seq_length)
+        position_diffs_forward = neoswga.core.utility.get_positional_gap_lengths(kmer_dict.get(primer, []), circular, seq_length=seq_length)
         gini_forward = neoswga.core.utility.gini_exact(position_diffs_forward)
-        position_diffs_reverse = neoswga.core.utility.get_positional_gap_lengths(kmer_dict[reverse_complement(primer)], circular, seq_length=seq_length)
+        position_diffs_reverse = neoswga.core.utility.get_positional_gap_lengths(kmer_dict.get(reverse_complement(primer), []), circular, seq_length=seq_length)
         gini_reverse = neoswga.core.utility.gini_exact(position_diffs_reverse)
         ginis.append((gini_forward, gini_reverse))
 
@@ -86,10 +141,14 @@ def get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_len
     return primer_to_ginis
 
 def get_gini_from_txt_for_one_k_helper(args):
-    primer_list, fname_prefix, fname_genome, seq_length, circular = args
-    return get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_length, circular)
+    if len(args) == 6:
+        primer_list, fname_prefix, fname_genome, seq_length, circular, position_cache = args
+    else:
+        primer_list, fname_prefix, fname_genome, seq_length, circular = args
+        position_cache = None
+    return get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_length, circular, position_cache)
 
-def get_gini_from_txt(primer_list, fname_prefixes, fname_genomes, seq_lengths, circular):
+def get_gini_from_txt(primer_list, fname_prefixes, fname_genomes, seq_lengths, circular, position_cache=None):
     """
     This runs get_gini_from_txt_for_one_k in a multiprocessed fashion where the task is divided based on the length
     of the primers.
@@ -99,24 +158,41 @@ def get_gini_from_txt(primer_list, fname_prefixes, fname_genomes, seq_lengths, c
         fname_prefixes: The list of path prefixes to the h5py file.
         fname_genomes: The list of paths to the fasta files.
         seq_lengths: The length of all the genomes in fname_genomes (in the same order!).
+        position_cache: Optional dict mapping (prefix, primer) -> positions
+            from get_positions(). When provided, Gini calculation uses
+            in-memory data instead of reading back from HDF5.
 
     Returns:
         The average gini_index across all gini indices computed for each primer.
     """
-    tasks = []
     # Use parameter k-mer range instead of hardcoded [6-12]
     import neoswga.core.parameter as parameter
     k_range = range(parameter.min_k, parameter.max_k + 1)
-    for i, fg_prefix in enumerate(fname_prefixes):
-        for k in k_range:
-            primer_list_a = [primer for primer in primer_list if len(primer) == k]
-            if len(primer_list_a) > 0:
-                # print([primer_list_a, fg_prefix, fname_genomes[i], seq_lengths[i]])
-                tasks.append([primer_list_a, fg_prefix, fname_genomes[i], seq_lengths[i], circular])
 
-    # Use context manager to ensure proper pool cleanup (prevents resource leaks)
-    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-        results = pool.map(get_gini_from_txt_for_one_k_helper, tasks)
+    # When we have an in-memory cache, compute directly (no multiprocessing
+    # needed since the data is already loaded -- avoids pickle overhead)
+    if position_cache is not None:
+        results = []
+        for i, fg_prefix in enumerate(fname_prefixes):
+            for k in k_range:
+                primer_list_a = [primer for primer in primer_list if len(primer) == k]
+                if len(primer_list_a) > 0:
+                    result = get_gini_from_txt_for_one_k(
+                        primer_list_a, fg_prefix, fname_genomes[i],
+                        seq_lengths[i], circular, position_cache
+                    )
+                    results.append(result)
+    else:
+        tasks = []
+        for i, fg_prefix in enumerate(fname_prefixes):
+            for k in k_range:
+                primer_list_a = [primer for primer in primer_list if len(primer) == k]
+                if len(primer_list_a) > 0:
+                    tasks.append([primer_list_a, fg_prefix, fname_genomes[i], seq_lengths[i], circular])
+
+        # Use context manager to ensure proper pool cleanup (prevents resource leaks)
+        with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+            results = pool.map(get_gini_from_txt_for_one_k_helper, tasks)
 
     primer_to_all_ginis = {}
 

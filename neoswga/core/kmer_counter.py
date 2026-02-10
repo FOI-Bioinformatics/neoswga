@@ -5,6 +5,7 @@ Uses Jellyfish for fast k-mer counting across multiple genomes.
 Jellyfish is a required dependency - the module will raise an error if not available.
 """
 
+import concurrent.futures
 import logging
 import os
 import subprocess
@@ -28,6 +29,26 @@ def _print_k_progress(k: int, min_k: int, max_k: int):
     sys.stdout.flush()
     if k == max_k:
         sys.stdout.write(" done\n")
+
+
+def _adaptive_hash_size(genome_path: str) -> int:
+    """Estimate Jellyfish hash size from genome file size.
+
+    Avoids the default 1M hash, which causes Jellyfish to resize
+    internally (2-3x slowdown) for large genomes.  For small genomes
+    the minimum of 1M is retained.
+
+    Args:
+        genome_path: Path to the FASTA file.
+
+    Returns:
+        Hash table size for Jellyfish ``-s`` flag.
+    """
+    try:
+        file_size = os.path.getsize(genome_path)
+        return max(1_000_000, file_size // 10)
+    except OSError:
+        return 1_000_000
 
 
 def check_jellyfish_available() -> bool:
@@ -171,7 +192,7 @@ class MultiGenomeKmerCounter:
             count_cmd = [
                 'jellyfish', 'count',
                 '-m', str(k),
-                '-s', '1000000',
+                '-s', str(_adaptive_hash_size(fasta_path)),
                 '-t', str(self.cpus),
                 '-C',  # Canonical k-mers (both strands)
                 fasta_path,
@@ -286,6 +307,77 @@ def count_kmers_in_sequence(sequence: str, k: int) -> Dict[str, int]:
 # Standalone Functions (replacements for deprecated kmer.py)
 # =============================================================================
 
+_JELLYFISH_TIMEOUT = 3600  # 1 hour per k-value
+
+
+def _run_jellyfish_for_k(output_prefix: str, genome_fname: str,
+                         k: int, cpus: int, hash_size: int) -> None:
+    """Run Jellyfish count + dump for a single k-value.
+
+    Args:
+        output_prefix: Output path prefix for result files.
+        genome_fname: Path to FASTA file.
+        k: K-mer length.
+        cpus: Number of threads for Jellyfish.
+        hash_size: Jellyfish hash table size (``-s`` flag).
+
+    Raises:
+        RuntimeError: If jellyfish count or dump fails.
+        subprocess.TimeoutExpired: If a command exceeds the timeout.
+    """
+    jf_file = f"{output_prefix}_{k}mer_all.jf"
+    txt_file = f"{output_prefix}_{k}mer_all.txt"
+
+    if not os.path.exists(txt_file):
+        count_cmd = [
+            'jellyfish', 'count',
+            '-m', str(k),
+            '-s', str(hash_size),
+            '-t', str(cpus),
+            '-C',  # Canonical k-mers (count both strands together)
+            genome_fname,
+            '-o', jf_file,
+        ]
+        logger.debug(f"Running: {' '.join(count_cmd)}")
+        try:
+            result = subprocess.run(
+                count_cmd, check=True,
+                capture_output=True, text=True,
+                timeout=_JELLYFISH_TIMEOUT,
+            )
+            if result.stderr:
+                logger.debug(f"jellyfish count stderr: {result.stderr.strip()}")
+        except subprocess.CalledProcessError as e:
+            stderr_msg = (e.stderr or '').strip()
+            raise RuntimeError(
+                f"jellyfish count failed for k={k}: {stderr_msg}\n"
+                f"Command: {' '.join(count_cmd)}"
+            ) from e
+        except subprocess.TimeoutExpired:
+            # Clean up partial output
+            if os.path.exists(jf_file):
+                os.remove(jf_file)
+            raise
+
+        dump_cmd = ['jellyfish', 'dump', '-c', jf_file]
+        logger.debug(f"Running: {' '.join(dump_cmd)}")
+        try:
+            with open(txt_file, 'w') as f_out:
+                subprocess.run(
+                    dump_cmd, check=True, stdout=f_out,
+                    stderr=subprocess.PIPE, text=True,
+                    timeout=_JELLYFISH_TIMEOUT,
+                )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            # Clean up partial txt file
+            if os.path.exists(txt_file):
+                os.remove(txt_file)
+            raise
+
+    if os.path.exists(jf_file):
+        os.remove(jf_file)
+
+
 def run_jellyfish(genome_fname: str, output_prefix: str,
                   min_k: int = 6, max_k: int = 12, cpus: int = 4) -> None:
     """
@@ -315,34 +407,54 @@ def run_jellyfish(genome_fname: str, output_prefix: str,
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    hash_size = _adaptive_hash_size(genome_fname)
+    num_k = max_k - min_k + 1
+    max_workers = min(num_k, max(1, (os.cpu_count() or 1) // max(cpus, 1)))
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(
+                _run_jellyfish_for_k, output_prefix, genome_fname, k, cpus, hash_size
+            ): k
+            for k in range(min_k, max_k + 1)
+        }
+        errors = []
+        for future in concurrent.futures.as_completed(futures):
+            k = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"Jellyfish failed for k={k}: {e}")
+                errors.append((k, e))
+                continue
+            _print_k_progress(k, min_k, max_k)
+
+    if errors:
+        failed_ks = ', '.join(str(k) for k, _ in errors)
+        raise RuntimeError(
+            f"Jellyfish failed for k-mer lengths: {failed_ks}. "
+            f"First error: {errors[0][1]}"
+        )
+
+    # Validate output files
+    missing = []
+    empty = []
     for k in range(min_k, max_k + 1):
-        _print_k_progress(k, min_k, max_k)
-
-        jf_file = f"{output_prefix}_{k}mer_all.jf"
         txt_file = f"{output_prefix}_{k}mer_all.txt"
-
         if not os.path.exists(txt_file):
-            # Run jellyfish count
-            count_cmd = [
-                'jellyfish', 'count',
-                '-m', str(k),
-                '-s', '1000000',
-                '-t', str(cpus),
-                genome_fname,
-                '-o', jf_file
-            ]
-            logger.debug(f"Running: {' '.join(count_cmd)}")
-            subprocess.run(count_cmd, check=True, capture_output=True)
+            missing.append(txt_file)
+        elif os.path.getsize(txt_file) == 0:
+            empty.append(txt_file)
 
-            # Dump to text file
-            dump_cmd = ['jellyfish', 'dump', '-c', jf_file]
-            logger.debug(f"Running: {' '.join(dump_cmd)}")
-            with open(txt_file, 'w') as f_out:
-                subprocess.run(dump_cmd, check=True, stdout=f_out)
-
-        # Clean up intermediate .jf file
-        if os.path.exists(jf_file):
-            os.remove(jf_file)
+    if missing:
+        raise RuntimeError(
+            f"Jellyfish output files missing after counting: {missing}"
+        )
+    if empty:
+        logger.warning(
+            f"Empty k-mer files (genome may be shorter than k): "
+            f"{[os.path.basename(f) for f in empty]}"
+        )
 
 
 def get_kmer_to_count_dict(f_in_name: str) -> Dict[str, int]:
@@ -368,14 +480,26 @@ def get_kmer_to_count_dict(f_in_name: str) -> Dict[str, int]:
     return kmer_to_count
 
 
+def _gc_content(seq: str) -> float:
+    """Fast GC fraction for a DNA sequence (no validation)."""
+    gc = 0
+    for c in seq:
+        if c == 'G' or c == 'C' or c == 'g' or c == 'c':
+            gc += 1
+    return gc / len(seq) if seq else 0.0
+
+
 def get_primer_list_from_kmers(prefixes: List[str],
                                 kmer_lengths: Optional[range] = None,
                                 min_tm: float = 15.0,
                                 max_tm: float = 55.0,
-                                wide_tm_margin: float = 15.0) -> List[str]:
+                                wide_tm_margin: float = 15.0,
+                                gc_min: float = 0.10,
+                                gc_max: float = 0.90) -> List[str]:
     """
-    Get all k-mers from jellyfish output files, filtered by Tm.
+    Get all k-mers from jellyfish output files, filtered by GC content and Tm.
 
+    Applies a fast GC pre-filter before the expensive Tm calculation.
     Uses a wide margin around the Tm window because melting.temp() (simple
     approximation) can disagree with the SantaLucia nearest-neighbor Tm used
     in filter_extra() by 10-20C for long primers. The precise Tm filter in
@@ -388,13 +512,16 @@ def get_primer_list_from_kmers(prefixes: List[str],
         max_tm: Maximum melting temperature (default: 55.0)
         wide_tm_margin: Margin added to both sides of the Tm window to
             avoid premature rejection of long primers (default: 15.0)
+        gc_min: Minimum GC fraction for pre-filter (default: 0.10)
+        gc_max: Maximum GC fraction for pre-filter (default: 0.90)
 
     Returns:
-        List of k-mer sequences that pass Tm pre-filter
+        List of k-mer sequences that pass GC and Tm pre-filters
     """
     import melting
 
     primer_list = []
+    gc_rejected = 0
 
     if kmer_lengths is None:
         kmer_lengths = range(6, 13)
@@ -414,6 +541,11 @@ def get_primer_list_from_kmers(prefixes: List[str],
                     parts = line.strip().split()
                     if parts:
                         curr_kmer = parts[0]
+                        # Fast GC pre-filter (avoids expensive Tm calculation)
+                        gc = _gc_content(curr_kmer)
+                        if gc < gc_min or gc > gc_max:
+                            gc_rejected += 1
+                            continue
                         try:
                             tm = melting.temp(curr_kmer)
                             if wide_min < tm < wide_max:
@@ -422,5 +554,8 @@ def get_primer_list_from_kmers(prefixes: List[str],
                             # Skip k-mers with invalid sequences (e.g. ambiguous bases
                             # cause KeyError in the melting library's complement lookup)
                             logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
+
+    if gc_rejected > 0:
+        logger.info(f"GC pre-filter removed {gc_rejected} k-mers outside {gc_min:.0%}-{gc_max:.0%} range")
 
     return primer_list

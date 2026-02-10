@@ -420,7 +420,8 @@ def get_gini(
     fg_genomes: List[str],
     fg_seq_lengths: List[int],
     df: pd.DataFrame,
-    circular: bool
+    circular: bool,
+    position_cache: Optional[Dict] = None,
 ) -> pd.DataFrame:
     """Computes the Gini index of the gap distances between binding sites.
 
@@ -430,12 +431,15 @@ def get_gini(
         fg_seq_lengths: List of sequence length(s) of the foreground genome(s).
         df: Pandas dataframe with column primer containing the primer sequences.
         circular: Whether the genome is circular.
+        position_cache: Optional dict mapping (prefix, primer) -> positions
+            from string_search.get_positions(). When provided, avoids the
+            HDF5 read-back round-trip for a measurable speedup.
 
     Returns:
         df: Input dataframe with new column 'gini' for the computed Gini indices.
 
     """
-    df['gini'] = primer_attributes.get_gini_from_txt(df['primer'].values, fg_prefixes, fg_genomes, fg_seq_lengths, circular)
+    df['gini'] = primer_attributes.get_gini_from_txt(df['primer'].values, fg_prefixes, fg_genomes, fg_seq_lengths, circular, position_cache=position_cache)
 
     if len(df['gini']) == 0:
         df['gini_bool'] = []

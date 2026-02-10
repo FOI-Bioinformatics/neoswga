@@ -463,7 +463,9 @@ def step2(all_primers=None, validate_prerequisites=True):
             all_primers = get_primer_list_from_kmers(
                 fg_prefixes, kmer_lengths=kmer_lengths,
                 min_tm=getattr(parameter, 'min_tm', 15),
-                max_tm=getattr(parameter, 'max_tm', 55)
+                max_tm=getattr(parameter, 'max_tm', 55),
+                gc_min=max(0.10, gc_min - 0.10),
+                gc_max=min(0.90, gc_max + 0.10),
             )
         logger.info(f"Loaded {len(all_primers)} candidate primers")
 
@@ -489,7 +491,7 @@ def step2(all_primers=None, validate_prerequisites=True):
         logger.info(f"Reusing existing position files (incremental update only)")
 
     with progress_context("Creating position files"):
-        string_search.get_positions(
+        fg_position_cache = string_search.get_positions(
             filtered_rate_df["primer"], fg_prefixes, fg_genomes, circular=parameter.fg_circular
         )
         if len(bg_prefixes) > 0 and len(bg_genomes) > 0:
@@ -498,7 +500,10 @@ def step2(all_primers=None, validate_prerequisites=True):
             )
 
     with progress_context("Computing Gini index"):
-        gini_df = filter_module.get_gini(fg_prefixes, fg_genomes, fg_seq_lengths, filtered_rate_df, fg_circular)
+        gini_df = filter_module.get_gini(
+            fg_prefixes, fg_genomes, fg_seq_lengths, filtered_rate_df,
+            fg_circular, position_cache=fg_position_cache
+        )
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)
@@ -508,6 +513,11 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
+
+    # Log thermodynamic cache performance
+    from neoswga.core.thermodynamics import log_cache_stats
+    log_cache_stats("Step 2")
+
     return filtered_gini_df
 
 
@@ -573,6 +583,10 @@ def step3(validate_prerequisites=True):
     joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
 
     logger.info(f"Filtered {step2_df.shape[0] - joined_step3_df.shape[0]} primers based on efficacy")
+
+    # Log thermodynamic cache performance
+    from neoswga.core.thermodynamics import log_cache_stats
+    log_cache_stats("Step 3")
 
     if parameter.verbose:
         logger.debug(f"Step 3 results:\n{joined_step3_df}")

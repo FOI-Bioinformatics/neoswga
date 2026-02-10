@@ -647,6 +647,35 @@ def get_cache_stats() -> Dict[str, Any]:
     }
 
 
+def log_cache_stats(label: str = "") -> None:
+    """Log thermodynamic cache hit rates for performance monitoring.
+
+    Call at the end of each pipeline step to track cache effectiveness.
+    Low hit rates may indicate the cache size (1M entries) is too small.
+
+    Args:
+        label: Optional label for the log message (e.g. "Step 2").
+    """
+    stats = get_cache_stats()
+    prefix = f"[{label}] " if label else ""
+    for name, info in stats.items():
+        total = info.hits + info.misses
+        if total > 0:
+            hit_rate = info.hits / total * 100
+            logger.info(
+                f"{prefix}Thermo cache '{name}': "
+                f"{hit_rate:.1f}% hit rate "
+                f"({info.hits:,} hits, {info.misses:,} misses, "
+                f"{info.currsize:,}/{info.maxsize:,} entries)"
+            )
+            if info.currsize >= info.maxsize * 0.95:
+                logger.warning(
+                    f"{prefix}Thermo cache '{name}' is near capacity "
+                    f"({info.currsize:,}/{info.maxsize:,}). "
+                    f"Cache eviction may reduce performance."
+                )
+
+
 # ========================================
 # Vectorized Batch Tm Calculations
 # ========================================

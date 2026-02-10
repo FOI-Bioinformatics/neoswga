@@ -57,6 +57,9 @@ improved = [
     "pybloom-live>=3.1.0",
     "mip>=1.13.0",
 ]
+fast = [
+    "pyahocorasick>=2.0.0",
+]
 interactive = [
     "plotly>=5.0.0",
 ]
@@ -85,6 +88,7 @@ dev = [
 all = [
     "pybloom-live>=3.1.0",
     "mip>=1.13.0",
+    "pyahocorasick>=2.0.0",
     "cupy-cuda11x>=11.0.0",
     "torch>=1.10.0",
     "pytest>=7.0.0",

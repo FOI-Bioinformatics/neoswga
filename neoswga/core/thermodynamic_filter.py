@@ -17,7 +17,9 @@ Date: November 2025
 Version: 3.0 - Phase 1.3
 """
 
+import concurrent.futures
 import logging
+import os
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 import numpy as np
@@ -37,6 +39,29 @@ from neoswga.core.secondary_structure import (
 from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
+
+
+def _check_heterodimer_pair(args):
+    """Check a single heterodimer pair.
+
+    Module-level function so it can be pickled by multiprocessing.
+
+    Args:
+        args: Tuple of (seq1, seq2, i, j, conditions_dict).
+
+    Returns:
+        Tuple of (i, j, dimer_dg).
+    """
+    seq1, seq2, i, j, conditions_dict = args
+    try:
+        conditions = ReactionConditions(**conditions_dict)
+        result = check_heterodimer(seq1, seq2, conditions)
+        dg = result.get('energy', 0.0)
+        if dg == float('inf') or dg > 0:
+            dg = 0.0
+        return (i, j, dg)
+    except Exception:
+        return (i, j, 0.0)
 
 
 @dataclass
@@ -248,15 +273,34 @@ class ThermodynamicFilter:
             # Calculate pairwise heterodimer potential
             problematic_pairs = set()
 
-            for i in range(len(passing)):
-                for j in range(i + 1, len(passing)):
-                    seq1 = passing[i].sequence
-                    seq2 = passing[j].sequence
+            conditions_dict = {
+                'temp': self.criteria.reaction_temp,
+                'na_conc': self.criteria.na_conc,
+                'mg_conc': self.criteria.mg_conc,
+            }
 
+            pairs = [
+                (passing[i].sequence, passing[j].sequence, i, j, conditions_dict)
+                for i in range(len(passing))
+                for j in range(i + 1, len(passing))
+            ]
+
+            if len(pairs) > 100:
+                # Parallel path for large sets (ProcessPoolExecutor for CPU-bound work)
+                n_workers = min(os.cpu_count() or 1, 8)
+                with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
+                    for i, j, dimer_dg in executor.map(
+                        _check_heterodimer_pair, pairs, chunksize=50
+                    ):
+                        if dimer_dg < self.criteria.max_heterodimer_dg:
+                            problematic_pairs.add((i, j))
+                            heterodimer_issues += 1
+            else:
+                # Sequential path for small sets
+                for seq1, seq2, i, j, _ in pairs:
                     try:
                         dimer_result = check_heterodimer(seq1, seq2, conditions)
                         dimer_dg = dimer_result.get('energy', 0.0)
-                        # Handle inf (no dimer)
                         if dimer_dg == float('inf') or dimer_dg > 0:
                             dimer_dg = 0.0
                     except Exception as e:
