@@ -113,9 +113,15 @@ class PositionCache:
             Array of positions (empty if not found)
         """
         if strand == 'both':
+            key = (fname_prefix, primer, 'both')
+            cached = self.cache.get(key)
+            if cached is not None:
+                return cached
             fw = self.cache.get((fname_prefix, primer, 'forward'), np.array([], dtype=np.int32))
             rv = self.cache.get((fname_prefix, primer, 'reverse'), np.array([], dtype=np.int32))
-            return np.concatenate([fw, rv])
+            combined = np.concatenate([fw, rv])
+            self.cache[key] = combined
+            return combined
         else:
             return self.cache.get((fname_prefix, primer, strand), np.array([], dtype=np.int32))
 

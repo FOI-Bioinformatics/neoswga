@@ -47,7 +47,7 @@ def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:
     """
     try:
         from neoswga.core import dimer
-        if dimer.is_dimer(primer1, primer2, max_bp):
+        if dimer.is_dimer_fast(primer1, primer2, max_bp):
             return 1.0
         return 0.0
     except ImportError:
@@ -485,7 +485,10 @@ class AmplificationNetwork:
         return min(1.0, max(0.0, gini))
 
     def get_statistics(self) -> Dict:
-        """Get comprehensive network statistics including confidence intervals"""
+        """Get comprehensive network statistics including confidence intervals.
+
+        Computes connected components once and reuses across all metrics.
+        """
         if len(self.graph.nodes()) == 0:
             return {
                 'num_sites': 0,
@@ -500,16 +503,39 @@ class AmplificationNetwork:
                 'gini_coefficient': 0,
             }
 
+        # Compute components once, reuse for all derived metrics
         components = list(nx.connected_components(self.graph))
-        pred, lower, upper = self.predict_amplification_with_uncertainty()
+        comp_sizes = [len(c) for c in components]
+        largest = max(comp_sizes)
+        avg_size = np.mean(comp_sizes)
         gini = self._calculate_gini_coefficient()
+
+        # Inline amplification prediction to avoid redundant component calls
+        if largest < 10:
+            base_pred = largest * 5
+        else:
+            exponent = min(largest / 10.0, 20.0)
+            base_pred = 2 ** exponent
+
+        if base_pred <= 1.0:
+            pred, lower, upper = 1.0, 1.0, 1.0
+        else:
+            num_sites = len(self.binding_sites)
+            site_factor = 1.0 / math.sqrt(max(num_sites, 1))
+            gini_factor = gini * 0.5
+            structure_factor = max(0, 1.0 - largest / 100.0)
+            log_uncertainty = 0.2 + site_factor + gini_factor + structure_factor * 0.3
+            log_pred = math.log(base_pred)
+            lower = max(1.0, math.exp(log_pred - 1.96 * log_uncertainty * log_pred))
+            upper = min(2**20, math.exp(log_pred + 1.96 * log_uncertainty * log_pred))
+            pred = base_pred
 
         return {
             'num_sites': len(self.graph.nodes()),
             'num_edges': len(self.graph.edges()),
             'num_components': len(components),
-            'largest_component': max(len(c) for c in components),
-            'avg_component_size': np.mean([len(c) for c in components]),
+            'largest_component': largest,
+            'avg_component_size': avg_size,
             'connectivity': self.connectivity_score(),
             'predicted_amplification': pred,
             'amplification_lower_ci': lower,

@@ -58,6 +58,7 @@ def mock_dimer():
     """Mock the dimer module."""
     with patch('neoswga.core.filter.dimer') as mock_d:
         mock_d.is_dimer.return_value = False
+        mock_d.is_dimer_fast.return_value = False
         yield mock_d
 
 
@@ -262,7 +263,7 @@ class TestSelfDimerFilter:
     def test_rejects_self_dimer(self, mock_parameter):
         """Test rejection of primer that forms self-dimer."""
         with patch('neoswga.core.filter.dimer') as mock_dimer:
-            mock_dimer.is_dimer.return_value = True
+            mock_dimer.is_dimer_fast.return_value = True
 
             result = filter_extra("ATCGATCG")
 
@@ -271,7 +272,7 @@ class TestSelfDimerFilter:
     def test_accepts_no_self_dimer(self, mock_parameter):
         """Test acceptance when no self-dimer."""
         with patch('neoswga.core.filter.dimer') as mock_dimer:
-            mock_dimer.is_dimer.return_value = False
+            mock_dimer.is_dimer_fast.return_value = False
             mock_parameter.gc_min = 0.3
             mock_parameter.gc_max = 0.7
 

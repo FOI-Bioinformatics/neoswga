@@ -351,7 +351,8 @@ def get_all_predicted_delta_G_for_all_files_transformed(primer_list, target, fna
     df = pd.DataFrame(arr_transformed, columns=columns)
 
     if f_out_name:
-        pickle.dump(df, open(f_out_name, "wb"))
+        with open(f_out_name, "wb") as fh:
+            pickle.dump(df, fh)
 
     return df
 
@@ -481,6 +482,12 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
         if _sampling_enabled:
             scale_factor = 1.0 / _sample_rate
 
+        # Pre-compute all k-mer complements before inner loop
+        kmer_complements = {
+            kmer_i: neoswga.core.utility.complement(kmer_i)
+            for kmer_i in kmer_dict
+        }
+
         # Process k-mers (with optional sampling)
         for kmer_i, count in kmer_dict.items():
             # SAMPLING: Skip low-frequency k-mers probabilistically
@@ -496,10 +503,9 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
                 kmer_i, primer_reversed, penalty
             )
 
-            # Reverse strand binding (complement of k-mer)
-            kmer_complement = neoswga.core.utility.complement(kmer_i)
+            # Reverse strand binding (pre-computed complement of k-mer)
             delta_G_val_reverse = thermo.compute_free_energy_for_two_strings(
-                primer, kmer_complement, penalty
+                primer, kmer_complements[kmer_i], penalty
             )
 
             # Effective count (scaled if sampling)
@@ -509,20 +515,14 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
 
             # Bin forward value
             if delta_G_val_forward <= histogram_upper_bound:
-                if delta_G_val_forward >= histogram_upper_bound:
-                    idx = len(bins) - 2
-                else:
-                    idx = np.searchsorted(bins_array, delta_G_val_forward, side='right') - 1
-                    idx = max(0, min(idx, len(bins) - 2))
+                idx = np.searchsorted(bins_array, delta_G_val_forward, side='right') - 1
+                idx = max(0, min(idx, len(bins) - 2))
                 all_delta_G_vals[idx] += effective_count
 
             # Bin reverse value
             if delta_G_val_reverse <= histogram_upper_bound:
-                if delta_G_val_reverse >= histogram_upper_bound:
-                    idx = len(bins) - 2
-                else:
-                    idx = np.searchsorted(bins_array, delta_G_val_reverse, side='right') - 1
-                    idx = max(0, min(idx, len(bins) - 2))
+                idx = np.searchsorted(bins_array, delta_G_val_reverse, side='right') - 1
+                idx = max(0, min(idx, len(bins) - 2))
                 all_delta_G_vals[idx] += effective_count
 
     return all_delta_G_vals.tolist()
@@ -667,8 +667,20 @@ def predict_new_primers(df):
     """
     warnings.filterwarnings('ignore')
 
-    X_test = df[regression_features]
-    X_test = X_test.dropna(axis='columns')
+    X_test = df[regression_features].copy()
+    nan_cols = X_test.columns[X_test.isna().any()].tolist()
+    if nan_cols:
+        logger.warning(
+            f"NaN values in {len(nan_cols)} feature columns: {nan_cols[:5]}. "
+            "Filling with column medians."
+        )
+        for col in nan_cols:
+            X_test[col] = X_test[col].fillna(X_test[col].median())
+        # Drop any columns that are entirely NaN (median would also be NaN)
+        still_nan = X_test.columns[X_test.isna().any()].tolist()
+        if still_nan:
+            logger.warning(f"Dropping {len(still_nan)} all-NaN columns: {still_nan}")
+            X_test = X_test.drop(columns=still_nan)
 
     # Use __file__ to find model relative to this module
     model_dir = os.path.join(os.path.dirname(__file__), 'models')

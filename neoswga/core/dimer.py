@@ -67,6 +67,8 @@ def is_dimer(seq_1, seq_2, max_dimer_bp=3):
     return (binding_len > max_dimer_bp)
 
 
+_DIMER_RC_TABLE = str.maketrans('ATGCatgc', 'TACGtacg')
+
 def is_dimer_fast(seq_1, seq_2, max_dimer_bp=3):
     """
     Fast dimer check with early termination.
@@ -82,10 +84,7 @@ def is_dimer_fast(seq_1, seq_2, max_dimer_bp=3):
     Returns:
         True if primers may form heterodimer (binding > max_dimer_bp)
     """
-    # Get reverse complement of seq_2
-    comp = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G',
-            'a': 't', 't': 'a', 'g': 'c', 'c': 'g'}
-    seq_2_rc = ''.join(comp.get(b, 'N') for b in reversed(seq_2))
+    seq_2_rc = seq_2.translate(_DIMER_RC_TABLE)[::-1]
 
     # Optimized LCS with early termination
     len1, len2 = len(seq_1), len(seq_2_rc)
@@ -205,9 +204,9 @@ def heterodimer_matrix(primer_list, max_dimer_bp=3):
 
     # Pairwise comparison, note this can be precomputed
     for i in range(n):
-        het_matrix[i, i] = is_dimer(primer_list[i], primer_list[i], max_dimer_bp=parameter.max_self_dimer_bp)
+        het_matrix[i, i] = is_dimer_fast(primer_list[i], primer_list[i], max_dimer_bp=parameter.max_self_dimer_bp)
         for j in range(i + 1, n):  # Also check internal hairpin (binds with itself)
-            het_matrix[i, j] = is_dimer(primer_list[i], primer_list[j], max_dimer_bp=max_dimer_bp)
+            het_matrix[i, j] = is_dimer_fast(primer_list[i], primer_list[j], max_dimer_bp=max_dimer_bp)
             het_matrix[j, i] = het_matrix[i, j]
     return het_matrix
 

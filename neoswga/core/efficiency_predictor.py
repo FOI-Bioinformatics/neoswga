@@ -550,7 +550,7 @@ class EfficiencyPredictor:
             for i in range(n_check):
                 for j in range(i + 1, n_check):
                     total_pairs += 1
-                    if dimer.is_dimer(primers_to_check[i], primers_to_check[j], max_bp=4):
+                    if dimer.is_dimer_fast(primers_to_check[i], primers_to_check[j], max_dimer_bp=4):
                         dimer_pairs += 1
                         if len(issues) < 3:  # Limit reported issues
                             issues.append(

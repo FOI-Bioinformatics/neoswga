@@ -29,7 +29,7 @@ class TestFix7DimerAttributeName:
             mock_param.gc_min = 0.0
             mock_param.gc_max = 1.0
             mock_param.genome_gc = None
-            mock_dimer.is_dimer.return_value = False
+            mock_dimer.is_dimer_fast.return_value = False
 
             mock_conditions = MagicMock()
             mock_conditions.calculate_effective_tm.return_value = 30.0
@@ -40,8 +40,8 @@ class TestFix7DimerAttributeName:
             result = filter_extra("ATCGATCG")
             assert isinstance(result, bool)
 
-            # Verify is_dimer was called with the correct attribute value
-            mock_dimer.is_dimer.assert_called_once_with("ATCGATCG", "ATCGATCG", 4)
+            # Verify is_dimer_fast was called with the correct attribute value
+            mock_dimer.is_dimer_fast.assert_called_once_with("ATCGATCG", "ATCGATCG", 4)
 
 
 # ============================================================================
@@ -176,7 +176,7 @@ class TestFix3AdaptiveGCClamp:
             mock_param.gc_min = gc_min
             mock_param.gc_max = gc_max
             mock_param.genome_gc = genome_gc
-            mock_dimer.is_dimer.return_value = False
+            mock_dimer.is_dimer_fast.return_value = False
 
             mock_conditions = MagicMock()
             mock_conditions.calculate_effective_tm.return_value = 30.0
@@ -447,7 +447,7 @@ class TestIntegrationGCExtremes:
             mock_param.gc_min = max(0.15, genome_gc - gc_tolerance)
             mock_param.gc_max = min(0.85, genome_gc + gc_tolerance)
 
-            mock_dimer.is_dimer.return_value = False
+            mock_dimer.is_dimer_fast.return_value = False
 
             mock_conditions = MagicMock()
             mock_conditions.calculate_effective_tm.return_value = 30.0

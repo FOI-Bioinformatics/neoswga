@@ -289,7 +289,7 @@ def filter_extra(primer: str) -> bool:
         return False
 
     # Self-dimer check
-    if dimer.is_dimer(primer, primer, parameter.max_self_dimer_bp):
+    if dimer.is_dimer_fast(primer, primer, parameter.max_self_dimer_bp):
         logger.debug(f"Self-dimer filter: {primer}")
         return False
 
@@ -340,10 +340,16 @@ def get_all_rates(
     # Frequency thresholds are scaled by primer length: longer primers have
     # exponentially fewer exact match sites, so fixed thresholds calibrated
     # for short primers would eliminate nearly all long (15-18bp) candidates.
+    # Cache frequency thresholds by primer length to avoid redundant computation
+    _threshold_cache = {}
     for primer in primer_list:
         primer_len = len(primer)
-        scaled_min_fg = _scale_freq_threshold(parameter.min_fg_freq, primer_len)
-        scaled_max_bg = _scale_freq_threshold(parameter.max_bg_freq, primer_len)
+        if primer_len not in _threshold_cache:
+            _threshold_cache[primer_len] = (
+                _scale_freq_threshold(parameter.min_fg_freq, primer_len),
+                _scale_freq_threshold(parameter.max_bg_freq, primer_len),
+            )
+        scaled_min_fg, scaled_max_bg = _threshold_cache[primer_len]
         fg_count = primer_to_fg_count.get(primer, None)
         fg_bool = (fg_count is None or fg_count / fg_total_length > scaled_min_fg)
         bg_count = primer_to_bg_count.get(primer, None)
@@ -399,20 +405,20 @@ def get_rates_for_one_species(
 
 def _get_rate_for_one_file(task: Tuple[List[str], str, int]) -> Dict[str, int]:
     primer_list, fname_prefix, k = task
+    primer_set = set(primer_list)
     primer_to_count = {}
+    found = 0
+    target = len(primer_set)
     with open(fname_prefix + '_' + str(k) + 'mer_all.txt', 'r') as f_in:
         for line in f_in:
-            primer = line.split(" ")[0]
-            count = line.split(" ")[1]
-            primer_to_count[primer] = int(count)
+            parts = line.split()
+            if parts[0] in primer_set:
+                primer_to_count[parts[0]] = int(parts[1])
+                found += 1
+                if found == target:
+                    break
 
-    all_counts = []
-    for primer in primer_list:
-        if primer in primer_to_count:
-            all_counts.append(primer_to_count[primer])
-        else:
-            all_counts.append(0)
-    return dict(zip(primer_list, all_counts))
+    return {primer: primer_to_count.get(primer, 0) for primer in primer_list}
 
 
 def get_gini(

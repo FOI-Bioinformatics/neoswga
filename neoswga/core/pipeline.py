@@ -300,6 +300,17 @@ def _initialize():
     fg_circular = params["fg_circular"]
     bg_circular = params["bg_circular"]
 
+    # Recommend Bloom filter for large background genomes (>50 Mbp)
+    _BLOOM_THRESHOLD = 50_000_000
+    bg_total = sum(bg_seq_lengths) if bg_seq_lengths else 0
+    if bg_total > _BLOOM_THRESHOLD:
+        bg_mb = bg_total / 1_000_000
+        logger.warning(
+            f"Background genome is large ({bg_mb:.0f} Mbp). Consider pre-building "
+            "a Bloom filter for faster filtering:\n"
+            "  neoswga build-filter <background.fna> <data_dir>"
+        )
+
     # Apply GC-adaptive strategy if genome_gc is available
     _apply_gc_adaptive_defaults()
 
@@ -540,15 +551,30 @@ def step3(validate_prerequisites=True):
         if not validation.valid:
             raise StepPrerequisiteError(3, validation)
 
-    # Check for sampling parameters in params
-    # Default to 10% sampling for 10x speedup with <5% accuracy loss
-    sample_rate = getattr(parameter, 'sample_rate', 0.1)  # Default 10% sampling
+    # Adaptive k-mer sampling: scale sample rate by genome size
     disable_sampling = getattr(parameter, 'disable_kmer_sampling', False)
+    explicit_rate = getattr(parameter, 'sample_rate', None)
 
-    if not disable_sampling and sample_rate < 1.0:
-        min_count = getattr(parameter, 'min_sample_count', 5)
-        rf_preprocessing.enable_kmer_sampling(sample_rate=sample_rate, min_count=min_count)
-        logger.info(f"K-mer sampling enabled: {sample_rate*100:.0f}% sample rate (10x speedup)")
+    if not disable_sampling:
+        fg_total = sum(fg_seq_lengths) if fg_seq_lengths else 0
+        if explicit_rate is not None:
+            sample_rate = explicit_rate
+        elif fg_total < 100_000:
+            sample_rate = 1.0  # Small genomes: use all k-mers
+        elif fg_total < 1_000_000:
+            sample_rate = 0.25  # Medium genomes: 25%
+        elif fg_total < 10_000_000:
+            sample_rate = 0.10  # Large genomes: 10%
+        else:
+            sample_rate = 0.05  # Very large genomes: 5%
+
+        if sample_rate < 1.0:
+            min_count = getattr(parameter, 'min_sample_count', 5)
+            rf_preprocessing.enable_kmer_sampling(sample_rate=sample_rate, min_count=min_count)
+            logger.info(f"K-mer sampling: {sample_rate*100:.0f}% rate (genome {fg_total/1e6:.1f} Mbp)")
+        else:
+            rf_preprocessing.disable_kmer_sampling()
+            logger.info("K-mer sampling disabled (small genome)")
     else:
         rf_preprocessing.disable_kmer_sampling()
 
@@ -575,6 +601,14 @@ def step3(validate_prerequisites=True):
     step2_df = step2_df.set_index("primer")
     step3_df = step3_df.rename({"sequence": "primer"}, axis="columns")
     step3_df = step3_df.set_index("primer")
+
+    # Validate join: warn if any step3 primers are missing from step2
+    missing = step3_df.index.difference(step2_df.index)
+    if len(missing) > 0:
+        logger.warning(
+            f"{len(missing)} scored primers not found in step2 data "
+            f"(first 3: {list(missing[:3])}). These will have NaN metrics."
+        )
 
     joined_step3_df = step3_df.join(step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left").sort_values(
         by="gini"

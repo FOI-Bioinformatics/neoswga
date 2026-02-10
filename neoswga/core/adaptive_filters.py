@@ -559,7 +559,7 @@ def run_step2_with_adaptive_gc(gc_tolerance: float = 0.15):
                     return False
 
         # Self-dimer check
-        if dimer.is_dimer(primer, primer, parameter.max_self_dimer_bp):
+        if dimer.is_dimer_fast(primer, primer, parameter.max_self_dimer_bp):
             return False
 
         return True

@@ -126,6 +126,11 @@ def has_ambiguous_bases(seq: str) -> bool:
     return any(base in IUPAC_AMBIGUOUS for base in seq.upper())
 
 
+_RC_TABLE = str.maketrans(
+    'ATGCNRYWSKMBDHV',
+    'TACGNNNNNNNNNNN',
+)
+
 def reverse_complement(seq: str) -> str:
     """
     Return reverse complement of DNA sequence.
@@ -134,8 +139,7 @@ def reverse_complement(seq: str) -> str:
     Ambiguous bases (N, R, Y, etc.) are mapped to N.
     """
     seq = normalize_sequence(seq)
-    complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G'}
-    return ''.join(complement.get(base, 'N') for base in reversed(seq))
+    return seq.translate(_RC_TABLE)[::-1]
 
 
 def is_palindrome(seq: str) -> bool:

@@ -193,7 +193,7 @@ class MILPOptimizer:
 
         for i in range(len(candidates)):
             for j in range(i+1, len(candidates)):
-                if dimer.is_dimer(candidates[i], candidates[j], max_dimer_bp=3):
+                if dimer.is_dimer_fast(candidates[i], candidates[j], max_dimer_bp=3):
                     dimer_pairs.append((i, j))
 
         logger.info(f"Found {len(dimer_pairs)} dimer pairs")

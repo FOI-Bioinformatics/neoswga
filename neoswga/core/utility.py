@@ -196,8 +196,9 @@ def longest_char_repeat(s, char):
     return max(count, max_count)
 
 complement_dic ={'A':'T','T':'A','G':'C','C':'G', " ": " "}
+_COMPLEMENT_TABLE = str.maketrans('ATGCatgc', 'TACGtacg')
 def complement(text):
-    return ''.join([complement_dic[c.upper()] if c.upper() in complement_dic else "N" for c in text])
+    return text.translate(_COMPLEMENT_TABLE)
 
 def get_num_mismatches(x, y):
     num_mismatches = 0
@@ -206,19 +207,25 @@ def get_num_mismatches(x, y):
             num_mismatches += 1
     return num_mismatches
 
-#returns the length of longest common substring, from wikipedia
 def longest_common_substring(s1, s2):
-    m = [[0] * (1 + len(s2)) for i in range(1 + len(s1))]
-    longest, x_longest = 0, 0
-    for x in range(1, 1 + len(s1)):
-        for y in range(1, 1 + len(s2)):
-            if s1[x - 1] == s2[y - 1]:
-                m[x][y] = m[x - 1][y - 1] + 1
-                if m[x][y] > longest:
-                    longest = m[x][y]
-                    x_longest = x
-            else:
-                m[x][y] = 0
+    """Return the length of the longest common substring.
+
+    Uses a single-row DP approach for O(min(n,m)) space instead of O(n*m).
+    """
+    # Ensure s2 is the shorter string for minimal memory usage
+    if len(s1) < len(s2):
+        s1, s2 = s2, s1
+    n, m = len(s1), len(s2)
+    prev = [0] * (m + 1)
+    longest = 0
+    for i in range(1, n + 1):
+        curr = [0] * (m + 1)
+        for j in range(1, m + 1):
+            if s1[i - 1] == s2[j - 1]:
+                curr[j] = prev[j - 1] + 1
+                if curr[j] > longest:
+                    longest = curr[j]
+        prev = curr
     return longest
 
 def read_fasta_file(fname):

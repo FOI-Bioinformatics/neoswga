@@ -516,7 +516,7 @@ class BaseOptimizer(ABC):
             for i in range(n):
                 for j in range(i + 1, n):
                     total_pairs += 1
-                    if dimer.is_dimer(primers[i], primers[j], self.config.max_dimer_bp):
+                    if dimer.is_dimer_fast(primers[i], primers[j], self.config.max_dimer_bp):
                         dimer_count += 1
 
             return dimer_count / total_pairs if total_pairs > 0 else 0.0
