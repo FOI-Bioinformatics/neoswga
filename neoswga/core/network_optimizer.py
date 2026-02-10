@@ -544,6 +544,37 @@ class AmplificationNetwork:
         }
 
 
+class _SimulatedNetwork:
+    """Lightweight proxy storing pre-computed metrics from _simulate_add_primer.
+
+    Provides the same interface as AmplificationNetwork for the subset of
+    methods used by _evaluate_primer_addition, but without holding a full
+    graph copy.
+    """
+
+    __slots__ = ('_largest', '_avg', '_uniformity', '_has_sites')
+
+    def __init__(self, largest: int, avg: float, uniformity: float, has_sites: bool):
+        self._largest = largest
+        self._avg = avg
+        self._uniformity = uniformity
+        self._has_sites = has_sites
+
+    def largest_component_size(self) -> int:
+        return self._largest
+
+    def average_component_size(self) -> float:
+        return self._avg
+
+    def coverage_uniformity(self, genome_length: int) -> float:
+        return self._uniformity
+
+    @property
+    def binding_sites(self):
+        """Return truthy/falsy value matching the has-sites check in callers."""
+        return self._has_sites
+
+
 class NetworkOptimizer:
     """
     Optimize primer sets for network connectivity.
@@ -811,38 +842,53 @@ class NetworkOptimizer:
     def _simulate_add_primer(self, network: AmplificationNetwork,
                             primer: str, prefixes: List[str]) -> AmplificationNetwork:
         """
-        Simulate adding primer to network (without modifying original).
+        Simulate adding primer to network using in-place add/remove.
 
-        Uses incremental edge building for O(k log n) instead of O(n^2),
-        where k = new binding sites, n = total sites.
+        Adds primer sites and edges to the network, computes metrics,
+        then removes them to restore the original state. Avoids the
+        O(n+m) graph copy that dominated runtime in the previous approach.
 
-        Returns new network with primer added.
+        Returns a lightweight proxy with the computed metrics.
         """
-        # Create copy of network
-        new_network = AmplificationNetwork(network.max_extension)
-        new_network.graph = network.graph.copy()
-        new_network.binding_sites = network.binding_sites.copy()
+        # Save original state for restoration
+        original_bs_len = len(network.binding_sites)
 
-        # Copy spatial index to avoid rebuilding
-        new_network._sorted_positions = network._sorted_positions.copy()
-        new_network._sorted_sites = network._sorted_sites.copy()
-        new_network._index_dirty = network._index_dirty
-
-        # Add new primer sites and collect them
+        # Add new primer sites in-place
         all_new_sites = []
         for prefix in prefixes:
             fw_positions = self.cache.get_positions(prefix, primer, 'forward')
             rv_positions = self.cache.get_positions(prefix, primer, 'reverse')
 
-            new_sites_fw = new_network.add_primer_sites(primer, fw_positions, '+')
-            new_sites_rv = new_network.add_primer_sites(primer, rv_positions, '-')
+            new_sites_fw = network.add_primer_sites(primer, fw_positions, '+')
+            new_sites_rv = network.add_primer_sites(primer, rv_positions, '-')
             all_new_sites.extend(new_sites_fw)
             all_new_sites.extend(new_sites_rv)
 
-        # Use incremental edge building for new sites only
-        new_network.add_edges_for_sites(all_new_sites)
+        # Build edges for new sites only
+        network.add_edges_for_sites(all_new_sites)
 
-        return new_network
+        # Compute metrics on the modified network before restoring
+        largest = network.largest_component_size()
+        avg = network.average_component_size()
+        has_sites = bool(network.binding_sites)
+
+        # Compute coverage_uniformity while graph is in modified state
+        # (needed when uniformity_weight > 0)
+        components = list(nx.connected_components(network.graph))
+        if len(components) < 2:
+            uniformity = 0.0 if components else float('inf')
+        else:
+            comp_positions = [np.mean([s.position for s in c]) for c in components]
+            mean_pos = np.mean(comp_positions)
+            uniformity = np.std(comp_positions) / mean_pos if mean_pos != 0 else 0.0
+
+        # Restore original state: remove new nodes (and their edges)
+        network.graph.remove_nodes_from(all_new_sites)
+        network.binding_sites = network.binding_sites[:original_bs_len]
+        network._index_dirty = True
+
+        # Return lightweight proxy with cached metrics
+        return _SimulatedNetwork(largest, avg, uniformity, has_sites)
 
     def _update_network(self, network: AmplificationNetwork, primer: str,
                        prefixes: List[str], label: str):

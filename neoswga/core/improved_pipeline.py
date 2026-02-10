@@ -188,6 +188,8 @@ class ImprovedPipeline:
         fg_seq_lengths = self._get_genome_lengths(fg_genome_path)
         bg_seq_lengths = self._get_genome_lengths(bg_genome_path) if bg_genome_path else [0]
 
+        evaluation_optimizer = None  # May be set by Phase 4 branch for reuse
+
         if self.config.optimization_method == 'hybrid':
             optimizer = MILPFallbackOptimizer(
                 cache, fg_prefixes, bg_prefixes or [],
@@ -246,7 +248,7 @@ class ImprovedPipeline:
             primers = best_individual.primers
 
         else:  # greedy/network
-            optimizer = NetworkOptimizer(
+            evaluation_optimizer = NetworkOptimizer(
                 cache, fg_prefixes, bg_prefixes or [],
                 fg_seq_lengths, bg_seq_lengths,
                 max_extension=self.config.max_extension,
@@ -256,7 +258,7 @@ class ImprovedPipeline:
                 dimer_penalty=self.config.dimer_penalty,
                 max_dimer_bp=self.config.max_dimer_bp
             )
-            primers = optimizer.optimize_greedy(
+            primers = evaluation_optimizer.optimize_greedy(
                 candidates,
                 num_primers=self.config.num_primers
             )
@@ -269,10 +271,12 @@ class ImprovedPipeline:
         logger.info("PHASE 5: Final evaluation")
         phase5_start = time.time()
 
-        evaluation_optimizer = NetworkOptimizer(
-            cache, fg_prefixes, bg_prefixes or [],
-            fg_seq_lengths, bg_seq_lengths
-        )
+        # Reuse optimizer from Phase 4 if available, otherwise create one
+        if evaluation_optimizer is None or not hasattr(evaluation_optimizer, 'score_primer_set'):
+            evaluation_optimizer = NetworkOptimizer(
+                cache, fg_prefixes, bg_prefixes or [],
+                fg_seq_lengths, bg_seq_lengths
+            )
         evaluation = evaluation_optimizer.score_primer_set(primers)
 
         timing['evaluation'] = time.time() - phase5_start

@@ -5,6 +5,7 @@ Implements sequence-based filtering rules to select high-quality primer candidat
 """
 
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -388,9 +389,10 @@ def get_rates_for_one_species(
         for k, primer_list_k in stratified_primer_list.items():
             tasks.append((primer_list_k, fname_prefix, k))
 
-    # Use context manager to ensure proper pool cleanup (prevents resource leaks)
-    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
-        results = pool.map(_get_rate_for_one_file, tasks)
+    # Use ThreadPoolExecutor for I/O-bound file reads (avoids process creation
+    # overhead and serialization costs compared to multiprocessing.Pool)
+    with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+        results = list(executor.map(_get_rate_for_one_file, tasks))
 
     all_primer_to_count = {}
 

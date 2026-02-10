@@ -197,6 +197,9 @@ def write_to_h5py(kmer_dict, fname_prefix):
         for kmer, positions in kmer_dict.items():
             if kmer not in f:
                 f.create_dataset(kmer, data=positions)
+            elif len(f[kmer]) == len(positions):
+                # In-place overwrite avoids HDF5 file fragmentation
+                f[kmer][...] = positions
             else:
                 del f[kmer]
                 f.create_dataset(kmer, data=positions)
