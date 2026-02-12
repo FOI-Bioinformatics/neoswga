@@ -19,6 +19,8 @@ import logging
 from typing import Dict, Tuple, Optional, List, Any
 from functools import lru_cache
 
+from neoswga.core.utility import complement as _util_complement, reverse as _util_reverse
+
 logger = logging.getLogger(__name__)
 
 # Universal gas constant (cal/(mol*K))
@@ -549,12 +551,43 @@ DELTA_G_MISMATCH = {
 
 NN_INIT_CORRECTIONS = {'G/C': 0.98, 'A/T': 1.03, 'C/G': 0.98, 'T/A': 1.03}
 
+# ---------------------------------------------------------------------------
+# Numeric encoding for inner-loop lookups (avoids string allocation and dict
+# hashing entirely). Bases are encoded as A=0, C=1, G=2, T=3.  A dinucleotide
+# pair (d1 from x, d2 from y) maps to a flat index  d1_hi*64 + d1_lo*16 +
+# d2_hi*4 + d2_lo  into _DG_ARRAY (length 256). Entries that are absent from
+# the SantaLucia table are filled with NaN so the caller can fall back to the
+# penalty value.
+# ---------------------------------------------------------------------------
+_BASE_ORD = [255] * 256  # ordinal -> encoded value; 255 = unknown
+_BASE_ORD[ord('A')] = 0; _BASE_ORD[ord('C')] = 1
+_BASE_ORD[ord('G')] = 2; _BASE_ORD[ord('T')] = 3
+
+_COMPLEMENT_ORD = {0: 3, 1: 2, 2: 1, 3: 0}  # A<->T, C<->G
+
+# Build flat array for nearest-neighbor delta-G lookups
+_DG_ARRAY = [float('nan')] * 256
+for _k, _v in DELTA_G_MISMATCH.items():
+    _b = _k.replace('/', '')  # e.g. 'GA/CA' -> 'GACA'
+    _i = (_BASE_ORD[ord(_b[0])] * 64 + _BASE_ORD[ord(_b[1])] * 16 +
+          _BASE_ORD[ord(_b[2])] * 4 + _BASE_ORD[ord(_b[3])])
+    _DG_ARRAY[_i] = _v
+
+# Terminal correction array indexed by (x_base, y_base) -> 4*x + y
+_INIT_ARRAY = [float('nan')] * 16
+for _k, _v in NN_INIT_CORRECTIONS.items():
+    _x_enc = _BASE_ORD[ord(_k[0])]
+    _y_enc = _BASE_ORD[ord(_k[2])]
+    _INIT_ARRAY[_x_enc * 4 + _y_enc] = _v
+
+# Module-level complement map (avoids rebuilding dict on every call)
+_COMPLEMENT_MAP = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G',
+                   'a': 't', 't': 'a', 'g': 'c', 'c': 'g'}
+
 
 def complement(base: str) -> str:
     """Return complement of a single base."""
-    comp_map = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G',
-                'a': 't', 't': 'a', 'g': 'c', 'c': 'g'}
-    return comp_map.get(base, base)
+    return _COMPLEMENT_MAP.get(base, base)
 
 
 @lru_cache(maxsize=1000000)
@@ -601,37 +634,59 @@ def _compute_free_energy_for_two_strings_impl(x: str, y: str, penalty: float = 4
     """
     delta_g = 0.0
 
-    # Terminal corrections
-    if len(x) > 0 and len(y) > 0:
-        if x[0] == complement(y[0]):
-            key = f"{x[0]}/{y[0]}"
-            if key in NN_INIT_CORRECTIONS:
-                delta_g = NN_INIT_CORRECTIONS[key]
+    len_x = len(x)
+    len_y = len(y)
+    if len_x == 0 or len_y == 0:
+        return delta_g
 
-        if x[-1] == complement(y[-1]):
-            key = f"{x[-1]}/{y[-1]}"
-            if key in NN_INIT_CORRECTIONS:
-                delta_g += NN_INIT_CORRECTIONS[key]
+    # Pre-encode both sequences to integers (avoids repeated ord() in loop)
+    bo = _BASE_ORD
+    x_enc = [bo[ord(c)] for c in x]
+    y_enc = [bo[ord(c)] for c in y]
 
-    # Sum nearest-neighbor contributions
-    for i in range(1, len(x)):
-        if i < len(y):
-            doublet_1 = x[i-1:i+1]
-            doublet_2 = y[i-1:i+1]
-            nn_key = f"{doublet_1}/{doublet_2}"
+    # Terminal corrections via numeric lookup
+    co = _COMPLEMENT_ORD
+    ia = _INIT_ARRAY
+    x0, y0 = x_enc[0], y_enc[0]
+    if y0 < 4 and x0 == co[y0]:
+        v = ia[x0 * 4 + y0]
+        if v == v:  # fast NaN check
+            delta_g = v
 
-            if nn_key in DELTA_G_MISMATCH:
-                delta_g += DELTA_G_MISMATCH[nn_key]
-            else:
-                delta_g += penalty
+    xn, yn = x_enc[-1], y_enc[-1]
+    if yn < 4 and xn == co[yn]:
+        v = ia[xn * 4 + yn]
+        if v == v:
+            delta_g += v
 
-            # Early termination for very unfavorable binding
-            if delta_g > penalty * 10:
-                break
+    # Local refs for tight loop
+    dg = _DG_ARRAY
+    _penalty = penalty
+    early_stop = _penalty * 10
+
+    # Sum nearest-neighbor contributions using flat-array lookup
+    # Index = x[i-1]*64 + x[i]*16 + y[i-1]*4 + y[i]
+    limit = min(len_x, len_y)
+    prev_x = x_enc[0]
+    prev_y = y_enc[0]
+    for i in range(1, limit):
+        cur_x = x_enc[i]
+        cur_y = y_enc[i]
+
+        val = dg[prev_x * 64 + cur_x * 16 + prev_y * 4 + cur_y]
+        if val == val:  # fast NaN check (val != val when NaN)
+            delta_g += val
+        else:
+            delta_g += _penalty
+
+        if delta_g > early_stop:
+            break
+
+        prev_x = cur_x
+        prev_y = cur_y
 
     # Symmetry correction for palindromes
-    from neoswga.core.utility import complement as util_complement, reverse
-    if util_complement(x) == reverse(y):
+    if _util_complement(x) == _util_reverse(y):
         delta_g += 0.43
 
     return delta_g

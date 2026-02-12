@@ -285,8 +285,8 @@ def gini_exact(array):
         array -= np.amin(array)
     # Values cannot be 0:
     array += 0.0000001
-    # Values must be sorted:
-    array = np.sort(array)
+    # In-place sort avoids allocating a copy
+    array.sort()
     # Index per array element:
     index = np.arange(1, array.shape[0] + 1)
     # Number of array elements:

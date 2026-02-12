@@ -26,6 +26,7 @@ import hashlib
 import melting
 import os
 import sys
+from bisect import bisect_right
 from neoswga.core.kmer_counter import get_kmer_to_count_dict
 import sklearn
 import sklearn.ensemble
@@ -468,7 +469,7 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
 
     # Initialize histogram bins
     all_delta_G_vals = np.zeros(len(bins) - 1, dtype=np.int64)
-    bins_array = np.array(bins)
+    num_bins = len(bins) - 1
 
     for fname_prefix in fnames:
         # Use cached k-mer dictionary
@@ -513,16 +514,23 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
             if _sampling_enabled and count < _min_count_threshold:
                 effective_count = int(count * scale_factor)
 
-            # Bin forward value
+            # Bin forward value (bisect_right is faster than np.searchsorted
+            # for the small non-uniform bin array)
             if delta_G_val_forward <= histogram_upper_bound:
-                idx = np.searchsorted(bins_array, delta_G_val_forward, side='right') - 1
-                idx = max(0, min(idx, len(bins) - 2))
+                idx = bisect_right(bins, delta_G_val_forward) - 1
+                if idx < 0:
+                    idx = 0
+                elif idx >= num_bins:
+                    idx = num_bins - 1
                 all_delta_G_vals[idx] += effective_count
 
             # Bin reverse value
             if delta_G_val_reverse <= histogram_upper_bound:
-                idx = np.searchsorted(bins_array, delta_G_val_reverse, side='right') - 1
-                idx = max(0, min(idx, len(bins) - 2))
+                idx = bisect_right(bins, delta_G_val_reverse) - 1
+                if idx < 0:
+                    idx = 0
+                elif idx >= num_bins:
+                    idx = num_bins - 1
                 all_delta_G_vals[idx] += effective_count
 
     return all_delta_G_vals.tolist()

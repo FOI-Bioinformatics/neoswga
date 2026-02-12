@@ -52,10 +52,10 @@ def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:
         return 0.0
     except ImportError:
         # Simplified dimer check: look for complementary runs
-        comp = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G'}
+        _comp_table = str.maketrans('ATGC', 'TACG')
         p1 = primer1.upper()
         p2_rev = primer2.upper()[::-1]
-        p2_comp = ''.join(comp.get(b, 'N') for b in p2_rev)
+        p2_comp = p2_rev.translate(_comp_table)
 
         # Check for runs of complementary bases
         max_run = 0
@@ -72,16 +72,21 @@ def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:
         return min(1.0, max_run / max_bp) if max_run >= max_bp else 0.0
 
 
-@dataclass
+@dataclass(slots=True)
 class BindingSite:
     """Primer binding site"""
     position: int
     strand: str  # '+' or '-'
     primer: str
     affinity: float = 1.0  # Binding affinity (1.0 = perfect match)
+    _hash: int = field(default=0, init=False, repr=False, compare=False)
 
     def __hash__(self):
-        return hash((self.position, self.strand, self.primer))
+        h = self._hash
+        if h == 0:
+            h = hash((self.position, self.strand, self.primer))
+            self._hash = h
+        return h
 
 
 @dataclass
@@ -729,6 +734,12 @@ class NetworkOptimizer:
             best_primer = None
             best_score = -float('inf')
 
+            # Ensure spatial indices are clean before the candidate loop so
+            # that _simulate_add_primer can save/restore them cheaply instead
+            # of re-sorting the full binding_sites list for every candidate.
+            current_fg_network._rebuild_spatial_index()
+            current_bg_network._rebuild_spatial_index()
+
             # Try each remaining candidate
             for primer in candidates:
                 if primer in selected:
@@ -850,8 +861,12 @@ class NetworkOptimizer:
 
         Returns a lightweight proxy with the computed metrics.
         """
-        # Save original state for restoration
+        # Save original state for restoration (including spatial index so we
+        # can restore it directly rather than re-sorting for every candidate)
         original_bs_len = len(network.binding_sites)
+        saved_positions = network._sorted_positions
+        saved_sites = network._sorted_sites
+        saved_dirty = network._index_dirty
 
         # Add new primer sites in-place
         all_new_sites = []
@@ -867,25 +882,34 @@ class NetworkOptimizer:
         # Build edges for new sites only
         network.add_edges_for_sites(all_new_sites)
 
-        # Compute metrics on the modified network before restoring
-        largest = network.largest_component_size()
-        avg = network.average_component_size()
+        # Compute all metrics from a single connected_components traversal
         has_sites = bool(network.binding_sites)
-
-        # Compute coverage_uniformity while graph is in modified state
-        # (needed when uniformity_weight > 0)
-        components = list(nx.connected_components(network.graph))
-        if len(components) < 2:
-            uniformity = 0.0 if components else float('inf')
+        n_nodes = len(network.graph)
+        if n_nodes == 0:
+            largest = 0
+            avg = 0.0
+            uniformity = float('inf')
         else:
-            comp_positions = [np.mean([s.position for s in c]) for c in components]
-            mean_pos = np.mean(comp_positions)
-            uniformity = np.std(comp_positions) / mean_pos if mean_pos != 0 else 0.0
+            components = list(nx.connected_components(network.graph))
+            comp_sizes = [len(c) for c in components]
+            largest = max(comp_sizes)
+            avg = sum(comp_sizes) / len(comp_sizes)
+
+            if len(components) < 2:
+                uniformity = 0.0
+            else:
+                comp_positions = [np.mean([s.position for s in c]) for c in components]
+                mean_pos = np.mean(comp_positions)
+                uniformity = np.std(comp_positions) / mean_pos if mean_pos != 0 else 0.0
 
         # Restore original state: remove new nodes (and their edges)
         network.graph.remove_nodes_from(all_new_sites)
         network.binding_sites = network.binding_sites[:original_bs_len]
-        network._index_dirty = True
+        # Restore the saved spatial index instead of marking dirty (avoids
+        # O(n log n) re-sort for every candidate in the greedy loop)
+        network._sorted_positions = saved_positions
+        network._sorted_sites = saved_sites
+        network._index_dirty = saved_dirty
 
         # Return lightweight proxy with cached metrics
         return _SimulatedNetwork(largest, avg, uniformity, has_sites)

@@ -73,6 +73,9 @@ class PositionCache:
 
         total_loaded = 0
 
+        # Pre-compute reverse complements once (avoids redundant calls per prefix)
+        rc_map = {primer: reverse_complement(primer) for primer in self.primers}
+
         for fname_prefix in self.fname_prefixes:
             for k, primer_list in primers_by_length.items():
                 hdf5_path = f"{fname_prefix}_{k}mer_positions.h5"
@@ -90,8 +93,8 @@ class PositionCache:
                             self.cache[key] = positions
                             total_loaded += 1
 
-                        # Reverse strand (reverse complement)
-                        rc = reverse_complement(primer)
+                        # Reverse strand (pre-computed reverse complement)
+                        rc = rc_map[primer]
                         if rc in db:
                             positions = np.array(db[rc], dtype=np.int32)
                             key = (fname_prefix, primer, 'reverse')
