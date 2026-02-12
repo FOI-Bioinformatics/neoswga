@@ -670,7 +670,7 @@ class HybridOptimizer:
                     connectivity = 0.0
                 else:
                     try:
-                        connectivity = nx.algebraic_connectivity(subgraph)
+                        connectivity = nx.algebraic_connectivity(subgraph, method='tracemin_lu')
                     except (nx.NetworkXError, ValueError, np.linalg.LinAlgError):
                         connectivity = 0.0
 
@@ -705,7 +705,7 @@ class HybridOptimizer:
 
         if verbose:
             try:
-                final_connectivity = nx.algebraic_connectivity(final_subgraph) if len(final_subgraph) >= 2 else 0.0
+                final_connectivity = nx.algebraic_connectivity(final_subgraph, method='tracemin_lu') if len(final_subgraph) >= 2 else 0.0
             except (nx.NetworkXError, ValueError, np.linalg.LinAlgError):
                 final_connectivity = 0.0
             logger.info(f"Final network: {final_largest} sites in largest component")

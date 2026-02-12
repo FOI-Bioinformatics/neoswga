@@ -312,8 +312,10 @@ class AmplificationNetwork:
             return 0.0
 
         try:
-            # Fiedler value (second-smallest eigenvalue of Laplacian)
-            return nx.algebraic_connectivity(self.graph)
+            # Fiedler value (second-smallest eigenvalue of Laplacian).
+            # Use tracemin_lu (direct solver) because the default tracemin_pcg
+            # fails to converge on bipartite-like amplification networks.
+            return nx.algebraic_connectivity(self.graph, method='tracemin_lu')
         except (nx.NetworkXError, ValueError, np.linalg.LinAlgError):
             # Graph not connected or numerical issues
             return 0.0
