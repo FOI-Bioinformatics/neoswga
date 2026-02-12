@@ -131,7 +131,15 @@ def softmax(x):
     return e_x / e_x.sum()
 
 def sigmoid(x):
-  return 1 / (1 + math.exp(-x))
+    """Compute the standard logistic sigmoid, mapping a real number to (0, 1).
+
+    Args:
+        x: Input value.
+
+    Returns:
+        The sigmoid of x, equal to 1 / (1 + exp(-x)).
+    """
+    return 1 / (1 + math.exp(-x))
 
 def output_to_df(df, sheet_name, xls_path):
     """Output a pandas dataframe to an Excel spreadsheet.
@@ -178,6 +186,15 @@ def get_all_seq_lengths(fname_genomes=None, cpus=8):
     return seq_lengths
 
 def longest_char_repeat(s, char):
+    """Find the longest consecutive run of a given character in a string.
+
+    Args:
+        s: Input string to search.
+        char: The character whose longest run is sought.
+
+    Returns:
+        Length of the longest consecutive run of ``char`` in ``s``.
+    """
     max_count = 0
     if s[0] == char:
         count = 1
@@ -198,9 +215,28 @@ def longest_char_repeat(s, char):
 complement_dic ={'A':'T','T':'A','G':'C','C':'G', " ": " "}
 _COMPLEMENT_TABLE = str.maketrans('ATGCatgc', 'TACGtacg')
 def complement(text):
+    """Return the Watson-Crick complement of a DNA sequence (A<->T, G<->C).
+
+    Case is preserved. Non-ATGC characters are left unchanged.
+
+    Args:
+        text: DNA sequence string.
+
+    Returns:
+        Complementary sequence with the same length and case as the input.
+    """
     return text.translate(_COMPLEMENT_TABLE)
 
 def get_num_mismatches(x, y):
+    """Count positional mismatches between two equal-length sequences.
+
+    Args:
+        x: First sequence.
+        y: Second sequence (must be the same length as ``x``).
+
+    Returns:
+        Number of positions where the two sequences differ.
+    """
     num_mismatches = 0
     for i in range(len(x)):
         if x[i] != y[i]:
@@ -243,6 +279,17 @@ def read_fasta_file(fname):
             yield ch
 
 def reverse(seq):
+    """Reverse a string.
+
+    For the reverse complement of a DNA sequence, use
+    :func:`reverse_complement` instead.
+
+    Args:
+        seq: Input string.
+
+    Returns:
+        The input string in reversed order.
+    """
     return seq[::-1]
 
 def reverse_complement(seq):
@@ -263,6 +310,18 @@ def reverse_complement(seq):
     return thermo_rc(seq)
 
 def intersection(lst1, lst2):
+    """Return elements from ``lst1`` that also appear in ``lst2``.
+
+    Order of elements in ``lst1`` is preserved. Duplicates in ``lst1`` are
+    retained if they appear in ``lst2``.
+
+    Args:
+        lst1: Primary list whose order is preserved.
+        lst2: Reference list used for membership testing.
+
+    Returns:
+        List of elements from ``lst1`` present in ``lst2``.
+    """
     lst3 = [value for value in lst1 if value in lst2]
     return lst3
 
@@ -295,6 +354,17 @@ def gini_exact(array):
     return ((np.sum((2 * index - n - 1) * array)) / (n * np.sum(array)))
 
 def most_frequent(list):
+    """Return the mode (most frequent element) of a list.
+
+    When multiple elements share the highest frequency, one is selected
+    at random.
+
+    Args:
+        list: Input list of hashable elements.
+
+    Returns:
+        A single element that occurs most frequently in the input.
+    """
     occurence_count = Counter(list)
     high_freq_primer = occurence_count.most_common(1)[0][0]
 

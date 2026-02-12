@@ -141,6 +141,19 @@ def get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_len
     return primer_to_ginis
 
 def get_gini_from_txt_for_one_k_helper(args):
+    """Multiprocessing wrapper for :func:`get_gini_from_txt_for_one_k`.
+
+    Unpacks a positional-argument tuple and delegates to the underlying
+    function. Accepts either 5 or 6 elements; when 6 are provided the
+    last element is used as the position cache.
+
+    Args:
+        args: Tuple of (primer_list, fname_prefix, fname_genome,
+            seq_length, circular[, position_cache]).
+
+    Returns:
+        dict mapping each primer to a (gini_forward, gini_reverse) tuple.
+    """
     if len(args) == 6:
         primer_list, fname_prefix, fname_genome, seq_length, circular, position_cache = args
     else:

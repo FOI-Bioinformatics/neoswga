@@ -313,8 +313,11 @@ def get_all_predicted_delta_G_for_all_files_transformed(primer_list, target, fna
         f_out_name: If this is not None, this saves the feature matrix using this as the file path.
 
     Returns:
-        df: A pandas dataframe representing the feature matrix of the basic features (defined at the top) for the
-        primers in primer_list.
+        df: A pandas DataFrame where each row corresponds to a primer and
+        columns represent histogram bins of predicted delta-G values (e.g.
+        ``on_target_-10``, ``off_target_-8``). Column names are prefixed
+        with ``on_target_`` or ``off_target_`` depending on the ``target``
+        flag.
 
     """
     # Handle empty primer list (works for both list and pandas Series)

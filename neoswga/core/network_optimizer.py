@@ -951,7 +951,51 @@ class NetworkOptimizer:
             primer_tms: Optional dict mapping primer to Tm for weighted scoring
             reaction_temp: Optional reaction temperature for weighted scoring
 
-        Returns dictionary with multiple metrics including confidence intervals.
+        Returns:
+            dict with the following keys:
+
+            - ``primers``: list of primer sequences evaluated.
+            - ``num_primers``: number of primers in the set.
+            - ``target_largest_component``: size of the largest connected
+              component in the foreground amplification network.
+            - ``target_connectivity``: algebraic connectivity of the
+              foreground network.
+            - ``target_amplification``: predicted foreground amplification
+              fold (Tm-weighted when primer_tms is provided).
+            - ``target_amplification_lower``: lower confidence bound on
+              foreground amplification.
+            - ``target_amplification_upper``: upper confidence bound on
+              foreground amplification.
+            - ``target_gini``: Gini coefficient of foreground binding
+              positions (0 = uniform, 1 = concentrated).
+            - ``background_avg_component``: mean connected-component size
+              in the background network.
+            - ``background_amplification``: predicted background
+              amplification fold.
+            - ``background_amplification_lower``: lower confidence bound
+              on background amplification.
+            - ``background_amplification_upper``: upper confidence bound
+              on background amplification.
+            - ``enrichment``: foreground / background amplification ratio.
+            - ``enrichment_lower_ci``: conservative (worst-case) enrichment
+              bound.
+            - ``enrichment_upper_ci``: optimistic (best-case) enrichment
+              bound.
+            - ``score``: overall score (equal to ``enrichment``).
+
+            When a mechanistic model is configured, these additional keys
+            are included:
+
+            - ``avg_processivity_factor``: mean polymerase processivity
+              factor across primers.
+            - ``avg_accessibility``: mean template accessibility factor.
+            - ``avg_amplification_factor``: mean predicted mechanistic
+              amplification factor.
+            - ``min_amplification_factor``: minimum mechanistic
+              amplification factor across primers.
+            - ``avg_effective_binding``: mean effective primer binding
+              rate.
+            - ``avg_stability_factor``: mean enzyme stability factor.
         """
         # Build networks
         fg_network = self._build_network(primers, self.fg_prefixes)
