@@ -51,6 +51,7 @@ class AgentPerformanceMetrics:
     error_message: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
+        """Convert metrics to a serializable dictionary."""
         return {
             'optimizer': self.optimizer_name,
             'execution_time_s': round(self.execution_time, 3),
@@ -610,10 +611,12 @@ class MultiAgentBaseOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "multi-agent"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Multi-agent parallel optimizer with result aggregation"
 
     def optimize(

@@ -1188,10 +1188,12 @@ class NetworkBaseOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "network"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Network-based optimizer with Tm weighting and dimer penalty"
 
     def optimize(

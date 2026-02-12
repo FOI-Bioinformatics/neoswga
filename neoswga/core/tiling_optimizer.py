@@ -232,14 +232,17 @@ class TilingOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "tiling"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Interval-based tiling optimizer with strand-separate coverage"
 
     @property
     def supports_background(self) -> bool:
+        """Indicates this optimizer uses background genome data."""
         return True
 
     def optimize(

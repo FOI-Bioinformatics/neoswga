@@ -88,14 +88,17 @@ class DominatingSetAdapter(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "dominating-set"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Graph-based set cover optimizer (8x faster, ln(n) approximation)"
 
     @property
     def supports_background(self) -> bool:
+        """Indicates this optimizer does not use background genome data."""
         return False  # This optimizer focuses on foreground coverage only
 
     def optimize(
@@ -163,10 +166,12 @@ class WeightedSetCoverOptimizer(DominatingSetAdapter):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "weighted-set-cover"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Set cover with Tm and quality weighting"
 
     def optimize(

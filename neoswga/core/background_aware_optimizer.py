@@ -604,14 +604,17 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "background-aware"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Three-stage optimizer with background reduction for clinical use"
 
     @property
     def supports_background(self) -> bool:
+        """Indicates this optimizer uses background genome data."""
         return True
 
     def optimize(

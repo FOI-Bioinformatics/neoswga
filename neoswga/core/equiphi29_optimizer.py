@@ -468,10 +468,12 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "equiphi29"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "EquiPhi29-optimized selection for 42C with longer primers (12-15bp)"
 
     def optimize(

@@ -957,10 +957,12 @@ class HybridBaseOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "hybrid"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Two-stage hybrid optimizer (coverage + network connectivity)"
 
     def optimize(

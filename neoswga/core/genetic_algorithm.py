@@ -617,10 +617,12 @@ class GeneticBaseOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "genetic"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Genetic algorithm for multi-objective primer optimization"
 
     def optimize(

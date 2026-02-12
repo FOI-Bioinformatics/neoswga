@@ -159,10 +159,12 @@ class GreedyOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "greedy"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return "Greedy breadth-first search optimizer with parallel set tracking"
 
     def optimize(

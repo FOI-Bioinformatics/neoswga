@@ -61,6 +61,7 @@ try:
 except ImportError:
     # Define a fallback if pipeline module isn't available
     class StepPrerequisiteError(Exception):
+        """Raised when a pipeline step's prerequisites are not satisfied."""
         pass
 
 # Setup logging

@@ -623,10 +623,12 @@ class NormalizedBaseOptimizer(BaseOptimizer):
 
     @property
     def name(self) -> str:
+        """Optimizer identifier for logging and factory registration."""
         return "normalized"
 
     @property
     def description(self) -> str:
+        """One-line summary of the optimization strategy."""
         return f"Normalized optimizer with strategy presets (strategy: {self._strategy})"
 
     def optimize(
