@@ -92,8 +92,9 @@ class ThermodynamicCriteria:
     min_gc: float = 0.30  # 30%
     max_gc: float = 0.70  # 70%
 
-    # Reaction temperature (for context)
+    # Reaction conditions
     reaction_temp: float = 30.0  # C
+    polymerase: str = 'phi29'    # Polymerase type for temp validation
 
 
 @dataclass
@@ -169,7 +170,8 @@ class ThermodynamicFilter:
         conditions = ReactionConditions(
             temp=self.criteria.reaction_temp,
             na_conc=self.criteria.na_conc,
-            mg_conc=self.criteria.mg_conc
+            mg_conc=self.criteria.mg_conc,
+            polymerase=self.criteria.polymerase
         )
 
         # Check homodimer formation
@@ -267,7 +269,8 @@ class ThermodynamicFilter:
             conditions = ReactionConditions(
                 temp=self.criteria.reaction_temp,
                 na_conc=self.criteria.na_conc,
-                mg_conc=self.criteria.mg_conc
+                mg_conc=self.criteria.mg_conc,
+                polymerase=self.criteria.polymerase
             )
 
             # Calculate pairwise heterodimer potential
@@ -505,7 +508,7 @@ def create_filter_from_conditions(polymerase: str, temperature: float,
         Configured ThermodynamicFilter
     """
     # Create base criteria
-    criteria = ThermodynamicCriteria(na_conc=na_conc)
+    criteria = ThermodynamicCriteria(na_conc=na_conc, polymerase=polymerase)
 
     # Create filter
     filter_obj = ThermodynamicFilter(criteria)
@@ -569,6 +572,7 @@ def create_thermodynamic_filter_adaptive(
     # Create criteria with adaptive values
     criteria = ThermodynamicCriteria(
         na_conc=na_conc,
+        polymerase=polymerase,
         min_gc=min_gc,
         max_gc=max_gc,
         max_homodimer_dg=adaptive_dimer_threshold,
