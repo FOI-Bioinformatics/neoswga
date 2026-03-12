@@ -16,10 +16,10 @@ Performance optimizations (v3.0):
 - Vectorized binning: numpy operations instead of per-kmer digitize
 """
 
-import neoswga.core.utility
+from neoswga.core import utility as _utility
 import pandas as pd
 from functools import partial
-import neoswga.core.parameter as parameter
+from neoswga.core import parameter
 import numpy as np
 import pickle
 import hashlib
@@ -41,7 +41,7 @@ from typing import Dict, List, Optional, Tuple
 # Known SHA-256 hashes of trusted model files
 # Update these when retraining models
 _TRUSTED_MODEL_HASHES = {
-    'random_forest_filter.p': 'bb7d5a6c7d4e37006a980a397006b27da249fe50fecace68a97e7d04dcbca70e',
+    'random_forest_filter.p': '34ff084c7d2f6ded5d72811f0616bd0758b3d8965fac7d40d2ae62b747c0ba1b',
 }
 
 # Set to False to disable hash verification (not recommended for production)
@@ -252,10 +252,10 @@ def get_features(primer, target=None, molarity=2.5):
 
     feature_dict['GC.content'] = (feature_dict['number.of.G'] + feature_dict['number.of.C'])/ feature_dict['sequence.length']
 
-    feature_dict['longest.A.repeat'] =  neoswga.core.utility.longest_char_repeat(primer,'A')
-    feature_dict['longest.G.repeat'] =  neoswga.core.utility.longest_char_repeat(primer, 'G')
-    feature_dict['longest.T.repeat'] =  neoswga.core.utility.longest_char_repeat(primer, 'T')
-    feature_dict['longest.C.repeat'] =  neoswga.core.utility.longest_char_repeat(primer, 'C')
+    feature_dict['longest.A.repeat'] =  _utility.longest_char_repeat(primer,'A')
+    feature_dict['longest.G.repeat'] =  _utility.longest_char_repeat(primer, 'G')
+    feature_dict['longest.T.repeat'] =  _utility.longest_char_repeat(primer, 'T')
+    feature_dict['longest.C.repeat'] =  _utility.longest_char_repeat(primer, 'C')
 
     feature_dict['AA repeat'] = primer.count('AA')
     feature_dict['GG repeat'] = primer.count('GG')
@@ -269,11 +269,11 @@ def get_features(primer, target=None, molarity=2.5):
     last_five_end = primer[-5:]  # Fixed: was primer[:-5] which excluded last 5
     feature_dict['GC.clamp'] = last_five_end.count('C') + last_five_end.count('G')
 
-    feature_dict['3.end.first.base'] =  neoswga.core.utility.char_to_int_dict[primer[-1]]
-    feature_dict['3.end.second.base'] =  neoswga.core.utility.char_to_int_dict[primer[-2]]
-    feature_dict['3.end.third.base'] =  neoswga.core.utility.char_to_int_dict[primer[-3]]
-    feature_dict['3.end.fourth.base'] =  neoswga.core.utility.char_to_int_dict[primer[-4]]
-    feature_dict['3.end.fifth.base'] =  neoswga.core.utility.char_to_int_dict[primer[-5]]
+    feature_dict['3.end.first.base'] =  _utility.char_to_int_dict[primer[-1]]
+    feature_dict['3.end.second.base'] =  _utility.char_to_int_dict[primer[-2]]
+    feature_dict['3.end.third.base'] =  _utility.char_to_int_dict[primer[-3]]
+    feature_dict['3.end.fourth.base'] =  _utility.char_to_int_dict[primer[-4]]
+    feature_dict['3.end.fifth.base'] =  _utility.char_to_int_dict[primer[-5]]
 
     result = [primer, target]
     for feature in base_features:
@@ -293,7 +293,7 @@ def create_base_feature_matrix(primer_list, molarity):
         and whether it exists in the target genome (where the last two features are dropped in regression).
     """
     get_features_partial = partial(get_features, molarity = molarity)
-    results =  neoswga.core.utility.create_pool(get_features_partial, primer_list, parameter.cpus)
+    results =  _utility.create_pool(get_features_partial, primer_list, parameter.cpus)
     f = ['sequence','target']
     f.extend(base_features)
     df = pd.DataFrame(results, columns=f)
@@ -338,7 +338,7 @@ def get_all_predicted_delta_G_for_all_files_transformed(primer_list, target, fna
     if _sampling_enabled:
         sampling_msg = f" (sampling {_sample_rate*100:.0f}%)"
     logger.info(f"Scoring {len(primer_list)} primers ({k}bp) using {parameter.cpus} workers{sampling_msg}...")
-    arr_transformed = neoswga.core.utility.create_pool_with_progress(
+    arr_transformed = _utility.create_pool_with_progress(
         seq_initialized_f,
         primer_list,
         parameter.cpus,
@@ -468,7 +468,7 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
     k = len(primer)
 
     # Pre-compute primer transformations once (instead of per k-mer)
-    primer_reversed = neoswga.core.utility.reverse(primer)
+    primer_reversed = _utility.reverse(primer)
 
     # Initialize histogram bins
     all_delta_G_vals = np.zeros(len(bins) - 1, dtype=np.int64)
@@ -488,7 +488,7 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
 
         # Pre-compute all k-mer complements before inner loop
         kmer_complements = {
-            kmer_i: neoswga.core.utility.complement(kmer_i)
+            kmer_i: _utility.complement(kmer_i)
             for kmer_i in kmer_dict
         }
 

@@ -1,5 +1,5 @@
-import neoswga.core.utility
-import neoswga.core.parameter as parameter
+from neoswga.core import utility as _utility
+from neoswga.core import parameter
 import multiprocessing
 import h5py
 import os
@@ -48,7 +48,7 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
     logger.info(f"Loading genome sequence from {seq_fname}...")
 
     # Read entire genome into memory
-    seq_generator = neoswga.core.utility.read_fasta_file(seq_fname)
+    seq_generator = _utility.read_fasta_file(seq_fname)
     sequence = ''.join(seq_generator).upper()
 
     _genome_cache[seq_fname] = sequence

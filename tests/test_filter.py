@@ -94,13 +94,15 @@ class TestHomopolymerFilter:
         assert result is False
 
     def test_accepts_four_consecutive(self, mock_parameter, mock_dimer):
-        """Test acceptance of 4 consecutive same bases."""
-        # ATCGGGGAT has 4 Gs which is acceptable
+        """Test acceptance of 4 consecutive same bases.
+
+        ATCGGGGAT has 4 Gs (below the 5-base homopolymer threshold),
+        55.6% GC (within 0.375-0.625), valid GC clamp, and no other
+        rule violations.
+        """
         result = filter_extra("ATCGGGGAT")
 
-        # May pass or fail based on other rules, but not homopolymer
-        # The result depends on GC content and other rules
-        assert isinstance(result, bool)
+        assert result is True
 
 
 # =============================================================================
@@ -111,12 +113,19 @@ class TestGCContentFilter:
     """Tests for GC content filtering (Rule 2)."""
 
     def test_accepts_50_percent_gc(self, mock_parameter, mock_dimer):
-        """Test acceptance of 50% GC content."""
-        # ATCGATCG is 50% GC
+        """Test acceptance of 50% GC content.
+
+        ATCGATCG is 50% GC, within the default 0.375-0.625 range,
+        and passes all other filtering rules. Tm range is relaxed
+        because this short primer has an effective Tm below the
+        default min_tm of 15.
+        """
+        mock_parameter.min_tm = 0
+        mock_parameter.max_tm = 100
+
         result = filter_extra("ATCGATCG")
 
-        # Should pass GC filter (may fail other rules)
-        assert isinstance(result, bool)
+        assert result is True
 
     def test_rejects_all_a(self, mock_parameter, mock_dimer):
         """Test rejection of 0% GC content."""
@@ -131,16 +140,18 @@ class TestGCContentFilter:
         assert result is False
 
     def test_gc_boundaries(self, mock_parameter, mock_dimer):
-        """Test GC content at boundaries."""
-        # With gc_min=0.375 (37.5%) and gc_max=0.625 (62.5%)
-        # A primer at exactly 40% GC should pass
-        # ATCGATCGAT is 40% GC (4 GC out of 10)
+        """Test GC content at boundaries.
+
+        ATCGATCGAT is 40% GC (4 of 10 bases), within the 0.35-0.65
+        range. Last 5 bases (TCGAT) have 2 GC, last 3 (GAT) have 1 GC,
+        and no dinucleotide repeats are present.
+        """
         mock_parameter.gc_min = 0.35
         mock_parameter.gc_max = 0.65
 
         result = filter_extra("ATCGATCGAT")
 
-        assert isinstance(result, bool)
+        assert result is True
 
 
 # =============================================================================
@@ -164,18 +175,20 @@ class TestGCClampFilter:
 
         assert result is False
 
-    def test_accepts_moderate_gc_clamp(self, mock_parameter, mock_dimer):
-        """Test acceptance of 2-3 G/C in last 5 bases."""
-        # Last 5 bases are ATGCG - 2 G/C
-        # This should pass the GC clamp rule
+    def test_rejects_three_gc_in_last_three(self, mock_parameter, mock_dimer):
+        """Test rejection when last 3 bases are all G/C.
+
+        ATCGATGCG passes the GC clamp rule (last 5 = ATGCG, 3 GC),
+        but fails Rule 1 because all 3 bases at the 3' end (GCG) are
+        G or C, exceeding the MAX_GC_AT_3PRIME_END limit of 2.
+        """
         mock_parameter.gc_min = 0.3
         mock_parameter.gc_max = 0.7
 
         primer = "ATCGATGCG"
         result = filter_extra(primer)
 
-        # May still fail other rules
-        assert isinstance(result, bool)
+        assert result is False
 
 
 # =============================================================================
@@ -199,15 +212,18 @@ class TestThreePrimeGCFilter:
         assert result is False
 
     def test_accepts_two_gc_at_end(self, mock_parameter, mock_dimer):
-        """Test acceptance of 2 G/C in last 3 bases."""
+        """Test acceptance of 2 G/C in last 3 bases.
+
+        ATCGATAGC has last 3 = AGC (2 GC, within limit), last 5 = ATAGC
+        (2 GC, within 1-3 range), and 44.4% GC overall.
+        """
         mock_parameter.gc_min = 0.3
         mock_parameter.gc_max = 0.7
 
-        # Last 3 bases are AGC - 2 G/C
         primer = "ATCGATAGC"
         result = filter_extra(primer)
 
-        assert isinstance(result, bool)
+        assert result is True
 
 
 # =============================================================================
@@ -241,16 +257,20 @@ class TestDinucleotideRepeatFilter:
 
         assert result is False
 
-    def test_accepts_short_repeat(self, mock_parameter, mock_dimer):
-        """Test acceptance of short dinucleotide repeat."""
+    def test_rejects_low_gc_with_short_repeat(self, mock_parameter, mock_dimer):
+        """Test that a short repeat primer is rejected for low GC content.
+
+        GCATATAT has only 2/8 = 25% GC, which falls below gc_min=0.3.
+        Although the dinucleotide repeat (ATATAT) is short enough to pass
+        Rule 4 (length < 10), the primer fails the GC content filter.
+        """
         mock_parameter.gc_min = 0.3
         mock_parameter.gc_max = 0.7
 
-        # ATATAT is only 3 repeats, should pass this rule
         primer = "GCATATAT"
         result = filter_extra(primer)
 
-        assert isinstance(result, bool)
+        assert result is False
 
 
 # =============================================================================
@@ -270,17 +290,21 @@ class TestSelfDimerFilter:
             assert result is False
 
     def test_accepts_no_self_dimer(self, mock_parameter):
-        """Test acceptance when no self-dimer."""
+        """Test acceptance when no self-dimer.
+
+        ATCGATCG (50% GC) passes all filtering rules when the dimer
+        check returns False, and GC and Tm ranges are relaxed.
+        """
         with patch('neoswga.core.filter.dimer') as mock_dimer:
             mock_dimer.is_dimer_fast.return_value = False
             mock_parameter.gc_min = 0.3
             mock_parameter.gc_max = 0.7
+            mock_parameter.min_tm = 0
+            mock_parameter.max_tm = 100
 
-            # A primer that should pass all rules
             result = filter_extra("ATCGATCG")
 
-            # May still fail Tm filter
-            assert isinstance(result, bool)
+            assert result is True
 
 
 # =============================================================================
@@ -301,15 +325,18 @@ class TestTmFilter:
         assert result is False
 
     def test_rejects_high_tm(self, mock_parameter, mock_dimer):
-        """Test rejection of primer with high Tm."""
+        """Test rejection of primer with high Tm.
+
+        GCGCGCGCGCGCGCGC (100% GC, 16 bp) has a Tm far above the
+        max_tm=10 threshold and is rejected. It would also fail the
+        GC content filter, but the Tm check runs first.
+        """
         mock_parameter.min_tm = 0
         mock_parameter.max_tm = 10
 
-        # This primer likely has Tm > 10
         result = filter_extra("GCGCGCGCGCGCGCGC")
 
-        # May fail other rules first
-        assert isinstance(result, bool)
+        assert result is False
 
 
 # =============================================================================
@@ -358,16 +385,19 @@ class TestEdgeCases:
     """Tests for edge cases."""
 
     def test_minimum_length_primer(self, mock_parameter, mock_dimer):
-        """Test with minimum length primer."""
+        """Test with minimum length primer.
+
+        ATCG (4 bp, 50% GC) passes all rules when GC and Tm ranges
+        are fully relaxed. Last 3 = TCG (2 GC), last 5 = ATCG (2 GC).
+        """
         mock_parameter.gc_min = 0.0
         mock_parameter.gc_max = 1.0
-        mock_parameter.min_tm = 0
+        mock_parameter.min_tm = -100
         mock_parameter.max_tm = 100
 
-        # Very short primer
         result = filter_extra("ATCG")
 
-        assert isinstance(result, bool)
+        assert result is True
 
     def test_exact_boundary_gc(self, mock_parameter, mock_dimer):
         """Test primer at exact GC boundary.
@@ -397,20 +427,23 @@ class TestEdgeCases:
         assert result_above is False  # Above gc_max
 
     def test_short_primer_skips_dinucleotide_check(self, mock_parameter, mock_dimer):
-        """Test that short primers skip dinucleotide repeat check."""
+        """Test that short primers skip dinucleotide repeat check.
+
+        ATATATAT (8 bp) would fail the dinucleotide repeat check if it
+        were applied, but Rule 4 only checks primers with length >= 10.
+        However, this primer has 0% GC (0/8), which falls below gc_min=0.3,
+        so it is rejected by the GC content filter instead.
+        """
         mock_parameter.gc_min = 0.3
         mock_parameter.gc_max = 0.7
         mock_parameter.min_tm = 0
         mock_parameter.max_tm = 100
 
-        # 9-base primer should skip the dinucleotide check
-        # (which only applies to len >= 10)
-        primer = "ATATATAT"  # Would fail if checked, but only 8 bases
+        primer = "ATATATAT"
 
         result = filter_extra(primer)
 
-        # May still fail other rules
-        assert isinstance(result, bool)
+        assert result is False
 
 
 if __name__ == '__main__':
