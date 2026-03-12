@@ -13,9 +13,9 @@ import pandas as pd
 import melting
 import multiprocessing
 
-import neoswga.core.parameter as parameter
-import neoswga.core.primer_attributes as primer_attributes
-import neoswga.core.dimer as dimer
+from neoswga.core import parameter
+from neoswga.core import primer_attributes
+from neoswga.core import dimer
 from neoswga.core.reaction_conditions import ReactionConditions
 import logging
 

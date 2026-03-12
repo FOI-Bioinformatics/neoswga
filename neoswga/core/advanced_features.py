@@ -23,9 +23,9 @@ from scipy.stats import entropy, skew, kurtosis
 from scipy.signal import find_peaks
 import gzip
 
-import neoswga.core.thermodynamics as thermo
-import neoswga.core.reaction_conditions as rc
-import neoswga.core.secondary_structure as ss
+from neoswga.core import thermodynamics as thermo
+from neoswga.core import reaction_conditions as rc
+from neoswga.core import secondary_structure as ss
 
 
 class AdvancedFeatureEngineer:

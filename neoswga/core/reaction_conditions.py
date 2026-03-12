@@ -39,7 +39,7 @@ References:
 
 import numpy as np
 from typing import Dict, Tuple, Optional
-import neoswga.core.thermodynamics as thermo
+from neoswga.core import thermodynamics as thermo
 from neoswga.core.additives import AdditiveConcentrations
 
 

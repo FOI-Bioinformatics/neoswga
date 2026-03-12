@@ -188,7 +188,7 @@ def _fix_sklearn_module_aliases():
 _fix_sklearn_module_aliases()
 
 # Use new thermodynamics module (replaces deprecated thermo_estimation)
-import neoswga.core.thermodynamics as thermo
+from neoswga.core import thermodynamics as thermo
 
 logger = logging.getLogger(__name__)
 

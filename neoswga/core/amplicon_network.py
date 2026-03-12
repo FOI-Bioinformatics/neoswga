@@ -19,8 +19,8 @@ from dataclasses import dataclass
 from collections import defaultdict
 import h5py
 
-import neoswga.core.thermodynamics as thermo
-import neoswga.core.reaction_conditions as rc
+from neoswga.core import thermodynamics as thermo
+from neoswga.core import reaction_conditions as rc
 
 
 @dataclass

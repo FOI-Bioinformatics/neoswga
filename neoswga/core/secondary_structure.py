@@ -18,8 +18,8 @@ References:
 import numpy as np
 from typing import List, Tuple, Dict, Optional
 import warnings
-import neoswga.core.thermodynamics as thermo
-import neoswga.core.reaction_conditions as rc
+from neoswga.core import thermodynamics as thermo
+from neoswga.core import reaction_conditions as rc
 
 
 # ========================================

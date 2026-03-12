@@ -1,11 +1,11 @@
 import warnings
 import argparse
-import neoswga.core.parameter as parameter
-import neoswga.core.utility as utility
+from neoswga.core import parameter
+from neoswga.core import utility
 from neoswga.core.kmer_counter import run_jellyfish, get_primer_list_from_kmers
-import neoswga.core.filter as filter_module
-import neoswga.core.string_search as string_search
-import neoswga.core.rf_preprocessing as rf_preprocessing
+from neoswga.core import filter as filter_module
+from neoswga.core import string_search
+from neoswga.core import rf_preprocessing
 from neoswga.core.progress import progress_context
 import multiprocessing
 import json

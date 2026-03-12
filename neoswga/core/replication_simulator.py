@@ -24,8 +24,8 @@ from enum import Enum
 import random
 import warnings
 
-import neoswga.core.thermodynamics as thermo
-import neoswga.core.reaction_conditions as rc
+from neoswga.core import thermodynamics as thermo
+from neoswga.core import reaction_conditions as rc
 from neoswga.core.mechanistic_params import get_polymerase_params, MECHANISTIC_MODEL_PARAMS
 
 if TYPE_CHECKING:

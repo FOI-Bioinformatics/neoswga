@@ -26,8 +26,8 @@ except ImportError:
     GPU_AVAILABLE = False
     logger.debug("CuPy not available, using CPU (NumPy)")
 
-import neoswga.core.thermodynamics as thermo
-import neoswga.core.reaction_conditions as rc
+from neoswga.core import thermodynamics as thermo
+from neoswga.core import reaction_conditions as rc
 
 
 def is_gpu_available() -> bool:
