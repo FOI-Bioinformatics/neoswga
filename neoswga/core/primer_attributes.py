@@ -1,8 +1,8 @@
-import neoswga.core.utility
+from neoswga.core import utility as _utility
 import os
 import h5py
 import melting
-import neoswga.core.string_search
+from neoswga.core import string_search as _string_search
 import multiprocessing
 import numpy as np
 import logging
@@ -43,15 +43,15 @@ def get_gini(primer, fname_prefixes):
         if os.path.exists(h5_path):
             with h5py.File(h5_path, 'r') as db:
                 if primer in db:
-                    position_diffs_forward = neoswga.core.utility.get_positional_gap_lengths(db[primer])
+                    position_diffs_forward = _utility.get_positional_gap_lengths(db[primer])
                     positions_diffs.extend(position_diffs_forward)
                 rc_primer = reverse_complement(primer)
                 if rc_primer in db:
-                    position_diffs_reverse = neoswga.core.utility.get_positional_gap_lengths(db[rc_primer])
+                    position_diffs_reverse = _utility.get_positional_gap_lengths(db[rc_primer])
                     positions_diffs.extend(position_diffs_reverse)
         else:
             logger.warning(f"Cannot find HDF5 file for prefix: {fname_prefix}")
-    gini = neoswga.core.utility.gini(positions_diffs)
+    gini = _utility.gini(positions_diffs)
     return gini
 
 def _load_positions_from_h5(primer_list, fname_prefix):
@@ -123,7 +123,7 @@ def get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_len
 
     if kmer_dict is None:
         # Fallback: scan genome (standalone usage without prior position creation)
-        kmer_dict = neoswga.core.string_search.get_all_positions_per_k(
+        kmer_dict = _string_search.get_all_positions_per_k(
             kmer_list=all_primer_list, seq_fname=fname_genome,
             circular=circular, fname_prefix=fname_prefix
         )
@@ -131,10 +131,10 @@ def get_gini_from_txt_for_one_k(primer_list, fname_prefix, fname_genome, seq_len
     ginis = []
 
     for primer in primer_list:
-        position_diffs_forward = neoswga.core.utility.get_positional_gap_lengths(kmer_dict.get(primer, []), circular, seq_length=seq_length)
-        gini_forward = neoswga.core.utility.gini_exact(position_diffs_forward)
-        position_diffs_reverse = neoswga.core.utility.get_positional_gap_lengths(kmer_dict.get(reverse_complement(primer), []), circular, seq_length=seq_length)
-        gini_reverse = neoswga.core.utility.gini_exact(position_diffs_reverse)
+        position_diffs_forward = _utility.get_positional_gap_lengths(kmer_dict.get(primer, []), circular, seq_length=seq_length)
+        gini_forward = _utility.gini_exact(position_diffs_forward)
+        position_diffs_reverse = _utility.get_positional_gap_lengths(kmer_dict.get(reverse_complement(primer), []), circular, seq_length=seq_length)
+        gini_reverse = _utility.gini_exact(position_diffs_reverse)
         ginis.append((gini_forward, gini_reverse))
 
     primer_to_ginis = dict(zip(primer_list, ginis))

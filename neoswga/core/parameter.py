@@ -2,7 +2,7 @@ import os
 import json
 from dataclasses import dataclass, field
 from typing import List, Optional
-import neoswga.core.utility
+from neoswga.core import utility as _utility
 
 src_dir=os.path.dirname(os.path.abspath(__file__))
 
@@ -617,14 +617,14 @@ def get_params(args):
     bg_prefixes = data.get('bg_prefixes', [])
 
     if 'fg_genomes' in data and ('fg_seq_lengths' not in data or len(data['fg_seq_lengths']) != len(data['fg_genomes'])):
-        data['fg_seq_lengths'] = neoswga.core.utility.get_all_seq_lengths(fname_genomes=data['fg_genomes'], cpus=data['cpus'])
+        data['fg_seq_lengths'] = _utility.get_all_seq_lengths(fname_genomes=data['fg_genomes'], cpus=data['cpus'])
 
     # In Bloom filter mode, bg_prefixes is empty - ensure bg_seq_lengths matches
     # This allows optimization to proceed without background position data
     if use_bloom_filter and len(data.get('bg_prefixes', [])) == 0:
         data['bg_seq_lengths'] = []
     elif 'bg_genomes' in data and ('bg_seq_lengths' not in data or len(data['bg_seq_lengths']) != len(data['bg_genomes'])):
-        data['bg_seq_lengths'] = neoswga.core.utility.get_all_seq_lengths(fname_genomes=data['bg_genomes'], cpus=data['cpus'])
+        data['bg_seq_lengths'] = _utility.get_all_seq_lengths(fname_genomes=data['bg_genomes'], cpus=data['cpus'])
 
     # Calculate genome GC content from foreground genomes if not already provided
     # This enables adaptive GC filtering for extreme GC genomes

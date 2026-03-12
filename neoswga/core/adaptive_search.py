@@ -20,7 +20,7 @@ from dataclasses import dataclass
 import neoswga.core.thermodynamics as thermo
 import neoswga.core.reaction_conditions as rc
 import neoswga.core.secondary_structure as ss
-import neoswga.core.utility
+from neoswga.core import utility as _utility
 
 
 @dataclass
@@ -75,8 +75,8 @@ class AdaptivePrimerSearch:
         self.max_primers_per_k = max_primers_per_k
 
         # Calculate genome lengths
-        self.fg_lengths = neoswga.core.utility.get_all_seq_lengths(fg_genomes)
-        self.bg_lengths = neoswga.core.utility.get_all_seq_lengths(bg_genomes)
+        self.fg_lengths = _utility.get_all_seq_lengths(fg_genomes)
+        self.bg_lengths = _utility.get_all_seq_lengths(bg_genomes)
         self.fg_total_length = sum(self.fg_lengths)
         self.bg_total_length = sum(self.bg_lengths)
 

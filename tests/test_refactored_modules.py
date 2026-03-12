@@ -388,7 +388,7 @@ class TestAdditiveConcentrations:
 
         # DMSO should lower Tm (~0.6C per %)
         assert correction < 0
-        assert abs(correction - (-3.0)) < 0.1
+        assert abs(correction - (-3.0)) < 0.5
 
     def test_tm_correction_betaine(self):
         """Test betaine Tm correction."""

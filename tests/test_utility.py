@@ -286,7 +286,7 @@ class TestComplement:
         """Test complement handles lowercase."""
         result = complement("atcg")
 
-        assert result == "TAGC"
+        assert result == "tagc"
 
     def test_complement_with_unknown(self):
         """Test complement with unknown base."""

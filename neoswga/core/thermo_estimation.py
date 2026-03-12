@@ -6,7 +6,7 @@ For new code, prefer neoswga.core.thermodynamics for complete nearest-neighbor
 calculations with salt corrections and additive support.
 """
 
-import neoswga.core.utility
+from neoswga.core import utility as _utility
 import warnings
 import numpy as np
 
@@ -133,17 +133,17 @@ def compute_free_energy_for_two_strings(x, y, penalty=4):
     y = y.upper()
     delta_G = 0
 
-    if x[0] == neoswga.core.utility.complement(y[0]):
+    if x[0] == _utility.complement(y[0]):
         delta_G = nn_init_corrections[x[0]+'/'+y[0]]
 
-    if x[-1] == neoswga.core.utility.complement(y[-1]):
+    if x[-1] == _utility.complement(y[-1]):
         delta_G += nn_init_corrections[x[-1]+'/'+y[-1]]
 
     for i in range(1, len(x)):
         delta_G += compute_free_energy_per_nn(x[i - 1:i + 1], y[i - 1:i + 1], penalty)
         if delta_G > penalty * 10:
             break
-    if neoswga.core.utility.complement(x) == neoswga.core.utility.reverse(y):
+    if _utility.complement(x) == _utility.reverse(y):
         delta_G += 0.43
     return delta_G
 

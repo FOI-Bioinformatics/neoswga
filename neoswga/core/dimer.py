@@ -1,5 +1,5 @@
-import neoswga.core.utility
-import neoswga.core.parameter as parameter
+from neoswga.core import utility as _utility
+from neoswga.core import parameter
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from functools import partial
@@ -63,7 +63,7 @@ def is_dimer(seq_1, seq_2, max_dimer_bp=3):
     Returns:
         heterodimer bool: True if the primers may form a heterodimer.
     """
-    binding_len = neoswga.core.utility.longest_common_substring(seq_1, reverse_complement(seq_2))
+    binding_len = _utility.longest_common_substring(seq_1, reverse_complement(seq_2))
     return (binding_len > max_dimer_bp)
 
 

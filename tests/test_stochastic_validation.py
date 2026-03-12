@@ -45,14 +45,14 @@ class TestGillespieSimulator:
         assert params.k_on > 0
         assert params.k_off > 0
         assert params.extension_rate > 0
-        assert params.processivity > 0 and params.processivity <= 1
+        assert params.processivity_step > 0 and params.processivity_step <= 1
         assert params.max_extension > 0
 
     def test_extension_probability_decreases_with_distance(self):
         """Extension probability should decrease with distance."""
         from neoswga.core.stochastic_simulator import ReactionParameters
 
-        params = ReactionParameters(processivity=0.95)
+        params = ReactionParameters(processivity_step=0.95)
 
         prob_short = params.extension_probability(1000)
         prob_long = params.extension_probability(10000)
