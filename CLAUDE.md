@@ -251,7 +251,7 @@ neoswga active-learn -j params.json --output active_learn/ --num-candidates 10
 **Primer filtering**:
 - `min_k`, `max_k`: Primer length range (default: 6-12, use 12-18 for longer primers)
 - `min_fg_freq`: Minimum foreground frequency (default: 1e-5)
-- `max_bg_freq`: Maximum background frequency (default: 5e-5)
+- `max_bg_freq`: Maximum background frequency (default: 5e-6)
 - `max_gini`: Maximum Gini index for binding evenness (default: 0.6)
 - `max_primer`: Primers to keep after filtering (default: 500)
 

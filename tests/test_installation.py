@@ -68,7 +68,7 @@ class InstallationTester:
             ("neoswga.core", "Core subpackage", False),
             ("neoswga.core.parameter", "Parameter module", False),
             ("neoswga.core.filter", "Filter module", False),
-            ("neoswga.core.kmer", "K-mer module", False),
+            ("neoswga.core.kmer_counter", "K-mer counter module", False),
             ("neoswga.core.utility", "Utility module", False),
             # Pipeline has module-level initialization, so allow runtime errors
             ("neoswga.core.pipeline", "Pipeline module", True),

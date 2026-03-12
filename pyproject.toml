@@ -97,16 +97,16 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/neoswga"
-Documentation = "https://github.com/yourusername/neoswga/blob/master/README.md"
-Repository = "https://github.com/yourusername/neoswga"
-"Bug Tracker" = "https://github.com/yourusername/neoswga/issues"
+Homepage = "https://github.com/andreassjodin/neoswga"
+Documentation = "https://github.com/andreassjodin/neoswga/blob/master/README.md"
+Repository = "https://github.com/andreassjodin/neoswga"
+"Bug Tracker" = "https://github.com/andreassjodin/neoswga/issues"
 
 [project.scripts]
 neoswga = "neoswga.cli_unified:main"
 
 [tool.setuptools]
-packages = ["neoswga", "neoswga.core"]
+packages = ["neoswga", "neoswga.core", "neoswga.core.report", "neoswga.core.experimental"]
 package-dir = {"" = "."}
 include-package-data = true
 
@@ -148,10 +148,15 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
-    "--cov=neoswga",
-    "--cov-report=html",
-    "--cov-report=term-missing",
     "--verbose",
+]
+markers = [
+    "integration: Integration tests requiring external data",
+    "slow: Slow tests that take significant time",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:melting",
+    "ignore::UserWarning:melting",
 ]
 
 [tool.mypy]

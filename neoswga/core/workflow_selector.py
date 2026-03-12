@@ -20,21 +20,21 @@ def clear_screen():
     print("\033[H\033[J", end="")
 
 
-def execute_command(cmd: str) -> bool:
+def execute_command(cmd: List[str]) -> bool:
     """
     Execute a neoswga command.
 
     Args:
-        cmd: Command string to execute
+        cmd: Command as a list of arguments
 
     Returns:
         True if command succeeded, False otherwise
     """
-    print(f"\nExecuting: {cmd}\n")
+    display_cmd = " ".join(shlex.quote(c) for c in cmd)
+    print(f"\nExecuting: {display_cmd}\n")
     print("-" * 60)
     try:
-        # Use shell=True for proper argument handling
-        result = subprocess.run(cmd, shell=True)
+        result = subprocess.run(cmd)
         print("-" * 60)
         if result.returncode == 0:
             print("\nCommand completed successfully.")
@@ -50,22 +50,23 @@ def execute_command(cmd: str) -> bool:
         return False
 
 
-def prompt_execute(cmd: str, description: str = "") -> bool:
+def prompt_execute(cmd: List[str], description: str = "") -> bool:
     """
     Show a command and ask user if they want to execute it.
 
     Args:
-        cmd: Command to potentially execute
+        cmd: Command as a list of arguments
         description: What the command does
 
     Returns:
         True if command was executed and succeeded
     """
+    display_cmd = " ".join(shlex.quote(c) for c in cmd)
     print()
     if description:
         print(f"  {description}")
         print()
-    print(f"  Command: {cmd}")
+    print(f"  Command: {display_cmd}")
     print()
 
     while True:
@@ -183,9 +184,9 @@ def run_workflow_selector():
             genome = input("Enter path to target genome FASTA (or 'skip' to exit): ").strip()
             if genome.lower() != 'skip' and genome:
                 background = input("Enter path to background genome FASTA (or Enter to skip): ").strip()
-                cmd = f"neoswga init --genome {genome}"
+                cmd = ["neoswga", "init", "--genome", genome]
                 if background:
-                    cmd += f" --background {background}"
+                    cmd.extend(["--background", background])
                 prompt_execute(cmd, "Create params.json with recommended settings")
             else:
                 print("\nTo set up later, run:")
@@ -209,22 +210,22 @@ def run_workflow_selector():
                 if pipe_choice == 1:  # Full pipeline
                     print("\nRunning full pipeline (4 steps)...")
                     steps = [
-                        ("neoswga count-kmers -j", "Step 1: Count k-mers"),
-                        ("neoswga filter -j", "Step 2: Filter primers"),
-                        ("neoswga score -j", "Step 3: Score candidates"),
-                        ("neoswga optimize -j", "Step 4: Optimize set"),
+                        (["neoswga", "count-kmers", "-j"], "Step 1: Count k-mers"),
+                        (["neoswga", "filter", "-j"], "Step 2: Filter primers"),
+                        (["neoswga", "score", "-j"], "Step 3: Score candidates"),
+                        (["neoswga", "optimize", "-j"], "Step 4: Optimize set"),
                     ]
                     for base_cmd, desc in steps:
-                        cmd = f"{base_cmd} {params_file}"
+                        cmd = base_cmd + [params_file]
                         if not prompt_execute(cmd, desc):
                             print("\nPipeline stopped due to error or user choice.")
                             break
                 elif pipe_choice == 2:
-                    prompt_execute(f"neoswga count-kmers -j {params_file}", "Generate k-mer counts from genome")
+                    prompt_execute(["neoswga", "count-kmers", "-j", params_file], "Generate k-mer counts from genome")
                 elif pipe_choice == 3:
-                    prompt_execute(f"neoswga filter -j {params_file}", "Apply frequency and thermodynamic filters")
+                    prompt_execute(["neoswga", "filter", "-j", params_file], "Apply frequency and thermodynamic filters")
                 elif pipe_choice == 4:
-                    prompt_execute(f"neoswga score -j {params_file}", "Predict amplification efficacy")
+                    prompt_execute(["neoswga", "score", "-j", params_file], "Predict amplification efficacy")
                 elif pipe_choice == 5:
                     print("\nOptimization methods available:")
                     print("  1. hybrid (default)")
@@ -233,7 +234,7 @@ def run_workflow_selector():
                     method = input("Select method [1]: ").strip()
                     methods = {'1': 'hybrid', '2': 'dominating-set', '3': 'background-aware'}
                     opt_method = methods.get(method, 'hybrid')
-                    cmd = f"neoswga optimize -j {params_file} --optimization-method={opt_method}"
+                    cmd = ["neoswga", "optimize", "-j", params_file, f"--optimization-method={opt_method}"]
                     prompt_execute(cmd, "Select optimal primer combination")
 
                 input("\nPress Enter to continue...")
@@ -253,7 +254,7 @@ def run_workflow_selector():
             params_file = input("Enter params.json path [params.json]: ").strip()
             if not params_file:
                 params_file = "params.json"
-            prompt_execute(f"neoswga validate-params -j {params_file}", "Check configuration for errors")
+            prompt_execute(["neoswga", "validate-params", "-j", params_file], "Check configuration for errors")
             input("\nPress Enter to continue...")
 
         elif choice == 4:  # Interpret results
@@ -270,7 +271,7 @@ def run_workflow_selector():
             results_dir = input("Enter results directory [results/]: ").strip()
             if not results_dir:
                 results_dir = "results/"
-            prompt_execute(f"neoswga interpret -d {results_dir}", "Quality assessment of primer design output")
+            prompt_execute(["neoswga", "interpret", "-d", results_dir], "Quality assessment of primer design output")
             input("\nPress Enter to continue...")
 
         elif choice == 5:  # Advanced features

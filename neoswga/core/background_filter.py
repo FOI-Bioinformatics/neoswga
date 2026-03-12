@@ -283,6 +283,10 @@ class BackgroundBloomFilter:
     def load(cls, path: str) -> 'BackgroundBloomFilter':
         """Load Bloom filter from disk"""
         logger.info(f"Loading Bloom filter from {path}")
+        logger.warning(
+            f"Loading pickle file from {path}. "
+            "Only load files from trusted sources."
+        )
         with open(path, 'rb') as f:
             data = pickle.load(f)
 

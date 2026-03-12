@@ -53,18 +53,20 @@ class TestRFPreprocessingImport:
 
 
 class TestCoreModuleExports:
-    """Test core __init__.py exports."""
+    """Test core module imports work correctly."""
 
-    def test_thermo_estimation_not_in_all(self):
-        """thermo_estimation should not be in __all__."""
-        from neoswga.core import __all__
-        # Note: there's a comment about it being deprecated, but it shouldn't be exported
-        assert 'thermo_estimation' not in __all__
+    def test_thermo_estimation_importable(self):
+        """thermo_estimation should be importable but deprecated."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            from neoswga.core import thermo_estimation
+        assert hasattr(thermo_estimation, 'compute_free_energy_for_two_strings')
 
-    def test_thermodynamics_in_all(self):
-        """thermodynamics should be in __all__."""
-        from neoswga.core import __all__
-        assert 'thermodynamics' in __all__
+    def test_thermodynamics_importable(self):
+        """thermodynamics should be importable."""
+        from neoswga.core import thermodynamics
+        assert hasattr(thermodynamics, 'compute_free_energy_for_two_strings')
 
 
 class TestBackwardCompatibility:

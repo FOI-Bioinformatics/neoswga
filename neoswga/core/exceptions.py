@@ -341,10 +341,6 @@ class OperationTimeoutError(ResourceError):
         )
 
 
-# Alias for backward compatibility (deprecated)
-TimeoutError = OperationTimeoutError
-
-
 class JellyfishError(ResourceError):
     """
     Error running Jellyfish k-mer counter.

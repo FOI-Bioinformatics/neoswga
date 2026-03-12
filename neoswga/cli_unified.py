@@ -725,9 +725,9 @@ Run "neoswga <command> --help" for details on a specific command.
 
     # Step control
     design_parser.add_argument('--start-from', type=int, choices=[1, 2, 3, 4],
-                              help='Start from specific step (skip earlier steps)')
+                              help='Start from step: 1=count-kmers, 2=filter, 3=score, 4=optimize')
     design_parser.add_argument('--stop-at', type=int, choices=[1, 2, 3, 4],
-                              help='Stop at specific step (skip later steps)')
+                              help='Stop at step: 1=count-kmers, 2=filter, 3=score, 4=optimize')
 
     # =========================================================================
     # UTILITY: Build background filter
@@ -790,7 +790,7 @@ Run "neoswga <command> --help" for details on a specific command.
     # =========================================================================
     validate_params_parser = subparsers.add_parser('validate-params',
                                                    help='Validate params.json configuration before running')
-    validate_params_parser.add_argument('-j', '--json', required=True,
+    validate_params_parser.add_argument('-j', '--json-file', required=True,
                                        help='Parameters JSON file to validate')
 
     # =========================================================================
@@ -800,7 +800,7 @@ Run "neoswga <command> --help" for details on a specific command.
                                                    help='Validate mechanistic model against expected behavior')
     validate_model_parser.add_argument('--verbose', '-v', action='store_true',
                                        help='Show detailed results for each test')
-    validate_model_parser.add_argument('--json', action='store_true',
+    validate_model_parser.add_argument('--output-json', action='store_true',
                                        help='Output results as JSON')
 
     # =========================================================================
@@ -1002,9 +1002,9 @@ Examples:
                                      help='Output directory for designed primers')
     design_oligos_parser.add_argument('--num-primers', type=int, default=10,
                                      help='Number of primers to design (default: 10)')
-    design_oligos_parser.add_argument('--k-min', type=int, default=6,
+    design_oligos_parser.add_argument('--min-k', type=int, default=6, dest='k_min',
                                      help='Minimum primer length (default: 6)')
-    design_oligos_parser.add_argument('--k-max', type=int, default=12,
+    design_oligos_parser.add_argument('--max-k', type=int, default=12, dest='k_max',
                                      help='Maximum primer length (default: 12)')
 
     # =========================================================================
@@ -1156,9 +1156,9 @@ Examples:
                                help='Prefix for k-mer files (without _Xmer_all.txt)')
     bg_add_parser.add_argument('--genome-size', type=int, default=0,
                                help='Genome size in bp')
-    bg_add_parser.add_argument('--k-min', type=int, default=6,
+    bg_add_parser.add_argument('--min-k', type=int, default=6, dest='k_min',
                                help='Minimum k-mer length (default: 6)')
-    bg_add_parser.add_argument('--k-max', type=int, default=12,
+    bg_add_parser.add_argument('--max-k', type=int, default=12, dest='k_max',
                                help='Maximum k-mer length (default: 12)')
     bg_add_parser.add_argument('--description',
                                help='Additional description')
@@ -2040,10 +2040,20 @@ def run_validate(args):
         suite = ValidationSuite(verbose=True)
         success = suite.run_all_tests()
 
-        # Also run benchmarks
-        logger.info("\nRunning benchmarks...")
-        import benchmark_improvements
-        benchmark_improvements.main()
+        # Also run benchmarks if available
+        try:
+            import importlib.util
+            bench_path = os.path.join(os.path.dirname(__file__), '..', 'scripts', 'benchmarking', 'benchmark_improvements.py')
+            spec = importlib.util.spec_from_file_location("benchmark_improvements", bench_path)
+            if spec and spec.loader:
+                logger.info("\nRunning benchmarks...")
+                benchmark_improvements = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(benchmark_improvements)
+                benchmark_improvements.main()
+            else:
+                logger.info("\nBenchmark script not found, skipping.")
+        except Exception as e:
+            logger.warning(f"Benchmarks unavailable: {e}")
     else:
         logger.info("Running standard validation...")
         suite = ValidationSuite(verbose=True)
@@ -2078,7 +2088,7 @@ def run_validate_params(args):
     """Validate params.json configuration"""
     from neoswga.core.param_validator import validate_params_file
 
-    success, _ = validate_params_file(args.json, verbose=True)
+    success, _ = validate_params_file(args.json_file, verbose=True)
     sys.exit(0 if success else 1)
 
 
@@ -2093,7 +2103,7 @@ def run_validate_model(args):
     logger.info("Validating mechanistic model...")
     results = validate_mechanistic_model()
 
-    if getattr(args, 'json', False):
+    if getattr(args, 'output_json', False):
         # Output as JSON
         # Convert results to JSON-serializable format
         json_results = []
@@ -2448,14 +2458,48 @@ def show_presets():
     print("Available Reaction Condition Presets")
     print("="*70 + "\n")
 
+    # Show presets from the PRESETS dict
     for name, config in PRESETS.items():
         print(f"{name}:")
-        print(f"  Temperature: {config['temperature']}°C")
+        print(f"  Temperature: {config['temperature']}C")
         print(f"  Polymerase: {config['polymerase']}")
         print(f"  DMSO: {config['dmso_percent']}%")
         print(f"  Betaine: {config['betaine_m']} M")
         print(f"  SSB: {config['ssb']}")
         print(f"  Optimization: {config['optimization_method']}")
+        print()
+
+    # Show additional presets available via --preset but not in PRESETS dict
+    additional = ['q_solution', 'gc_melt', 'crude_sample', 'low_temp', 'bst', 'klenow', 'extreme_gc']
+    try:
+        from neoswga.core import reaction_conditions as rc
+        preset_funcs = {
+            'q_solution': ('Q-solution equivalent', rc.get_q_solution_equivalent),
+            'gc_melt': ('GC-melt conditions', rc.get_gc_melt_conditions),
+            'crude_sample': ('Crude sample conditions', rc.get_crude_sample_conditions),
+            'low_temp': ('Low temperature conditions', rc.get_low_temp_conditions),
+            'bst': ('Bst polymerase conditions', rc.get_bst_conditions),
+            'klenow': ('Klenow polymerase conditions', rc.get_klenow_conditions),
+            'extreme_gc': ('Extreme GC content conditions', rc.get_extreme_gc_conditions),
+        }
+        for name in additional:
+            desc, func = preset_funcs[name]
+            try:
+                cond = func()
+                print(f"{name}:")
+                print(f"  {desc}")
+                print(f"  Temperature: {cond.temp}C, Na+: {cond.na_conc} mM, Mg2+: {cond.mg_conc} mM")
+                if hasattr(cond, 'dmso_percent') and cond.dmso_percent:
+                    print(f"  DMSO: {cond.dmso_percent}%")
+                if hasattr(cond, 'betaine_m') and cond.betaine_m:
+                    print(f"  Betaine: {cond.betaine_m} M")
+                print()
+            except Exception:
+                print(f"{name}: {desc}")
+                print()
+    except ImportError:
+        for name in additional:
+            print(f"{name}: (use --preset {name} with filter command)")
         print()
 
 
@@ -2993,11 +3037,12 @@ def run_active_learn(args):
             logger.info(f"Loading candidates from {step3_file}...")
         df = pd.read_csv(step3_file)
 
-        if 'seq' not in df.columns:
-            logger.error("Invalid step3 file: missing 'seq' column")
+        primer_col = 'primer' if 'primer' in df.columns else 'seq'
+        if primer_col not in df.columns:
+            logger.error(f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}")
             sys.exit(1)
 
-        candidates = df['seq'].tolist()
+        candidates = df[primer_col].tolist()
         if not quiet:
             logger.info(f"  Loaded {len(candidates)} candidate primers")
 
@@ -3179,7 +3224,11 @@ def run_expand_primers(args):
             logger.info(f"Loading candidates from {step3_file}...")
 
         df = pd.read_csv(step3_file)
-        candidates = df['primer'].tolist()
+        primer_col = 'primer' if 'primer' in df.columns else 'seq'
+        if primer_col not in df.columns:
+            logger.error(f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}")
+            sys.exit(1)
+        candidates = df[primer_col].tolist()
 
         if not quiet:
             logger.info(f"Candidate pool: {len(candidates)} primers")
@@ -3335,7 +3384,7 @@ def run_predict_efficiency(args):
             )
             if not quiet:
                 logger.info(f"\nPrediction tracked: {exp_id}")
-                logger.info("Record outcome later with: neoswga record-outcome")
+                logger.info("Record experimental outcomes manually for future reference.")
 
         # Save result if output specified
         if args.output:
@@ -3473,8 +3522,7 @@ def run_background_add(args):
 
     logger.info(f"Added background: {entry.name}")
     logger.info("")
-    logger.info("Use in filter step with:")
-    logger.info(f"  neoswga filter -j params.json --background-name '{entry.name}'")
+    logger.info("Background genome registered. It will be used in subsequent filter runs.")
 
 
 # =========================================================================

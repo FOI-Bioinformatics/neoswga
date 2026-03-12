@@ -127,7 +127,7 @@ def softmax(x):
         Returns:
             s: Value of softmax function of x.
     """
-    e_x = np.exp(x)
+    e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum()
 
 def sigmoid(x):
@@ -195,6 +195,8 @@ def longest_char_repeat(s, char):
     Returns:
         Length of the longest consecutive run of ``char`` in ``s``.
     """
+    if not s:
+        return 0
     max_count = 0
     if s[0] == char:
         count = 1
@@ -212,7 +214,6 @@ def longest_char_repeat(s, char):
             max_count = count
     return max(count, max_count)
 
-complement_dic ={'A':'T','T':'A','G':'C','C':'G', " ": " "}
 _COMPLEMENT_TABLE = str.maketrans('ATGCatgc', 'TACGtacg')
 def complement(text):
     """Return the Watson-Crick complement of a DNA sequence (A<->T, G<->C).
@@ -322,8 +323,8 @@ def intersection(lst1, lst2):
     Returns:
         List of elements from ``lst1`` present in ``lst2``.
     """
-    lst3 = [value for value in lst1 if value in lst2]
-    return lst3
+    set2 = set(lst2)
+    return [value for value in lst1 if value in set2]
 
 def gini_exact(array):
     """Calculate the Gini coefficient of a numpy array. Based on bottom equation from

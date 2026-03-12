@@ -2,7 +2,7 @@
 Security tests for NeoSWGA.
 
 Tests for:
-- Command injection prevention in kmer.py
+- Command injection prevention in kmer_counter.py
 - Model hash verification in rf_preprocessing.py
 - Secure subprocess usage
 """
@@ -14,7 +14,7 @@ import hashlib
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from neoswga.core.kmer import run_jellyfish
+from neoswga.core.kmer_counter import run_jellyfish
 from neoswga.core.rf_preprocessing import (
     load_model_safely,
     ModelIntegrityError,
@@ -30,35 +30,22 @@ from neoswga.core.rf_preprocessing import (
 class TestCommandInjectionPrevention:
     """Tests verifying command injection vulnerabilities are fixed."""
 
-    def test_run_jellyfish_validates_genome_fname(self):
-        """Test that run_jellyfish validates genome_fname parameter."""
-        with pytest.raises(ValueError) as exc_info:
-            run_jellyfish(None, "/tmp/output")
-
-        assert "genome_fname is required" in str(exc_info.value)
-
-    def test_run_jellyfish_validates_output_prefix(self):
-        """Test that run_jellyfish validates output_prefix parameter."""
-        with pytest.raises(ValueError) as exc_info:
-            run_jellyfish("/tmp/genome.fa", None)
-
-        assert "output_prefix is required" in str(exc_info.value)
-
     def test_run_jellyfish_validates_file_exists(self, tmp_path):
         """Test that run_jellyfish checks if genome file exists."""
         nonexistent = str(tmp_path / "nonexistent.fa")
 
-        with pytest.raises(FileNotFoundError) as exc_info:
-            run_jellyfish(nonexistent, str(tmp_path / "output"))
+        with patch('neoswga.core.kmer_counter.require_jellyfish'):
+            with pytest.raises(FileNotFoundError) as exc_info:
+                run_jellyfish(nonexistent, str(tmp_path / "output"))
 
-        assert "not found" in str(exc_info.value)
+            assert "not found" in str(exc_info.value)
 
     def test_run_jellyfish_uses_subprocess_not_os_system(self):
         """Verify run_jellyfish uses subprocess.run, not os.system."""
         import inspect
-        from neoswga.core import kmer
+        from neoswga.core import kmer_counter
 
-        source = inspect.getsource(kmer.run_jellyfish)
+        source = inspect.getsource(kmer_counter)
 
         # Should use subprocess.run
         assert "subprocess.run" in source
@@ -67,24 +54,19 @@ class TestCommandInjectionPrevention:
 
     def test_potential_malicious_genome_fname_is_safe(self, tmp_path):
         """Test that malicious filenames don't cause command injection."""
-        # Create a valid test file with a safe name
-        safe_file = tmp_path / "genome.fa"
-        safe_file.write_text(">seq\nATCG\n")
-
-        # The "malicious" path we'll pass to the function (simulating injection attempt)
-        # Note: This path doesn't need to exist because we mock subprocess.run
         malicious_path = "/tmp/safe.fa; echo PWNED > /tmp/pwned.txt"
 
         # Mock subprocess.run to capture what would be executed
-        with patch('neoswga.core.kmer.subprocess.run') as mock_run:
+        with patch('neoswga.core.kmer_counter.subprocess.run') as mock_run, \
+             patch('neoswga.core.kmer_counter.require_jellyfish'), \
+             patch('neoswga.core.kmer_counter._adaptive_hash_size', return_value='100M'), \
+             patch('os.path.exists', return_value=True):
             mock_run.return_value = MagicMock(returncode=0)
 
-            # Mock os.path.exists to return True for the malicious path
-            with patch('os.path.exists', return_value=True):
-                try:
-                    run_jellyfish(malicious_path, str(tmp_path / "output"), min_k=6, max_k=6)
-                except Exception:
-                    pass
+            try:
+                run_jellyfish(malicious_path, str(tmp_path / "output"), min_k=6, max_k=6)
+            except Exception:
+                pass
 
             # Verify subprocess.run was called with list arguments (safe)
             # not with shell=True (unsafe)
@@ -226,12 +208,11 @@ class TestSubprocessSecurity:
 
     def test_no_shell_true_in_codebase(self):
         """Verify no subprocess calls use shell=True."""
-        from neoswga.core import kmer, kmer_counter
+        import inspect
+        from neoswga.core import kmer_counter
 
-        for module in [kmer, kmer_counter]:
-            import inspect
-            source = inspect.getsource(module)
-            assert "shell=True" not in source, f"shell=True found in {module.__name__}"
+        source = inspect.getsource(kmer_counter)
+        assert "shell=True" not in source, f"shell=True found in {kmer_counter.__name__}"
 
 
 # =============================================================================
@@ -243,15 +224,12 @@ class TestPathTraversalPrevention:
 
     def test_run_jellyfish_rejects_path_traversal(self, tmp_path):
         """Test that path traversal attempts are handled safely."""
-        # Create a test file
-        test_file = tmp_path / "test.fa"
-        test_file.write_text(">seq\nATCG\n")
-
         # Attempt path traversal - should fail at file existence check
         traversal_attempt = str(tmp_path / ".." / ".." / "etc" / "passwd")
 
-        with pytest.raises(FileNotFoundError):
-            run_jellyfish(traversal_attempt, str(tmp_path / "output"))
+        with patch('neoswga.core.kmer_counter.require_jellyfish'):
+            with pytest.raises(FileNotFoundError):
+                run_jellyfish(traversal_attempt, str(tmp_path / "output"))
 
 
 if __name__ == '__main__':

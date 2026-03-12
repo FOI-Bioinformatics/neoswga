@@ -129,8 +129,8 @@ h5py
 # Validation test results (regenerated)
 validation_tests/results/
 
-# ML model files (large, can be retrained)
-neoswga/core/models/*.p
+# ML model files (large, can be retrained with scripts/retrain_rf_model.py)
+# neoswga/core/models/*.p  # Tracked: required for score step
 
 # Large genome files in test data (download separately)
 tests/integration/**/human_*.fna

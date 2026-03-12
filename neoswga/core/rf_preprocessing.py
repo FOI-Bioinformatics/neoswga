@@ -41,7 +41,7 @@ from typing import Dict, List, Optional, Tuple
 # Known SHA-256 hashes of trusted model files
 # Update these when retraining models
 _TRUSTED_MODEL_HASHES = {
-    'random_forest_filter.p': '7320e265744b4449353e404f7f0240f3918026a31d619d2c235a422c12c54e76',
+    'random_forest_filter.p': 'bb7d5a6c7d4e37006a980a397006b27da249fe50fecace68a97e7d04dcbca70e',
 }
 
 # Set to False to disable hash verification (not recommended for production)

@@ -387,6 +387,10 @@ class EfficiencyPredictor:
             # The model file is shipped with the package and should not be
             # modified by users. For user-provided models, consider using
             # a safer serialization format like ONNX.
+            logger.warning(
+                f"Loading pickle file from {model_path}. "
+                "Only load files from trusted sources."
+            )
             with open(model_path, 'rb') as f:
                 model = pickle.load(f)
 
