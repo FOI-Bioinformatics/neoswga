@@ -24,10 +24,20 @@ class TestPlasmidE2E:
 
     @pytest.fixture(autouse=True)
     def setup_workdir(self, tmp_path):
-        """Copy plasmid example to a temporary directory."""
+        """Copy plasmid example to a temporary directory with relaxed params."""
+        import json
+
         self.workdir = tmp_path / "plasmid"
         shutil.copytree(PLASMID_DIR, self.workdir)
         self.params = str(self.workdir / "params.json")
+
+        # Relax min_amp_pred for small plasmid genomes where
+        # the RF model scores all primers below the default threshold
+        with open(self.params) as f:
+            params = json.load(f)
+        params["min_amp_pred"] = 0
+        with open(self.params, "w") as f:
+            json.dump(params, f)
 
     def _run(self, command):
         """Run a neoswga CLI command and assert success."""

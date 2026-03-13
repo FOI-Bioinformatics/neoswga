@@ -429,8 +429,9 @@ def step1():
     """
     _initialize()  # Lazy initialization
     for prefix in fg_prefixes + bg_prefixes:
-        if not os.path.exists(os.path.dirname(prefix)):
-            os.makedirs(os.path.dirname(prefix))
+        prefix_dir = os.path.dirname(prefix)
+        if prefix_dir and not os.path.exists(prefix_dir):
+            os.makedirs(prefix_dir)
 
     min_k = getattr(parameter, 'min_k', 6)
     max_k = getattr(parameter, 'max_k', 12)
