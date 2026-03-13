@@ -89,6 +89,9 @@ class TestOptimizationResult:
             mean_gap=1000.0,
             max_gap=5000.0,
             gap_gini=0.3,
+            gap_entropy=2.5,
+            strand_alternation_score=0.8,
+            strand_coverage_ratio=0.9,
         )
 
         result = OptimizationResult(

@@ -1,22 +1,35 @@
 {
-    "fg": "pcDNA.fasta",
-    "bg": "pLTR.fasta",
-    "min_fg_freq": 1e-05,
-    "max_bg_freq": 5e-06,
-    "min_tm": 15,
-    "max_tm": 45,
-    "max_gini": 0.6,
-    "max_primer": 500,
-    "cpus": 4,
-    "max_dimer_bp": 3,
-    "max_self_dimer_bp": 4,
-    "mismatch_penalty": 4,
-    "iterations": 8,
-    "max_sets": 5,
-    "fg_circular": true,
-    "bg_circular": false,
-    "fg_seq_lengths": [6157],
-    "bg_seq_lengths": [6258],
-    "polymerase": "phi29",
-    "reaction_temp": 30.0
+  "fg_genomes": ["pcDNA.fasta"],
+  "bg_genomes": ["pLTR.fasta"],
+  "fg_prefixes": ["pcDNA"],
+  "bg_prefixes": ["pLTR"],
+  "data_dir": "./",
+
+  "polymerase": "phi29",
+  "reaction_temp": 30.0,
+
+  "min_k": 6,
+  "max_k": 12,
+
+  "min_fg_freq": 1e-5,
+  "max_bg_freq": 5e-6,
+  "min_tm": 15,
+  "max_tm": 45,
+  "max_gini": 0.6,
+  "max_primer": 500,
+
+  "max_dimer_bp": 3,
+  "max_self_dimer_bp": 4,
+  "mismatch_penalty": 4,
+
+  "num_primers": 6,
+  "target_set_size": 6,
+  "iterations": 8,
+  "max_sets": 5,
+  "cpus": 4,
+
+  "fg_circular": true,
+  "bg_circular": false,
+  "fg_seq_lengths": [6157],
+  "bg_seq_lengths": [6258]
 }

@@ -21,6 +21,43 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 
+def _filter_exclusion_genome(primers: List[str], excl_prefixes: List[str],
+                              threshold: int = 0) -> List[bool]:
+    """Filter primers that bind to exclusion genome(s).
+
+    Scans k-mer count files for the exclusion genome and rejects any primer
+    whose total hit count exceeds the threshold. With the default threshold
+    of 0, a single hit in the exclusion genome is sufficient to reject a
+    primer.
+
+    Args:
+        primers: List of primer sequences.
+        excl_prefixes: Exclusion genome k-mer file prefixes.
+        threshold: Maximum allowed hit count (0 = reject any hit).
+
+    Returns:
+        Boolean mask where True indicates the primer passes filtering.
+    """
+    mask = []
+    for primer in primers:
+        k = len(primer)
+        total_hits = 0
+        for prefix in excl_prefixes:
+            kmer_file = f"{prefix}_{k}mer_all.txt"
+            if os.path.exists(kmer_file):
+                try:
+                    with open(kmer_file, 'r') as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) >= 2 and parts[0] == primer:
+                                total_hits += int(parts[1])
+                                break
+                except Exception:
+                    pass
+        mask.append(total_hits <= threshold)
+    return mask
+
+
 # =============================================================================
 # Step Prerequisite Validation
 # =============================================================================
@@ -416,6 +453,17 @@ def step1():
             with progress_context(f"  Background {i+1}/{len(bg_prefixes)}: {genome_name}"):
                 run_jellyfish(bg_genomes[i], bg_prefix, min_k, max_k)
 
+    # Count k-mers for exclusion genome(s) if configured
+    excl_genomes_val = getattr(parameter, 'excl_genomes', [])
+    excl_prefixes_val = getattr(parameter, 'excl_prefixes', [])
+    if excl_genomes_val and excl_prefixes_val:
+        logger.info("Running jellyfish for exclusion genome(s)...")
+        for i, excl_prefix in enumerate(excl_prefixes_val):
+            if i < len(excl_genomes_val):
+                genome_name = os.path.basename(excl_genomes_val[i])
+                with progress_context(f"  Exclusion {i+1}/{len(excl_prefixes_val)}: {genome_name}"):
+                    run_jellyfish(excl_genomes_val[i], excl_prefix, min_k, max_k)
+
     logger.info("Done running jellyfish")
 
     return fg_seq_lengths, bg_seq_lengths
@@ -490,6 +538,19 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     if parameter.verbose:
         logger.debug(f"Rate dataframe:\n{rate_df}")
+
+    # Exclusion genome filtering (zero-tolerance by default)
+    excl_prefixes_val = getattr(parameter, 'excl_prefixes', [])
+    excl_threshold_val = getattr(parameter, 'excl_threshold', 0)
+    if excl_prefixes_val:
+        logger.info(f"Applying exclusion genome filter (threshold={excl_threshold_val})")
+        pre_excl_count = len(filtered_rate_df)
+        excl_mask = _filter_exclusion_genome(
+            filtered_rate_df['primer'].tolist(), excl_prefixes_val, excl_threshold_val
+        )
+        filtered_rate_df = filtered_rate_df[excl_mask]
+        logger.info(f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
+                     f"binding exclusion genome")
 
     # Create position files BEFORE Gini calculation (Gini needs these files to exist)
     # Check if position files exist for speedup

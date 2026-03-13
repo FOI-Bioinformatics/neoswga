@@ -270,6 +270,26 @@ def collect_primers_from_args(
 
 
 # =============================================================================
+# Parameter File Validation
+# =============================================================================
+
+def validate_params_json_file(path):
+    """Validate that a parameter file exists and contains valid JSON.
+
+    Prints a user-friendly error and exits if the file is missing or malformed.
+    """
+    if not os.path.isfile(path):
+        print(f"Error: parameter file '{path}' not found.", file=sys.stderr)
+        sys.exit(1)
+    try:
+        with open(path) as f:
+            json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"Error: '{path}' is not valid JSON: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+# =============================================================================
 # Parameter Merger Utility
 # =============================================================================
 
@@ -478,6 +498,8 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Minimum primer length (default: from params.json or 6). Supported range: 6-18bp')
     count_kmers_parser.add_argument('--max-k', type=int, default=None,
                              help='Maximum primer length (default: from params.json or 12). Use 15-18bp with DMSO/betaine additives')
+    count_kmers_parser.add_argument('--exclusion-genome', type=str, default=None,
+                             help='Exclusion genome FASTA file (e.g., mtDNA)')
 
     # =========================================================================
     # STEP 2: Candidate filtering
@@ -566,6 +588,16 @@ Run "neoswga <command> --help" for details on a specific command.
     step2_bloom_group.add_argument('--bloom-max-bg-matches', type=int, default=10,
                                    help='Maximum background matches via Bloom filter (default: 10)')
 
+    # Exclusion Genome Filtering (zero-tolerance for contaminants)
+    step2_excl_group = filter_parser.add_argument_group(
+        'Exclusion Genome Filtering (reject primers binding contaminant sequences)')
+    step2_excl_group.add_argument('--exclusion-genome', type=str, default=None,
+                                  help='Exclusion genome FASTA file (e.g., mtDNA, chloroplast). '
+                                       'Primers binding this genome are rejected.')
+    step2_excl_group.add_argument('--excl-threshold', type=int, default=0,
+                                  help='Maximum allowed hits in exclusion genome '
+                                       '(default: 0 = any hit rejects primer)')
+
     # =========================================================================
     # STEP 3: Random forest scoring
     # =========================================================================
@@ -603,18 +635,21 @@ Run "neoswga <command> --help" for details on a specific command.
     optimize_parser.add_argument('--optimization-method',
                              choices=['hybrid', 'greedy', 'dominating-set', 'weighted-set-cover',
                                      'network', 'genetic', 'background-aware',
-                                     'milp', 'equiphi29', 'moea', 'normalized', 'tiling'],
+                                     'milp', 'equiphi29', 'moea', 'normalized', 'tiling',
+                                     'clique', 'coverage-then-dimerfree', 'dimerfree-scored',
+                                     'bg-prefilter', 'bg-prefilter-hybrid'],
                              default='hybrid',
                              help='Optimization method. '
-                                  'Quick guide: hybrid (default, general use), '
-                                  'dominating-set (8x faster for large pools), '
-                                  'background-aware (clinical, 10-20x bg reduction). '
-                                  'Other: greedy (fast BFS), '
-                                  'weighted-set-cover (Tm-weighted set cover), '
-                                  'normalized (configurable weights via --strategy), '
-                                  'network (Tm-weighted graph), genetic (GA-based), '
-                                  'milp (exact ILP), '
-                                  'equiphi29 (EquiPhi29-specific), moea (multi-objective). '
+                                  'Decision tree: '
+                                  'hybrid (default, general use), '
+                                  'dominating-set (speed-critical, large pools), '
+                                  'background-aware (clinical, 10-20x bg reduction), '
+                                  'clique (dimer-free requirement), '
+                                  'equiphi29 (GC-rich genomes >65%%), '
+                                  'milp (exact solution, small pools). '
+                                  'Pipelines: '
+                                  'coverage-then-dimerfree (DS->clique cascade), '
+                                  'dimerfree-scored (clique->network scoring). '
                                   'Use --method-guide for detailed comparison.')
     optimize_parser.add_argument('--strategy',
                              choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
@@ -649,6 +684,11 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Path to pre-built Bloom filter')
     optimize_parser.add_argument('--background-sampled-path', type=str,
                              help='Path to pre-built sampled index')
+    optimize_parser.add_argument('--no-background', action='store_true', default=False,
+                             help='Host-free mode: optimize without background genome data. '
+                                  'Relies on intrinsic primer quality (Tm, complexity, evenness) '
+                                  'rather than fg/bg selectivity. Use when background genome is '
+                                  'unknown or unavailable.')
 
     # Optimization parameters
     optimize_parser.add_argument('--num-primers', type=int,
@@ -734,8 +774,8 @@ Run "neoswga <command> --help" for details on a specific command.
     # =========================================================================
     build_filter_parser = subparsers.add_parser('build-filter',
                                                help='Build background Bloom filter (one-time setup)')
-    build_filter_parser.add_argument('genome', help='Path to background genome FASTA (or k-mer prefix with --from-kmers)')
-    build_filter_parser.add_argument('output_dir', help='Output directory for filter files')
+    build_filter_parser.add_argument('--genome', required=True, help='Path to background genome FASTA (or k-mer prefix with --from-kmers)')
+    build_filter_parser.add_argument('--output-dir', required=True, help='Output directory for filter files')
     build_filter_parser.add_argument('--from-kmers', action='store_true',
                                     help='Build from jellyfish k-mer files (MUCH faster for large genomes)')
     build_filter_parser.add_argument('--min-k', type=int, default=6,
@@ -776,7 +816,7 @@ Run "neoswga <command> --help" for details on a specific command.
                             help='Background genome FASTA file (optional)')
     init_parser.add_argument('--output', '-o', default='params.json',
                             help='Output params.json path (default: params.json)')
-    init_parser.add_argument('--output-dir', '-d', default='results',
+    init_parser.add_argument('--output-dir', default='results',
                             help='Directory for pipeline output files (default: results)')
     init_parser.add_argument('--advanced', '-a', action='store_true',
                             help='Show advanced configuration options')
@@ -861,7 +901,7 @@ Examples:
     export_parser.add_argument('--vendor', default='idt',
                                choices=['idt', 'twist', 'sigma', 'generic'],
                                help='Vendor format for CSV (default: idt)')
-    export_parser.add_argument('--format', choices=['all', 'fasta', 'csv', 'protocol'],
+    export_parser.add_argument('--format', choices=['all', 'fasta', 'csv', 'protocol', 'bed', 'bedgraph'],
                                default='all',
                                help='Export format (default: all)')
     export_parser.add_argument('-j', '--json-file',
@@ -878,6 +918,10 @@ Examples:
     export_parser.add_argument('--no-modifications', action='store_true',
                                help='Export bare sequences without modifications '
                                     '(equivalent to --modifications none)')
+    export_parser.add_argument('--genome-name', default='genome',
+                               help='Chromosome/contig name for BED/BedGraph output (default: genome)')
+    export_parser.add_argument('--window-size', type=int, default=1000,
+                               help='Window size in bp for BedGraph binning (default: 1000)')
     export_parser.set_defaults(func=run_export)
 
     # =========================================================================
@@ -891,7 +935,7 @@ Examples:
     # =========================================================================
     suggest_parser = subparsers.add_parser('suggest',
                                            help='Suggest optimal reaction conditions based on genome and primer length')
-    suggest_parser.add_argument('--genome-gc', '-g', type=float,
+    suggest_parser.add_argument('--genome-gc', type=float,
                                help='Target genome GC content (0-1, e.g., 0.65 for 65%%)')
     suggest_parser.add_argument('--genome', type=str,
                                help='Target genome FASTA file (calculates GC automatically)')
@@ -908,6 +952,11 @@ Examples:
                                help='Optimization goal (default: amplification)')
     suggest_parser.add_argument('--use-optimizer', action='store_true',
                                help='Use advanced multi-additive optimizer (grid search)')
+    suggest_parser.add_argument('--sweep', action='store_true',
+                               help='Sweep a grid of reaction conditions and rank by '
+                                    'predicted amplification factor')
+    suggest_parser.add_argument('--output', '-o', type=str,
+                               help='Output CSV path for condition sweep results')
 
     # =========================================================================
     # ADVANCED: Optimize conditions
@@ -925,7 +974,7 @@ Examples:
     # ADVANCED: Analyze primer set
     # =========================================================================
     analyze_parser = subparsers.add_parser('analyze-set',
-                                          help='Analyze an existing primer set')
+                                          help='[EXPERIMENTAL] Analyze an existing primer set')
     analyze_parser.add_argument('--primers', required=True, nargs='+',
                                help='Primer sequences to analyze')
     analyze_parser.add_argument('--fg', required=True,
@@ -943,7 +992,7 @@ Examples:
     # CATEGORY 1: Genome analysis (orphaned feature)
     # =========================================================================
     analyze_genome_parser = subparsers.add_parser('analyze-genome',
-                                                   help='Analyze genome suitability for SWGA')
+                                                   help='[EXPERIMENTAL] Analyze genome suitability for SWGA')
     analyze_genome_parser.add_argument('--genome', required=True,
                                       help='Genome FASTA file to analyze')
     analyze_genome_parser.add_argument('--output', '-o', required=True,
@@ -955,7 +1004,7 @@ Examples:
     # CATEGORY 1: Dimer network analysis (orphaned feature)
     # =========================================================================
     analyze_dimers_parser = subparsers.add_parser('analyze-dimers',
-                                                   help='Analyze primer dimer interaction network')
+                                                   help='[EXPERIMENTAL] Analyze primer dimer interaction network')
     analyze_dimers_parser.add_argument('--primers', required=True, nargs='+',
                                       help='Primer sequences to analyze')
     analyze_dimers_parser.add_argument('--output', '-o', required=True,
@@ -1076,7 +1125,7 @@ Examples:
     # CATEGORY 5: Active learning command (experimental)
     # =========================================================================
     active_learn_parser = subparsers.add_parser('active-learn',
-                                                help='Active learning for iterative primer optimization')
+                                                help='[EXPERIMENTAL] Active learning for iterative primer optimization')
     active_learn_parser.add_argument('-j', '--json-file', required=True,
                                      help='Parameters JSON file (from optimize step)')
     active_learn_parser.add_argument('--experimental-results',
@@ -1254,6 +1303,7 @@ def add_common_options(parser):
 
 def run_step1(args):
     """Run step 1: K-mer preprocessing"""
+    validate_params_json_file(args.json_file)
     try:
         from neoswga.core import pipeline, parameter
 
@@ -1291,6 +1341,23 @@ def run_step1(args):
         else:
             pipeline.step1()
 
+        # Count k-mers for exclusion genome if specified via CLI
+        excl_genome = getattr(args, 'exclusion_genome', None)
+        if excl_genome:
+            if not os.path.exists(excl_genome):
+                logger.error(f"Exclusion genome not found: {excl_genome}")
+                sys.exit(1)
+            from neoswga.core.kmer_counter import run_jellyfish as _run_jf
+            excl_name = os.path.splitext(os.path.basename(excl_genome))[0]
+            excl_prefix = os.path.join(parameter.data_dir, f"excl_{excl_name}")
+            min_k = getattr(parameter, 'min_k', 6)
+            max_k = getattr(parameter, 'max_k', 12)
+            logger.info(f"Counting k-mers in exclusion genome: {excl_genome}")
+            _run_jf(excl_genome, excl_prefix, min_k, max_k)
+            # Store exclusion prefix for downstream steps
+            parameter.excl_genomes = [excl_genome]
+            parameter.excl_prefixes = [excl_prefix]
+
     except ImportError as e:
         logger.error(f"Pipeline not found: {e}")
         sys.exit(1)
@@ -1298,6 +1365,7 @@ def run_step1(args):
 
 def run_step2(args):
     """Run step 2: Candidate filtering with reaction conditions"""
+    validate_params_json_file(args.json_file)
     logger.info("Running step2 (candidate primer filtering)")
 
     try:
@@ -1381,13 +1449,30 @@ def run_step2(args):
                 if sampled_path:
                     logger.info(f"  Sampled index: {sampled_path}")
 
+        # Handle exclusion genome from CLI
+        excl_genome = getattr(args, 'exclusion_genome', None)
+        if excl_genome:
+            if not os.path.exists(excl_genome):
+                logger.error(f"Exclusion genome not found: {excl_genome}")
+                sys.exit(1)
+            excl_name = os.path.splitext(os.path.basename(excl_genome))[0]
+            excl_prefix = os.path.join(parameter.data_dir, f"excl_{excl_name}")
+            parameter.excl_genomes = [excl_genome]
+            parameter.excl_prefixes = [excl_prefix]
+            excl_threshold = getattr(args, 'excl_threshold', 0)
+            if excl_threshold is not None:
+                parameter.excl_threshold = excl_threshold
+            if not args.quiet:
+                logger.info(f"Exclusion genome: {excl_genome}")
+                logger.info(f"  Threshold: {parameter.excl_threshold} (0 = reject any hit)")
+
         # Log effective parameters
         if not args.quiet:
             logger.info("Effective parameters:")
             if hasattr(parameter, 'gc_min'):
                 logger.info(f"  GC range: {parameter.gc_min:.3f} - {parameter.gc_max:.3f}")
             if hasattr(parameter, 'reaction_temp'):
-                logger.info(f"  Reaction temp: {parameter.reaction_temp}°C")
+                logger.info(f"  Reaction temp: {parameter.reaction_temp}C")
             if hasattr(parameter, 'polymerase'):
                 logger.info(f"  Polymerase: {parameter.polymerase}")
             if hasattr(parameter, 'dmso_percent') and parameter.dmso_percent > 0:
@@ -1426,6 +1511,7 @@ def run_step2(args):
 
 def run_step3(args):
     """Run step 3: Random forest scoring"""
+    validate_params_json_file(args.json_file)
     try:
         from neoswga.core import pipeline, parameter
 
@@ -1498,25 +1584,44 @@ def print_method_guide():
 OPTIMIZATION METHOD SELECTION GUIDE
 ====================================
 
-Quick Decision Tree:
-  1. Clinical/diagnostic use? -> background-aware
-  2. Large pool (>500 candidates)? -> dominating-set
-  3. Otherwise -> hybrid (default)
+Decision Tree:
+  Speed critical?           -> dominating-set
+  Need dimer-free?          -> clique (or coverage-then-dimerfree)
+  Clinical/diagnostic?      -> background-aware
+  GC-rich genome (>65%)?    -> equiphi29
+  Exact solution needed?    -> milp (pools <100)
+  Want coverage + no dimers -> coverage-then-dimerfree
+  Default                   -> hybrid
 
-Method Comparison:
-+-----------------+--------+-----------+-------------+------------------------+
-| Method          | Speed  | Coverage  | Specificity | Best For               |
-+-----------------+--------+-----------+-------------+------------------------+
-| hybrid          | Medium | Excellent | Good        | General use (default)  |
-| dominating-set  | Fast   | Excellent | Fair        | Large pools, quick     |
-| background-aware| Slow   | Good      | Excellent   | Clinical, low bg       |
-| normalized      | Medium | Varies    | Varies      | Configurable weights   |
-| network         | Medium | Good      | Good        | Tm-balanced sets       |
-| genetic         | Slow   | Good      | Good        | Multi-objective        |
-| moea            | Slow   | Good      | Good        | Pareto optimization    |
-| milp            | Var.   | Optimal   | Good        | Exact (small sets)     |
-| greedy          | Fast   | Fair      | Fair        | Simple baseline        |
-+-----------------+--------+-----------+-------------+------------------------+
+Single-Stage Methods:
++------------------+--------+-----------+-------------+------------------------+
+| Method           | Speed  | Coverage  | Specificity | Best For               |
++------------------+--------+-----------+-------------+------------------------+
+| hybrid           | Medium | Excellent | Good        | General use (default)  |
+| dominating-set   | Fast   | Excellent | Fair        | Large pools, quick     |
+| background-aware | Slow   | Good      | Excellent   | Clinical, low bg       |
+| clique           | Var.   | Good      | Good        | Dimer-free guarantee   |
+| equiphi29        | Medium | Good      | Good        | GC-rich, 42-45C        |
+| normalized       | Medium | Varies    | Varies      | Configurable weights   |
+| network          | Medium | Good      | Good        | Tm-balanced sets       |
+| genetic          | Slow   | Good      | Good        | Multi-objective        |
+| moea             | Slow   | Good      | Good        | Pareto optimization    |
+| milp             | Var.   | Optimal   | Good        | Exact (small sets)     |
+| greedy           | Fast   | Fair      | Fair        | Simple baseline        |
+| tiling           | Fast   | Excellent | Fair        | Uniform spacing        |
++------------------+--------+-----------+-------------+------------------------+
+
+Pipeline Methods (serial cascades):
++-------------------------+----------+--------------------------------------+
+| Method                  | Speed    | Description                          |
++-------------------------+----------+--------------------------------------+
+| coverage-then-dimerfree | Moderate | DS -> Clique (coverage + dimer-free) |
+| dimerfree-scored        | Moderate | Clique -> Network (dimer-free +      |
+|                         |          | connectivity scoring)                |
+| bg-prefilter            | Moderate | Background pruning pre-filter alone  |
+| bg-prefilter-hybrid     | Moderate | BG pruning -> Hybrid (bg reduction   |
+|                         |          | + general optimization)              |
++-------------------------+----------+--------------------------------------+
 
 Strategy Presets (for --optimization-method=normalized):
 +-------------+--------------------------------------------------+
@@ -1536,11 +1641,20 @@ Usage Examples:
   # Fast screening
   neoswga optimize -j params.json --optimization-method=dominating-set
 
-  # Strategy-based with clinical preset
-  neoswga optimize -j params.json --optimization-method=normalized --strategy=clinical
-
   # Clinical samples (low background)
   neoswga optimize -j params.json --optimization-method=background-aware
+
+  # Guaranteed dimer-free sets (pools <200 primers)
+  neoswga optimize -j params.json --optimization-method=clique
+
+  # Coverage-first, then dimer-free filtering
+  neoswga optimize -j params.json --optimization-method=coverage-then-dimerfree
+
+  # Dimer-free with network connectivity scoring
+  neoswga optimize -j params.json --optimization-method=dimerfree-scored
+
+  # Strategy-based with clinical preset
+  neoswga optimize -j params.json --optimization-method=normalized --strategy=clinical
 
 For detailed documentation: docs/optimization_guide.md
 """
@@ -1549,6 +1663,7 @@ For detailed documentation: docs/optimization_guide.md
 
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
+    validate_params_json_file(args.json_file)
 
     # Handle --method-guide option
     if getattr(args, 'method_guide', False):
@@ -1712,6 +1827,11 @@ def run_step4(args):
         # Background pre-filter flag (enabled by default, --no-bg-prefilter disables)
         bg_prefilter = not getattr(args, 'no_bg_prefilter', False)
 
+        # Host-free mode: optimize without background genome data
+        no_background = getattr(args, 'no_background', False)
+        if no_background:
+            logger.info("Host-free mode: background genome data will be ignored")
+
         # Run unified optimization
         results, scores, cache = optimize_step4(
             use_cache=args.use_position_cache,
@@ -1724,6 +1844,7 @@ def run_step4(args):
             strategy=strategy,  # Pass strategy for normalized optimizer
             polymerase=polymerase,  # Pass polymerase for hybrid preset config
             bg_prefilter=bg_prefilter,  # Background pre-filtering of candidates
+            no_background=no_background,  # Host-free mode
         )
 
         if results:
@@ -2315,6 +2436,83 @@ def run_report(args):
         sys.exit(1)
 
 
+def _load_primer_positions(results_dir, primers):
+    """Load primer binding positions from HDF5 files in a results directory.
+
+    Args:
+        results_dir: Path to results directory.
+        primers: List of primer sequences.
+
+    Returns:
+        Dict mapping primer to list of (position, strand) tuples.
+    """
+    import h5py
+    import glob as glob_module
+    from neoswga.core.thermodynamics import reverse_complement
+
+    positions = {}
+    h5_files = glob_module.glob(os.path.join(results_dir, '*_positions.h5'))
+
+    if not h5_files:
+        params_path = os.path.join(results_dir, 'params.json')
+        if os.path.exists(params_path):
+            with open(params_path) as f:
+                params = json.load(f)
+            fg_prefixes = params.get('fg_prefixes', [])
+            for prefix in fg_prefixes:
+                h5_files.extend(glob_module.glob(f"{prefix}_*_positions.h5"))
+
+    if not h5_files:
+        logger.warning(
+            "No position HDF5 files found. "
+            "BED/BedGraph export requires position data from the filter step."
+        )
+        return {p: [] for p in primers}
+
+    rc_map = {p: reverse_complement(p) for p in primers}
+
+    for primer in primers:
+        sites = []
+        k = len(primer)
+        for h5_path in h5_files:
+            if f"_{k}mer_" not in h5_path:
+                continue
+            try:
+                with h5py.File(h5_path, 'r') as db:
+                    if primer in db:
+                        for pos in db[primer][:]:
+                            sites.append((int(pos), 'forward'))
+                    rc = rc_map[primer]
+                    if rc in db:
+                        for pos in db[rc][:]:
+                            sites.append((int(pos), 'reverse'))
+            except Exception as e:
+                logger.warning(f"Error reading {h5_path}: {e}")
+        positions[primer] = sites
+
+    return positions
+
+
+def _get_genome_length(results_dir):
+    """Get genome length from params.json in results directory.
+
+    Args:
+        results_dir: Path to results directory.
+
+    Returns:
+        Total genome length in bp, or 0 if not determinable.
+    """
+    params_path = os.path.join(results_dir, 'params.json')
+    if os.path.exists(params_path):
+        with open(params_path) as f:
+            params = json.load(f)
+        lengths = params.get('fg_seq_lengths', [])
+        if lengths:
+            return sum(lengths)
+    logger.warning("Could not determine genome length. Using 0.")
+    return 0
+
+
 def run_export(args):
     """Export primers for synthesis ordering."""
     from neoswga.core.export import PrimerExporter, PrimerModifications
@@ -2370,6 +2568,30 @@ def run_export(args):
             exporter.export_protocol(str(protocol_path))
             print(f"Exported: {protocol_path}")
 
+        elif args.format in ('bed', 'bedgraph'):
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Load positions from results directory
+            positions = _load_primer_positions(args.dir, exporter.primers)
+
+            if args.format == 'bed':
+                bed_path = output_dir / f"{args.project}_binding_sites.bed"
+                exporter.export_bed(
+                    str(bed_path), positions,
+                    genome_name=args.genome_name
+                )
+                print(f"Exported: {bed_path}")
+            else:
+                genome_length = _get_genome_length(args.dir)
+                bg_path = output_dir / f"{args.project}_coverage.bedgraph"
+                exporter.export_bedgraph(
+                    str(bg_path), positions,
+                    genome_name=args.genome_name,
+                    genome_length=genome_length,
+                    window_size=args.window_size
+                )
+                print(f"Exported: {bg_path}")
+
         print("\nPrimers ready for ordering!")
 
     except FileNotFoundError as e:
@@ -2403,6 +2625,27 @@ def run_suggest(args):
         except FileNotFoundError:
             logger.error(f"Genome file not found: {args.genome}")
             sys.exit(1)
+
+    # Condition sweep mode
+    if getattr(args, 'sweep', False):
+        from neoswga.core.condition_suggester import sweep_conditions
+        primer_length = args.primer_length
+        if primer_length is None:
+            from neoswga.core.mechanistic_params import get_polymerase_params
+            poly_params = get_polymerase_params(getattr(args, 'polymerase', 'phi29'))
+            primer_length = int((poly_params['primer_length_range'][0] +
+                                poly_params['primer_length_range'][1]) / 2)
+        if genome_gc is None:
+            genome_gc = 0.5
+            logger.info("No GC content provided, using default 50%")
+        sweep_conditions(
+            genome_gc=genome_gc,
+            primer_length=primer_length,
+            polymerase=getattr(args, 'polymerase', 'phi29'),
+            output_path=getattr(args, 'output', None),
+            verbose=True,
+        )
+        return
 
     if genome_gc is None and args.primer_length is None:
         logger.error("Provide at least --genome-gc or --genome or --primer-length")

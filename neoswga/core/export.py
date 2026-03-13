@@ -139,6 +139,80 @@ def export_to_fasta(
     logger.info(f"Exported {len(primers)} primers to {output_path}")
 
 
+def export_to_bed(
+    primers: List[str],
+    positions: Dict[str, List[tuple]],
+    genome_name: str,
+    output_path: str,
+) -> None:
+    """Export primer binding sites in BED format for genome browser visualization.
+
+    BED format (6-column):
+        chrom  start  end  name  score  strand
+
+    Args:
+        primers: List of primer sequences.
+        positions: Dict mapping primer to list of (position, strand) tuples
+            where strand is 'forward' or 'reverse'.
+        genome_name: Chromosome or contig name for BED output.
+        output_path: Path for output file.
+    """
+    with open(output_path, 'w') as f:
+        for primer in primers:
+            sites = positions.get(primer, [])
+            for pos, strand in sites:
+                strand_char = '+' if strand == 'forward' else '-'
+                end = pos + len(primer)
+                f.write(
+                    f"{genome_name}\t{pos}\t{end}\t{primer}\t0\t{strand_char}\n"
+                )
+
+    total_sites = sum(len(positions.get(p, [])) for p in primers)
+    logger.info(f"Exported {total_sites} binding sites to {output_path}")
+
+
+def export_to_bedgraph(
+    primers: List[str],
+    positions: Dict[str, List[tuple]],
+    genome_name: str,
+    genome_length: int,
+    output_path: str,
+    window_size: int = 1000,
+) -> None:
+    """Export primer binding density in BedGraph format.
+
+    BedGraph shows coverage depth per genomic window, suitable for
+    visualizing primer density across the genome.
+
+    Args:
+        primers: List of primer sequences.
+        positions: Dict mapping primer to list of (position, strand) tuples.
+        genome_name: Chromosome or contig name.
+        genome_length: Total genome length in bp.
+        output_path: Path for output file.
+        window_size: Window size in bp for coverage binning (default: 1000).
+    """
+    import numpy as np
+
+    num_windows = (genome_length + window_size - 1) // window_size
+    counts = np.zeros(num_windows, dtype=int)
+
+    for primer in primers:
+        for pos, _strand in positions.get(primer, []):
+            window_idx = pos // window_size
+            if 0 <= window_idx < num_windows:
+                counts[window_idx] += 1
+
+    with open(output_path, 'w') as f:
+        for i in range(num_windows):
+            if counts[i] > 0:
+                start = i * window_size
+                end = min((i + 1) * window_size, genome_length)
+                f.write(f"{genome_name}\t{start}\t{end}\t{counts[i]}\n")
+
+    logger.info(f"Exported BedGraph with {window_size}bp windows to {output_path}")
+
+
 # Vendor format specifications
 VENDOR_FORMATS: Dict[str, Dict[str, Any]] = {
     "idt": {
@@ -649,6 +723,29 @@ class PrimerExporter:
         }
         protocol_kwargs.update(kwargs)
         export_protocol(self.primers, output_path, **protocol_kwargs)
+
+    def export_bed(
+        self,
+        output_path: str,
+        positions: Dict[str, List[tuple]],
+        genome_name: str = "genome",
+    ) -> None:
+        """Export primer binding sites in BED format."""
+        export_to_bed(self.primers, positions, genome_name, output_path)
+
+    def export_bedgraph(
+        self,
+        output_path: str,
+        positions: Dict[str, List[tuple]],
+        genome_name: str = "genome",
+        genome_length: int = 0,
+        window_size: int = 1000,
+    ) -> None:
+        """Export primer binding density in BedGraph format."""
+        export_to_bedgraph(
+            self.primers, positions, genome_name,
+            genome_length, output_path, window_size
+        )
 
     def export_all(
         self,

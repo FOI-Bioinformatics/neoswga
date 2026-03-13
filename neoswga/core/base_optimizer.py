@@ -54,6 +54,11 @@ class PrimerSetMetrics:
     mean_gap: float  # Mean gap between binding sites
     max_gap: float  # Maximum gap (coverage hole)
     gap_gini: float  # Gini coefficient of gaps
+    gap_entropy: float  # Shannon entropy of gap distribution (bits)
+
+    # Strand alternation metrics
+    strand_alternation_score: float  # Fraction of adjacent pairs alternating strands (0-1)
+    strand_coverage_ratio: float  # Balance between forward and reverse strand sites (0-1)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -70,7 +75,55 @@ class PrimerSetMetrics:
             'mean_gap': self.mean_gap,
             'max_gap': self.max_gap,
             'gap_gini': self.gap_gini,
+            'gap_entropy': self.gap_entropy,
+            'strand_alternation_score': self.strand_alternation_score,
+            'strand_coverage_ratio': self.strand_coverage_ratio,
         }
+
+    def normalized_score(
+        self,
+        coverage_w: float = 0.35,
+        selectivity_w: float = 0.30,
+        dimer_w: float = 0.15,
+        evenness_w: float = 0.10,
+        tm_w: float = 0.10,
+    ) -> float:
+        """Compute a [0,1] composite score from metrics.
+
+        Provides a single comparable value regardless of which optimizer
+        produced the result.  All component metrics are clamped to [0,1]
+        before weighting.
+
+        Args:
+            coverage_w: Weight for foreground coverage (default 0.35).
+            selectivity_w: Weight for selectivity (default 0.30).
+            dimer_w: Weight for dimer safety (default 0.15).
+            evenness_w: Weight for gap evenness (default 0.10).
+            tm_w: Weight for Tm tightness (default 0.10).
+        """
+        # Coverage: already [0,1]
+        cov = min(self.fg_coverage, 1.0)
+
+        # Selectivity: cap ratio at 100, normalize
+        sel = min(self.selectivity_ratio / 100.0, 1.0) if self.selectivity_ratio > 0 else 0.0
+
+        # Dimer safety: 1 - risk (lower risk is better)
+        dimer_safe = 1.0 - min(self.dimer_risk_score, 1.0)
+
+        # Evenness: 1 - Gini (lower Gini is more uniform)
+        even = 1.0 - min(self.gap_gini, 1.0)
+
+        # Tm tightness: narrow Tm spread is better
+        tm_spread = abs(self.tm_range[1] - self.tm_range[0]) if self.tm_range else 0.0
+        tm_tight = max(0.0, 1.0 - tm_spread / 20.0)  # 0C spread -> 1.0, 20C+ -> 0.0
+
+        return (
+            coverage_w * cov
+            + selectivity_w * sel
+            + dimer_w * dimer_safe
+            + evenness_w * even
+            + tm_w * tm_tight
+        )
 
     @classmethod
     def empty(cls) -> 'PrimerSetMetrics':
@@ -88,6 +141,9 @@ class PrimerSetMetrics:
             mean_gap=float('inf'),
             max_gap=float('inf'),
             gap_gini=1.0,
+            gap_entropy=0.0,
+            strand_alternation_score=0.0,
+            strand_coverage_ratio=0.0,
         )
 
 
@@ -119,6 +175,17 @@ class OptimizationResult:
     def is_success(self) -> bool:
         """Whether optimization succeeded."""
         return self.status == OptimizationStatus.SUCCESS
+
+    @property
+    def normalized_score(self) -> float:
+        """Comparable [0,1] score derived from metrics.
+
+        Unlike ``score`` (which varies in scale per optimizer), this value
+        is always in [0,1] and comparable across different optimizer types.
+        """
+        if not self.is_success:
+            return 0.0
+        return self.metrics.normalized_score()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -419,6 +486,16 @@ class BaseOptimizer(ABC):
         max_gap = max(gaps) if gaps else float('inf')
         gap_gini = self._gini(gaps) if gaps else 1.0
 
+        # Shannon entropy of gap distribution
+        if len(gaps) >= 2:
+            from scipy.stats import entropy as scipy_entropy
+            counts, _ = np.histogram(gaps, bins=min(50, len(gaps)))
+            counts = counts[counts > 0]
+            probs = counts / counts.sum()
+            gap_entropy = float(scipy_entropy(probs, base=2))
+        else:
+            gap_entropy = 0.0
+
         # Selectivity
         total_fg = len(fg_positions)
         total_bg = len(bg_positions)
@@ -431,6 +508,21 @@ class BaseOptimizer(ABC):
 
         # Dimer risk (simplified - would use dimer module in full implementation)
         dimer_risk = self._estimate_dimer_risk(primers)
+
+        # Strand alternation metrics
+        strand_alt_score = 0.0
+        strand_cov_ratio = 0.0
+        if self.cache is not None and hasattr(self.cache, 'compute_strand_alternation_stats'):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+                try:
+                    strand_stats = self.cache.compute_strand_alternation_stats(
+                        prefix, primers, length
+                    )
+                    strand_alt_score = strand_stats['strand_alternation_score']
+                    strand_cov_ratio = strand_stats['strand_coverage_ratio']
+                    break  # Use first fg genome stats
+                except Exception:
+                    pass
 
         return PrimerSetMetrics(
             fg_coverage=fg_coverage,
@@ -445,6 +537,9 @@ class BaseOptimizer(ABC):
             mean_gap=mean_gap,
             max_gap=max_gap,
             gap_gini=gap_gini,
+            gap_entropy=gap_entropy,
+            strand_alternation_score=strand_alt_score,
+            strand_coverage_ratio=strand_cov_ratio,
         )
 
     def _compute_coverage(self, positions: List[int], total_length: int) -> float:
@@ -503,24 +598,16 @@ class BaseOptimizer(ABC):
         Estimate dimer risk for primer set.
 
         Returns fraction of primer pairs with potential dimer formation.
+        Uses the centralized DimerValidator for consistent results across
+        all optimizers.
         """
-        n = len(primers)
-        if n < 2:
+        if len(primers) < 2:
             return 0.0
 
         try:
-            from . import dimer
-            dimer_count = 0
-            total_pairs = 0
-
-            for i in range(n):
-                for j in range(i + 1, n):
-                    total_pairs += 1
-                    if dimer.is_dimer_fast(primers[i], primers[j], self.config.max_dimer_bp):
-                        dimer_count += 1
-
-            return dimer_count / total_pairs if total_pairs > 0 else 0.0
-
+            from .dimer_validator import DimerValidator
+            validator = DimerValidator(max_dimer_bp=self.config.max_dimer_bp)
+            return validator.dimer_risk(primers)
         except ImportError:
             logger.warning("Dimer module not available, using estimate")
             return 0.1  # Fallback estimate

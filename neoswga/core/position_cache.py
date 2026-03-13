@@ -186,7 +186,42 @@ class PositionCache:
             'mean_gap_size': np.mean(gap_sizes) if len(gap_sizes) > 0 else 0,
             'max_gap_size': np.max(gap_sizes) if len(gap_sizes) > 0 else 0,
             'gap_gini': self._gini_coefficient(gap_sizes) if len(gap_sizes) > 1 else 0,
+            'gap_entropy': self.compute_gap_entropy(fname_prefix, primers, genome_length),
         }
+
+    def compute_gap_entropy(self, fname_prefix: str, primers: List[str],
+                           genome_length: int, num_bins: int = 50) -> float:
+        """Compute Shannon entropy of gap size distribution.
+
+        Entropy measures the information content of the gap distribution.
+        Higher entropy indicates more diverse gap sizes; lower entropy
+        indicates more uniform spacing. Complements the Gini coefficient
+        by capturing distributional shape rather than inequality alone.
+
+        Args:
+            fname_prefix: Genome identifier.
+            primers: List of primer sequences.
+            genome_length: Length of genome.
+            num_bins: Number of histogram bins for gap discretization.
+
+        Returns:
+            Shannon entropy in bits (0 = all gaps identical,
+            higher = more varied).
+        """
+        from scipy.stats import entropy as scipy_entropy
+
+        coverage = self.compute_coverage_vectorized(fname_prefix, primers, genome_length)
+        gap_sizes = self._find_gap_sizes(coverage)
+
+        if len(gap_sizes) < 2:
+            return 0.0
+
+        # Bin gap sizes into histogram and compute entropy
+        counts, _ = np.histogram(gap_sizes, bins=min(num_bins, len(gap_sizes)))
+        # Filter zero bins and normalize to probability distribution
+        counts = counts[counts > 0]
+        probs = counts / counts.sum()
+        return float(scipy_entropy(probs, base=2))
 
     def _find_gap_sizes(self, coverage: np.ndarray) -> List[int]:
         """Find sizes of uncovered regions"""
@@ -214,6 +249,107 @@ class PositionCache:
         cumsum = np.cumsum(sorted_values)
 
         return (2.0 * np.sum((np.arange(1, n+1)) * sorted_values)) / (n * cumsum[-1]) - (n + 1) / n
+
+    def compute_strand_alternation_stats(
+        self,
+        fname_prefix: str,
+        primers: List[str],
+        genome_length: int,
+    ) -> Dict[str, float]:
+        """Compute strand alternation metrics for a primer set.
+
+        Strand alternation measures how well forward and reverse strand
+        binding sites interleave across the genome. Good interleaving is
+        needed for efficient strand displacement amplification by Phi29.
+
+        A region with only forward-strand binding amplifies linearly at
+        best; exponential amplification requires primers on both strands.
+
+        Args:
+            fname_prefix: Genome identifier.
+            primers: List of primer sequences.
+            genome_length: Length of genome in base pairs.
+
+        Returns:
+            Dictionary with the following keys:
+
+            - strand_alternation_gap_mean: Mean gap between consecutive
+              opposite-strand binding sites.
+            - strand_alternation_gap_max: Maximum such gap (worst region).
+            - strand_alternation_score: Fraction of adjacent site pairs
+              that alternate strands (1.0 = perfect alternation).
+            - strand_coverage_ratio: min(fwd, rev) / max(fwd, rev) site
+              count ratio (1.0 = balanced).
+            - longest_same_strand_run: Longest consecutive run of sites
+              on the same strand (lower is better).
+        """
+        # Collect all binding sites with strand labels
+        sites: List[Tuple[int, str]] = []
+        total_fwd = 0
+        total_rev = 0
+
+        for primer in primers:
+            fwd_pos = self.get_positions(fname_prefix, primer, 'forward')
+            rev_pos = self.get_positions(fname_prefix, primer, 'reverse')
+            total_fwd += len(fwd_pos)
+            total_rev += len(rev_pos)
+
+            for pos in fwd_pos:
+                sites.append((int(pos), 'forward'))
+            for pos in rev_pos:
+                sites.append((int(pos), 'reverse'))
+
+        if len(sites) < 2:
+            return {
+                'strand_alternation_gap_mean': float(genome_length),
+                'strand_alternation_gap_max': float(genome_length),
+                'strand_alternation_score': 0.0,
+                'strand_coverage_ratio': 0.0,
+                'longest_same_strand_run': len(sites),
+            }
+
+        # Sort by position
+        sites.sort(key=lambda x: x[0])
+
+        # Compute gaps between consecutive opposite-strand sites
+        alternation_gaps: List[int] = []
+        alternations = 0
+        same_strand_run = 1
+        longest_run = 1
+
+        for i in range(1, len(sites)):
+            if sites[i][1] != sites[i - 1][1]:
+                # Strand switch: record gap
+                gap = sites[i][0] - sites[i - 1][0]
+                alternation_gaps.append(gap)
+                alternations += 1
+                same_strand_run = 1
+            else:
+                same_strand_run += 1
+                longest_run = max(longest_run, same_strand_run)
+
+        alternation_score = alternations / (len(sites) - 1)
+
+        # Strand balance ratio
+        if total_fwd > 0 and total_rev > 0:
+            strand_ratio = min(total_fwd, total_rev) / max(total_fwd, total_rev)
+        else:
+            strand_ratio = 0.0
+
+        if alternation_gaps:
+            mean_gap = float(np.mean(alternation_gaps))
+            max_gap = float(max(alternation_gaps))
+        else:
+            mean_gap = float(genome_length)
+            max_gap = float(genome_length)
+
+        return {
+            'strand_alternation_gap_mean': mean_gap,
+            'strand_alternation_gap_max': max_gap,
+            'strand_alternation_score': alternation_score,
+            'strand_coverage_ratio': strand_ratio,
+            'longest_same_strand_run': longest_run,
+        }
 
     def _report_statistics(self) -> None:
         """Report cache statistics"""

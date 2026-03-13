@@ -114,6 +114,11 @@ class PipelineParameters:
     fg_seq_lengths: List[int] = field(default_factory=list)
     bg_seq_lengths: List[int] = field(default_factory=list)
 
+    # Exclusion genomes (zero-tolerance filtering)
+    excl_genomes: List[str] = field(default_factory=list)
+    excl_prefixes: List[str] = field(default_factory=list)
+    excl_threshold: int = 0  # Max allowed hits in exclusion genome (0 = any hit rejects)
+
     # Runtime
     cpus: int = 1
     verbose: bool = False
@@ -178,6 +183,9 @@ def get_current_config() -> PipelineParameters:
         bg_prefixes=globals().get('bg_prefixes', []) or [],
         fg_seq_lengths=globals().get('fg_seq_lengths', []) or [],
         bg_seq_lengths=globals().get('bg_seq_lengths', []) or [],
+        excl_genomes=globals().get('excl_genomes', []) or [],
+        excl_prefixes=globals().get('excl_prefixes', []) or [],
+        excl_threshold=globals().get('excl_threshold', 0),
         cpus=globals().get('cpus', 1),
         verbose=globals().get('verbose', False),
     )
@@ -272,6 +280,11 @@ def set_from_config(config: PipelineParameters) -> None:
     g['fg_seq_lengths'] = config.fg_seq_lengths
     g['bg_seq_lengths'] = config.bg_seq_lengths
 
+    # Exclusion genomes
+    g['excl_genomes'] = config.excl_genomes
+    g['excl_prefixes'] = config.excl_prefixes
+    g['excl_threshold'] = config.excl_threshold
+
     # Runtime
     g['cpus'] = config.cpus
     g['verbose'] = config.verbose
@@ -329,6 +342,11 @@ formamide_percent = 0.0
 ethanol_percent = 0.0
 urea_m = 0.0
 tmac_m = 0.0
+
+# Exclusion genome parameters (e.g., mitochondrial DNA, chloroplast sequences)
+excl_genomes = []
+excl_prefixes = []
+excl_threshold = 0
 
 # GC content filtering parameters
 # gc_tolerance: adaptive filtering uses genome_gc +/- gc_tolerance
@@ -444,6 +462,9 @@ def get_params(args):
     global num_primers
     global target_set_size
     global _json_data
+    global excl_genomes
+    global excl_prefixes
+    global excl_threshold
 
 
     data = {}
@@ -615,6 +636,11 @@ def get_params(args):
     bg_genomes = data.get('bg_genomes', [])
     fg_prefixes = data.get('fg_prefixes', [])
     bg_prefixes = data.get('bg_prefixes', [])
+
+    # Exclusion genome support
+    excl_genomes = data.get('excl_genomes', [])
+    excl_prefixes = data.get('excl_prefixes', [])
+    excl_threshold = data.get('excl_threshold', 0)
 
     if 'fg_genomes' in data and ('fg_seq_lengths' not in data or len(data['fg_seq_lengths']) != len(data['fg_genomes'])):
         data['fg_seq_lengths'] = _utility.get_all_seq_lengths(fname_genomes=data['fg_genomes'], cpus=data['cpus'])

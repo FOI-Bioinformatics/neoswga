@@ -353,6 +353,10 @@ class MultiAgentOrchestrator:
         # Aggregate results
         best_result = self._aggregate_results(results, aggregation, target_size)
 
+        # Post-aggregation validation for ensemble strategies
+        if aggregation in (AggregationStrategy.CONSENSUS, AggregationStrategy.WEIGHTED_VOTE):
+            best_result = self._validate_ensemble_result(best_result)
+
         agents_succeeded = sum(1 for m in metrics.values() if m.success)
 
         orchestrator_result = OrchestratorResult(
@@ -442,12 +446,16 @@ class MultiAgentOrchestrator:
             return OptimizationResult.failure("orchestrator", "All agents failed")
 
         if strategy == AggregationStrategy.BEST_SCORE:
-            # Pick result with highest score
-            best_name = max(successful.keys(), key=lambda k: successful[k].score)
+            # Pick result with highest normalized score (comparable across optimizers)
+            best_name = max(
+                successful.keys(),
+                key=lambda k: successful[k].normalized_score
+            )
             return successful[best_name]
 
         elif strategy == AggregationStrategy.CONSENSUS:
             # Pick primers that appear in multiple results
+            n_optimizers = len(successful)
             primer_counts: Dict[str, int] = {}
             for result in successful.values():
                 for primer in result.primers:
@@ -461,17 +469,32 @@ class MultiAgentOrchestrator:
             )
             consensus_primers = tuple(sorted_primers[:target_size])
 
+            # Compute agreement fractions for quality reporting
+            agreement = {
+                p: primer_counts[p] / n_optimizers
+                for p in consensus_primers
+            }
+            mean_agreement = sum(agreement.values()) / len(agreement) if agreement else 0.0
+            low_conf = [p for p, a in agreement.items() if a < 0.4]
+
+            quality_msg = (
+                f"Consensus from {n_optimizers} optimizers "
+                f"(mean agreement {mean_agreement:.0%})"
+            )
+            if low_conf:
+                quality_msg += f"; {len(low_conf)} low-confidence primer(s)"
+
             # Use best result as template
             best = max(successful.values(), key=lambda r: r.score)
 
             return OptimizationResult(
                 primers=consensus_primers,
-                score=best.score,  # Would ideally recalculate
+                score=best.score,
                 status=OptimizationStatus.SUCCESS,
                 metrics=best.metrics,
                 iterations=sum(r.iterations for r in successful.values()),
                 optimizer_name="consensus",
-                message=f"Consensus from {len(successful)} optimizers",
+                message=quality_msg,
             )
 
         elif strategy == AggregationStrategy.WEIGHTED_VOTE:
@@ -507,6 +530,60 @@ class MultiAgentOrchestrator:
             # Default: ENSEMBLE (same as best for now)
             best_name = max(successful.keys(), key=lambda k: successful[k].score)
             return successful[best_name]
+
+    def _validate_ensemble_result(
+        self, result: OptimizationResult
+    ) -> OptimizationResult:
+        """Validate dimer compatibility and Tm range of an ensemble result.
+
+        Consensus and weighted-vote strategies assemble primer sets from
+        multiple optimizers, so the final set may contain dimer pairs or
+        have a wide Tm spread that no single optimizer would have produced.
+        This method checks for those issues and adds warnings to the
+        result message.
+        """
+        warnings = []
+
+        # Dimer check
+        try:
+            from .dimer_validator import DimerValidator
+            validator = DimerValidator(max_dimer_bp=4)
+            bad_pairs = validator.incompatible_pairs(list(result.primers))
+            if bad_pairs:
+                warnings.append(
+                    f"dimer risk: {len(bad_pairs)} pair(s) "
+                    f"(e.g. {bad_pairs[0][0][:8]}../{bad_pairs[0][1][:8]}..)"
+                )
+        except ImportError:
+            pass
+
+        # Tm range check
+        try:
+            tms = []
+            for p in result.primers:
+                gc = p.upper().count('G') + p.upper().count('C')
+                at = p.upper().count('A') + p.upper().count('T')
+                tms.append(4 * gc + 2 * at)
+            if tms:
+                tm_spread = max(tms) - min(tms)
+                if tm_spread > 10:
+                    warnings.append(f"Tm spread {tm_spread}C")
+        except Exception:
+            pass
+
+        if warnings:
+            new_msg = result.message + " | WARNINGS: " + "; ".join(warnings)
+            return OptimizationResult(
+                primers=result.primers,
+                score=result.score,
+                status=result.status,
+                metrics=result.metrics,
+                iterations=result.iterations,
+                optimizer_name=result.optimizer_name,
+                message=new_msg,
+            )
+
+        return result
 
     def get_performance_history(self) -> List[Dict[str, Any]]:
         """Get historical performance data for analysis."""

@@ -423,6 +423,111 @@ def suggest_conditions(
     return rec
 
 
+def sweep_conditions(
+    genome_gc: float,
+    primer_length: int = 10,
+    polymerase: str = 'phi29',
+    output_path: Optional[str] = None,
+    verbose: bool = True,
+) -> List[Dict[str, Any]]:
+    """Sweep a grid of reaction conditions and rank by predicted amplification.
+
+    Evaluates combinations of temperature, DMSO, betaine, and Mg2+
+    using the mechanistic model to identify conditions that maximize
+    predicted amplification for the given genome GC content.
+
+    Args:
+        genome_gc: Target genome GC content (0-1).
+        primer_length: Representative primer length in bp.
+        polymerase: Polymerase type.
+        output_path: Optional CSV file path for results.
+        verbose: Print results to console.
+
+    Returns:
+        List of condition dictionaries sorted by predicted amplification
+        (best first).
+    """
+    from neoswga.core.mechanistic_model import MechanisticModel
+    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.mechanistic_params import get_polymerase_params
+
+    poly_params = get_polymerase_params(polymerase)
+    base_temp = poly_params.get('optimal_temp', 30.0)
+
+    # Define sweep grid
+    temp_offsets = [-2, 0, 2, 4]
+    dmso_values = [0.0, 2.5, 5.0]
+    betaine_values = [0.0, 0.5, 1.0]
+    mg_values = [1.5, 2.5, 4.0]
+
+    # Representative primer with mixed GC content matching target genome
+    # Using alternating bases provides a more realistic Tm estimate
+    # than homopolymer sequences
+    gc_bases = 'GC'
+    at_bases = 'AT'
+    gc_count = int(primer_length * genome_gc)
+    at_count = primer_length - gc_count
+    sample_primer = (gc_bases * gc_count + at_bases * at_count)[:primer_length]
+
+    results = []
+    for t_off in temp_offsets:
+        temp = base_temp + t_off
+        for dmso in dmso_values:
+            for betaine in betaine_values:
+                for mg in mg_values:
+                    try:
+                        conditions = ReactionConditions(
+                            temp=temp,
+                            polymerase=polymerase,
+                            mg_conc=mg,
+                            dmso_percent=dmso,
+                            betaine_m=betaine,
+                        )
+                        model = MechanisticModel(conditions)
+                        effects = model.calculate_effects(sample_primer, genome_gc)
+
+                        results.append({
+                            'temperature': temp,
+                            'dmso_percent': dmso,
+                            'betaine_m': betaine,
+                            'mg_conc': mg,
+                            'amplification_factor': effects.predicted_amplification_factor,
+                            'processivity_factor': effects.processivity_factor,
+                            'accessibility_factor': effects.accessibility_factor,
+                            'effective_tm': effects.effective_tm,
+                        })
+                    except Exception:
+                        continue
+
+    # Sort by amplification factor (best first)
+    results.sort(key=lambda x: x['amplification_factor'], reverse=True)
+
+    if verbose and results:
+        print(f"\nCondition sweep for {polymerase} (GC={genome_gc:.1%}, primer={primer_length}bp)")
+        print("=" * 80)
+        print(f"{'Rank':<5} {'Temp':>5} {'DMSO%':>6} {'Bet.M':>6} {'Mg2+':>5} "
+              f"{'Ampl.':>7} {'Proc.':>6} {'Access':>7} {'Eff.Tm':>7}")
+        print("-" * 80)
+        for i, r in enumerate(results[:15], 1):
+            print(f"{i:<5} {r['temperature']:>5.1f} {r['dmso_percent']:>6.1f} "
+                  f"{r['betaine_m']:>6.1f} {r['mg_conc']:>5.1f} "
+                  f"{r['amplification_factor']:>7.3f} {r['processivity_factor']:>6.2f} "
+                  f"{r['accessibility_factor']:>7.2f} {r['effective_tm']:>7.1f}")
+        if len(results) > 15:
+            print(f"... ({len(results)} total combinations evaluated)")
+
+    if output_path and results:
+        import csv
+        with open(output_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+            writer.writeheader()
+            writer.writerows(results)
+        if verbose:
+            print(f"\nFull results saved to {output_path}")
+
+    return results
+
+
 if __name__ == '__main__':
     import sys
 

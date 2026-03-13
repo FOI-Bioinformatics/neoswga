@@ -47,6 +47,7 @@ class ResultsReport:
     recommendation: str
     next_steps: List[str]
     warnings: List[str]
+    enrichment_estimate: Optional[Dict[str, Any]] = None
 
 
 # Thresholds for quality ratings
@@ -242,6 +243,9 @@ class ResultsInterpreter:
             else:
                 overall = QualityRating.CRITICAL
 
+        # Estimate enrichment from mechanistic model
+        enrichment_estimate = self._estimate_enrichment_fold(primers)
+
         # Generate recommendation and next steps
         recommendation, next_steps = self._generate_recommendation(overall, warnings)
 
@@ -251,7 +255,8 @@ class ResultsInterpreter:
             overall_rating=overall,
             recommendation=recommendation,
             next_steps=next_steps,
-            warnings=warnings
+            warnings=warnings,
+            enrichment_estimate=enrichment_estimate,
         )
 
     def _load_step4_results(self) -> List[Dict]:
@@ -333,6 +338,105 @@ class ResultsInterpreter:
                 return max(values)  # Worst case dimer risk
         return None
 
+    def _estimate_enrichment_fold(self, primers: List[Dict]) -> Optional[Dict[str, Any]]:
+        """Estimate enrichment fold-change using mechanistic model.
+
+        Uses the four-pathway mechanistic model to predict amplification
+        efficiency under the configured reaction conditions.
+
+        Returns:
+            Dictionary with enrichment estimate details, or None if unavailable.
+        """
+        try:
+            import json
+            from neoswga.core.mechanistic_model import MechanisticModel
+            from neoswga.core.reaction_conditions import ReactionConditions
+        except ImportError:
+            return None
+
+        # Try to load params.json
+        params_path = self.results_dir / 'params.json'
+        if not params_path.exists():
+            # Try parent directory
+            params_path = self.results_dir.parent / 'params.json'
+            if not params_path.exists():
+                return None
+
+        try:
+            with open(params_path) as f:
+                params = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return None
+
+        # Build reaction conditions
+        polymerase = params.get('polymerase', 'phi29')
+        try:
+            conditions = ReactionConditions(
+                temp=params.get('reaction_temp', 30.0),
+                polymerase=polymerase,
+                na_conc=params.get('na_conc', 50.0),
+                mg_conc=params.get('mg_conc', 2.5),
+                dmso_percent=params.get('dmso_percent', 0.0),
+                betaine_m=params.get('betaine_m', 0.0),
+                trehalose_m=params.get('trehalose_m', 0.0),
+            )
+        except Exception:
+            return None
+
+        # Get template GC
+        template_gc = params.get('fg_gc', 0.5)
+
+        # Calculate amplification factors for each primer
+        try:
+            model = MechanisticModel(conditions)
+            primer_seqs = []
+            for row in primers:
+                seq = row.get('primer', row.get('sequence', ''))
+                if seq:
+                    primer_seqs.append(seq)
+
+            if not primer_seqs:
+                return None
+
+            factors = []
+            for seq in primer_seqs:
+                effects = model.calculate_effects(seq, template_gc)
+                factors.append(effects.predicted_amplification_factor)
+
+            mean_factor = sum(factors) / len(factors)
+
+            # Estimate fold enrichment:
+            # Each primer contributes to exponential amplification.
+            # With N primers, overall enrichment scales roughly as
+            # mean_amplification_factor ^ (N * coverage_efficiency).
+            # We use a simplified estimate: mean_factor * num_primers * processivity_scaling
+            processivity_map = {
+                'phi29': 70000, 'equiphi29': 80000,
+                'bst': 2000, 'klenow': 10000,
+            }
+            processivity = processivity_map.get(polymerase, 70000)
+            # Scale by log2 of processivity relative to typical genome regions
+            import math
+            processivity_bonus = math.log2(processivity / 1000.0)
+
+            # Enrichment estimate: exponential scaling with primer count
+            # Conservative estimate based on amplification factor and primer count
+            estimated_enrichment = mean_factor * len(primer_seqs) * processivity_bonus
+            # Cap at reasonable range
+            estimated_enrichment = max(1.0, min(estimated_enrichment, 10000.0))
+
+            return {
+                'estimated_fold_enrichment': estimated_enrichment,
+                'mean_amplification_factor': mean_factor,
+                'num_primers': len(primer_seqs),
+                'polymerase': polymerase,
+                'reaction_temp': conditions.temp,
+                'confidence': 'moderate' if 0.3 < mean_factor < 0.9 else 'low',
+            }
+        except Exception as e:
+            logger.debug(f"Enrichment estimation failed: {e}")
+            return None
+
     def _generate_recommendation(self, overall: QualityRating,
                                   warnings: List[str]) -> Tuple[str, List[str]]:
         """Generate recommendation and next steps based on assessment."""
@@ -398,6 +502,15 @@ class ResultsInterpreter:
             print("\n--- Warnings ---")
             for warning in report.warnings:
                 print(f"  - {warning}")
+
+        if report.enrichment_estimate:
+            est = report.enrichment_estimate
+            print(f"\n--- Predicted Enrichment ---")
+            print(f"  Expected enrichment: {est['estimated_fold_enrichment']:.0f}-fold")
+            print(f"  Mean amplification factor: {est['mean_amplification_factor']:.2f}")
+            print(f"  Polymerase: {est['polymerase']} at {est['reaction_temp']}C")
+            print(f"  Confidence: {est['confidence']}")
+            print(f"  (Based on mechanistic model prediction)")
 
         print(f"\n--- Recommendation ---")
         print(f"  {report.recommendation}")

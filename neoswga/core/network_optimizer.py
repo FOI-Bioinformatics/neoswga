@@ -1077,6 +1077,21 @@ class NetworkOptimizer:
         # Add mechanistic metrics if available
         result.update(mech_metrics)
 
+        # Strand alternation analysis
+        if self.cache is not None and hasattr(self.cache, 'compute_strand_alternation_stats'):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+                try:
+                    strand_stats = self.cache.compute_strand_alternation_stats(
+                        prefix, primers, length
+                    )
+                    result['strand_alternation_score'] = strand_stats['strand_alternation_score']
+                    result['strand_coverage_ratio'] = strand_stats['strand_coverage_ratio']
+                    result['strand_alternation_gap_mean'] = strand_stats['strand_alternation_gap_mean']
+                    result['longest_same_strand_run'] = strand_stats['longest_same_strand_run']
+                    break
+                except Exception as e:
+                    logger.debug(f"Strand analysis skipped: {e}")
+
         return result
 
     def _build_network(self, primers: List[str], prefixes: List[str]) -> AmplificationNetwork:

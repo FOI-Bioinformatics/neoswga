@@ -142,6 +142,21 @@ def _ensure_optimizers_registered():
         except ImportError:
             pass  # Should always work, but be safe
 
+        try:
+            from . import clique_optimizer  # Clique-based dimer-free (requires networkx)
+        except ImportError:
+            pass  # networkx not installed
+
+        try:
+            from . import background_prefilter  # Background pruning pre-filter
+        except ImportError:
+            pass  # Should always work, but be safe
+
+        try:
+            from . import serial_cascade_optimizer  # Serial pipeline combinations
+        except ImportError:
+            pass  # Should always work, but be safe
+
         _optimizers_registered = True
         logger.debug("Optimizer registration complete")
 
@@ -247,6 +262,13 @@ def run_optimization(
         fg_seq_lengths = core_pipeline.fg_seq_lengths
         bg_prefixes = bg_prefixes or getattr(core_pipeline, 'bg_prefixes', [])
         bg_seq_lengths = bg_seq_lengths or getattr(core_pipeline, 'bg_seq_lengths', [])
+
+    # Handle no-background (host-free) mode
+    if kwargs.get('no_background', False):
+        bg_prefixes = []
+        bg_seq_lengths = []
+        if verbose:
+            logger.info("  Host-free mode: no background genome data used")
 
     # Load candidates from step3 if not provided
     if candidates is None:
@@ -373,6 +395,86 @@ def save_results(
     logger.info(f"Results saved to {output_path}")
 
 
+def _simulation_rescore(
+    result: OptimizationResult,
+    fg_prefixes: List[str],
+    fg_seq_lengths: List[int],
+    simulation_time: float = 1800.0,
+    verbose: bool = True,
+) -> Optional[Dict[str, Any]]:
+    """Re-score optimization result using simulation-based fitness.
+
+    Uses the agent-based replication simulator to predict actual
+    amplification performance of the selected primer set.
+
+    Args:
+        result: OptimizationResult from an optimizer.
+        fg_prefixes: Foreground genome prefixes.
+        fg_seq_lengths: Foreground genome lengths.
+        simulation_time: Simulation duration in seconds.
+        verbose: Print progress.
+
+    Returns:
+        Dictionary with simulation fitness metrics, or None on failure.
+    """
+    if not result.is_success or not result.primers:
+        return None
+
+    try:
+        from .simulation_fitness import SimulationBasedEvaluator
+        from .position_cache import PositionCache
+        from .genome_io import GenomeLoader
+    except ImportError as e:
+        if verbose:
+            logger.warning(f"Simulation modules not available: {e}")
+        return None
+
+    try:
+        # Load genome sequence for simulation
+        genome_seq = None
+        genome_length = sum(fg_seq_lengths)
+
+        fg_genomes = getattr(parameter, 'fg_genomes', [])
+        if fg_genomes:
+            try:
+                loader = GenomeLoader()
+                genome_seq = loader.load_genome(fg_genomes[0], return_stats=False)
+                genome_length = len(genome_seq)
+            except Exception:
+                pass
+
+        if genome_seq is None:
+            if verbose:
+                logger.info("  Genome sequence not available for simulation")
+            return None
+
+        # Build position cache for simulation
+        primers = list(result.primers)
+        cache = PositionCache(fg_prefixes, primers)
+
+        evaluator = SimulationBasedEvaluator(
+            genome_sequence=genome_seq,
+            genome_length=genome_length,
+            position_cache=cache,
+            n_replicates=2,
+            simulation_duration=simulation_time,
+        )
+
+        fitness = evaluator.evaluate(primers, verbose=verbose)
+
+        return {
+            'simulation_coverage': fitness.mean_coverage,
+            'simulation_uniformity': fitness.coverage_uniformity,
+            'simulation_fitness': fitness.fitness_score,
+            'simulation_forks': fitness.mean_forks_created,
+            'simulation_time': fitness.simulation_time,
+        }
+    except Exception as e:
+        if verbose:
+            logger.warning(f"Simulation re-scoring failed: {e}")
+        return None
+
+
 def optimize_step4(
     use_cache: bool = True,
     use_background_filter: bool = True,
@@ -421,6 +523,29 @@ def optimize_step4(
         target_coverage=target_coverage,
         **kwargs
     )
+
+    # Optional simulation-based re-scoring
+    if kwargs.get('validate_with_simulation', False) and result.is_success:
+        if verbose:
+            logger.info("")
+            logger.info("=" * 60)
+            logger.info("Simulation-Based Validation")
+            logger.info("=" * 60)
+
+        # Resolve genome prefixes for simulation
+        sim_fg_prefixes = getattr(parameter, 'fg_prefixes', [])
+        sim_fg_seq_lengths = getattr(parameter, 'fg_seq_lengths', [])
+
+        sim_time = kwargs.get('simulation_time', 1800.0)
+        sim_results = _simulation_rescore(
+            result, sim_fg_prefixes, sim_fg_seq_lengths,
+            simulation_time=sim_time, verbose=verbose,
+        )
+
+        if sim_results:
+            logger.info(f"  Simulated coverage: {sim_results['simulation_coverage']:.1%}")
+            logger.info(f"  Simulated uniformity: {sim_results['simulation_uniformity']:.2f}")
+            logger.info(f"  Simulation fitness: {sim_results['simulation_fitness']:.3f}")
 
     # Convert to legacy format
     if result.is_success:
