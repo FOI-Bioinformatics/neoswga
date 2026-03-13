@@ -29,7 +29,8 @@ This guide provides comprehensive documentation for using NeoSWGA, including ins
 
 ```bash
 # Clone repository
-cd /path/to/swga2  # Note: directory name differs from package name
+git clone https://github.com/FOI-Bioinformatics/neoswga.git
+cd neoswga
 
 # Create virtual environment
 python3 -m venv neoswga_env
@@ -39,7 +40,7 @@ source neoswga_env/bin/activate  # Windows: neoswga_env\Scripts\activate
 pip install -e .
 
 # Verify installation
-python test_install.py
+neoswga validate --quick
 ```
 
 ### Optional Dependencies
@@ -182,15 +183,27 @@ if hairpins:
 
 ## Command-Line Usage
 
-### Quick Design
+### Interactive Setup
 
-For rapid primer design with default parameters:
+For guided configuration and primer design:
 
 ```bash
-neoswga quick-design --fg target_genome.fasta --output results/
+# Setup wizard - creates params.json with recommended settings
+neoswga init --genome target_genome.fasta --background host.fasta
+
+# Or use the interactive menu to discover features
+neoswga start
 ```
 
-### Pipeline Workflow
+### Complete Pipeline (Single Command)
+
+Run all four steps sequentially:
+
+```bash
+neoswga design -j params.json
+```
+
+### Pipeline Workflow (Step by Step)
 
 #### count-kmers: K-mer Preprocessing
 
@@ -237,11 +250,18 @@ Select optimal primer combinations:
 neoswga optimize -j params.json
 ```
 
-**Methods**:
-- Network-based optimization (default, recommended)
-- Greedy breadth-first search
-- Genetic algorithm
-- MILP (mixed-integer linear programming)
+**Methods** (see [Optimization Guide](optimization_guide.md) for details):
+- `hybrid` (default): Two-stage coverage + connectivity
+- `dominating-set`: Fast graph-based set cover (8x faster)
+- `background-aware`: Three-stage with explicit background minimization
+- `network`: Tm-weighted with dimer penalty
+- `clique`: Dimer-free primer sets via clique finding
+- `genetic`: Multi-objective genetic algorithm
+- `moea`: Pareto optimization
+- `milp`: Exact solution via mixed-integer linear programming
+- `greedy`: Simple breadth-first search
+
+**Host-free mode**: Use `--no-background` to optimize without a background genome.
 
 **Output**: `step4_improved_df.csv` with top primer sets and evaluation scores
 
@@ -249,7 +269,7 @@ neoswga optimize -j params.json
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `-j, --json_file` | Configuration file path | None |
+| `-j, --json-file` | Configuration file path | None |
 | `--min_fg_freq` | Min frequency in target | 1e-5 |
 | `--max_bg_freq` | Max frequency in off-target | 5e-5 |
 | `--max_gini` | Max Gini index | 0.6 |
@@ -645,9 +665,9 @@ which jellyfish
 
 ## Getting Help
 
-- Review this guide and [README.md](README.md)
-- Check [MIGRATION.md](MIGRATION.md) for API changes
-- See [DEVELOPMENT.md](DEVELOPMENT.md) for implementation details
+- Review this guide and the [main README](../README.md)
+- Check [migration-guide.md](migration-guide.md) for API changes from SOAPswga
+- See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for implementation details
 - Report issues via GitHub issue tracker
 
 ---

@@ -182,6 +182,12 @@ graph TD
         MILP[milp_optimizer.py]
         DS[dominating_set_optimizer.py]
         HYBRID[hybrid_optimizer.py]
+        TILE[tiling_optimizer.py]
+        CLIQUE[clique_optimizer.py]
+        NORM[normalized_optimizer.py]
+        EQOPT[equiphi29_optimizer.py]
+        CASCADE[serial_cascade_optimizer.py]
+        MAGENT[multi_agent_optimizer.py]
     end
 
     subgraph "Thermodynamics"
@@ -229,6 +235,12 @@ graph TD
     MILP --> BASE
     DS --> BASE
     HYBRID --> BASE
+    TILE --> BASE
+    CLIQUE --> BASE
+    NORM --> BASE
+    EQOPT --> BASE
+    CASCADE --> BASE
+    MAGENT --> BASE
 
     BASE --> PCACHE
     BASE --> THERMO
@@ -331,11 +343,45 @@ classDiagram
     }
 
     class PrimerSetMetrics {
-        +coverage: float
-        +enrichment: float
+        +fg_coverage: float
+        +bg_coverage: float
+        +selectivity_ratio: float
         +mean_tm: float
-        +max_dimer_score: float
-        +gini: float
+        +dimer_risk_score: float
+        +gap_gini: float
+        +normalized_score() float
+    }
+
+    class CompositeOptimizer {
+        +optimizers: List[BaseOptimizer]
+        +optimize(candidates, target_size) OptimizationResult
+    }
+
+    class TilingOptimizer {
+        +optimize(candidates, target_size) OptimizationResult
+    }
+
+    class NormalizedOptimizer {
+        +strategy: str
+        +optimize(candidates, target_size) OptimizationResult
+    }
+
+    class CliqueOptimizer {
+        +optimize(candidates, target_size) OptimizationResult
+    }
+
+    class EquiPhi29Optimizer {
+        +optimize(candidates, target_size) OptimizationResult
+    }
+
+    class MultiAgentOrchestrator {
+        +strategies: List
+        +optimize(candidates, target_size) OptimizationResult
+    }
+
+    class SerialCascadeOptimizer {
+        +stages: List[BaseOptimizer]
+        +optimize(candidates, target_size) OptimizationResult
     }
 
     OptimizerFactory --> OptimizerRegistry
@@ -347,6 +393,13 @@ classDiagram
     BaseOptimizer <|-- DominatingSetOptimizer
     BaseOptimizer <|-- MILPOptimizer
     BaseOptimizer <|-- BackgroundAwareOptimizer
+    BaseOptimizer <|-- TilingOptimizer
+    BaseOptimizer <|-- NormalizedOptimizer
+    BaseOptimizer <|-- CliqueOptimizer
+    BaseOptimizer <|-- EquiPhi29Optimizer
+    BaseOptimizer <|-- MultiAgentOrchestrator
+    BaseOptimizer <|-- SerialCascadeOptimizer
+    BaseOptimizer <|-- CompositeOptimizer
 
     HybridOptimizer --> NetworkOptimizer
     HybridOptimizer --> GreedyOptimizer
@@ -602,11 +655,14 @@ sequenceDiagram
 | Pipeline | Workflow orchestration | pipeline.py, improved_pipeline.py |
 | Filtering | Primer candidate selection | filter.py, adaptive_filters.py |
 | Scoring | ML-based ranking | rf_preprocessing.py, primer_attributes.py |
-| Optimization | Set selection | optimizer_factory.py, genetic_algorithm.py |
+| Optimization | Set selection (18 strategies) | optimizer_factory.py, base_optimizer.py, unified_optimizer.py |
 | Thermodynamics | NN calculations | thermodynamics.py, reaction_conditions.py |
+| Mechanistic | Four-pathway amplification model | mechanistic_model.py, additives.py |
 | Performance | Speed optimization | position_cache.py, gpu_acceleration.py |
 | Analysis | Post-processing | genome_analysis.py, dimer_network_analyzer.py |
 | Simulation | Replication modeling | replication_simulator.py, swga_simulator.py |
+| Reporting | Quality reports (A-F grades) | report/quality.py, report/executive_summary.py |
+| Export | Synthesis ordering formats | export.py |
 
 ---
 

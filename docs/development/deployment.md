@@ -90,9 +90,12 @@ This installs:
 
 Users can now run:
 ```bash
-neoswga-improved design params.json
-neoswga-improved build-filter human.fasta ./filters/
-neoswga-improved validate
+neoswga count-kmers -j params.json
+neoswga filter -j params.json
+neoswga score -j params.json
+neoswga optimize -j params.json
+neoswga build-filter human.fasta ./filters/
+neoswga validate --quick
 ```
 
 ### Option 2: Core Only
@@ -164,7 +167,8 @@ That's it! All improvements active with zero code changes elsewhere.
 pip install ".[improved]"
 
 # Run validation
-neoswga-improved validate --quick
+neoswga validate --quick
+
 
 # Run benchmarks
 python benchmark_improvements.py --test all
@@ -176,13 +180,13 @@ For organisms with large backgrounds:
 
 ```bash
 # Human genome (30 minutes one-time)
-neoswga-improved build-filter human_genome.fasta ./filters/
+neoswga build-filter human_genome.fasta ./filters/
 
 # Tick genome
-neoswga-improved build-filter tick_genome.fasta ./filters/
+neoswga build-filter tick_genome.fasta ./filters/
 
 # Mosquito genome
-neoswga-improved build-filter mosquito_genome.fasta ./filters/
+neoswga build-filter mosquito_genome.fasta ./filters/
 ```
 
 These filters are reusable forever.
@@ -361,10 +365,10 @@ Documentation provided:
 - Examples in documentation
 
 CLI tools:
-- `neoswga-improved design` (main workflow)
-- `neoswga-improved build-filter` (setup)
-- `neoswga-improved validate` (testing)
-- `neoswga-improved compare` (old vs. new)
+- `neoswga count-kmers`, `filter`, `score`, `optimize` (pipeline workflow)
+- `neoswga build-filter` (Bloom filter for large backgrounds)
+- `neoswga validate --quick` (installation testing)
+- `neoswga interpret -d results/` (result assessment)
 
 ### Maintenance Requirements
 
@@ -402,7 +406,7 @@ The improved pipeline is successful if:
 ### Immediate (Week 1)
 
 1. Install improved pipeline: `pip install ".[improved]"`
-2. Run validation: `neoswga-improved validate`
+2. Run validation: `neoswga validate --quick`
 3. Run benchmarks: `python benchmark_improvements.py --test all`
 
 ### Short-term (Month 1)

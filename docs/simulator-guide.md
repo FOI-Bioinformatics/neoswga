@@ -1,8 +1,4 @@
-# NeoSWGA Simulator - Complete User Guide
-
-**Version**: 3.0
-**Date**: November 21, 2025
-**Status**: Production Ready ✓
+# NeoSWGA Simulator User Guide
 
 ---
 
@@ -21,19 +17,16 @@
 
 ## Quick Start
 
-### 5-Minute Primer Validation
+### Quick Primer Validation
 
 ```bash
-# Test your primer set in under 30 seconds
-python3 -m neoswga.core.simulate_command simulate \
-  --primers my_primers.txt \
-  --fg target_genome.fasta \
-  --bg background_genome.fasta \
-  --positions positions.h5 \
-  --output validation_report.html
+neoswga simulate \
+  --primers SEQ1 SEQ2 SEQ3 \
+  --genome target_genome.fasta \
+  --output sim_results/
 ```
 
-**Output**: HTML report with coverage, specificity, and recommendations.
+**Output**: Simulation results with coverage, specificity, and recommendations.
 
 ---
 
@@ -55,7 +48,7 @@ pip install plotly
 ### Verify Installation
 
 ```bash
-python3 -c "from neoswga.core.swga_simulator import SwgaSimulator; print('✓ Simulator installed')"
+neoswga validate --quick
 ```
 
 ---
@@ -72,9 +65,9 @@ python3 production_test/test_simulator.py
 
 **Expected output**:
 ```
-✓✓✓ YERSINIA TEST PASSED ✓✓✓
+YERSINIA TEST PASSED
   Coverage: 42.3%
-  Enrichment: 639,972×
+  Enrichment: 639,972x
   Recommendation: GOOD
 ```
 
@@ -160,7 +153,7 @@ for name, metrics in sorted(results.items(), key=lambda x: x[1]['composite'], re
 
 **Run**:
 ```bash
-python3 -m neoswga.core.simulate_command simulate --config config.json
+neoswga simulate --config config.json
 ```
 
 ---
@@ -170,7 +163,7 @@ python3 -m neoswga.core.simulate_command simulate --config config.json
 ### simulate Command
 
 ```bash
-python3 -m neoswga.core.simulate_command simulate [OPTIONS]
+neoswga simulate [OPTIONS]
 ```
 
 ### Required Arguments
@@ -426,10 +419,10 @@ with open('primers.txt') as f:
 **Solution**: Swap target and background:
 ```python
 # Wrong order
-sim = SwgaSimulator(primers, bg_genome, fg_genome, ...)  # ❌
+sim = SwgaSimulator(primers, bg_genome, fg_genome, ...)  # Wrong
 
 # Correct order
-sim = SwgaSimulator(primers, fg_genome, bg_genome, ...)  # ✓
+sim = SwgaSimulator(primers, fg_genome, bg_genome, ...)  # Correct
 ```
 
 ### Problem: "Matplotlib not found"
@@ -596,12 +589,14 @@ This gives coverage analysis only (no specificity metrics).
 If you use NeoSWGA Simulator in your research, please cite:
 
 ```bibtex
-@software{neoswga_simulator,
-  title = {NeoSWGA Simulator: Comprehensive SWGA Primer Validation},
-  author = {NeoSWGA Development Team},
-  year = {2025},
-  version = {3.0},
-  url = {https://github.com/example/neoswga}
+@article{dwivedi2023fast,
+  title={A fast machine-learning-guided primer design pipeline for selective whole genome amplification},
+  author={Dwivedi-Yu, Jane A and Oppler, Zachary J and Mitchell, Matthew W and Song, Yun S and Brisson, Dustin},
+  journal={PLOS Computational Biology},
+  volume={19},
+  number={4},
+  pages={e1010137},
+  year={2023}
 }
 ```
 
@@ -609,14 +604,6 @@ If you use NeoSWGA Simulator in your research, please cite:
 
 ## Support
 
-**Issues**: Report bugs at https://github.com/anthropics/claude-code/issues
+**Issues**: Report bugs on the project GitHub issue tracker.
 
-**Documentation**: See `SWGA_SIMULATOR_IMPLEMENTATION.md` for technical details
-
-**Examples**: Check `production_test/` directory for working examples
-
----
-
-**Last Updated**: November 21, 2025
-**Version**: 3.0.0
-**Status**: Production Ready ✓
+**Documentation**: See the [User Guide](user-guide.md) for general usage and the [SWGA Science](SWGA_SCIENCE.md) guide for theoretical background.

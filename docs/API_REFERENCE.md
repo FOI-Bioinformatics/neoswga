@@ -116,18 +116,34 @@ neoswga optimize -j params.json [options]
 | `--num-primers` | int | 6 | Target set size |
 | `--iterations` | int | 8 | Search iterations |
 | `--max-sets` | int | 5 | Parallel sets to build |
+| `--no-background` | flag | false | Host-free optimization mode (no background genome) |
+| `--use-mechanistic-model` | flag | false | Use mechanistic model for primer weighting |
+| `--mechanistic-weight` | float | 0.3 | Weight for mechanistic model scoring |
+| `--auto-size` | flag | false | Auto-size primer set based on application |
+| `--application` | str | enrichment | Application profile (discovery, clinical, enrichment, metagenomics) |
+| `--validate-with-simulation` | flag | false | Post-hoc simulation validation of results |
 
 **Optimization Methods:**
 | Method | Speed | Use Case |
 |--------|-------|----------|
 | `hybrid` | Medium | General use (default) |
-| `dominating-set` | Fast (8x) | Large primer pools |
-| `background-aware` | Slow | Clinical applications |
 | `greedy` | Fast | Simple optimization |
 | `network` | Medium | Tm-weighted selection |
-| `genetic` | Slow | Complex multi-objective |
-| `moea` | Slow | Pareto optimization |
-| `milp` | Variable | Exact solutions |
+| `dominating-set` | Fast | Large primer pools, set-cover |
+| `weighted-set-cover` | Fast | Score-weighted set cover |
+| `background-aware` | Slow | Clinical applications |
+| `genetic` | Moderate | Evolutionary multi-criteria |
+| `moea` | Slow | Pareto optimization (requires pymoo) |
+| `milp` | Variable | Exact solutions (requires mip) |
+| `equiphi29` | Medium | EquiPhi29-specific at 42-45C |
+| `tiling` | Fast | Interval-based coverage tiling |
+| `normalized` | Medium | Strategy-preset scoring |
+| `clique` | Moderate | Dimer-free set via max-clique |
+| `multi-agent` | Slow | Parallel multi-optimizer ensemble |
+| `bg-prefilter` | Medium | Background pruning + inner optimizer |
+| `coverage-then-dimerfree` | Medium | Dominating-set then clique cascade |
+| `dimerfree-scored` | Medium | Clique then network scoring cascade |
+| `bg-prefilter-hybrid` | Medium | Background pre-filter then hybrid |
 
 **Output:**
 - `step4_improved_df.csv`: Optimized primer sets
@@ -177,10 +193,109 @@ neoswga show-presets
 ```
 
 **Available Presets:**
-- `standard_phi29`: 37C, standard conditions
+- `standard_phi29`: 30C, standard conditions
 - `enhanced_equiphi29`: 42C, 5% DMSO, 1M betaine
 - `long_primers_15mer`: 45C, 7% DMSO, 1.5M betaine
 - `high_gc_genome`: 45C, 10% DMSO, 2M betaine
+
+---
+
+### Setup and Analysis Commands
+
+#### init
+
+Interactive setup wizard for creating `params.json`.
+
+```bash
+neoswga init --genome target.fna [--background host.fna] [-o params.json]
+```
+
+---
+
+#### validate-params
+
+Validate a `params.json` file before running the pipeline.
+
+```bash
+neoswga validate-params -j params.json
+```
+
+Reports errors, warnings, and informational messages about parameter values.
+
+---
+
+#### suggest
+
+Suggest reaction conditions based on target genome properties.
+
+```bash
+neoswga suggest --genome-gc 0.5 [--primer-length 12] [--polymerase phi29]
+neoswga suggest --genome target.fna   # Auto-calculates GC content
+```
+
+**Options:**
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--genome-gc` | float | required | Target genome GC content (0-1) |
+| `--genome` | path | - | Calculate GC from FASTA (alternative to --genome-gc) |
+| `--primer-length` | int | 10 | Expected primer length |
+| `--polymerase` | str | phi29 | Polymerase (phi29, equiphi29, bst, klenow) |
+| `--sweep` | flag | false | Run condition grid search (108 combinations) |
+| `--output` | path | - | Write sweep results to CSV |
+
+---
+
+#### interpret
+
+Interpret pipeline results with quality assessment and enrichment prediction.
+
+```bash
+neoswga interpret -d results/
+```
+
+Output includes primer count, quality ratings, recommendations, and (when `params.json` is present) predicted enrichment fold-change based on the mechanistic model.
+
+---
+
+#### report
+
+Generate quality reports.
+
+```bash
+neoswga report -d results/                        # Executive summary
+neoswga report -d results/ --level full            # Full technical report
+neoswga report -d results/ --interactive           # With Plotly charts
+neoswga report -d results/ --check                 # Validate only
+```
+
+---
+
+#### export
+
+Export primer results in various formats.
+
+```bash
+neoswga export -d results/ [--format FORMAT] [-o output_path]
+```
+
+**Options:**
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `-d, --data-dir` | path | required | Results directory |
+| `--format` | str | fasta | Output format |
+| `-o, --output` | path | - | Output file path |
+| `--genome-name` | str | genome | Chromosome/contig name for BED/BedGraph |
+| `--window-size` | int | 1000 | Window size for BedGraph coverage |
+
+**Export Formats:**
+| Format | Description |
+|--------|-------------|
+| `fasta` | FASTA sequences (default) |
+| `csv` | CSV with primer attributes |
+| `bed` | 6-column BED for genome browsers |
+| `bedgraph` | Windowed coverage density |
+| `protocol` | Lab protocol with ordering info |
+| `all` | All formats at once |
 
 ---
 

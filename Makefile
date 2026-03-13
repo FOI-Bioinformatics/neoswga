@@ -20,7 +20,7 @@ install: ## Install package with core dependencies
 	$(PIP) install -e .
 	@echo ""
 	@echo "✓ NeoSWGA installed successfully!"
-	@echo "Run: neoswga quick-design --help"
+	@echo "Run: neoswga --help"
 
 install-dev: ## Install package with development dependencies
 	$(PIP) install -e ".[dev]"
@@ -108,10 +108,11 @@ check: format lint type-check test ## Run all checks (format, lint, type-check, 
 	@echo ""
 	@echo "✓ All checks passed!"
 
-docs: ## Generate documentation
-	cd docs && make html
+docs: ## Generate documentation (requires sphinx and docs/conf.py)
+	@if [ ! -f docs/conf.py ]; then echo "Error: docs/conf.py not found. Sphinx is not yet configured."; exit 1; fi
+	$(PYTHON) -m sphinx -b html docs/ docs/_build/html
 	@echo ""
-	@echo "✓ Documentation built in docs/_build/html/index.html"
+	@echo "Documentation built in docs/_build/html/index.html"
 
 serve-docs: docs ## Build and serve documentation locally
 	cd docs/_build/html && $(PYTHON) -m http.server 8000
@@ -122,13 +123,13 @@ version: ## Show package version
 info: ## Show package information
 	@$(PYTHON) -c "import neoswga; neoswga.print_info()"
 
-example-quick: ## Run quick example design
-	@echo "Running quick example (requires test data)..."
-	$(PYTHON) -c "import neoswga; print('Example: neoswga quick-design --fg genome.fasta --output results/')"
-
-example-custom: ## Run custom example design
-	@echo "Running custom example (requires test data)..."
-	$(PYTHON) -c "import neoswga; print('Example: neoswga design --fg genome.fasta --bg background.fasta --preset enhanced_equiphi29 --output results/')"
+example: ## Run plasmid example pipeline
+	@echo "Running plasmid example (see examples/plasmid_example/)..."
+	@echo "  cd examples/plasmid_example"
+	@echo "  neoswga count-kmers -j params.json"
+	@echo "  neoswga filter -j params.json"
+	@echo "  neoswga score -j params.json"
+	@echo "  neoswga optimize -j params.json"
 
 benchmark: ## Run performance benchmarks
 	@echo "Running benchmarks..."

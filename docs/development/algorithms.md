@@ -426,11 +426,9 @@ neoswga optimize -j params.json --optimization-method=moea
 neoswga optimize -j params.json --optimization-method=dominating-set
 
 # Active learning (separate workflow)
-neoswga active-learning init -j params.json
-neoswga active-learning recommend --iteration=1
-# ... test experimentally ...
-neoswga active-learning add-result --enrichment=1500 --uniformity=0.15
-neoswga active-learning recommend --iteration=2
+neoswga active-learn -j params.json --output active_learn/ --num-candidates 10
+# ... test experimentally, then re-run with --experimental-results ...
+neoswga active-learn -j params.json --output active_learn/ --experimental-results results.json
 ```
 
 ## Summary

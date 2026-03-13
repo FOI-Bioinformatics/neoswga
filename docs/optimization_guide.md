@@ -41,6 +41,7 @@ This guide helps you choose the right optimization method for your SWGA primer d
 | `genetic` | Slow | Good | Good | Multi-objective exploration |
 | `moea` | Slow | Good | Good | Pareto optimization |
 | `milp` | Variable | Optimal | Good | Exact solutions (small sets) |
+| `clique` | Medium | Good | Good | Dimer-free primer sets |
 | `greedy` | Fast | Fair | Fair | Simple baseline |
 
 ## Detailed Method Descriptions
@@ -270,6 +271,55 @@ neoswga optimize -j params.json --optimization-method=greedy
 - When speed is critical
 
 
+### clique
+
+**Dimer-free primer sets via clique finding.**
+
+```bash
+neoswga optimize -j params.json --optimization-method=clique
+```
+
+**How it works:**
+- Builds a compatibility graph where edges connect dimer-free primer pairs
+- Finds maximum clique (largest set with no primer dimers)
+
+**Strengths:**
+- Guarantees dimer-free primer sets
+- Suitable when dimer avoidance is critical
+
+**Weaknesses:**
+- May sacrifice coverage for dimer-freedom
+- Computationally intensive for large candidate pools
+
+**When to use:**
+- When primer-dimer formation is a primary concern
+- Multiplex applications requiring dimer-free sets
+
+
+### Pipeline Methods
+
+These methods chain multiple optimizers together:
+
+- `coverage-then-dimerfree`: Runs dominating-set for coverage, then clique filtering for dimer-free refinement
+- `dimerfree-scored`: Clique-based dimer-free selection followed by network scoring
+- `bg-prefilter`: Background pre-filtering before optimization
+- `bg-prefilter-hybrid`: Background pre-filtering combined with hybrid optimization
+
+```bash
+neoswga optimize -j params.json --optimization-method=coverage-then-dimerfree
+```
+
+### Host-Free Optimization
+
+When no background genome is available, use the `--no-background` flag:
+
+```bash
+neoswga optimize -j params.json --no-background
+```
+
+This skips all background-related scoring and focuses on target genome coverage and primer compatibility.
+
+
 ## Command Line Examples
 
 ### Basic Usage
@@ -280,6 +330,9 @@ neoswga optimize -j params.json
 
 # Explicit method selection
 neoswga optimize -j params.json --optimization-method=dominating-set
+
+# View detailed method comparison
+neoswga optimize --method-guide
 ```
 
 ### Clinical Workflow

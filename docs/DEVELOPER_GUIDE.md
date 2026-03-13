@@ -260,13 +260,15 @@ class MyOptimizer(BaseOptimizer):
         return selected
 ```
 
-### Step 2: Add to Package Init
+### Step 2: Register with the Factory
 
-Edit `neoswga/core/__init__.py`:
+Add the import to `neoswga/core/unified_optimizer.py` in `_ensure_optimizers_registered()`:
 
 ```python
-from .my_optimizer import MyOptimizer, MyOptimizerConfig
+from . import my_optimizer  # My custom optimization
 ```
+
+This ensures the `@OptimizerFactory.register()` decorator fires when optimizers are first used.
 
 ### Step 3: Write Tests
 

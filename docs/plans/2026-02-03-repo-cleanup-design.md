@@ -1,3 +1,5 @@
+**Note: This planning document is historical. The cleanup described here has been completed.**
+
 # Repo Cleanup and Test Streamlining
 
 ## Goal

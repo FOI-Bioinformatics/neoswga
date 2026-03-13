@@ -12,7 +12,7 @@ Get started with NeoSWGA primer design in minutes.
 
 ```bash
 # Clone and install
-git clone https://github.com/yourusername/neoswga.git
+git clone https://github.com/FOI-Bioinformatics/neoswga.git
 cd neoswga
 pip install -e .
 
@@ -47,6 +47,14 @@ Create `params.json`:
 
 ### 3. Run the Pipeline
 
+The simplest approach is to run all four steps with a single command:
+
+```bash
+neoswga design -j params.json
+```
+
+Or run each step individually for more control:
+
 ```bash
 # Step 1: Count k-mers (5-30 min depending on genome size)
 neoswga count-kmers -j params.json
@@ -68,6 +76,22 @@ Your optimized primers are in `results/step4_improved_df.csv`:
 ```csv
 set_id,primers,coverage,enrichment
 1,"ATCGATCG,GCTAGCTA,TGCATGCA,...",0.85,125.4
+```
+
+### 5. Export and Interpret
+
+```bash
+# Interpret quality and predicted enrichment
+neoswga interpret -d results/
+
+# FASTA for primer ordering
+neoswga export -d results/ --format fasta -o primers.fasta
+
+# BED file for genome browser visualization
+neoswga export -d results/ --format bed -o primers.bed
+
+# BedGraph for coverage depth visualization
+neoswga export -d results/ --format bedgraph -o primers.bedgraph
 ```
 
 ## Common Workflows
@@ -113,6 +137,12 @@ set_id,primers,coverage,enrichment
 }
 ```
 
+### Host-Free Optimization (no background genome)
+
+```bash
+neoswga optimize -j params.json --no-background
+```
+
 ### Clinical Application (minimize background)
 
 ```bash
@@ -123,6 +153,12 @@ neoswga optimize -j params.json --optimization-method=background-aware
 
 ```bash
 neoswga optimize -j params.json --optimization-method=dominating-set
+```
+
+### Condition Sweep (find optimal reaction conditions)
+
+```bash
+neoswga suggest --genome target.fasta --sweep --output conditions.csv
 ```
 
 ## Choosing Optimization Methods

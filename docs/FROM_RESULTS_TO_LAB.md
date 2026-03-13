@@ -139,6 +139,12 @@ neoswga export -d ./results/ -o ./order/ --format csv --vendor idt
 
 # Protocol only
 neoswga export -d ./results/ -o ./order/ --format protocol
+
+# BED file for genome browser visualization
+neoswga export -d ./results/ -o ./order/ --format bed
+
+# BedGraph for coverage depth visualization
+neoswga export -d ./results/ -o ./order/ --format bedgraph
 ```
 
 **With custom parameters file:**
@@ -573,7 +579,7 @@ Enrichment: 2^(30-20) = 1000X
 - Increase temperature (if using EquiPhi29)
 - Check for predicted dimers in results:
   ```bash
-  neoswga analyze-dimers --primers-file ./results/step4_improved_df.csv
+  neoswga analyze-dimers --primers SEQ1 SEQ2 SEQ3
   ```
 
 ---
@@ -620,7 +626,7 @@ Enrichment: 2^(30-20) = 1000X
 **Step 3: Check for dimers**
 ```bash
 neoswga analyze-dimers \
-  --primers-file ./results/step4_improved_df.csv \
+  --primers SEQ1 SEQ2 SEQ3 \
   --output ./dimers/ \
   --visualize
 ```

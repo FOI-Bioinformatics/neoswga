@@ -10,8 +10,10 @@ NeoSWGA is a command-line tool for designing primer sets for selective whole-gen
 - **Network-based optimization**: 10-100x faster than greedy search
 - **Thermodynamic modeling**: SantaLucia nearest-neighbor calculations with salt corrections
 - **Background filtering**: Bloom filter for large background genomes (human 3 Gbp)
+- **Host-free mode**: Design primers without a background genome (`--no-background`)
 - **Position cache**: 1000x faster position lookups
-- **Multiple optimizers**: Network, greedy, genetic algorithm, MILP
+- **Multiple optimizers**: Network, greedy, genetic algorithm, MILP, clique, and more
+- **Export formats**: FASTA, vendor CSV, BED, and BedGraph for genome browser visualization
 
 ## Installation
 
@@ -60,11 +62,17 @@ neoswga interpret -d results/
 ## Quick Start
 
 ```bash
-# Four-step workflow:
+# Single-command pipeline:
+neoswga design -j params.json
+
+# Or run each step individually:
 neoswga count-kmers -j params.json    # Generate k-mer counts
 neoswga filter -j params.json         # Filter candidate primers
 neoswga score -j params.json          # Score amplification potential
 neoswga optimize -j params.json       # Find optimal primer sets
+
+# Host-free optimization (no background genome required):
+neoswga optimize -j params.json --no-background
 ```
 
 Example `params.json`:
@@ -72,19 +80,22 @@ Example `params.json`:
 {
   "fg_genomes": ["target_genome.fasta"],
   "bg_genomes": ["background_genome.fasta"],
-  "data_dir": "./data/",
-  "optimization_method": "network"
+  "data_dir": "./data/"
 }
 ```
 
 ## Documentation
 
+- **[Quick Start](docs/QUICK_START.md)**: Installation and first primer design
 - **[User Guide](docs/user-guide.md)**: Comprehensive usage documentation
-- **[SWGA Science](docs/SWGA_SCIENCE.md)**: Thermodynamics, polymerases, and reaction additives
-- **[Algorithm Details](docs/development/algorithms.md)**: Filtering and optimization algorithms
-- **[Parameter Reference](docs/user-guide.md#parameters)**: All configuration options
-- **[Changelog](docs/CHANGELOG.md)**: Version history
+- **[Optimization Guide](docs/optimization_guide.md)**: Choosing the right optimization method
 - **[From Results to Lab](docs/FROM_RESULTS_TO_LAB.md)**: Export primers and lab workflow
+- **[Report Generation](docs/user_guide_reports.md)**: Quality reports and grading
+- **[Multi-Genome Guide](docs/multi-genome-guide.md)**: Pan-genome primer design
+- **[SWGA Science](docs/SWGA_SCIENCE.md)**: Thermodynamics, polymerases, and reaction additives
+- **[Changelog](docs/CHANGELOG.md)**: Version history
+
+See [docs/README.md](docs/README.md) for the full documentation index.
 
 ## Based on SOAPswga
 

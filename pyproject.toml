@@ -97,10 +97,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/andreassjodin/neoswga"
-Documentation = "https://github.com/andreassjodin/neoswga/blob/master/README.md"
-Repository = "https://github.com/andreassjodin/neoswga"
-"Bug Tracker" = "https://github.com/andreassjodin/neoswga/issues"
+Homepage = "https://github.com/FOI-Bioinformatics/neoswga"
+Documentation = "https://github.com/FOI-Bioinformatics/neoswga/blob/main/README.md"
+Repository = "https://github.com/FOI-Bioinformatics/neoswga"
+"Bug Tracker" = "https://github.com/FOI-Bioinformatics/neoswga/issues"
 
 [project.scripts]
 neoswga = "neoswga.cli_unified:main"

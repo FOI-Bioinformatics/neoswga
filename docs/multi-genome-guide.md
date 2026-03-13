@@ -607,35 +607,28 @@ Planned features:
 
 ---
 
+## CLI Usage
+
+The multi-genome pipeline is also available from the command line:
+
+```bash
+neoswga multi-genome \
+  --genomes target1.fna target2.fna \
+  --output results/
+```
+
 ## Citation
 
 If you use multi-genome SWGA in your research, please cite:
 
+```bibtex
+@article{dwivedi2023fast,
+  title={A fast machine-learning-guided primer design pipeline for selective whole genome amplification},
+  author={Dwivedi-Yu, Jane A and Oppler, Zachary J and Mitchell, Matthew W and Song, Yun S and Brisson, Dustin},
+  journal={PLOS Computational Biology},
+  volume={19},
+  number={4},
+  pages={e1010137},
+  year={2023}
+}
 ```
-NeoSWGA: Multi-Genome Selective Whole Genome Amplification
-with Differential Penalty Optimization
-https://github.com/erebuseternal/swga
-```
-
----
-
-## Support
-
-Questions or issues:
-- GitHub: https://github.com/erebuseternal/swga/issues
-- Email: (contact information)
-
----
-
-## Example Workflows
-
-See `examples/multi_genome/` for complete workflows:
-- `borrelia_tick.py` - Lyme disease detection
-- `plasmodium_blood.py` - Malaria detection
-- `mtb_sputum.py` - TB detection
-- `multi_pathogen.py` - Pan-pathogen detection
-
----
-
-**Last Updated**: November 2025
-**Version**: 3.0 - Multi-Genome Support

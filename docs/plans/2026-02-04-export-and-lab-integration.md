@@ -1,3 +1,5 @@
+**Note: This planning document is historical. The export module has been implemented in `neoswga/core/export.py`.**
+
 # Export and Lab Integration Implementation Plan
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.

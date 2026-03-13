@@ -2,6 +2,79 @@
 
 All notable changes to NeoSWGA are documented in this file.
 
+## [3.6.0] - 2026 - Optimizer Framework and Pipeline Hardening
+
+### NEW FEATURES
+
+#### BaseOptimizer Framework and OptimizerFactory
+- All optimizers now inherit from `BaseOptimizer` with a consistent interface
+- `OptimizerFactory` registry with decorator-based registration
+- `PrimerSetMetrics.normalized_score()` enables cross-optimizer comparison
+- `CompositeOptimizer` for chaining multiple optimizers
+
+#### New Optimizers
+- **CliqueOptimizer** (`clique`): Dimer-free primer sets via maximum clique enumeration
+- **DimerValidator**: Post-optimization dimer validation and replacement suggestions
+- **NormalizedOptimizer** (`normalized`): Strategy presets (discovery, clinical, enrichment, metagenomics)
+- **TilingOptimizer** (`tiling`): Interval-based genome tiling coverage
+- **MultiAgentOrchestrator** (`multi-agent`): Parallel ensemble of optimizer strategies
+- **BackgroundPrefilter** (`bg-prefilter`): fg/bg ratio pruning wrapper
+- **SerialCascadeOptimizer**: Pipeline combinations (coverage-then-dimerfree, dimerfree-scored, bg-prefilter-hybrid)
+- **WeightedSetCoverOptimizer** (`weighted-set-cover`): Score-weighted set cover variant
+
+#### Host-Free Mode
+- `--no-background` flag for optimizing without a background genome
+- Useful for general MDA or enrichment-only workflows
+
+#### Enrichment Prediction
+- `EfficiencyPredictor` provides mechanistic enrichment fold-change estimates
+- Integrated into `neoswga interpret` output
+
+#### Condition Sweep
+- `neoswga suggest --sweep` searches 108 additive combinations
+- `AdditiveOptimizer` recommends optimal cocktail
+
+#### Simulation Validation
+- `--validate-with-simulation` flag for post-hoc primer set validation
+- `ExperimentalTracker` for logging wet-lab outcomes and calibrating predictions
+
+#### Export and Lab Integration
+- `neoswga export` command with FASTA, CSV, BED, BedGraph, and protocol formats
+- `PrimerExporter` class with vendor-specific CSV (IDT, Twist, Sigma)
+- Modification profiles for PTO bonds and 5' blocking
+
+#### Pareto Frontier Visualization
+- `pareto_frontier.py`: Plot, report, and CLI summary of multi-objective results
+
+#### Primer Expansion
+- `PrimerExpander`: Identify coverage gaps and suggest additional primers
+
+### REFACTORING
+- Unified CLI entry point in `cli_unified.py` (replaces old multi-command CLIs)
+- Consolidated test suite with shared fixtures
+- Converted all imports to from-import style
+
+### BUG FIXES
+- Fixed polymerase validation for non-standard enzyme names
+- Fixed test pollution from shared mutable state in parameter module
+
+---
+
+## [3.5.0] - 2025 - Genome-Adaptive QA
+
+### NEW FEATURES
+- Genome-adaptive quality assessment for extreme GC genomes
+- Automatic GC classification (extreme_at, at_rich, balanced, gc_rich, extreme_gc)
+- Mechanistic four-pathway model (Tm, accessibility, enzyme, kinetics)
+- `MechanisticModel` and `MechanisticEffects` classes
+- Additive interaction registry with synergy/antagonism modeling
+- Set size optimizer with application profiles
+- Quality report module (`neoswga/core/report/`)
+- Interactive Plotly visualizations (optional dependency)
+- Setup wizard (`neoswga init`), parameter validator, condition suggester, results interpreter
+
+---
+
 ## [2.0.0] - 2025 - Improved Pipeline Release
 
 ### CRITICAL FIXES
@@ -240,6 +313,6 @@ See original documentation for details.
 ---
 
 **For detailed technical information, see:**
-- `IMPLEMENTATION_SUMMARY.md` - Technical details
-- `IMPLEMENTATION_GUIDE.md` - Migration guide
-- `README_IMPROVED.md` - User guide
+- [API Reference](API_REFERENCE.md) - Public API documentation
+- [Module Reference](MODULE_REFERENCE.md) - All core modules
+- [Developer Guide](DEVELOPER_GUIDE.md) - Development setup and contribution guidelines

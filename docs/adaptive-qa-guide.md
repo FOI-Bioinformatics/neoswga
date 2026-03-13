@@ -1,6 +1,6 @@
 # Genome-Adaptive QA User Guide
 
-**NeoSWGA Version 3.5+**
+**NeoSWGA 3.0+**
 
 A practical guide to using genome-adaptive quality assessment for improved primer design in genomes with extreme GC content.
 
@@ -41,17 +41,17 @@ Adaptive QA automatically adjusts three critical thresholds:
 
 ### Use Adaptive QA When:
 
-✓ Your genome is **AT-rich** (< 40% GC)
+- Your genome is **AT-rich** (< 40% GC)
   - Examples: Francisella, Plasmodium, Borrelia
   - Benefit: +75-200% primer coverage
 
-✓ Your genome is **GC-rich** (> 60% GC)
+- Your genome is **GC-rich** (> 60% GC)
   - Examples: Burkholderia, Streptomyces, Mycobacterium
   - Benefit: +70-150% primer coverage
 
-✓ Standard primer design yields **few acceptable primers**
+- Standard primer design yields **few acceptable primers**
 
-✓ You need **maximum genome coverage** for challenging targets
+- You need **maximum genome coverage** for challenging targets
 
 ### Standard QA is Fine When:
 
@@ -666,7 +666,7 @@ print(f"Improvement: {score_adp.overall_score - score_std.overall_score:+.3f}")
 2. Use for **extreme genomes** (< 40% or > 60% GC) for best results
 3. Expected improvement: **+75-200%** primer coverage for extreme genomes
 4. **Backward compatible**: Standard QA still available via `genome_gc=None`
-5. **No code changes** required for existing users - just update to NeoSWGA 3.5+
+5. **No code changes** required for existing users
 
 **Next Steps**:
 - Try adaptive QA on your genome
@@ -678,5 +678,4 @@ print(f"Improvement: {score_adp.overall_score - score_std.overall_score:+.3f}")
 
 **Questions?** Check the [Troubleshooting](#troubleshooting) section or file an issue on GitHub.
 
-**Version**: NeoSWGA 3.5+
-**Last Updated**: November 2025
+**Version**: NeoSWGA 3.0+

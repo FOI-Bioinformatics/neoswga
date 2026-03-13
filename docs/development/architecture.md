@@ -47,28 +47,20 @@ NeoSWGA extends the original SOAPswga (Dwivedi-Yu et al., 2023) with enhanced th
 ### Package Structure
 
 ```
-swga2/  (repository directory)
+neoswga/  (repository directory)
 ├── neoswga/  (Python package)
 │   ├── __init__.py
-│   ├── cli.py  (unified command-line interface)
-│   ├── logging_config.py
-│   └── core/  (core modules)
-│       ├── __init__.py
-│       ├── thermodynamics.py  (459 lines)
-│       ├── reaction_conditions.py  (415 lines)
-│       ├── secondary_structure.py  (548 lines)
-│       ├── adaptive_search.py  (540 lines)
-│       ├── genetic_algorithm.py  (480 lines)
-│       ├── amplicon_network.py  (430 lines)
-│       ├── replication_simulator.py  (470 lines)
-│       ├── advanced_features.py
-│       ├── gpu_acceleration.py
-│       ├── deep_learning.py
-│       ├── unified_pipeline.py
-│       └── [legacy modules]
-├── test_install.py
+│   ├── cli_unified.py  (unified command-line interface)
+│   └── core/  (~85 modules)
+│       ├── pipeline.py, improved_pipeline.py
+│       ├── thermodynamics.py, reaction_conditions.py
+│       ├── network_optimizer.py, unified_optimizer.py
+│       ├── mechanistic_model.py, simulation_fitness.py
+│       ├── report/  (quality report generation)
+│       ├── experimental/  (research features)
+│       └── [see CLAUDE.md for full inventory]
 ├── pyproject.toml
-├── setup.py
+├── tests/
 └── README.md
 ```
 
@@ -297,54 +289,43 @@ fitness = (
 
 ### Known Issues and Limitations
 
-1. **Testing**: Test suite is minimal; only `test_install.py` exists
-2. **Validation**: Performance claims require experimental verification
-3. **Documentation**: API docstrings need expansion
-4. **Benchmarking**: No systematic performance comparisons
-5. **Edge Cases**: Limited testing with extreme parameter values
-6. **GPU**: Performance varies significantly by hardware and dataset size
-7. **Deep Learning**: Model training and validation data not included
+1. **Validation**: Some performance claims are based on algorithmic analysis and remain to be verified experimentally
+2. **GPU**: Performance varies by hardware and dataset size
+3. **Deep Learning**: `deep_learning.py` is a stub requiring training data
+4. **MILP timeout**: May time out for >1000 candidates; hybrid method auto-falls back
 
 ---
 
 ## Testing
 
-### Current Test Coverage
+### Test Suite
 
-**Existing Tests**:
-- `test_install.py`: Basic import and functionality verification
-- Manual testing during development
-
-**Test Status**: Minimal
-
-### Needed Tests
-
-**Unit Tests** (priority):
-- `tests/test_thermodynamics.py`: Validate against literature values
-- `tests/test_secondary_structure.py`: Test dimer/hairpin detection
-- `tests/test_reaction_conditions.py`: Verify additive effects
-- `tests/test_adaptive_search.py`: Test k-mer selection logic
-- `tests/test_genetic_algorithm.py`: Validate fitness calculations
-
-**Integration Tests**:
-- Full pipeline workflow (count-kmers → filter → score → optimize)
-- API examples from documentation
-- Command-line interface
-
-**Validation Tests**:
-- Compare Tm predictions with experimental melting curves
-- Compare dimer predictions with gel electrophoresis
-- Compare primer sets with experimental amplification data
-
-### Running Tests
+The project includes a comprehensive test suite in `tests/`:
 
 ```bash
-# Current minimal test
-python test_install.py
+# Run all tests
+pytest tests/
 
-# Future comprehensive testing (when implemented)
-pytest tests/ -v --cov=neoswga --cov-report=html
+# Run specific test files
+pytest tests/test_refactored_modules.py
+pytest tests/test_genetic_algorithm_integration.py
+pytest tests/test_plasmid_e2e.py
+
+# Quick installation validation
+neoswga validate --quick
 ```
+
+**Test categories:**
+- Unit tests for core modules (thermodynamics, filters, scoring, optimization)
+- Integration tests in `tests/integration/` (phi29 and equiphi29 scenarios)
+- End-to-end pipeline tests with the plasmid example
+- Validation tests in `validation_tests/`
+
+**Integration test scenarios:**
+- `tests/integration/phi29_baseline/`: Standard Phi29 workflow
+- `tests/integration/phi29_ga/`: Genetic algorithm workflow
+- `tests/integration/equiphi29_baseline/`: EquiPhi29 workflow
+- `tests/integration/equiphi29_long/`: Long primer EquiPhi29 workflow
 
 ---
 
@@ -358,7 +339,7 @@ pytest tests/ -v --cov=neoswga --cov-report=html
 - `MANIFEST.in`: Package data specification
 - `VERSION`: Version file (3.0.0)
 
-**Package Name**: `neoswga` (note: directory is `swga2`)
+**Package Name**: `neoswga`
 
 ### Building Distribution
 

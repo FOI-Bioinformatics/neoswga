@@ -51,20 +51,15 @@ Documentation for NeoSWGA, a tool for designing primer sets for selective whole-
 | [Implementation Guide](development/implementation-guide.md) | Development guidelines |
 | [Deployment](development/deployment.md) | Deployment and configuration |
 
-## Validation Reports
+## Validation
 
-See [validation/README.md](validation/README.md) for validation documentation:
+Run validation tests:
 
-| Report | Description |
-|--------|-------------|
-| [QA Executive Summary](validation/QA_EXECUTIVE_SUMMARY.md) | Start here |
-| [QA System Complete](validation/QA_SYSTEM_COMPLETE.md) | Full QA documentation |
-| [Benchmark Results](validation/BENCHMARK_RESULTS_SUMMARY.md) | Performance benchmarks |
-| [Production Validation](validation/PRODUCTION_VALIDATION_REPORT.md) | Production test results |
-
-## Archive
-
-Historical documentation (plans, reports, analyses) is in `archive/`.
+```bash
+neoswga validate --quick              # Installation check
+neoswga validate-model                # Mechanistic model validation
+pytest tests/ -v                      # Full test suite
+```
 
 ## Directory Structure
 
@@ -75,6 +70,8 @@ docs/
   user-guide.md               # User manual
   user_guide_reports.md       # Report generation guide
   optimization_guide.md       # Optimization methods
+  FROM_RESULTS_TO_LAB.md      # Export, ordering, and lab setup
+  SWGA_SCIENCE.md             # Scientific background and additives
   API_REFERENCE.md            # API documentation
   api_reference_report.md     # Report API reference
   MODULE_REFERENCE.md         # Module documentation
@@ -82,7 +79,7 @@ docs/
   ARCHITECTURE_DIAGRAMS.md    # Visual architecture
   DEVELOPER_GUIDE.md          # Developer guide
   CHANGELOG.md                # Version history
-  adaptive-qa-guide.md        # Adaptive QA
+  adaptive-qa-guide.md        # Adaptive QA for extreme GC genomes
   multi-genome-guide.md       # Multi-genome usage
   simulator-guide.md          # Simulator guide
   migration-guide.md          # SOAPswga migration
@@ -92,19 +89,7 @@ docs/
     optimizers.md
     implementation-guide.md
     deployment.md
-  validation/                 # Validation reports
-    README.md
-    QA_EXECUTIVE_SUMMARY.md
-    QA_SYSTEM_COMPLETE.md
-    PRODUCTION_VALIDATION_REPORT.md
-    BENCHMARK_RESULTS_SUMMARY.md
-    ...
-  archive/                    # Historical docs
 ```
-
-## Version
-
-**Current Version**: 3.0
 
 ## Citation
 

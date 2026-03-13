@@ -533,9 +533,98 @@ Multi-objective evolutionary algorithm.
 EquiPhi29-specific optimization at 42-45C.
 
 **Features:**
-- Longer primer support (15-25 bp)
+- Longer primer support (12-18 bp)
 - Enhanced thermodynamic modeling
 - Higher temperature constraints
+
+### normalized_optimizer.py
+
+Normalized scoring with strategy presets.
+
+**Purpose:** Provides a normalized [0,1] composite score for comparing results across optimizers. Includes strategy presets (discovery, clinical, enrichment, metagenomics) that adjust scoring weights.
+
+### tiling_optimizer.py
+
+Interval-based tiling coverage optimization.
+
+**Algorithm:**
+1. Model primer binding as genomic intervals
+2. Select primers to tile the genome with minimal gaps
+3. Merge overlapping intervals to compute uncovered regions
+
+### clique_optimizer.py
+
+Clique-based dimer-free primer set selection.
+
+**Purpose:** Builds a primer compatibility graph (edges between primers that do not form dimers) and finds maximum cliques to guarantee dimer-free sets.
+
+**Classes:**
+```python
+class CliqueOptimizer(BaseOptimizer):
+    """Find dimer-free primer sets using maximum clique enumeration."""
+```
+
+### dimer_validator.py
+
+Post-optimization dimer validation.
+
+**Classes:**
+```python
+class DimerValidator:
+    """Validate primer sets for dimer interactions and suggest replacements."""
+```
+
+### background_prefilter.py
+
+Background-aware candidate pruning optimizer.
+
+**Purpose:** Wraps another optimizer, first pruning candidates with poor foreground/background ratios before delegating to the inner optimizer.
+
+### serial_cascade_optimizer.py
+
+Serial pipeline combinations of optimizers.
+
+**Classes:**
+```python
+class CoverageThenDimerFreeOptimizer(SerialCascadeOptimizer):
+    """Dominating-set coverage followed by clique dimer removal."""
+
+class DimerFreeScoredOptimizer(SerialCascadeOptimizer):
+    """Clique dimer-free selection followed by network scoring."""
+
+class BgPrefilterHybridOptimizer(SerialCascadeOptimizer):
+    """Background pre-filter followed by hybrid optimization."""
+```
+
+### multi_agent_optimizer.py
+
+Multi-agent parallel optimizer execution.
+
+**Purpose:** Runs multiple optimizer strategies concurrently and aggregates results using configurable strategies (best, union, voting, pareto).
+
+### dominating_set_adapter.py
+
+BaseOptimizer adapter for dominating set and weighted set cover.
+
+**Classes:**
+```python
+class DominatingSetAdapter(BaseOptimizer):
+    """Adapter wrapping DominatingSetOptimizer to BaseOptimizer interface."""
+
+class WeightedSetCoverOptimizer(DominatingSetAdapter):
+    """Weighted set cover variant prioritizing high-scoring primers."""
+```
+
+### unified_optimizer.py
+
+Unified entry point for running any registered optimizer from CLI or programmatic use.
+
+**Functions:**
+```python
+def run_optimization(method, candidates, fg_prefixes, ...) -> OptimizationResult
+def list_available_optimizers() -> Dict[str, str]
+def optimize_step4(**kwargs) -> Dict
+```
 
 ---
 
@@ -1035,18 +1124,210 @@ Custom exception hierarchy.
 
 **Classes:**
 ```python
-class OptimizerNotFoundError(Exception):
+class NeoSWGAError(Exception):
+    """Base exception for all NeoSWGA errors."""
+
+class OptimizerNotFoundError(NeoSWGAError):
     """Raised when optimizer name is not registered."""
 
-class ModelIntegrityError(Exception):
+class ModelIntegrityError(NeoSWGAError):
     """Raised when model file hash doesn't match."""
 
-class StepPrerequisiteError(Exception):
+class StepPrerequisiteError(NeoSWGAError):
     """Raised when pipeline step prerequisites are not met."""
 
-class ConfigurationError(Exception):
+class ConfigurationError(NeoSWGAError):
     """Raised for invalid configuration."""
+
+class PositionFileNotFoundError(FileError):
+    """Raised when HDF5 position file is missing."""
+
+class GenomeFileError(FileError):
+    """Raised for genome file I/O problems."""
 ```
+
+### export.py
+
+Primer export for synthesis ordering.
+
+**Formats:** FASTA, CSV (vendor-ready for IDT/Twist/Sigma), BED, BedGraph, lab protocol.
+
+**Classes:**
+```python
+class PrimerExporter:
+    """High-level exporter supporting all output formats."""
+
+class ModificationProfile(Enum):
+    """Modification profiles: NONE, STANDARD, LOW_INPUT."""
+```
+
+**Functions:**
+```python
+def export_to_fasta(primers, output_path, ...) -> None
+def export_to_bed(primers, output_path, genome_name, ...) -> None
+def export_to_bedgraph(primers, output_path, ...) -> None
+def export_to_vendor_csv(primers, output_path, vendor, ...) -> None
+def generate_protocol(primers, conditions, ...) -> str
+```
+
+### progress.py
+
+Progress bar utilities for long-running pipeline steps.
+
+**Functions:**
+```python
+def progress_context(desc: str, disable: bool = False)
+def progress_bar(iterable, **kwargs)
+```
+
+### search_context.py
+
+Data structures for BFS-based optimization search.
+
+**Classes:**
+```python
+class GenomeInfo: ...
+class PositionData: ...
+class DimerConstraints: ...
+class SearchState: ...
+class BFSConfig: ...
+```
+
+### pareto_frontier.py
+
+Pareto frontier visualization and reporting.
+
+**Functions:**
+```python
+def plot_frontier(results, output_path, ...) -> None
+def generate_frontier_report(results, ...) -> str
+def summarize_frontier_for_cli(results, ...) -> str
+```
+
+### primer_expansion.py
+
+Expand primer sets to improve coverage in under-represented regions.
+
+**Classes:**
+```python
+class PrimerExpander:
+    """Identify coverage gaps and suggest additional primers."""
+```
+
+### efficiency_predictor.py
+
+Predict amplification efficiency and enrichment fold-change.
+
+**Classes:**
+```python
+class EfficiencyPredictor:
+    """Predict enrichment based on primer set metrics and mechanistic model."""
+```
+
+### experimental_tracker.py
+
+Track experimental outcomes for calibrating computational predictions.
+
+**Classes:**
+```python
+class ExperimentalTracker:
+    """Log experimental results and compute calibration reports."""
+```
+
+---
+
+## Mechanistic Modeling Modules
+
+### mechanistic_model.py
+
+Four-pathway mechanistic model for SWGA amplification.
+
+**Classes:**
+```python
+class MechanisticEffects:
+    """Container for per-pathway factor values."""
+
+class MechanisticModel:
+    """Calculate amplification predictions from four pathways:
+    Tm modification, secondary structure accessibility,
+    enzyme activity, and binding kinetics."""
+```
+
+### mechanistic_params.py
+
+Literature-derived parameters for the mechanistic model.
+
+### additives.py
+
+Additive effects on Tm with sigmoid GC normalization.
+
+### additive_interactions.py
+
+Registry of pairwise additive interactions (synergistic, antagonistic).
+
+**Classes:**
+```python
+class AdditiveInteractionRegistry:
+    """Registry of known additive-additive interactions."""
+```
+
+### additive_optimizer.py
+
+Optimize additive cocktail for given genome and primer properties.
+
+**Classes:**
+```python
+class AdditiveOptimizer:
+    """Recommend optimal additive concentrations."""
+```
+
+### set_size_optimizer.py
+
+Automatic primer set size recommendation by application profile.
+
+**Functions:**
+```python
+def recommend_set_size(application, genome_length, ...) -> Dict
+def quick_size_estimate(application, genome_length) -> int
+```
+
+### model_validation.py
+
+Validation tests for the mechanistic model against expected literature behavior.
+
+### background_registry.py
+
+Registry of common background genomes with metadata.
+
+**Classes:**
+```python
+class BackgroundRegistry:
+    """Registry of pre-characterized background genomes (human, mouse, etc.)."""
+```
+
+---
+
+## User Experience Modules
+
+### wizard.py
+
+Interactive setup wizard for guided params.json creation.
+
+### param_validator.py
+
+Parameter validation with error/warning/info levels.
+
+### condition_suggester.py
+
+Reaction condition recommendations based on genome properties.
+
+### results_interpreter.py
+
+Quality assessment and go/no-go recommendations for pipeline output.
+
+### workflow_selector.py
+
+Interactive menu for feature discovery.
 
 ---
 
