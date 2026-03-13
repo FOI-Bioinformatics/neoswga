@@ -518,7 +518,7 @@ def get_primer_list_from_kmers(prefixes: List[str],
     Returns:
         List of k-mer sequences that pass GC and Tm pre-filters
     """
-    import melting
+    from neoswga.core.melting_temp import temp as _melting_temp
 
     primer_list = []
     gc_rejected = 0
@@ -547,7 +547,7 @@ def get_primer_list_from_kmers(prefixes: List[str],
                             gc_rejected += 1
                             continue
                         try:
-                            tm = melting.temp(curr_kmer)
+                            tm = _melting_temp(curr_kmer)
                             if wide_min < tm < wide_max:
                                 primer_list.append(curr_kmer)
                         except (ValueError, TypeError, KeyError) as e:

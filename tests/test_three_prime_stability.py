@@ -11,6 +11,7 @@ Tests all functionality including:
 """
 
 import unittest
+import warnings
 from typing import List
 
 from neoswga.core.three_prime_stability import (
@@ -475,13 +476,15 @@ class TestEdgeCases(unittest.TestCase):
         """Test single base primer."""
         primer = 'A'
 
-        # Should handle gracefully
-        try:
-            stability = self.analyzer.analyze_primer(primer)
-            self.assertIsNotNone(stability)
-        except ValueError:
-            # Acceptable to raise error for too-short primer
-            pass
+        # Should handle gracefully (suppressing expected short-sequence warning)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            try:
+                stability = self.analyzer.analyze_primer(primer)
+                self.assertIsNotNone(stability)
+            except ValueError:
+                # Acceptable to raise error for too-short primer
+                pass
 
     def test_lowercase_primer(self):
         """Test primer with lowercase bases."""
@@ -495,9 +498,11 @@ class TestEdgeCases(unittest.TestCase):
         """Test primer containing N (ambiguous base)."""
         primer = 'AAAAAAACGNC'
 
-        # Should handle ambiguous bases
-        stability = self.analyzer.analyze_primer(primer)
-        self.assertIsNotNone(stability)
+        # Should handle ambiguous bases (suppressing expected warning)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            stability = self.analyzer.analyze_primer(primer)
+            self.assertIsNotNone(stability)
 
     def test_very_high_gc_terminal(self):
         """Test primer with very high GC in terminal region."""

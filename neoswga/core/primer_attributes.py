@@ -1,8 +1,8 @@
 from neoswga.core import utility as _utility
 import os
 import h5py
-import melting
 from neoswga.core import string_search as _string_search
+from neoswga.core.melting_temp import temp as _melting_temp
 import multiprocessing
 import numpy as np
 import logging
@@ -21,7 +21,7 @@ def get_melting_tm(primer):
     Returns:
         The predicted melting temperature.
     """
-    return melting.temp(primer)
+    return _melting_temp(primer)
 
 def get_gini(primer, fname_prefixes):
     """

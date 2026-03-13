@@ -30,14 +30,8 @@ def calculate_primer_tm(primer: str) -> float:
     Calculate melting temperature using nearest-neighbor thermodynamics.
     Falls back to simple formula if melting module unavailable.
     """
-    try:
-        import melting
-        return melting.temp(primer)
-    except ImportError:
-        # Simple Tm estimation: 4*(G+C) + 2*(A+T)
-        gc_count = primer.upper().count('G') + primer.upper().count('C')
-        at_count = primer.upper().count('A') + primer.upper().count('T')
-        return 4 * gc_count + 2 * at_count
+    from neoswga.core.melting_temp import temp as _melting_temp
+    return _melting_temp(primer)
 
 
 def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:

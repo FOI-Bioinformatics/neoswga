@@ -23,7 +23,7 @@ from neoswga.core import parameter
 import numpy as np
 import pickle
 import hashlib
-import melting
+from neoswga.core.melting_temp import temp as _melting_temp
 import os
 import sys
 from bisect import bisect_right
@@ -264,7 +264,7 @@ def get_features(primer, target=None, molarity=2.5):
 
     feature_dict['target'] = target
 
-    feature_dict['melting_tm'] = melting.temp(primer)
+    feature_dict['melting_tm'] = _melting_temp(primer)
     # GC clamp: count G and C in the last 5 bases (3' end)
     last_five_end = primer[-5:]  # Fixed: was primer[:-5] which excluded last 5
     feature_dict['GC.clamp'] = last_five_end.count('C') + last_five_end.count('G')

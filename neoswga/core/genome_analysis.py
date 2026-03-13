@@ -45,10 +45,11 @@ def calculate_genome_gc(genome_path: Union[str, Path]) -> float:
     gc_count = 0
 
     try:
-        for record in SeqIO.parse(genome_path, "fasta"):
-            seq = str(record.seq).upper()
-            total_length += len(seq)
-            gc_count += seq.count('G') + seq.count('C')
+        with open(genome_path) as fh:
+            for record in SeqIO.parse(fh, "fasta"):
+                seq = str(record.seq).upper()
+                total_length += len(seq)
+                gc_count += seq.count('G') + seq.count('C')
 
         if total_length == 0:
             raise ValueError(f"Empty or invalid FASTA file: {genome_path}")

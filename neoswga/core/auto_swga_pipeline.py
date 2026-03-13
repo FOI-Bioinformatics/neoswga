@@ -242,7 +242,8 @@ class AutoSWGAPipeline:
             logger.info("="*80)
 
         # Read target genome
-        target_records = list(SeqIO.parse(str(self.target_genome), 'fasta'))
+        with open(str(self.target_genome)) as fh:
+            target_records = list(SeqIO.parse(fh, 'fasta'))
         target_seq = ''.join(str(rec.seq) for rec in target_records)
         target_length = len(target_seq)
         target_name = self.target_genome.stem

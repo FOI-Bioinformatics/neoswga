@@ -370,8 +370,16 @@ class AdvancedFeatureEngineer:
             'forward_site_count': len(fwd_pos),
             'reverse_site_count': len(rev_pos),
             'gap_cv': std_fwd_gap / mean_fwd_gap if mean_fwd_gap > 0 else 0,
-            'gap_skewness': skew(fwd_gaps) if len(fwd_pos) > 2 else 0
+            'gap_skewness': self._safe_skew(fwd_gaps) if len(fwd_pos) > 2 else 0
         }
+
+    @staticmethod
+    def _safe_skew(values):
+        """Compute skewness, returning 0 for degenerate data."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            result = skew(values)
+        return float(np.nan_to_num(result))
 
     def _empty_positional_features(self) -> Dict:
         """Return zero-filled positional features."""
@@ -628,7 +636,8 @@ class AdvancedFeatureEngineer:
         # Histogram-based features (binned ΔG distribution)
         bins = [-20, -15, -12, -10, -8, -6, -4, -2, 0, 2]
         hist, _ = np.histogram(dg_array, bins=bins)
-        hist_norm = hist / np.sum(hist)
+        hist_total = np.sum(hist)
+        hist_norm = hist / hist_total if hist_total > 0 else np.zeros_like(hist, dtype=float)
 
         features = {}
         for i, (low, high) in enumerate(zip(bins[:-1], bins[1:])):

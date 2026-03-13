@@ -516,12 +516,12 @@ def run_step2_with_adaptive_gc(gc_tolerance: float = 0.15):
 
     def adaptive_filter_extra(primer):
         """Wraps filter_extra with adaptive GC thresholds"""
-        import melting
         from collections import Counter
         import neoswga.core.parameter as parameter
         import neoswga.core.dimer as dimer
+        from neoswga.core.melting_temp import temp as _melting_temp
 
-        primer_tm = melting.temp(primer)
+        primer_tm = _melting_temp(primer)
         if primer_tm > 45 or primer_tm < 15:
             return False
 

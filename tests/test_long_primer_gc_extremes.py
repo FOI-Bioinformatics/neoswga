@@ -53,10 +53,10 @@ class TestFix1TmPreFilter:
 
     def test_wide_margin_keeps_long_primers(self, tmp_path):
         """A 16bp primer with melting.temp() > max_tm should pass with margin."""
-        import melting
+        from neoswga.core.melting_temp import temp as melting_temp
 
         primer = "ATCGATCGATCGATCG"  # 16bp
-        simple_tm = melting.temp(primer)
+        simple_tm = melting_temp(primer)
 
         # Create a mock k-mer file
         kmer_file = tmp_path / "test_16mer_all.txt"

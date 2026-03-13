@@ -12,6 +12,7 @@ Tests all functionality including:
 
 import unittest
 import logging
+import warnings
 from typing import List
 
 from neoswga.core.thermodynamic_filter import (
@@ -463,7 +464,9 @@ class TestEdgeCases(unittest.TestCase):
     def test_analyze_single_base(self):
         """Test analysis of single base."""
         filter_obj = ThermodynamicFilter()
-        result = filter_obj.analyze_primer('A')
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            result = filter_obj.analyze_primer('A')
 
         # Should handle without crashing
         self.assertIsInstance(result, PrimerThermodynamics)
@@ -473,11 +476,13 @@ class TestEdgeCases(unittest.TestCase):
         """Test analysis of empty sequence."""
         filter_obj = ThermodynamicFilter()
         # Should handle gracefully
-        try:
-            result = filter_obj.analyze_primer('')
-            self.assertFalse(result.passes_filters)
-        except (ValueError, ZeroDivisionError):
-            pass  # Acceptable to raise error for empty sequence
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            try:
+                result = filter_obj.analyze_primer('')
+                self.assertFalse(result.passes_filters)
+            except (ValueError, ZeroDivisionError):
+                pass  # Acceptable to raise error for empty sequence
 
     def test_analyze_lowercase_sequence(self):
         """Test analysis of lowercase sequence."""
