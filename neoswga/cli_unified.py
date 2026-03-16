@@ -278,14 +278,37 @@ def validate_params_json_file(path):
 
     Prints a user-friendly error and exits if the file is missing or malformed.
     """
+    if path is None:
+        print("Error: -j/--json-file is required.", file=sys.stderr)
+        print("Usage: neoswga <command> -j params.json", file=sys.stderr)
+        print("To create a params.json: neoswga init --genome target.fasta", file=sys.stderr)
+        sys.exit(1)
     if not os.path.isfile(path):
         print(f"Error: parameter file '{path}' not found.", file=sys.stderr)
         sys.exit(1)
     try:
         with open(path) as f:
-            json.load(f)
+            data = json.load(f)
     except json.JSONDecodeError as e:
         print(f"Error: '{path}' is not valid JSON: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate that essential fields are present
+    if not data:
+        print(f"Error: '{path}' is empty. At minimum, provide 'fg_genome' and 'data_dir'.", file=sys.stderr)
+        print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
+        sys.exit(1)
+    # Check for data_dir
+    if 'data_dir' not in data:
+        print(f"Error: '{path}' is missing required field 'data_dir'.", file=sys.stderr)
+        print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
+        sys.exit(1)
+    # Check for genome specification (multiple accepted conventions)
+    has_genome = any(k in data for k in ('fg_genome', 'fg_genomes', 'fg_prefixes'))
+    if not has_genome:
+        print(f"Error: '{path}' is missing genome specification.", file=sys.stderr)
+        print("Provide 'fg_genome', 'fg_genomes', or 'fg_prefixes' in your params.json.", file=sys.stderr)
+        print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
         sys.exit(1)
 
 
@@ -520,9 +543,9 @@ Run "neoswga <command> --help" for details on a specific command.
     # Reaction Conditions
     step2_rxn_group = filter_parser.add_argument_group('Reaction Conditions')
     step2_rxn_group.add_argument('--reaction-temp', type=float,
-                                 help='Reaction temperature in °C (default: 30.0)')
+                                 help='Reaction temperature in C (default: from params.json or polymerase preset)')
     step2_rxn_group.add_argument('--na-conc', type=float,
-                                 help='Sodium concentration in mM (default: 50.0)')
+                                 help='Sodium concentration in mM (default: from params.json or 50.0)')
 
     # Additives
     step2_add_group = filter_parser.add_argument_group('Additives (enable longer primers & GC-extreme genomes)')
@@ -535,7 +558,7 @@ Run "neoswga <command> --help" for details on a specific command.
     step2_add_group.add_argument('--glycerol-percent', type=float,
                                  help='Glycerol concentration 0-15%% (enzyme stabilizer)')
     step2_add_group.add_argument('--bsa', type=float,
-                                 help='BSA concentration 0-400 μg/mL (inhibitor neutralizer)')
+                                 help='BSA concentration 0-400 ug/mL (inhibitor neutralizer)')
     step2_add_group.add_argument('--peg-percent', type=float,
                                  help='PEG concentration 0-15%% (molecular crowding)')
     step2_add_group.add_argument('--mg-conc', type=float,
@@ -569,9 +592,9 @@ Run "neoswga <command> --help" for details on a specific command.
     step2_trad_group.add_argument('--max-primer', type=int,
                                   help='Number of top primers to keep (default: 500)')
     step2_trad_group.add_argument('--min-tm', type=float,
-                                  help='Minimum melting temperature (default: 15°C)')
+                                  help='Minimum melting temperature in C (default: 15)')
     step2_trad_group.add_argument('--max-tm', type=float,
-                                  help='Maximum melting temperature (default: 45°C)')
+                                  help='Maximum melting temperature in C (default: 45)')
     step2_trad_group.add_argument('--max-dimer-bp', type=int,
                                   help='Maximum heterodimer base pairs (default: 3)')
     step2_trad_group.add_argument('--max-self-dimer-bp', type=int,
@@ -631,8 +654,9 @@ Run "neoswga <command> --help" for details on a specific command.
                                             help='Primer set optimization (network-based + experimental)')
     add_common_options(optimize_parser)
 
-    # Optimization method (unified factory handles all methods)
-    optimize_parser.add_argument('--optimization-method',
+    # Method Selection
+    opt_method_group = optimize_parser.add_argument_group('Method Selection')
+    opt_method_group.add_argument('-m', '--optimization-method',
                              choices=['hybrid', 'greedy', 'dominating-set', 'weighted-set-cover',
                                      'network', 'genetic', 'background-aware',
                                      'milp', 'equiphi29', 'moea', 'normalized', 'tiling',
@@ -651,58 +675,60 @@ Run "neoswga <command> --help" for details on a specific command.
                                   'coverage-then-dimerfree (DS->clique cascade), '
                                   'dimerfree-scored (clique->network scoring). '
                                   'Use --method-guide for detailed comparison.')
-    optimize_parser.add_argument('--strategy',
+    opt_method_group.add_argument('--strategy',
                              choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
                              default='balanced',
                              help='Strategy preset for normalized optimizer: '
                                   'clinical (high specificity), discovery (max coverage), '
                                   'fast (quick screening), balanced (equal weights), '
                                   'enrichment (sequencing). Only used with --optimization-method=normalized')
-    optimize_parser.add_argument('--method-guide', action='store_true',
+    opt_method_group.add_argument('--method-guide', action='store_true',
                              help='Show optimization method selection guide and exit')
 
-    # Category 1: Advanced primer selection strategies
-    optimize_parser.add_argument('--use-cooperative-binding', action='store_true',
+    # Primer Strategy
+    opt_strategy_group = optimize_parser.add_argument_group('Primer Strategy')
+    opt_strategy_group.add_argument('--use-cooperative-binding', action='store_true',
                              help='[EXPERIMENTAL] Cooperative binding model (not yet fully integrated)')
-    optimize_parser.add_argument('--primer-strategy', choices=['standard', 'hybrid'],
+    opt_strategy_group.add_argument('--primer-strategy', choices=['standard', 'hybrid'],
                              default='standard',
                              help='Primer design strategy (standard: uniform length, hybrid: mixed lengths)')
 
-    # Performance options
-    optimize_parser.add_argument('--use-position-cache', action='store_true', default=True,
-                             help='Use in-memory position cache (default: True, 1000x speedup)')
-    optimize_parser.add_argument('--no-position-cache', action='store_false', dest='use_position_cache',
-                             help='Disable position cache (slower)')
-
-    # Background filtering
-    optimize_parser.add_argument('--use-background-filter', action='store_true', default=False,
+    # Background Filtering
+    opt_bg_group = optimize_parser.add_argument_group('Background Filtering')
+    opt_bg_group.add_argument('--use-background-filter', action='store_true', default=False,
                              help='Use Bloom filter for background filtering')
-    optimize_parser.add_argument('--no-bg-prefilter', action='store_true', default=False,
+    opt_bg_group.add_argument('--no-bg-prefilter', action='store_true', default=False,
                              help='Disable automatic background pre-filtering of candidates '
                                   '(enabled by default when background genome data is available)')
-    optimize_parser.add_argument('--background-bloom-path', type=str,
+    opt_bg_group.add_argument('--background-bloom-path', type=str,
                              help='Path to pre-built Bloom filter')
-    optimize_parser.add_argument('--background-sampled-path', type=str,
+    opt_bg_group.add_argument('--background-sampled-path', type=str,
                              help='Path to pre-built sampled index')
-    optimize_parser.add_argument('--no-background', action='store_true', default=False,
+    opt_bg_group.add_argument('--no-background', action='store_true', default=False,
                              help='Host-free mode: optimize without background genome data. '
                                   'Relies on intrinsic primer quality (Tm, complexity, evenness) '
                                   'rather than fg/bg selectivity. Use when background genome is '
                                   'unknown or unavailable.')
 
-    # Optimization parameters
-    optimize_parser.add_argument('--num-primers', type=int,
-                             help='Number of primers to select')
-    optimize_parser.add_argument('--max-optimization-time', type=int, default=300,
+    # Performance
+    opt_perf_group = optimize_parser.add_argument_group('Performance')
+    opt_perf_group.add_argument('--use-position-cache', action='store_true', default=True,
+                             help='Use in-memory position cache (default: True, 1000x speedup)')
+    opt_perf_group.add_argument('--no-position-cache', action='store_false', dest='use_position_cache',
+                             help='Disable position cache (slower)')
+    opt_perf_group.add_argument('-n', '--num-primers', type=int,
+                             help='Number of primers to select (default: from params.json or 6)')
+    opt_perf_group.add_argument('--max-optimization-time', type=int, default=300,
                              help='Maximum optimization time in seconds (default: 300)')
-    optimize_parser.add_argument('--max-extension', type=int, default=70000,
+    opt_perf_group.add_argument('--max-extension', type=int, default=70000,
                              help='Maximum Phi29 extension length in bp (default: 70000)')
 
-    # Automatic set size optimization
-    optimize_parser.add_argument('--auto-size', action='store_true',
+    # Set Size & Application
+    opt_size_group = optimize_parser.add_argument_group('Set Size & Application')
+    opt_size_group.add_argument('--auto-size', action='store_true',
                              help='Automatically determine optimal primer set size based on '
                                   'application profile and reaction conditions')
-    optimize_parser.add_argument('--application', type=str,
+    opt_size_group.add_argument('--application', type=str,
                              choices=['discovery', 'clinical', 'enrichment', 'metagenomics'],
                              default='enrichment',
                              help='Application profile for auto-sizing: '
@@ -710,38 +736,39 @@ Run "neoswga <command> --help" for details on a specific command.
                                   'clinical (minimize false positives), '
                                   'enrichment (balanced, default), '
                                   'metagenomics (capture diversity)')
-    optimize_parser.add_argument('--min-fg-bg-ratio', type=float,
+    opt_size_group.add_argument('--min-fg-bg-ratio', type=float,
                              help='Minimum foreground/background binding site ratio. '
                                   'Overrides application profile default. Higher values = more selective.')
-    optimize_parser.add_argument('--show-frontier', action='store_true',
+    opt_size_group.add_argument('--show-frontier', action='store_true',
                              help='Show Pareto frontier of coverage vs fg/bg ratio tradeoffs '
                                   '(requires matplotlib for plotting)')
-    optimize_parser.add_argument('--quick-estimate', action='store_true',
+    opt_size_group.add_argument('--quick-estimate', action='store_true',
                              help='Use quick estimation only for auto-size (skip full optimization at multiple sizes)')
 
-    # Mechanistic model for optimization
-    optimize_parser.add_argument('--use-mechanistic-model', action='store_true',
+    # Mechanistic Model
+    opt_mech_group = optimize_parser.add_argument_group('Mechanistic Model')
+    opt_mech_group.add_argument('--use-mechanistic-model', action='store_true',
                              help='Use mechanistic model for primer weighting during optimization')
-    optimize_parser.add_argument('--mechanistic-weight', type=float, default=0.3,
+    opt_mech_group.add_argument('--mechanistic-weight', type=float, default=0.3,
                              help='Weight for mechanistic model in scoring (0.0-1.0, default: 0.3)')
-    optimize_parser.add_argument('--template-gc', type=float,
+    opt_mech_group.add_argument('--template-gc', type=float,
                              help='Template genome GC content (0-1). Auto-detected if not specified.')
-
-    # Phase 1: Uniformity-aware optimization
-    optimize_parser.add_argument('--uniformity-weight', type=float, default=0.0,
+    opt_mech_group.add_argument('--uniformity-weight', type=float, default=0.0,
                              help='Weight for coverage uniformity in scoring (0.0-1.0, default: 0.0). '
                                   'Higher values prioritize even genome coverage over raw enrichment.')
 
-    # Phase 2: Minimal primer selection
-    optimize_parser.add_argument('--minimize-primers', action='store_true',
+    # Post-processing
+    opt_post_group = optimize_parser.add_argument_group('Post-processing')
+    opt_post_group.add_argument('--minimize-primers', action='store_true',
                              help='Post-process to minimize primer count while maintaining coverage')
-    optimize_parser.add_argument('--target-coverage', type=float, default=0.70,
+    opt_post_group.add_argument('--target-coverage', type=float, default=0.70,
                              help='Target genome coverage fraction when minimizing primers (default: 0.70)')
 
-    # Phase 5: Stochastic validation
-    optimize_parser.add_argument('--validate-simulation', action='store_true',
+    # Validation
+    opt_val_group = optimize_parser.add_argument_group('Validation')
+    opt_val_group.add_argument('--validate-simulation', action='store_true',
                              help='Validate results with stochastic simulation (Gillespie algorithm)')
-    optimize_parser.add_argument('--simulation-time', type=float, default=3600.0,
+    opt_val_group.add_argument('--simulation-time', type=float, default=3600.0,
                              help='Simulation time in seconds (default: 3600)')
 
     # =========================================================================
@@ -775,7 +802,9 @@ Run "neoswga <command> --help" for details on a specific command.
     build_filter_parser = subparsers.add_parser('build-filter',
                                                help='Build background Bloom filter (one-time setup)')
     build_filter_parser.add_argument('--genome', required=True, help='Path to background genome FASTA (or k-mer prefix with --from-kmers)')
-    build_filter_parser.add_argument('--output-dir', required=True, help='Output directory for filter files')
+    build_filter_parser.add_argument('-o', '--output', '--output-dir', required=True,
+                                    dest='output_dir',
+                                    help='Output directory for filter files')
     build_filter_parser.add_argument('--from-kmers', action='store_true',
                                     help='Build from jellyfish k-mer files (MUCH faster for large genomes)')
     build_filter_parser.add_argument('--min-k', type=int, default=6,
@@ -788,6 +817,10 @@ Run "neoswga <command> --help" for details on a specific command.
                                     help='Bloom filter capacity (default: auto from genome size)')
     build_filter_parser.add_argument('--error-rate', type=float, default=0.01,
                                     help='Bloom filter error rate (default: 0.01)')
+    build_filter_parser.add_argument('-v', '--verbose', action='store_true',
+                                    help='Verbose output')
+    build_filter_parser.add_argument('-q', '--quiet', action='store_true',
+                                    help='Minimal output')
 
     # =========================================================================
     # UTILITY: Validate installation
@@ -1031,7 +1064,8 @@ Examples:
     # =========================================================================
     ml_predict_parser = subparsers.add_parser('ml-predict',
                                               help='Deep learning-based amplification prediction')
-    ml_predict_parser.add_argument('--primers', required=True,
+    ml_predict_parser.add_argument('--primers-file', '--primers', required=True,
+                                  dest='primers_file',
                                   help='File containing primer sequences (one per line)')
     ml_predict_parser.add_argument('--output', '-o', required=True,
                                   help='Output directory for predictions')
@@ -1051,9 +1085,9 @@ Examples:
                                      help='Output directory for designed primers')
     design_oligos_parser.add_argument('--num-primers', type=int, default=10,
                                      help='Number of primers to design (default: 10)')
-    design_oligos_parser.add_argument('--min-k', type=int, default=6, dest='k_min',
+    design_oligos_parser.add_argument('--min-k', type=int, default=6,
                                      help='Minimum primer length (default: 6)')
-    design_oligos_parser.add_argument('--max-k', type=int, default=12, dest='k_max',
+    design_oligos_parser.add_argument('--max-k', type=int, default=12,
                                      help='Maximum primer length (default: 12)')
 
     # =========================================================================
@@ -1107,7 +1141,7 @@ Examples:
                                 help='Target genome FASTA file')
     simulate_parser.add_argument('--output', '-o', required=True,
                                 help='Output directory for simulation results')
-    simulate_parser.add_argument('--cycles', type=int, default=60,
+    simulate_parser.add_argument('--duration', '--cycles', type=int, default=60,
                                 help='Simulation duration in minutes (default: 60)')
     simulate_parser.add_argument('--replicates', type=int, default=5,
                                 help='Number of simulation replicates (default: 5)')
@@ -1205,9 +1239,9 @@ Examples:
                                help='Prefix for k-mer files (without _Xmer_all.txt)')
     bg_add_parser.add_argument('--genome-size', type=int, default=0,
                                help='Genome size in bp')
-    bg_add_parser.add_argument('--min-k', type=int, default=6, dest='k_min',
+    bg_add_parser.add_argument('--min-k', type=int, default=6,
                                help='Minimum k-mer length (default: 6)')
-    bg_add_parser.add_argument('--max-k', type=int, default=12, dest='k_max',
+    bg_add_parser.add_argument('--max-k', type=int, default=12,
                                help='Maximum k-mer length (default: 12)')
     bg_add_parser.add_argument('--description',
                                help='Additional description')
@@ -1283,9 +1317,9 @@ def add_common_options(parser):
     parser.add_argument('-z', '--data-dir', type=str, help='Data directory')
     parser.add_argument('--polymerase', choices=['phi29', 'equiphi29', 'bst', 'klenow'],
                        help='Polymerase type: phi29 (30-40C), equiphi29 (42-45C), bst (60-65C), klenow (25-40C)')
-    parser.add_argument('--verbose', action='store_true',
+    parser.add_argument('-v', '--verbose', action='store_true',
                        help='Verbose output')
-    parser.add_argument('--quiet', action='store_true',
+    parser.add_argument('-q', '--quiet', action='store_true',
                        help='Minimal output')
 
     # GPU acceleration (Category 1 orphaned feature)
@@ -1357,6 +1391,9 @@ def run_step1(args):
             # Store exclusion prefix for downstream steps
             parameter.excl_genomes = [excl_genome]
             parameter.excl_prefixes = [excl_prefix]
+
+        if not args.quiet:
+            print("\nNext: neoswga filter -j params.json")
 
     except ImportError as e:
         logger.error(f"Pipeline not found: {e}")
@@ -1487,6 +1524,9 @@ def run_step2(args):
         else:
             pipeline.step2()
 
+        if not args.quiet:
+            print("\nNext: neoswga score -j params.json")
+
     except ImportError as e:
         logger.error(f"Failed to import pipeline module: {e}")
         logger.error("This may indicate a corrupted installation.")
@@ -1555,6 +1595,9 @@ def run_step3(args):
             pipeline_qa_integration.run_step3_with_qa()
         else:
             pipeline.step3()
+
+        if not args.quiet:
+            print("\nNext: neoswga optimize -j params.json")
 
     except ImportError as e:
         logger.error(f"Failed to import pipeline module: {e}")
@@ -2023,6 +2066,13 @@ def run_step4(args):
                 logger.warning(f"Stochastic validation not available: {e}")
             except Exception as e:
                 logger.warning(f"Validation failed: {e}")
+
+        if not args.quiet:
+            data_dir = getattr(parameter, 'data_dir', '.')
+            print(f"\nDone! View results:")
+            print(f"  neoswga interpret -d {data_dir}")
+            print(f"  neoswga report -d {data_dir}")
+            print(f"  neoswga export -d {data_dir} --format fasta")
 
     except StepPrerequisiteError as e:
         # Detailed error with remediation is in the exception message
@@ -2596,8 +2646,7 @@ def run_export(args):
 
     except FileNotFoundError as e:
         logger.error(str(e))
-        print(f"Error: {e}")
-        print("Make sure to run the full pipeline (count-kmers, filter, score, optimize) first.")
+        logger.error("Make sure to run the full pipeline (count-kmers, filter, score, optimize) first.")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Export failed: {e}")
@@ -2770,7 +2819,7 @@ def optimize_conditions(args):
 
     print(f"\nRecommended conditions:")
     print(f"  Optimal k-mer length: {recommendations['optimal_k']}")
-    print(f"  Recommended temperature: {recommendations['temperature']:.1f}°C")
+    print(f"  Recommended temperature: {recommendations['temperature']:.1f}C")
     print(f"  Polymerase: {recommendations['polymerase']}")
     print(f"  DMSO: {recommendations['dmso_percent']:.1f}%")
     print(f"  Betaine: {recommendations['betaine_m']:.1f} M")
@@ -2817,8 +2866,8 @@ def analyze_primer_set(args):
         dg = thermo.calculate_free_energy(primer, conditions.temp)
         gc = thermo.gc_content(primer)
         print(f"  {primer}:")
-        print(f"    Tm: {tm:.1f}°C")
-        print(f"    ΔG: {dg:.2f} kcal/mol")
+        print(f"    Tm: {tm:.1f}C")
+        print(f"    dG: {dg:.2f} kcal/mol")
         print(f"    GC: {gc:.1%}")
 
     # Secondary structure analysis
@@ -2829,8 +2878,8 @@ def analyze_primer_set(args):
         hairpin = predictor.predict_hairpin(primer)
         homodimer = predictor.predict_homodimer(primer)
         print(f"  {primer}:")
-        print(f"    Hairpin: ΔG={hairpin['energy']:.2f}, severity={hairpin['severity']:.2f}")
-        print(f"    Homodimer: ΔG={homodimer['energy']:.2f}, severity={homodimer['severity']:.2f}")
+        print(f"    Hairpin: dG={hairpin['energy']:.2f}, severity={hairpin['severity']:.2f}")
+        print(f"    Homodimer: dG={homodimer['energy']:.2f}, severity={homodimer['severity']:.2f}")
 
     # Check heterodimers
     print("\nHeterodimer Matrix:")
@@ -2839,7 +2888,7 @@ def analyze_primer_set(args):
             if i < j:
                 heterodimer = predictor.predict_heterodimer(p1, p2)
                 if heterodimer['severity'] > 0.3:
-                    print(f"  {p1} × {p2}: ΔG={heterodimer['energy']:.2f}, "
+                    print(f"  {p1} x {p2}: dG={heterodimer['energy']:.2f}, "
                           f"severity={heterodimer['severity']:.2f}")
 
     print("\nAnalysis complete!")
@@ -2923,11 +2972,11 @@ def run_ml_predict(args):
     """Deep learning-based amplification prediction"""
     from neoswga.core import deep_learning
 
-    logger.info(f"Running ML prediction on primers from: {args.primers}")
+    logger.info(f"Running ML prediction on primers from: {args.primers_file}")
 
     try:
         # Load primers from file
-        with open(args.primers, 'r') as f:
+        with open(args.primers_file, 'r') as f:
             primer_list = [line.strip() for line in f if line.strip()]
 
         logger.info(f"Loaded {len(primer_list)} primers")
@@ -2954,13 +3003,13 @@ def run_design_oligos(args):
     from neoswga.core import optimal_oligo_generator
 
     logger.info(f"Designing {args.num_primers} primers for: {args.genome}")
-    logger.info(f"K-mer range: {args.k_min}-{args.k_max}")
+    logger.info(f"K-mer range: {args.min_k}-{args.max_k}")
 
     try:
         generator = optimal_oligo_generator.OligoGenerator(
             genome_path=args.genome,
-            k_min=args.k_min,
-            k_max=args.k_max
+            k_min=args.min_k,
+            k_max=args.max_k
         )
 
         primers = generator.design_primers(
@@ -3162,7 +3211,7 @@ def run_simulate(args):
         )
 
         # Configure simulation
-        duration = args.cycles * 60.0  # Convert cycles to seconds (rough approximation)
+        duration = args.duration * 60.0  # Convert minutes to seconds
         config = SimulationConfig(
             duration=duration,
             polymerase_type=polymerase
@@ -3743,7 +3792,7 @@ def run_background_add(args):
     if args.kmer_prefix:
         # Check if at least one k-mer file exists
         found = False
-        for k in range(args.k_min, args.k_max + 1):
+        for k in range(args.min_k, args.max_k + 1):
             kmer_file = f"{args.kmer_prefix}_{k}mer_all.txt"
             if os.path.exists(kmer_file):
                 found = True
@@ -3758,7 +3807,7 @@ def run_background_add(args):
         genome_size=args.genome_size,
         bloom_path=args.bloom_path,
         kmer_prefix=args.kmer_prefix,
-        k_range=(args.k_min, args.k_max),
+        k_range=(args.min_k, args.max_k),
         description=args.description or "",
         overwrite=args.overwrite,
     )
@@ -3865,6 +3914,7 @@ def main():
 
     if not args.command:
         parser.print_help()
+        print("\nTip: New to neoswga? Start with 'neoswga init --genome target.fasta'", file=sys.stderr)
         sys.exit(1)
 
     # Set verbosity
