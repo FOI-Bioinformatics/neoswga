@@ -210,7 +210,7 @@ neoswga report -d results/ --check                # Validate only, don't generat
 
 # Validate mechanistic model against expected behavior
 neoswga validate-model               # Run all validation tests
-neoswga validate-model --json        # Output results as JSON
+neoswga validate-model --output-json  # Output results as JSON
 ```
 
 ### Optimization with Mechanistic Model

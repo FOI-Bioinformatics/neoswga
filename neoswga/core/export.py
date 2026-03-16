@@ -792,6 +792,24 @@ class PrimerExporter:
         self.export_protocol(str(protocol_path))
         outputs["protocol"] = str(protocol_path)
 
+        # BED and BedGraph (require position data — skip if unavailable)
+        try:
+            if hasattr(self, '_positions') and self._positions:
+                bed_path = output_path / f"{project_name}_primers.bed"
+                genome_name = getattr(self, '_genome_name', 'genome')
+                self.export_bed(str(bed_path), self._positions, genome_name)
+                outputs["bed"] = str(bed_path)
+
+                bedgraph_path = output_path / f"{project_name}_coverage.bedgraph"
+                genome_length = getattr(self, '_genome_length', 0)
+                self.export_bedgraph(
+                    str(bedgraph_path), self._positions, genome_name,
+                    genome_length
+                )
+                outputs["bedgraph"] = str(bedgraph_path)
+        except Exception as e:
+            logger.debug(f"BED/BedGraph export skipped (no position data): {e}")
+
         logger.info(f"Exported all formats to {output_dir}")
         return outputs
 

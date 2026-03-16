@@ -2680,10 +2680,12 @@ def run_suggest(args):
         from neoswga.core.condition_suggester import sweep_conditions
         primer_length = args.primer_length
         if primer_length is None:
-            from neoswga.core.mechanistic_params import get_polymerase_params
-            poly_params = get_polymerase_params(getattr(args, 'polymerase', 'phi29'))
-            primer_length = int((poly_params['primer_length_range'][0] +
-                                poly_params['primer_length_range'][1]) / 2)
+            # Default primer length by polymerase type
+            polymerase = getattr(args, 'polymerase', 'phi29')
+            primer_length_defaults = {
+                'phi29': 9, 'equiphi29': 15, 'bst': 20, 'klenow': 12,
+            }
+            primer_length = primer_length_defaults.get(polymerase, 10)
         if genome_gc is None:
             genome_gc = 0.5
             logger.info("No GC content provided, using default 50%")
@@ -3869,6 +3871,23 @@ def run_design(args):
         sys.exit(1)
 
     logger.info(f"Running steps {start_step} through {stop_step}")
+
+    # Ensure optimize-specific attributes exist on args namespace
+    # (the design subparser doesn't define these but run_step4 needs them)
+    optimize_defaults = {
+        'optimization_method': 'hybrid', 'num_primers': None,
+        'iterations': None, 'max_sets': None, 'no_background': False,
+        'use_mechanistic_model': False, 'mechanistic_weight': 0.3,
+        'auto_size': False, 'application': 'enrichment',
+        'validate_with_simulation': False, 'method_guide': False,
+        'no_bg_prefilter': False, 'strategy': None,
+        'use_position_cache': True, 'use_background_filter': False,
+        'use_cooperative_binding': False, 'primer_strategy': None,
+        'enable_qa': False,
+    }
+    for attr, default in optimize_defaults.items():
+        if not hasattr(args, attr):
+            setattr(args, attr, default)
 
     # Run each step sequentially
     try:
