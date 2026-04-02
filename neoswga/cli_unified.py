@@ -328,6 +328,18 @@ def validate_params_json_file(path):
         print(f"Error: '{path}' is missing required field 'data_dir'.", file=sys.stderr)
         print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
         sys.exit(1)
+    # Validate data_dir exists (create if needed)
+    data_dir = data['data_dir']
+    if data_dir and data_dir != './' and data_dir != '.':
+        if not os.path.isdir(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            logger.info(f"Created data directory: {data_dir}")
+    # Check for fg_prefixes (common missing field — #1 new-user crash)
+    if 'fg_genomes' in data and 'fg_prefixes' not in data:
+        logger.warning(
+            f"'{path}' is missing 'fg_prefixes'. "
+            "Consider running 'neoswga init --genome target.fasta' for a complete config."
+        )
     # Check for genome specification (multiple accepted conventions)
     has_genome = any(k in data for k in ('fg_genome', 'fg_genomes', 'fg_prefixes'))
     if not has_genome:
@@ -3108,6 +3120,10 @@ def run_analyze_dimers(args):
     """Analyze primer dimer interaction network"""
     from neoswga.core.dimer_network_analyzer import DimerNetworkAnalyzer
 
+    # Validate primer sequences
+    for primer in args.primers:
+        validate_primer_sequence(primer, name="--primers")
+
     logger.info(f"Analyzing dimer network for {len(args.primers)} primers")
 
     try:
@@ -3125,8 +3141,8 @@ def run_analyze_dimers(args):
 
         logger.info(f"Dimer analysis complete! Results saved to: {args.output}")
 
-        if metrics.num_hubs > 0:
-            logger.warning(f"Found {metrics.num_hubs} hub primers with many interactions")
+        if getattr(metrics, 'num_hub_primers', 0) > 0:
+            logger.warning(f"Found {metrics.num_hub_primers} hub primers with many interactions")
 
     except Exception as e:
         logger.error(f"Dimer analysis failed: {e}")
@@ -3139,6 +3155,10 @@ def run_analyze_stability(args):
     """Analyze 3' end stability and specificity"""
     from neoswga.core.three_prime_stability import ThreePrimeStabilityAnalyzer
 
+    # Validate primer sequences
+    for primer in args.primers:
+        validate_primer_sequence(primer, name="--primers")
+
     logger.info(f"Analyzing 3' stability for {len(args.primers)} primers")
 
     try:
@@ -3147,6 +3167,11 @@ def run_analyze_stability(args):
         for primer in args.primers:
             stability = analyzer.analyze_primer(primer)
             results.append(stability)
+
+        # Ensure output directory exists
+        output_dir = os.path.dirname(args.output)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
 
         # Write report
         with open(args.output, 'w') as f:
@@ -4309,10 +4334,32 @@ def main():
         except KeyboardInterrupt:
             logger.info("\nInterrupted by user")
             sys.exit(1)
+        except FileNotFoundError as e:
+            logger.error(f"File not found: {e}")
+            logger.error("Check that all genome files and data paths exist.")
+            sys.exit(1)
+        except KeyError as e:
+            logger.error(f"Missing required parameter: {e}")
+            logger.error("Run 'neoswga init --genome target.fasta' to create a complete params.json")
+            logger.error("Or run 'neoswga validate-params -j params.json' to check your configuration")
+            sys.exit(1)
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid input: {e}")
+            if getattr(args, 'verbose', False):
+                import traceback
+                traceback.print_exc()
+            sys.exit(1)
+        except PermissionError as e:
+            logger.error(f"Permission denied: {e}")
+            logger.error("Check that the output directory is writable.")
+            sys.exit(1)
         except Exception as e:
             logger.error(f"Command failed: {e}")
-            import traceback
-            traceback.print_exc()
+            if getattr(args, 'verbose', False):
+                import traceback
+                traceback.print_exc()
+            else:
+                logger.error("Run with --verbose for full traceback")
             sys.exit(1)
     else:
         logger.error(f"Unknown command: {args.command}")

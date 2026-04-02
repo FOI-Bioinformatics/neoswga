@@ -80,9 +80,14 @@ Example `params.json`:
 {
   "fg_genomes": ["target_genome.fasta"],
   "bg_genomes": ["background_genome.fasta"],
-  "data_dir": "./data/"
+  "fg_prefixes": ["target_genome"],
+  "bg_prefixes": ["background_genome"],
+  "data_dir": "./data/",
+  "fg_seq_lengths": [3500000],
+  "bg_seq_lengths": [4600000]
 }
 ```
+Or use the wizard to generate params.json automatically: `neoswga init --genome target.fasta`
 
 ## Documentation
 
