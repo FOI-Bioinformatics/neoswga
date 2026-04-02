@@ -15,7 +15,7 @@ try:
     from mip import Model, xsum, maximize, BINARY, OptimizationStatus
     MIP_AVAILABLE = True
 except ImportError:
-    print("WARNING: python-mip not installed. Install with: pip install mip")
+    logging.getLogger(__name__).debug("python-mip not installed. Install with: pip install mip")
     MIP_AVAILABLE = False
     Model = None
 
@@ -338,91 +338,96 @@ def compare_milp_vs_greedy(position_cache, fg_prefixes, bg_prefixes,
 # Factory Registration - BaseOptimizer Interface
 # =============================================================================
 
-if MIP_AVAILABLE:
-    from neoswga.core.base_optimizer import (
-        BaseOptimizer, OptimizationResult, OptimizationStatus,
-        PrimerSetMetrics, OptimizerConfig
-    )
-    from neoswga.core.optimizer_factory import OptimizerFactory
+from neoswga.core.base_optimizer import (
+    BaseOptimizer, OptimizationResult, OptimizationStatus,
+    PrimerSetMetrics, OptimizerConfig
+)
+from neoswga.core.optimizer_factory import OptimizerFactory
 
-    @OptimizerFactory.register('milp', aliases=['mip', 'exact'])
-    class MILPBaseOptimizer(BaseOptimizer):
-        """
-        MILP optimizer implementing BaseOptimizer interface.
 
-        Provides provably optimal solutions for small candidate sets (<1000 primers).
-        Requires python-mip package.
-        """
+@OptimizerFactory.register('milp', aliases=['mip', 'exact'])
+class MILPBaseOptimizer(BaseOptimizer):
+    """
+    MILP optimizer implementing BaseOptimizer interface.
 
-        def __init__(
-            self,
-            position_cache,
-            fg_prefixes: List[str],
-            fg_seq_lengths: List[int],
-            bg_prefixes: Optional[List[str]] = None,
-            bg_seq_lengths: Optional[List[int]] = None,
-            config: Optional[OptimizerConfig] = None,
-            **kwargs
-        ):
-            super().__init__(
-                position_cache, fg_prefixes, fg_seq_lengths,
-                bg_prefixes, bg_seq_lengths, config
+    Provides provably optimal solutions for small candidate sets (<1000 primers).
+    Requires python-mip package: pip install mip
+    """
+
+    def __init__(
+        self,
+        position_cache,
+        fg_prefixes: List[str],
+        fg_seq_lengths: List[int],
+        bg_prefixes: Optional[List[str]] = None,
+        bg_seq_lengths: Optional[List[int]] = None,
+        config: Optional[OptimizerConfig] = None,
+        **kwargs
+    ):
+        if not MIP_AVAILABLE:
+            raise ImportError(
+                "MILP optimizer requires python-mip package. "
+                "Install with: pip install mip"
             )
-            self._milp = MILPOptimizer(
-                position_cache=position_cache,
-                fg_prefixes=fg_prefixes,
-                bg_prefixes=bg_prefixes or [],
-                fg_seq_lengths=fg_seq_lengths,
-                bg_seq_lengths=bg_seq_lengths or [],
+        super().__init__(
+            position_cache, fg_prefixes, fg_seq_lengths,
+            bg_prefixes, bg_seq_lengths, config
+        )
+        self._milp = MILPOptimizer(
+            position_cache=position_cache,
+            fg_prefixes=fg_prefixes,
+            bg_prefixes=bg_prefixes or [],
+            fg_seq_lengths=fg_seq_lengths,
+            bg_seq_lengths=bg_seq_lengths or [],
+        )
+
+    @property
+    def name(self) -> str:
+        return "milp"
+
+    @property
+    def description(self) -> str:
+        return "Mixed Integer Linear Programming optimizer (exact, for <1000 candidates)"
+
+    def optimize(
+        self,
+        candidates: List[str],
+        target_size: Optional[int] = None,
+        **kwargs
+    ) -> OptimizationResult:
+        """Run MILP optimization."""
+        candidates = self._validate_candidates(candidates)
+        target = target_size or self.config.target_set_size
+
+        if self.config.verbose:
+            logger.info(f"Running MILP optimization: {len(candidates)} candidates")
+
+        try:
+            max_time = kwargs.get('max_time_seconds', 300)
+            primers = self._milp.optimize(
+                candidates=candidates,
+                num_primers=target,
+                max_time_seconds=max_time,
             )
 
-        @property
-        def name(self) -> str:
-            return "milp"
+            if primers is None:
+                return OptimizationResult.failure(self.name, "MILP solver failed or timed out")
 
-        @property
-        def description(self) -> str:
-            return "Mixed Integer Linear Programming optimizer (exact, for <1000 candidates)"
+            metrics = self.compute_metrics(primers)
 
-        def optimize(
-            self,
-            candidates: List[str],
-            target_size: Optional[int] = None,
-            **kwargs
-        ) -> OptimizationResult:
-            """Run MILP optimization."""
-            candidates = self._validate_candidates(candidates)
-            target = target_size or self.config.target_set_size
+            return OptimizationResult(
+                primers=tuple(primers),
+                score=metrics.fg_coverage,
+                status=OptimizationStatus.SUCCESS,
+                metrics=metrics,
+                iterations=1,
+                optimizer_name=self.name,
+                message="Optimal solution found",
+            )
 
-            if self.config.verbose:
-                logger.info(f"Running MILP optimization: {len(candidates)} candidates")
-
-            try:
-                max_time = kwargs.get('max_time_seconds', 300)
-                primers = self._milp.optimize(
-                    candidates=candidates,
-                    num_primers=target,
-                    max_time_seconds=max_time,
-                )
-
-                if primers is None:
-                    return OptimizationResult.failure(self.name, "MILP solver failed or timed out")
-
-                metrics = self.compute_metrics(primers)
-
-                return OptimizationResult(
-                    primers=tuple(primers),
-                    score=metrics.fg_coverage,
-                    status=OptimizationStatus.SUCCESS,
-                    metrics=metrics,
-                    iterations=1,
-                    optimizer_name=self.name,
-                    message="Optimal solution found",
-                )
-
-            except Exception as e:
-                logger.error(f"MILP optimization failed: {e}")
-                return OptimizationResult.failure(self.name, str(e))
+        except Exception as e:
+            logger.error(f"MILP optimization failed: {e}")
+            return OptimizationResult.failure(self.name, str(e))
 
 
 if __name__ == "__main__":

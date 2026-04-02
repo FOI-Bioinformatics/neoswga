@@ -84,6 +84,7 @@ class DominatingSetAdapter(BaseOptimizer):
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bin_size=self.ds_config.bin_size,
+            extension_reach=self.config.extension_reach,
         )
 
     @property

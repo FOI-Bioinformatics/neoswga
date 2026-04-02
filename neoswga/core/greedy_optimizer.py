@@ -339,15 +339,17 @@ class GreedyOptimizer(BaseOptimizer):
             all_new_states.sort(key=lambda s: s.score, reverse=True)
             ctx.top_states = all_new_states[:ctx.config.max_sets]
 
-            # Track best
+            # Only check convergence after sets have reached target size
+            # (don't stop building sets just because score plateaued temporarily)
+            best_set_size = max(len(s.primers) for s in ctx.top_states)
+            if best_set_size >= target_size and self._check_convergence(ctx.top_states, best_score):
+                if ctx.config.verbose:
+                    logger.info("Converged - no improvement at target size")
+                break
+
+            # Track best (after convergence check)
             if ctx.top_states[0].score > best_score:
                 best_score = ctx.top_states[0].score
-
-            # Check for convergence
-            if self._check_convergence(ctx.top_states, best_score):
-                if ctx.config.verbose:
-                    logger.info("Converged - no improvement")
-                break
 
         # Combine finished and current states
         all_states = finished_states + ctx.top_states
@@ -464,30 +466,36 @@ class GreedyOptimizer(BaseOptimizer):
         """
         Evaluate a primer set based on positions.
 
-        This is a simplified scoring function. The full implementation
-        would use the ridge regression model from optimize.py.
+        Scoring balances foreground binding density with background avoidance.
+        When background binding is zero or negligible, scoring focuses on
+        foreground density to ensure differentiation between candidates
+        (important for small genomes where selectivity is saturated).
         """
         # Calculate foreground coverage
         fg_sites = fg_positions.total_sites()
         fg_density = fg_sites / max(ctx.fg_genome.total_length, 1)
 
+        if fg_sites == 0:
+            return float('-inf')
+
         if not ctx.has_background:
-            # Foreground-only scoring
-            if fg_sites == 0:
-                return float('-inf')
             return np.log10(fg_density * 1e6)
 
         # With background: compute selectivity
         bg_sites = bg_positions.total_sites()
         bg_density = bg_sites / max(ctx.bg_genome.total_length, 1) if ctx.bg_genome else 0
 
-        if fg_sites == 0:
-            return float('-inf')
+        # When background binding is zero or negligible, focus on foreground
+        # density to maintain differentiation between candidates
+        if bg_density < 1e-8:
+            # No background binding — score purely on foreground density
+            # Add small bonus for having zero background
+            return np.log10(fg_density * 1e6) + 5.0
 
         # Selectivity ratio
-        selectivity = fg_density / max(bg_density, 1e-10)
+        selectivity = fg_density / bg_density
 
-        # Combined score (simplified)
+        # Combined score: selectivity + density (both in log space)
         score = np.log10(selectivity) + np.log10(fg_density * 1e6)
 
         return score

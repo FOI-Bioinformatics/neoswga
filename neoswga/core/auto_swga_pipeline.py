@@ -281,26 +281,21 @@ class AutoSWGAPipeline:
             logger.info(f"Confidence: {params.confidence:.0%}")
 
         # ===================================================================
-        # STEP 3: Candidate Generation (Mock - would use actual generator)
+        # STEP 3: Candidate Generation
         # ===================================================================
 
-        if verbose:
-            logger.info("\n" + "="*80)
-            logger.info("STEP 3: CANDIDATE GENERATION")
-            logger.info("="*80)
-            logger.info("Note: Using mock candidates for demonstration")
-            logger.info("Production: Would use optimal_oligo_generator with jellyfish")
-
-        # For demonstration, generate mock candidates
-        # In production, this would use OptimalOligoGenerator
-        candidates = self._generate_mock_candidates(
-            target_gc,
-            params.kmer_range,
-            count=100
+        raise NotImplementedError(
+            "The auto-pipeline candidate generation is not yet production-ready.\n"
+            "Please use the standard pipeline instead:\n\n"
+            "  neoswga init --genome target.fasta --background host.fasta\n"
+            "  neoswga count-kmers -j params.json\n"
+            "  neoswga filter -j params.json\n"
+            "  neoswga score -j params.json\n"
+            "  neoswga optimize -j params.json\n\n"
+            "The init wizard will recommend optimal parameters based on\n"
+            f"your genome's GC content ({target_gc:.1%}) and classification "
+            f"({strategy.genome_class.value})."
         )
-
-        if verbose:
-            logger.info(f"Generated {len(candidates)} candidates")
 
         # ===================================================================
         # STEP 4: Thermodynamic Filtering

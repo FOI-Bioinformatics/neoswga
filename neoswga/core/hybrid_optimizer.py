@@ -231,7 +231,8 @@ class HybridOptimizer:
             cache=position_cache,
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
-            bin_size=bin_size
+            bin_size=bin_size,
+            extension_reach=self.max_extension
         )
 
         self.network_optimizer = NetworkOptimizer(
@@ -791,6 +792,7 @@ class HybridOptimizer:
                 min_gc=self.poly_config.min_gc,
                 max_gc=self.poly_config.max_gc,
                 reaction_temp=self.poly_config.reaction_temp,
+                polymerase=self.polymerase,
             )
 
             thermo_filter = ThermodynamicFilter(criteria)

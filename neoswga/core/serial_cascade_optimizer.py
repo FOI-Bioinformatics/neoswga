@@ -89,6 +89,18 @@ class SerialCascadeOptimizer(BaseOptimizer):
             is_last = stage_idx == len(self.stages) - 1
             stage_target = target if is_last else max(target, int(target * multiplier))
 
+            # Limit candidates for expensive algorithms (clique is NP-hard)
+            max_candidates_for_method = {
+                'clique': 100,
+                'milp': 500,
+                'moea': 200,
+            }
+            limit = max_candidates_for_method.get(method)
+            if limit and len(current_candidates) > limit:
+                if self.config.verbose:
+                    logger.info(f"    Limiting {method} input to {limit} candidates (was {len(current_candidates)})")
+                current_candidates = current_candidates[:limit]
+
             if self.config.verbose:
                 logger.info(
                     f"  Stage {stage_idx + 1}/{len(self.stages)}: {method} "
@@ -126,7 +138,9 @@ class SerialCascadeOptimizer(BaseOptimizer):
             )
             total_iterations += result.iterations
 
-            if not result.is_success:
+            if not result.is_success and not result.primers:
+                # Only fail if no primers were produced at all.
+                # PARTIAL results (fewer than target) can still feed the next stage.
                 msg = f"Stage {stage_idx + 1} ({method}) failed: {result.message}"
                 logger.warning(msg)
                 return OptimizationResult.failure(self.name, msg)

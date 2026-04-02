@@ -138,9 +138,12 @@ class BackgroundAwareOptimizer:
         self.background_weight = background_weight
         self.min_coverage = min_coverage_threshold
 
-        # Create sub-optimizers
+        # Create sub-optimizers with adaptive bin_size for small genomes
+        min_genome = min(fg_seq_lengths) if fg_seq_lengths else 100000
+        bin_size = min(10000, max(100, min_genome // 10))
         self.coverage_optimizer = DominatingSetOptimizer(
-            position_cache, fg_prefixes, fg_seq_lengths
+            position_cache, fg_prefixes, fg_seq_lengths, bin_size=bin_size,
+            extension_reach=70000  # phi29 default processivity
         )
         self.network_optimizer = NetworkOptimizer(
             position_cache, fg_prefixes, bg_prefixes, fg_seq_lengths, bg_seq_lengths
@@ -337,20 +340,49 @@ class BackgroundAwareOptimizer:
 
         return current_primers, final_coverage, final_bg_sites
 
-    def _calculate_coverage(self, primers: List[str]) -> float:
-        """Calculate genome coverage for primer set."""
+    def _calculate_coverage(self, primers: List[str], extension_reach: int = 70000) -> float:
+        """Calculate genome coverage accounting for polymerase extension.
+
+        Each binding site covers a region of extension_reach bp in both
+        directions. Coverage is the fraction of the genome within reach
+        of at least one binding site.
+        """
         if not primers:
             return 0.0
 
-        covered_positions = set()
         total_genome_length = sum(self.fg_seq_lengths)
+        if total_genome_length == 0:
+            return 0.0
 
+        # Collect all binding positions
+        all_positions = []
         for primer in primers:
             positions = self.cache.get_positions(self.fg_prefixes[0], primer, 'both')
-            for pos in positions:
-                covered_positions.add(pos)
+            all_positions.extend(positions)
 
-        return len(covered_positions) / total_genome_length if total_genome_length > 0 else 0.0
+        if not all_positions:
+            return 0.0
+
+        # Merge overlapping coverage intervals
+        all_positions.sort()
+        covered = 0
+        intervals = []
+        for pos in all_positions:
+            start = max(0, pos - extension_reach)
+            end = min(total_genome_length, pos + extension_reach)
+            intervals.append((start, end))
+
+        # Merge overlapping intervals
+        intervals.sort()
+        merged = [intervals[0]]
+        for start, end in intervals[1:]:
+            if start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+
+        covered = sum(end - start for start, end in merged)
+        return min(1.0, covered / total_genome_length)
 
     def _count_background_sites(self, primers: List[str]) -> int:
         """Count total background binding sites for primer set."""

@@ -173,7 +173,7 @@ def _calculate_primer_profile(primer: PrimerMetrics, rank: int) -> PrimerProfile
     # Clamp individual components to [0, 1] to prevent negative total
     specificity_score = min(primer.specificity / 100, 1.0)
     uniformity_score = max(0.0, 1.0 - primer.gini)  # Gini is 0-1
-    amp_score = max(0.0, min(primer.amp_pred, 1.0))  # amp_pred should be 0-1
+    amp_score = max(0.0, min(primer.amp_pred, 1.0))  # amp_pred normalized to 0-1 in metrics.py
     # Strand ratio contribution: 1.0 is ideal, penalize deviation but clamp to [0, 1]
     strand_deviation = min(abs(primer.strand_ratio - 1.0), 1.0)
     strand_score = 1.0 - strand_deviation
@@ -973,8 +973,7 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
         <div class="section" id="coverage">
             <h2>3. Coverage Analysis</h2>
 
-            <p>Coverage is estimated based on primer binding sites and expected amplification
-            range of the polymerase.</p>
+            <p>{coverage_source_note}</p>
 
             <div class="metrics-grid">
                 <div class="metric-box">
@@ -1555,6 +1554,14 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
 
     # Calculate derived values
     coverage_pct = metrics.coverage.overall_coverage * 100 if metrics.coverage else 0
+    if metrics.coverage and metrics.coverage.from_optimizer:
+        coverage_source_note = (
+            "Coverage source: Measured from primer binding positions."
+        )
+    else:
+        coverage_source_note = (
+            "Coverage source: Estimated from primer count (~30kb per primer)."
+        )
     total_sites = sum(p.fg_sites for p in metrics.primers)
     # Use 0 as default to indicate missing data, consistent with metrics.py
     fg_size = metrics.parameters.get('fg_size', metrics.parameters.get('foreground_size', 0))
@@ -1620,10 +1627,36 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     else:
         secondary_structure_assessment = "High risk - significant secondary structures possible"
 
-    # Gaps (placeholder - would need position data)
-    gaps_html = """
+    # Gaps - show real data if available from optimizer, otherwise placeholder
+    if metrics.coverage and metrics.coverage.from_optimizer and metrics.coverage.mean_gap > 0:
+        mean_gap_kb = metrics.coverage.mean_gap / 1000.0
+        max_gap_kb = metrics.coverage.max_gap / 1000.0
+        gaps_html = f"""
+    <h3>Gap Analysis</h3>
+    <p>Gap statistics measured from primer binding positions across the target genome.</p>
+    <div class="info-box">
+        <div class="param-item">
+            <span class="param-label">Mean Gap</span>
+            <span class="param-value">{mean_gap_kb:.1f} kb</span>
+        </div>
+        <div class="param-item">
+            <span class="param-label">Max Gap</span>
+            <span class="param-value">{max_gap_kb:.1f} kb</span>
+        </div>
+        <div class="param-item">
+            <span class="param-label">Gap Gini</span>
+            <span class="param-value">{metrics.coverage.gap_gini:.2f} (lower is more uniform)</span>
+        </div>
+        <div class="param-item">
+            <span class="param-label">Gap Entropy</span>
+            <span class="param-value">{metrics.coverage.gap_entropy:.2f} bits</span>
+        </div>
+    </div>
+    """
+    else:
+        gaps_html = """
     <h3>Coverage Gaps</h3>
-    <p>Gap analysis requires primer position data. Run simulation for detailed gap identification.</p>
+    <p>Gap analysis requires primer position data. Run optimization to generate gap metrics.</p>
     """
 
     # Escape target/background names to prevent XSS and format string injection
@@ -1736,6 +1769,7 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         # Coverage
         coverage_pct=coverage_pct,
         coverage_class=coverage_class,
+        coverage_source_note=coverage_source_note,
         total_sites=total_sites,
         sites_per_mb=sites_per_mb,
         mean_spacing=_format_spacing(total_sites, fg_size),

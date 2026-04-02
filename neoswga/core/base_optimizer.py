@@ -182,8 +182,10 @@ class OptimizationResult:
 
         Unlike ``score`` (which varies in scale per optimizer), this value
         is always in [0,1] and comparable across different optimizer types.
+        Returns 0.0 only for ERROR or NO_CONVERGENCE status; PARTIAL
+        results with valid metrics are scored normally.
         """
-        if not self.is_success:
+        if self.status in (OptimizationStatus.ERROR, OptimizationStatus.NO_CONVERGENCE):
             return 0.0
         return self.metrics.normalized_score()
 
@@ -227,6 +229,10 @@ class OptimizerConfig:
     min_tm: float = 20.0
     max_tm: float = 50.0
     verbose: bool = True
+
+    # Polymerase-specific extension reach (bp) for coverage computation.
+    # Default 70000 (Phi29). Set from POLYMERASE_CHARACTERISTICS.
+    extension_reach: int = 70000
 
     # Convergence criteria
     convergence_threshold: float = 0.001
@@ -543,20 +549,32 @@ class BaseOptimizer(ABC):
         )
 
     def _compute_coverage(self, positions: List[int], total_length: int) -> float:
-        """Compute coverage fraction from positions."""
+        """Compute coverage fraction from positions.
+
+        Uses ``config.extension_reach`` (polymerase processivity in bp) to
+        determine how far each binding site extends along the genome.
+        Phi29 extends in both directions from the primer binding site.
+        """
         if not positions or total_length == 0:
             return 0.0
-        # Simple coverage: fraction of genome within extension distance of a site
-        extension_reach = 70000  # Phi29 processivity
-        covered = 0
-        positions = sorted(positions)
-        i = 0
-        while i < len(positions):
-            start = positions[i]
-            end = start + extension_reach
-            while i < len(positions) and positions[i] <= end:
-                i += 1
-            covered += min(end, total_length) - start
+        extension_reach = self.config.extension_reach
+
+        # Build intervals: each binding site covers [pos - reach, pos + reach]
+        intervals = []
+        for pos in sorted(positions):
+            start = max(0, pos - extension_reach)
+            end = min(total_length, pos + extension_reach)
+            intervals.append((start, end))
+
+        # Merge overlapping intervals
+        merged = [intervals[0]]
+        for start, end in intervals[1:]:
+            if start <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+            else:
+                merged.append((start, end))
+
+        covered = sum(end - start for start, end in merged)
         return min(1.0, covered / total_length)
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:

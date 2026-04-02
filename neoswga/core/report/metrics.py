@@ -16,6 +16,18 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def _normalize_amp_pred(raw_score: float) -> float:
+    """Normalize RF amplification prediction from 0-20 scale to 0-1.
+
+    The RF model (RandomForestRegressor) outputs scores on a ~0-20 scale.
+    Report modules expect 0-1 for quality display (stars, heatmaps, grades).
+    """
+    if raw_score <= 0:
+        return 0.0
+    # Model outputs ~0-20; normalize to 0-1
+    return min(1.0, raw_score / 20.0)
+
+
 def _safe_float(value: Any, default: float = 0.0) -> float:
     """
     Safely convert a value to float.
@@ -139,8 +151,10 @@ class PrimerMetrics:
             bg_sites=_safe_int(row.get('bg_count', row.get('bg_sites', 0))),
             gini=_safe_float(row.get('gini', row.get('gini_index', 0))),
             specificity=specificity,
-            amp_pred=_safe_float(row.get('amp_pred', row.get('on.target.pred', 0))),
-            dimer_score=_safe_float(row.get('dimer_score', 0)),
+            amp_pred=_normalize_amp_pred(
+                _safe_float(row.get('amp_pred', row.get('on.target.pred', 0)))
+            ),
+            dimer_score=_safe_float(row.get('dimer_score', row.get('dimer_risk_score', 0))),
             hairpin_dg=_safe_float(row.get('hairpin_dg', 0)),
             self_dimer_dg=_safe_float(row.get('self_dimer_dg', 0)),
             three_prime_stability=_safe_float(row.get('three_prime_stability', 0)),
@@ -185,6 +199,11 @@ class CoverageMetrics:
     medium_gaps: int = 0    # 20-50kb
     low_gaps: int = 0       # <20kb
     gap_locations: List[Dict] = field(default_factory=list)
+    mean_gap: float = 0.0
+    max_gap: float = 0.0
+    gap_gini: float = 0.0
+    gap_entropy: float = 0.0
+    from_optimizer: bool = False
 
 
 @dataclass
@@ -304,6 +323,19 @@ def _load_params(results_dir: Path) -> Dict[str, Any]:
         return {}
 
 
+def _load_optimizer_summary(results_path: Path) -> Optional[Dict]:
+    """Load step4 summary JSON if available."""
+    summary_file = results_path / 'step4_improved_df_summary.json'
+    if not summary_file.exists():
+        return None
+    try:
+        with open(summary_file, encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load optimizer summary: {e}")
+        return None
+
+
 def _extract_genome_info(params: Dict, prefix: str) -> Optional[GenomeInfo]:
     """Extract genome info from params or file metadata."""
     genome_file = params.get(f'{prefix}_genome', params.get(f'{prefix}', ''))
@@ -349,6 +381,7 @@ def _calculate_coverage_metrics(
             estimated_covered = min(n_primers * avg_amp_range, fg_size)
             coverage.overall_coverage = estimated_covered / fg_size
             coverage.covered_bases = int(estimated_covered)
+            logger.info("Coverage estimated from primer count (no optimizer summary available)")
 
     return coverage
 
@@ -513,6 +546,25 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         metrics.primers, metrics.parameters
     )
     metrics.uniformity = _calculate_uniformity_metrics(metrics.primers)
+
+    # Load optimizer summary for real metrics
+    optimizer_summary = _load_optimizer_summary(results_path)
+    if optimizer_summary and 'metrics' in optimizer_summary:
+        opt_metrics = optimizer_summary['metrics']
+        # Override estimated coverage with real optimizer data
+        if 'fg_coverage' in opt_metrics:
+            metrics.coverage.overall_coverage = opt_metrics['fg_coverage']
+            metrics.coverage.from_optimizer = True
+            if metrics.coverage.total_bases > 0:
+                metrics.coverage.covered_bases = int(
+                    opt_metrics['fg_coverage'] * metrics.coverage.total_bases
+                )
+        # Add gap metrics
+        metrics.coverage.mean_gap = opt_metrics.get('mean_gap', 0.0)
+        metrics.coverage.max_gap = opt_metrics.get('max_gap', 0.0)
+        metrics.coverage.gap_gini = opt_metrics.get('gap_gini', 0.0)
+        metrics.coverage.gap_entropy = opt_metrics.get('gap_entropy', 0.0)
+        logger.info("Using real optimizer metrics for coverage data")
 
     # Try to load filtering stats if available
     filter_stats_file = results_path / 'filter_stats.json'

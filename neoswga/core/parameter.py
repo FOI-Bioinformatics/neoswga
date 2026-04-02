@@ -1,8 +1,11 @@
 import os
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 from neoswga.core import utility as _utility
+
+logger = logging.getLogger(__name__)
 
 src_dir=os.path.dirname(os.path.abspath(__file__))
 
@@ -119,6 +122,13 @@ class PipelineParameters:
     excl_prefixes: List[str] = field(default_factory=list)
     excl_threshold: int = 0  # Max allowed hits in exclusion genome (0 = any hit rejects)
 
+    # Blacklist genomes (penalty-weighted filtering)
+    bl_genomes: List[str] = field(default_factory=list)
+    bl_prefixes: List[str] = field(default_factory=list)
+    bl_seq_lengths: List[int] = field(default_factory=list)
+    bl_penalty: float = 5.0
+    max_bl_freq: float = 0.0
+
     # Runtime
     cpus: int = 1
     verbose: bool = False
@@ -186,6 +196,11 @@ def get_current_config() -> PipelineParameters:
         excl_genomes=globals().get('excl_genomes', []) or [],
         excl_prefixes=globals().get('excl_prefixes', []) or [],
         excl_threshold=globals().get('excl_threshold', 0),
+        bl_genomes=globals().get('bl_genomes', []) or [],
+        bl_prefixes=globals().get('bl_prefixes', []) or [],
+        bl_seq_lengths=globals().get('bl_seq_lengths', []) or [],
+        bl_penalty=globals().get('bl_penalty', 5.0),
+        max_bl_freq=globals().get('max_bl_freq', 0.0),
         cpus=globals().get('cpus', 1),
         verbose=globals().get('verbose', False),
     )
@@ -285,6 +300,13 @@ def set_from_config(config: PipelineParameters) -> None:
     g['excl_prefixes'] = config.excl_prefixes
     g['excl_threshold'] = config.excl_threshold
 
+    # Blacklist genomes
+    g['bl_genomes'] = config.bl_genomes
+    g['bl_prefixes'] = config.bl_prefixes
+    g['bl_seq_lengths'] = config.bl_seq_lengths
+    g['bl_penalty'] = config.bl_penalty
+    g['max_bl_freq'] = config.max_bl_freq
+
     # Runtime
     g['cpus'] = config.cpus
     g['verbose'] = config.verbose
@@ -348,6 +370,13 @@ excl_genomes = []
 excl_prefixes = []
 excl_threshold = 0
 
+# Blacklist genome parameters (penalty-weighted filtering)
+bl_genomes = []
+bl_prefixes = []
+bl_seq_lengths = []
+bl_penalty = 5.0
+max_bl_freq = 0.0
+
 # GC content filtering parameters
 # gc_tolerance: adaptive filtering uses genome_gc +/- gc_tolerance
 gc_tolerance = 0.15
@@ -393,12 +422,21 @@ def get_value_or_default(arg_value, data, key):
     Returns:
         val: Returns the command line input value or the json input value if command line one wasn't entered.
     """
+    OPTIONAL_PARAMS = {
+        'src_dir', 'min_amp_pred', 'max_dimer_bp', 'max_self_dimer_bp',
+        'verbose', 'drop_iterations', 'top_set_count', 'retries',
+        'selection_metric', 'fg_circular', 'bg_circular', 'mismatch_penalty'
+    }
     if arg_value is not None:
         return arg_value
     if key in data:
         return data[key]
     else:
-        print("Please input values for " + str(key) + ".")
+        if key in OPTIONAL_PARAMS:
+            logger.debug("Missing optional parameter '%s' in params.json, using default.", key)
+        else:
+            logger.warning("Missing parameter '%s' in params.json. Please provide a value.", key)
+        return None
 
 def get_params(args):
     """
@@ -465,6 +503,11 @@ def get_params(args):
     global excl_genomes
     global excl_prefixes
     global excl_threshold
+    global bl_genomes
+    global bl_prefixes
+    global bl_seq_lengths
+    global bl_penalty
+    global max_bl_freq
 
 
     data = {}
@@ -642,6 +685,64 @@ def get_params(args):
     excl_prefixes = data.get('excl_prefixes', [])
     excl_threshold = data.get('excl_threshold', 0)
 
+    # Blacklist genome support
+    bl_genomes = data.get('bl_genomes', [])
+    bl_prefixes = data.get('bl_prefixes', [])
+    bl_seq_lengths = data.get('bl_seq_lengths', [])
+    bl_penalty = data.get('bl_penalty', 5.0)
+    max_bl_freq = data.get('max_bl_freq', 0.0)
+
+    # Resolve genome library names for bg_genomes and bl_genomes
+    try:
+        from neoswga.core.genome_library import GenomeLibrary
+        _library = GenomeLibrary()
+    except Exception as e:
+        logger.debug(f"Ignored error loading genome library: {e}")
+        _library = None
+
+    if _library is not None:
+        # Resolve background genome names
+        resolved_bg = []
+        resolved_bg_prefixes = list(bg_prefixes) if bg_prefixes else []
+        for bg in bg_genomes:
+            if not os.path.isfile(bg):
+                entry = _library.get(bg)
+                if entry:
+                    logger.info(f"Resolved '{bg}' from genome library: {entry.fasta_path}")
+                    resolved_bg.append(entry.fasta_path)
+                    if entry.kmer_prefix and entry.kmer_prefix not in resolved_bg_prefixes:
+                        resolved_bg_prefixes.append(entry.kmer_prefix)
+                else:
+                    resolved_bg.append(bg)  # Keep as-is, will fail later with clear error
+            else:
+                resolved_bg.append(bg)
+        if resolved_bg != list(bg_genomes):
+            bg_genomes = resolved_bg
+            data['bg_genomes'] = bg_genomes
+            bg_prefixes = resolved_bg_prefixes
+            data['bg_prefixes'] = bg_prefixes
+
+        # Resolve blacklist genome names
+        resolved_bl = []
+        resolved_bl_prefixes = list(bl_prefixes) if bl_prefixes else []
+        for bl in bl_genomes:
+            if not os.path.isfile(bl):
+                entry = _library.get(bl)
+                if entry:
+                    logger.info(f"Resolved '{bl}' from genome library: {entry.fasta_path}")
+                    resolved_bl.append(entry.fasta_path)
+                    if entry.kmer_prefix and entry.kmer_prefix not in resolved_bl_prefixes:
+                        resolved_bl_prefixes.append(entry.kmer_prefix)
+                else:
+                    resolved_bl.append(bl)
+            else:
+                resolved_bl.append(bl)
+        if resolved_bl != list(bl_genomes):
+            bl_genomes = resolved_bl
+            data['bl_genomes'] = bl_genomes
+            bl_prefixes = resolved_bl_prefixes
+            data['bl_prefixes'] = bl_prefixes
+
     if 'fg_genomes' in data and ('fg_seq_lengths' not in data or len(data['fg_seq_lengths']) != len(data['fg_genomes'])):
         data['fg_seq_lengths'] = _utility.get_all_seq_lengths(fname_genomes=data['fg_genomes'], cpus=data['cpus'])
 
@@ -675,8 +776,8 @@ def get_params(args):
                     data['genome_gc'] = gc_count / total_length
                 else:
                     data['genome_gc'] = None
-            except Exception:
-                # If any error occurs, leave genome_gc as None (use default GC range)
+            except Exception as e:
+                logger.debug(f"Ignored error calculating genome GC: {e}")
                 data['genome_gc'] = None
         else:
             data['genome_gc'] = None

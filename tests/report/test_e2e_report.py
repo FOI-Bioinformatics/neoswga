@@ -19,7 +19,7 @@ sys.modules.setdefault('neoswga.core', type(sys)('neoswga.core'))
 sys.modules['neoswga'].__path__ = [str(project_root / 'neoswga')]
 sys.modules['neoswga.core'].__path__ = [str(project_root / 'neoswga' / 'core')]
 
-from neoswga.core.report.metrics import collect_pipeline_metrics
+from neoswga.core.report.metrics import collect_pipeline_metrics, CoverageMetrics
 from neoswga.core.report.quality import calculate_quality_grade, QualityGrade
 from neoswga.core.report.executive_summary import (
     generate_executive_summary,
@@ -30,6 +30,10 @@ from neoswga.core.report.validation import (
     validate_results_directory,
     validate_metrics,
     ValidationLevel,
+)
+from neoswga.core.report.technical_report import (
+    collect_technical_report_data,
+    render_technical_report,
 )
 
 
@@ -139,6 +143,73 @@ class TestE2EReportGeneration:
         # Check for unclosed tags (basic check)
         assert html.count('<div') == html.count('</div>')
         assert html.count('<table>') == html.count('</table>')
+
+    def test_coverage_badge_estimated_when_no_optimizer(self, bacillus_results_dir):
+        """Coverage badge shows 'Estimated' when coverage is not from optimizer."""
+        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        # Bacillus test data has no optimizer summary, so from_optimizer is False
+        assert metrics.coverage is not None
+        assert not metrics.coverage.from_optimizer
+
+        quality = calculate_quality_grade(metrics)
+        summary = create_executive_summary(metrics, quality)
+        html = render_executive_summary(summary)
+
+        assert "Estimated" in html
+        assert "badge-estimated" in html
+
+    def test_coverage_badge_measured_when_from_optimizer(self, bacillus_results_dir):
+        """Coverage badge shows 'Measured' when coverage is from optimizer."""
+        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        # Override to simulate optimizer-provided coverage
+        metrics.coverage = CoverageMetrics(
+            overall_coverage=0.85,
+            covered_bases=3400000,
+            total_bases=4000000,
+            from_optimizer=True,
+            mean_gap=15000.0,
+            max_gap=45000.0,
+            gap_gini=0.35,
+        )
+
+        quality = calculate_quality_grade(metrics)
+        summary = create_executive_summary(metrics, quality)
+        html = render_executive_summary(summary)
+
+        assert "Measured" in html
+        assert "badge-measured" in html
+
+    def test_gap_analysis_shown_when_available(self, bacillus_results_dir):
+        """Gap analysis section appears when gap metrics are available."""
+        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics.coverage = CoverageMetrics(
+            overall_coverage=0.85,
+            covered_bases=3400000,
+            total_bases=4000000,
+            from_optimizer=True,
+            mean_gap=15000.0,
+            max_gap=45000.0,
+            gap_gini=0.35,
+        )
+
+        quality = calculate_quality_grade(metrics)
+        summary = create_executive_summary(metrics, quality)
+        html = render_executive_summary(summary)
+
+        assert "Gap Analysis" in html
+        assert "15.0 kb" in html
+        assert "45.0 kb" in html
+        assert "0.350" in html
+
+    def test_gap_analysis_hidden_when_no_data(self, bacillus_results_dir):
+        """Gap analysis section is absent when no gap data available."""
+        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        # Default coverage has mean_gap=0, so no gap section
+        quality = calculate_quality_grade(metrics)
+        summary = create_executive_summary(metrics, quality)
+        html = render_executive_summary(summary)
+
+        assert "Gap Analysis" not in html
 
 
 class TestValidation:
@@ -324,3 +395,58 @@ class TestOutputQuality:
         # Should have media queries for responsive design
         assert "@media" in html
         assert "max-width" in html
+
+
+class TestTechnicalReport:
+    """Tests for technical report generation."""
+
+    def test_technical_report_shows_coverage_source_estimated(self, bacillus_results_dir):
+        """Technical report should show coverage source annotation."""
+        data = collect_technical_report_data(str(bacillus_results_dir))
+        html = render_technical_report(data, interactive=False)
+
+        assert "Coverage source" in html
+        # Bacillus fixture has no summary JSON, so should be estimated
+        assert "Estimated" in html
+
+    def test_technical_report_shows_coverage_source_measured(self, bacillus_results_dir, tmp_path):
+        """Technical report should show 'Measured' when optimizer data exists."""
+        import json
+        import shutil
+
+        # Copy bacillus results to tmp and add summary JSON
+        dest = tmp_path / "results"
+        shutil.copytree(str(bacillus_results_dir), str(dest))
+        summary = {
+            "metrics": {
+                "fg_coverage": 0.72,
+                "mean_gap": 3500.0,
+                "max_gap": 12000.0,
+                "gap_gini": 0.35,
+                "gap_entropy": 2.1,
+            }
+        }
+        (dest / "step4_improved_df_summary.json").write_text(json.dumps(summary))
+
+        data = collect_technical_report_data(str(dest))
+        html = render_technical_report(data, interactive=False)
+
+        assert "Coverage source" in html
+        assert "Measured" in html
+        assert "Gap Analysis" in html
+        assert "3.5 kb" in html  # mean_gap / 1000
+        assert "12.0 kb" in html  # max_gap / 1000
+
+    def test_technical_report_minimal_data(self, tmp_path):
+        """Technical report generates with minimal step4 data."""
+        step4 = tmp_path / "step4_improved_df.csv"
+        step4.write_text(
+            "sequence,score,fg_freq,bg_freq,tm,gini\n"
+            "ATCGATCG,0.8,0.001,0.00001,35.0,0.2\n"
+        )
+
+        data = collect_technical_report_data(str(tmp_path))
+        html = render_technical_report(data, interactive=False)
+
+        assert "Coverage source" in html
+        assert "Estimated" in html

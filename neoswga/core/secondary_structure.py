@@ -56,7 +56,11 @@ def loop_penalty(size: int) -> float:
         return penalties[size]
     else:
         # Larger loops: Jacobson-Stockmayer logarithmic extrapolation
-        return 5.4 + 1.75 * np.log(size / 6.0)
+        # G_loop(n) = G_loop(6) + 1.75 * R * T * ln(n/6)
+        # R = 1.987 cal/(mol*K), T = 310.15 K (37C reference), convert to kcal/mol
+        R_kcal = 1.987e-3  # kcal/(mol*K)
+        T_ref = 310.15     # 37C in Kelvin (standard reference temperature)
+        return 5.4 + 1.75 * R_kcal * T_ref * np.log(size / 6.0)
 
 
 def bulge_penalty(size: int) -> float:

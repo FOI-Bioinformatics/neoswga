@@ -195,6 +195,8 @@ class SetupWizard:
         self.background_stats: Optional[Dict] = None
         self.target_path: Optional[Path] = None
         self.background_path: Optional[Path] = None
+        self.blacklist_paths: List[Path] = []
+        self.blacklist_stats: List[Dict] = []
 
         # Recommendations
         self.gc_class: Optional[str] = None
@@ -350,6 +352,74 @@ class SetupWizard:
         print(f"  GC content: {self.background_stats['gc_content']:.1%}")
 
         return {'stats': self.background_stats}
+
+    def analyze_blacklist(self, genome_paths: List[str]) -> List[Dict]:
+        """Analyze blacklist genome(s).
+
+        Args:
+            genome_paths: Paths to blacklist genome FASTA files.
+
+        Returns:
+            List of dictionaries with blacklist genome stats.
+        """
+        results = []
+        for genome_path in genome_paths:
+            path = Path(genome_path)
+            if not path.exists():
+                raise FileNotFoundError(f"Blacklist genome not found: {genome_path}")
+
+            print(f"\nAnalyzing blacklist genome: {path.name}")
+            print("-" * 50)
+
+            stats = calculate_genome_stats(path)
+            self.blacklist_paths.append(path)
+            self.blacklist_stats.append(stats)
+
+            print(f"  Length:     {format_bp(stats['length'])}")
+            print(f"  Contigs:    {stats['n_contigs']}")
+            print(f"  GC content: {stats['gc_content']:.1%}")
+
+            results.append({'stats': stats})
+
+        return results
+
+    def suggest_from_library(self) -> None:
+        """Check if genomes match library entries and suggest pre-calculated data."""
+        try:
+            from neoswga.core.genome_library import GenomeLibrary
+            library = GenomeLibrary()
+            entries = library.list()
+        except Exception:
+            return
+
+        if not entries:
+            return
+
+        print("\nGenome library check:")
+        found = False
+
+        # Check background
+        if self.background_path:
+            bg_stem = self.background_path.stem
+            for entry in entries:
+                if entry.name == bg_stem or bg_stem in entry.name:
+                    print(f"  [OK] Background '{bg_stem}' found in library as '{entry.name}'")
+                    print(f"       Pre-calculated k-mers available (saves computation time)")
+                    found = True
+                    break
+
+        # Check blacklist
+        for bl_path in self.blacklist_paths:
+            bl_stem = bl_path.stem
+            for entry in entries:
+                if entry.name == bl_stem or bl_stem in entry.name:
+                    print(f"  [OK] Blacklist '{bl_stem}' found in library as '{entry.name}'")
+                    found = True
+                    break
+
+        if not found:
+            print("  No matching pre-calculated genomes found")
+            print("  Tip: Use 'neoswga genome-add <name> <fasta>' to pre-calculate for reuse")
 
     def prompt_overrides(self) -> None:
         """
@@ -522,6 +592,15 @@ class SetupWizard:
             config['bg_genomes'] = [str(self.background_path.resolve())]
             config['bg_prefixes'] = [str(Path(output_dir) / self.background_path.stem)]
 
+        # Add blacklist if provided
+        if self.blacklist_paths:
+            config['bl_genomes'] = [str(p.resolve()) for p in self.blacklist_paths]
+            config['bl_prefixes'] = [
+                str(Path(output_dir) / f"bl_{p.stem}") for p in self.blacklist_paths
+            ]
+            config['bl_penalty'] = 5.0
+            config['max_bl_freq'] = 0.0
+
         return config
 
     def write_params(self, output_path: str, output_dir: str = 'results') -> Path:
@@ -563,6 +642,9 @@ class SetupWizard:
         print(f"GC content:       {self.target_stats['gc_content']:.1%} ({self.gc_class})")
         if self.background_path:
             print(f"Background:       {self.background_path.name}")
+        if self.blacklist_paths:
+            bl_names = ', '.join(p.name for p in self.blacklist_paths)
+            print(f"Blacklist:        {bl_names}")
         print()
         print(f"Polymerase:       {polymerase.upper()}")
         print(f"Temperature:      {self.recommended_temp if polymerase == 'equiphi29' else 30.0}C")
@@ -578,6 +660,7 @@ class SetupWizard:
 def run_wizard(
     genome_path: str,
     background_path: Optional[str] = None,
+    blacklist_paths: Optional[List[str]] = None,
     output_path: str = 'params.json',
     output_dir: str = 'results',
     interactive: bool = True,
@@ -590,6 +673,7 @@ def run_wizard(
     Args:
         genome_path: Path to target genome FASTA
         background_path: Optional path to background genome
+        blacklist_paths: Optional list of paths to blacklist genomes
         output_path: Path for params.json output
         output_dir: Directory for pipeline outputs
         interactive: Whether to prompt for input
@@ -617,7 +701,7 @@ def run_wizard(
             cont = input("\nContinue anyway? [y/N]: ").strip().lower()
             if cont != 'y':
                 print("Aborted. Please install Jellyfish first.")
-                sys.exit(1)
+                raise RuntimeError("Jellyfish not found in PATH")
 
     # Check genome file
     if Path(genome_path).exists():
@@ -631,6 +715,14 @@ def run_wizard(
             print(f"  [OK] Background genome found: {background_path}")
         else:
             raise FileNotFoundError(f"Background genome not found: {background_path}")
+
+    # Check blacklist files
+    if blacklist_paths:
+        for bl_path in blacklist_paths:
+            if Path(bl_path).exists():
+                print(f"  [OK] Blacklist genome found: {bl_path}")
+            else:
+                raise FileNotFoundError(f"Blacklist genome not found: {bl_path}")
 
     # Check output path
     output_path_obj = Path(output_path)
@@ -649,6 +741,12 @@ def run_wizard(
 
     if background_path:
         wizard.analyze_background(background_path)
+
+    if blacklist_paths:
+        wizard.analyze_blacklist(blacklist_paths)
+
+    # Check genome library for suggestions
+    wizard.suggest_from_library()
 
     # Get user input
     if interactive:

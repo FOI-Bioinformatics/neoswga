@@ -13,6 +13,7 @@ diverse primer combinations.
 
 import numpy as np
 import random
+import time
 import warnings
 from typing import List, Dict, Tuple, Optional, Callable
 from dataclasses import dataclass
@@ -37,6 +38,7 @@ class GAConfig:
     max_set_size: int = 8
     max_dimer_severity: float = 0.5
     n_processes: int = None  # None = use all CPUs
+    seed: Optional[int] = None  # Random seed for reproducibility
 
 
 @dataclass
@@ -80,7 +82,6 @@ class PrimerSetGA:
             config: GA configuration
             position_cache: Optional PositionCache for position lookups
         """
-        self.primer_pool = primer_pool
         self.fg_prefixes = fg_prefixes
         self.bg_prefixes = bg_prefixes if bg_prefixes else []
         self.fg_lengths = fg_lengths
@@ -94,8 +95,19 @@ class PrimerSetGA:
         if self.config.n_processes is None:
             self.config.n_processes = multiprocessing.cpu_count()
 
+        # Pre-filter large candidate pools to limit O(n^2) dimer matrix cost
+        _MAX_DIMER_POOL = 200
+        if len(primer_pool) > _MAX_DIMER_POOL and position_cache is not None:
+            primer_pool = self._prefilter_by_selectivity(
+                primer_pool, _MAX_DIMER_POOL
+            )
+        elif len(primer_pool) > _MAX_DIMER_POOL:
+            primer_pool = primer_pool[:_MAX_DIMER_POOL]
+
+        self.primer_pool = primer_pool
+
         # Precompute dimer matrix for primer pool
-        print("Precomputing dimer matrix...")
+        print(f"Precomputing dimer matrix for {len(primer_pool)} primers...")
         self.dimer_matrix = ss.calculate_dimer_matrix(
             primer_pool, conditions
         )
@@ -108,16 +120,53 @@ class PrimerSetGA:
         self.generation_stats = []
         self.best_individual_history = []
 
-    def evolve(self, verbose: bool = True) -> Individual:
+    def _prefilter_by_selectivity(self, primers: List[str], max_count: int) -> List[str]:
+        """Pre-filter primers by selectivity ratio (fg/bg binding) to limit pool size."""
+        scores = []
+        for p in primers:
+            fg_count = 0
+            bg_count = 0
+            for prefix in self.fg_prefixes:
+                try:
+                    fw = self.position_cache.get_positions(prefix, p, 'forward')
+                    rv = self.position_cache.get_positions(prefix, p, 'reverse')
+                    fg_count += len(fw) + len(rv)
+                except (KeyError, Exception) as e:
+                    logger.debug(f"Ignored error getting fg positions for {p}: {e}")
+            for prefix in self.bg_prefixes:
+                try:
+                    fw = self.position_cache.get_positions(prefix, p, 'forward')
+                    rv = self.position_cache.get_positions(prefix, p, 'reverse')
+                    bg_count += len(fw) + len(rv)
+                except (KeyError, Exception) as e:
+                    logger.debug(f"Ignored error getting bg positions for {p}: {e}")
+            selectivity = fg_count / (bg_count + 1) if fg_count > 0 else 0
+            scores.append((selectivity, p))
+        scores.sort(reverse=True)
+        filtered = [p for _, p in scores[:max_count]]
+        print(f"Pre-filtered {len(primers)} -> {len(filtered)} primers by selectivity")
+        return filtered
+
+    def evolve(self, verbose: bool = True, timeout: float = 0) -> Individual:
         """
         Run genetic algorithm evolution.
 
         Args:
             verbose: Print progress
+            timeout: Maximum wall-clock seconds (0 = unlimited)
 
         Returns:
             Best individual found
         """
+        start_time = time.time()
+
+        # Set random seeds for reproducibility
+        if self.config.seed is not None:
+            random.seed(self.config.seed)
+            np.random.seed(self.config.seed)
+            if verbose:
+                print(f"Random seed set to {self.config.seed} for reproducibility")
+
         # Initialize population
         population = self._initialize_population()
 
@@ -129,15 +178,25 @@ class PrimerSetGA:
             print(f"  Crossover rate: {self.config.crossover_rate:.2%}")
             print(f"  Elitism: {self.config.elitism_fraction:.1%}")
             print(f"  Processes: {self.config.n_processes}")
+            if timeout > 0:
+                print(f"  Timeout: {timeout:.0f}s")
             print()
 
         # Evaluate initial population
         population = self._evaluate_population(population)
 
         best_overall = max(population, key=lambda x: x.fitness)
+        timed_out = False
 
         # Evolution loop
         for generation in range(self.config.generations):
+            # Check timeout
+            if timeout > 0 and (time.time() - start_time) > timeout:
+                if verbose:
+                    print(f"Timeout ({timeout:.0f}s) reached at generation {generation}")
+                timed_out = True
+                break
+
             # Selection
             parents = self._select_parents(population)
 
@@ -195,12 +254,15 @@ class PrimerSetGA:
                       f"Mean={stats['mean_fitness']:.4f}±{stats['std_fitness']:.4f}, "
                       f"Primers={len(generation_best.primers)}")
 
+        elapsed = time.time() - start_time
         if verbose:
-            print(f"\nEvolution complete!")
+            status = "timed out" if timed_out else "complete"
+            print(f"\nEvolution {status} in {elapsed:.1f}s")
             print(f"Best fitness: {best_overall.fitness:.4f}")
             print(f"Best primer set: {best_overall.primers}")
             print(f"Metrics: {best_overall.metrics}")
 
+        best_overall.timed_out = timed_out
         return best_overall
 
     def _initialize_population(self) -> List[Individual]:
@@ -472,18 +534,33 @@ class PrimerSetGA:
         Returns:
             Two offspring
         """
-        # Combine primer pools
+        # Combine primer pools from both parents
         all_primers = list(set(parent1.primers + parent2.primers))
 
         # Random sizes for offspring
         size1 = random.randint(self.config.min_set_size, self.config.max_set_size)
         size2 = random.randint(self.config.min_set_size, self.config.max_set_size)
 
-        # Randomly select primers, ensuring dimer compatibility
-        child1_primers = self._random_compatible_set(min(size1, len(all_primers)))
-        child2_primers = self._random_compatible_set(min(size2, len(all_primers)))
+        # Select from combined parent primers, with dimer compatibility check
+        # Falls back to full pool only if parent primers are insufficient
+        child1_primers = self._select_from_pool(all_primers, min(size1, len(all_primers)))
+        child2_primers = self._select_from_pool(all_primers, min(size2, len(all_primers)))
 
         return Individual(primers=child1_primers), Individual(primers=child2_primers)
+
+    def _select_from_pool(self, pool: List[str], size: int, max_attempts: int = 50) -> List[str]:
+        """Select a dimer-compatible primer set from a given pool.
+
+        Tries to build a set from the provided pool first. Only falls back
+        to the full primer_pool if the given pool is too small.
+        """
+        source = pool if len(pool) >= size else self.primer_pool
+        for _ in range(max_attempts):
+            primer_set = random.sample(source, min(size, len(source)))
+            if self._check_dimer_compatibility(primer_set):
+                return primer_set
+        # Fallback: return best-effort sample from the source pool
+        return random.sample(source, min(size, len(source)))
 
     def _mutate(self, individual: Individual) -> Individual:
         """
@@ -608,11 +685,13 @@ class GeneticBaseOptimizer(BaseOptimizer):
             bg_prefixes, bg_seq_lengths, config
         )
         self.conditions = conditions
+        max_gen = min(50, config.max_iterations) if config else 50
         self.ga_config = GAConfig(
-            population_size=kwargs.get('population_size', 100),
-            generations=config.max_iterations if config else 100,
+            population_size=kwargs.get('population_size', 50),
+            generations=max_gen,
             min_set_size=max(4, (config.target_set_size if config else 6) - 2),
             max_set_size=(config.target_set_size if config else 6) + 2,
+            seed=kwargs.get('seed', 42),
         )
 
     @property
@@ -656,19 +735,29 @@ class GeneticBaseOptimizer(BaseOptimizer):
                 position_cache=self.cache,
             )
 
-            # Run evolution
-            best = ga.evolve(verbose=self.config.verbose)
+            # Run evolution with 60s timeout
+            _GA_TIMEOUT = 60
+            best = ga.evolve(verbose=self.config.verbose, timeout=_GA_TIMEOUT)
 
             primers = best.primers
             metrics = self.compute_metrics(primers)
 
+            timed_out = getattr(best, 'timed_out', False)
+            if not primers:
+                status = OptimizationStatus.NO_CONVERGENCE
+            elif timed_out:
+                status = OptimizationStatus.PARTIAL
+            else:
+                status = OptimizationStatus.SUCCESS
+
             return OptimizationResult(
                 primers=tuple(primers),
                 score=best.fitness,
-                status=OptimizationStatus.SUCCESS if primers else OptimizationStatus.NO_CONVERGENCE,
+                status=status,
                 metrics=metrics,
-                iterations=self.ga_config.generations,
+                iterations=len(ga.generation_stats),
                 optimizer_name=self.name,
+                message="Timeout: returning best result found" if timed_out else "",
             )
 
         except Exception as e:

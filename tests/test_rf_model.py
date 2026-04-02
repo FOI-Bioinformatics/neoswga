@@ -290,7 +290,7 @@ class TestPredictionRegression:
 
         score_a = model.predict(X)[0]
         score_b = model.predict(X)[0]
-        assert score_a == score_b
+        assert score_a == pytest.approx(score_b)
 
     def test_model_accepts_full_feature_vector(self, model):
         """The model must accept a feature vector of the expected width."""

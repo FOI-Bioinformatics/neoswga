@@ -283,12 +283,16 @@ class BackgroundBloomFilter:
     def load(cls, path: str) -> 'BackgroundBloomFilter':
         """Load Bloom filter from disk"""
         logger.info(f"Loading Bloom filter from {path}")
-        logger.warning(
-            f"Loading pickle file from {path}. "
-            "Only load files from trusted sources."
-        )
-        with open(path, 'rb') as f:
-            data = pickle.load(f)
+        try:
+            from neoswga.core.safe_pickle import safe_load
+            data = safe_load(path, context='bloom_filter')
+        except Exception as e:
+            logger.warning(
+                f"Restricted unpickling failed ({e}), falling back to standard load. "
+                "Only load files from trusted sources."
+            )
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
 
         instance = cls.__new__(cls)
         instance.bloom = data['bloom']
@@ -399,8 +403,13 @@ class SampledGenomeIndex:
     @classmethod
     def load(cls, path: str) -> 'SampledGenomeIndex':
         """Load index from disk"""
-        with open(path, 'rb') as f:
-            data = pickle.load(f)
+        try:
+            from neoswga.core.safe_pickle import safe_load
+            data = safe_load(path, context='bloom_filter')
+        except Exception:
+            logger.warning("Restricted unpickling failed, using standard load")
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
 
         instance = cls(sample_rate=data['sample_rate'])
         instance.kmers = defaultdict(int, data['kmers'])

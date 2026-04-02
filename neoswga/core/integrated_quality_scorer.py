@@ -197,7 +197,10 @@ class IntegratedQualityScorer:
         else:
             self.three_prime_analyzer = create_three_prime_analyzer(stringency, conditions)
 
-        # Set scoring weights
+        # Primer selection weights emphasize dimer avoidance and 3' stability,
+        # which are the primary causes of SWGA failure at the primer level.
+        # This is distinct from report/quality.py which weights pipeline results
+        # by coverage (35%) and specificity (30%) for grading experimental outcomes.
         if weights is None:
             self.weights = {
                 'dimer': 0.35,

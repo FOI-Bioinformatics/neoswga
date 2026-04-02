@@ -1,12 +1,20 @@
 """
 Quality grading system for SWGA primer sets.
 
-Provides letter grades (A-F) based on weighted metrics:
-- Coverage (35%)
-- Specificity (30%)
-- Uniformity (20%)
-- Thermodynamics (10%)
-- Dimer Risk (5%)
+Grades pipeline RESULTS using weighted metrics that emphasize experimental
+outcome quality (coverage, specificity, uniformity):
+- Coverage (35%) - fraction of target genome covered
+- Specificity (30%) - target/background enrichment ratio
+- Uniformity (20%) - evenness of primer binding distribution
+- Thermodynamics (10%) - Tm consistency across primers
+- Dimer Risk (5%) - worst primer-primer interaction energy
+
+Note: This is distinct from the individual primer quality scorer
+(integrated_quality_scorer.py) which uses different weights optimized
+for evaluating primer candidates during selection (dimer=35%, 3'=25%,
+strand=20%, thermo=15%, complexity=5%). The different weight profiles
+reflect the different evaluation contexts: primer selection prioritizes
+dimer avoidance, while result grading prioritizes coverage and specificity.
 """
 
 from dataclasses import dataclass

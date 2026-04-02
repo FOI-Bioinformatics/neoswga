@@ -125,6 +125,7 @@ def validate_results_directory(path: str) -> ValidationResult:
         ("step2_df.csv", "Filtering statistics may be incomplete"),
         ("filter_stats.json", "Filter funnel data will not be shown"),
         ("params.json", "Parameter information will not be shown"),
+        ("step4_improved_df_summary.json", "Coverage will be estimated rather than measured"),
     ]
     for fname, note in optional_files:
         # Check in results dir and parent
@@ -214,6 +215,19 @@ def validate_metrics(metrics: PipelineMetrics) -> ValidationResult:
                 f"High dimer risk detected (dG = {worst_dimer:.1f} kcal/mol)",
                 "dimer_risk"
             )
+
+    # Check coverage data source
+    if metrics.coverage and not metrics.coverage.from_optimizer:
+        result.add_warning(
+            "Coverage is estimated (no optimizer summary found). "
+            "Run optimization step to generate accurate coverage data.",
+            "coverage"
+        )
+    elif metrics.coverage and metrics.coverage.from_optimizer:
+        result.add_info(
+            "Using measured coverage from optimizer output",
+            "coverage"
+        )
 
     return result
 

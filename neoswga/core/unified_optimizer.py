@@ -19,6 +19,7 @@ Usage:
     )
 """
 
+import json
 import os
 import logging
 import threading
@@ -26,7 +27,7 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import List, Dict, Tuple, Optional, Any
 
-from .base_optimizer import OptimizationResult, OptimizerConfig
+from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
 from .position_cache import PositionCache
 from .progress import progress_context
@@ -280,6 +281,17 @@ def run_optimization(
         step3_df = pd.read_csv(step3_path)
         candidates = step3_df['primer'].tolist()
 
+    # Set global random seed if provided (ensures reproducibility across all
+    # optimizer components, not just those that accept a seed parameter)
+    seed = kwargs.get('seed')
+    if seed is not None:
+        import random
+        import numpy as np
+        random.seed(seed)
+        np.random.seed(seed)
+        if verbose:
+            logger.info(f"Random seed set to {seed} for reproducibility")
+
     if verbose:
         logger.info(f"Running {method} optimization")
         logger.info(f"  Candidates: {len(candidates)}")
@@ -298,11 +310,20 @@ def run_optimization(
             verbose=verbose,
         )
 
+    # Determine polymerase extension reach for coverage computation
+    polymerase = kwargs.get('polymerase', 'phi29')
+    try:
+        from .reaction_conditions import get_polymerase_processivity
+        extension_reach = get_polymerase_processivity(polymerase)
+    except (ImportError, ValueError):
+        extension_reach = 70000  # Phi29 default
+
     # Build optimizer config
     config = OptimizerConfig(
         target_set_size=target_size,
         max_iterations=kwargs.get('max_iterations', 100),
         verbose=verbose,
+        extension_reach=extension_reach,
     )
 
     # Create optimizer via factory
@@ -330,6 +351,22 @@ def run_optimization(
             logger.info(f"Selected {result.num_primers} primers")
             logger.info(f"Coverage: {result.metrics.fg_coverage:.1%}")
             logger.info(f"Score: {result.score:.4f}")
+        elif result.status == OptimizationStatus.PARTIAL:
+            if result.num_primers < target_size:
+                logger.warning(
+                    f"PARTIAL result: found {result.num_primers} primers "
+                    f"but target was {target_size}"
+                )
+            else:
+                logger.warning(
+                    f"PARTIAL result: found {result.num_primers} primers "
+                    f"but genome coverage is below threshold"
+                )
+            logger.warning("Suggestions to improve results:")
+            logger.warning("  - Relax filtering thresholds (increase max_bg_freq or max_gini)")
+            logger.warning("  - Widen the k-mer range (decrease min_k or increase max_k)")
+            logger.warning("  - Increase the candidate pool (raise max_primer in filter step)")
+            logger.warning(f"  - Try a different optimizer (current: {method})")
         else:
             logger.warning(f"Optimization failed: {result.message}")
 
@@ -375,24 +412,95 @@ def save_results(
         logger.warning("No primers to save")
         return
 
-    # Build results DataFrame
+    # Build results DataFrame with set-level aggregate metrics
+    metrics = result.metrics
     records = []
     for primer in result.primers:
         records.append({
             'primer': primer,
             'set_index': 0,
             'score': result.score,
-            'coverage': result.metrics.fg_coverage,
-            'bg_coverage': result.metrics.bg_coverage,
-            'selectivity': result.metrics.selectivity_ratio,
-            'mean_gap': result.metrics.mean_gap,
+            'normalized_score': result.normalized_score,
+            'coverage': metrics.fg_coverage,
+            'bg_coverage': metrics.bg_coverage,
+            'selectivity': metrics.selectivity_ratio,
+            'mean_gap': metrics.mean_gap,
+            'max_gap': metrics.max_gap,
+            'coverage_uniformity': metrics.coverage_uniformity,
+            'gap_gini': metrics.gap_gini,
+            'gap_entropy': metrics.gap_entropy,
+            'dimer_risk_score': metrics.dimer_risk_score,
+            'strand_alternation': metrics.strand_alternation_score,
+            'strand_coverage_ratio': metrics.strand_coverage_ratio,
+            'mean_tm': metrics.mean_tm,
             'optimizer': result.optimizer_name,
         })
 
     df = pd.DataFrame(records)
     df.to_csv(output_path, index=False)
-
     logger.info(f"Results saved to {output_path}")
+
+    # Write summary JSON alongside CSV
+    summary_path = os.path.splitext(output_path)[0] + '_summary.json'
+    try:
+        summary = result.to_dict()
+        with open(summary_path, 'w') as f:
+            json.dump(summary, f, indent=2, default=str)
+        logger.info(f"Summary saved to {summary_path}")
+    except Exception as e:
+        logger.warning(f"Could not write summary JSON: {e}")
+
+    # Write audit trail for reproducibility
+    _write_audit_trail(output_path, result)
+
+
+def _write_audit_trail(output_path: str, result: OptimizationResult) -> None:
+    """Write run metadata alongside pipeline results for reproducibility.
+
+    Creates a JSON file with version, timestamp, parameters hash, and
+    optimizer configuration so that results can be traced back to the
+    exact conditions that produced them.
+    """
+    from datetime import datetime, timezone
+    import hashlib
+
+    audit_path = os.path.splitext(output_path)[0] + '_audit.json'
+    try:
+        # Collect parameters hash
+        params_dict = {}
+        for attr in ['fg_genomes', 'bg_genomes', 'min_k', 'max_k',
+                      'min_fg_freq', 'max_bg_freq', 'max_gini',
+                      'num_primers', 'target_set_size', 'polymerase',
+                      'reaction_temp', 'na_conc', 'mg_conc']:
+            val = getattr(parameter, attr, None)
+            if val is not None:
+                params_dict[attr] = str(val)
+
+        params_str = json.dumps(params_dict, sort_keys=True)
+        params_hash = hashlib.sha256(params_str.encode()).hexdigest()[:16]
+
+        try:
+            from neoswga import __version__
+            version = __version__
+        except ImportError:
+            version = 'unknown'
+
+        audit = {
+            'neoswga_version': version,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'params_hash': params_hash,
+            'optimizer': result.optimizer_name,
+            'num_primers': result.num_primers,
+            'score': float(result.score) if result.score else None,
+            'status': result.status.value if result.status else None,
+            'parameters': params_dict,
+        }
+
+        with open(audit_path, 'w') as f:
+            json.dump(audit, f, indent=2)
+        logger.info(f"Audit trail saved to {audit_path}")
+    except Exception as e:
+        logger.debug(f"Could not write audit trail: {e}")
 
 
 def _simulation_rescore(
@@ -506,9 +614,11 @@ def optimize_step4(
     """
     _ensure_optimizers_registered()
 
-    # Get target size from parameters
-    target_size = getattr(parameter, 'num_primers', 6)
-    target_size = getattr(parameter, 'target_set_size', target_size)
+    # Get target size: prefer explicit kwarg, then parameter module, then default
+    target_size = kwargs.pop('target_size', None)
+    if target_size is None:
+        target_size = getattr(parameter, 'num_primers', 6)
+        target_size = getattr(parameter, 'target_set_size', target_size)
 
     if verbose:
         logger.info(f"Unified optimizer: method={optimization_method}")
@@ -548,7 +658,7 @@ def optimize_step4(
             logger.info(f"  Simulation fitness: {sim_results['simulation_fitness']:.3f}")
 
     # Convert to legacy format
-    if result.is_success:
+    if result.is_success or (result.status == OptimizationStatus.PARTIAL and result.primers):
         primer_sets = [list(result.primers)]
         scores = [result.score]
 

@@ -210,8 +210,8 @@ class MultiAgentOrchestrator:
         """Cleanup executor on garbage collection."""
         try:
             self.shutdown(wait=False)
-        except Exception:
-            pass  # Ignore errors during cleanup
+        except Exception as e:
+            logger.debug(f"Ignored error during executor cleanup: {e}")
 
     def __enter__(self):
         """Context manager entry."""
@@ -568,8 +568,8 @@ class MultiAgentOrchestrator:
                 tm_spread = max(tms) - min(tms)
                 if tm_spread > 10:
                     warnings.append(f"Tm spread {tm_spread}C")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Ignored error during Tm spread check: {e}")
 
         if warnings:
             new_msg = result.message + " | WARNINGS: " + "; ".join(warnings)

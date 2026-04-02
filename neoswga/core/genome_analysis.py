@@ -677,7 +677,7 @@ if __name__ == "__main__":
         print("  - Francisella (32% GC, AT-rich)")
         print("  - E. coli (50% GC, balanced)")
         print("  - Burkholderia (67% GC, GC-rich)")
-        sys.exit(1)
+        raise SystemExit(1)
 
     print("="*80)
     print("GENOME SUITABILITY ANALYSIS FOR SWGA")

@@ -234,8 +234,8 @@ def filter_extra(primer: str) -> bool:
     # Use effective Tm that accounts for additives (DMSO, betaine, etc.)
     conditions = _get_reaction_conditions()
     primer_tm = conditions.calculate_effective_tm(primer)
-    tm_min = getattr(parameter, 'min_tm', 15)
-    tm_max = getattr(parameter, 'max_tm', 55)
+    tm_min = getattr(parameter, 'min_tm', None) or 15
+    tm_max = getattr(parameter, 'max_tm', None) or 55
     if not (tm_min <= primer_tm <= tm_max):
         logger.debug(f"Tm filter: {primer} effective Tm={primer_tm:.1f} outside [{tm_min}, {tm_max}]")
         return False

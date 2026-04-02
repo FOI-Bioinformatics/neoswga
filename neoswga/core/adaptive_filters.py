@@ -131,8 +131,9 @@ class ThermodynamicFilter:
             at_count = len(seq) - gc_count
             tm_basic = 2 * at_count + 4 * gc_count
 
-            # Salt correction (von Ahsen et al.)
-            salt_factor = 16.6 * np.log10(self.na_conc / 1000.0)  # mM to M
+            # Salt correction using SantaLucia (1998) coefficient for oligonucleotides
+            # 12.5 is appropriate for primers (6-30 bp); 16.6 is for long DNA polymers
+            salt_factor = 12.5 * np.log10(self.na_conc / 1000.0)  # mM to M
 
             return tm_basic + salt_factor
         else:
@@ -456,23 +457,19 @@ def run_step2_with_adaptive_gc(gc_tolerance: float = 0.15):
     """
     Run filter with adaptive GC filtering instead of fixed thresholds.
 
-    This is a drop-in replacement that wraps the original filter
-    but replaces the GC filter with an adaptive one.
+    Rather than monkey-patching filter_extra, this sets adaptive GC bounds
+    on the parameter module so that the existing filter.py code uses them
+    directly. The original parameter values are restored after filtering.
 
     Args:
-        gc_tolerance: GC tolerance (default: ±15%)
+        gc_tolerance: GC tolerance (default: +/-15%)
     """
     import neoswga.core.parameter as parameter
-    import neoswga.core.filter
-    import pandas as pd
     import os
-
-    logger.info("Running filter with adaptive GC filtering")
-
-    # Read parameters from JSON file to get genome paths
-    # We need to read directly since get_params() hasn't been called yet
     import json
     import sys
+
+    logger.info("Running filter with adaptive GC filtering")
 
     # Find JSON file from sys.argv or use params.json
     json_file = None
@@ -494,100 +491,41 @@ def run_step2_with_adaptive_gc(gc_tolerance: float = 0.15):
     # Get genome path
     fg_genomes = params_data.get('fg_genomes', [])
     if not fg_genomes or len(fg_genomes) == 0:
-        raise ValueError("No target genome specified in params.json. Cannot compute adaptive GC thresholds.")
+        raise ValueError(
+            "No target genome specified in params.json. "
+            "Cannot compute adaptive GC thresholds."
+        )
 
     fg_genome = fg_genomes[0]
 
-    # Create adaptive filter
+    # Compute adaptive GC thresholds from genome composition
     logger.info(f"Computing adaptive GC thresholds from {fg_genome}")
-    pipeline = AdaptiveFilterPipeline(fg_genome, gc_tolerance=gc_tolerance)
-    thresholds = pipeline.get_thresholds()
+    adaptive_pipeline = AdaptiveFilterPipeline(fg_genome, gc_tolerance=gc_tolerance)
+    thresholds = adaptive_pipeline.get_thresholds()
 
-    # Access dataclass attributes, not dictionary keys
-    genome_gc = pipeline.gc_filter.genome_gc
+    genome_gc = adaptive_pipeline.gc_filter.genome_gc
     logger.info(f"Genome GC: {genome_gc:.3f}")
-    logger.info(f"GC range: {thresholds.gc_min:.3f}-{thresholds.gc_max:.3f}")
-    logger.info(f"Old fixed range: 0.375-0.625")
+    logger.info(f"Adaptive GC range: {thresholds.gc_min:.3f}-{thresholds.gc_max:.3f}")
+    logger.info(f"Default fixed range: 0.375-0.625")
 
-    # Monkey-patch filter_extra to use adaptive GC thresholds
-    original_filter_extra = neoswga.core.filter.filter_extra
-    gc_min = thresholds.gc_min
-    gc_max = thresholds.gc_max
+    # Save original parameter values so they can be restored
+    original_gc_min = getattr(parameter, 'gc_min', 0.375)
+    original_gc_max = getattr(parameter, 'gc_max', 0.625)
 
-    def adaptive_filter_extra(primer):
-        """Wraps filter_extra with adaptive GC thresholds"""
-        from collections import Counter
-        import neoswga.core.parameter as parameter
-        import neoswga.core.dimer as dimer
-        from neoswga.core.melting_temp import temp as _melting_temp
-
-        primer_tm = _melting_temp(primer)
-        if primer_tm > 45 or primer_tm < 15:
-            return False
-
-        # Rule 5: No runs of 5+ nucleotides
-        if 'GGGGG' in primer or 'CCCCC' in primer or 'AAAAA' in primer or 'TTTTT' in primer:
-            return False
-
-        # Rule 2: GC content (ADAPTIVE - replaces fixed 0.375-0.625)
-        all_cnt = Counter(primer)
-        gc_count = all_cnt.get('G', 0) + all_cnt.get('C', 0)
-        GC_content = gc_count / float(len(primer))
-        if GC_content <= gc_min or GC_content >= gc_max:
-            return False
-
-        # Rule 3: GC clamp (1-3 G/C in last 5 bases)
-        last_five_count = Counter(primer[-5:])
-        gc_last5 = last_five_count.get('G', 0) + last_five_count.get('C', 0)
-        if gc_last5 > 3 or gc_last5 == 0:
-            return False
-
-        # Rule 1: No 3 G/C at 3' end
-        last_three_count = Counter(primer[-3:])
-        if last_three_count.get('G', 0) + last_three_count.get('C', 0) == 3:
-            return False
-
-        # Rule 4: Check dinucleotide repeats
-        if len(primer) >= 10:
-            more_than_5 = [nucleo for nucleo, count in all_cnt.items() if count >= 5]
-            if len(more_than_5) > 1:
-                # Check all dinucleotide repeat patterns
-                repeats = ['ATATATATAT', 'TATATATATA', 'AGAGAGAGAG', 'GAGAGAGAGA',
-                          'ACACACACAC', 'CACACACACA', 'TCTCTCTCTC', 'CTCTCTCTCT',
-                          'GTGTGTGTGT', 'TGTGTGTGTG', 'CGCGCGCGCG', 'GCGCGCGCGC']
-                if any(repeat in primer for repeat in repeats):
-                    return False
-
-        # Self-dimer check
-        if dimer.is_dimer_fast(primer, primer, parameter.max_self_dimer_bp):
-            return False
-
-        return True
-
-    neoswga.core.filter.filter_extra = adaptive_filter_extra
+    # Set adaptive GC bounds on the parameter module; filter.py reads these
+    # directly in filter_extra() via parameter.gc_min / parameter.gc_max.
+    parameter.gc_min = thresholds.gc_min
+    parameter.gc_max = thresholds.gc_max
 
     try:
-        # Now run filter with patched filter
-        logger.info("Running filter with adaptive filter...")
+        logger.info("Running filter with adaptive GC parameters...")
 
-        # Temporarily remove --gc-tolerance from sys.argv since old pipeline doesn't know about it
-        import sys
-        original_argv = sys.argv.copy()
-        if '--gc-tolerance' in sys.argv:
-            idx = sys.argv.index('--gc-tolerance')
-            sys.argv.pop(idx)  # Remove --gc-tolerance
-            if idx < len(sys.argv):  # Remove the value too
-                sys.argv.pop(idx)
-
-        try:
-            from neoswga.core import pipeline as core_pipeline
-            core_pipeline.step2()
-        finally:
-            # Restore original sys.argv
-            sys.argv = original_argv
+        from neoswga.core import pipeline as core_pipeline
+        core_pipeline.step2()
 
         logger.info("Step2 complete with adaptive GC filtering!")
 
     finally:
-        # Restore original filter
-        neoswga.core.filter.filter_extra = original_filter_extra
+        # Restore original parameter values
+        parameter.gc_min = original_gc_min
+        parameter.gc_max = original_gc_max

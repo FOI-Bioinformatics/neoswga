@@ -104,9 +104,21 @@ class BackgroundPrefilter(BaseOptimizer):
                 message="No background genome; skipped pruning",
             )
 
-        pruned, final_cov, final_bg = self._prune_background(
-            candidates, target, verbose=self.config.verbose,
-        )
+        # When the target is much smaller than the pool, greedy removal
+        # is too slow (O(n^2) per removal). Use fast ranking instead.
+        if len(candidates) > target * 5:
+            pruned = self._rank_and_select(candidates, target)
+            final_cov = self._calc_coverage(pruned)
+            final_bg = self._count_bg(pruned)
+            if self.config.verbose:
+                logger.info(
+                    f"  BG pre-filter (fast rank): {len(candidates)}->{len(pruned)} "
+                    f"(coverage={final_cov:.1%}, bg={final_bg})"
+                )
+        else:
+            pruned, final_cov, final_bg = self._prune_background(
+                candidates, target, verbose=self.config.verbose,
+            )
 
         metrics = self.compute_metrics(pruned)
 
@@ -192,6 +204,24 @@ class BackgroundPrefilter(BaseOptimizer):
             )
 
         return current, coverage, final_bg
+
+    def _rank_and_select(self, primers: List[str], target: int) -> List[str]:
+        """Fast selection by ranking primers on fg/bg selectivity ratio.
+
+        Used when the pool is much larger than target, where greedy removal
+        would be too slow. Ranks by (fg_sites - bg_weight * bg_sites) and
+        takes the top N.
+        """
+        scored = []
+        for primer in primers:
+            fg = sum(len(self.cache.get_positions(p, primer, 'both'))
+                     for p in self.fg_prefixes)
+            bg = sum(len(self.cache.get_positions(p, primer, 'both'))
+                     for p in self.bg_prefixes)
+            rank_score = fg - self.background_weight * bg
+            scored.append((rank_score, primer))
+        scored.sort(reverse=True)
+        return [p for _, p in scored[:target]]
 
     def _calc_coverage(self, primers: List[str]) -> float:
         if not primers:

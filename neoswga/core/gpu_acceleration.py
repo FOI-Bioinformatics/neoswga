@@ -1,11 +1,15 @@
 """
 GPU-accelerated thermodynamic calculations using CuPy.
 
-Provides 10-100x speedup for:
-- Batch Tm calculations
-- Free energy matrix computations
-- Dimer severity matrix calculations
+Current status: EXPERIMENTAL. The batch Tm calculation uses a Python-level
+loop over primers with CuPy storage, which provides minimal speedup over
+pure NumPy. True GPU parallelism would require vectorized nearest-neighbor
+calculations implemented as CuPy/CUDA kernels.
+
+Potential for GPU acceleration in:
+- Free energy matrix computations (pairwise dimer scoring)
 - Binding probability arrays
+- Coverage computation across large genomes
 
 Falls back to NumPy if GPU unavailable.
 """
@@ -97,7 +101,11 @@ class GPUThermodynamics:
 
     def batch_calculate_tm(self, primers: List[str]) -> np.ndarray:
         """
-        Calculate Tm for batch of primers (GPU-accelerated).
+        Calculate Tm for batch of primers.
+
+        Note: Currently uses Python-level iteration with CuPy array storage.
+        This provides minimal speedup over NumPy. A future implementation
+        should vectorize the nearest-neighbor calculation in CUDA kernels.
 
         Args:
             primers: List of primer sequences

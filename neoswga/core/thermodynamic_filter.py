@@ -60,7 +60,8 @@ def _check_heterodimer_pair(args):
         if dg == float('inf') or dg > 0:
             dg = 0.0
         return (i, j, dg)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Ignored error in heterodimer check for pair ({i}, {j}): {e}")
         return (i, j, 0.0)
 
 

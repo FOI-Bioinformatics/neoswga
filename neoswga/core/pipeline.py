@@ -52,10 +52,53 @@ def _filter_exclusion_genome(primers: List[str], excl_prefixes: List[str],
                             if len(parts) >= 2 and parts[0] == primer:
                                 total_hits += int(parts[1])
                                 break
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Ignored error reading kmer file for blacklist filter: {e}")
         mask.append(total_hits <= threshold)
     return mask
+
+
+def _filter_blacklist_penalty(primers: List[str], bl_prefixes: List[str],
+                               bl_seq_lengths: List[int],
+                               max_bl_freq: float = 0.0) -> Tuple[List[bool], List[float]]:
+    """Filter primers by blacklist genome frequency.
+
+    Reads k-mer count files for blacklist genomes and calculates per-primer
+    frequency. Primers exceeding max_bl_freq are rejected.
+
+    Args:
+        primers: List of primer sequences.
+        bl_prefixes: Blacklist genome k-mer file prefixes.
+        bl_seq_lengths: Blacklist genome lengths for frequency calculation.
+        max_bl_freq: Maximum allowed blacklist frequency (0 = any hit rejects).
+
+    Returns:
+        Tuple of (boolean mask, list of bl_freq values).
+    """
+    mask = []
+    bl_freqs = []
+    for primer in primers:
+        k = len(primer)
+        total_count = 0
+        total_length = 0
+        for i, prefix in enumerate(bl_prefixes):
+            kmer_file = f"{prefix}_{k}mer_all.txt"
+            seq_len = bl_seq_lengths[i] if i < len(bl_seq_lengths) else 1
+            total_length += seq_len
+            if os.path.exists(kmer_file):
+                try:
+                    with open(kmer_file, 'r') as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if len(parts) >= 2 and parts[0] == primer:
+                                total_count += int(parts[1])
+                                break
+                except Exception as e:
+                    logger.debug(f"Ignored error reading kmer file for blacklist penalty: {e}")
+        freq = total_count / total_length if total_length > 0 else 0.0
+        bl_freqs.append(freq)
+        mask.append(freq <= max_bl_freq)
+    return mask, bl_freqs
 
 
 # =============================================================================
@@ -326,16 +369,16 @@ def _initialize():
     params = parameter.get_params(options)
 
     fg_prefixes = params["fg_prefixes"]
-    bg_prefixes = params["bg_prefixes"]
+    bg_prefixes = params.get("bg_prefixes", [])
 
     fg_genomes = params["fg_genomes"]
-    bg_genomes = params["bg_genomes"]
+    bg_genomes = params.get("bg_genomes", [])
 
     fg_seq_lengths = params["fg_seq_lengths"]
-    bg_seq_lengths = params["bg_seq_lengths"]
+    bg_seq_lengths = params.get("bg_seq_lengths", [])
 
-    fg_circular = params["fg_circular"]
-    bg_circular = params["bg_circular"]
+    fg_circular = params.get("fg_circular", False)
+    bg_circular = params.get("bg_circular", False)
 
     # Recommend Bloom filter for large background genomes (>50 Mbp)
     _BLOOM_THRESHOLD = 50_000_000
@@ -372,14 +415,19 @@ def _apply_gc_adaptive_defaults():
         strategy = GCAdaptiveStrategy(genome_gc_content=genome_gc)
         adaptive_params = strategy.get_parameters()
 
-        # Apply polymerase if not explicitly set
-        current_polymerase = getattr(parameter, 'polymerase', None)
-        if current_polymerase is None or current_polymerase == 'phi29':
-            # Only override if using default phi29 and adaptive recommends different
+        # Apply polymerase if not explicitly set by user in params.json
+        # Check _json_data (raw JSON) to distinguish user-set phi29 from default
+        user_set_polymerase = hasattr(parameter, '_json_data') and 'polymerase' in parameter._json_data
+        if not user_set_polymerase:
             if adaptive_params.recommended_polymerase != 'phi29':
                 logger.info(f"GC-adaptive: Using {adaptive_params.recommended_polymerase} "
                            f"for {genome_gc:.1%} GC genome")
                 parameter.polymerase = adaptive_params.recommended_polymerase
+        else:
+            current_polymerase = getattr(parameter, 'polymerase', 'phi29')
+            if current_polymerase != adaptive_params.recommended_polymerase:
+                logger.info(f"GC-adaptive: Keeping user-specified polymerase '{current_polymerase}' "
+                           f"(adaptive would recommend '{adaptive_params.recommended_polymerase}')")
 
         # Apply reaction temperature if not explicitly set
         current_temp = getattr(parameter, 'reaction_temp', None)
@@ -403,15 +451,15 @@ def _apply_gc_adaptive_defaults():
 
         # Apply betaine if not explicitly set and recommended
         current_betaine = getattr(parameter, 'betaine_m', 0.0)
-        if current_betaine == 0.0 and adaptive_params.betaine_m > 0:
-            parameter.betaine_m = adaptive_params.betaine_m
-            logger.info(f"GC-adaptive: Setting betaine to {adaptive_params.betaine_m}M")
+        if current_betaine == 0.0 and adaptive_params.betaine_concentration > 0:
+            parameter.betaine_m = adaptive_params.betaine_concentration
+            logger.info(f"GC-adaptive: Setting betaine to {adaptive_params.betaine_concentration}M")
 
         # Apply DMSO if not explicitly set and recommended
         current_dmso = getattr(parameter, 'dmso_percent', 0.0)
-        if current_dmso == 0.0 and adaptive_params.dmso_percent > 0:
-            parameter.dmso_percent = adaptive_params.dmso_percent
-            logger.info(f"GC-adaptive: Setting DMSO to {adaptive_params.dmso_percent}%")
+        if current_dmso == 0.0 and adaptive_params.dmso_concentration > 0:
+            parameter.dmso_percent = adaptive_params.dmso_concentration
+            logger.info(f"GC-adaptive: Setting DMSO to {adaptive_params.dmso_concentration}%")
 
         # Log overall strategy
         logger.info(f"GC-adaptive strategy: {adaptive_params.genome_class.value} genome, "
@@ -436,6 +484,14 @@ def step1():
     min_k = getattr(parameter, 'min_k', 6)
     max_k = getattr(parameter, 'max_k', 12)
 
+    # Check genome library for pre-calculated k-mers
+    try:
+        from neoswga.core.genome_library import GenomeLibrary
+        library = GenomeLibrary()
+    except Exception as e:
+        logger.debug(f"Ignored error loading genome library: {e}")
+        library = None
+
     # Progress tracking for k-mer counting
     total_genomes = len(fg_prefixes) + len(bg_prefixes)
     if total_genomes > 0:
@@ -444,6 +500,19 @@ def step1():
     logger.info("Running jellyfish for foreground...")
     for i, fg_prefix in enumerate(fg_prefixes):
         genome_name = os.path.basename(fg_genomes[i])
+        # Check library for pre-calculated k-mers
+        if library is not None:
+            lib_entry = library.get(os.path.splitext(genome_name)[0])
+            if lib_entry and library.has_kmers_for_range(lib_entry.name, min_k, max_k):
+                logger.info(f"  Using pre-calculated k-mers from genome library for {genome_name}")
+                lib_prefix = lib_entry.kmer_prefix
+                # Symlink library k-mer files to expected location
+                for k in range(min_k, max_k + 1):
+                    src = f"{lib_prefix}_{k}mer_all.txt"
+                    dst = f"{fg_prefix}_{k}mer_all.txt"
+                    if os.path.exists(src) and not os.path.exists(dst):
+                        os.symlink(src, dst)
+                continue
         with progress_context(f"  Foreground {i+1}/{len(fg_prefixes)}: {genome_name}"):
             run_jellyfish(fg_genomes[i], fg_prefix, min_k, max_k)
 
@@ -451,6 +520,18 @@ def step1():
         logger.info("Running jellyfish for background...")
         for i, bg_prefix in enumerate(bg_prefixes):
             genome_name = os.path.basename(bg_genomes[i])
+            # Check library for pre-calculated k-mers
+            if library is not None:
+                lib_entry = library.get(os.path.splitext(genome_name)[0])
+                if lib_entry and library.has_kmers_for_range(lib_entry.name, min_k, max_k):
+                    logger.info(f"  Using pre-calculated k-mers from genome library for {genome_name}")
+                    lib_prefix = lib_entry.kmer_prefix
+                    for k in range(min_k, max_k + 1):
+                        src = f"{lib_prefix}_{k}mer_all.txt"
+                        dst = f"{bg_prefix}_{k}mer_all.txt"
+                        if os.path.exists(src) and not os.path.exists(dst):
+                            os.symlink(src, dst)
+                    continue
             with progress_context(f"  Background {i+1}/{len(bg_prefixes)}: {genome_name}"):
                 run_jellyfish(bg_genomes[i], bg_prefix, min_k, max_k)
 
@@ -464,6 +545,17 @@ def step1():
                 genome_name = os.path.basename(excl_genomes_val[i])
                 with progress_context(f"  Exclusion {i+1}/{len(excl_prefixes_val)}: {genome_name}"):
                     run_jellyfish(excl_genomes_val[i], excl_prefix, min_k, max_k)
+
+    # Count k-mers for blacklist genome(s) if configured
+    bl_genomes_val = getattr(parameter, 'bl_genomes', [])
+    bl_prefixes_val = getattr(parameter, 'bl_prefixes', [])
+    if bl_genomes_val and bl_prefixes_val:
+        logger.info("Running jellyfish for blacklist genome(s)...")
+        for i, bl_prefix in enumerate(bl_prefixes_val):
+            if i < len(bl_genomes_val):
+                genome_name = os.path.basename(bl_genomes_val[i])
+                with progress_context(f"  Blacklist {i+1}/{len(bl_prefixes_val)}: {genome_name}"):
+                    run_jellyfish(bl_genomes_val[i], bl_prefix, min_k, max_k)
 
     logger.info("Done running jellyfish")
 
@@ -522,8 +614,8 @@ def step2(all_primers=None, validate_prerequisites=True):
         with progress_context("Loading candidate k-mers"):
             all_primers = get_primer_list_from_kmers(
                 fg_prefixes, kmer_lengths=kmer_lengths,
-                min_tm=getattr(parameter, 'min_tm', 15),
-                max_tm=getattr(parameter, 'max_tm', 55),
+                min_tm=getattr(parameter, 'min_tm', None) or 15,
+                max_tm=getattr(parameter, 'max_tm', None) or 55,
                 gc_min=max(0.10, gc_min - 0.10),
                 gc_max=min(0.90, gc_max + 0.10),
             )
@@ -540,6 +632,15 @@ def step2(all_primers=None, validate_prerequisites=True):
     if parameter.verbose:
         logger.debug(f"Rate dataframe:\n{rate_df}")
 
+    # Apply sequence quality filters (Tm, homopolymer, GC clamp, self-dimer, etc.)
+    pre_quality_count = len(filtered_rate_df)
+    quality_mask = filtered_rate_df['primer'].apply(filter_module.filter_extra)
+    filtered_rate_df = filtered_rate_df[quality_mask].copy()
+    quality_rejected = pre_quality_count - len(filtered_rate_df)
+    if quality_rejected > 0:
+        logger.info(f"Filtered {quality_rejected} primers based on sequence quality "
+                     f"(Tm, homopolymer, GC clamp, self-dimer)")
+
     # Exclusion genome filtering (zero-tolerance by default)
     excl_prefixes_val = getattr(parameter, 'excl_prefixes', [])
     excl_threshold_val = getattr(parameter, 'excl_threshold', 0)
@@ -552,6 +653,23 @@ def step2(all_primers=None, validate_prerequisites=True):
         filtered_rate_df = filtered_rate_df[excl_mask]
         logger.info(f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
                      f"binding exclusion genome")
+
+    # Blacklist genome filtering (penalty-weighted)
+    bl_prefixes_val = getattr(parameter, 'bl_prefixes', [])
+    bl_seq_lengths_val = getattr(parameter, 'bl_seq_lengths', [])
+    max_bl_freq_val = getattr(parameter, 'max_bl_freq', 0.0)
+    if bl_prefixes_val:
+        logger.info(f"Applying blacklist genome filter (max_bl_freq={max_bl_freq_val})")
+        pre_bl_count = len(filtered_rate_df)
+        bl_mask, bl_freqs = _filter_blacklist_penalty(
+            filtered_rate_df['primer'].tolist(), bl_prefixes_val,
+            bl_seq_lengths_val, max_bl_freq_val
+        )
+        filtered_rate_df = filtered_rate_df.copy()
+        filtered_rate_df['bl_freq'] = bl_freqs
+        filtered_rate_df = filtered_rate_df[bl_mask]
+        logger.info(f"Excluded {pre_bl_count - len(filtered_rate_df)} primers "
+                     f"binding blacklist genome")
 
     # Create position files BEFORE Gini calculation (Gini needs these files to exist)
     # Check if position files exist for speedup
@@ -580,9 +698,11 @@ def step2(all_primers=None, validate_prerequisites=True):
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)
+    gini_df = gini_df.copy()
     gini_df["ratio"] = gini_df["bg_count"] / gini_df["fg_count"].replace(0, np.nan)
     gini_df["ratio"] = gini_df["ratio"].fillna(float('inf'))
-    filtered_gini_df = gini_df.sort_values(by=["ratio"], ascending=False)[: parameter.max_primer]
+    # Sort ascending: lowest bg/fg ratio = best selectivity (keep best primers)
+    filtered_gini_df = gini_df.sort_values(by=["ratio"], ascending=True)[: parameter.max_primer]
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
@@ -644,10 +764,18 @@ def step3(validate_prerequisites=True):
 
     primer_list = step2_df["primer"]
     logger.info(f"Scoring {len(primer_list)} primers...")
-    fg_scale = sum(fg_seq_lengths) / 6200
+    fg_scale = sum(fg_seq_lengths) / 6200 if fg_seq_lengths else 1.0
+
+    fast_score = getattr(parameter, 'fast_score', False)
 
     with progress_context("Computing random forest features"):
-        df_pred = rf_preprocessing.create_augmented_df(fg_prefixes, primer_list)
+        if fast_score:
+            # Fast mode: compute base features only, zero out delta-G histograms
+            df_pred = rf_preprocessing.create_augmented_df(
+                fg_prefixes, primer_list, skip_delta_g=True
+            )
+        else:
+            df_pred = rf_preprocessing.create_augmented_df(fg_prefixes, primer_list)
         df_pred = rf_preprocessing.scale_delta_Gs(df_pred, on_scale=fg_scale)
         df_pred["molarity"] = 2.5
 
@@ -658,7 +786,20 @@ def step3(validate_prerequisites=True):
     # min_amp_pred: unitless amplification prediction score (~0-20 scale).
     # Combines Tm optimality, GC content, 3' stability, and binding energy.
     # Default 10.0 retains above-average primers.
-    step3_df = results[results["on.target.pred"] >= parameter.min_amp_pred]
+    threshold = parameter.min_amp_pred
+    step3_df = results[results["on.target.pred"] >= threshold]
+
+    # Auto-adjust threshold for small genomes where all primers score low
+    if len(step3_df) == 0 and len(results) > 0:
+        # Fall back to keeping the top 50% of primers by score
+        median_score = results["on.target.pred"].median()
+        step3_df = results[results["on.target.pred"] >= median_score]
+        logger.warning(
+            f"No primers passed min_amp_pred={threshold:.1f}. "
+            f"Auto-adjusted threshold to median score ({median_score:.1f}), "
+            f"retaining {len(step3_df)} primers. "
+            f"For small genomes, consider using --min-amp-pred 0"
+        )
 
     step2_df = step2_df.set_index("primer")
     step3_df = step3_df.rename({"sequence": "primer"}, axis="columns")

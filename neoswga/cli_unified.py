@@ -72,6 +72,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def check_jellyfish_available():
+    """Check that Jellyfish is installed and raise a clear error if not.
+
+    Called before commands that require Jellyfish (count-kmers, design).
+    """
+    from neoswga.core.kmer_counter import check_jellyfish_available as _check, get_jellyfish_version
+    if not _check():
+        logger.error(
+            "Jellyfish is required but not found in PATH.\n"
+            "Jellyfish is an external k-mer counting tool that must be installed separately.\n\n"
+            "Install via conda:  conda install -c bioconda jellyfish\n"
+            "Install via brew:   brew install jellyfish\n"
+            "Build from source:  https://github.com/gmarcais/Jellyfish\n\n"
+            "After installation, verify with:  jellyfish --version"
+        )
+        sys.exit(1)
+    version = get_jellyfish_version()
+    if version and version.split('.')[0] == '1':
+        logger.error(
+            f"Jellyfish version {version} detected. NeoSWGA requires Jellyfish 2.x.\n"
+            "Please upgrade: https://github.com/gmarcais/Jellyfish"
+        )
+        sys.exit(1)
+
+
 # =============================================================================
 # Input Validation Utilities
 # =============================================================================
@@ -451,6 +476,7 @@ COMMAND_GROUPS = [
     ('Advanced', [
         'auto-pipeline', 'multi-genome', 'simulate', 'optimize-conditions',
         'build-filter', 'background-list', 'background-add',
+        'genome-add', 'genome-list', 'genome-remove',
     ]),
     ('Experimental', [
         'active-learn', 'expand-primers', 'predict-efficiency', 'ml-predict',
@@ -486,6 +512,8 @@ class GroupedHelpFormatter(argparse.RawDescriptionHelpFormatter):
 def create_parser():
     """Create unified argument parser"""
 
+    from neoswga import __version__
+
     parser = argparse.ArgumentParser(
         prog='neoswga',
         description='NeoSWGA - Selective Whole Genome Amplification primer design',
@@ -500,6 +528,8 @@ def create_parser():
 Run "neoswga <command> --help" for details on a specific command.
         '''
     )
+    parser.add_argument('--version', action='version',
+                        version=f'%(prog)s {__version__}')
 
     subparsers = parser.add_subparsers(
         dest='command', title='commands', metavar='<command>'
@@ -523,6 +553,12 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Maximum primer length (default: from params.json or 12). Use 15-18bp with DMSO/betaine additives')
     count_kmers_parser.add_argument('--exclusion-genome', type=str, default=None,
                              help='Exclusion genome FASTA file (e.g., mtDNA)')
+    count_kmers_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
+                             help='Blacklist genome FASTA file(s) (penalty-weighted filtering)')
+    count_kmers_parser.add_argument('--bl-penalty', type=float, default=None,
+                             help='Blacklist penalty weight (default: 5.0)')
+    count_kmers_parser.add_argument('--max-bl-freq', type=float, default=None,
+                             help='Maximum blacklist frequency (default: 0.0, any hit rejects)')
 
     # =========================================================================
     # STEP 2: Candidate filtering
@@ -621,6 +657,16 @@ Run "neoswga <command> --help" for details on a specific command.
                                   help='Maximum allowed hits in exclusion genome '
                                        '(default: 0 = any hit rejects primer)')
 
+    # Blacklist Genome Filtering (penalty-weighted)
+    step2_bl_group = filter_parser.add_argument_group(
+        'Blacklist Genome Filtering (penalty-weighted filtering of contaminating sequences)')
+    step2_bl_group.add_argument('--blacklist', '-bl', nargs='+', default=None,
+                                help='Blacklist genome FASTA file(s)')
+    step2_bl_group.add_argument('--bl-penalty', type=float, default=None,
+                                help='Blacklist penalty weight (default: 5.0)')
+    step2_bl_group.add_argument('--max-bl-freq', type=float, default=None,
+                                help='Maximum blacklist frequency (default: 0.0, any hit rejects)')
+
     # =========================================================================
     # STEP 3: Random forest scoring
     # =========================================================================
@@ -634,6 +680,10 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Scoring method: rf (random forest, default), ml (deep learning), both (compare methods)')
     score_parser.add_argument('--min-amp-pred', type=float,
                              help='Minimum amplification prediction score (default: 10)')
+    score_parser.add_argument('--fast-score', action='store_true',
+                             help='Skip thermodynamic histogram features for ~100x speedup. '
+                                  'These features contribute <2%% of model accuracy but >99%% '
+                                  'of computation time. Recommended for large primer pools.')
 
     # ML-specific options (when --method ml or both)
     score_parser.add_argument('--model-path', type=str,
@@ -716,6 +766,10 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Use in-memory position cache (default: True, 1000x speedup)')
     opt_perf_group.add_argument('--no-position-cache', action='store_false', dest='use_position_cache',
                              help='Disable position cache (slower)')
+    opt_perf_group.add_argument('--seed', type=int, default=None,
+                             help='Random seed for reproducible results. '
+                                  'Affects stochastic optimizers (genetic, moea). '
+                                  'Required for clinical/regulated workflows.')
     opt_perf_group.add_argument('-n', '--num-primers', type=int,
                              help='Number of primers to select (default: from params.json or 6)')
     opt_perf_group.add_argument('--max-optimization-time', type=int, default=300,
@@ -857,6 +911,8 @@ Run "neoswga <command> --help" for details on a specific command.
                             help='Auto-approve without prompting')
     init_parser.add_argument('--non-interactive', action='store_true',
                             help='Run non-interactively with defaults')
+    init_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
+                            help='Blacklist genome FASTA file(s) for contamination filtering')
 
     # =========================================================================
     # SETUP: Validate parameters
@@ -1094,7 +1150,7 @@ Examples:
     # CATEGORY 3: Auto-tuning pipeline (orphaned feature)
     # =========================================================================
     auto_pipeline_parser = subparsers.add_parser('auto-pipeline',
-                                                  help='Automatic parameter optimization pipeline')
+                                                  help='Automatic parameter optimization pipeline (experimental, use standard pipeline instead)')
     auto_pipeline_parser.add_argument('-j', '--json-file', required=True,
                                      help='Base parameters JSON file')
     auto_pipeline_parser.add_argument('--iterations', type=int, default=5,
@@ -1135,8 +1191,12 @@ Examples:
     # =========================================================================
     simulate_parser = subparsers.add_parser('simulate',
                                            help='Agent-based replication simulation')
-    simulate_parser.add_argument('--primers', required=True, nargs='+',
+    sim_input = simulate_parser.add_mutually_exclusive_group(required=True)
+    sim_input.add_argument('--primers', nargs='+',
                                 help='Primer sequences to simulate')
+    sim_input.add_argument('--from-results', type=str, metavar='DIR_OR_CSV',
+                                help='Read primers from pipeline results directory or step4 CSV file '
+                                     '(e.g., --from-results results/ or --from-results step4_improved_df.csv)')
     simulate_parser.add_argument('--genome', required=True,
                                 help='Target genome FASTA file')
     simulate_parser.add_argument('--output', '-o', required=True,
@@ -1248,6 +1308,31 @@ Examples:
     bg_add_parser.add_argument('--overwrite', action='store_true',
                                help='Overwrite existing entry with same name')
 
+    # =========================================================================
+    # UTILITY: Genome library management
+    # =========================================================================
+    genome_add_parser = subparsers.add_parser('genome-add',
+                                               help='Add a genome to the pre-calculated library')
+    genome_add_parser.add_argument('name', help='Identifier for the genome (e.g., human-grch38)')
+    genome_add_parser.add_argument('fasta', help='Path to genome FASTA file')
+    genome_add_parser.add_argument('--role', choices=['bg', 'bl'], default='bg',
+                                   help='Role: bg (background) or bl (blacklist). Default: bg')
+    genome_add_parser.add_argument('--species', default='',
+                                   help='Species name (optional)')
+    genome_add_parser.add_argument('--k-ranges', default='6-12,12-18',
+                                   help='K-mer ranges to compute (default: 6-12,12-18)')
+    genome_add_parser.add_argument('--no-bloom', action='store_true',
+                                   help='Skip Bloom filter construction')
+
+    genome_list_parser = subparsers.add_parser('genome-list',
+                                                help='List genomes in the pre-calculated library')
+    genome_list_parser.add_argument('--verbose', '-v', action='store_true',
+                                    help='Show detailed information')
+
+    genome_remove_parser = subparsers.add_parser('genome-remove',
+                                                  help='Remove a genome from the pre-calculated library')
+    genome_remove_parser.add_argument('name', help='Identifier of genome to remove')
+
     # Validate that all registered commands appear in COMMAND_GROUPS
     grouped_cmds = {cmd for _, cmds in COMMAND_GROUPS for cmd in cmds}
     registered_cmds = set(subparsers.choices.keys()) if hasattr(subparsers, 'choices') else set()
@@ -1337,7 +1422,11 @@ def add_common_options(parser):
 
 def run_step1(args):
     """Run step 1: K-mer preprocessing"""
+    check_jellyfish_available()
     validate_params_json_file(args.json_file)
+    import time as _time
+    _t0 = _time.time()
+    logger.info("Step 1: K-mer preprocessing starting...")
     try:
         from neoswga.core import pipeline, parameter
 
@@ -1368,12 +1457,10 @@ def run_step1(args):
             max_k = getattr(parameter, 'max_k', 12)
             logger.info(f"K-mer range: {min_k}-{max_k}bp")
 
-        # Run step1 with QA if enabled
+        # Run step1 (QA integration is only available for step2-4)
         if getattr(parameter, 'enable_qa', False):
-            from neoswga.core import pipeline_qa_integration
-            pipeline_qa_integration.run_step1_with_qa()
-        else:
-            pipeline.step1()
+            logger.info("Note: QA integration is available for filter/score/optimize steps, not count-kmers")
+        pipeline.step1()
 
         # Count k-mers for exclusion genome if specified via CLI
         excl_genome = getattr(args, 'exclusion_genome', None)
@@ -1392,6 +1479,32 @@ def run_step1(args):
             parameter.excl_genomes = [excl_genome]
             parameter.excl_prefixes = [excl_prefix]
 
+        # Count k-mers for blacklist genome(s) if specified via CLI
+        bl_genomes_cli = getattr(args, 'blacklist', None)
+        if bl_genomes_cli:
+            from neoswga.core.kmer_counter import run_jellyfish as _run_jf_bl
+            for bl_genome in bl_genomes_cli:
+                if not os.path.exists(bl_genome):
+                    logger.error(f"Blacklist genome not found: {bl_genome}")
+                    sys.exit(1)
+            bl_prefixes_cli = []
+            min_k = getattr(parameter, 'min_k', 6)
+            max_k = getattr(parameter, 'max_k', 12)
+            for bl_genome in bl_genomes_cli:
+                bl_name = os.path.splitext(os.path.basename(bl_genome))[0]
+                bl_prefix = os.path.join(parameter.data_dir, f"bl_{bl_name}")
+                bl_prefixes_cli.append(bl_prefix)
+                logger.info(f"Counting k-mers in blacklist genome: {bl_genome}")
+                _run_jf_bl(bl_genome, bl_prefix, min_k, max_k)
+            parameter.bl_genomes = bl_genomes_cli
+            parameter.bl_prefixes = bl_prefixes_cli
+            if args.bl_penalty is not None:
+                parameter.bl_penalty = args.bl_penalty
+            if args.max_bl_freq is not None:
+                parameter.max_bl_freq = args.max_bl_freq
+
+        _elapsed = _time.time() - _t0
+        logger.info(f"Step 1 complete in {_elapsed:.1f}s")
         if not args.quiet:
             print("\nNext: neoswga filter -j params.json")
 
@@ -1403,6 +1516,8 @@ def run_step1(args):
 def run_step2(args):
     """Run step 2: Candidate filtering with reaction conditions"""
     validate_params_json_file(args.json_file)
+    import time as _time
+    _t0 = _time.time()
     logger.info("Running step2 (candidate primer filtering)")
 
     try:
@@ -1503,6 +1618,28 @@ def run_step2(args):
                 logger.info(f"Exclusion genome: {excl_genome}")
                 logger.info(f"  Threshold: {parameter.excl_threshold} (0 = reject any hit)")
 
+        # Handle blacklist genome(s) from CLI
+        bl_genomes_cli = getattr(args, 'blacklist', None)
+        if bl_genomes_cli:
+            for bl_genome in bl_genomes_cli:
+                if not os.path.exists(bl_genome):
+                    logger.error(f"Blacklist genome not found: {bl_genome}")
+                    sys.exit(1)
+            bl_prefixes_cli = []
+            for bl_genome in bl_genomes_cli:
+                bl_name = os.path.splitext(os.path.basename(bl_genome))[0]
+                bl_prefix = os.path.join(parameter.data_dir, f"bl_{bl_name}")
+                bl_prefixes_cli.append(bl_prefix)
+            parameter.bl_genomes = bl_genomes_cli
+            parameter.bl_prefixes = bl_prefixes_cli
+            if args.bl_penalty is not None:
+                parameter.bl_penalty = args.bl_penalty
+            if args.max_bl_freq is not None:
+                parameter.max_bl_freq = args.max_bl_freq
+            if not args.quiet:
+                logger.info(f"Blacklist genomes: {bl_genomes_cli}")
+                logger.info(f"  Max frequency: {parameter.max_bl_freq}")
+
         # Log effective parameters
         if not args.quiet:
             logger.info("Effective parameters:")
@@ -1547,11 +1684,15 @@ def run_step2(args):
             import traceback
             traceback.print_exc()
         sys.exit(1)
+    _elapsed = _time.time() - _t0
+    logger.info(f"Step 2 complete in {_elapsed:.1f}s")
 
 
 def run_step3(args):
     """Run step 3: Random forest scoring"""
     validate_params_json_file(args.json_file)
+    import time as _time
+    _t0 = _time.time()
     try:
         from neoswga.core import pipeline, parameter
 
@@ -1571,7 +1712,7 @@ def run_step3(args):
 
         # Log effective parameters
         if not args.quiet:
-            min_amp_pred = getattr(parameter, 'min_amp_pred', 5)
+            min_amp_pred = getattr(parameter, 'min_amp_pred', None) or 'auto'
             logger.info(f"Minimum amplification prediction score: {min_amp_pred}")
 
         # Enhanced feature engineering
@@ -1588,6 +1729,11 @@ def run_step3(args):
                 logger.warning("Enhanced model not found, using standard model")
                 logger.warning("To train enhanced model: python scripts/train_enhanced_rf.py")
                 use_enhanced = False
+
+        # Fast scoring mode: skip expensive delta-G histogram features
+        if getattr(args, 'fast_score', False):
+            parameter.fast_score = True
+            logger.info("Fast scoring: skipping thermodynamic histogram features (~100x speedup)")
 
         # Run step3 with QA if enabled
         if getattr(parameter, 'enable_qa', False):
@@ -1619,6 +1765,8 @@ def run_step3(args):
             import traceback
             traceback.print_exc()
         sys.exit(1)
+    _elapsed = _time.time() - _t0
+    logger.info(f"Step 3 complete in {_elapsed:.1f}s")
 
 
 def print_method_guide():
@@ -1707,6 +1855,8 @@ For detailed documentation: docs/optimization_guide.md
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
     validate_params_json_file(args.json_file)
+    import time as _time
+    _t0 = _time.time()
 
     # Handle --method-guide option
     if getattr(args, 'method_guide', False):
@@ -1721,9 +1871,9 @@ def run_step4(args):
         # Set json_file if provided
         merge_args_to_parameter(args, parameter, ['json_file'])
 
-        # Pass polymerase info to optimizer (hybrid handles polymerase-specific config)
-        json_data = getattr(parameter, '_json_data', {})
-        polymerase = json_data.get('polymerase', 'phi29')
+        # Pass polymerase info to optimizer (use adapted value, not raw JSON,
+        # so GC-adaptive strategy recommendations are respected)
+        polymerase = getattr(parameter, 'polymerase', 'phi29')
         if polymerase != 'phi29':
             logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
@@ -1769,17 +1919,9 @@ def run_step4(args):
 
                 # Get genome information
                 json_data = getattr(parameter, '_json_data', {})
-                fg_genome = json_data.get('fg_genome', '')
-                genome_length = json_data.get('fg_genome_length', 1_000_000)
+                fg_seq_lengths = getattr(parameter, 'fg_seq_lengths', [])
+                genome_length = sum(fg_seq_lengths) if fg_seq_lengths else json_data.get('fg_genome_length', 1_000_000)
                 primer_length = json_data.get('max_k', 12)
-
-                # Calculate genome length if not specified
-                if fg_genome and genome_length == 1_000_000:
-                    try:
-                        from neoswga.core.genome_io import get_genome_length
-                        genome_length = get_genome_length(fg_genome)
-                    except Exception:
-                        pass
 
                 # Get template GC content
                 template_gc = getattr(args, 'template_gc', None)
@@ -1876,6 +2018,15 @@ def run_step4(args):
             logger.info("Host-free mode: background genome data will be ignored")
 
         # Run unified optimization
+        # Random seed for reproducibility (stochastic optimizers)
+        seed = getattr(args, 'seed', None)
+        if seed is not None:
+            logger.info(f"Random seed: {seed}")
+
+        # Pass explicit target_size from parameter module to avoid re-initialization override
+        target_size = getattr(parameter, 'target_set_size',
+                              getattr(parameter, 'num_primers', 6))
+
         results, scores, cache = optimize_step4(
             use_cache=args.use_position_cache,
             use_background_filter=args.use_background_filter,
@@ -1888,13 +2039,32 @@ def run_step4(args):
             polymerase=polymerase,  # Pass polymerase for hybrid preset config
             bg_prefilter=bg_prefilter,  # Background pre-filtering of candidates
             no_background=no_background,  # Host-free mode
+            seed=seed,  # Reproducibility for stochastic optimizers
+            target_size=target_size,  # Explicit target from params
         )
 
         if results:
-            logger.info(f"Selected {len(results[0])} primers")
+            target_size = getattr(parameter, 'num_primers', 6)
+            target_size = getattr(parameter, 'target_set_size', target_size)
+            num_found = len(results[0])
+            logger.info(f"Selected {num_found} primers")
             logger.info(f"Score: {scores[0]:.4f}")
+            if num_found < target_size:
+                logger.warning(
+                    f"WARNING: Found {num_found} primers but target was "
+                    f"{target_size} (PARTIAL result: insufficient candidates)"
+                )
+                logger.warning("To improve, consider:")
+                logger.warning("  - Relaxing filter thresholds (max_bg_freq, max_gini)")
+                logger.warning("  - Widening k-mer range (min_k / max_k)")
+                logger.warning("  - Increasing candidate pool (max_primer)")
+                logger.warning(
+                    f"  - Trying a different optimizer "
+                    f"(current: {args.optimization_method})"
+                )
         else:
-            logger.warning("No primer sets found")
+            logger.error("No primer sets found. Optimization failed.")
+            sys.exit(1)
 
         # Show Pareto frontier analysis (optional)
         if show_frontier and results and cache is not None:
@@ -2067,6 +2237,8 @@ def run_step4(args):
             except Exception as e:
                 logger.warning(f"Validation failed: {e}")
 
+        _elapsed = _time.time() - _t0
+        logger.info(f"Step 4 complete in {_elapsed:.1f}s")
         if not args.quiet:
             data_dir = getattr(parameter, 'data_dir', '.')
             print(f"\nDone! View results:")
@@ -2236,17 +2408,26 @@ def run_validate(args):
 def run_init(args):
     """Run the setup wizard to create params.json"""
     from neoswga.core.wizard import run_wizard
+    import inspect
 
     try:
-        run_wizard(
+        # Build kwargs, only pass blacklist_paths if wizard supports it
+        wizard_kwargs = dict(
             genome_path=args.genome,
             background_path=args.background,
             output_path=args.output,
             output_dir=args.output_dir,
             interactive=not args.non_interactive,
             advanced=args.advanced,
-            auto_approve=args.yes
+            auto_approve=args.yes,
         )
+        if getattr(args, 'blacklist', None):
+            sig = inspect.signature(run_wizard)
+            if 'blacklist_paths' in sig.parameters:
+                wizard_kwargs['blacklist_paths'] = args.blacklist
+            else:
+                logger.warning("Blacklist support for init requires wizard update")
+        run_wizard(**wizard_kwargs)
     except FileNotFoundError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -2874,24 +3055,25 @@ def analyze_primer_set(args):
 
     # Secondary structure analysis
     print("\nSecondary Structure Analysis:")
-    predictor = ss.SecondaryStructurePredictor(conditions)
-
     for primer in primers:
-        hairpin = predictor.predict_hairpin(primer)
-        homodimer = predictor.predict_homodimer(primer)
+        hairpins = ss.check_hairpins(primer, conditions)
+        homodimer = ss.check_homodimer(primer, conditions)
         print(f"  {primer}:")
-        print(f"    Hairpin: dG={hairpin['energy']:.2f}, severity={hairpin['severity']:.2f}")
-        print(f"    Homodimer: dG={homodimer['energy']:.2f}, severity={homodimer['severity']:.2f}")
+        if hairpins:
+            worst = min(hairpins, key=lambda h: h.energy)
+            print(f"    Hairpin: dG={worst.energy:.2f} kcal/mol, stem={worst.stem_length}bp")
+        else:
+            print(f"    Hairpin: none detected")
+        print(f"    Homodimer: dG={homodimer.energy:.2f} kcal/mol")
 
     # Check heterodimers
-    print("\nHeterodimer Matrix:")
+    print("\nHeterodimer Analysis:")
     for i, p1 in enumerate(primers):
         for j, p2 in enumerate(primers):
             if i < j:
-                heterodimer = predictor.predict_heterodimer(p1, p2)
-                if heterodimer['severity'] > 0.3:
-                    print(f"  {p1} x {p2}: dG={heterodimer['energy']:.2f}, "
-                          f"severity={heterodimer['severity']:.2f}")
+                result = ss.check_heterodimer(p1, p2, conditions)
+                if result.energy < -6.0:
+                    print(f"  {p1} x {p2}: dG={result.energy:.2f} kcal/mol (warning)")
 
     print("\nAnalysis complete!")
 
@@ -2924,22 +3106,27 @@ def run_analyze_genome(args):
 
 def run_analyze_dimers(args):
     """Analyze primer dimer interaction network"""
-    from neoswga.core import dimer_network_analyzer
+    from neoswga.core.dimer_network_analyzer import DimerNetworkAnalyzer
 
     logger.info(f"Analyzing dimer network for {len(args.primers)} primers")
 
     try:
-        results = dimer_network_analyzer.analyze_dimer_network(
-            primers=args.primers,
-            threshold=args.threshold,
-            visualize=args.visualize,
-            output_dir=args.output
-        )
+        analyzer = DimerNetworkAnalyzer(severity_threshold=args.threshold)
+        metrics, profiles, matrix = analyzer.analyze_primer_set(args.primers)
+
+        os.makedirs(args.output, exist_ok=True)
+
+        # Write summary
+        summary_path = os.path.join(args.output, 'dimer_summary.txt')
+        with open(summary_path, 'w') as f:
+            f.write(str(metrics) + '\n')
+            for primer, profile in profiles.items():
+                f.write(f"\n{primer}: {profile}\n")
 
         logger.info(f"Dimer analysis complete! Results saved to: {args.output}")
 
-        if results.get('problem_primers'):
-            logger.warning(f"Found {len(results['problem_primers'])} problem primers")
+        if metrics.num_hubs > 0:
+            logger.warning(f"Found {metrics.num_hubs} hub primers with many interactions")
 
     except Exception as e:
         logger.error(f"Dimer analysis failed: {e}")
@@ -2950,16 +3137,21 @@ def run_analyze_dimers(args):
 
 def run_analyze_stability(args):
     """Analyze 3' end stability and specificity"""
-    from neoswga.core import three_prime_stability
+    from neoswga.core.three_prime_stability import ThreePrimeStabilityAnalyzer
 
     logger.info(f"Analyzing 3' stability for {len(args.primers)} primers")
 
     try:
-        results = three_prime_stability.analyze_primers(
-            primers=args.primers,
-            temperature=args.temp,
-            output_file=args.output
-        )
+        analyzer = ThreePrimeStabilityAnalyzer()
+        results = []
+        for primer in args.primers:
+            stability = analyzer.analyze_primer(primer)
+            results.append(stability)
+
+        # Write report
+        with open(args.output, 'w') as f:
+            for primer, stability in zip(args.primers, results):
+                f.write(f"{primer}\t{stability}\n")
 
         logger.info(f"Stability analysis complete! Report saved to: {args.output}")
 
@@ -3144,7 +3336,42 @@ def run_simulate(args):
     from pathlib import Path
     import json
 
-    logger.info(f"Running amplification simulation for {len(args.primers)} primers")
+    # Resolve primers from --primers or --from-results
+    if args.from_results:
+        import pandas as pd
+        source = args.from_results
+        if os.path.isdir(source):
+            # Look for step4 CSV in the directory
+            candidates = [
+                os.path.join(source, 'step4_improved_df.csv'),
+                os.path.join(source, 'step4_df.csv'),
+            ]
+            csv_path = None
+            for c in candidates:
+                if os.path.exists(c):
+                    csv_path = c
+                    break
+            if csv_path is None:
+                logger.error(f"No step4 CSV found in {source}")
+                logger.error("Expected: step4_improved_df.csv or step4_df.csv")
+                sys.exit(1)
+        else:
+            csv_path = source
+            if not os.path.exists(csv_path):
+                logger.error(f"File not found: {csv_path}")
+                sys.exit(1)
+
+        logger.info(f"Loading primers from {csv_path}")
+        df = pd.read_csv(csv_path)
+        if 'primer' not in df.columns:
+            logger.error(f"CSV file {csv_path} has no 'primer' column")
+            sys.exit(1)
+        primers = df['primer'].tolist()
+        logger.info(f"Loaded {len(primers)} primers from results")
+    else:
+        primers = args.primers
+
+    logger.info(f"Running amplification simulation for {len(primers)} primers")
     logger.info(f"Genome: {args.genome}")
 
     try:
@@ -3156,9 +3383,6 @@ def run_simulate(args):
         genome_sequence = loader.load_genome(args.genome)
         genome_length = len(genome_sequence)
         logger.info(f"  Genome length: {genome_length:,} bp")
-
-        # Get primers
-        primers = args.primers
 
         # Find primer positions in genome
         logger.info("Finding primer binding positions...")
@@ -3820,11 +4044,90 @@ def run_background_add(args):
 
 
 # =========================================================================
+# UTILITY: Genome library management
+# =========================================================================
+
+def run_genome_add(args):
+    """Add a genome to the pre-calculated library."""
+    from neoswga.core.genome_library import GenomeLibrary
+
+    # Parse k-ranges
+    k_ranges = []
+    for part in args.k_ranges.split(','):
+        parts = part.strip().split('-')
+        if len(parts) == 2:
+            k_ranges.append((int(parts[0]), int(parts[1])))
+        else:
+            logger.error(f"Invalid k-range format: {part}. Use min-max (e.g., 6-12)")
+            sys.exit(1)
+
+    fasta_path = args.fasta
+    if not os.path.exists(fasta_path):
+        logger.error(f"FASTA file not found: {fasta_path}")
+        sys.exit(1)
+
+    library = GenomeLibrary()
+    bloom = 'no' if args.no_bloom else 'auto'
+    entry = library.add(
+        name=args.name,
+        fasta_path=fasta_path,
+        role=args.role,
+        species=args.species,
+        k_ranges=k_ranges,
+        build_bloom=bloom,
+    )
+    print(f"Added '{entry.name}' to genome library")
+    print(f"  Size: {entry.genome_size:,} bp")
+    print(f"  GC: {entry.gc_content:.1%}")
+    print(f"  K-mer ranges: {entry.computed_k_ranges}")
+    if entry.bloom_path:
+        print(f"  Bloom filter: {entry.bloom_path}")
+
+
+def run_genome_list(args):
+    """List genomes in the pre-calculated library."""
+    from neoswga.core.genome_library import GenomeLibrary
+
+    library = GenomeLibrary()
+    entries = library.list()
+
+    if not entries:
+        print("No genomes in library.")
+        print("Add one with: neoswga genome-add <name> <fasta>")
+        return
+
+    print(f"Genome library ({len(entries)} entries):")
+    print("-" * 60)
+    for entry in entries:
+        size_str = f"{entry.genome_size / 1e6:.1f} Mbp" if entry.genome_size >= 1e6 else f"{entry.genome_size:,} bp"
+        print(f"  {entry.name:<25} {size_str:>12}  GC={entry.gc_content:.1%}  role={entry.role}")
+        if getattr(args, 'verbose', False):
+            print(f"    FASTA: {entry.fasta_path}")
+            print(f"    K-mer ranges: {entry.computed_k_ranges}")
+            if entry.bloom_path:
+                print(f"    Bloom: {entry.bloom_path}")
+            print(f"    Created: {entry.created_date}")
+
+
+def run_genome_remove(args):
+    """Remove a genome from the pre-calculated library."""
+    from neoswga.core.genome_library import GenomeLibrary
+
+    library = GenomeLibrary()
+    if library.remove(args.name):
+        print(f"Removed '{args.name}' from genome library")
+    else:
+        logger.error(f"Genome '{args.name}' not found in library")
+        sys.exit(1)
+
+
+# =========================================================================
 # UNIFIED: Complete pipeline handler
 # =========================================================================
 
 def run_design(args):
     """Run complete primer design pipeline (all 4 steps)"""
+    check_jellyfish_available()
     logger.info("Running complete primer design pipeline")
 
     # Check for auto-tuning mode
@@ -3992,6 +4295,11 @@ def main():
         # Category 7: Background registry
         'background-list': run_background_list,
         'background-add': run_background_add,
+
+        # Category 8: Genome library
+        'genome-add': run_genome_add,
+        'genome-list': run_genome_list,
+        'genome-remove': run_genome_remove,
     }
 
     command_func = commands.get(args.command)

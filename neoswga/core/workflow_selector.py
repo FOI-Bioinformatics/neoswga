@@ -169,7 +169,7 @@ def run_workflow_selector():
 
         if choice is None:
             print("\nGoodbye!")
-            sys.exit(0)
+            raise SystemExit(0)
 
         elif choice == 1:  # Set up new project
             print("\n" + "-" * 40)

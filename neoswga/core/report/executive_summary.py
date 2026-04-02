@@ -186,6 +186,55 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
         .rating-poor {{ background: #f8d7da; color: #721c24; }}
         .rating-critical {{ background: #721c24; color: white; }}
 
+        .coverage-badge {{
+            font-size: 0.65em;
+            padding: 1px 6px;
+            border-radius: 8px;
+            margin-left: 4px;
+            vertical-align: middle;
+            font-weight: 500;
+        }}
+
+        .badge-measured {{ background: #48bb78; color: white; }}
+        .badge-estimated {{ background: #ecc94b; color: #744210; }}
+
+        .gap-analysis {{
+            padding: 16px 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }}
+
+        .gap-analysis h3 {{
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }}
+
+        .gap-metrics {{
+            display: flex;
+            gap: 24px;
+            font-size: 0.9em;
+            color: #495057;
+        }}
+
+        .gap-metric-item {{
+            display: flex;
+            flex-direction: column;
+        }}
+
+        .gap-metric-item .gap-label {{
+            font-size: 0.8em;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }}
+
+        .gap-metric-item .gap-value {{
+            font-weight: 600;
+            color: #212529;
+        }}
+
         /* Progress bars */
         .progress-container {{
             margin-top: 8px;
@@ -354,7 +403,7 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
         <!-- Key Metrics -->
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="label">Coverage</div>
+                <div class="label">Coverage <span class="coverage-badge {coverage_badge_class}">{coverage_badge_label}</span></div>
                 <div class="value">{coverage_pct:.1f}%</div>
                 <div class="progress-container">
                     <div class="progress-bar {coverage_progress_class}"
@@ -390,6 +439,8 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
                 <div class="rating {dimer_rating_class}">{dimer_rating}</div>
             </div>
         </div>
+
+        {gap_analysis_html}
 
         <!-- Interactive Charts (if available) -->
         {interactive_charts}
@@ -576,6 +627,42 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         else "Background Genome"
     ))
 
+    # Coverage source badge
+    from_optimizer = (
+        metrics.coverage is not None and metrics.coverage.from_optimizer
+    )
+    if from_optimizer:
+        coverage_badge_label = "Measured"
+        coverage_badge_class = "badge-measured"
+    else:
+        coverage_badge_label = "Estimated"
+        coverage_badge_class = "badge-estimated"
+
+    # Gap analysis section
+    gap_analysis_html = ""
+    if (metrics.coverage is not None and metrics.coverage.mean_gap > 0):
+        mean_gap_kb = metrics.coverage.mean_gap / 1000
+        max_gap_kb = metrics.coverage.max_gap / 1000
+        gap_gini = metrics.coverage.gap_gini
+        gap_analysis_html = f'''
+        <div class="gap-analysis">
+            <h3>Gap Analysis</h3>
+            <div class="gap-metrics">
+                <div class="gap-metric-item">
+                    <span class="gap-label">Mean Gap</span>
+                    <span class="gap-value">{mean_gap_kb:.1f} kb</span>
+                </div>
+                <div class="gap-metric-item">
+                    <span class="gap-label">Max Gap</span>
+                    <span class="gap-value">{max_gap_kb:.1f} kb</span>
+                </div>
+                <div class="gap-metric-item">
+                    <span class="gap-label">Gap Gini</span>
+                    <span class="gap-value">{gap_gini:.3f}</span>
+                </div>
+            </div>
+        </div>'''
+
     # Generate interactive charts if requested and Plotly is available
     interactive_charts = ""
     if interactive and is_plotly_available():
@@ -617,6 +704,10 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         coverage_progress_class=get_progress_class(
             coverage_comp.rating if coverage_comp else ""
         ),
+        coverage_badge_label=coverage_badge_label,
+        coverage_badge_class=coverage_badge_class,
+        # Gap analysis
+        gap_analysis_html=gap_analysis_html,
         # Enrichment
         enrichment=enrichment,
         enrichment_bar_pct=enrichment_bar,

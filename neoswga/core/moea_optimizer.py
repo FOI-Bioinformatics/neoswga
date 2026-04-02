@@ -356,6 +356,18 @@ class MOEAOptimizer:
 
         if verbose:
             logger.info(f"MOEA complete: {runtime:.1f}s")
+
+        # Handle case where no feasible solutions were found
+        if res.X is None:
+            logger.warning("MOEA found no feasible solutions")
+            return {
+                'pareto_front': [],
+                'best_solution': {'primers': [], 'score': 0.0},
+                'runtime': runtime,
+                'n_solutions': 0
+            }
+
+        if verbose:
             logger.info(f"Found {len(res.X)} Pareto-optimal solutions")
 
         # Extract solutions

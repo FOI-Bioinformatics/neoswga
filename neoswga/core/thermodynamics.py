@@ -344,23 +344,85 @@ def calculate_salt_correction(na_conc: float = 50, mg_conc: float = 0) -> float:
 def calculate_tm_with_salt(seq: str,
                            na_conc: float = 50,
                            mg_conc: float = 0,
-                           primer_conc: float = 0.5e-6) -> float:
+                           primer_conc: float = 0.5e-6,
+                           method: str = 'entropy') -> float:
     """
     Calculate melting temperature with salt corrections.
+
+    Two methods are available:
+    - 'entropy' (default): Owczarzy et al. (2004) entropy-based correction.
+      Modifies the entropy term directly: dS += 0.368 * N * ln([Na+]).
+      More accurate for oligonucleotides (6-30 bp), especially at extreme
+      salt concentrations. Reference: Owczarzy et al. (2004) Biochemistry
+      43:3537-3554.
+    - 'additive': Traditional additive correction Tm + 12.5 * log10([Na+]).
+      Simpler but introduces 1-3C error for short primers.
 
     Args:
         seq: DNA sequence
         na_conc: Na+ concentration in mM
         mg_conc: Mg2+ concentration in mM
         primer_conc: Primer concentration in M
+        method: 'entropy' (Owczarzy 2004) or 'additive' (SantaLucia 1998)
 
     Returns:
         Tm in degrees Celsius
     """
-    tm_basic = calculate_tm_basic(seq, primer_conc)
-    salt_corr = calculate_salt_correction(na_conc, mg_conc)
+    if method == 'entropy':
+        return _calculate_tm_entropy_salt(seq, na_conc, mg_conc, primer_conc)
+    else:
+        tm_basic = calculate_tm_basic(seq, primer_conc)
+        salt_corr = calculate_salt_correction(na_conc, mg_conc)
+        return tm_basic + salt_corr
 
-    return tm_basic + salt_corr
+
+def _calculate_tm_entropy_salt(seq: str,
+                               na_conc: float = 50,
+                               mg_conc: float = 0,
+                               primer_conc: float = 0.5e-6) -> float:
+    """
+    Calculate Tm with Owczarzy (2004) entropy-based salt correction.
+
+    Modifies the entropy term directly rather than adding to Tm:
+        dS_corrected = dS + 0.368 * N * ln([Na+_eq])
+
+    where N is the number of phosphate groups (primer_length - 1) and
+    [Na+_eq] includes Mg2+ equivalence from Owczarzy (2008).
+
+    Reference: Owczarzy et al. (2004) Biochemistry 43:3537-3554, Eq. 22.
+    """
+    enthalpy, entropy = calculate_enthalpy_entropy(seq)
+
+    # Effective monovalent concentration (M)
+    na_m = na_conc / 1000.0
+    mg_m = mg_conc / 1000.0
+    if mg_m > 0:
+        monovalent_eq = na_m + 3.3 * np.sqrt(mg_m)
+    else:
+        monovalent_eq = na_m
+
+    # Owczarzy entropy correction: 0.368 cal/(mol*K) per phosphate per ln([Na+])
+    # N = number of phosphate groups = len(seq) - 1
+    if monovalent_eq > 0:
+        n_phosphates = len(seq) - 1
+        entropy_correction = 0.368 * n_phosphates * np.log(monovalent_eq)
+        entropy_corrected = entropy + entropy_correction
+    else:
+        entropy_corrected = entropy
+
+    # Primer concentration factor
+    if is_palindrome(seq):
+        effective_conc = primer_conc / 4
+    else:
+        effective_conc = primer_conc / 2
+
+    # Tm = dH / (dS_corrected + R * ln(Ct)) - 273.15
+    denominator = entropy_corrected + R * np.log(effective_conc)
+    if denominator == 0:
+        return 0.0
+
+    tm_kelvin = (enthalpy * 1000) / denominator
+    return tm_kelvin - 273.15
 
 
 def calculate_free_energy(seq: str, temperature: float = 37.0) -> float:
@@ -762,16 +824,12 @@ def calculate_tm_batch(sequences: List[str],
     if n_seqs == 0:
         return np.array([])
 
-    # Pre-compute salt correction (same for all sequences)
-    salt_corr = calculate_salt_correction(na_conc, mg_conc)
-
-    # Calculate Tm for each sequence (leveraging cached thermodynamics)
+    # Calculate Tm for each sequence using entropy-based salt correction
     tm_values = np.zeros(n_seqs)
 
     for i, seq in enumerate(sequences):
         try:
-            tm_basic = calculate_tm_basic(seq, primer_conc)
-            tm_values[i] = tm_basic + salt_corr
+            tm_values[i] = calculate_tm_with_salt(seq, na_conc, mg_conc, primer_conc)
         except (ValueError, KeyError) as e:
             # Handle expected errors: invalid bases, missing NN parameters
             logger.debug(f"Could not calculate Tm for sequence {seq}: {e}")

@@ -600,15 +600,15 @@ class ParetoFrontierGenerator:
                 try:
                     pos = self.cache.get_positions(prefix, primer, 'both')
                     fg_positions.update(pos.tolist())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Ignored error getting fg positions for {primer}: {e}")
 
             for prefix in self.bg_prefixes:
                 try:
                     pos = self.cache.get_positions(prefix, primer, 'both')
                     bg_positions.update(pos.tolist())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Ignored error getting bg positions for {primer}: {e}")
 
         fg_sites = len(fg_positions)
         bg_sites = max(1, len(bg_positions))

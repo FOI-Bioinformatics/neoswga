@@ -13,8 +13,10 @@ from neoswga.core.report.metrics import (
     _safe_float,
     _safe_int,
     _load_csv,
+    _load_optimizer_summary,
     PrimerMetrics,
     PipelineMetrics,
+    CoverageMetrics,
     FilteringStats,
     collect_pipeline_metrics,
 )
@@ -174,7 +176,7 @@ class TestPrimerMetricsFromRow:
             "gc": "0.5",
             "fg_count": "100",
             "bg_count": "1",
-            "amp_pred": "0.85",
+            "amp_pred": "17.0",
             "dimer_score": "-3.5",
             "hairpin_dg": "-1.2",
             "self_dimer_dg": "-2.8",
@@ -192,7 +194,7 @@ class TestPrimerMetricsFromRow:
         assert primer.gc_content == 0.5
         assert primer.fg_sites == 100
         assert primer.bg_sites == 1
-        assert primer.amp_pred == 0.85
+        assert primer.amp_pred == 0.85  # 17.0 / 20.0 = 0.85 (normalized)
         assert primer.dimer_score == -3.5
         assert primer.strand_ratio == 1.2
 
@@ -205,7 +207,7 @@ class TestPrimerMetricsFromRow:
             "gc_content": "0.5",
             "fg_sites": "100",
             "bg_sites": "1",
-            "on.target.pred": "0.85",
+            "on.target.pred": "17.0",
         }
 
         primer = PrimerMetrics.from_row(row)
@@ -215,7 +217,7 @@ class TestPrimerMetricsFromRow:
         assert primer.gini == 0.25
         assert primer.gc_content == 0.5
         assert primer.fg_sites == 100
-        assert primer.amp_pred == 0.85
+        assert primer.amp_pred == 0.85  # 17.0 / 20.0 = 0.85 (normalized)
 
     def test_gc_calculated_from_sequence(self):
         """GC content calculated when not provided."""
@@ -295,6 +297,27 @@ class TestPrimerMetricsFromRow:
         # Should not raise, uses max(bg_freq, 1e-10)
         assert primer.specificity > 0
         assert math.isfinite(primer.specificity)
+
+    def test_dimer_risk_score_fallback(self):
+        """dimer_risk_score is used when dimer_score is absent."""
+        row = {
+            "sequence": "ATCGATCG",
+            "dimer_risk_score": "-6.2",
+        }
+
+        primer = PrimerMetrics.from_row(row)
+        assert primer.dimer_score == -6.2
+
+    def test_dimer_score_preferred_over_risk_score(self):
+        """dimer_score takes precedence over dimer_risk_score."""
+        row = {
+            "sequence": "ATCGATCG",
+            "dimer_score": "-3.5",
+            "dimer_risk_score": "-6.2",
+        }
+
+        primer = PrimerMetrics.from_row(row)
+        assert primer.dimer_score == -3.5
 
 
 class TestCollectPipelineMetrics:
@@ -484,3 +507,66 @@ class TestEdgeCases:
         metrics = collect_pipeline_metrics(str(results_dir))
 
         assert metrics.parameters.get("polymerase") == "equiphi29"
+
+
+class TestOptimizerSummaryIngestion:
+    """Test loading and merging of step4_summary.json."""
+
+    def test_load_optimizer_summary_missing_file(self, tmp_path):
+        assert _load_optimizer_summary(tmp_path) is None
+
+    def test_load_optimizer_summary_valid(self, tmp_path):
+        summary = {'metrics': {'fg_coverage': 0.85, 'mean_gap': 5000.0}}
+        (tmp_path / 'step4_improved_df_summary.json').write_text(json.dumps(summary))
+        result = _load_optimizer_summary(tmp_path)
+        assert result['metrics']['fg_coverage'] == 0.85
+
+    def test_load_optimizer_summary_corrupt_json(self, tmp_path):
+        (tmp_path / 'step4_improved_df_summary.json').write_text('not json{')
+        assert _load_optimizer_summary(tmp_path) is None
+
+    def test_coverage_uses_optimizer_data(self, tmp_path):
+        """When summary JSON exists, coverage should come from optimizer."""
+        csv_content = "sequence,score,fg_freq,bg_freq,tm,gini\nATCGATCG,1.0,0.001,0.00001,35.0,0.2\n"
+        (tmp_path / 'step4_improved_df.csv').write_text(csv_content)
+        params = {'fg_genome': 'target.fna', 'fg_size': 100000}
+        (tmp_path / 'params.json').write_text(json.dumps(params))
+        summary = {
+            'metrics': {
+                'fg_coverage': 0.72,
+                'mean_gap': 3500.0,
+                'max_gap': 12000.0,
+                'gap_gini': 0.35,
+                'gap_entropy': 2.1,
+            }
+        }
+        (tmp_path / 'step4_improved_df_summary.json').write_text(json.dumps(summary))
+
+        metrics = collect_pipeline_metrics(str(tmp_path))
+        assert metrics.coverage.overall_coverage == 0.72
+        assert metrics.coverage.from_optimizer is True
+        assert metrics.coverage.mean_gap == 3500.0
+        assert metrics.coverage.max_gap == 12000.0
+        assert metrics.coverage.gap_gini == 0.35
+        assert metrics.coverage.gap_entropy == 2.1
+        assert metrics.coverage.covered_bases == int(0.72 * 100000)
+
+    def test_coverage_without_summary_is_estimated(self, tmp_path):
+        """Without summary JSON, coverage is estimated and from_optimizer is False."""
+        csv_content = "sequence,fg_freq,bg_freq,tm,gini\nATCGATCG,0.001,0.00001,35.0,0.2\n"
+        (tmp_path / 'step4_improved_df.csv').write_text(csv_content)
+        params = {'fg_size': 100000}
+        (tmp_path / 'params.json').write_text(json.dumps(params))
+
+        metrics = collect_pipeline_metrics(str(tmp_path))
+        assert metrics.coverage.from_optimizer is False
+        assert metrics.coverage.overall_coverage > 0  # estimated
+
+    def test_coverage_metrics_new_fields_default(self):
+        """New CoverageMetrics fields have correct defaults."""
+        cm = CoverageMetrics()
+        assert cm.mean_gap == 0.0
+        assert cm.max_gap == 0.0
+        assert cm.gap_gini == 0.0
+        assert cm.gap_entropy == 0.0
+        assert cm.from_optimizer is False

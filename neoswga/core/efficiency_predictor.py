@@ -383,16 +383,16 @@ class EfficiencyPredictor:
                     logger.warning("RF model not found, using estimate")
                 return 0.6, 50.0  # Default estimate
 
-            # Note: pickle.load is used here for sklearn model compatibility.
-            # The model file is shipped with the package and should not be
-            # modified by users. For user-provided models, consider using
-            # a safer serialization format like ONNX.
-            logger.warning(
-                f"Loading pickle file from {model_path}. "
-                "Only load files from trusted sources."
-            )
-            with open(model_path, 'rb') as f:
-                model = pickle.load(f)
+            try:
+                from neoswga.core.safe_pickle import safe_load
+                model = safe_load(model_path, context='sklearn_model')
+            except Exception as e:
+                logger.warning(
+                    f"Restricted unpickling failed ({e}), falling back to standard load. "
+                    "Only load files from trusted sources."
+                )
+                with open(model_path, 'rb') as f:
+                    model = pickle.load(f)
 
             # Get predictions for each primer
             scores = []
@@ -401,7 +401,8 @@ class EfficiencyPredictor:
                     features = compute_primer_features(primer)
                     pred = model.predict_proba([features])[0][1]  # Probability of good primer
                     scores.append(pred)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Ignored error computing features for primer: {e}")
                     scores.append(0.5)  # Default if features fail
 
             # Average score

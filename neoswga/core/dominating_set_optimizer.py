@@ -64,28 +64,75 @@ class BipartiteGraph:
         self._region_lookup: Dict[Tuple[str, int, int], CoverageRegion] = {}
 
     def add_primer_coverage(self, primer: str, positions: np.ndarray,
-                           genome_id: str, genome_length: int):
+                           genome_id: str, genome_length: int,
+                           extension_reach: int = 0,
+                           forward_positions: np.ndarray = None,
+                           reverse_positions: np.ndarray = None):
         """
         Add primer and its coverage regions.
 
+        When forward_positions and reverse_positions are provided separately,
+        uses strand-direction-aware extension: forward sites extend downstream
+        only, reverse sites extend upstream only. This models the biological
+        reality that phi29 polymerase extends from the 3' end of the primer
+        in one direction along the template.
+
         Args:
             primer: Primer sequence
-            positions: Array of binding positions
+            positions: Array of binding positions (used when strand info
+                is not available, extends bidirectionally)
             genome_id: Genome identifier
             genome_length: Total genome length
+            extension_reach: Polymerase extension distance in bp.
+            forward_positions: Positions on forward strand (extend downstream)
+            reverse_positions: Positions on reverse strand (extend upstream)
         """
         self.primers.add(primer)
 
         if primer not in self.primer_to_regions:
             self.primer_to_regions[primer] = set()
 
-        # Create regions based on binning
         n_bins = (genome_length + self.bin_size - 1) // self.bin_size
 
         covered_bins = set()
-        for pos in positions:
-            bin_idx = int(pos / self.bin_size)
-            covered_bins.add(bin_idx)
+
+        if extension_reach > 0 and (forward_positions is not None or
+                                     reverse_positions is not None):
+            # Strand-direction-aware extension (realistic model)
+            if forward_positions is not None:
+                for pos in forward_positions:
+                    # Forward strand: extend DOWNSTREAM only
+                    pos = int(min(pos, genome_length - 1))
+                    end_pos = min(genome_length, pos + extension_reach)
+                    start_bin = pos // self.bin_size
+                    end_bin = min(end_pos // self.bin_size, n_bins - 1)
+                    for b in range(start_bin, end_bin + 1):
+                        covered_bins.add(b)
+
+            if reverse_positions is not None:
+                for pos in reverse_positions:
+                    # Reverse strand: extend UPSTREAM only
+                    pos = int(min(pos, genome_length))
+                    start_pos = max(0, pos - extension_reach)
+                    start_bin = start_pos // self.bin_size
+                    end_bin = min(pos // self.bin_size, n_bins - 1)
+                    for b in range(start_bin, end_bin + 1):
+                        covered_bins.add(b)
+
+        elif extension_reach > 0:
+            # Bidirectional fallback (when strand info not available)
+            for pos in positions:
+                start_pos = max(0, int(pos) - extension_reach)
+                end_pos = min(genome_length, int(pos) + extension_reach)
+                start_bin = start_pos // self.bin_size
+                end_bin = min(end_pos // self.bin_size, n_bins - 1)
+                for b in range(start_bin, end_bin + 1):
+                    covered_bins.add(b)
+        else:
+            # No extension: original bin-only coverage
+            for pos in positions:
+                bin_idx = int(pos / self.bin_size)
+                covered_bins.add(bin_idx)
 
         # Add regions
         for bin_idx in covered_bins:
@@ -144,7 +191,7 @@ class DominatingSetOptimizer:
     """
 
     def __init__(self, cache, fg_prefixes: List[str], fg_seq_lengths: List[int],
-                 bin_size: int = 10000):
+                 bin_size: int = 10000, extension_reach: int = 0):
         """
         Initialize optimizer.
 
@@ -153,11 +200,15 @@ class DominatingSetOptimizer:
             fg_prefixes: Target genome prefixes
             fg_seq_lengths: Target genome lengths
             bin_size: Size of genome bins for coverage
+            extension_reach: Polymerase extension distance in bp. When > 0,
+                each binding site covers all bins within this distance.
+                Use 70000 for phi29, 80000 for equiphi29.
         """
         self.cache = cache
         self.fg_prefixes = fg_prefixes
         self.fg_seq_lengths = fg_seq_lengths
         self.bin_size = bin_size
+        self.extension_reach = extension_reach
 
     def optimize_greedy(self, candidates: List[str], max_primers: int = 20,
                        fixed_primers: Optional[List[str]] = None,
@@ -199,18 +250,31 @@ class DominatingSetOptimizer:
         # Add fixed primers first
         for primer in fixed_primers:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                positions = self.cache.get_positions(prefix, primer, 'both')
-                if len(positions) > 0:
-                    graph.add_primer_coverage(primer, positions, prefix, length)
+                fw = self.cache.get_positions(prefix, primer, 'forward')
+                rv = self.cache.get_positions(prefix, primer, 'reverse')
+                both = self.cache.get_positions(prefix, primer, 'both')
+                if len(both) > 0:
+                    graph.add_primer_coverage(
+                        primer, both, prefix, length,
+                        extension_reach=self.extension_reach,
+                        forward_positions=fw if len(fw) > 0 else None,
+                        reverse_positions=rv if len(rv) > 0 else None,
+                    )
 
         # Add candidate primers
         for primer in candidates:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                # PositionCache uses 'forward', 'reverse', 'both' for strand
-                positions = self.cache.get_positions(prefix, primer, 'both')
+                fw = self.cache.get_positions(prefix, primer, 'forward')
+                rv = self.cache.get_positions(prefix, primer, 'reverse')
+                both = self.cache.get_positions(prefix, primer, 'both')
 
-                if len(positions) > 0:
-                    graph.add_primer_coverage(primer, positions, prefix, length)
+                if len(both) > 0:
+                    graph.add_primer_coverage(
+                        primer, both, prefix, length,
+                        extension_reach=self.extension_reach,
+                        forward_positions=fw if len(fw) > 0 else None,
+                        reverse_positions=rv if len(rv) > 0 else None,
+                    )
 
         if verbose:
             logger.info(f"Graph: {len(graph.primers)} primers, {len(graph.regions)} regions")

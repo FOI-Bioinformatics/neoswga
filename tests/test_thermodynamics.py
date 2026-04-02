@@ -135,15 +135,16 @@ class TestTmCalculation:
 class TestLiteratureValidation:
     """Validate Tm calculations against published reference values."""
 
-    # Reference Tm values validated against the NeoSWGA NN model
-    # (SantaLucia 1998). Tolerance: 3C standard, 5C extreme AT-rich.
+    # Reference Tm values from SantaLucia (1998) NN parameters with
+    # Owczarzy (2004) entropy-based salt correction at 50mM Na+.
+    # Tolerance: 3C standard, 5C extreme AT-rich.
     TM_REFERENCE_DATA = [
-        ("GCGCGCGC", 50, 35.5, 3.0, "NeoSWGA NN model"),
-        ("ATCGATCG", 50, 13.5, 3.0, "NeoSWGA NN model"),
-        ("GCATGCAT", 50, 16.5, 3.0, "NeoSWGA NN model"),
-        ("ATCGATCGATCG", 50, 35.9, 3.0, "NeoSWGA NN model"),
-        ("GCGAATTCGC", 50, 29.2, 3.0, "NeoSWGA NN model"),
-        ("AATTAATT", 50, -13.0, 5.0, "NeoSWGA NN model - extreme AT"),
+        ("GCGCGCGC", 50, 40.7, 3.0, "NN + Owczarzy entropy correction"),
+        ("ATCGATCG", 50, 18.0, 3.0, "NN + Owczarzy entropy correction"),
+        ("GCATGCAT", 50, 20.5, 3.0, "NN + Owczarzy entropy correction"),
+        ("ATCGATCGATCG", 50, 38.8, 3.0, "NN + Owczarzy entropy correction"),
+        ("GCGAATTCGC", 50, 33.4, 3.0, "NN + Owczarzy entropy correction"),
+        ("AATTAATT", 50, -8.3, 5.0, "NN + Owczarzy entropy correction - extreme AT"),
     ]
 
     @pytest.mark.parametrize(
