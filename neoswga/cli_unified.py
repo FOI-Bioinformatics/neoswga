@@ -1997,6 +1997,13 @@ def run_step4(args):
             logger.warning("--use-cooperative-binding is experimental and not yet fully integrated")
             parameter.use_cooperative_binding = True
 
+        # Mechanistic model (not yet integrated into optimizer scoring)
+        if getattr(args, 'use_mechanistic_model', False):
+            logger.warning(
+                "--use-mechanistic-model is not yet integrated into the optimization step. "
+                "The mechanistic model is used in simulation and auto-size features."
+            )
+
         # Primer strategy
         merge_args_to_parameter(args, parameter, ['primer_strategy'])
         if hasattr(args, 'primer_strategy') and args.primer_strategy == 'hybrid':
