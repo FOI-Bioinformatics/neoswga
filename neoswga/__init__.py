@@ -12,8 +12,8 @@ Documentation: See README.md
 
 __version__ = "3.0.0"
 __author__ = "Andreas Sjodin"
-__email__ = "andreas.sjodin@example.com"
-__license__ = "MIT"
+__email__ = "andreas.sjodin@foi.se"
+__license__ = "AGPL-3.0-or-later"
 
 
 def get_version():
@@ -28,4 +28,4 @@ def print_info():
     print(f"License: {__license__}")
     print()
     print("Enhanced primer design for selective whole genome amplification")
-    print("Documentation: https://github.com/andreassjodin/neoswga")
+    print("Documentation: https://github.com/FOI-Bioinformatics/neoswga")
