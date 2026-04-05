@@ -107,18 +107,3 @@ def safe_load(path, context='sklearn_model'):
     allowed = _ALLOWED_CLASSES[context]
     with open(path, 'rb') as f:
         return RestrictedUnpickler(f, allowed).load()
-
-
-def unsafe_load_with_warning(path, purpose=''):
-    """Load pickle with a logged warning. Fallback when safe_load fails.
-
-    Use this only when RestrictedUnpickler cannot handle the file
-    (e.g., complex sklearn internals). Logs a warning about the risk.
-    """
-    msg = f"Loading pickle file {path} without restriction"
-    if purpose:
-        msg += f" ({purpose})"
-    msg += ". Only load files from trusted sources."
-    logger.warning(msg)
-    with open(path, 'rb') as f:
-        return pickle.load(f)

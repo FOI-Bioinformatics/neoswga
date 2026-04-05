@@ -126,15 +126,8 @@ def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
             f"No trusted hash for model: {model_name}. Loading without verification."
         )
 
-    try:
-        from neoswga.core.safe_pickle import safe_load
-        return safe_load(model_path, context='sklearn_model')
-    except Exception as e:
-        logging.getLogger(__name__).warning(
-            f"Restricted unpickling failed ({e}), falling back to standard load"
-        )
-        from neoswga.core.safe_pickle import unsafe_load_with_warning
-        return unsafe_load_with_warning(model_path, purpose='sklearn RF model')
+    from neoswga.core.safe_pickle import safe_load
+    return safe_load(model_path, context='sklearn_model')
 
 
 # Module-level k-mer cache for performance
