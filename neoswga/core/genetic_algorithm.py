@@ -17,7 +17,7 @@ import time
 import warnings
 from typing import List, Dict, Tuple, Optional, Callable
 from dataclasses import dataclass
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import multiprocessing
 
 from neoswga.core import thermodynamics as thermo
@@ -318,7 +318,7 @@ class PrimerSetGA:
         indices = [self.primer_to_idx[p] for p in primer_set]
 
         for i in range(len(indices)):
-            for j in range(i, len(indices)):
+            for j in range(i + 1, len(indices)):
                 severity = self.dimer_matrix[indices[i], indices[j]]
                 if severity > self.config.max_dimer_severity:
                     return False
@@ -338,7 +338,7 @@ class PrimerSetGA:
             Population with fitness scores
         """
         # Parallel evaluation
-        with ProcessPoolExecutor(max_workers=self.config.n_processes) as executor:
+        with ThreadPoolExecutor(max_workers=self.config.n_processes) as executor:
             futures = {
                 executor.submit(self._evaluate_individual, ind): ind
                 for ind in population if ind.fitness is None
