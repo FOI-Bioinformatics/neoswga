@@ -93,95 +93,48 @@ class ThermodynamicFilter:
     """
 
     def __init__(self, reaction_temp: float = 30.0, na_conc: float = 50.0,
-                 target_tm_offset: float = 7.5):
+                 target_tm_offset: float = 7.5,
+                 min_tm: float = None, max_tm: float = None):
         """
         Initialize thermodynamic filter.
 
         Args:
-            reaction_temp: Reaction temperature (°C)
+            reaction_temp: Reaction temperature (deg C)
             na_conc: Sodium concentration (mM)
             target_tm_offset: Target Tm = reaction_temp + offset
+            min_tm: Override minimum Tm directly (deg C)
+            max_tm: Override maximum Tm directly (deg C)
         """
         self.reaction_temp = reaction_temp
         self.na_conc = na_conc
         self.target_tm = reaction_temp + target_tm_offset
 
-        # Tm range: ±5°C around target
-        self.tm_min = self.target_tm - 5
-        self.tm_max = self.target_tm + 5
+        # Allow direct min/max Tm override
+        self.tm_min = min_tm if min_tm is not None else self.target_tm - 5
+        self.tm_max = max_tm if max_tm is not None else self.target_tm + 5
 
-        logger.info(f"Thermodynamic filter: target Tm={self.target_tm:.1f}°C, "
-                   f"range=[{self.tm_min:.1f}, {self.tm_max:.1f}]")
+        logger.info(f"Thermodynamic filter: range=[{self.tm_min:.1f}, {self.tm_max:.1f}]")
 
     def passes(self, primer: str) -> bool:
-        """Check if primer Tm is in acceptable range"""
+        """Check if primer Tm is in acceptable range."""
         tm = self._calculate_tm(primer)
         return self.tm_min <= tm <= self.tm_max
 
+    def passes_filter(self, primer: str) -> bool:
+        """Alias for passes(); check if primer Tm is in acceptable range."""
+        return bool(self.passes(primer))
+
     def _calculate_tm(self, seq: str) -> float:
         """
-        Calculate melting temperature with salt correction.
+        Calculate melting temperature using the canonical thermodynamics module.
 
-        Uses nearest-neighbor thermodynamics + SantaLucia parameters.
+        Uses SantaLucia nearest-neighbor model with Owczarzy salt correction.
         """
-        # For short primers, use simple approximation
-        if len(seq) <= 13:
-            # Wallace rule with GC adjustment
-            gc_count = seq.count('G') + seq.count('C')
-            at_count = len(seq) - gc_count
-            tm_basic = 2 * at_count + 4 * gc_count
-
-            # Salt correction using SantaLucia (1998) coefficient for oligonucleotides
-            # 12.5 is appropriate for primers (6-30 bp); 16.6 is for long DNA polymers
-            salt_factor = 12.5 * np.log10(self.na_conc / 1000.0)  # mM to M
-
-            return tm_basic + salt_factor
-        else:
-            # Use nearest-neighbor (more accurate for longer primers)
-            return self._nn_tm(seq)
-
-    def _nn_tm(self, seq: str) -> float:
-        """
-        Nearest-neighbor Tm calculation.
-
-        Simplified version - for production, use Bio.SeqUtils.MeltingTemp
-        """
-        # SantaLucia unified NN parameters (kcal/mol)
-        nn_table = {
-            'AA': (-7.9, -22.2), 'TT': (-7.9, -22.2),
-            'AT': (-7.2, -20.4), 'TA': (-7.2, -21.3),
-            'CA': (-8.5, -22.7), 'TG': (-8.5, -22.7),
-            'GT': (-8.4, -22.4), 'AC': (-8.4, -22.4),
-            'CT': (-7.8, -21.0), 'AG': (-7.8, -21.0),
-            'GA': (-8.2, -22.2), 'TC': (-8.2, -22.2),
-            'CG': (-10.6, -27.2), 'GC': (-9.8, -24.4),
-            'GG': (-8.0, -19.9), 'CC': (-8.0, -19.9),
-        }
-
-        dH = 0.0  # Enthalpy (kcal/mol)
-        dS = 0.0  # Entropy (cal/mol·K)
-
-        # Sum nearest-neighbor contributions
-        for i in range(len(seq) - 1):
-            dinuc = seq[i:i+2]
-            if dinuc in nn_table:
-                h, s = nn_table[dinuc]
-                dH += h
-                dS += s
-
-        # Initiation parameters
-        dH += 0.2  # Helix initiation
-        dS += -5.7
-
-        # Salt correction for entropy (SantaLucia 1998)
-        dS += 0.368 * (len(seq) - 1) * np.log(self.na_conc / 1000.0)
-
-        # Tm = dH / (dS + R * ln(C/4))
-        # Simplified: Tm ≈ dH / dS - 273.15
-        if dS != 0:
-            tm = (dH * 1000) / dS - 273.15  # Convert to Celsius
-            return tm
-        else:
+        from neoswga.core.thermodynamics import calculate_tm_with_salt
+        try:
+            return calculate_tm_with_salt(seq, na_conc=self.na_conc)
+        except (ValueError, ZeroDivisionError):
+            # Fallback for very short or degenerate sequences
             return 0.0
 
     def explain_rejection(self, primer: str) -> str:
