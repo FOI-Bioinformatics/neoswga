@@ -348,6 +348,34 @@ def validate_params_json_file(path):
         print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
         sys.exit(1)
 
+    # Run automatic parameter validation (ERROR-level issues only)
+    try:
+        from neoswga.core.param_validator import ParamValidator, ValidationLevel
+        validator = ParamValidator()
+        results = validator.validate_params(data)
+        # Skip errors already handled by the checks above (required keys, file existence)
+        # to avoid false positives — only catch value/type errors (ranges, polymerase, method)
+        already_checked = {'fg_genomes', 'bg_genomes', 'fg_prefixes', 'data_dir', 'params_file'}
+        errors = [
+            r for r in results
+            if r.level == ValidationLevel.ERROR
+            and r.parameter not in already_checked
+            and 'File not found' not in r.message
+        ]
+        if errors:
+            print(f"\nParameter validation found {len(errors)} error(s) in '{path}':",
+                  file=sys.stderr)
+            for err in errors:
+                print(f"  - {err.message}", file=sys.stderr)
+            print(f"\nRun 'neoswga validate-params -j {path}' for full details.",
+                  file=sys.stderr)
+            sys.exit(1)
+    except ImportError:
+        pass  # ParamValidator not available — skip validation
+    except Exception as e:
+        # Don't block pipeline on validator bugs
+        logger.debug(f"Parameter validation skipped: {e}")
+
 
 # =============================================================================
 # Parameter Merger Utility
