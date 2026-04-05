@@ -127,6 +127,10 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
     Returns:
         Dictionary mapping primer -> estimated count (or None if not found)
     """
+    if len(primer_list) == 0:
+        logger.info("Bloom filter: no primers to check")
+        return {}
+
     from neoswga.core.background_filter import BackgroundBloomFilter, BackgroundFilter
 
     logger.info(f"Using Bloom filter for background filtering: {bloom_path}")

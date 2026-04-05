@@ -707,6 +707,22 @@ def step2(all_primers=None, validate_prerequisites=True):
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
 
+    if len(filtered_gini_df) == 0:
+        logger.error(
+            "No primers passed filtering. The output file is empty.\n"
+            "Suggestions to get more candidates:\n"
+            "  - Increase max_bg_freq (e.g., 1e-5)\n"
+            "  - Decrease min_fg_freq (e.g., 1e-6)\n"
+            "  - Increase max_gini (e.g., 0.8)\n"
+            "  - Widen the k-mer range (min_k/max_k)\n"
+            "  - Check that foreground and background genomes are not swapped"
+        )
+        raise ValueError(
+            f"Filtering produced 0 candidate primers. "
+            f"Started with {len(rate_df)} k-mers, all were removed by filters. "
+            f"Adjust filtering thresholds in params.json."
+        )
+
     # Log thermodynamic cache performance
     from neoswga.core.thermodynamics import log_cache_stats
     log_cache_stats("Step 2")
