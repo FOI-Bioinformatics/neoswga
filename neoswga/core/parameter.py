@@ -585,11 +585,19 @@ def get_params(args):
     min_k = data['min_k'] = get_value_or_default(args.min_k if hasattr(args, 'min_k') else None, data, 'min_k')
     max_k = data['max_k'] = get_value_or_default(args.max_k if hasattr(args, 'max_k') else None, data, 'max_k')
 
-    # Validate k-mer range (6-18bp supported)
-    if min_k < 6:
-        print(f"Warning: min_k={min_k} is below recommended minimum of 6bp")
-    if max_k > 18:
-        print(f"Warning: max_k={max_k} exceeds supported maximum of 18bp")
+    # Validate k-mer range
+    if min_k < 4:
+        logger.warning("min_k=%d is very small. Minimum recommended is 6.", min_k)
+    elif min_k < 6:
+        logger.warning("min_k=%d is below recommended minimum of 6bp.", min_k)
+    if max_k > 31:
+        logger.error("max_k=%d exceeds jellyfish maximum of 31. Setting to 31.", max_k)
+        max_k = 31
+        data['max_k'] = 31
+    elif max_k > 18:
+        logger.warning("max_k=%d exceeds supported maximum of 18bp.", max_k)
+    if min_k > max_k:
+        raise ValueError(f"min_k ({min_k}) must be <= max_k ({max_k})")
 
     # Auto-scale dimer thresholds based on max_k: a fixed 3bp match is
     # meaningful for 6bp primers (50%) but negligible for 18bp primers (17%).
