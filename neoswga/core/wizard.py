@@ -529,6 +529,9 @@ class SetupWizard:
 
         # Build config
         config = {
+            # Schema version for reproducibility
+            'schema_version': 1,
+
             # Genome paths
             'fg_genomes': [str(self.target_path.resolve())],
             'fg_prefixes': [str(Path(output_dir) / self.target_path.stem)],

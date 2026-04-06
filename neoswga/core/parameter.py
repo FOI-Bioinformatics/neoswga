@@ -525,6 +525,22 @@ def get_params(args):
             data_extra = read_args_from_json(args.json_file)
             _json_data.update(data_extra)  # Store raw JSON for CLI access
 
+            # Schema versioning
+            CURRENT_SCHEMA_VERSION = 1
+            schema_version = data_extra.get('schema_version', None) if isinstance(data_extra, dict) else None
+            if schema_version is None:
+                logger.warning(
+                    "params.json has no 'schema_version' field. "
+                    "Defaults may differ between NeoSWGA versions. "
+                    "Add '\"schema_version\": 1' to your params.json for reproducibility."
+                )
+            elif schema_version > CURRENT_SCHEMA_VERSION:
+                logger.warning(
+                    f"params.json schema_version {schema_version} is newer than "
+                    f"this NeoSWGA version supports (max: {CURRENT_SCHEMA_VERSION}). "
+                    f"Some parameters may not be recognized."
+                )
+
             for k, v in data_extra.items():
                 if k not in data:
                     data[k] = v
