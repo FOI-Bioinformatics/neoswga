@@ -119,6 +119,15 @@ NeoSWGA extends SOAPswga, originally developed by Dwivedi-Yu et al. (2023):
 }
 ```
 
+## Deprecation Policy
+
+NeoSWGA follows semantic versioning. When features are deprecated:
+
+- **Deprecated features** emit a `DeprecationWarning` for at least one minor release before removal.
+- **Removed features** are documented in the CHANGELOG with migration guidance.
+- **params.json changes** are backwards compatible within the same major version. New parameters use sensible defaults.
+- **CLI flag changes** follow the same deprecation cycle: warning first, removal in next major.
+
 ## License
 
 MIT License

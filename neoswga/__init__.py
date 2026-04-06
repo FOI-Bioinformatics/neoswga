@@ -15,6 +15,11 @@ __author__ = "Andreas Sjodin"
 __email__ = "andreas.sjodin@foi.se"
 __license__ = "AGPL-3.0-or-later"
 
+__all__ = [
+    "__version__",
+    "get_version",
+]
+
 
 def get_version():
     """Get version string."""
