@@ -156,7 +156,7 @@ def sample_pipeline_metrics(sample_primer_metrics):
     return PipelineMetrics(
         results_dir="/test/results",
         generated_at="2024-01-01T00:00:00",
-        pipeline_version="3.0.0",
+        pipeline_version="3.6.0",
         target_genome=GenomeInfo(
             name="target",
             size=4000000,

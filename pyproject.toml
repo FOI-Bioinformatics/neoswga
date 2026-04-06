@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neoswga"
-version = "3.0.0"
+version = "3.6.0"
 description = "Enhanced Selective Whole Genome Amplification (SWGA) primer design with advanced thermodynamics and optimization. Requires Jellyfish 2.x (external): conda install -c bioconda jellyfish"
 readme = "README.md"
 requires-python = ">=3.11"

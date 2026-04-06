@@ -10,7 +10,7 @@ For CLI usage:
 Documentation: See README.md
 """
 
-__version__ = "3.0.0"
+__version__ = "3.6.0"
 __author__ = "Andreas Sjodin"
 __email__ = "andreas.sjodin@foi.se"
 __license__ = "AGPL-3.0-or-later"

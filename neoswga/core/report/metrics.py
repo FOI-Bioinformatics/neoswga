@@ -16,6 +16,15 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def _get_version() -> str:
+    """Get NeoSWGA version from package metadata."""
+    try:
+        from neoswga import __version__
+        return __version__
+    except ImportError:
+        return "unknown"
+
+
 def _normalize_amp_pred(raw_score: float) -> float:
     """Normalize RF amplification prediction from 0-20 scale to 0-1.
 
@@ -248,7 +257,7 @@ class PipelineMetrics:
     # Metadata
     results_dir: str = ""
     generated_at: str = ""
-    pipeline_version: str = "3.0.0"
+    pipeline_version: str = field(default_factory=_get_version)
 
     # Genome info
     target_genome: Optional[GenomeInfo] = None

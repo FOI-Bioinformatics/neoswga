@@ -35,6 +35,7 @@ from neoswga.core.report.utils import (
     get_grade_colors,
     get_rating_class,
     get_progress_class,
+    get_version as _get_version,
 )
 from neoswga.core.report.visualizations import (
     is_plotly_available,
@@ -100,7 +101,7 @@ class TechnicalReportData:
     """All data needed for the technical report."""
     # Metadata
     generated_at: str
-    version: str = "3.0.0"
+    version: str = field(default_factory=_get_version)
 
     # Core data
     metrics: Optional[PipelineMetrics] = None

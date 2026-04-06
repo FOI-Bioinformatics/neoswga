@@ -10,6 +10,15 @@ from typing import Any, Dict, Optional
 from neoswga.core.report.quality import QualityGrade
 
 
+def get_version() -> str:
+    """Get NeoSWGA version from package metadata."""
+    try:
+        from neoswga import __version__
+        return __version__
+    except ImportError:
+        return "unknown"
+
+
 # Color scheme for interactive charts (Plotly visualizations)
 CHART_COLORS = {
     "primary": "#2c5282",

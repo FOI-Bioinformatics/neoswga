@@ -9,7 +9,7 @@ Generates a one-page HTML report with:
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape as html_escape
 from pathlib import Path
@@ -31,6 +31,7 @@ from neoswga.core.report.utils import (
     get_grade_colors,
     get_rating_class,
     get_progress_class,
+    get_version as _get_version,
     GRADE_DESCRIPTIONS,
     ENRICHMENT_EXCELLENT_THRESHOLD,
 )
@@ -48,7 +49,7 @@ class ExecutiveSummary:
     metrics: PipelineMetrics
     quality: QualityAssessment
     generated_at: str
-    version: str = "3.0.0"
+    version: str = field(default_factory=_get_version)
 
 
 # HTML template with embedded CSS
