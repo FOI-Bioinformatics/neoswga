@@ -847,33 +847,4 @@ def step3(validate_prerequisites=True):
     return joined_step3_df
 
 
-# optimize AND SEARCH
-def step4(primer_list=None, scores=None, initial_primer_sets=None, validate_prerequisites=True):
-    """
-    DEPRECATED: This function is no longer supported.
-
-    Use ImprovedPipeline from neoswga.core.improved_pipeline instead:
-
-        from neoswga.core.improved_pipeline import ImprovedPipeline, PipelineConfig
-
-        config = PipelineConfig(optimization_method='hybrid')
-        pipeline = ImprovedPipeline(config=config)
-        results = pipeline.run_step4(primer_df, fg_prefixes, bg_prefixes, ...)
-
-    The legacy optimize module has been removed. The improved_pipeline module
-    provides superior optimization algorithms including:
-    - hybrid: Combined network and greedy optimization (default)
-    - dominating-set: Fast graph-based coverage optimization
-    - background-aware: Clinical-grade background minimization
-    - genetic: Multi-objective genetic algorithm
-    - moea: Pareto optimization
-
-    Raises:
-        NotImplementedError: Always raised, use ImprovedPipeline instead.
-    """
-    raise NotImplementedError(
-        "step4() is deprecated. Use ImprovedPipeline from "
-        "neoswga.core.improved_pipeline instead. See docstring for details."
-    )
-
 

@@ -46,12 +46,14 @@ dependencies = [
     "networkx>=2.8,<4",
     "biopython>=1.80,<2",
     "joblib>=1.0,<2",
+]
+
+[project.optional-dependencies]
+viz = [
     "matplotlib>=3.5,<4",
     "seaborn>=0.12,<1",
     "openpyxl>=3.0,<4",
 ]
-
-[project.optional-dependencies]
 improved = [
     "pybloom-live>=3.1.0",
     "mip>=1.13.0",
@@ -90,6 +92,9 @@ all = [
     "mip>=1.13.0",
     "pyahocorasick>=2.0.0",
     "plotly>=5.0.0",
+    "matplotlib>=3.5,<4",
+    "seaborn>=0.12,<1",
+    "openpyxl>=3.0,<4",
     "hypothesis>=6.0.0",
 ]
 

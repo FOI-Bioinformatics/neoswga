@@ -128,23 +128,25 @@ class GenomeLoader:
         Open zip compressed file.
 
         For zip files, extracts the first .fasta/.fa/.fna file found.
+        The ZipFile is stored on self._zip_file so it can be closed by the caller.
         """
-        zf = zipfile.ZipFile(file_path, 'r')
+        self._zip_file = zipfile.ZipFile(file_path, 'r')
 
         # Find FASTA file in zip
         fasta_files = [
-            name for name in zf.namelist()
+            name for name in self._zip_file.namelist()
             if name.lower().endswith(('.fasta', '.fa', '.fna'))
         ]
 
         if not fasta_files:
+            self._zip_file.close()
             raise ValueError(f"No FASTA file found in zip: {file_path}")
 
         if len(fasta_files) > 1:
             logger.warning(f"Multiple FASTA files in zip, using: {fasta_files[0]}")
 
         # Return text wrapper for the FASTA file
-        return TextIOWrapper(zf.open(fasta_files[0], 'r'), encoding='utf-8')
+        return TextIOWrapper(self._zip_file.open(fasta_files[0], 'r'), encoding='utf-8')
 
     def load_genome(self, file_path: Union[str, Path],
                    return_stats: bool = True) -> str:
@@ -188,6 +190,9 @@ class GenomeLoader:
 
         finally:
             file_handle.close()
+            if hasattr(self, '_zip_file') and self._zip_file:
+                self._zip_file.close()
+                self._zip_file = None
 
         if not sequences:
             raise ValueError(f"No sequences found in: {file_path}")
@@ -257,6 +262,9 @@ class GenomeLoader:
                 yield str(record.seq).upper()
         finally:
             file_handle.close()
+            if hasattr(self, '_zip_file') and self._zip_file:
+                self._zip_file.close()
+                self._zip_file = None
 
     def validate_genome(self, file_path: Union[str, Path],
                        max_n_fraction: float = 0.10,

@@ -54,7 +54,6 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 
 **Thermodynamics**:
 - `thermodynamics.py`: SantaLucia nearest-neighbor calculations with LRU caching (1M entries)
-- `thermo_estimation.py`: Free energy with salt corrections
 - `reaction_conditions.py`: Polymerase presets (phi29, equiphi29, bst, klenow), additive effects
 - `secondary_structure.py`: Hairpin and dimer prediction
 - `dimer.py`: Primer-dimer calculations
@@ -539,7 +538,7 @@ neoswga/
     background_aware_optimizer.py, moea_optimizer.py, equiphi29_optimizer.py
 
     # Thermodynamics
-    thermodynamics.py, thermo_estimation.py, reaction_conditions.py,
+    thermodynamics.py, reaction_conditions.py,
     secondary_structure.py, dimer.py, three_prime_stability.py
 
     # Mechanistic Modeling

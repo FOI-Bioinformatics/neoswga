@@ -810,14 +810,6 @@ class TestBackwardCompatibility:
 
         assert not hasattr(rf, "te")
 
-    def test_thermo_estimation_importable(self):
-        """thermo_estimation should be importable but deprecated."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", DeprecationWarning)
-            from neoswga.core import thermo_estimation
-
-        assert hasattr(thermo_estimation, "compute_free_energy_for_two_strings")
-
     def test_thermodynamics_importable(self):
         """thermodynamics should be importable."""
         from neoswga.core import thermodynamics
