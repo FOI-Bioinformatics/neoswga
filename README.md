@@ -139,7 +139,7 @@ NeoSWGA follows semantic versioning. When features are deprecated:
 
 ## License
 
-MIT License
+AGPL-3.0-or-later. See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
