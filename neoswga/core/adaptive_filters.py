@@ -474,11 +474,15 @@ def run_step2_with_adaptive_gc(gc_tolerance: float = 0.15):
         logger.info("Running filter with adaptive GC parameters...")
 
         from neoswga.core import pipeline as core_pipeline
+        from neoswga.core.filter import reset_reaction_conditions
+        reset_reaction_conditions()
         core_pipeline.step2()
 
         logger.info("Step2 complete with adaptive GC filtering!")
 
     finally:
-        # Restore original parameter values
+        # Restore original parameter values and clear cached conditions
         parameter.gc_min = original_gc_min
         parameter.gc_max = original_gc_max
+        from neoswga.core.filter import reset_reaction_conditions
+        reset_reaction_conditions()

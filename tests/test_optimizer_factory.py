@@ -696,11 +696,15 @@ class TestBackgroundAwareOptimizerParameterOrder:
     """Test that BackgroundAwareOptimizer uses correct get_positions order."""
 
     def test_calculate_coverage_parameter_order(self):
-        """_calculate_coverage should call get_positions(prefix, primer, ...)."""
+        """_calculate_coverage should iterate over all fg_prefixes."""
         from neoswga.core.background_aware_optimizer import BackgroundAwareOptimizer
 
         src = inspect.getsource(BackgroundAwareOptimizer._calculate_coverage)
-        assert "get_positions(self.fg_prefixes[0], primer" in src, (
+        # Must loop over all prefixes, not just [0]
+        assert "for prefix in self.fg_prefixes" in src, (
+            "_calculate_coverage must iterate over all fg_prefixes"
+        )
+        assert "get_positions(prefix, primer" in src, (
             "_calculate_coverage uses wrong parameter order"
         )
         assert "positions[0]" not in src, (

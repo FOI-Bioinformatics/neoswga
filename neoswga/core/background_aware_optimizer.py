@@ -354,11 +354,12 @@ class BackgroundAwareOptimizer:
         if total_genome_length == 0:
             return 0.0
 
-        # Collect all binding positions
+        # Collect all binding positions across all foreground genomes
         all_positions = []
         for primer in primers:
-            positions = self.cache.get_positions(self.fg_prefixes[0], primer, 'both')
-            all_positions.extend(positions)
+            for prefix in self.fg_prefixes:
+                positions = self.cache.get_positions(prefix, primer, 'both')
+                all_positions.extend(positions)
 
         if not all_positions:
             return 0.0
