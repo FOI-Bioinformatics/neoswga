@@ -11,6 +11,7 @@ Superior to greedy search for escaping local optima and exploring
 diverse primer combinations.
 """
 
+import logging
 import numpy as np
 import random
 import time
@@ -23,6 +24,8 @@ import multiprocessing
 from neoswga.core import thermodynamics as thermo
 from neoswga.core import reaction_conditions as rc
 from neoswga.core import secondary_structure as ss
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -107,11 +110,11 @@ class PrimerSetGA:
         self.primer_pool = primer_pool
 
         # Precompute dimer matrix for primer pool
-        print(f"Precomputing dimer matrix for {len(primer_pool)} primers...")
+        logger.info(f"Precomputing dimer matrix for {len(primer_pool)} primers...")
         self.dimer_matrix = ss.calculate_dimer_matrix(
             primer_pool, conditions
         )
-        print(f"Dimer matrix: {self.dimer_matrix.shape}")
+        logger.info(f"Dimer matrix: {self.dimer_matrix.shape}")
 
         # Map primers to indices
         self.primer_to_idx = {p: i for i, p in enumerate(primer_pool)}
@@ -144,7 +147,7 @@ class PrimerSetGA:
             scores.append((selectivity, p))
         scores.sort(reverse=True)
         filtered = [p for _, p in scores[:max_count]]
-        print(f"Pre-filtered {len(primers)} -> {len(filtered)} primers by selectivity")
+        logger.info(f"Pre-filtered {len(primers)} -> {len(filtered)} primers by selectivity")
         return filtered
 
     def evolve(self, verbose: bool = True, timeout: float = 0) -> Individual:
@@ -165,22 +168,21 @@ class PrimerSetGA:
             random.seed(self.config.seed)
             np.random.seed(self.config.seed)
             if verbose:
-                print(f"Random seed set to {self.config.seed} for reproducibility")
+                logger.info(f"Random seed set to {self.config.seed} for reproducibility")
 
         # Initialize population
         population = self._initialize_population()
 
         if verbose:
-            print(f"GA Configuration:")
-            print(f"  Population: {self.config.population_size}")
-            print(f"  Generations: {self.config.generations}")
-            print(f"  Mutation rate: {self.config.mutation_rate:.2%}")
-            print(f"  Crossover rate: {self.config.crossover_rate:.2%}")
-            print(f"  Elitism: {self.config.elitism_fraction:.1%}")
-            print(f"  Processes: {self.config.n_processes}")
+            logger.info(f"GA Configuration:")
+            logger.info(f"  Population: {self.config.population_size}")
+            logger.info(f"  Generations: {self.config.generations}")
+            logger.info(f"  Mutation rate: {self.config.mutation_rate:.2%}")
+            logger.info(f"  Crossover rate: {self.config.crossover_rate:.2%}")
+            logger.info(f"  Elitism: {self.config.elitism_fraction:.1%}")
+            logger.info(f"  Processes: {self.config.n_processes}")
             if timeout > 0:
-                print(f"  Timeout: {timeout:.0f}s")
-            print()
+                logger.info(f"  Timeout: {timeout:.0f}s")
 
         # Evaluate initial population
         population = self._evaluate_population(population)
@@ -193,7 +195,7 @@ class PrimerSetGA:
             # Check timeout
             if timeout > 0 and (time.time() - start_time) > timeout:
                 if verbose:
-                    print(f"Timeout ({timeout:.0f}s) reached at generation {generation}")
+                    logger.info(f"Timeout ({timeout:.0f}s) reached at generation {generation}")
                 timed_out = True
                 break
 
@@ -249,18 +251,18 @@ class PrimerSetGA:
             self.best_individual_history.append(best_overall)
 
             if verbose and generation % 10 == 0:
-                print(f"Generation {generation:3d}: "
-                      f"Best={stats['best_fitness']:.4f}, "
-                      f"Mean={stats['mean_fitness']:.4f}±{stats['std_fitness']:.4f}, "
-                      f"Primers={len(generation_best.primers)}")
+                logger.info(f"Generation {generation:3d}: "
+                            f"Best={stats['best_fitness']:.4f}, "
+                            f"Mean={stats['mean_fitness']:.4f}±{stats['std_fitness']:.4f}, "
+                            f"Primers={len(generation_best.primers)}")
 
         elapsed = time.time() - start_time
         if verbose:
             status = "timed out" if timed_out else "complete"
-            print(f"\nEvolution {status} in {elapsed:.1f}s")
-            print(f"Best fitness: {best_overall.fitness:.4f}")
-            print(f"Best primer set: {best_overall.primers}")
-            print(f"Metrics: {best_overall.metrics}")
+            logger.info(f"Evolution {status} in {elapsed:.1f}s")
+            logger.info(f"Best fitness: {best_overall.fitness:.4f}")
+            logger.info(f"Best primer set: {best_overall.primers}")
+            logger.info(f"Metrics: {best_overall.metrics}")
 
         best_overall.timed_out = timed_out
         return best_overall
@@ -651,14 +653,11 @@ def optimize_primer_set_ga(primer_pool: List[str],
 # Factory Registration - BaseOptimizer Interface
 # =============================================================================
 
-import logging
 from neoswga.core.base_optimizer import (
     BaseOptimizer, OptimizationResult, OptimizationStatus,
     PrimerSetMetrics, OptimizerConfig
 )
 from neoswga.core.optimizer_factory import OptimizerFactory
-
-logger = logging.getLogger(__name__)
 
 
 @OptimizerFactory.register('genetic', aliases=['ga', 'genetic-algorithm'])

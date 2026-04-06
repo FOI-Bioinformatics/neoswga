@@ -291,7 +291,7 @@ def compare_milp_vs_greedy(position_cache, fg_prefixes, bg_prefixes,
     from .network_optimizer import NetworkOptimizer
 
     # Greedy
-    print("=== Greedy Optimization ===")
+    logger.info("=== Greedy Optimization ===")
     greedy_opt = NetworkOptimizer(position_cache, fg_prefixes, bg_prefixes,
                                  fg_seq_lengths, bg_seq_lengths)
 
@@ -300,13 +300,13 @@ def compare_milp_vs_greedy(position_cache, fg_prefixes, bg_prefixes,
     greedy_time = time.time() - start
 
     greedy_score = greedy_opt.score_primer_set(greedy_primers)
-    print(f"Primers: {greedy_primers}")
-    print(f"Score: {greedy_score['score']:.3f}")
-    print(f"Time: {greedy_time:.2f}s")
+    logger.info(f"Primers: {greedy_primers}")
+    logger.info(f"Score: {greedy_score['score']:.3f}")
+    logger.info(f"Time: {greedy_time:.2f}s")
 
     # MILP (if available and feasible)
     if MIP_AVAILABLE and len(candidates) <= 500:
-        print("\n=== MILP Optimization ===")
+        logger.info("=== MILP Optimization ===")
         milp_opt = MILPOptimizer(position_cache, fg_prefixes, bg_prefixes,
                                 fg_seq_lengths, bg_seq_lengths)
 
@@ -316,22 +316,22 @@ def compare_milp_vs_greedy(position_cache, fg_prefixes, bg_prefixes,
 
         if milp_primers is not None:
             milp_score = greedy_opt.score_primer_set(milp_primers)
-            print(f"Primers: {milp_primers}")
-            print(f"Score: {milp_score['score']:.3f}")
-            print(f"Time: {milp_time:.2f}s")
+            logger.info(f"Primers: {milp_primers}")
+            logger.info(f"Score: {milp_score['score']:.3f}")
+            logger.info(f"Time: {milp_time:.2f}s")
 
-            print("\n=== Comparison ===")
+            logger.info("=== Comparison ===")
             improvement = (milp_score['score'] - greedy_score['score']) / greedy_score['score'] * 100
-            print(f"MILP improvement: {improvement:.1f}%")
-            print(f"MILP slower by: {milp_time / greedy_time:.1f}×")
+            logger.info(f"MILP improvement: {improvement:.1f}%")
+            logger.info(f"MILP slower by: {milp_time / greedy_time:.1f}x")
         else:
-            print("MILP failed to find solution")
+            logger.info("MILP failed to find solution")
     else:
-        print("\n=== MILP Not Available ===")
+        logger.info("=== MILP Not Available ===")
         if not MIP_AVAILABLE:
-            print("python-mip not installed")
+            logger.info("python-mip not installed")
         else:
-            print(f"Too many candidates ({len(candidates)} > 500)")
+            logger.info(f"Too many candidates ({len(candidates)} > 500)")
 
 
 # =============================================================================

@@ -368,12 +368,12 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
 
     Demonstrates improvements.
     """
-    print("=" * 80)
-    print("PIPELINE COMPARISON: Old vs. New")
-    print("=" * 80)
+    logger.info("=" * 80)
+    logger.info("PIPELINE COMPARISON: Old vs. New")
+    logger.info("=" * 80)
 
     # Run new pipeline
-    print("\n=== NEW PIPELINE ===")
+    logger.info("=== NEW PIPELINE ===")
     new_config = PipelineConfig(
         use_background_filter=True,
         optimization_method='hybrid',
@@ -387,8 +387,8 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
     )
 
     # Simulate old pipeline (ratio-based)
-    print("\n=== OLD PIPELINE (simulated) ===")
-    print("Using simple ratio-based selection...")
+    logger.info("=== OLD PIPELINE (simulated) ===")
+    logger.info("Using simple ratio-based selection...")
 
     # Simplified version of old algorithm
     from .position_cache import PositionCache
@@ -412,24 +412,23 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
                                 fg_seq_lengths, bg_seq_lengths)
     old_evaluation = evaluator.score_primer_set(old_primers)
 
-    print(f"Selected primers: {old_primers}")
-    print(f"Enrichment: {old_evaluation['enrichment']:.1f}×")
-    print(f"Total time: ~{new_result['timing']['total']:.0f}s (estimated)")
+    logger.info(f"Selected primers: {old_primers}")
+    logger.info(f"Enrichment: {old_evaluation['enrichment']:.1f}x")
+    logger.info(f"Total time: ~{new_result['timing']['total']:.0f}s (estimated)")
 
     # Comparison
-    print("\n=== COMPARISON ===")
+    logger.info("=== COMPARISON ===")
     improvement = new_result['evaluation']['enrichment'] / old_evaluation['enrichment']
-    print(f"New pipeline enrichment: {new_result['evaluation']['enrichment']:.1f}×")
-    print(f"Old pipeline enrichment: {old_evaluation['enrichment']:.1f}×")
-    print(f"Improvement: {improvement:.2f}× better")
-    print(f"Speedup: ~{300 / new_result['timing']['total']:.1f}× faster")
-    print("")
-    print("Key improvements:")
-    print("  ✓ Adaptive GC filtering (works for GC extremes)")
-    print("  ✓ Background Bloom filter (handles 3 Gbp genomes)")
-    print("  ✓ Position cache (1000× faster I/O)")
-    print("  ✓ Network-based optimization (exponential growth)")
-    print("  ✓ MILP for provably optimal solutions")
+    logger.info(f"New pipeline enrichment: {new_result['evaluation']['enrichment']:.1f}x")
+    logger.info(f"Old pipeline enrichment: {old_evaluation['enrichment']:.1f}x")
+    logger.info(f"Improvement: {improvement:.2f}x better")
+    logger.info(f"Speedup: ~{300 / new_result['timing']['total']:.1f}x faster")
+    logger.info("Key improvements:")
+    logger.info("  - Adaptive GC filtering (works for GC extremes)")
+    logger.info("  - Background Bloom filter (handles 3 Gbp genomes)")
+    logger.info("  - Position cache (1000x faster I/O)")
+    logger.info("  - Network-based optimization (exponential growth)")
+    logger.info("  - MILP for provably optimal solutions")
 
 
 if __name__ == "__main__":

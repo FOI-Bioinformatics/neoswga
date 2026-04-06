@@ -1129,21 +1129,21 @@ def benchmark_network_vs_ratio(position_cache, fg_prefixes, bg_prefixes,
     ratio_primers = [p for _, p in ratio_primers[:10]]
     ratio_score = network_opt.score_primer_set(ratio_primers)
 
-    print("=== Network-based selection ===")
-    print(f"Primers: {network_primers}")
-    print(f"Target amplification: {network_score['target_amplification']:.0f}×")
-    print(f"Background amplification: {network_score['background_amplification']:.0f}×")
-    print(f"Enrichment: {network_score['enrichment']:.1f}×")
+    logger.info("=== Network-based selection ===")
+    logger.info(f"Primers: {network_primers}")
+    logger.info(f"Target amplification: {network_score['target_amplification']:.0f}x")
+    logger.info(f"Background amplification: {network_score['background_amplification']:.0f}x")
+    logger.info(f"Enrichment: {network_score['enrichment']:.1f}x")
 
-    print("\n=== Ratio-based selection (current) ===")
-    print(f"Primers: {ratio_primers}")
-    print(f"Target amplification: {ratio_score['target_amplification']:.0f}×")
-    print(f"Background amplification: {ratio_score['background_amplification']:.0f}×")
-    print(f"Enrichment: {ratio_score['enrichment']:.1f}×")
+    logger.info("=== Ratio-based selection (current) ===")
+    logger.info(f"Primers: {ratio_primers}")
+    logger.info(f"Target amplification: {ratio_score['target_amplification']:.0f}x")
+    logger.info(f"Background amplification: {ratio_score['background_amplification']:.0f}x")
+    logger.info(f"Enrichment: {ratio_score['enrichment']:.1f}x")
 
-    print(f"\n=== Improvement ===")
+    logger.info("=== Improvement ===")
     improvement = network_score['enrichment'] / ratio_score['enrichment']
-    print(f"Network method {improvement:.1f}× better enrichment")
+    logger.info(f"Network method {improvement:.1f}x better enrichment")
 
 
 # =============================================================================

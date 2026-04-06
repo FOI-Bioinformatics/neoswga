@@ -26,8 +26,7 @@ def compatible_set(dimer_mat, selected_primers, primer_to_index_dict):
     for i, primer in enumerate(selected_primers):
         for j in range(i + 1, len(selected_primers)):
             if dimer_mat[primer_to_index_dict[primer]][primer_to_index_dict[selected_primers[j]]] == 1:
-                print(primer)
-                print(selected_primers[j])
+                logger.debug(f"Dimer detected: {primer} and {selected_primers[j]}")
                 return False
     return True
 
