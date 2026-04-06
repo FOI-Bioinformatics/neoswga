@@ -13,9 +13,11 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from neoswga.core.thermodynamics import (
+    calculate_free_energy,
     calculate_salt_correction,
     calculate_tm_basic,
     calculate_tm_with_salt,
+    gc_content,
     is_palindrome,
     reverse_complement,
 )
@@ -371,4 +373,118 @@ def test_mg_raises_overall_tm(seq, na_conc, mg_conc):
     assert tm_with_mg > tm_na_only, (
         f"Tm with Mg2+ ({tm_with_mg:.2f}) should exceed Tm without "
         f"({tm_na_only:.2f}) for '{seq}'"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. gc_content properties
+# ---------------------------------------------------------------------------
+
+@settings(max_examples=200)
+@given(seq=short_dna_seq)
+def test_gc_content_bounded(seq):
+    """gc_content should always return a value in [0, 1]."""
+    assume(len(seq) >= 1)
+    gc = gc_content(seq)
+    assert 0.0 <= gc <= 1.0, f"gc_content out of range for '{seq}': {gc}"
+
+
+def test_gc_content_pure_at():
+    """Pure AT sequences should have GC content of 0."""
+    assert gc_content("AAAA") == 0.0
+    assert gc_content("TTTT") == 0.0
+    assert gc_content("ATAT") == 0.0
+
+
+def test_gc_content_pure_gc():
+    """Pure GC sequences should have GC content of 1."""
+    assert gc_content("GGGG") == 1.0
+    assert gc_content("CCCC") == 1.0
+    assert gc_content("GCGC") == 1.0
+
+
+@settings(max_examples=200)
+@given(
+    n_gc=st.integers(min_value=0, max_value=20),
+    n_at=st.integers(min_value=0, max_value=20),
+)
+def test_gc_content_exact(n_gc, n_at):
+    """gc_content should match manually computed fraction."""
+    assume(n_gc + n_at > 0)
+    seq = "G" * n_gc + "A" * n_at
+    expected = n_gc / (n_gc + n_at)
+    result = gc_content(seq)
+    assert abs(result - expected) < 1e-9, (
+        f"gc_content for {n_gc}G + {n_at}A: expected {expected}, got {result}"
+    )
+
+
+@settings(max_examples=200)
+@given(seq=short_dna_seq)
+def test_gc_content_complement_invariant(seq):
+    """GC content of a sequence equals that of its reverse complement."""
+    assume(len(seq) >= 1)
+    rc = reverse_complement(seq)
+    assert abs(gc_content(seq) - gc_content(rc)) < 1e-9, (
+        f"gc_content of '{seq}' ({gc_content(seq):.4f}) should equal "
+        f"gc_content of reverse complement '{rc}' ({gc_content(rc):.4f})"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 9. calculate_free_energy properties
+# ---------------------------------------------------------------------------
+
+@settings(max_examples=200)
+@given(seq=short_dna_seq)
+def test_free_energy_is_finite(seq):
+    """Free energy should be finite for any valid DNA sequence."""
+    assume(len(seq) >= 2)
+    dg = calculate_free_energy(seq)
+    assert math.isfinite(dg), f"Free energy not finite for '{seq}': {dg}"
+
+
+@settings(max_examples=200)
+@given(seq=short_dna_seq)
+def test_free_energy_negative_at_physiological_temp(seq):
+    """At 37 C, a primer-template duplex should have negative free energy,
+    indicating favorable binding.
+    """
+    assume(len(seq) >= 6)
+    dg = calculate_free_energy(seq, temperature=37.0)
+    assert dg < 0.0, (
+        f"Free energy should be negative at 37 C for '{seq}', got {dg:.3f} kcal/mol"
+    )
+
+
+@settings(max_examples=100)
+@given(seq=short_dna_seq)
+def test_free_energy_increases_with_temperature(seq):
+    """Higher temperature should produce less negative (higher) free energy,
+    because the -T*dS term grows with T and dS is negative.
+    """
+    assume(len(seq) >= 4)
+    dg_low = calculate_free_energy(seq, temperature=10.0)
+    dg_high = calculate_free_energy(seq, temperature=80.0)
+    assert dg_high > dg_low, (
+        f"Free energy at 80 C ({dg_high:.3f}) should exceed that at 10 C "
+        f"({dg_low:.3f}) for '{seq}'"
+    )
+
+
+@settings(max_examples=200)
+@given(
+    n=st.integers(min_value=6, max_value=20),
+)
+def test_gc_seq_has_more_negative_free_energy_than_at_seq(n):
+    """Pure-GC primers should have more negative free energy than pure-AT primers
+    of the same length, due to stronger G-C stacking interactions.
+    """
+    gc_seq = "G" * n
+    at_seq = "A" * n
+    dg_gc = calculate_free_energy(gc_seq)
+    dg_at = calculate_free_energy(at_seq)
+    assert dg_gc < dg_at, (
+        f"GC free energy ({dg_gc:.3f}) should be more negative than AT "
+        f"({dg_at:.3f}) for length {n}"
     )
