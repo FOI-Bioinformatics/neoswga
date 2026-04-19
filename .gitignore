@@ -153,3 +153,6 @@ test_data/*.h5
 examples/**/kmer_files/
 examples/**/step*.csv
 examples/**/*.h5
+
+# Git worktrees
+.worktrees/
