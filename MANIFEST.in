@@ -5,9 +5,10 @@ include LICENSE
 # Include configuration files
 include pyproject.toml
 
-# Include Python source and model files
+# Include Python source, model files, and schema
 recursive-include neoswga *.py
 recursive-include neoswga/core/models *.p
+recursive-include neoswga/core/schema *.json
 
 # Exclude compiled files
 global-exclude *.pyc

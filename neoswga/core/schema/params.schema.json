@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/FOI-Bioinformatics/neoswga/schemas/params.schema.json",
+  "title": "neoswga params.json",
+  "description": "Canonical schema for neoswga pipeline configuration files.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["data_dir", "fg_genomes", "fg_prefixes"],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "Version of this schema the file was written for.",
+      "minimum": 1,
+      "maximum": 1,
+      "default": 1
+    },
+    "data_dir": {
+      "type": "string",
+      "description": "Directory for pipeline outputs (CSVs, HDF5 caches, logs)."
+    },
+    "src_dir": {
+      "type": "string",
+      "description": "Source directory; usually equal to data_dir."
+    },
+
+    "fg_genomes": {
+      "type": "array",
+      "description": "Foreground (target) genome FASTA paths, one per target.",
+      "items": {"type": "string"},
+      "minItems": 1
+    },
+    "fg_prefixes": {
+      "type": "array",
+      "description": "K-mer file prefixes for each foreground genome. Populated by count-kmers.",
+      "items": {"type": "string"}
+    },
+    "fg_seq_lengths": {
+      "type": "array",
+      "description": "Per-genome foreground lengths in bp. Auto-computed if missing.",
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "fg_circular": {"type": "boolean", "default": true},
+
+    "bg_genomes": {
+      "type": "array",
+      "description": "Background (host / off-target) genome FASTA paths.",
+      "items": {"type": "string"}
+    },
+    "bg_prefixes": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "bg_seq_lengths": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "bg_circular": {"type": "boolean", "default": false},
+
+    "bl_genomes": {
+      "type": "array",
+      "description": "Blacklist genomes; primers matching these are penalized or rejected.",
+      "items": {"type": "string"}
+    },
+    "bl_prefixes": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "bl_seq_lengths": {
+      "type": "array",
+      "items": {"type": "integer", "minimum": 1}
+    },
+    "bl_penalty": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 100.0,
+      "default": 5.0,
+      "description": "Penalty weight applied to blacklist matches."
+    },
+    "max_bl_freq": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "default": 0.0,
+      "description": "Maximum permissible blacklist frequency; 0 = zero tolerance."
+    },
+
+    "excl_genomes": {
+      "type": "array",
+      "description": "Zero-tolerance exclusion genomes (e.g., mtDNA).",
+      "items": {"type": "string"}
+    },
+    "excl_prefixes": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "excl_threshold": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+
+    "min_k": {
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 30,
+      "description": "Minimum primer length (bp). Polymerase-aware default is used if absent."
+    },
+    "max_k": {
+      "type": "integer",
+      "minimum": 4,
+      "maximum": 30,
+      "description": "Maximum primer length (bp). Polymerase-aware default is used if absent."
+    },
+    "long_primer_mode": {"type": "boolean", "default": false},
+
+    "min_fg_freq": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "max_bg_freq": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "max_gini": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "max_primer": {"type": "integer", "minimum": 1, "maximum": 10000},
+    "min_amp_pred": {"type": "number"},
+
+    "polymerase": {
+      "type": "string",
+      "enum": ["phi29", "equiphi29", "bst", "klenow"],
+      "default": "phi29"
+    },
+    "reaction_temp": {"type": "number", "minimum": 20.0, "maximum": 70.0},
+    "na_conc": {"type": "number", "minimum": 0.0, "maximum": 1000.0, "default": 50.0},
+    "mg_conc": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 20.0,
+      "description": "Mg2+ concentration (mM). Polymerase-aware default is used if absent."
+    },
+    "primer_conc": {"type": "number", "minimum": 1e-9, "maximum": 1e-4, "default": 0.5e-6},
+
+    "dmso_percent": {"type": "number", "minimum": 0.0, "maximum": 10.0, "default": 0.0},
+    "betaine_m": {"type": "number", "minimum": 0.0, "maximum": 2.5, "default": 0.0},
+    "trehalose_m": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.0},
+    "formamide_percent": {"type": "number", "minimum": 0.0, "maximum": 10.0, "default": 0.0},
+    "ethanol_percent": {"type": "number", "minimum": 0.0, "maximum": 5.0, "default": 0.0},
+    "urea_m": {"type": "number", "minimum": 0.0, "maximum": 2.0, "default": 0.0},
+    "tmac_m": {"type": "number", "minimum": 0.0, "maximum": 0.1, "default": 0.0},
+    "glycerol_percent": {"type": "number", "minimum": 0.0, "maximum": 15.0, "default": 0.0},
+    "peg_percent": {"type": "number", "minimum": 0.0, "maximum": 15.0, "default": 0.0},
+    "bsa_ug_ml": {"type": "number", "minimum": 0.0, "maximum": 400.0, "default": 0.0},
+
+    "gc_min": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "gc_max": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "gc_tolerance": {"type": "number", "minimum": 0.0, "maximum": 0.5, "default": 0.15},
+    "genome_gc": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "adaptive_gc": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable genome-GC-aware filtering. Set false to force gc_min/gc_max to user values."
+    },
+
+    "min_tm": {"type": "number", "minimum": 0.0, "maximum": 100.0, "default": 15.0},
+    "max_tm": {"type": "number", "minimum": 0.0, "maximum": 100.0, "default": 45.0},
+    "max_dimer_bp": {"type": "integer", "minimum": 1, "maximum": 15},
+    "max_self_dimer_bp": {"type": "integer", "minimum": 1, "maximum": 15},
+
+    "num_primers": {"type": "integer", "minimum": 1, "maximum": 50, "default": 6},
+    "target_set_size": {"type": "integer", "minimum": 1, "maximum": 50},
+    "iterations": {"type": "integer", "minimum": 1, "maximum": 100, "default": 8},
+    "max_sets": {"type": "integer", "minimum": 1, "maximum": 100, "default": 5},
+    "retries": {"type": "integer", "minimum": 0, "maximum": 100},
+    "drop_iterations": {"type": "integer", "minimum": 0, "maximum": 100},
+    "top_set_count": {"type": "integer", "minimum": 1, "maximum": 100},
+    "selection_metric": {
+      "type": "string",
+      "enum": ["deterministic", "random", "stochastic"]
+    },
+
+    "optimization_method": {
+      "type": "string",
+      "enum": ["hybrid", "greedy", "network", "genetic", "milp",
+               "dominating-set", "background-aware", "moea"]
+    },
+
+    "use_bloom_filter": {"type": "boolean", "default": false},
+    "bloom_filter_path": {"type": ["string", "null"]},
+    "sample_rate": {"type": ["number", "null"], "minimum": 0.001, "maximum": 1.0},
+    "min_sample_count": {"type": "integer", "minimum": 1},
+
+    "cpus": {"type": "integer", "minimum": 1, "maximum": 128}
+  }
+}
