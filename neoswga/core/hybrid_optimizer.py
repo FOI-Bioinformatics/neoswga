@@ -173,7 +173,8 @@ class HybridOptimizer:
                  background_pruning: bool = False,
                  background_weight: float = 2.0,
                  min_coverage_threshold: float = 0.95,
-                 conditions=None):
+                 conditions=None,
+                 mechanistic_weight: float = 0.0):
         """
         Initialize hybrid optimizer.
 
@@ -248,6 +249,9 @@ class HybridOptimizer:
             # _get_primer_tm applies additive corrections (DMSO / betaine / etc.)
             # when computing Tm-weighted edges and Tm scores.
             conditions=conditions,
+            # Phase 13B: forward --use-mechanistic-model weight so the
+            # NetworkOptimizer's scoring includes a mechanistic term.
+            mechanistic_weight=mechanistic_weight,
         )
         # Retain for introspection / rescoring hooks.
         self.conditions = conditions
@@ -965,6 +969,7 @@ class HybridBaseOptimizer(BaseOptimizer):
             background_weight=kwargs.get('background_weight', 2.0),
             min_coverage_threshold=kwargs.get('min_coverage_threshold', 0.95),
             conditions=conditions,
+            mechanistic_weight=kwargs.get('mechanistic_weight', 0.0),
         )
 
     @property

@@ -100,7 +100,7 @@ class PrimerSetProblem(Problem):
             n_constr=n_constr,
             xl=0,  # Lower bound (binary)
             xu=1,  # Upper bound (binary)
-            type_var=int  # Integer (binary) variables
+            type_var=int,  # Integer (binary) variables
         )
 
     def _evaluate(self, X, out, *args, **kwargs):
@@ -453,15 +453,21 @@ if HAS_PYMOO:
             bg_prefixes: Optional[List[str]] = None,
             bg_seq_lengths: Optional[List[int]] = None,
             config: Optional[OptimizerConfig] = None,
-            **kwargs
+            conditions=None,
+        **kwargs
         ):
             super().__init__(
                 position_cache, fg_prefixes, fg_seq_lengths,
-                bg_prefixes, bg_seq_lengths, config
-            )
+                bg_prefixes, bg_seq_lengths, config,
+            conditions=conditions,
+        )
             moea_config = MOEAConfig(
                 pop_size=kwargs.get('pop_size', 100),
                 n_generations=kwargs.get('n_generations', 100),
+                # Forward --seed so same-seed runs produce identical Pareto
+                # fronts. Without this MOEA was non-deterministic even when
+                # the user passed --seed; see tests/test_reproducibility_moea.
+                seed=kwargs.get('seed'),
             )
             self._moea = MOEAOptimizer(
                 cache=position_cache,

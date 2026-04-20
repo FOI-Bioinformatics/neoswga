@@ -830,13 +830,15 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Automatically determine optimal primer set size based on '
                                   'application profile and reaction conditions')
     opt_size_group.add_argument('--application', type=str,
-                             choices=['discovery', 'clinical', 'enrichment', 'metagenomics'],
+                             choices=['balanced', 'discovery', 'clinical', 'enrichment', 'metagenomics'],
                              default='enrichment',
-                             help='Application profile for auto-sizing: '
+                             help='Application profile: '
+                                  'balanced (default scoring), '
                                   'discovery (maximize sensitivity), '
                                   'clinical (minimize false positives), '
-                                  'enrichment (balanced, default), '
-                                  'metagenomics (capture diversity)')
+                                  'enrichment (balanced, default for auto-size), '
+                                  'metagenomics (capture diversity). '
+                                  'Drives --auto-size AND tunes normalized_score weights.')
     opt_size_group.add_argument('--min-fg-bg-ratio', type=float,
                              help='Minimum foreground/background binding site ratio. '
                                   'Overrides application profile default. Higher values = more selective.')
@@ -864,6 +866,10 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Post-process to minimize primer count while maintaining coverage')
     opt_post_group.add_argument('--target-coverage', type=float, default=0.70,
                              help='Target genome coverage fraction when minimizing primers (default: 0.70)')
+    opt_post_group.add_argument('--min-per-target-coverage', type=float, default=0.0,
+                             help='Multi-genome runs only: minimum coverage required on every '
+                                  'individual target. Below this, the post-optimization validator '
+                                  'flags a warning. Default 0.0 (disabled).')
 
     # Validation
     opt_val_group = optimize_parser.add_argument_group('Validation')
@@ -2122,11 +2128,20 @@ def run_step4(args):
             logger.warning("--use-cooperative-binding is experimental and not yet fully integrated")
             parameter.use_cooperative_binding = True
 
-        # Mechanistic model (not yet integrated into optimizer scoring)
-        if getattr(args, 'use_mechanistic_model', False):
-            logger.warning(
-                "--use-mechanistic-model is not yet integrated into the optimization step. "
-                "The mechanistic model is used in simulation and auto-size features."
+        # Mechanistic model: when enabled, the optimizer's
+        # factory kwargs carry mechanistic_weight so NetworkOptimizer (the
+        # condition-aware scoring path inside hybrid / network) will
+        # construct a MechanisticModel(conditions) and fold a
+        # `mechanistic_weight * predicted_amplification_factor` term into
+        # its per-primer score. See network_optimizer.py:~630 where
+        # self.mech_model is built from self.conditions. Phase 13B.
+        _use_mech = getattr(args, 'use_mechanistic_model', False)
+        _mech_weight = getattr(args, 'mechanistic_weight', 0.3) if _use_mech else 0.0
+        if _use_mech:
+            logger.info(
+                f"Mechanistic model scoring enabled (weight={_mech_weight:.2f}). "
+                "Network / hybrid optimizers will apply a weighted mechanistic "
+                "amplification-factor term to every primer."
             )
 
         # Primer strategy
@@ -2185,6 +2200,11 @@ def run_step4(args):
             no_background=no_background,  # Host-free mode
             seed=seed,  # Reproducibility for stochastic optimizers
             target_size=target_size,  # Explicit target from params
+            mechanistic_weight=_mech_weight,  # 0 if flag not set; else user value
+            # Phase 11D / 14C — per-target coverage floor and application
+            # profile. Both are consumed by unified_optimizer.run_optimization.
+            min_per_target_coverage=getattr(args, 'min_per_target_coverage', 0.0),
+            application=getattr(args, 'application', 'balanced'),
         )
 
         if results:
@@ -4393,24 +4413,130 @@ def run_contract_set(args):
     if not args.quiet:
         logger.info(f"Baseline coverage with {len(current)} primers: {baseline:.1%}")
 
+    # Quality-weighted removal ranking (Phase 12C).
+    # When multiple primers can be dropped without falling below the coverage
+    # threshold, prefer to drop the one with the worst quality: highest
+    # dimer interactions with the rest of the set, worst Tm fit under the
+    # reaction conditions, lowest per-primer strand alternation. Weights:
+    #   w_cov   = 0.40  (penalize loss of coverage contribution)
+    #   w_dimer = 0.25  (prefer removing dimer-prone primers)
+    #   w_tm    = 0.20  (prefer removing primers with poor Tm fit)
+    #   w_bg    = 0.15  (prefer removing primers with high bg frequency)
+    from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
+    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
+
+    conditions = ReactionConditions(
+        temp=getattr(parameter, 'reaction_temp', 30.0) or 30.0,
+        polymerase=getattr(parameter, 'polymerase', 'phi29'),
+        na_conc=getattr(parameter, 'na_conc', 50.0),
+        mg_conc=getattr(parameter, 'mg_conc', 10.0),
+        dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
+        betaine_m=getattr(parameter, 'betaine_m', 0.0),
+        trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
+        formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
+        ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
+        urea_m=getattr(parameter, 'urea_m', 0.0),
+        tmac_m=getattr(parameter, 'tmac_m', 0.0),
+    )
+    scorer = IntegratedQualityScorer(conditions=conditions)
+    dimer_analyzer = create_dimer_network_analyzer(conditions=conditions)
+
+    W_COV, W_DIMER, W_TM, W_BG = 0.40, 0.25, 0.20, 0.15
+    min_tm = getattr(parameter, 'min_tm', 15.0) or 15.0
+    max_tm = getattr(parameter, 'max_tm', 45.0) or 45.0
+    target_tm = (min_tm + max_tm) / 2.0
+    tm_window = max(1.0, (max_tm - min_tm) / 2.0)
+
+    def _deficit_score(primer: str, primers_in_set: list, set_cov: float) -> float:
+        # 1. Coverage contribution: how much does removing this primer cost?
+        without = [p for p in primers_in_set if p != primer]
+        cov_without = _coverage(without) if without else 0.0
+        cov_contribution = max(0.0, set_cov - cov_without)
+
+        # 2. Dimer risk: pairwise severity with rest of set
+        if len(primers_in_set) > 1:
+            try:
+                bmetrics, profiles, _ = dimer_analyzer.analyze_primer_set(
+                    primers_in_set, verbose=False,
+                )
+                prof = profiles.get(primer)
+                dimer_risk = float(prof.mean_severity) if prof else 0.0
+            except Exception:
+                dimer_risk = 0.0
+        else:
+            dimer_risk = 0.0
+
+        # 3. Tm fit under conditions
+        try:
+            gc = sum(1 for b in primer if b in 'GC') / max(len(primer), 1)
+            tm = scorer._primer_tm(primer, gc, len(primer))
+            tm_deficit = abs(tm - target_tm) / tm_window
+        except Exception:
+            tm_deficit = 0.0
+
+        # 4. Background frequency (approximate from position cache counts
+        # across bg_prefixes if available). Zero when no background
+        # data present.
+        bg_prefixes = list(getattr(parameter, 'bg_prefixes', []) or [])
+        bg_lengths = list(getattr(parameter, 'bg_seq_lengths', []) or [])
+        if not bg_lengths and getattr(parameter, '_json_data', None):
+            bg_lengths = list(
+                parameter._json_data.get('bg_seq_lengths', []) or []
+            )
+        bg_freq = 0.0
+        if bg_prefixes and bg_lengths:
+            try:
+                bg_cache = PositionCache(bg_prefixes, [primer])
+                hits = 0
+                total = 0
+                for p, L in zip(bg_prefixes, bg_lengths):
+                    hits += len(bg_cache.get_positions(p, primer, 'both'))
+                    total += L
+                bg_freq = hits / total if total else 0.0
+            except Exception:
+                bg_freq = 0.0
+
+        # Higher deficit = more reason to remove.
+        # We INVERT cov_contribution — losing a lot of coverage means low
+        # removal preference.
+        deficit = (
+            - W_COV * cov_contribution
+            + W_DIMER * dimer_risk
+            + W_TM * min(tm_deficit, 1.0)
+            + W_BG * min(bg_freq * 1000, 1.0)  # scale bg_freq for visibility
+        )
+        return deficit
+
     kept = list(current)
     removed = []
-    progress = True
-    while progress:
-        progress = False
-        # Try removing each primer in turn
-        for primer in list(kept):
-            candidate_set = [p for p in kept if p != primer]
-            if not candidate_set:
+    while True:
+        set_cov = _coverage(kept)
+        # Rank candidates by deficit score (higher = remove first)
+        ranked = sorted(
+            kept,
+            key=lambda p: _deficit_score(p, kept, set_cov),
+            reverse=True,
+        )
+
+        dropped_this_round = False
+        for candidate in ranked:
+            trial = [p for p in kept if p != candidate]
+            if not trial:
                 break
-            cov = _coverage(candidate_set)
-            if cov >= args.min_coverage:
-                kept = candidate_set
-                removed.append({"primer": primer, "resulting_coverage": cov})
-                progress = True
+            trial_cov = _coverage(trial)
+            if trial_cov >= args.min_coverage:
+                kept = trial
+                removed.append({
+                    "primer": candidate,
+                    "resulting_coverage": trial_cov,
+                })
                 if not args.quiet:
-                    logger.info(f"Removed {primer} -> coverage {cov:.1%}")
+                    logger.info(f"Removed {candidate} (quality-weighted) -> coverage {trial_cov:.1%}")
+                dropped_this_round = True
                 break
+        if not dropped_this_round:
+            break
 
     result = {
         "original_set": list(current),
@@ -4488,6 +4614,81 @@ def run_rescore_set(args):
         })
 
     _, set_score = scorer.analyze_primer_set(primers)
+
+    # Coverage + background computation under the chosen reaction conditions
+    # (Phase 12D). Extension reach follows polymerase processivity, so the
+    # same set can look 90% covered under phi29 (70 kb reach) and 78% under
+    # klenow (10 kb reach). Per-target coverage is reported separately so a
+    # multi-target user can see uneven distribution.
+    coverage_block: dict = {}
+    try:
+        from neoswga.core.position_cache import PositionCache
+        from neoswga.core.reaction_conditions import get_polymerase_processivity
+        try:
+            extension = int(get_polymerase_processivity(conditions.polymerase))
+        except Exception:
+            extension = 70_000
+
+        fg_prefixes = list(getattr(parameter, 'fg_prefixes', []) or [])
+        fg_lengths = list(getattr(parameter, 'fg_seq_lengths', []) or [])
+        if not fg_lengths:
+            raw = getattr(parameter, '_json_data', {}) or {}
+            fg_lengths = list(raw.get('fg_seq_lengths', []) or [])
+
+        bg_prefixes = list(getattr(parameter, 'bg_prefixes', []) or [])
+        bg_lengths = list(getattr(parameter, 'bg_seq_lengths', []) or [])
+        if not bg_lengths:
+            raw = getattr(parameter, '_json_data', {}) or {}
+            bg_lengths = list(raw.get('bg_seq_lengths', []) or [])
+
+        all_prefixes = fg_prefixes + bg_prefixes
+        cache = PositionCache(all_prefixes, primers) if all_prefixes else None
+
+        def _coverage_across(prefix_list, length_list):
+            if not prefix_list or not length_list or cache is None:
+                return 0.0, {}
+            per_prefix: dict = {}
+            total_cov = 0
+            total_len = 0
+            for prefix, length in zip(prefix_list, length_list):
+                if length <= 0:
+                    per_prefix[prefix] = 0.0
+                    continue
+                occupied = [False] * length
+                for primer in primers:
+                    try:
+                        positions = cache.get_positions(prefix, primer, 'both')
+                    except Exception:
+                        continue
+                    for pos in positions:
+                        start = max(0, int(pos) - extension)
+                        end = min(length, int(pos) + extension)
+                        for i in range(start, end):
+                            occupied[i] = True
+                covered = sum(occupied)
+                per_prefix[prefix] = covered / length if length else 0.0
+                total_cov += covered
+                total_len += length
+            agg = total_cov / total_len if total_len else 0.0
+            return agg, per_prefix
+
+        fg_cov, fg_per_target = _coverage_across(fg_prefixes, fg_lengths)
+        bg_cov, bg_per_prefix = _coverage_across(bg_prefixes, bg_lengths)
+
+        coverage_block = {
+            "fg_coverage": float(fg_cov),
+            "per_target_coverage": {k: float(v) for k, v in fg_per_target.items()},
+            "bg_coverage": float(bg_cov),
+            "per_background_coverage": {k: float(v) for k, v in bg_per_prefix.items()},
+            "selectivity_ratio": float(
+                (fg_cov / bg_cov) if bg_cov > 1e-12 else (fg_cov * 1000.0)
+            ),
+            "extension_reach_bp": int(extension),
+        }
+    except Exception as e:
+        logger.debug(f"rescore-set coverage block skipped: {e}")
+        coverage_block = {"error": str(e)}
+
     result = {
         "conditions": {
             "temp": float(conditions.temp),
@@ -4509,6 +4710,7 @@ def run_rescore_set(args):
             "set_dimer_score": float(set_score.set_dimer_score),
             "passes": bool(set_score.passes),
         },
+        "coverage": coverage_block,
     }
 
     output_json = _json.dumps(result, indent=2)

@@ -60,6 +60,11 @@ class PrimerSetMetrics:
     strand_alternation_score: float  # Fraction of adjacent pairs alternating strands (0-1)
     strand_coverage_ratio: float  # Balance between forward and reverse strand sites (0-1)
 
+    # Per-target coverage (Phase 11D). Maps fg_prefix -> coverage fraction
+    # so multi-genome runs can surface "target A 95% / target B 40%"
+    # instead of a single aggregate. Empty dict in single-genome mode.
+    per_target_coverage: Dict[str, float] = field(default_factory=dict)
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -78,7 +83,20 @@ class PrimerSetMetrics:
             'gap_entropy': self.gap_entropy,
             'strand_alternation_score': self.strand_alternation_score,
             'strand_coverage_ratio': self.strand_coverage_ratio,
+            'per_target_coverage': dict(self.per_target_coverage),
         }
+
+    # Application-profile weights (Phase 14C). Different use cases weigh
+    # the component metrics differently: clinical applications favour
+    # selectivity and dimer safety over raw coverage, while metagenomics
+    # favours coverage above all.
+    APPLICATION_WEIGHTS = {
+        "balanced":     {"coverage_w": 0.35, "selectivity_w": 0.30, "dimer_w": 0.15, "evenness_w": 0.10, "tm_w": 0.10},
+        "discovery":    {"coverage_w": 0.50, "selectivity_w": 0.15, "dimer_w": 0.10, "evenness_w": 0.15, "tm_w": 0.10},
+        "clinical":     {"coverage_w": 0.20, "selectivity_w": 0.45, "dimer_w": 0.20, "evenness_w": 0.10, "tm_w": 0.05},
+        "enrichment":   {"coverage_w": 0.35, "selectivity_w": 0.30, "dimer_w": 0.15, "evenness_w": 0.10, "tm_w": 0.10},
+        "metagenomics": {"coverage_w": 0.60, "selectivity_w": 0.10, "dimer_w": 0.10, "evenness_w": 0.15, "tm_w": 0.05},
+    }
 
     def normalized_score(
         self,
@@ -87,6 +105,7 @@ class PrimerSetMetrics:
         dimer_w: float = 0.15,
         evenness_w: float = 0.10,
         tm_w: float = 0.10,
+        application: Optional[str] = None,
     ) -> float:
         """Compute a [0,1] composite score from metrics.
 
@@ -100,7 +119,19 @@ class PrimerSetMetrics:
             dimer_w: Weight for dimer safety (default 0.15).
             evenness_w: Weight for gap evenness (default 0.10).
             tm_w: Weight for Tm tightness (default 0.10).
+            application: If provided (one of 'balanced', 'discovery',
+                'clinical', 'enrichment', 'metagenomics'), overrides the
+                individual weight arguments with the preset for that use
+                case. See APPLICATION_WEIGHTS.
         """
+        if application is not None:
+            weights = self.APPLICATION_WEIGHTS.get(application.lower())
+            if weights is not None:
+                coverage_w = weights["coverage_w"]
+                selectivity_w = weights["selectivity_w"]
+                dimer_w = weights["dimer_w"]
+                evenness_w = weights["evenness_w"]
+                tm_w = weights["tm_w"]
         # Coverage: already [0,1]
         cov = min(self.fg_coverage, 1.0)
 
