@@ -137,3 +137,47 @@ def test_application_weights_preserve_grade_ordering():
         b = better.normalized_score(application=application)
         w = worse.normalized_score(application=application)
         assert b > w, f"{application}: better should outrank worse ({b:.3f} vs {w:.3f})"
+
+
+# ----------------------------------------------------------------------
+# Mixed-grade disagreement shape (review I7)
+# ----------------------------------------------------------------------
+# `interpret` uses a min-of-ratings rule, so EXCELLENT coverage + CRITICAL
+# dimer grades CRITICAL overall. `normalized_score` uses weighted sum and
+# will give a middling number (roughly 0.55 with balanced weights). These
+# tests document the intentional asymmetry and assert that clinical users
+# (who weight dimer at 0.20) see a lower score than metagenomics users
+# (who weight dimer at 0.10) for the same "excellent-coverage-but-
+# pathological-dimer" set.
+
+
+def test_mixed_grade_excellent_coverage_critical_dimer():
+    """A set with EXCELLENT coverage and CRITICAL dimer is a single-
+    component disaster. The overall interpret grade collapses to
+    CRITICAL; normalized_score lands in the 0.45-0.70 middling band
+    because the weighted sum cannot fully penalise one bad component."""
+    m = _metrics_at(cov=0.98, sel=250.0, dimer=0.85, gini=0.25)
+    dimer_grade = _rate_dimer(0.85)
+    assert dimer_grade == QualityRating.CRITICAL
+
+    balanced = m.normalized_score(application="balanced")
+    # CRITICAL dimer drags the score below EXCELLENT territory but not to
+    # CRITICAL; this is the documented disagreement between the two reports.
+    assert balanced < 0.85, (
+        f"CRITICAL dimer should keep normalized_score below 0.85; got {balanced:.3f}"
+    )
+    assert balanced > 0.30, (
+        f"EXCELLENT coverage+selectivity should keep score > 0.30; got {balanced:.3f}"
+    )
+
+
+def test_clinical_penalises_bad_dimer_more_than_metagenomics():
+    """The same mixed-grade set should score lower under clinical (dimer
+    weight 0.20) than under metagenomics (dimer weight 0.10)."""
+    m = _metrics_at(cov=0.98, sel=250.0, dimer=0.85, gini=0.25)
+    clinical = m.normalized_score(application="clinical")
+    meta = m.normalized_score(application="metagenomics")
+    assert clinical < meta, (
+        f"clinical should penalise CRITICAL dimer harder than metagenomics; "
+        f"got clinical={clinical:.3f}, meta={meta:.3f}"
+    )

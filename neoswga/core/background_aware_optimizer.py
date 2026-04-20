@@ -630,6 +630,12 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             background_weight=kwargs.get('background_weight', 2.0),
             min_coverage_threshold=kwargs.get('min_coverage_threshold', 0.95),
             polymerase=kwargs.get('polymerase', 'phi29'),
+            # Forward ReactionConditions + mechanistic weight so the clinical
+            # background-aware optimizer's stage-3 network refinement honours
+            # DMSO / betaine / etc. Review I1: previously these dropped at
+            # this seam even though self.conditions was set on the wrapper.
+            conditions=conditions,
+            mechanistic_weight=kwargs.get('mechanistic_weight', 0.0),
         )
 
         # Keep the direct optimizer for backward compat (standalone use)

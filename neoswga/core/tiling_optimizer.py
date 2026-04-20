@@ -216,6 +216,7 @@ class TilingOptimizer(BaseOptimizer):
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[TilingConfig] = None,
+        conditions=None,
         **kwargs,
     ):
         super().__init__(
@@ -225,6 +226,7 @@ class TilingOptimizer(BaseOptimizer):
             bg_prefixes,
             bg_seq_lengths,
             config or TilingConfig(),
+            conditions=conditions,
         )
         self.tiling_config = (
             config if isinstance(config, TilingConfig) else TilingConfig()

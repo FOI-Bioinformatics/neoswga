@@ -273,7 +273,8 @@ class MOEAOptimizer:
 
     def __init__(self, cache, fg_prefixes: List[str], bg_prefixes: List[str],
                  fg_seq_lengths: List[int], bg_seq_lengths: List[int],
-                 config: Optional[MOEAConfig] = None):
+                 config: Optional[MOEAConfig] = None,
+                 conditions=None):
         """
         Initialize MOEA optimizer.
 
@@ -284,6 +285,13 @@ class MOEAOptimizer:
             fg_seq_lengths: Target genome lengths
             bg_seq_lengths: Background genome lengths
             config: MOEA configuration
+            conditions: Optional ReactionConditions. Currently stored on the
+                instance for inspection and to unblock future additive-aware
+                MOEA objectives; not yet wired into the NSGA-III fitness
+                computation (the four existing objectives — coverage, count,
+                bg binding, uniformity — are condition-agnostic). See the
+                neoswga doctor capability matrix for which optimizers
+                actually apply additive corrections in scoring.
         """
         if not HAS_PYMOO:
             raise ImportError(
@@ -297,6 +305,7 @@ class MOEAOptimizer:
         self.fg_seq_lengths = fg_seq_lengths
         self.bg_seq_lengths = bg_seq_lengths
         self.config = config or MOEAConfig()
+        self.conditions = conditions  # Reserved for future additive-aware objectives.
 
     def optimize(self, candidates: List[str], max_primers: int = 20,
                 verbose: bool = True) -> Dict:
@@ -476,6 +485,7 @@ if HAS_PYMOO:
                 fg_seq_lengths=fg_seq_lengths,
                 bg_seq_lengths=bg_seq_lengths or [],
                 config=moea_config,
+                conditions=conditions,
             )
 
         @property

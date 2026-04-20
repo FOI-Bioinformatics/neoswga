@@ -139,11 +139,14 @@ class StructurePrediction:
 
         seq2_rc = thermo.reverse_complement(seq2)
 
-        # Allow alignment to start anywhere in either strand (not just at 0, 0).
-        # Without this, a dimer that binds in the middle of either primer is
-        # unreachable in the DP: E[0][*] and E[*][0] remain inf, so options 2/3
-        # cannot propagate bulges from those edges. Setting E[i][0]=E[0][j]=0
-        # lets the DP "start" the alignment at any offset in either primer.
+        # DP border initialisation. Setting E[i][0]=E[0][j]=0 expresses
+        # "starting state at any offset in either primer costs nothing"
+        # so the diagonal base-pair transition (option 1 below) can then
+        # extend from a mid-sequence start via the pair check. Note that
+        # the bulge options (2, 3) use `range(1, min(i, 7))` and therefore
+        # do NOT materially benefit from the border init when i==1 because
+        # that range is empty; the border init is still necessary for the
+        # diagonal path to start at non-(0,0) anchors.
         for i in range(n + 1):
             E[i][0] = 0.0
         for j in range(m + 1):

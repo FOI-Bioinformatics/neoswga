@@ -4337,6 +4337,36 @@ def run_swap_primer(args):
                      "run 'neoswga filter' first to generate step2_df.csv.")
         sys.exit(1)
 
+    # Blacklist guard (review I4): when params.json carries bl_genomes,
+    # double-check the candidate pool has no primer that k-mer-hits the
+    # blacklist. Prevents swap-primer from re-injecting primers a user
+    # loads from an external --candidates-file that was not passed through
+    # the neoswga filter step.
+    bl_prefixes = list(getattr(parameter, 'bl_prefixes', []) or [])
+    bl_lengths = list(getattr(parameter, 'bl_seq_lengths', []) or [])
+    forbidden_primers: set = set()
+    if bl_prefixes and bl_lengths:
+        try:
+            from neoswga.core.pipeline import _filter_blacklist_penalty
+            _, bl_freqs = _filter_blacklist_penalty(
+                candidates, bl_prefixes, bl_lengths,
+                max_bl_freq=getattr(parameter, 'max_bl_freq', 0.0) or 0.0,
+            )
+            forbidden_primers = {
+                p for p, f in zip(candidates, bl_freqs)
+                if f > (getattr(parameter, 'max_bl_freq', 0.0) or 0.0)
+            }
+            if forbidden_primers:
+                logger.warning(
+                    f"Excluded {len(forbidden_primers)} blacklist-hitting "
+                    f"primer(s) from the swap-primer candidate pool. "
+                    f"Pass --candidates-file with a filtered pool to avoid "
+                    f"this at load time."
+                )
+                candidates = [c for c in candidates if c not in forbidden_primers]
+        except Exception as e:
+            logger.debug(f"Blacklist guard skipped: {e}")
+
     conditions = ReactionConditions(
         temp=getattr(parameter, 'reaction_temp', 30.0) or 30.0,
         polymerase=getattr(parameter, 'polymerase', 'phi29'),
@@ -4427,16 +4457,18 @@ def run_contract_set(args):
             return 0.0
         covered = 0
         extension = 70000
+        import numpy as _np
         for prefix, length in zip(fg_prefixes, fg_lengths or [0] * len(fg_prefixes)):
-            occupied = [False] * length
+            if length <= 0:
+                continue
+            occupied = _np.zeros(length, dtype=bool)
             for primer in primers:
                 positions = cache.get_positions(prefix, primer, 'both')
                 for pos in positions:
                     start = max(0, int(pos) - extension)
                     end = min(length, int(pos) + extension)
-                    for i in range(start, end):
-                        occupied[i] = True
-            covered += sum(occupied)
+                    occupied[start:end] = True
+            covered += int(occupied.sum())
         return covered / total_genome if total_genome else 0.0
 
     baseline = _coverage(current)
@@ -4677,6 +4709,7 @@ def run_rescore_set(args):
         def _coverage_across(prefix_list, length_list):
             if not prefix_list or not length_list or cache is None:
                 return 0.0, {}
+            import numpy as _np
             per_prefix: dict = {}
             total_cov = 0
             total_len = 0
@@ -4684,7 +4717,7 @@ def run_rescore_set(args):
                 if length <= 0:
                     per_prefix[prefix] = 0.0
                     continue
-                occupied = [False] * length
+                occupied = _np.zeros(length, dtype=bool)
                 for primer in primers:
                     try:
                         positions = cache.get_positions(prefix, primer, 'both')
@@ -4693,9 +4726,8 @@ def run_rescore_set(args):
                     for pos in positions:
                         start = max(0, int(pos) - extension)
                         end = min(length, int(pos) + extension)
-                        for i in range(start, end):
-                            occupied[i] = True
-                covered = sum(occupied)
+                        occupied[start:end] = True
+                covered = int(occupied.sum())
                 per_prefix[prefix] = covered / length if length else 0.0
                 total_cov += covered
                 total_len += length

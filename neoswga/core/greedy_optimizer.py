@@ -149,7 +149,8 @@ class GreedyOptimizer(BaseOptimizer):
         """
         super().__init__(
             position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config or GreedyConfig()
+            bg_prefixes, bg_seq_lengths, config or GreedyConfig(),
+            conditions=conditions,
         )
         self.greedy_config = config if isinstance(config, GreedyConfig) else GreedyConfig()
         self.dimer_matrix = dimer_matrix

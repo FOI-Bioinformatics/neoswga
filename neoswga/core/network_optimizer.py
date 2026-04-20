@@ -1198,6 +1198,7 @@ class NetworkBaseOptimizer(BaseOptimizer):
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
+        conditions=None,
         **kwargs
     ):
         super().__init__(
@@ -1216,7 +1217,7 @@ class NetworkBaseOptimizer(BaseOptimizer):
             reaction_temp=kwargs.get('reaction_temp'),
             tm_weight=kwargs.get('tm_weight', 0.0),
             dimer_penalty=kwargs.get('dimer_penalty', 0.0),
-            conditions=kwargs.get('conditions'),
+            conditions=conditions,
             mechanistic_weight=kwargs.get('mechanistic_weight', 0.0),
             template_gc=kwargs.get('template_gc', 0.5),
         )

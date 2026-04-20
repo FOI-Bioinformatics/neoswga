@@ -224,7 +224,8 @@ class CliqueOptimizer(BaseOptimizer):
         super().__init__(
             position_cache, fg_prefixes, fg_seq_lengths,
             bg_prefixes, bg_seq_lengths,
-            config or CliqueOptimizerConfig()
+            config or CliqueOptimizerConfig(),
+            conditions=conditions,
         )
         # Extract clique-specific config
         if isinstance(config, CliqueOptimizerConfig):

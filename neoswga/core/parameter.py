@@ -700,7 +700,19 @@ def get_params(args):
     # to 10 mM for unknown polymerases rather than the old 2 mM value which was
     # suboptimal for every supported polymerase.
     _mg_defaults = {'phi29': 10.0, 'equiphi29': 10.0, 'bst': 8.0, 'klenow': 10.0}
-    mg_conc = data.get('mg_conc', _mg_defaults.get(polymerase.lower(), 10.0))
+    if 'mg_conc' not in data and 'mg_conc' not in _json_data:
+        mg_conc = _mg_defaults.get(polymerase.lower(), 10.0)
+        # Review I5: mg_conc default changed from 2.0 (pre-3.7) to polymerase-
+        # aware values (phi29/equiphi29/klenow 10, bst 8). Surface the shift
+        # so users rerunning an older params.json without mg_conc see why the
+        # primer set changed between versions.
+        logger.warning(
+            f"mg_conc not set in params.json; using polymerase default "
+            f"{mg_conc} mM for {polymerase}. Older neoswga versions defaulted "
+            f"to 2.0 mM. Pin 'mg_conc' in params.json to lock the value."
+        )
+    else:
+        mg_conc = data.get('mg_conc', _mg_defaults.get(polymerase.lower(), 10.0))
     primer_conc = data.get('primer_conc', 0.5e-6)
 
     # Auto-set reaction temperature based on polymerase if not specified
