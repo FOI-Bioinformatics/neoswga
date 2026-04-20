@@ -18,13 +18,21 @@ jobs:
           python-version: "3.11"
 
       - name: Install linting tools
-        run: pip install black>=22.0.0 isort>=5.10.0
+        run: pip install "black>=22.0.0" "isort>=5.10.0" "ruff>=0.5.0" "mypy>=1.0"
 
       - name: Check formatting with black
         run: black --check neoswga/
 
       - name: Check import ordering with isort
         run: isort --check neoswga/
+
+      - name: Lint with ruff (non-blocking informational baseline)
+        continue-on-error: true
+        run: ruff check neoswga tests
+
+      - name: Static type check with mypy (non-blocking informational baseline)
+        continue-on-error: true
+        run: mypy neoswga --ignore-missing-imports --no-strict-optional
 
   test:
     needs: lint

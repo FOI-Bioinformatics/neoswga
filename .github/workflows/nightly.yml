@@ -1,0 +1,63 @@
+name: Nightly E2E
+
+# Runs the smallest end-to-end pipeline scenarios against the plasmid example
+# every night to catch silent regressions. Fires on cron and on manual dispatch.
+# Larger scenarios gated behind @pytest.mark.scale run separately.
+
+on:
+  schedule:
+    - cron: "0 4 * * *"  # 04:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: End-to-end pipeline smoke tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Jellyfish (k-mer counter)
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y jellyfish
+          else
+            brew install jellyfish
+          fi
+
+      - name: Install neoswga with dev extras
+        run: pip install -e ".[dev,improved]"
+
+      - name: Run integration tests (excluding scale-marked)
+        run: pytest tests/integration/ tests/test_e2e_integration.py -m "not scale" -q --timeout=600
+
+      - name: Run plasmid example end-to-end
+        run: |
+          cd examples/plasmid_example
+          neoswga validate --quick
+          neoswga count-kmers -j params.json
+          neoswga filter -j params.json
+          neoswga score -j params.json
+          neoswga optimize -j params.json
+          neoswga report -d .
+
+      - name: Upload pipeline artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-pipeline-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            examples/plasmid_example/report.html
+            examples/plasmid_example/step2_df.csv
+            examples/plasmid_example/step3_df.csv
+            examples/plasmid_example/step4_improved_df.csv
+          if-no-files-found: ignore
