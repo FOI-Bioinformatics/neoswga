@@ -523,6 +523,9 @@ def get_params(args):
         # Check if json file exists and read it
         if os.path.isfile(data['json_file']):
             data_extra = read_args_from_json(args.json_file)
+            # Clear stale entries before replacing so a second get_params() call in
+            # the same process does not leak prior params.json values.
+            _json_data.clear()
             _json_data.update(data_extra)  # Store raw JSON for CLI access
 
             # Schema versioning
@@ -576,12 +579,29 @@ def get_params(args):
     fg_circular = data['fg_circular'] = get_value_or_default(args.fg_circular, data, 'fg_circular')
     bg_circular = data['bg_circular'] = get_value_or_default(args.bg_circular, data, 'bg_circular')
 
-    # K-mer range parameters (with defaults)
+    # K-mer range parameters (with polymerase-aware defaults)
     # Supported range: 6-18bp
-    if 'min_k' not in data:
-        data['min_k'] = 6
-    if 'max_k' not in data:
-        data['max_k'] = 12
+    # Polymerase choice drives the recommended primer length: phi29 processes short
+    # primers well at 30 C, equiphi29 can anneal longer primers at 42-45 C, bst needs
+    # LAMP-style 15-25mers, klenow sits in between. The user's explicit params.json
+    # values always win; these defaults only fill in absent fields.
+    _polymerase_default = (data.get('polymerase') or _json_data.get('polymerase')
+                           or 'phi29').lower()
+    _polymerase_kmer_defaults = {
+        'phi29': (6, 12),
+        'equiphi29': (10, 18),
+        'bst': (15, 25),
+        'klenow': (8, 15),
+    }
+    _def_min_k, _def_max_k = _polymerase_kmer_defaults.get(_polymerase_default, (6, 12))
+    if 'min_k' not in data and 'min_k' not in _json_data:
+        data['min_k'] = _def_min_k
+    elif 'min_k' not in data:
+        data['min_k'] = _json_data.get('min_k', _def_min_k)
+    if 'max_k' not in data and 'max_k' not in _json_data:
+        data['max_k'] = _def_max_k
+    elif 'max_k' not in data:
+        data['max_k'] = _json_data.get('max_k', _def_max_k)
     min_k = data['min_k'] = get_value_or_default(args.min_k if hasattr(args, 'min_k') else None, data, 'min_k')
     max_k = data['max_k'] = get_value_or_default(args.max_k if hasattr(args, 'max_k') else None, data, 'max_k')
 
@@ -598,6 +618,36 @@ def get_params(args):
         logger.warning("max_k=%d exceeds supported maximum of 18bp.", max_k)
     if min_k > max_k:
         raise ValueError(f"min_k ({min_k}) must be <= max_k ({max_k})")
+
+    # Genome-size-aware k-mer length heuristic warning. Do not modify the user's
+    # range; just surface a suggestion so an unusual combination (e.g. 6-8 bp on
+    # a 10 Mb bacterium, or 15 bp on a 5 kb plasmid) is easy to catch.
+    fg_lengths = data.get('fg_seq_lengths') or []
+    if fg_lengths:
+        largest_fg = max(fg_lengths)
+        try:
+            from neoswga.core.condition_suggester import suggest_kmer_range
+            suggested_min, suggested_max = suggest_kmer_range(
+                largest_fg,
+                gc=data.get('genome_gc'),
+                polymerase=data.get('polymerase', 'phi29'),
+            )
+            if largest_fg > 1_000_000 and max_k < suggested_min:
+                logger.warning(
+                    "Target genome is ~%.1f Mb but max_k=%d. K-mer specificity "
+                    "may be low on large genomes; consider max_k>=%d. "
+                    "Run 'neoswga suggest' for a recommendation.",
+                    largest_fg / 1e6, max_k, suggested_min,
+                )
+            elif largest_fg < 10_000 and min_k > suggested_max:
+                logger.warning(
+                    "Target genome is ~%d bp but min_k=%d. Too-long primers may "
+                    "not have enough binding sites on small genomes; consider "
+                    "min_k<=%d.",
+                    largest_fg, min_k, suggested_max,
+                )
+        except Exception as e:
+            logger.debug(f"Skipped k-mer heuristic: {e}")
 
     # Auto-scale dimer thresholds based on max_k: a fixed 3bp match is
     # meaningful for 6bp primers (50%) but negligible for 18bp primers (17%).
@@ -645,7 +695,12 @@ def get_params(args):
     # Load from JSON file if present, otherwise use module defaults
     polymerase = data.get('polymerase', 'phi29')
     na_conc = data.get('na_conc', 50.0)
-    mg_conc = data.get('mg_conc', 2.0)
+    # Polymerase-aware Mg2+ defaults (mM). phi29 / equiphi29 / klenow all use
+    # ~10 mM in vendor-recommended buffers; bst tolerates lower Mg2+. Fall back
+    # to 10 mM for unknown polymerases rather than the old 2 mM value which was
+    # suboptimal for every supported polymerase.
+    _mg_defaults = {'phi29': 10.0, 'equiphi29': 10.0, 'bst': 8.0, 'klenow': 10.0}
+    mg_conc = data.get('mg_conc', _mg_defaults.get(polymerase.lower(), 10.0))
     primer_conc = data.get('primer_conc', 0.5e-6)
 
     # Auto-set reaction temperature based on polymerase if not specified
@@ -777,6 +832,15 @@ def get_params(args):
     elif 'bg_genomes' in data and ('bg_seq_lengths' not in data or len(data['bg_seq_lengths']) != len(data['bg_genomes'])):
         data['bg_seq_lengths'] = _utility.get_all_seq_lengths(fname_genomes=data['bg_genomes'], cpus=data['cpus'])
 
+    # Auto-compute blacklist genome lengths (mirrors bg_seq_lengths handling) so the
+    # frequency-based blacklist filter in pipeline._filter_blacklist_penalty gets
+    # correct denominators whether bl_genomes came from params.json or --blacklist CLI.
+    if 'bl_genomes' in data and data['bl_genomes']:
+        if 'bl_seq_lengths' not in data or len(data.get('bl_seq_lengths', [])) != len(data['bl_genomes']):
+            data['bl_seq_lengths'] = _utility.get_all_seq_lengths(
+                fname_genomes=data['bl_genomes'], cpus=data['cpus'])
+            bl_seq_lengths = data['bl_seq_lengths']
+
     # Calculate genome GC content from foreground genomes if not already provided
     # This enables adaptive GC filtering for extreme GC genomes
     if 'genome_gc' not in data or data['genome_gc'] is None:
@@ -811,13 +875,33 @@ def get_params(args):
     # Get gc_tolerance for adaptive filtering (default 0.15 = +/-15%)
     gc_tolerance = data.get('gc_tolerance', 0.15)
 
+    # Respect an explicit user opt-out from adaptive GC filtering via
+    # "adaptive_gc": false in params.json. This is the documented override.
+    adaptive_gc_enabled = data.get('adaptive_gc', True)
+
+    # Explicit user-supplied gc_min/gc_max in params.json win over adaptive
+    # calculations. Detect via raw _json_data so a downstream default
+    # (0.375/0.625) does not masquerade as "user supplied".
+    user_set_gc_min = 'gc_min' in _json_data
+    user_set_gc_max = 'gc_max' in _json_data
+
     # Adaptive GC filtering: compute gc_min and gc_max based on genome_gc
     # If genome_gc is known, use genome_gc +/- gc_tolerance
     # This enables extreme GC genomes like Francisella (33%) and Burkholderia (67%)
-    if genome_gc is not None and genome_gc > 0:
+    if (adaptive_gc_enabled and genome_gc is not None and genome_gc > 0
+            and not user_set_gc_min and not user_set_gc_max):
         # Adaptive: primer GC should match target genome GC +/- tolerance
         gc_min = max(0.15, genome_gc - gc_tolerance)
         gc_max = min(0.85, genome_gc + gc_tolerance)
+        # Log explicitly when adaptive kicks in on extreme-GC genomes so
+        # the user can trace why their GC window looks different.
+        if genome_gc < 0.35 or genome_gc > 0.65:
+            logger.info(
+                "Extreme GC genome detected (GC=%.1f%%). Adaptive GC filter "
+                "engaged: primer GC window %.2f-%.2f. Set 'adaptive_gc': false "
+                "in params.json to disable.",
+                genome_gc * 100, gc_min, gc_max,
+            )
     else:
         # Fallback to explicit gc_min/gc_max if specified, otherwise use defaults
         gc_min = data.get('gc_min', 0.375)
@@ -827,6 +911,7 @@ def get_params(args):
     data['gc_min'] = gc_min
     data['gc_max'] = gc_max
     data['gc_tolerance'] = gc_tolerance
+    data['adaptive_gc'] = adaptive_gc_enabled
 
     return data
 

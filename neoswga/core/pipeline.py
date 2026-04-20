@@ -672,11 +672,14 @@ def step2(all_primers=None, validate_prerequisites=True):
                      f"binding blacklist genome")
 
     # Create position files BEFORE Gini calculation (Gini needs these files to exist)
-    # Check if position files exist for speedup
+    # Check if position files exist for speedup. Require ALL foreground prefixes to
+    # have a cached position file, otherwise at least one multi-target genome would
+    # be scanned from scratch while the others skipped.
     import os
     k = parameter.min_k  # Use first k-mer size for check
-    fg_position_file = f"{fg_prefixes[0]}_{k}mer_positions.h5"
-    position_files_exist = os.path.exists(fg_position_file)
+    position_files_exist = all(
+        os.path.exists(f"{prefix}_{k}mer_positions.h5") for prefix in fg_prefixes
+    )
 
     if position_files_exist:
         logger.info(f"Reusing existing position files (incremental update only)")

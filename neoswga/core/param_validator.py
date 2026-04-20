@@ -60,14 +60,32 @@ PARAM_RANGES = {
     'dmso_percent': (0.0, 10.0),
     'betaine_m': (0.0, 2.5),
     'trehalose_m': (0.0, 1.0),
+    # Additives below now validated. Upper bounds mirror the authoritative
+    # ReactionConditions._validate() checks in reaction_conditions.py:235-264
+    # so users get a clear error from ParamValidator before ReactionConditions
+    # raises a ValueError deep in the pipeline.
+    'formamide_percent': (0.0, 10.0),
+    'ethanol_percent': (0.0, 5.0),
+    'urea_m': (0.0, 2.0),
+    'tmac_m': (0.0, 0.1),
+    'glycerol_percent': (0.0, 15.0),
+    'peg_percent': (0.0, 15.0),
+    'bsa_ug_ml': (0.0, 400.0),
     'na_conc': (0.0, 1000.0),
-    'mg_conc': (0.0, 10.0),
+    'mg_conc': (0.0, 20.0),
+    'primer_conc': (1e-9, 1e-4),
     'gc_min': (0.0, 1.0),
     'gc_max': (0.0, 1.0),
+    'gc_tolerance': (0.0, 0.5),
+    'genome_gc': (0.0, 1.0),
     'min_tm': (0.0, 100.0),
     'max_tm': (0.0, 100.0),
     'num_primers': (1, 50),
+    'target_set_size': (1, 50),
     'iterations': (1, 100),
+    'max_sets': (1, 100),
+    'bl_penalty': (0.0, 100.0),
+    'max_bl_freq': (0.0, 1.0),
     'cpus': (1, 128),
 }
 
@@ -157,6 +175,11 @@ class ParamValidator:
         # Check required parameters
         self._check_required(params)
 
+        # Structural validation against the shipped JSON schema. Deliberately
+        # kept soft: if jsonschema is not installed we skip (no hard optional
+        # dependency) and fall through to the range / interdependency checks.
+        self._check_schema(params)
+
         # Check types and ranges
         self._check_ranges(params)
 
@@ -180,6 +203,33 @@ class ParamValidator:
                     parameter=param,
                     message="Required parameter missing"
                 ))
+
+    def _check_schema(self, params: Dict) -> None:
+        """Validate params against the shipped JSON Schema.
+
+        If jsonschema is not installed this silently no-ops so users don't need
+        the extra dependency just to run the pipeline. The schema drift remains
+        caught by the range / interdependency checks below.
+        """
+        try:
+            import jsonschema  # type: ignore
+        except Exception:
+            return
+        try:
+            from neoswga.core.schema import load_schema
+            schema = load_schema()
+        except Exception as e:
+            logger.debug(f"Skipped schema check (could not load schema): {e}")
+            return
+
+        validator = jsonschema.Draft202012Validator(schema)
+        for err in validator.iter_errors(params):
+            loc = ".".join(str(x) for x in err.absolute_path) or err.validator
+            self.messages.append(ValidationMessage(
+                level=ValidationLevel.ERROR,
+                parameter=str(loc),
+                message=f"Schema violation: {err.message}",
+            ))
 
     def _check_ranges(self, params: Dict) -> None:
         """Check parameter values are within valid ranges."""

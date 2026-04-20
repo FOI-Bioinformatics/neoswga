@@ -134,6 +134,63 @@ def classify_primer_length(length: int) -> str:
         return 'long'
 
 
+def suggest_kmer_range(genome_size: int,
+                       gc: Optional[float] = None,
+                       polymerase: str = 'phi29') -> Tuple[int, int]:
+    """Recommend a k-mer range given target genome size, GC content, and polymerase.
+
+    Heuristic rationale:
+
+    - For SWGA, a primer of length k appears in a random sequence roughly once
+      every 4^k bases. Too-short primers on a large genome produce excessive
+      background hits; too-long primers on a tiny genome yield no candidates.
+    - Polymerase constrains the usable length range: phi29 (30 C) prefers 6-12 bp,
+      equiphi29 (42-45 C) tolerates 10-18 bp, bst (60+ C) requires 15-25 bp,
+      klenow (25-40 C) sits in between.
+    - Extreme GC genomes benefit from +1-2 bp length to compensate for thermodynamic
+      instability (AT-rich) or secondary structure (GC-rich).
+
+    Args:
+        genome_size: Target genome length in base pairs.
+        gc: Genome GC content (0-1), optional.
+        polymerase: Polymerase name; case insensitive.
+
+    Returns:
+        (min_k, max_k) inclusive bounds recommended for this scenario.
+    """
+    polymerase = (polymerase or 'phi29').lower()
+    polymerase_bounds = {
+        'phi29': (6, 12),
+        'equiphi29': (10, 18),
+        'bst': (15, 25),
+        'klenow': (8, 15),
+    }
+    min_k, max_k = polymerase_bounds.get(polymerase, (6, 12))
+
+    # Size-based adjustment: larger genomes need a longer minimum k so
+    # background hits stay below ~genome_size / 4^min_k.
+    if genome_size >= 1_000_000_000:  # Gb-scale (eukaryotic background)
+        min_k = max(min_k, 12)
+        max_k = max(max_k, min_k + 4)
+    elif genome_size >= 10_000_000:  # 10 Mb, large bacterium / yeast
+        min_k = max(min_k, 10)
+    elif genome_size >= 1_000_000:  # 1 Mb, typical bacterium
+        min_k = max(min_k, 8)
+    elif genome_size < 10_000:  # plasmid / viral
+        # Small genomes have too few k-mers to support long primers; cap max_k
+        max_k = min(max_k, 12)
+
+    # GC extremes: nudge up to avoid low-Tm (AT-rich) or high-GC-clamp (GC-rich).
+    if gc is not None:
+        if gc < 0.30 or gc > 0.70:
+            min_k = min(min_k + 1, max_k)
+
+    if min_k > max_k:
+        # Shouldn't happen after clamps but guard anyway.
+        min_k = max_k
+    return min_k, max_k
+
+
 class ConditionSuggester:
     """
     Suggests optimal reaction conditions for SWGA.

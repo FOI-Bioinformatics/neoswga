@@ -547,9 +547,13 @@ def compare_optimizers(candidates: List[str],
         fg_seq_lengths, bg_seq_lengths
     )
     standard_result = standard_opt.optimize(candidates, num_primers=num_primers)
+    # Aggregate background hits across ALL background prefixes, not just the first.
+    # Previously only bg_prefixes[0] was measured, underreporting background load
+    # when multiple host/off-target genomes were provided.
     standard_bg = sum(
-        len(position_cache.get_positions(bg_prefixes[0], p, 'both'))
+        len(position_cache.get_positions(bg_prefix, p, 'both'))
         for p in standard_result.primers
+        for bg_prefix in bg_prefixes
     )
 
     # Background-aware optimizer

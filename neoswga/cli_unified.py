@@ -505,7 +505,7 @@ COMMAND_GROUPS = [
         'count-kmers', 'filter', 'score', 'optimize', 'design',
     ]),
     ('Setup', [
-        'init', 'start', 'validate', 'validate-params', 'show-presets', 'suggest',
+        'init', 'start', 'validate', 'validate-params', 'schema', 'show-presets', 'suggest',
     ]),
     ('Results', [
         'interpret', 'report', 'export',
@@ -737,6 +737,11 @@ Run "neoswga <command> --help" for details on a specific command.
     score_parser.add_argument('--enhanced-model-path', type=str, default=None,
                              help='Path to enhanced random forest model')
 
+    # Blacklist metadata (filtering happens at step2; this is a passthrough so
+    # params.json contains the full record for audit trails).
+    score_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
+                             help='Blacklist genome FASTA file(s); informational at this step, filtering happens in step2.')
+
     # =========================================================================
     # STEP 4: Primer set optimization
     # =========================================================================
@@ -865,6 +870,11 @@ Run "neoswga <command> --help" for details on a specific command.
     opt_val_group.add_argument('--simulation-time', type=float, default=3600.0,
                              help='Simulation time in seconds (default: 3600)')
 
+    # Blacklist passthrough: filtering already happened at step2; included for
+    # CLI surface consistency and audit-trail parity with params.json.
+    optimize_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
+                             help='Blacklist genome FASTA file(s); informational at this step, filtering happens in step2.')
+
     # =========================================================================
     # UNIFIED: Complete pipeline (all 4 steps)
     # =========================================================================
@@ -961,6 +971,16 @@ Run "neoswga <command> --help" for details on a specific command.
                                                    help='Validate params.json configuration before running')
     validate_params_parser.add_argument('-j', '--json-file', required=True,
                                        help='Parameters JSON file to validate')
+
+    # =========================================================================
+    # SETUP: Dump canonical JSON schema
+    # =========================================================================
+    schema_parser = subparsers.add_parser('schema',
+                                          help='Inspect or dump the canonical params.json schema')
+    schema_parser.add_argument('--dump', action='store_true',
+                               help='Print the params.json JSON Schema to stdout')
+    schema_parser.add_argument('--output', '-o', type=str, default=None,
+                               help='Write the schema to the given file instead of stdout')
 
     # =========================================================================
     # SETUP: Validate mechanistic model
@@ -1084,6 +1104,11 @@ Examples:
     suggest_parser.add_argument('--sweep', action='store_true',
                                help='Sweep a grid of reaction conditions and rank by '
                                     'predicted amplification factor')
+    suggest_parser.add_argument('--kmer-range', action='store_true',
+                               help='Print a recommended (min_k, max_k) range based on genome size, '
+                                    'GC, and polymerase, then exit')
+    suggest_parser.add_argument('--genome-size', type=int,
+                               help='Target genome size in bp (for --kmer-range). Auto-derived from --genome if that flag is given.')
     suggest_parser.add_argument('--output', '-o', type=str,
                                help='Output CSV path for condition sweep results')
 
@@ -1672,6 +1697,10 @@ def run_step2(args):
                 bl_prefixes_cli.append(bl_prefix)
             parameter.bl_genomes = bl_genomes_cli
             parameter.bl_prefixes = bl_prefixes_cli
+            # Compute blacklist lengths so the frequency denominator is correct.
+            from neoswga.core import utility as _utility
+            parameter.bl_seq_lengths = _utility.get_all_seq_lengths(
+                fname_genomes=bl_genomes_cli, cpus=getattr(parameter, 'cpus', 1))
             if args.bl_penalty is not None:
                 parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
@@ -2491,6 +2520,30 @@ def run_validate_params(args):
     sys.exit(0 if success else 1)
 
 
+def run_schema(args):
+    """Dump the canonical params.json JSON Schema.
+
+    Either prints to stdout (default with --dump) or writes to --output path.
+    Useful for IDE integration (VS Code can autocomplete against the schema)
+    and for human-readable review.
+    """
+    import json
+    try:
+        from neoswga.core.schema import load_schema
+        schema = load_schema()
+    except Exception as e:
+        logger.error(f"Could not load params schema: {e}")
+        sys.exit(1)
+
+    output = json.dumps(schema, indent=2)
+    if getattr(args, 'output', None):
+        with open(args.output, 'w', encoding='utf-8') as fh:
+            fh.write(output + "\n")
+        logger.info(f"Schema written to {args.output}")
+    else:
+        print(output)
+
+
 def run_validate_model(args):
     """Validate mechanistic model against expected behavior."""
     from neoswga.core.model_validation import (
@@ -2902,6 +2955,39 @@ def run_suggest(args):
         except FileNotFoundError:
             logger.error(f"Genome file not found: {args.genome}")
             sys.exit(1)
+
+    # K-mer range suggestion: emit a recommended (min_k, max_k) based on
+    # genome size + GC + polymerase, then exit. Complements the warning in
+    # get_params() by giving the user a direct answer.
+    if getattr(args, 'kmer_range', False):
+        from neoswga.core.condition_suggester import suggest_kmer_range
+        from neoswga.core.genome_io import GenomeLoader
+
+        genome_size = getattr(args, 'genome_size', None)
+        if genome_size is None and getattr(args, 'genome', None):
+            try:
+                sequence = GenomeLoader().load_genome(args.genome, return_stats=False)
+                genome_size = len(sequence)
+            except Exception as e:
+                logger.error(f"Could not read genome size from {args.genome}: {e}")
+                sys.exit(1)
+        if genome_size is None:
+            logger.error("--kmer-range requires --genome-size or --genome")
+            sys.exit(1)
+
+        polymerase = getattr(args, 'polymerase', 'phi29')
+        min_k, max_k = suggest_kmer_range(
+            genome_size, gc=genome_gc, polymerase=polymerase,
+        )
+        print(f"Recommended k-mer range for {genome_size:,} bp, "
+              f"GC={genome_gc if genome_gc is not None else 'unknown'}, "
+              f"polymerase={polymerase}:")
+        print(f"  min_k = {min_k}")
+        print(f"  max_k = {max_k}")
+        print(f"\nAdd to params.json:")
+        print(f'  "min_k": {min_k},')
+        print(f'  "max_k": {max_k}')
+        return
 
     # Condition sweep mode
     if getattr(args, 'sweep', False):
@@ -4322,6 +4408,7 @@ def main():
         'show-presets': lambda args: show_presets(),
         'init': run_init,
         'validate-params': run_validate_params,
+        'schema': run_schema,
         'validate-model': run_validate_model,
         'interpret': run_interpret,
         'report': run_report,

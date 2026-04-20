@@ -448,6 +448,11 @@ class IntegratedQualityScorer:
         Calculate thermodynamic score.
 
         Optimal primers have Tm in target range for reaction temperature.
+        Uses a nearest-neighbor Tm with Owczarzy salt correction and applies
+        the current ReactionConditions' additive correction (DMSO, betaine,
+        trehalose, formamide, ethanol, urea, TMAC) so primers are ranked
+        against the effective Tm the user will see in the lab, not a
+        buffer-agnostic Wallace-rule estimate.
 
         Args:
             primer: Primer sequence
@@ -455,14 +460,14 @@ class IntegratedQualityScorer:
         Returns:
             Score 0-1 (1 = optimal Tm range)
         """
-        # Simple GC-based Tm estimate (Wallace's rule for short primers)
         gc_count = sum(1 for b in primer if b in 'GC')
-        at_count = len(primer) - gc_count
+        primer_len = len(primer)
+        gc_fraction = gc_count / primer_len if primer_len else 0.5
 
-        tm_estimate = 2 * at_count + 4 * gc_count
+        tm_estimate = self._primer_tm(primer, gc_fraction, primer_len)
 
-        # Optimal Tm range: 50-65°C for SWGA
-        # But reaction temp is 30-42°C, so primers should be ~10-20°C above
+        # Optimal Tm range: 50-65C for SWGA
+        # But reaction temp is 30-42C, so primers should be ~10-20C above
         target_temp = self.conditions.temp if self.conditions else 30.0
         optimal_tm_low = target_temp + 15
         optimal_tm_high = target_temp + 30
@@ -477,6 +482,29 @@ class IntegratedQualityScorer:
             score = max(0.0, 1.0 - (tm_estimate - optimal_tm_high) / 20.0)
 
         return score
+
+    def _primer_tm(self, primer: str, gc_fraction: float, primer_len: int) -> float:
+        """Tm honoring salt and additive corrections when ReactionConditions is set.
+
+        Falls back to Wallace's rule when no conditions are provided, so legacy
+        callers still get a result. Any exception in the canonical thermodynamics
+        path also falls back so scoring never crashes on an odd sequence.
+        """
+        try:
+            from neoswga.core.thermodynamics import calculate_tm_with_salt
+            na = getattr(self.conditions, 'na_conc', 50.0) if self.conditions else 50.0
+            base_tm = calculate_tm_with_salt(primer, na_conc=na)
+            if self.conditions is not None:
+                base_tm += self.conditions.calculate_tm_correction(
+                    gc_content=gc_fraction,
+                    primer_length=primer_len,
+                )
+            return base_tm
+        except Exception:
+            # Fallback: Wallace's rule
+            gc_count = int(round(gc_fraction * primer_len))
+            at_count = primer_len - gc_count
+            return 2 * at_count + 4 * gc_count
 
     def get_recommendations(self,
                           primer_scores: List[PrimerQualityScore],
