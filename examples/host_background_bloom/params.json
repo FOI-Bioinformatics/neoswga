@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+
+  "_comment": "Template for host-scale background filtering. Human / eukaryotic backgrounds are too large to hold fully in memory; a Bloom filter trades a small false-positive rate for a ~100x memory reduction. Pre-build the filter once with `neoswga build-filter`, then reference it here.",
+
+  "fg_genomes": ["target.fasta"],
+  "fg_prefixes": ["target"],
+  "bg_genomes": [],
+  "bg_prefixes": [],
+  "bg_seq_lengths": [],
+  "data_dir": "./",
+
+  "polymerase": "phi29",
+  "reaction_temp": 30.0,
+  "mg_conc": 10.0,
+
+  "min_k": 8,
+  "max_k": 12,
+
+  "use_bloom_filter": true,
+  "bloom_filter_path": "./bloom/background.pkl",
+  "sampled_index_path": "./bloom/sampled.pkl",
+
+  "min_fg_freq": 1e-5,
+  "max_bg_freq": 5e-6,
+  "min_tm": 15,
+  "max_tm": 45,
+  "max_gini": 0.6,
+  "max_primer": 500,
+
+  "num_primers": 8,
+  "target_set_size": 8,
+  "iterations": 8,
+  "max_sets": 5,
+  "cpus": 4,
+
+  "fg_circular": false,
+  "bg_circular": false
+}

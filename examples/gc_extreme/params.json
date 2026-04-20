@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+
+  "_comment": "Template for extreme-GC targets (AT-rich or GC-rich). The adaptive GC filter auto-engages when genome_gc is outside [0.35, 0.65]. Set adaptive_gc=false to force your own gc_min/gc_max.",
+
+  "fg_genomes": ["target.fasta"],
+  "fg_prefixes": ["target"],
+  "data_dir": "./",
+
+  "polymerase": "equiphi29",
+  "reaction_temp": 43.0,
+  "mg_conc": 10.0,
+
+  "betaine_m": 1.5,
+  "dmso_percent": 5.0,
+  "tmac_m": 0.05,
+
+  "min_k": 12,
+  "max_k": 18,
+  "long_primer_mode": true,
+
+  "gc_tolerance": 0.15,
+  "adaptive_gc": true,
+
+  "min_fg_freq": 1e-5,
+  "max_bg_freq": 5e-6,
+  "min_tm": 40,
+  "max_tm": 70,
+  "max_gini": 0.6,
+  "max_primer": 500,
+
+  "num_primers": 10,
+  "target_set_size": 10,
+  "iterations": 8,
+  "max_sets": 5,
+  "cpus": 4,
+
+  "fg_circular": false
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+
+  "fg_genomes": ["target_a.fasta", "target_b.fasta"],
+  "bg_genomes": ["host.fasta"],
+  "bl_genomes": ["contaminant.fasta"],
+  "fg_prefixes": ["target_a", "target_b"],
+  "bg_prefixes": ["host"],
+  "bl_prefixes": ["contaminant"],
+  "data_dir": "./",
+
+  "polymerase": "phi29",
+  "reaction_temp": 30.0,
+  "mg_conc": 10.0,
+
+  "min_k": 8,
+  "max_k": 12,
+
+  "min_fg_freq": 1e-5,
+  "max_bg_freq": 5e-6,
+  "max_bl_freq": 0.0,
+  "bl_penalty": 5.0,
+  "min_tm": 15,
+  "max_tm": 45,
+  "max_gini": 0.6,
+  "max_primer": 500,
+
+  "num_primers": 10,
+  "target_set_size": 10,
+  "iterations": 8,
+  "max_sets": 5,
+  "cpus": 4,
+
+  "fg_circular": false,
+  "bg_circular": false
+}

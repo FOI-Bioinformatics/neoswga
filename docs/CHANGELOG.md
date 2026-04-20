@@ -2,6 +2,76 @@
 
 All notable changes to NeoSWGA are documented in this file.
 
+## [3.7.0] - 2026 - Production Readiness
+
+### NEW FEATURES
+
+#### Canonical params.json JSON Schema
+- `neoswga/core/schema/params.schema.json` is the authoritative schema
+- `neoswga schema --dump [-o FILE]` emits the schema for IDE integration
+- `ParamValidator` loads the schema and surfaces violations alongside
+  range / interdependency checks
+- `jsonschema` added as a core dependency
+
+#### Polymerase-aware defaults
+- `min_k`, `max_k`, and `mg_conc` defaults now come from the chosen
+  polymerase: phi29 6-12 bp / 10 mM, equiphi29 10-18 bp / 10 mM,
+  bst 15-25 bp / 8 mM, klenow 8-15 bp / 10 mM
+- Explicit user values in `params.json` always win
+
+#### Adaptive GC filter auto-engagement
+- When `genome_gc` is set or auto-computed and falls outside [0.35, 0.65],
+  the filter switches to `genome_gc +/- gc_tolerance` automatically
+- Logs a single INFO line when it engages
+- Disable with `"adaptive_gc": false` in `params.json`
+
+#### Additives affect scoring and optimization
+- `IntegratedQualityScorer` now uses salt-corrected nearest-neighbor Tm
+  plus `ReactionConditions.calculate_tm_correction()` (DMSO, betaine,
+  trehalose, formamide, ethanol, urea, TMAC)
+- Previously additives only affected filtering-time Tm; primers were
+  mis-ranked at scoring time
+
+#### Genome-size k-mer heuristic
+- `condition_suggester.suggest_kmer_range(size, gc, polymerase)` returns
+  size-aware recommendations
+- `get_params()` emits warnings for unusual combinations (e.g. max_k<8
+  on a 5 Mb bacterium, or min_k>12 on a 5 kb plasmid)
+
+#### Example templates
+- `examples/equiphi29_scenario/` - long primers + DMSO + betaine
+- `examples/multi_genome_blacklist/` - pan-primer with zero-tolerance
+  contaminant list
+- `examples/gc_extreme/` - AT-rich or GC-rich targets
+
+#### Release infrastructure
+- `.github/workflows/publish.yml` - PyPI trusted publishing on release
+- `.github/workflows/nightly.yml` - nightly end-to-end pipeline tests
+- `.pre-commit-config.yaml` - ruff / black / isort / yaml / toml hooks
+- `ruff` and `mypy` baselines in CI (non-blocking) and `pyproject.toml`
+
+### BUG FIXES
+
+- `pipeline.py` position-file cache now requires every `fg_prefixes`
+  entry to have a cache before skipping creation; previously one missing
+  cache could silently leave multi-target genomes unscanned
+- `background_aware_optimizer.compare_optimizers` now aggregates hits
+  across all `bg_prefixes` instead of only `bg_prefixes[0]`
+- `bl_seq_lengths` is auto-computed when `bl_genomes` is set via CLI or
+  JSON, preventing incorrect blacklist frequencies
+
+### EXPANDED VALIDATION
+
+- `PARAM_RANGES` now covers `formamide_percent`, `ethanol_percent`,
+  `urea_m`, `tmac_m`, `glycerol_percent`, `peg_percent`, `bsa_ug_ml`,
+  `mg_conc` (widened to 0-20 mM), `gc_tolerance`, `genome_gc`,
+  `bl_penalty`, and `max_bl_freq`
+
+### BREAKING CHANGES
+
+None. All 3.6 configurations continue to run; see
+`docs/migration-3.6-to-3.7.md` for behavioural differences.
+
 ## [3.6.0] - 2026 - Optimizer Framework and Pipeline Hardening
 
 ### NEW FEATURES

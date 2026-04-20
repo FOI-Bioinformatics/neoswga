@@ -1,4 +1,6 @@
 {
+  "schema_version": 1,
+
   "fg_genomes": ["pcDNA.fasta"],
   "bg_genomes": ["pLTR.fasta"],
   "fg_prefixes": ["pcDNA"],
