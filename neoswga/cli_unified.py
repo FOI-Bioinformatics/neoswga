@@ -519,7 +519,8 @@ COMMAND_GROUPS = [
         'genome-add', 'genome-list', 'genome-remove',
     ]),
     ('Experimental', [
-        'active-learn', 'expand-primers', 'predict-efficiency', 'ml-predict',
+        'active-learn', 'expand-primers', 'swap-primer', 'contract-set',
+        'rescore-set', 'predict-efficiency', 'ml-predict',
         'design-oligos', 'validate-model',
     ]),
 ]
@@ -1322,6 +1323,61 @@ Examples:
                                help='Output directory for expanded primer set')
     expand_parser.add_argument('--quiet', '-q', action='store_true',
                                help='Suppress progress output')
+
+    # Swap primer: replace worst performers with better candidates
+    swap_parser = subparsers.add_parser('swap-primer',
+        help='Replace under-performing primers in an existing set with better '
+             'candidates from a pool (greedy dimer-aware optimization).')
+    swap_parser.add_argument('-j', '--json-file', required=True,
+                             help='Parameters JSON file')
+    swap_parser.add_argument('--primers', nargs='+', required=True,
+                             help='Current primer set')
+    swap_parser.add_argument('--primers-file',
+                             help='File with current primers (one per line)')
+    swap_parser.add_argument('--candidates-file',
+                             help='File with candidate pool for replacement, '
+                                  'one primer per line. Defaults to step2_df.csv '
+                                  'primers if present in data_dir.')
+    swap_parser.add_argument('--max-swaps', type=int, default=3,
+                             help='Maximum replacements to attempt (default: 3)')
+    swap_parser.add_argument('--output', '-o',
+                             help='Output JSON with before/after set and per-swap '
+                                  'deltas (default: stdout)')
+    swap_parser.add_argument('--quiet', '-q', action='store_true')
+
+    # Contract set: remove redundant primers while keeping coverage above threshold
+    contract_parser = subparsers.add_parser('contract-set',
+        help='Remove redundant primers from a set while keeping coverage above '
+             '--min-coverage. Greedy leave-one-out.')
+    contract_parser.add_argument('-j', '--json-file', required=True)
+    contract_parser.add_argument('--primers', nargs='+', required=True)
+    contract_parser.add_argument('--primers-file')
+    contract_parser.add_argument('--min-coverage', type=float, default=0.70,
+                                 help='Minimum foreground coverage to keep (default: 0.70)')
+    contract_parser.add_argument('--output', '-o')
+    contract_parser.add_argument('--quiet', '-q', action='store_true')
+
+    # Rescore set under arbitrary conditions
+    rescore_parser = subparsers.add_parser('rescore-set',
+        help='Rescore an existing primer set under arbitrary reaction '
+             'conditions (polymerase + additives) without re-optimizing.')
+    rescore_parser.add_argument('-j', '--json-file', required=True)
+    rescore_parser.add_argument('--primers', nargs='+', required=True)
+    rescore_parser.add_argument('--primers-file')
+    rescore_parser.add_argument('--polymerase',
+                                choices=['phi29', 'equiphi29', 'bst', 'klenow'])
+    rescore_parser.add_argument('--reaction-temp', type=float)
+    rescore_parser.add_argument('--mg-conc', type=float)
+    rescore_parser.add_argument('--na-conc', type=float)
+    rescore_parser.add_argument('--dmso-percent', type=float)
+    rescore_parser.add_argument('--betaine-m', type=float)
+    rescore_parser.add_argument('--trehalose-m', type=float)
+    rescore_parser.add_argument('--formamide-percent', type=float)
+    rescore_parser.add_argument('--ethanol-percent', type=float)
+    rescore_parser.add_argument('--urea-m', type=float)
+    rescore_parser.add_argument('--tmac-m', type=float)
+    rescore_parser.add_argument('--output', '-o')
+    rescore_parser.add_argument('--quiet', '-q', action='store_true')
 
     # Predict efficiency - unified confidence score for primer set
     predict_parser = subparsers.add_parser('predict-efficiency',
@@ -3962,6 +4018,297 @@ def run_expand_primers(args):
         sys.exit(1)
 
 
+def _load_primer_list(cli_primers, primers_file, name="primer"):
+    """Collect primers from --primers or --primers-file."""
+    primers = list(cli_primers or [])
+    if primers_file:
+        with open(primers_file, 'r') as fh:
+            for line in fh:
+                p = line.strip().split()[0] if line.strip() else ""
+                if p and not p.startswith('#'):
+                    primers.append(p)
+    primers = [p.upper().strip() for p in primers if p.strip()]
+    if not primers:
+        logger.error(f"No {name} sequences provided")
+        sys.exit(1)
+    return primers
+
+
+def _load_candidate_pool(candidates_file, data_dir):
+    """Load a candidate-pool primer list from --candidates-file or data_dir/step2_df.csv."""
+    import pandas as pd
+    candidates = []
+    if candidates_file and os.path.exists(candidates_file):
+        with open(candidates_file, 'r') as fh:
+            for line in fh:
+                p = line.strip().split()[0] if line.strip() else ""
+                if p and not p.startswith('#'):
+                    candidates.append(p)
+    else:
+        step2 = os.path.join(data_dir or ".", 'step2_df.csv')
+        if os.path.isfile(step2):
+            df = pd.read_csv(step2)
+            if 'primer' in df.columns:
+                candidates = df['primer'].astype(str).tolist()
+    return [c.upper().strip() for c in candidates if c.strip()]
+
+
+def run_swap_primer(args):
+    """Swap under-performing primers in a set with better candidates."""
+    import json as _json
+    from neoswga.core import parameter
+    from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    validate_params_json_file(args.json_file)
+    merge_args_to_parameter(args, parameter, ['json_file'])
+    # Ensure parameter globals are populated from params.json
+    import neoswga.core.pipeline as pipeline_mod
+    pipeline_mod._initialized = False
+    pipeline_mod._initialize()
+
+    current = _load_primer_list(args.primers, args.primers_file, name="current primer")
+    data_dir = getattr(parameter, 'data_dir', '.')
+    candidates = _load_candidate_pool(args.candidates_file, data_dir)
+    if not candidates:
+        logger.error("No candidate pool available. Provide --candidates-file or "
+                     "run 'neoswga filter' first to generate step2_df.csv.")
+        sys.exit(1)
+
+    conditions = ReactionConditions(
+        temp=getattr(parameter, 'reaction_temp', 30.0) or 30.0,
+        polymerase=getattr(parameter, 'polymerase', 'phi29'),
+        na_conc=getattr(parameter, 'na_conc', 50.0),
+        mg_conc=getattr(parameter, 'mg_conc', 10.0),
+        dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
+        betaine_m=getattr(parameter, 'betaine_m', 0.0),
+        trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
+        formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
+        ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
+        urea_m=getattr(parameter, 'urea_m', 0.0),
+        tmac_m=getattr(parameter, 'tmac_m', 0.0),
+    )
+    analyzer = create_dimer_network_analyzer(conditions)
+
+    # Snapshot "before" state: analyze_primer_set returns (metrics, profiles, matrix)
+    before_metrics, _before_profiles, _before_matrix = analyzer.analyze_primer_set(current)
+    # Greedy swap
+    improved, after_metrics = analyzer.optimize_set_greedy(
+        list(current), candidates, max_iterations=args.max_swaps,
+    )
+
+    swapped_in = [p for p in improved if p not in current]
+    swapped_out = [p for p in current if p not in improved]
+    result = {
+        "before_set": list(current),
+        "after_set": list(improved),
+        "swapped_in": swapped_in,
+        "swapped_out": swapped_out,
+        "num_swaps": len(swapped_in),
+        "metrics_before": {
+            "total_interactions": before_metrics.total_interactions,
+            "mean_severity": before_metrics.mean_severity,
+            "max_severity": before_metrics.max_severity,
+            "num_hubs": before_metrics.num_hub_primers,
+        },
+        "metrics_after": {
+            "total_interactions": after_metrics.total_interactions,
+            "mean_severity": after_metrics.mean_severity,
+            "max_severity": after_metrics.max_severity,
+            "num_hubs": after_metrics.num_hub_primers,
+        },
+    }
+
+    output_json = _json.dumps(result, indent=2)
+    if args.output:
+        with open(args.output, 'w') as fh:
+            fh.write(output_json + "\n")
+        if not args.quiet:
+            logger.info(f"swap-primer results written to {args.output}")
+    else:
+        print(output_json)
+
+
+def run_contract_set(args):
+    """Greedy leave-one-out contraction that keeps coverage above threshold."""
+    import json as _json
+    from neoswga.core import parameter
+    from neoswga.core.position_cache import PositionCache
+
+    validate_params_json_file(args.json_file)
+    merge_args_to_parameter(args, parameter, ['json_file'])
+    import neoswga.core.pipeline as pipeline_mod
+    pipeline_mod._initialized = False
+    pipeline_mod._initialize()
+
+    current = _load_primer_list(args.primers, args.primers_file, name="primer")
+    fg_prefixes = list(getattr(parameter, 'fg_prefixes', []) or [])
+    # fg_seq_lengths flows through _json_data / data dict rather than the module
+    # globals, so fall back to _json_data if the global is empty.
+    fg_lengths = list(getattr(parameter, 'fg_seq_lengths', []) or [])
+    if not fg_lengths:
+        raw = getattr(parameter, '_json_data', {}) or {}
+        fg_lengths = list(raw.get('fg_seq_lengths', []) or [])
+    if not fg_prefixes:
+        logger.error("No fg_prefixes available; cannot compute coverage.")
+        sys.exit(1)
+    if not fg_lengths:
+        logger.error("fg_seq_lengths missing from params; cannot compute coverage.")
+        sys.exit(1)
+
+    cache = PositionCache(fg_prefixes, current)
+
+    def _coverage(primers):
+        # Union of binding positions across all fg prefixes, binned at 1 bp granularity.
+        total_genome = sum(fg_lengths) if fg_lengths else 0
+        if not total_genome:
+            return 0.0
+        covered = 0
+        extension = 70000
+        for prefix, length in zip(fg_prefixes, fg_lengths or [0] * len(fg_prefixes)):
+            occupied = [False] * length
+            for primer in primers:
+                positions = cache.get_positions(prefix, primer, 'both')
+                for pos in positions:
+                    start = max(0, int(pos) - extension)
+                    end = min(length, int(pos) + extension)
+                    for i in range(start, end):
+                        occupied[i] = True
+            covered += sum(occupied)
+        return covered / total_genome if total_genome else 0.0
+
+    baseline = _coverage(current)
+    if not args.quiet:
+        logger.info(f"Baseline coverage with {len(current)} primers: {baseline:.1%}")
+
+    kept = list(current)
+    removed = []
+    progress = True
+    while progress:
+        progress = False
+        # Try removing each primer in turn
+        for primer in list(kept):
+            candidate_set = [p for p in kept if p != primer]
+            if not candidate_set:
+                break
+            cov = _coverage(candidate_set)
+            if cov >= args.min_coverage:
+                kept = candidate_set
+                removed.append({"primer": primer, "resulting_coverage": cov})
+                progress = True
+                if not args.quiet:
+                    logger.info(f"Removed {primer} -> coverage {cov:.1%}")
+                break
+
+    result = {
+        "original_set": list(current),
+        "contracted_set": kept,
+        "removed_primers": [r["primer"] for r in removed],
+        "removal_trace": removed,
+        "baseline_coverage": baseline,
+        "final_coverage": _coverage(kept),
+        "min_coverage_threshold": args.min_coverage,
+    }
+
+    output_json = _json.dumps(result, indent=2)
+    if args.output:
+        with open(args.output, 'w') as fh:
+            fh.write(output_json + "\n")
+        if not args.quiet:
+            logger.info(f"contract-set results written to {args.output}")
+    else:
+        print(output_json)
+
+
+def run_rescore_set(args):
+    """Rescore an existing primer set under arbitrary reaction conditions."""
+    import json as _json
+    from neoswga.core import parameter
+    from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    validate_params_json_file(args.json_file)
+    merge_args_to_parameter(args, parameter, ['json_file'])
+    import neoswga.core.pipeline as pipeline_mod
+    pipeline_mod._initialized = False
+    pipeline_mod._initialize()
+
+    primers = _load_primer_list(args.primers, args.primers_file, name="primer")
+
+    def _pick(attr, fallback):
+        cli_val = getattr(args, attr, None)
+        if cli_val is not None:
+            return cli_val
+        pv = getattr(parameter, attr, None)
+        return pv if pv is not None else fallback
+
+    conditions = ReactionConditions(
+        temp=_pick('reaction_temp', 30.0) or 30.0,
+        polymerase=_pick('polymerase', 'phi29'),
+        na_conc=_pick('na_conc', 50.0),
+        mg_conc=_pick('mg_conc', 10.0),
+        dmso_percent=_pick('dmso_percent', 0.0),
+        betaine_m=_pick('betaine_m', 0.0),
+        trehalose_m=_pick('trehalose_m', 0.0),
+        formamide_percent=_pick('formamide_percent', 0.0),
+        ethanol_percent=_pick('ethanol_percent', 0.0),
+        urea_m=_pick('urea_m', 0.0),
+        tmac_m=_pick('tmac_m', 0.0),
+    )
+
+    scorer = IntegratedQualityScorer(conditions=conditions)
+    per_primer = []
+    for p in primers:
+        q = scorer.score_primer(p)
+        per_primer.append({
+            "primer": p,
+            "overall_score": float(q.overall_score),
+            "strand_bias_score": float(q.strand_bias_score),
+            "dimer_score": float(q.dimer_score),
+            "three_prime_score": float(q.three_prime_score),
+            "complexity_score": float(q.complexity_score),
+            "thermo_score": float(q.thermo_score),
+            "passes_all": bool(q.passes_all),
+            "failure_reasons": [str(r) for r in q.failure_reasons],
+            "tm_effective_c": float(scorer._primer_tm(
+                p, sum(1 for b in p if b in 'GC') / max(len(p), 1), len(p),
+            )),
+        })
+
+    _, set_score = scorer.analyze_primer_set(primers)
+    result = {
+        "conditions": {
+            "temp": float(conditions.temp),
+            "polymerase": conditions.polymerase,
+            "na_conc": float(conditions.na_conc),
+            "mg_conc": float(conditions.mg_conc),
+            "dmso_percent": float(conditions.dmso_percent),
+            "betaine_m": float(conditions.betaine_m),
+            "trehalose_m": float(conditions.trehalose_m),
+            "formamide_percent": float(conditions.formamide_percent),
+            "ethanol_percent": float(conditions.ethanol_percent),
+            "urea_m": float(conditions.urea_m),
+            "tmac_m": float(conditions.tmac_m),
+        },
+        "primers": per_primer,
+        "set_summary": {
+            "mean_overall_score": float(set_score.mean_overall_score),
+            "min_overall_score": float(set_score.min_overall_score),
+            "set_dimer_score": float(set_score.set_dimer_score),
+            "passes": bool(set_score.passes),
+        },
+    }
+
+    output_json = _json.dumps(result, indent=2)
+    if args.output:
+        with open(args.output, 'w') as fh:
+            fh.write(output_json + "\n")
+        if not args.quiet:
+            logger.info(f"rescore-set results written to {args.output}")
+    else:
+        print(output_json)
+
+
 def run_predict_efficiency(args):
     """
     Predict efficiency of primer set before synthesis.
@@ -4437,6 +4784,9 @@ def main():
 
         # Category 6: Iterative design
         'expand-primers': run_expand_primers,
+        'swap-primer': run_swap_primer,
+        'contract-set': run_contract_set,
+        'rescore-set': run_rescore_set,
         'predict-efficiency': run_predict_efficiency,
 
         # Category 7: Background registry
