@@ -39,6 +39,12 @@ logger = logging.getLogger(__name__)
 _optimizers_registered = False
 _registration_lock = threading.Lock()
 
+# Last raw OptimizationResult from optimize_step4 / run_optimization.
+# Exposed so the CLI can surface pareto_front / validation without changing
+# the legacy (primer_sets, scores, cache) return contract. Access via
+# unified_optimizer._LAST_RESULT; do not rely on this for library use.
+_LAST_RESULT: Optional['OptimizationResult'] = None
+
 
 @dataclass
 class OptimizationConfig:
@@ -727,6 +733,10 @@ def optimize_step4(
             logger.info(f"  Simulated coverage: {sim_results['simulation_coverage']:.1%}")
             logger.info(f"  Simulated uniformity: {sim_results['simulation_uniformity']:.2f}")
             logger.info(f"  Simulation fitness: {sim_results['simulation_fitness']:.3f}")
+
+    # Stash for the CLI / pareto-front rendering to consult.
+    global _LAST_RESULT
+    _LAST_RESULT = result
 
     # Convert to legacy format
     if result.is_success or (result.status == OptimizationStatus.PARTIAL and result.primers):

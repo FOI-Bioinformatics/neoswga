@@ -514,6 +514,23 @@ if HAS_PYMOO:
                 primers = best['primers']
                 metrics = self.compute_metrics(primers)
 
+                # Phase 14A: export the full Pareto front so users can see
+                # tradeoffs. The "best" is already assigned to
+                # result.primers; the rest are exposed via pareto_front.
+                pf_primers = tuple(
+                    tuple(sol['primers']) for sol in result['pareto_front']
+                )
+                pf_metrics = tuple(
+                    {
+                        "target_coverage": sol['objectives'].get('target_coverage', 0.0),
+                        "n_primers": sol['objectives'].get('n_primers', len(sol['primers'])),
+                        "background_binding": sol['objectives'].get('background_binding', 0.0),
+                        "uniformity": sol['objectives'].get('uniformity', 0.0),
+                        "score": sol.get('score', 0.0),
+                    }
+                    for sol in result['pareto_front']
+                )
+
                 return OptimizationResult(
                     primers=tuple(primers),
                     score=best['score'],
@@ -522,6 +539,8 @@ if HAS_PYMOO:
                     iterations=result.get('runtime', 1),
                     optimizer_name=self.name,
                     message=f"Found {result['n_solutions']} Pareto-optimal solutions",
+                    pareto_front=pf_primers,
+                    pareto_metrics=pf_metrics,
                 )
 
             except Exception as e:

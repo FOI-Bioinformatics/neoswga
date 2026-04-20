@@ -197,6 +197,13 @@ class OptimizationResult:
     all_scores: Optional[Tuple[float, ...]] = None  # Score history
     message: str = ""  # Status message or error description
 
+    # Optional Pareto front for multi-objective optimizers (Phase 14A).
+    # Each entry is (tuple-of-primers, metrics). MOEA populates this; other
+    # optimizers leave it None. `pareto_metrics` carries the per-solution
+    # metrics when the Pareto front is present.
+    pareto_front: Optional[Tuple[Tuple[str, ...], ...]] = None
+    pareto_metrics: Optional[Tuple[Dict[str, Any], ...]] = None
+
     @property
     def num_primers(self) -> int:
         """Number of primers in the set."""
@@ -222,7 +229,7 @@ class OptimizationResult:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        return {
+        d = {
             'primers': list(self.primers),
             'score': self.score,
             'status': self.status.value,
@@ -232,6 +239,11 @@ class OptimizationResult:
             'num_primers': self.num_primers,
             'message': self.message,
         }
+        if self.pareto_front is not None:
+            d['pareto_front'] = [list(p) for p in self.pareto_front]
+            if self.pareto_metrics is not None:
+                d['pareto_metrics'] = list(self.pareto_metrics)
+        return d
 
     def validate(
         self,

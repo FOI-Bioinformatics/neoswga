@@ -2230,6 +2230,36 @@ def run_step4(args):
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)
 
+        # MOEA Pareto front text table (Phase 14B). When MOEA has populated
+        # OptimizationResult.pareto_front, emit a plain-text tradeoff table
+        # in addition to the set-size frontier (which runs below). This
+        # surfaces NSGA-III's non-dominated solutions without needing Plotly
+        # or pandas.
+        if show_frontier and results:
+            from neoswga.core import unified_optimizer as _uo
+            _last = getattr(_uo, '_LAST_RESULT', None)
+            if _last is not None and getattr(_last, 'pareto_front', None):
+                logger.info("")
+                logger.info("=" * 60)
+                logger.info("MOEA Pareto Front (non-dominated solutions)")
+                logger.info("=" * 60)
+                header = (
+                    f"{'#':>3}  {'coverage':>9}  {'n_primers':>10}  "
+                    f"{'bg_binding':>11}  {'uniformity':>11}  {'score':>7}"
+                )
+                logger.info(header)
+                logger.info("-" * len(header))
+                for idx, pm in enumerate(_last.pareto_metrics or [], start=1):
+                    row = (
+                        f"{idx:>3}  "
+                        f"{pm.get('target_coverage', 0.0):>9.3f}  "
+                        f"{pm.get('n_primers', 0):>10}  "
+                        f"{pm.get('background_binding', 0.0):>11.3f}  "
+                        f"{pm.get('uniformity', 0.0):>11.3f}  "
+                        f"{pm.get('score', 0.0):>7.3f}"
+                    )
+                    logger.info(row)
+
         # Show Pareto frontier analysis (optional)
         if show_frontier and results and cache is not None:
             try:
