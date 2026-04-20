@@ -179,6 +179,13 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
             'processivity': 70000,    # bp, Blanco 1989
             'processivity_step': 0.99857,  # Per 100bp step for stochastic model
             'extension_rate': 150,    # nt/s at optimal temp (median of 100-170 range)
+            # EMPIRICAL: no single primary-literature value for phi29 DMSO
+            # tolerance. 5% is the practical upper bound in common vendor
+            # protocols (NEB, Epicentre) above which yield drops sharply; the
+            # mild (0.02) / steep (0.12) coefficients are fit to reproduce
+            # that drop in the mechanistic model rather than measured directly.
+            # Verify against in-house titration before publishing absolute
+            # amplification predictions; relative rankings remain valid.
             'dmso_threshold': 5.0,    # % before steep inhibition
             'dmso_mild_coef': 0.02,   # activity reduction per % below threshold
             'dmso_steep_coef': 0.12,  # activity reduction per % above threshold
@@ -215,6 +222,12 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         },
 
         # Betaine effect: enhancement at low conc, inhibition at high
+        # EMPIRICAL: peak at 1 M is an operating-point choice, not a measurement.
+        # Rees et al. (1993) reported ~5.2 M for full AT/GC Tm equalization, but
+        # SWGA protocols typically use 0.5-1.5 M and show diminishing returns
+        # beyond ~2 M. The 1.0 M peak + 1.5 M inhibition-onset capture that
+        # practitioner consensus without primary-literature backing for the
+        # exact inflection points. Treat as relative-ranking parameters.
         'betaine_peak': 1.0,          # M for maximum enhancement
         'betaine_enhancement': 0.12,  # max stability enhancement
         'betaine_inhibition_start': 1.5,  # M where inhibition begins
