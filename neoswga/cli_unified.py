@@ -505,7 +505,8 @@ COMMAND_GROUPS = [
         'count-kmers', 'filter', 'score', 'optimize', 'design',
     ]),
     ('Setup', [
-        'init', 'start', 'validate', 'validate-params', 'schema', 'show-presets', 'suggest',
+        'init', 'start', 'validate', 'validate-params', 'schema', 'doctor',
+        'show-presets', 'suggest',
     ]),
     ('Results', [
         'interpret', 'report', 'export',
@@ -982,6 +983,17 @@ Run "neoswga <command> --help" for details on a specific command.
                                help='Print the params.json JSON Schema to stdout')
     schema_parser.add_argument('--output', '-o', type=str, default=None,
                                help='Write the schema to the given file instead of stdout')
+
+    # =========================================================================
+    # SETUP: Diagnostic health check
+    # =========================================================================
+    doctor_parser = subparsers.add_parser('doctor',
+                                          help='Run a diagnostic health check on the installation, '
+                                               'params.json, and optimizer capability matrix')
+    doctor_parser.add_argument('-j', '--json-file', type=str, default=None,
+                               help='Optional params.json to include in the diagnostic')
+    doctor_parser.add_argument('--json', dest='output_json', action='store_true',
+                               help='Emit the diagnostic report as JSON instead of text')
 
     # =========================================================================
     # SETUP: Validate mechanistic model
@@ -2535,6 +2547,206 @@ def run_validate(args):
         success = suite.run_all_tests()
 
     sys.exit(0 if success else 1)
+
+
+def run_doctor(args):
+    """Diagnostic health check.
+
+    Reports version, jellyfish location, registered optimizers with
+    additive-awareness, params.json summary, and file-existence status.
+    Exits non-zero if any blocking issue is found.
+    """
+    import json as _json
+    import os as _os
+    import platform as _platform
+    import shutil as _shutil
+    import subprocess as _subprocess
+    import sys as _sys
+
+    blocking: list = []
+    warnings: list = []
+    summary: dict = {
+        "platform": {
+            "system": _platform.system(),
+            "python": _sys.version.split()[0],
+            "neoswga": _import_neoswga_version(),
+        },
+        "tools": {},
+        "optimizers": [],
+        "params": None,
+    }
+
+    # Jellyfish
+    jelly = _shutil.which("jellyfish")
+    if jelly:
+        try:
+            version = _subprocess.run(
+                [jelly, "--version"], capture_output=True, text=True, timeout=5,
+            )
+            first = (version.stdout or version.stderr or "").splitlines()
+            summary["tools"]["jellyfish"] = {
+                "path": jelly,
+                "version": first[0] if first else "unknown",
+            }
+        except Exception as e:
+            summary["tools"]["jellyfish"] = {"path": jelly, "error": str(e)}
+            warnings.append(f"jellyfish --version failed: {e}")
+    else:
+        blocking.append(
+            "jellyfish is not on PATH. Install with: conda install -c bioconda jellyfish"
+        )
+
+    # Optimizer capability matrix. Each entry declares whether the optimizer
+    # is registered with the factory and whether its scoring path meaningfully
+    # references `self.conditions`. The awareness flag is computed by grepping
+    # the source file for ReactionConditions usage plus `self.conditions`.
+    try:
+        from neoswga.core.optimizer_factory import OptimizerRegistry, OptimizerFactory
+        # Force registration of built-in optimizers
+        try:
+            from neoswga.core import unified_optimizer as _uo
+            _uo._ensure_optimizers_registered()
+        except Exception:
+            pass
+        registered = OptimizerFactory.list_optimizers()
+        for name in sorted(registered.keys()):
+            cls = OptimizerRegistry.get(name)
+            module = _sys.modules.get(cls.__module__)
+            aware = False
+            if module and hasattr(module, "__file__") and module.__file__:
+                try:
+                    src = open(module.__file__).read()
+                    aware = (
+                        "self.conditions" in src
+                        and ("calculate_tm_correction" in src or "ReactionConditions" in src)
+                    )
+                except Exception:
+                    pass
+            summary["optimizers"].append({
+                "name": name,
+                "class": f"{cls.__module__}.{cls.__name__}",
+                "additive_aware": aware,
+                "description": registered[name],
+            })
+    except Exception as e:
+        warnings.append(f"Optimizer discovery failed: {e}")
+
+    # params.json summary (optional)
+    if args.json_file:
+        if not _os.path.isfile(args.json_file):
+            blocking.append(f"params.json not found at {args.json_file}")
+        else:
+            try:
+                with open(args.json_file) as fh:
+                    raw = _json.load(fh)
+                params_summary = {
+                    "path": args.json_file,
+                    "schema_version": raw.get("schema_version"),
+                    "polymerase": raw.get("polymerase"),
+                    "reaction_temp": raw.get("reaction_temp"),
+                    "mg_conc": raw.get("mg_conc"),
+                    "additives": {
+                        k: raw.get(k, 0.0) for k in
+                        ("dmso_percent", "betaine_m", "trehalose_m",
+                         "formamide_percent", "ethanol_percent",
+                         "urea_m", "tmac_m")
+                    },
+                    "min_k": raw.get("min_k"),
+                    "max_k": raw.get("max_k"),
+                    "num_targets": len(raw.get("fg_genomes", []) or []),
+                    "num_backgrounds": len(raw.get("bg_genomes", []) or []),
+                    "num_blacklists": len(raw.get("bl_genomes", []) or []),
+                    "adaptive_gc": raw.get("adaptive_gc", True),
+                    "genome_gc": raw.get("genome_gc"),
+                }
+                # File existence checks for each prefix
+                missing_files: list = []
+                for prefix in raw.get("fg_prefixes", []) or []:
+                    mn = raw.get("min_k", 6)
+                    mx = raw.get("max_k", 12)
+                    for k in range(mn, mx + 1):
+                        candidate = f"{prefix}_{k}mer_all.txt"
+                        if not _os.path.isfile(candidate):
+                            missing_files.append(candidate)
+                            if len(missing_files) > 10:
+                                break
+                    if len(missing_files) > 10:
+                        break
+                if missing_files:
+                    warnings.append(
+                        "Missing k-mer count files (run count-kmers?): "
+                        + ", ".join(missing_files[:5])
+                        + ("…" if len(missing_files) > 5 else "")
+                    )
+                    params_summary["missing_kmer_files"] = missing_files[:20]
+                summary["params"] = params_summary
+            except Exception as e:
+                blocking.append(f"Could not parse params.json: {e}")
+
+    summary["ok"] = not blocking
+    summary["blocking"] = blocking
+    summary["warnings"] = warnings
+
+    if args.output_json:
+        print(_json.dumps(summary, indent=2))
+    else:
+        # Human-readable report
+        print("=" * 60)
+        print("neoswga doctor")
+        print("=" * 60)
+        print(f"  platform: {summary['platform']['system']}")
+        print(f"  python: {summary['platform']['python']}")
+        print(f"  neoswga: {summary['platform']['neoswga']}")
+        j = summary["tools"].get("jellyfish")
+        if j:
+            print(f"  jellyfish: {j.get('version', j.get('error', '?'))} at {j.get('path', '')}")
+        else:
+            print("  jellyfish: NOT FOUND")
+        print()
+        print(f"Registered optimizers: {len(summary['optimizers'])}")
+        aware_count = sum(1 for o in summary["optimizers"] if o["additive_aware"])
+        print(f"  additive-aware: {aware_count}")
+        print(f"  additive-blind: {len(summary['optimizers']) - aware_count}")
+        for opt in summary["optimizers"]:
+            marker = "+" if opt["additive_aware"] else "-"
+            print(f"  [{marker}] {opt['name']}")
+        print()
+        if summary["params"]:
+            ps = summary["params"]
+            print("params.json summary:")
+            print(f"  path: {ps['path']}")
+            print(f"  schema_version: {ps['schema_version']}")
+            print(f"  polymerase: {ps['polymerase']}  reaction_temp: {ps['reaction_temp']}")
+            print(f"  min_k: {ps['min_k']}  max_k: {ps['max_k']}")
+            print(f"  targets: {ps['num_targets']}  backgrounds: {ps['num_backgrounds']}  blacklists: {ps['num_blacklists']}")
+            nz_add = {k: v for k, v in ps["additives"].items() if v}
+            if nz_add:
+                print(f"  additives: {nz_add}")
+            print()
+        if warnings:
+            print("Warnings:")
+            for w in warnings:
+                print(f"  ! {w}")
+            print()
+        if blocking:
+            print("BLOCKING:")
+            for b in blocking:
+                print(f"  X {b}")
+            print()
+        if summary["ok"]:
+            print("Status: READY")
+        else:
+            print("Status: BLOCKED — fix the items above before running the pipeline")
+
+    sys.exit(0 if summary["ok"] else 1)
+
+
+def _import_neoswga_version() -> str:
+    try:
+        import neoswga
+        return getattr(neoswga, "__version__", "unknown")
+    except Exception:
+        return "unknown"
 
 
 def run_init(args):
@@ -4756,6 +4968,7 @@ def main():
         'init': run_init,
         'validate-params': run_validate_params,
         'schema': run_schema,
+        'doctor': run_doctor,
         'validate-model': run_validate_model,
         'interpret': run_interpret,
         'report': run_report,

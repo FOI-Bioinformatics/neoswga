@@ -139,6 +139,16 @@ class StructurePrediction:
 
         seq2_rc = thermo.reverse_complement(seq2)
 
+        # Allow alignment to start anywhere in either strand (not just at 0, 0).
+        # Without this, a dimer that binds in the middle of either primer is
+        # unreachable in the DP: E[0][*] and E[*][0] remain inf, so options 2/3
+        # cannot propagate bulges from those edges. Setting E[i][0]=E[0][j]=0
+        # lets the DP "start" the alignment at any offset in either primer.
+        for i in range(n + 1):
+            E[i][0] = 0.0
+        for j in range(m + 1):
+            E[0][j] = 0.0
+
         # Fill DP table
         for i in range(n + 1):
             for j in range(m + 1):
@@ -147,9 +157,15 @@ class StructurePrediction:
 
                 current_min = E[i][j]
 
-                # Option 1: Extend alignment with base pair
+                # Option 1: Extend alignment with base pair. seq2_rc is already
+                # the reverse complement of seq2, so a Watson-Crick pair between
+                # seq1[i-1] and seq2[len-j] (antiparallel binding) becomes an
+                # identity check against seq2_rc[j-1]. The earlier is_complementary
+                # check was a bug: it required e.g. C-G (complementary) against
+                # seq2_rc which already maps that G back to C, so the match
+                # never fired and every pair reported severity=0.
                 if i > 0 and j > 0:
-                    if self.is_complementary(seq1[i-1], seq2_rc[j-1]):
+                    if seq1[i-1].upper() == seq2_rc[j-1].upper():
                         # Check if we can form a stack
                         if i >= 2 and j >= 2:
                             # Get stacking energy

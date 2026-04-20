@@ -496,9 +496,21 @@ class DimerNetworkAnalyzer:
             logger.info(f"  Best replacement: {best_replacement[:10]} "
                        f"(mean severity {replacement_severity:.3f})")
 
-            # Replace
-            current_set = [best_replacement if p == worst_primer else p
-                          for p in current_set]
+            # Strict-improvement guard: only commit the swap if the resulting
+            # set's mean_severity actually drops. Without this, a "best
+            # available" candidate that is still worse than the current worst
+            # primer would be accepted and degrade the set. Phase 12B: swap
+            # must be monotone non-worsening.
+            candidate_set = [best_replacement if p == worst_primer else p
+                             for p in current_set]
+            cand_metrics, _, _ = self.analyze_primer_set(candidate_set, verbose=False)
+            if cand_metrics.mean_severity > metrics.mean_severity + 1e-6:
+                logger.info(
+                    f"  Rejecting swap: would raise mean severity from "
+                    f"{metrics.mean_severity:.3f} to {cand_metrics.mean_severity:.3f}"
+                )
+                break
+            current_set = candidate_set
 
         # Final analysis
         final_metrics, _, _ = self.analyze_primer_set(current_set, verbose=False)

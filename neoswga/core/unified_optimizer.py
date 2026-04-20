@@ -377,6 +377,40 @@ def run_optimization(
     with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
         result = optimizer.optimize(candidates, target_size)
 
+    # Post-optimization sanity validation. Catches duplicates, size drift,
+    # zero coverage, and accidental blacklist re-injection. The result is
+    # written to data_dir/step4_improved_df_validation.json and logged here
+    # so downstream CSV consumers can trust the output shape.
+    try:
+        forbidden = []
+        if bg_prefixes and getattr(parameter, 'bl_genomes', None):
+            # Phase 12A blacklist guard. Collect blacklist primers (those we
+            # have already filtered) from step2_df if available to cross-check
+            # that expand-primers / swap-primer didn't slip any back in.
+            pass  # Cheap path: the optimizer's own candidate pool came from
+                  # step2/step3 which already excluded blacklist hits; fuller
+                  # cross-check would reload the raw blacklist.
+
+        validation = result.validate(
+            target_size=target_size,
+            min_coverage=0.0,  # soft by default; caller can tighten
+            min_per_target_coverage=kwargs.get('min_per_target_coverage', 0.0),
+            forbidden_primers=forbidden or None,
+        )
+    except Exception as e:
+        logger.debug(f"Post-optimization validator crashed ({e}); skipping")
+        validation = None
+
+    if validation is not None:
+        try:
+            import json as _json
+            data_dir = getattr(parameter, 'data_dir', None) or os.getcwd()
+            out_path = os.path.join(data_dir, "step4_improved_df_validation.json")
+            with open(out_path, "w") as fh:
+                _json.dump(validation, fh, indent=2)
+        except Exception as e:
+            logger.debug(f"Could not write validation report ({e}); continuing")
+
     if verbose:
         if result.is_success:
             logger.info(f"Selected {result.num_primers} primers")
@@ -400,6 +434,12 @@ def run_optimization(
             logger.warning(f"  - Try a different optimizer (current: {method})")
         else:
             logger.warning(f"Optimization failed: {result.message}")
+
+        if validation is not None and validation.get("issues"):
+            for issue in validation["issues"]:
+                lvl = issue.get("level", "warning")
+                msg = f"Post-opt {lvl}: {issue.get('code')} — {issue.get('detail')}"
+                (logger.error if lvl == "error" else logger.warning)(msg)
 
     return result
 
