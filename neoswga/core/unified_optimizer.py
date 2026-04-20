@@ -311,7 +311,7 @@ def run_optimization(
         )
 
     # Determine polymerase extension reach for coverage computation
-    polymerase = kwargs.get('polymerase', 'phi29')
+    polymerase = kwargs.get('polymerase') or getattr(parameter, 'polymerase', 'phi29')
     try:
         from .reaction_conditions import get_polymerase_processivity
         extension_reach = get_polymerase_processivity(polymerase)
@@ -326,6 +326,36 @@ def run_optimization(
         extension_reach=extension_reach,
     )
 
+    # Build ReactionConditions from parameter globals so every optimizer sees
+    # the user's additive cocktail. Kwarg-provided 'conditions' wins (for
+    # programmatic callers that already constructed one). Without this, the
+    # additive-aware Tm paths in network_optimizer / integrated_quality_scorer
+    # are dark code — they exist but never receive conditions at runtime.
+    conditions = kwargs.pop('conditions', None)
+    if conditions is None:
+        try:
+            from .reaction_conditions import ReactionConditions
+            conditions = ReactionConditions(
+                temp=getattr(parameter, 'reaction_temp', None) or 30.0,
+                polymerase=getattr(parameter, 'polymerase', 'phi29'),
+                na_conc=getattr(parameter, 'na_conc', 50.0),
+                mg_conc=getattr(parameter, 'mg_conc', 10.0),
+                dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
+                betaine_m=getattr(parameter, 'betaine_m', 0.0),
+                trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
+                formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
+                ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
+                urea_m=getattr(parameter, 'urea_m', 0.0),
+                tmac_m=getattr(parameter, 'tmac_m', 0.0),
+            )
+        except Exception as e:
+            logger.warning(
+                f"Could not construct ReactionConditions ({e}); optimizer "
+                f"runs additive-blind. This indicates a mismatch between "
+                f"parameter.* globals and ReactionConditions signature."
+            )
+            conditions = None
+
     # Create optimizer via factory
     try:
         optimizer = OptimizerFactory.create(
@@ -336,6 +366,7 @@ def run_optimization(
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
             config=config,
+            conditions=conditions,
             **kwargs
         )
     except Exception as e:

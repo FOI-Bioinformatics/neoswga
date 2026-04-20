@@ -1202,7 +1202,8 @@ class NetworkBaseOptimizer(BaseOptimizer):
     ):
         super().__init__(
             position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config
+            bg_prefixes, bg_seq_lengths, config,
+            conditions=conditions,
         )
         self._network = NetworkOptimizer(
             position_cache=position_cache,

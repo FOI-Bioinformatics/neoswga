@@ -172,7 +172,8 @@ class HybridOptimizer:
                  genome_gc_content: Optional[float] = None,
                  background_pruning: bool = False,
                  background_weight: float = 2.0,
-                 min_coverage_threshold: float = 0.95):
+                 min_coverage_threshold: float = 0.95,
+                 conditions=None):
         """
         Initialize hybrid optimizer.
 
@@ -242,8 +243,14 @@ class HybridOptimizer:
             fg_seq_lengths=fg_seq_lengths,
             bg_seq_lengths=self.bg_seq_lengths,
             max_extension=self.max_extension,
-            uniformity_weight=uniformity_weight
+            uniformity_weight=uniformity_weight,
+            # Propagate ReactionConditions so the inner NetworkOptimizer's
+            # _get_primer_tm applies additive corrections (DMSO / betaine / etc.)
+            # when computing Tm-weighted edges and Tm scores.
+            conditions=conditions,
         )
+        # Retain for introspection / rescoring hooks.
+        self.conditions = conditions
 
         logger.info("Hybrid optimizer initialized")
         logger.info(f"  Polymerase: {polymerase}")
@@ -936,11 +943,13 @@ class HybridBaseOptimizer(BaseOptimizer):
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
+        conditions=None,
         **kwargs
     ):
         super().__init__(
             position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config
+            bg_prefixes, bg_seq_lengths, config,
+            conditions=conditions,
         )
         self._hybrid = HybridOptimizer(
             position_cache=position_cache,
@@ -955,6 +964,7 @@ class HybridBaseOptimizer(BaseOptimizer):
             background_pruning=kwargs.get('background_pruning', False),
             background_weight=kwargs.get('background_weight', 2.0),
             min_coverage_threshold=kwargs.get('min_coverage_threshold', 0.95),
+            conditions=conditions,
         )
 
     @property

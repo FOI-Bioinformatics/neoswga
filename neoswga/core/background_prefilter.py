@@ -60,11 +60,13 @@ class BackgroundPrefilter(BaseOptimizer):
         config: Optional[OptimizerConfig] = None,
         background_weight: float = 2.0,
         min_coverage: float = 0.50,
+        conditions=None,
         **kwargs,
     ):
         super().__init__(
             position_cache, fg_prefixes, fg_seq_lengths,
             bg_prefixes, bg_seq_lengths, config,
+            conditions=conditions,
         )
         self.background_weight = background_weight
         self.min_coverage = min_coverage

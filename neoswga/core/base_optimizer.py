@@ -283,6 +283,8 @@ class BaseOptimizer(ABC):
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
+        conditions=None,
+        **_unused_kwargs,
     ):
         """
         Initialize optimizer with position data.
@@ -294,6 +296,12 @@ class BaseOptimizer(ABC):
             bg_prefixes: Background (off-target) genome HDF5 prefixes (optional)
             bg_seq_lengths: Background genome lengths (optional)
             config: Optimizer configuration
+            conditions: Optional ReactionConditions. When provided, optimizers
+                that do additive-aware Tm scoring (network, integrated quality
+                scorer, genetic, greedy) pick up DMSO / betaine / etc. from
+                this object. Optimizers that do not score on Tm ignore it,
+                but we accept it here so every subclass has a consistent API
+                and the unified_optimizer can forward it blindly.
         """
         self.cache = position_cache
         self.fg_prefixes = fg_prefixes
@@ -301,6 +309,10 @@ class BaseOptimizer(ABC):
         self.bg_prefixes = bg_prefixes or []
         self.bg_seq_lengths = bg_seq_lengths or []
         self.config = config or OptimizerConfig()
+        # Attach conditions to every optimizer for uniformity. Consumers that
+        # use additive-aware Tm (network / integrated_quality_scorer) can read
+        # self.conditions; others simply leave it as attached metadata.
+        self.conditions = conditions
 
         # Computed properties
         self.fg_total_length = sum(fg_seq_lengths)

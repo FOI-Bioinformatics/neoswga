@@ -70,6 +70,7 @@ class DominatingSetAdapter(BaseOptimizer):
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[DominatingSetConfig] = None,
+        conditions=None,
         **kwargs
     ):
         super().__init__(

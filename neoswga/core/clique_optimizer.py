@@ -213,6 +213,7 @@ class CliqueOptimizer(BaseOptimizer):
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
+        conditions=None,
         **kwargs
     ):
         if not HAS_NETWORKX:

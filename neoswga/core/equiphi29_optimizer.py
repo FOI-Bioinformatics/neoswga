@@ -442,6 +442,7 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
         genome_gc_content: float = 0.50,
+        conditions=None,
         **kwargs
     ):
         super().__init__(
@@ -450,7 +451,8 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
             fg_seq_lengths=fg_seq_lengths,
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
-            config=config
+            config=config,
+            conditions=conditions,
         )
 
         self.genome_gc_content = genome_gc_content

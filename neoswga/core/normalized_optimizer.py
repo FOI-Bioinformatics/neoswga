@@ -603,11 +603,13 @@ class NormalizedBaseOptimizer(BaseOptimizer):
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
+        conditions=None,
         **kwargs
     ):
         super().__init__(
             position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config
+            bg_prefixes, bg_seq_lengths, config,
+            conditions=conditions,
         )
         self._normalized = NormalizedOptimizer(
             position_cache=position_cache,

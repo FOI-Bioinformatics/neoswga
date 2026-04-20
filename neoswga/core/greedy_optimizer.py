@@ -132,6 +132,7 @@ class GreedyOptimizer(BaseOptimizer):
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[GreedyConfig] = None,
         dimer_matrix: Optional[np.ndarray] = None,
+        conditions=None,
         **kwargs
     ):
         """
