@@ -14,24 +14,6 @@ import pandas as pd
 EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'examples', 'plasmid_example')
 
 
-def _reset_pipeline_state(params_file):
-    """Reset global pipeline state and set json_file for a fresh run."""
-    import neoswga.core.pipeline as pipeline_mod
-    from neoswga.core import parameter
-
-    pipeline_mod._initialized = False
-    pipeline_mod.fg_prefixes = None
-    pipeline_mod.bg_prefixes = None
-    pipeline_mod.fg_genomes = None
-    pipeline_mod.bg_genomes = None
-    pipeline_mod.fg_seq_lengths = None
-    pipeline_mod.bg_seq_lengths = None
-    pipeline_mod.fg_circular = None
-    pipeline_mod.bg_circular = None
-
-    parameter.json_file = params_file
-
-
 @pytest.fixture
 def pipeline_workdir():
     """Create a temp copy of the plasmid example for testing."""
@@ -68,14 +50,14 @@ def pipeline_workdir():
 class TestPipelineE2E:
     """End-to-end pipeline integration tests."""
 
-    def test_step2_filter_produces_output(self, pipeline_workdir):
+    def test_step2_filter_produces_output(self, pipeline_workdir, reset_pipeline_state):
         """Step 2 (filter) should produce a non-empty step2_df.csv."""
         step2_output = os.path.join(pipeline_workdir, 'step2_df.csv')
         if os.path.exists(step2_output):
             os.remove(step2_output)
 
         params_file = os.path.join(pipeline_workdir, 'params.json')
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
 
         from neoswga.core.pipeline import step2
         df = step2()
@@ -95,7 +77,7 @@ class TestPipelineE2E:
             assert set(primer.upper()).issubset(valid_bases), \
                 f"Invalid DNA sequence in step2 output: {primer}"
 
-    def test_step3_score_produces_output(self, pipeline_workdir):
+    def test_step3_score_produces_output(self, pipeline_workdir, reset_pipeline_state):
         """Step 3 (score) should produce a non-empty step3_df.csv."""
         step3_output = os.path.join(pipeline_workdir, 'step3_df.csv')
         if os.path.exists(step3_output):
@@ -105,7 +87,7 @@ class TestPipelineE2E:
         assert os.path.exists(step2_csv), "step2_df.csv required for step3"
 
         params_file = os.path.join(pipeline_workdir, 'params.json')
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
 
         from neoswga.core.pipeline import step3
         df = step3()
@@ -126,7 +108,7 @@ class TestPipelineE2E:
             f"Expected 'on.target.pred' column in step3 output, got: {list(df.columns)}"
         assert df['on.target.pred'].notna().any(), "All amp_pred scores are NaN"
 
-    def test_step4_optimize_produces_output(self, pipeline_workdir):
+    def test_step4_optimize_produces_output(self, pipeline_workdir, reset_pipeline_state):
         """Step 4 (optimize) should produce a non-empty step4_improved_df.csv."""
         step4_output = os.path.join(pipeline_workdir, 'step4_improved_df.csv')
         if os.path.exists(step4_output):
@@ -136,7 +118,7 @@ class TestPipelineE2E:
         assert os.path.exists(step3_csv), "step3_df.csv required for step4"
 
         params_file = os.path.join(pipeline_workdir, 'params.json')
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
 
         from neoswga.core.unified_optimizer import optimize_step4
         primer_sets, scores, _cache = optimize_step4(
@@ -161,7 +143,7 @@ class TestPipelineE2E:
             assert set(primer.upper()).issubset(valid_bases), \
                 f"Invalid DNA sequence in step4 output: {primer}"
 
-    def test_full_pipeline_runs_sequentially(self, pipeline_workdir):
+    def test_full_pipeline_runs_sequentially(self, pipeline_workdir, reset_pipeline_state):
         """Run steps 2 -> 3 -> 4 end-to-end from scratch."""
         for fname in ['step2_df.csv', 'step3_df.csv', 'step4_improved_df.csv']:
             path = os.path.join(pipeline_workdir, fname)
@@ -169,7 +151,7 @@ class TestPipelineE2E:
                 os.remove(path)
 
         params_file = os.path.join(pipeline_workdir, 'params.json')
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
 
         from neoswga.core.pipeline import step2, step3
         from neoswga.core.unified_optimizer import optimize_step4
@@ -177,11 +159,11 @@ class TestPipelineE2E:
         df2 = step2()
         assert len(df2) > 0, "Step 2 produced no primers"
 
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
         df3 = step3()
         assert len(df3) > 0, "Step 3 produced no primers"
 
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
         primer_sets, scores, _cache = optimize_step4(
             optimization_method='dominating-set',
             verbose=False,

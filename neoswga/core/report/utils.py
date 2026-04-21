@@ -5,9 +5,112 @@ Provides common functions for HTML rendering, CSS classes, and format string saf
 """
 
 from html import escape as html_escape
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from neoswga.core.report.quality import QualityGrade
+
+
+# Human-readable labels for validator issue codes emitted by
+# OptimizationResult.validate() and the saturation / conditions-init
+# extensions in unified_optimizer.run_optimization. Keep this dict in
+# sync with the codes produced there — a missing entry falls back to
+# the underscore-split code so the banner still renders.
+VALIDATION_CODE_LABELS: Dict[str, str] = {
+    "duplicate_primers": "Duplicate primers in set",
+    "set_size_mismatch": "Primer set size differs from requested target",
+    "coverage_below_threshold": "Aggregate foreground coverage below threshold",
+    "per_target_coverage_below_threshold": "One or more targets below coverage threshold",
+    "blacklist_primer_in_set": "Blacklist primer reached the final set",
+    "reaction_conditions_init_failed": "Reaction conditions failed to initialise",
+    "coverage_saturated_on_small_genome": "Coverage saturated on a small genome (metric unreliable)",
+}
+
+
+# CSS shared between the executive summary and the technical report for
+# the validator-warnings banner. Templates inline this via `{VALIDATION_BANNER_CSS}`
+# so tweaks to colour or spacing only live in one place. Each template
+# can still override the `padding` / `font-size` on its own `.validation-banner`
+# rule after including this block if its layout needs finer tuning.
+VALIDATION_BANNER_CSS = """
+        .validation-banner {
+            padding: 14px 30px;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 0.9em;
+        }
+
+        .validation-banner.level-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+
+        .validation-banner.level-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }
+
+        .validation-banner h3 {
+            font-size: 0.95em;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .validation-banner ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .validation-banner li {
+            margin-bottom: 3px;
+            line-height: 1.5;
+        }
+
+        .validation-banner .code {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+"""
+
+
+def render_validation_banner(issues: List[dict]) -> str:
+    """Render validator warnings/errors as a visible HTML banner.
+
+    Used by both executive_summary and technical_report to surface
+    `per_target_coverage_below_threshold`, `blacklist_primer_in_set`,
+    `coverage_saturated_on_small_genome`, and similar validator findings.
+    Previously these lived only in step4_improved_df_validation.json
+    and a Grade A display could hide a buried coverage warning.
+
+    Returns an empty string when `issues` is empty so callers can
+    unconditionally splice the result into their template without
+    producing an empty `<div>`.
+    """
+    if not issues:
+        return ""
+    has_error = any(i.get("level") == "error" for i in issues)
+    level_class = "level-error" if has_error else "level-warning"
+    heading = (
+        "Validation errors — review before ordering primers"
+        if has_error
+        else "Validation warnings"
+    )
+    items: List[str] = []
+    for it in issues:
+        code = str(it.get("code", "unknown"))
+        detail = str(it.get("detail", ""))
+        label = VALIDATION_CODE_LABELS.get(code, code.replace("_", " "))
+        items.append(
+            f"<li><span class=\"code\">{html_escape(code)}</span> — "
+            f"{html_escape(label)}: {html_escape(detail)}</li>"
+        )
+    return (
+        f'<div class="validation-banner {level_class}">'
+        f'<h3>{html_escape(heading)}</h3>'
+        f'<ul>{"".join(items)}</ul>'
+        f'</div>'
+    )
 
 
 def get_version() -> str:

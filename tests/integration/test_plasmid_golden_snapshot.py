@@ -27,24 +27,6 @@ EXAMPLE_DIR = os.path.join(
 )
 
 
-def _reset_pipeline_state(params_file):
-    """Reset global pipeline state and set json_file for a fresh run."""
-    import neoswga.core.pipeline as pipeline_mod
-    from neoswga.core import parameter
-
-    pipeline_mod._initialized = False
-    pipeline_mod.fg_prefixes = None
-    pipeline_mod.bg_prefixes = None
-    pipeline_mod.fg_genomes = None
-    pipeline_mod.bg_genomes = None
-    pipeline_mod.fg_seq_lengths = None
-    pipeline_mod.bg_seq_lengths = None
-    pipeline_mod.fg_circular = None
-    pipeline_mod.bg_circular = None
-
-    parameter.json_file = params_file
-
-
 @pytest.fixture
 def plasmid_workdir():
     """Copy the plasmid example into a tmpdir so the pipeline runs in
@@ -79,7 +61,7 @@ def plasmid_workdir():
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_plasmid_golden_snapshot(plasmid_workdir):
+def test_plasmid_golden_snapshot(plasmid_workdir, reset_pipeline_state):
     """Full pipeline (filter -> score -> optimize) on the plasmid example
     with seed=42 must produce a primer set whose key metrics sit inside
     the locked-in tolerance bounds.
@@ -108,7 +90,7 @@ def test_plasmid_golden_snapshot(plasmid_workdir):
         if os.path.exists(path):
             os.remove(path)
 
-    _reset_pipeline_state(params_file)
+    reset_pipeline_state(params_file)
 
     from neoswga.core.pipeline import step2, step3
     from neoswga.core.unified_optimizer import optimize_step4
@@ -116,11 +98,11 @@ def test_plasmid_golden_snapshot(plasmid_workdir):
     df2 = step2()
     assert len(df2) > 0, "Step 2 produced no candidates — filter regression"
 
-    _reset_pipeline_state(params_file)
+    reset_pipeline_state(params_file)
     df3 = step3()
     assert len(df3) > 0, "Step 3 produced no scored primers"
 
-    _reset_pipeline_state(params_file)
+    reset_pipeline_state(params_file)
     primer_sets, scores, _cache = optimize_step4(
         optimization_method='dominating-set',
         verbose=False,
@@ -194,7 +176,7 @@ def test_plasmid_golden_snapshot(plasmid_workdir):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_plasmid_snapshot_is_reproducible(plasmid_workdir):
+def test_plasmid_snapshot_is_reproducible(plasmid_workdir, reset_pipeline_state):
     """Running the same seed twice must produce the same primer set.
     Guards against non-threaded RNG that would cause drift between
     nightly runs even without code changes."""
@@ -207,13 +189,13 @@ def test_plasmid_snapshot_is_reproducible(plasmid_workdir):
             path = os.path.join(plasmid_workdir, fname)
             if os.path.exists(path):
                 os.remove(path)
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
         from neoswga.core.pipeline import step2, step3
         from neoswga.core.unified_optimizer import optimize_step4
         step2()
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
         step3()
-        _reset_pipeline_state(params_file)
+        reset_pipeline_state(params_file)
         primer_sets, _scores, _cache = optimize_step4(
             optimization_method='dominating-set',
             verbose=False,

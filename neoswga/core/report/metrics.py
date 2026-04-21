@@ -281,7 +281,7 @@ class PipelineMetrics:
     total_runtime_seconds: float = 0.0
     step_runtimes: Dict[str, float] = field(default_factory=dict)
 
-    # Post-optimization validator report (Phase 17A). Loaded from
+    # Post-optimization validator report loaded from
     # step4_improved_df_validation.json when available. Each issue is a
     # dict {"level": "error"|"warning"|"info", "code": str, "detail": str}.
     # The report module surfaces these in the HTML so users do not have to
@@ -617,10 +617,10 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         metrics.coverage.gap_entropy = opt_metrics.get('gap_entropy', 0.0)
         logger.info("Using real optimizer metrics for coverage data")
 
-    # Phase 17A: load validator report so the HTML can surface warnings
+    # Load validator report so the HTML can surface warnings
     # (per_target_coverage_below_threshold, blacklist_primer_in_set,
-    # set_size_mismatch, duplicate_primers, ...) that Phase 15A/11D
-    # computed but previously only wrote to JSON.
+    # set_size_mismatch, duplicate_primers, ...) that the optimizer
+    # writes to JSON.
     metrics.validation_issues, metrics.validation_ok = _load_validation_report(
         results_path
     )

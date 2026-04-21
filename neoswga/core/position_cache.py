@@ -166,13 +166,12 @@ class PositionCache:
 
         return coverage
 
-    # Phase 17F: removed `compute_coverage_with_extension` — it was
-    # uncalled across the codebase, shipped the stale 70000 bp (processivity)
-    # default from before Phase 16's per-primer-reach semantics fix, and
-    # implemented a downstream-only extension model that differs from the
-    # centralized `coverage.compute_per_prefix_coverage` helper. Callers
-    # wanting per-prefix coverage should use that helper with explicit
-    # `extension` kwarg sourced from `coverage.polymerase_extension_reach`.
+    # `compute_coverage_with_extension` was removed — it was uncalled
+    # across the codebase and shipped a stale 70000 bp processivity
+    # default that conflicted with the per-primer-reach semantics used
+    # elsewhere. Callers wanting per-prefix coverage should use
+    # `coverage.compute_per_prefix_coverage` with an explicit `extension`
+    # kwarg from `coverage.polymerase_extension_reach`.
 
     def compute_statistics(self, fname_prefix: str, primers: List[str],
                           genome_length: int) -> Dict[str, float]:

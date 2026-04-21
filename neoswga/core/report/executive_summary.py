@@ -32,8 +32,10 @@ from neoswga.core.report.utils import (
     get_rating_class,
     get_progress_class,
     get_version as _get_version,
+    render_validation_banner,
     GRADE_DESCRIPTIONS,
     ENRICHMENT_EXCELLENT_THRESHOLD,
+    VALIDATION_BANNER_CSS,
 )
 from neoswga.core.report.visualizations import (
     is_plotly_available,
@@ -347,46 +349,8 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
             margin-bottom: 4px;
         }}
 
-        /* Validator warnings (Phase 17A) */
-        .validation-banner {{
-            padding: 14px 30px;
-            border-bottom: 1px solid #e9ecef;
-            font-size: 0.9em;
-        }}
-
-        .validation-banner.level-error {{
-            background: #f8d7da;
-            color: #721c24;
-            border-left: 4px solid #dc3545;
-        }}
-
-        .validation-banner.level-warning {{
-            background: #fff3cd;
-            color: #856404;
-            border-left: 4px solid #ffc107;
-        }}
-
-        .validation-banner h3 {{
-            font-size: 0.95em;
-            font-weight: 600;
-            margin-bottom: 6px;
-        }}
-
-        .validation-banner ul {{
-            margin: 0;
-            padding-left: 20px;
-        }}
-
-        .validation-banner li {{
-            margin-bottom: 3px;
-            line-height: 1.5;
-        }}
-
-        .validation-banner .code {{
-            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
-            font-size: 0.85em;
-            font-weight: 600;
-        }}
+        /* Validator warnings banner — shared CSS from report.utils */
+        {validation_banner_css}
 
         /* Footer */
         .footer {{
@@ -553,53 +517,6 @@ def _format_primer_row(idx: int, primer: PrimerMetrics) -> str:
         <td>{spec_str}</td>
         <td class="quality-stars">{quality_stars}</td>
     </tr>"""
-
-
-_VALIDATION_CODE_LABELS = {
-    "duplicate_primers": "Duplicate primers in set",
-    "set_size_mismatch": "Primer set size differs from requested target",
-    "coverage_below_threshold": "Aggregate foreground coverage below threshold",
-    "per_target_coverage_below_threshold": "One or more targets below coverage threshold",
-    "blacklist_primer_in_set": "Blacklist primer reached the final set",
-    "reaction_conditions_init_failed": "Reaction conditions failed to initialise",
-    "coverage_saturated_on_small_genome": "Coverage saturated on a small genome (metric unreliable)",
-}
-
-
-def _render_validation_banner(issues: List[dict]) -> str:
-    """Render validator warnings/errors as a visible banner above metrics.
-
-    Phase 17A: previously these lived only in
-    `step4_improved_df_validation.json` and no user would see them. Now
-    they surface above the key-metrics grid with an error/warning colour
-    scheme so a Grade A result with a buried coverage warning cannot
-    mislead a wet-lab buyer.
-    """
-    if not issues:
-        return ""
-    has_error = any(i.get("level") == "error" for i in issues)
-    level_class = "level-error" if has_error else "level-warning"
-    heading = (
-        "Validation errors — review before ordering primers"
-        if has_error
-        else "Validation warnings"
-    )
-    items = []
-    for it in issues:
-        code = str(it.get("code", "unknown"))
-        detail = str(it.get("detail", ""))
-        label = _VALIDATION_CODE_LABELS.get(code, code.replace("_", " "))
-        items.append(
-            f"<li><span class=\"code\">{html_escape(code)}</span> — "
-            f"{html_escape(label)}: {html_escape(detail)}</li>"
-        )
-    items_html = "\n".join(items)
-    return (
-        f'<div class="validation-banner {level_class}">'
-        f'<h3>{html_escape(heading)}</h3>'
-        f'<ul>{items_html}</ul>'
-        f'</div>'
-    )
 
 
 def _format_considerations(considerations: List[str]) -> str:
@@ -838,10 +755,11 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         considerations_html=_format_considerations(quality.considerations),
         # Interactive charts
         interactive_charts=interactive_charts,
-        # Phase 17A validator warnings/errors surfaced above metrics
-        validation_banner_html=_render_validation_banner(
+        # Validator warnings/errors surfaced above metrics (shared helper)
+        validation_banner_html=render_validation_banner(
             list(getattr(metrics, 'validation_issues', []) or [])
         ),
+        validation_banner_css=VALIDATION_BANNER_CSS,
     )
 
     return html

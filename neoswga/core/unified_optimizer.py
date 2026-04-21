@@ -284,12 +284,12 @@ def run_optimization(
         if verbose:
             logger.info("  Host-free mode: no background genome data used")
 
-    # Phase 17D: validate user-supplied reaction conditions BEFORE loading
-    # candidates, so a params.json bounds error (e.g. formamide>10%) is
-    # reported as the specific config problem it is — not masked by a
-    # downstream "empty candidate pool" message. The failure is warning-
-    # level: the optimizer still runs additive-blind, but the user sees
-    # it in both the log and the validator-banner.
+    # Validate user-supplied reaction conditions BEFORE loading candidates
+    # so a params.json bounds error (e.g. formamide>10%) is reported as
+    # the specific config problem it is — not masked by a downstream
+    # "empty candidate pool" message. The failure is non-fatal: the
+    # optimizer still runs (additive-blind), but the user sees it in both
+    # the log and the validator-banner.
     conditions = kwargs.pop('conditions', None)
     _conditions_init_error: str = ""
     if conditions is None:
@@ -331,11 +331,10 @@ def run_optimization(
         step3_df = pd.read_csv(step3_path)
         candidates = step3_df['primer'].tolist()
 
-    # Phase 17C — empty candidate pool guard. If filter/score removed
-    # every primer, downstream optimizers behave inconsistently (some
-    # crash, some return empty results silently). Fail loudly here with
-    # a directly actionable message instead of dispatching into the
-    # factory with zero candidates.
+    # Empty candidate pool guard. If filter/score removed every primer,
+    # downstream optimizers behave inconsistently (some crash, some
+    # return empty results silently). Fail with an actionable message
+    # instead of dispatching into the factory with zero candidates.
     if not candidates:
         msg = (
             "No candidate primers available for optimization. "
@@ -395,12 +394,11 @@ def run_optimization(
         extension_reach=extension_reach,
     )
 
-    # Note: Phase 17D moved ReactionConditions construction to before the
-    # candidate-load guard so params.json bounds errors surface first.
     # By this point `conditions` is either a valid object or None (with
-    # `_conditions_init_error` populated for downstream banner reporting).
+    # `_conditions_init_error` populated for validator-banner reporting
+    # further down).
 
-    # Phase 15B: route `--application` into NetworkOptimizer's selection
+    # Route `--application` into NetworkOptimizer's selection
     # knobs (tm_weight, uniformity_weight, dimer_penalty) so clinical users
     # actually get more-selective primer sets, not just a different
     # display ordering. Caller-supplied values (via kwargs) always win
@@ -452,7 +450,7 @@ def run_optimization(
     # aggregate. Computed in the caller (here) rather than in every
     # optimizer so all 16 methods get the same treatment uniformly. The
     # `dataclasses.replace` preserves frozen-dataclass immutability.
-    _saturation_warnings: list = []  # Phase 17B: collected here, reported below.
+    _saturation_warnings: list = []  # collected here, appended to validation dict below
     _coverage_extension: int = extension_reach
     try:
         if result.primers and fg_prefixes:
@@ -476,12 +474,12 @@ def run_optimization(
                 new_metrics = _dc_replace(result.metrics, per_target_coverage=per_target)
                 result = _dc_replace(result, metrics=new_metrics)
 
-                # Phase 17B: small-genome coverage saturation check.
-                # If (num_primers * 2 * extension) >= genome_len, a primer
+                # Small-genome coverage saturation check. When
+                # (num_primers * 2 * extension) >= genome_len, a primer
                 # set can trivially cover the genome regardless of design
-                # quality — the 100% coverage number is a saturation
-                # artefact, not a real property. Warn so the user does not
-                # mistake plasmid-scale scenarios for "perfect design".
+                # quality — the coverage number is saturation-bounded,
+                # not a real property. Warn so the user does not mistake
+                # plasmid-scale scenarios for "perfect design".
                 n_primers = len(result.primers)
                 if n_primers > 0 and _ext > 0:
                     for prefix, length in zip(fg_prefixes, fg_seq_lengths):
@@ -549,18 +547,18 @@ def run_optimization(
         logger.debug(f"Post-optimization validator crashed ({e}); skipping")
         validation = None
 
-    # Phase 17B: attach saturation warnings so the HTML report surfaces
-    # them via the Phase 17A validator-banner path. Warnings only; the
-    # `ok` flag is unchanged because saturation is not a correctness bug.
+    # Attach saturation warnings so the HTML report surfaces them via
+    # the validator-banner path. Warnings only; the `ok` flag is
+    # unchanged because saturation is not a correctness bug.
     if validation is not None and _saturation_warnings:
         validation.setdefault("issues", []).extend(_saturation_warnings)
         if verbose:
             for w in _saturation_warnings:
                 logger.warning(f"{w['code']}: {w['detail']}")
 
-    # Phase 17D: also surface the ReactionConditions init failure so the
-    # report banner flags it. Marked as a warning (not error) because the
-    # optimizer still produced a primer set — just with additive-blind Tm.
+    # Surface the ReactionConditions init failure in the banner too.
+    # Marked as a warning (not error) because the optimizer still
+    # produced a primer set — just with additive-blind Tm.
     if validation is not None and _conditions_init_error:
         validation.setdefault("issues", []).append({
             "level": "warning",
