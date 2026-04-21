@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+
+  "fg_genomes": ["ecoli_K12_MG1655.fasta"],
+  "bg_genomes": [],
+  "fg_prefixes": ["ecoli_K12_MG1655"],
+  "bg_prefixes": [],
+  "data_dir": "./",
+
+  "polymerase": "equiphi29",
+  "reaction_temp": 43.0,
+
+  "min_k": 15,
+  "max_k": 15,
+  "long_primer_mode": true,
+
+  "na_conc": 50.0,
+  "mg_conc": 10.0,
+  "primer_conc": 5e-7,
+
+  "dmso_percent": 5.0,
+  "betaine_m": 1.5,
+
+  "min_fg_freq": 2e-3,
+  "max_bg_freq": 5e-6,
+  "min_tm": 40,
+  "max_tm": 65,
+  "max_gini": 0.6,
+  "max_primer": 1000,
+
+  "max_dimer_bp": 3,
+  "max_self_dimer_bp": 4,
+  "mismatch_penalty": 4,
+
+  "min_amp_pred": 0.0,
+
+  "num_primers": 20,
+  "target_set_size": 20,
+  "iterations": 8,
+  "max_sets": 5,
+  "cpus": 4,
+
+  "fg_circular": true,
+  "fg_seq_lengths": [4641652]
+}

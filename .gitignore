@@ -152,7 +152,10 @@ test_data/*.h5
 # Example generated files (run examples locally)
 examples/**/kmer_files/
 examples/**/step*.csv
+examples/**/step*.json
 examples/**/*.h5
+examples/**/report.html
+examples/ecoli_environmental/ecoli_K12_MG1655.fasta
 
 # Git worktrees
 .worktrees/
