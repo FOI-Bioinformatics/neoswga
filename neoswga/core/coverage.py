@@ -36,13 +36,15 @@ def compute_per_prefix_coverage(
         prefixes: HDF5 file prefixes (usually fg_prefixes or bg_prefixes).
         seq_lengths: genome lengths matching `prefixes` elementwise.
         extension: extension reach in bp. Default 3000 bp corresponds to
-            the realistic mean phi29 amplicon (Phase 16 critical gap #2).
-            A position at ``p`` marks
+            the effective per-primer reach in a dense phi29 SWGA design
+            (Clarke et al. 2017 <5 kb inter-primer-site criterion;
+            Jaron et al. 2022 1/2-5 kbp observed densities). A position
+            at ``p`` marks
             ``[max(0, p - extension), min(length, p + extension))``
             as occupied. Use :func:`polymerase_extension_reach` to pick
             a per-polymerase value; pass 70000 explicitly if you want
-            the theoretical phi29 processivity upper bound rather than
-            the practitioner-observed mean amplicon.
+            the theoretical phi29 processivity upper bound (a different
+            question — "could two primers connect in principle?").
         strand: 'both' / 'forward' / 'reverse'.
 
     Returns:
@@ -90,30 +92,34 @@ def polymerase_extension_reach(
 ) -> int:
     """Resolve the extension reach (in bp) for a polymerase.
 
-    Phase 16 critical gap #2: distinguish the two legitimate meanings of
+    Phase 16 critical gap #2: distinguish two legitimate meanings of
     "extension reach":
 
-    - ``coverage_metric='realistic'`` (default): returns the typical mean
-      amplicon length actually observed in MDA / SWGA reactions (phi29
-      ~3 kb, equiphi29 ~4 kb, bst ~1 kb, klenow ~1.5 kb). Use this for
-      user-facing coverage metrics — "how much genome is amplified to
-      meaningful copy number?".
+    - ``coverage_metric='realistic'`` (default): returns the effective
+      per-primer reach in a dense SWGA design (phi29 ~3 kb, equiphi29
+      ~4 kb, bst ~1 kb, klenow ~1.5 kb). In dense multi-primer reactions
+      extension is truncated by neighbouring primers' strand-displacement
+      products after a few kb — Clarke et al. (2017) adopt <5 kb mean
+      inter-primer-site spacing as a design target; Jaron et al. (2022)
+      report successful Prevotella sets at 1/2-5 kbp densities. Use this
+      for `fg_coverage` / `per_target_coverage`.
     - ``coverage_metric='processivity'``: returns the theoretical
       single-molecule processivity (phi29 70 kb, equiphi29 80 kb,
-      bst 2 kb, klenow 10 kb). Use this when you care about graph-level
-      reachability — "can a primer at position X reach position Y in
-      principle?".
+      bst 2 kb, klenow 10 kb). Use this when the question is graph-level
+      reachability — "can primer A and B connect via one extension event
+      in principle?" — not "how much genome does the set cover?".
 
     Prior to Phase 16 this helper returned processivity unconditionally,
-    which inflated user-facing coverage numbers 5-20x over what a
-    practitioner observes in the lab. Callers that still need the legacy
-    behaviour pass ``coverage_metric='processivity'`` explicitly.
+    which inflated `fg_coverage` 5-20x over what the selected primer set
+    can actually amplify in a dense SWGA reaction. Callers that still
+    need the legacy behaviour pass ``coverage_metric='processivity'``
+    explicitly.
 
     Args:
         polymerase: Polymerase name (phi29 / equiphi29 / bst / klenow).
         default: Fallback when the polymerase is unknown or the helper
-            is unavailable. Default switched to 3000 bp (realistic phi29
-            amplicon) in Phase 16; pass 70000 explicitly if the legacy
+            is unavailable. Default switched to 3000 bp (phi29 per-primer
+            reach) in Phase 16; pass 70000 explicitly if the legacy
             processivity value is intended.
         coverage_metric: 'realistic' (default, Phase 16+) or 'processivity'.
 

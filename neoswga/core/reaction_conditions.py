@@ -49,19 +49,58 @@ from neoswga.core.additives import AdditiveConcentrations
 # Comprehensive database of polymerase properties for SWGA applications.
 # All values are based on published literature.
 
+# ---------------------------------------------------------------------------
+# IMPORTANT — three distinct "amplicon size" numbers coexist in the SWGA
+# literature and this codebase. Pick the one that matches the question you are
+# asking:
+#
+# (1) Polymerase processivity: single-extension-event theoretical maximum
+#     under infinite-time, non-competing conditions. phi29 ~70 kb (Blanco
+#     1989); equiphi29 ~80 kb (NEB). Stored in `processivity` below. Used by
+#     the amplicon-network graph reachability code: "could primer A and B
+#     connect via one uninterrupted extension in principle?".
+#
+# (2) Gel fragment size of the amplified product. Unselective random-hexamer
+#     phi29 MDA peaks around 10 kb (Dean et al. 2002 PNAS 99:5261; Qiagen
+#     REPLI-g technical bulletin; Picher et al. 2016 Nat Commun 7:13296
+#     reports 1.5-12 kb for TruePrime and 9-19 kb for classical random-primer
+#     MDA). This is a property of the PRODUCT population after many rounds of
+#     priming + displacement, not of a single primer's reach.
+#
+# (3) Effective per-primer reach in a SWGA design — "how far downstream of
+#     each primer binding site does extension go before a neighbouring
+#     primer's extension displaces it?". Clarke et al. (2017) Bioinformatics
+#     (the swga toolkit) explicitly designed primer sets targeting **mean
+#     inter-primer-site spacing <5 kb**; Jaron et al. (2022) PLOS Comput
+#     Biol report successful SWGA primer sets with 1/2.0, 1/4.1, 1/4.9 kbp
+#     site densities. In dense SWGA the extension before displacement is
+#     bounded by this inter-site spacing: ~2-5 kb. THIS is the right number
+#     for the `fg_coverage` metric, which asks "what fraction of the target
+#     genome is within effective amplification reach of any primer in the
+#     set?".
+#
+# `typical_amplicon_length` below stores (3) — the per-primer effective
+# reach in a typical SWGA design. It is NOT the gel fragment size (that is
+# number (2), ~10 kb for phi29 MDA). Cite Clarke et al. (2017) and Jaron
+# et al. (2022), not Dean et al. (2002), for this field.
+# ---------------------------------------------------------------------------
+
 POLYMERASE_CHARACTERISTICS = {
     'phi29': {
         'name': 'Phi29 DNA Polymerase',
         'temp_range': (30.0, 40.0),
         'optimal_temp': 30.0,
-        'processivity': 70000,  # ~70kb, Blanco et al. (1989)
-        # typical_amplicon_length captures the mean fragment size actually
-        # observed in MDA / SWGA reactions, which is substantially shorter
-        # than processivity due to reaction-time limits, primer competition,
-        # and secondary-structure stalling. Published practitioner work
-        # (Leichty & Brisson 2014; Clarke et al. 2017; Cowell et al. 2017)
-        # clusters around 2-5 kb for phi29. Used for user-facing coverage
-        # metrics; the graph-connectivity side still uses `processivity`.
+        'processivity': 70000,  # ~70kb, Blanco et al. (1989) JBC 264:8935
+        # typical_amplicon_length = effective per-primer reach in a dense
+        # SWGA design. Clarke et al. (2017) set <5 kb mean inter-primer
+        # spacing as their design criterion; Jaron et al. (2022) report
+        # successful Prevotella sets at 1 site per 2-5 kbp. At these
+        # densities, extension from any one primer is truncated by
+        # downstream primer-initiated strand displacement after ~2-5 kb.
+        # NB: this is NOT the gel fragment size of the amplified product
+        # (Dean 2002 / Picher 2016 report ~10 kb mean gel bands for
+        # unselective phi29 MDA); it is the coverage-scoring reach per
+        # primer site in a selective multi-primer reaction.
         'typical_amplicon_length': 3000,   # bp, +/- 1 kb uncertainty
         'strand_displacement': True,
         'exonuclease': '3to5',  # Proofreading
@@ -73,10 +112,12 @@ POLYMERASE_CHARACTERISTICS = {
         'name': 'EquiPhi29 DNA Polymerase',
         'temp_range': (42.0, 45.0),
         'optimal_temp': 42.0,
-        'processivity': 80000,  # ~80kb at elevated temp
-        # Slightly longer amplicons than phi29 due to reduced secondary-
-        # structure interference at 42-45 C. NEB protocols report 2-6 kb
-        # typical yields; 4 kb is a defensible median.
+        'processivity': 80000,  # ~80kb at elevated temp (NEB data)
+        # Slightly longer effective reach than phi29 due to reduced
+        # secondary-structure interference at 42-45 C; SWGA designs using
+        # equiphi29 can tolerate slightly sparser primer spacing before
+        # extension is truncated. Still bounded by primer density, not
+        # processivity.
         'typical_amplicon_length': 4000,   # bp, +/- 1 kb uncertainty
         'strand_displacement': True,
         'exonuclease': '3to5',
@@ -88,9 +129,9 @@ POLYMERASE_CHARACTERISTICS = {
         'name': 'Bst 2.0/3.0 DNA Polymerase',
         'temp_range': (60.0, 65.0),
         'optimal_temp': 63.0,
-        'processivity': 2000,   # ~1-2kb, Notomi et al. (2000)
+        'processivity': 2000,   # ~1-2kb, Notomi et al. (2000) NAR 28:e63
         # Already processivity-limited; LAMP-context reaction times
-        # (30-60 min) shrink realised fragments further.
+        # (30-60 min) shrink realised per-primer reach further.
         'typical_amplicon_length': 1000,   # bp, +/- 0.5 kb uncertainty
         'strand_displacement': True,
         'exonuclease': 'none',  # Large fragment lacks exo
@@ -102,10 +143,11 @@ POLYMERASE_CHARACTERISTICS = {
         'name': 'Klenow Fragment (exo-)',
         'temp_range': (25.0, 40.0),
         'optimal_temp': 37.0,
-        'processivity': 10000,  # ~10kb, Bambara et al. (1978)
-        # Despite 10 kb processivity, lower extension rate (50 nt/s vs phi29's
-        # 150) and moderate strand-displacement produce ~1-2 kb fragments
-        # in practitioner reports.
+        'processivity': 10000,  # ~10kb, Bambara et al. (1978) JBC 253:413
+        # Despite 10 kb processivity, lower extension rate (50 nt/s vs
+        # phi29's 150) and moderate strand-displacement activity produce
+        # ~1-2 kb effective per-primer reach in SWGA-style multi-primer
+        # reactions.
         'typical_amplicon_length': 1500,   # bp, +/- 0.5 kb uncertainty
         'strand_displacement': True,  # Moderate
         'exonuclease': 'none',  # exo- variant
@@ -144,27 +186,36 @@ def get_polymerase_processivity(polymerase: str) -> int:
 
 def get_typical_amplicon_length(polymerase: str) -> int:
     """
-    Get the realistic mean amplicon length for a polymerase in a typical
-    MDA / SWGA reaction.
+    Get the effective per-primer reach for a polymerase in a dense SWGA
+    design — i.e. how far downstream of a primer binding site extension
+    proceeds on average before a neighbouring primer's extension truncates
+    it via strand displacement.
 
-    Processivity is a theoretical single-molecule maximum measured under
-    optimal lab conditions; real reactions produce fragments that are
-    substantially shorter due to reaction-time limits, primer competition,
-    strand-displacement kinetics, and secondary-structure stalling.
-    Practitioner reports (Leichty & Brisson 2014, Clarke et al. 2017,
-    Cowell et al. 2017) cluster phi29 / equiphi29 fragments around 2-5 kb.
+    This is NOT the gel fragment size of the amplified product (unselective
+    phi29 MDA gel bands peak near 10 kb per Dean et al. 2002 PNAS 99:5261
+    and Picher et al. 2016 Nat Commun 7:13296). It is NOT single-event
+    processivity (phi29 ~70 kb per Blanco et al. 1989). It is the reach
+    that matters for "what fraction of the target genome is within
+    amplification distance of the selected primer set?".
 
-    Use this value for user-facing coverage metrics where "how much
-    genome is actually amplified to significant copy number" is the right
-    question. Keep using `get_polymerase_processivity` for amplicon-
-    network graph reachability where the question is "can this primer-
-    pair even reach each other via extension in principle?".
+    Literature basis:
+    - Clarke et al. (2017) Bioinformatics 33:2071-2077 — the swga toolkit
+      sets <5 kb mean inter-primer-site spacing as an explicit design
+      criterion; in that regime per-primer reach is spacing-bounded.
+    - Jaron et al. (2022) PLOS Comput Biol 18:e1010088 — published
+      Prevotella SWGA sets densities of 1 site per 2.0, 4.1, 4.9 kbp
+      (their Table 1) ⇒ mean per-primer reach 2-5 kb.
+
+    Use this value for `fg_coverage` and `per_target_coverage`. Keep using
+    :func:`get_polymerase_processivity` for amplicon-network graph
+    reachability, where the question is "could primer A and B connect via
+    one extension event in principle?".
 
     Args:
         polymerase: Polymerase name ('phi29', 'equiphi29', 'bst', 'klenow')
 
     Returns:
-        Typical mean amplicon length in base pairs.
+        Effective per-primer reach in base pairs (±1 kb uncertainty).
 
     Example:
         >>> get_typical_amplicon_length('phi29')

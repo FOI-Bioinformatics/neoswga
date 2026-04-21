@@ -30,15 +30,17 @@ def test_ci_workflow_exists_and_parses():
     assert set(data["jobs"].keys()) >= {"lint", "test", "build"}
 
 
-def test_publish_workflow_exists_and_parses():
+def test_no_pypi_publish_workflow():
+    """Phase 16.5: releases are tagged on GitHub only; PyPI publishing is
+    intentionally NOT wired up. This test locks that decision in so a
+    publish.yml cannot be reintroduced without a corresponding policy
+    change. If you need to publish to PyPI in the future, delete this
+    test together with the new workflow file."""
     path = ROOT / ".github" / "workflows" / "publish.yml"
-    assert path.is_file(), f"{path} missing"
-    data = _read_yaml(path)
-    # Must publish via trusted publishing (OIDC) with id-token: write
-    jobs = data["jobs"]
-    assert "publish-pypi" in jobs
-    perms = jobs["publish-pypi"].get("permissions", {})
-    assert perms.get("id-token") == "write", "Missing OIDC permission for trusted publishing"
+    assert not path.exists(), (
+        f"{path} should not exist — releases are GitHub-only. "
+        f"If intentionally reintroducing PyPI publishing, remove this test."
+    )
 
 
 def test_nightly_workflow_exists_and_parses():
