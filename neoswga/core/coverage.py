@@ -20,7 +20,7 @@ def compute_per_prefix_coverage(
     primers: Sequence[str],
     prefixes: Sequence[str],
     seq_lengths: Sequence[int],
-    extension: int = 70000,
+    extension: int = 3000,
     strand: str = "both",
 ) -> Tuple[float, Dict[str, float]]:
     """Compute union-of-extension-windows coverage across prefixes.
@@ -35,9 +35,14 @@ def compute_per_prefix_coverage(
         primers: primer sequences to query.
         prefixes: HDF5 file prefixes (usually fg_prefixes or bg_prefixes).
         seq_lengths: genome lengths matching `prefixes` elementwise.
-        extension: polymerase extension reach in bp; a position at `p`
-            marks `[max(0, p - extension), min(length, p + extension))`
-            as occupied.
+        extension: extension reach in bp. Default 3000 bp corresponds to
+            the realistic mean phi29 amplicon (Phase 16 critical gap #2).
+            A position at ``p`` marks
+            ``[max(0, p - extension), min(length, p + extension))``
+            as occupied. Use :func:`polymerase_extension_reach` to pick
+            a per-polymerase value; pass 70000 explicitly if you want
+            the theoretical phi29 processivity upper bound rather than
+            the practitioner-observed mean amplicon.
         strand: 'both' / 'forward' / 'reverse'.
 
     Returns:
@@ -78,13 +83,49 @@ def compute_per_prefix_coverage(
     return agg, per_prefix
 
 
-def polymerase_extension_reach(polymerase: str, default: int = 70000) -> int:
-    """Resolve the extension reach (in bp) for a polymerase, with a safe
-    default when the reaction_conditions helper is unavailable or the
-    polymerase name is unknown.
+def polymerase_extension_reach(
+    polymerase: str,
+    default: int = 3000,
+    coverage_metric: str = "realistic",
+) -> int:
+    """Resolve the extension reach (in bp) for a polymerase.
+
+    Phase 16 critical gap #2: distinguish the two legitimate meanings of
+    "extension reach":
+
+    - ``coverage_metric='realistic'`` (default): returns the typical mean
+      amplicon length actually observed in MDA / SWGA reactions (phi29
+      ~3 kb, equiphi29 ~4 kb, bst ~1 kb, klenow ~1.5 kb). Use this for
+      user-facing coverage metrics — "how much genome is amplified to
+      meaningful copy number?".
+    - ``coverage_metric='processivity'``: returns the theoretical
+      single-molecule processivity (phi29 70 kb, equiphi29 80 kb,
+      bst 2 kb, klenow 10 kb). Use this when you care about graph-level
+      reachability — "can a primer at position X reach position Y in
+      principle?".
+
+    Prior to Phase 16 this helper returned processivity unconditionally,
+    which inflated user-facing coverage numbers 5-20x over what a
+    practitioner observes in the lab. Callers that still need the legacy
+    behaviour pass ``coverage_metric='processivity'`` explicitly.
+
+    Args:
+        polymerase: Polymerase name (phi29 / equiphi29 / bst / klenow).
+        default: Fallback when the polymerase is unknown or the helper
+            is unavailable. Default switched to 3000 bp (realistic phi29
+            amplicon) in Phase 16; pass 70000 explicitly if the legacy
+            processivity value is intended.
+        coverage_metric: 'realistic' (default, Phase 16+) or 'processivity'.
+
+    Returns:
+        Extension reach in bp.
     """
     try:
-        from .reaction_conditions import get_polymerase_processivity
-        return int(get_polymerase_processivity(polymerase))
+        if coverage_metric == "processivity":
+            from .reaction_conditions import get_polymerase_processivity
+            return int(get_polymerase_processivity(polymerase))
+        # realistic (default)
+        from .reaction_conditions import get_typical_amplicon_length
+        return int(get_typical_amplicon_length(polymerase))
     except Exception:
         return default

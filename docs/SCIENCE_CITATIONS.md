@@ -90,6 +90,43 @@ Mg2+ recommendations by GC content
 (`reaction_conditions.py:~740`): Rahman et al. (2014) PLoS One
 9:e112515.
 
+### Typical amplicon length vs. processivity
+
+The processivity values above are single-molecule theoretical maxima
+measured under optimal lab conditions (infinite time, no competition).
+In a real MDA / SWGA reaction, the mean fragment length is substantially
+shorter because of reaction-time limits, primer competition, strand-
+displacement kinetics, and secondary-structure stalling. Practitioner
+reports (Leichty & Brisson 2014; Clarke et al. 2017; Cowell et al. 2017)
+consistently cluster amplicon size distributions in the 1-10 kb range,
+with medians around 2-5 kb for phi29.
+
+NeoSWGA exposes both:
+
+| Polymerase | `processivity` (bp) | `typical_amplicon_length` (bp) | Used for |
+|---|---|---|---|
+| phi29 | 70,000 | 3,000 (±1 kb) | Realistic coverage metric |
+| equiphi29 | 80,000 | 4,000 (±1 kb) | Realistic coverage metric |
+| bst | 2,000 | 1,000 (±0.5 kb) | Realistic coverage metric |
+| klenow | 10,000 | 1,500 (±0.5 kb) | Realistic coverage metric |
+
+`reaction_conditions.POLYMERASE_CHARACTERISTICS` carries both fields.
+Helpers:
+
+- `get_polymerase_processivity(name)` → theoretical maximum (legacy).
+- `get_typical_amplicon_length(name)` → practitioner-observed mean
+  fragment length (new in Phase 16).
+
+`coverage.compute_per_prefix_coverage` defaults to the realistic
+amplicon length (3 kb for phi29) so user-facing `fg_coverage` /
+`per_target_coverage` numbers reflect what a lab will actually see.
+The amplicon-network reachability path still uses processivity because
+the question there is "can two primers connect in principle?" not
+"how much DNA will I see?".
+
+Pass `coverage_metric='processivity'` to `polymerase_extension_reach`
+if you specifically want the theoretical upper bound.
+
 ## Mechanistic-model empirical tuning
 
 These constants drive the four-pathway mechanistic model (Tm, accessibility,

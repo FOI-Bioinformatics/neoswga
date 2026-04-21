@@ -261,6 +261,13 @@ def run_optimization(
     """
     _ensure_optimizers_registered()
 
+    # Reset the last-result stash at entry so a second call that fails
+    # before the bottom-of-function assignment cannot leak the previous
+    # successful result to CLI consumers (--show-frontier, audit tooling).
+    # See Phase 16 critical gap #1.
+    global _LAST_RESULT
+    _LAST_RESULT = None
+
     # Load parameters from pipeline if needed
     if fg_prefixes is None or fg_seq_lengths is None:
         from . import pipeline as core_pipeline
@@ -765,6 +772,12 @@ def optimize_step4(
     """
     _ensure_optimizers_registered()
 
+    # Reset the last-result stash at entry. run_optimization also resets,
+    # but optimize_step4 may early-return via no-candidates path before the
+    # run_optimization call so we clear explicitly here too.
+    global _LAST_RESULT
+    _LAST_RESULT = None
+
     # Get target size: prefer explicit kwarg, then parameter module, then default
     target_size = kwargs.pop('target_size', None)
     if target_size is None:
@@ -809,7 +822,9 @@ def optimize_step4(
             logger.info(f"  Simulation fitness: {sim_results['simulation_fitness']:.3f}")
 
     # Stash for the CLI / pareto-front rendering to consult.
-    global _LAST_RESULT
+    # (The `global _LAST_RESULT` declaration is at the top of optimize_step4;
+    # it is not re-declared here because Python does not allow re-declaration
+    # of a global within the same function.)
     _LAST_RESULT = result
 
     # Convert to legacy format

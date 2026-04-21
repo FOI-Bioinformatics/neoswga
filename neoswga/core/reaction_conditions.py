@@ -55,6 +55,14 @@ POLYMERASE_CHARACTERISTICS = {
         'temp_range': (30.0, 40.0),
         'optimal_temp': 30.0,
         'processivity': 70000,  # ~70kb, Blanco et al. (1989)
+        # typical_amplicon_length captures the mean fragment size actually
+        # observed in MDA / SWGA reactions, which is substantially shorter
+        # than processivity due to reaction-time limits, primer competition,
+        # and secondary-structure stalling. Published practitioner work
+        # (Leichty & Brisson 2014; Clarke et al. 2017; Cowell et al. 2017)
+        # clusters around 2-5 kb for phi29. Used for user-facing coverage
+        # metrics; the graph-connectivity side still uses `processivity`.
+        'typical_amplicon_length': 3000,   # bp, +/- 1 kb uncertainty
         'strand_displacement': True,
         'exonuclease': '3to5',  # Proofreading
         'error_rate': 1e-6,     # Very high fidelity
@@ -66,6 +74,10 @@ POLYMERASE_CHARACTERISTICS = {
         'temp_range': (42.0, 45.0),
         'optimal_temp': 42.0,
         'processivity': 80000,  # ~80kb at elevated temp
+        # Slightly longer amplicons than phi29 due to reduced secondary-
+        # structure interference at 42-45 C. NEB protocols report 2-6 kb
+        # typical yields; 4 kb is a defensible median.
+        'typical_amplicon_length': 4000,   # bp, +/- 1 kb uncertainty
         'strand_displacement': True,
         'exonuclease': '3to5',
         'error_rate': 1e-6,
@@ -77,6 +89,9 @@ POLYMERASE_CHARACTERISTICS = {
         'temp_range': (60.0, 65.0),
         'optimal_temp': 63.0,
         'processivity': 2000,   # ~1-2kb, Notomi et al. (2000)
+        # Already processivity-limited; LAMP-context reaction times
+        # (30-60 min) shrink realised fragments further.
+        'typical_amplicon_length': 1000,   # bp, +/- 0.5 kb uncertainty
         'strand_displacement': True,
         'exonuclease': 'none',  # Large fragment lacks exo
         'error_rate': 1e-4,     # Lower fidelity
@@ -88,6 +103,10 @@ POLYMERASE_CHARACTERISTICS = {
         'temp_range': (25.0, 40.0),
         'optimal_temp': 37.0,
         'processivity': 10000,  # ~10kb, Bambara et al. (1978)
+        # Despite 10 kb processivity, lower extension rate (50 nt/s vs phi29's
+        # 150) and moderate strand-displacement produce ~1-2 kb fragments
+        # in practitioner reports.
+        'typical_amplicon_length': 1500,   # bp, +/- 0.5 kb uncertainty
         'strand_displacement': True,  # Moderate
         'exonuclease': 'none',  # exo- variant
         'error_rate': 1e-4,
@@ -105,7 +124,11 @@ def get_polymerase_processivity(polymerase: str) -> int:
         polymerase: Polymerase name ('phi29', 'equiphi29', 'bst', 'klenow')
 
     Returns:
-        Maximum extension length in base pairs
+        Maximum extension length in base pairs — the theoretical upper
+        bound on how far one binding event can reach. For realistic mean
+        fragment lengths observed in MDA / SWGA reactions, prefer
+        :func:`get_typical_amplicon_length` (typically 2-5x shorter than
+        processivity for phi29/equiphi29).
 
     Example:
         >>> get_polymerase_processivity('phi29')
@@ -117,6 +140,48 @@ def get_polymerase_processivity(polymerase: str) -> int:
     if poly not in POLYMERASE_CHARACTERISTICS:
         raise ValueError(f"Unknown polymerase: {polymerase}")
     return POLYMERASE_CHARACTERISTICS[poly]['processivity']
+
+
+def get_typical_amplicon_length(polymerase: str) -> int:
+    """
+    Get the realistic mean amplicon length for a polymerase in a typical
+    MDA / SWGA reaction.
+
+    Processivity is a theoretical single-molecule maximum measured under
+    optimal lab conditions; real reactions produce fragments that are
+    substantially shorter due to reaction-time limits, primer competition,
+    strand-displacement kinetics, and secondary-structure stalling.
+    Practitioner reports (Leichty & Brisson 2014, Clarke et al. 2017,
+    Cowell et al. 2017) cluster phi29 / equiphi29 fragments around 2-5 kb.
+
+    Use this value for user-facing coverage metrics where "how much
+    genome is actually amplified to significant copy number" is the right
+    question. Keep using `get_polymerase_processivity` for amplicon-
+    network graph reachability where the question is "can this primer-
+    pair even reach each other via extension in principle?".
+
+    Args:
+        polymerase: Polymerase name ('phi29', 'equiphi29', 'bst', 'klenow')
+
+    Returns:
+        Typical mean amplicon length in base pairs.
+
+    Example:
+        >>> get_typical_amplicon_length('phi29')
+        3000
+        >>> get_typical_amplicon_length('equiphi29')
+        4000
+    """
+    poly = polymerase.lower()
+    if poly not in POLYMERASE_CHARACTERISTICS:
+        raise ValueError(f"Unknown polymerase: {polymerase}")
+    # Fall back to processivity if the typical length wasn't populated
+    # (defensive — every entry in POLYMERASE_CHARACTERISTICS should carry it
+    # after Phase 16 critical gap #2).
+    return POLYMERASE_CHARACTERISTICS[poly].get(
+        'typical_amplicon_length',
+        POLYMERASE_CHARACTERISTICS[poly]['processivity'],
+    )
 
 
 def list_polymerases() -> Dict[str, str]:
