@@ -127,6 +127,45 @@ If `polymerase` is set in params.json but `min_k`/`max_k`/`mg_conc` are
 not, NeoSWGA uses polymerase-appropriate defaults (6-12 bp / 10 mM for
 phi29, 10-18 bp / 10 mM for equiphi29, etc.).
 
+## Which optimizers see my additives?
+
+NeoSWGA pipelines apply ReactionConditions (polymerase, temperature,
+DMSO / betaine / etc.) at two points:
+
+1. **At filter time (always).** `filter` applies Tm windows, adaptive GC
+   ranges, and the additive-adjusted Tm when deciding which k-mers make
+   it into `step2_df.csv`. Every downstream optimizer picks from this
+   already-screened pool, so the reaction buffer shapes the universe of
+   possible primers for every method.
+
+2. **At selection time (some optimizers).** Five optimizers re-apply
+   ReactionConditions inside their selection loop to weight Tm score and
+   edge stability under the actual buffer:
+
+   - `network`
+   - `hybrid` (default; the inner network stage)
+   - `background-aware` (three-stage; its final network stage)
+   - `genetic`
+   - `equiphi29` (delegates to hybrid)
+
+   The remaining registered optimizers pick from the filter-screened pool
+   by their own set-cover / coverage objective without re-applying
+   conditions:
+
+   - `greedy`
+   - `dominating-set`
+   - `weighted-set-cover`
+   - `tiling`
+   - `clique`
+   - `milp`
+
+   This is by design. Pure coverage optimisers trust that the filter step
+   already respected the user's reaction buffer, and keep their
+   coverage-optimality guarantees intact. Run `neoswga doctor` to see
+   the live capability matrix — the `additive-aware: yes/no` column is
+   declared on each optimizer class (it is not a heuristic) and
+   accurately reflects which path shapes primer selection.
+
 ## Diagnosing "no primers selected"
 
 The most common failure is empty filter output. In order of likelihood:

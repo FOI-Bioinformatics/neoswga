@@ -666,7 +666,12 @@ class GeneticBaseOptimizer(BaseOptimizer):
     Genetic algorithm optimizer implementing BaseOptimizer interface.
 
     Uses evolutionary optimization for multi-objective primer selection.
+    Fitness computation includes a thermodynamic term that applies
+    ReactionConditions additive corrections when conditions are provided,
+    so the GA's selection pressure reflects the buffer in use.
     """
+
+    ADDITIVE_AWARE = True
 
     def __init__(
         self,

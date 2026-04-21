@@ -2661,17 +2661,11 @@ def run_doctor(args):
         registered = OptimizerFactory.list_optimizers()
         for name in sorted(registered.keys()):
             cls = OptimizerRegistry.get(name)
-            module = _sys.modules.get(cls.__module__)
-            aware = False
-            if module and hasattr(module, "__file__") and module.__file__:
-                try:
-                    src = open(module.__file__).read()
-                    aware = (
-                        "self.conditions" in src
-                        and ("calculate_tm_correction" in src or "ReactionConditions" in src)
-                    )
-                except Exception:
-                    pass
+            # Phase 15D: structural class-level flag replaces the old
+            # source-grep heuristic. Subclasses that actually use
+            # ReactionConditions in selection opt-in by setting
+            # ADDITIVE_AWARE = True on the class.
+            aware = bool(getattr(cls, "ADDITIVE_AWARE", False))
             summary["optimizers"].append({
                 "name": name,
                 "class": f"{cls.__module__}.{cls.__name__}",

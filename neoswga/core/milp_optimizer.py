@@ -352,6 +352,12 @@ class MILPBaseOptimizer(BaseOptimizer):
 
     Provides provably optimal solutions for small candidate sets (<1000 primers).
     Requires python-mip package: pip install mip
+
+    Coverage-only contract (Phase 15E): the MILP objective maximises
+    region coverage subject to set-size and dimer-pair constraints. The
+    candidate pool is already screened by the filter step under the
+    user's ReactionConditions. `neoswga doctor` reports this as
+    `additive-aware: no`.
     """
 
     def __init__(
@@ -438,7 +444,17 @@ if __name__ == "__main__":
 
     if len(sys.argv) > 1:
         print("MILP optimizer test")
-        # TODO: Add standalone test
+        # Formal coverage lives in tests/test_milp_optimizer.py; this
+        # __main__ hook provides a quick self-check that the optional
+        # mip dependency is available.
+        try:
+            import mip  # noqa: F401
+            print("  python-mip dependency: OK")
+        except ImportError as _e:
+            print(f"  python-mip dependency: MISSING — install with 'pip install mip' ({_e})")
+            sys.exit(1)
+        print("  MILPOptimizer class importable: OK")
+        print("  For full test coverage run: pytest tests/test_milp_optimizer.py")
     else:
         print("MILP Optimizer for SWGA")
         print("Requires: pip install mip")

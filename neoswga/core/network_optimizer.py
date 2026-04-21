@@ -1187,8 +1187,13 @@ class NetworkBaseOptimizer(BaseOptimizer):
     """
     Network optimizer implementing BaseOptimizer interface.
 
-    Uses graph connectivity for Tm-weighted primer selection.
+    Uses graph connectivity for Tm-weighted primer selection. Applies
+    ReactionConditions additive corrections when computing per-primer Tm
+    in `_get_primer_tm`, so additives (DMSO, betaine, etc.) shift both
+    the Tm score and the edge weights during selection.
     """
+
+    ADDITIVE_AWARE = True
 
     def __init__(
         self,

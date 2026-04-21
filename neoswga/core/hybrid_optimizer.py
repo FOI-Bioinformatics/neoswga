@@ -936,8 +936,16 @@ class HybridBaseOptimizer(BaseOptimizer):
     """
     Hybrid optimizer implementing BaseOptimizer interface.
 
-    Combines dominating-set coverage with network connectivity optimization.
+    Combines dominating-set coverage (Stage 1) with network connectivity
+    optimization (Stage 2). Stage 2 is conditions-aware: the inner
+    NetworkOptimizer receives ReactionConditions and applies additive Tm
+    corrections during refinement.
     """
+
+    # Stage 2 (network refinement) applies ReactionConditions; this wrapper
+    # is therefore additive-aware end-to-end even though Stage 1 is
+    # coverage-only by design.
+    ADDITIVE_AWARE = True
 
     def __init__(
         self,

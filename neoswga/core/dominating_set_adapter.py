@@ -53,6 +53,12 @@ class DominatingSetAdapter(BaseOptimizer):
     Delegates to the original DominatingSetOptimizer (dominating_set_optimizer.py)
     for the core algorithm, providing a consistent BaseOptimizer API.
 
+    Coverage-only contract (Phase 15E): selection is pure set-cover with
+    ln(n) approximation guarantee; ReactionConditions are accepted for API
+    uniformity but not used at selection time. The candidate pool is
+    already screened by the filter step under the user's ReactionConditions.
+    `neoswga doctor` reports this as `additive-aware: no`.
+
     Algorithm:
     1. Build bipartite graph: primers <-> genome regions
     2. Greedily select primer covering most uncovered regions

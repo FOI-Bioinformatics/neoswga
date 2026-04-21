@@ -362,6 +362,32 @@ def run_optimization(
             )
             conditions = None
 
+    # Phase 15B: route `--application` into NetworkOptimizer's selection
+    # knobs (tm_weight, uniformity_weight, dimer_penalty) so clinical users
+    # actually get more-selective primer sets, not just a different
+    # display ordering. Caller-supplied values (via kwargs) always win
+    # over the application preset so the CLI-level --tm-weight etc.
+    # continue to work.
+    _application = kwargs.pop('application', None)
+    if _application:
+        try:
+            from .base_optimizer import OPTIMIZER_APPLICATION_WEIGHTS
+            _w = OPTIMIZER_APPLICATION_WEIGHTS.get(
+                (_application or 'balanced').lower(),
+                OPTIMIZER_APPLICATION_WEIGHTS['balanced'],
+            )
+            for weight_key, weight_val in _w.items():
+                kwargs.setdefault(weight_key, weight_val)
+            if verbose:
+                logger.info(
+                    f"application='{_application}' → selection weights: "
+                    f"tm={_w['tm_weight']:.2f}, "
+                    f"uniformity={_w['uniformity_weight']:.2f}, "
+                    f"dimer_penalty={_w['dimer_penalty']:.2f}"
+                )
+        except Exception as e:
+            logger.debug(f"application weight lookup skipped: {e}")
+
     # Create optimizer via factory
     try:
         optimizer = OptimizerFactory.create(
@@ -383,19 +409,67 @@ def run_optimization(
     with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
         result = optimizer.optimize(candidates, target_size)
 
+    # Phase 15A: populate per_target_coverage on the result so multi-
+    # target runs surface "target A 95% / target B 40%" instead of one
+    # aggregate. Computed in the caller (here) rather than in every
+    # optimizer so all 16 methods get the same treatment uniformly. The
+    # `dataclasses.replace` preserves frozen-dataclass immutability.
+    try:
+        if result.primers and fg_prefixes:
+            from dataclasses import replace as _dc_replace
+            from .coverage import (
+                compute_per_prefix_coverage, polymerase_extension_reach,
+            )
+            _ext = polymerase_extension_reach(
+                getattr(parameter, 'polymerase', 'phi29') or 'phi29',
+                default=extension_reach,
+            )
+            _, per_target = compute_per_prefix_coverage(
+                cache=cache,
+                primers=list(result.primers),
+                prefixes=fg_prefixes,
+                seq_lengths=fg_seq_lengths,
+                extension=_ext,
+            )
+            if per_target:
+                new_metrics = _dc_replace(result.metrics, per_target_coverage=per_target)
+                result = _dc_replace(result, metrics=new_metrics)
+    except Exception as e:
+        logger.debug(f"per_target_coverage population skipped ({e})")
+
     # Post-optimization sanity validation. Catches duplicates, size drift,
     # zero coverage, and accidental blacklist re-injection. The result is
     # written to data_dir/step4_improved_df_validation.json and logged here
     # so downstream CSV consumers can trust the output shape.
     try:
-        forbidden = []
-        if bg_prefixes and getattr(parameter, 'bl_genomes', None):
-            # Phase 12A blacklist guard. Collect blacklist primers (those we
-            # have already filtered) from step2_df if available to cross-check
-            # that expand-primers / swap-primer didn't slip any back in.
-            pass  # Cheap path: the optimizer's own candidate pool came from
-                  # step2/step3 which already excluded blacklist hits; fuller
-                  # cross-check would reload the raw blacklist.
+        # Phase 15C library-level blacklist guard. Previously the validator
+        # received forbidden_primers=None; library callers who bypassed the
+        # swap-primer CLI could therefore silently inject blacklist
+        # candidates. Now we cross-check the candidate pool against
+        # params.bl_prefixes using the same helper the filter step uses,
+        # and pass the hits as forbidden primers to validate().
+        forbidden: list = []
+        bl_prefixes_list = list(getattr(parameter, 'bl_prefixes', []) or [])
+        bl_lengths_list = list(getattr(parameter, 'bl_seq_lengths', []) or [])
+        if bl_prefixes_list and bl_lengths_list and candidates:
+            try:
+                from .pipeline import _filter_blacklist_penalty
+                max_bl = getattr(parameter, 'max_bl_freq', 0.0) or 0.0
+                _mask, _freqs = _filter_blacklist_penalty(
+                    list(candidates), bl_prefixes_list, bl_lengths_list,
+                    max_bl_freq=max_bl,
+                )
+                forbidden = [
+                    p for p, f in zip(candidates, _freqs) if f > max_bl
+                ]
+                if forbidden and verbose:
+                    logger.warning(
+                        f"Library blacklist guard: {len(forbidden)} "
+                        f"candidate(s) exceed max_bl_freq={max_bl}; "
+                        f"validator will flag any that reached the selected set."
+                    )
+            except Exception as e:
+                logger.debug(f"library blacklist guard skipped ({e})")
 
         validation = result.validate(
             target_size=target_size,

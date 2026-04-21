@@ -599,7 +599,11 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
     Delegates to HybridOptimizer with background_pruning=True, providing
     three-stage optimization (coverage + background pruning + network
     refinement) for clinical applications requiring low background binding.
+    The final network stage honours ReactionConditions additive corrections
+    so this wrapper reports as additive-aware.
     """
+
+    ADDITIVE_AWARE = True
 
     def __init__(
         self,

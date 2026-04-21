@@ -716,8 +716,15 @@ class OptimalOligoGenerator:
         logger.info(f"Target primers: {num_primers}")
         logger.info(f"K-mer range: {self.target_chars.recommended_kmer_range}")
 
-        # TODO: Implement actual optimization in Phase 2
-        # For now, return placeholder
+        # NOTE: This generator emits placeholder primers for its own
+        # opt-in workflow (`auto_swga_pipeline`). Production primer set
+        # design goes through the main `count-kmers → filter → score →
+        # optimize` pipeline; the optimizers there honour conditions and
+        # blacklist guards. `OptimalOligoGenerator` is retained for the
+        # exploratory auto-swga profile workflow and for `equiphi29` which
+        # consumes its POLYMERASE_PROFILES constant. The placeholder
+        # optimisation below is documented-as-such and should not be
+        # confused with the factory-registered optimizer suite.
         primers = self._placeholder_optimization(num_primers, conditions)
 
         # Step 6: Validation (if requested)

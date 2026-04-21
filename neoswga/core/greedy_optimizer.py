@@ -107,6 +107,12 @@ class GreedyOptimizer(BaseOptimizer):
     the best primer to each set at every iteration. Uses score caching
     to avoid redundant evaluations.
 
+    Coverage-only contract (Phase 15E): this optimizer selects from the
+    candidate pool produced by the filter step, which has already applied
+    ReactionConditions (Tm window, adaptive GC, additive corrections).
+    The greedy selection itself is coverage-driven; it does not re-apply
+    additive effects. `neoswga doctor` reports this as `additive-aware: no`.
+
     Advantages:
     - Fast convergence for well-separated primer pools
     - Deterministic results (with same inputs)

@@ -200,6 +200,12 @@ class CliqueOptimizer(BaseOptimizer):
     all possible dimer-free primer sets. Each set is scored by coverage
     and selectivity, and the best is returned.
 
+    Coverage-only contract (Phase 15E): the compatibility graph uses
+    condition-agnostic dimer checks; selection maximises coverage within
+    the clique-feasible subsets. The candidate pool is already screened
+    by the filter step under the user's ReactionConditions. `neoswga
+    doctor` reports this as `additive-aware: no`.
+
     Best for primer pools under ~200 candidates where exhaustive dimer-free
     guarantees are needed. For larger pools, use the hybrid optimizer with
     incremental dimer checking.

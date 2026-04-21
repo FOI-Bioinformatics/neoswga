@@ -86,10 +86,10 @@ class PrimerSetMetrics:
             'per_target_coverage': dict(self.per_target_coverage),
         }
 
-    # Application-profile weights (Phase 14C). Different use cases weigh
-    # the component metrics differently: clinical applications favour
-    # selectivity and dimer safety over raw coverage, while metagenomics
-    # favours coverage above all.
+    # Application-profile weights for POST-HOC scoring (Phase 14C).
+    # Different use cases weigh the component metrics differently:
+    # clinical applications favour selectivity and dimer safety over raw
+    # coverage, while metagenomics favours coverage above all.
     APPLICATION_WEIGHTS = {
         "balanced":     {"coverage_w": 0.35, "selectivity_w": 0.30, "dimer_w": 0.15, "evenness_w": 0.10, "tm_w": 0.10},
         "discovery":    {"coverage_w": 0.50, "selectivity_w": 0.15, "dimer_w": 0.10, "evenness_w": 0.15, "tm_w": 0.10},
@@ -176,6 +176,28 @@ class PrimerSetMetrics:
             strand_alternation_score=0.0,
             strand_coverage_ratio=0.0,
         )
+
+
+# Phase 15B: application weights that affect SELECTION. Mapped onto
+# NetworkOptimizer's internal knobs (tm_weight, uniformity_weight,
+# dimer_penalty) so clinical users get selectivity-first primer sets,
+# not just a different post-hoc ranking of the same set.
+#
+# The triple shapes the greedy graph selection:
+#   - tm_weight: preference for primers whose effective Tm sits in the
+#     reaction-appropriate window.
+#   - uniformity_weight: preference for sets with even coverage.
+#   - dimer_penalty: how aggressively to reject dimer-prone primer pairs.
+#
+# Re-projected from APPLICATION_WEIGHTS so the post-hoc normalized_score
+# and the selection-time weighting push in the same direction per use case.
+OPTIMIZER_APPLICATION_WEIGHTS = {
+    "balanced":     {"tm_weight": 0.25, "uniformity_weight": 0.10, "dimer_penalty": 0.30},
+    "discovery":    {"tm_weight": 0.15, "uniformity_weight": 0.20, "dimer_penalty": 0.20},
+    "clinical":     {"tm_weight": 0.30, "uniformity_weight": 0.05, "dimer_penalty": 0.45},
+    "enrichment":   {"tm_weight": 0.25, "uniformity_weight": 0.10, "dimer_penalty": 0.30},
+    "metagenomics": {"tm_weight": 0.10, "uniformity_weight": 0.25, "dimer_penalty": 0.20},
+}
 
 
 @dataclass(frozen=True)
@@ -412,6 +434,12 @@ class BaseOptimizer(ABC):
                 # Implementation
                 return OptimizationResult(...)
     """
+
+    # Structural flag: subclasses whose selection path actually uses
+    # `self.conditions` (Tm correction, mechanistic weighting, polymerase-
+    # specific penalties) set this to True. Consumed by `neoswga doctor` to
+    # report an honest capability matrix without resorting to source-grep.
+    ADDITIVE_AWARE: bool = False
 
     def __init__(
         self,

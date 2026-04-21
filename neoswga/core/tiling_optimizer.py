@@ -206,6 +206,12 @@ class TilingOptimizer(BaseOptimizer):
     then greedily selects primers that maximize new base-pair coverage while
     penalizing background binding. Adaptive declining thresholds relax the
     minimum gain requirement when high-gain primers are exhausted.
+
+    Coverage-only contract (Phase 15E): selection is coverage-driven and
+    does not re-apply ReactionConditions during selection. The candidate
+    pool it receives has already been screened by the filter step under
+    the user's reaction conditions. `neoswga doctor` reports this as
+    `additive-aware: no`.
     """
 
     def __init__(

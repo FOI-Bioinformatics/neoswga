@@ -421,6 +421,10 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
     EquiPhi29 optimizer adapter that delegates to HybridOptimizer with
     polymerase='equiphi29'.
 
+    Inherits HybridBaseOptimizer's additive-aware Stage-2 network
+    refinement; sets ADDITIVE_AWARE True so `neoswga doctor` reports it
+    correctly.
+
     This adapter provides backward compatibility for the 'equiphi29' factory
     registration. The actual polymerase-aware optimization is now handled
     by HybridOptimizer's polymerase preset system.
@@ -432,6 +436,8 @@ class EquiPhi29OptimizerAdapter(BaseOptimizer):
     - Higher temperature stability (42C)
     - Automatic thermo-filtering for 42C reaction conditions
     """
+
+    ADDITIVE_AWARE = True
 
     def __init__(
         self,
