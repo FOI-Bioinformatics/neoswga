@@ -122,12 +122,18 @@ metric reflects the right one.
 Literature basis for (3):
 
 - Clarke et al. (2017) *Bioinformatics* 33:2071-2077 — the swga
-  toolkit paper explicitly adopts **mean inter-primer-site spacing
-  <5 kb** as a design criterion.
-- Jaron et al. (2022) *PLOS Comput Biol* 18:e1010088 — Table 1
-  reports successful Prevotella SWGA primer sets with site densities
-  of 1/2.0, 1/4.1, and 1/4.9 kbp, giving mean per-primer reach in the
-  2-5 kb range.
+  toolkit paper post-hoc filters M. tuberculosis candidate primer
+  sets to **mean inter-primer-site spacing <5 kb** ("we ... selected
+  only those sets whose mean distance between binding sites on the
+  M. tuberculosis genome was <5 kb"). Not a built-in toolkit default,
+  but an explicit experimental criterion for selecting working sets.
+- Dwivedi-Yu et al. (2023) *PLOS Comput Biol* 19:e1010137 — reports
+  six SWGA primer sets on *Prevotella melaninogenica* with site
+  densities of 1/2.0, 1/4.1, 1/4.9 kbp (successful amplification)
+  and 1/2.8, 1/5.0, 1/7.4 kbp (unsuccessful). The authors note that
+  density alone does not fully explain success, but practical SWGA
+  designs cluster in the 1/2-10 kbp density range, giving mean
+  per-primer reach of 2-5 kb for successful sets.
 
 These are the correct citations for the `typical_amplicon_length`
 values — not Dean 2002 or Picher 2016, which measure the gel fragment
@@ -138,7 +144,7 @@ NeoSWGA exposes (1) and (3):
 
 | Polymerase | `processivity` (bp) | `typical_amplicon_length` (bp) | Meaning of `typical_amplicon_length` |
 |---|---|---|---|
-| phi29 | 70,000 | 3,000 (±1 kb) | Per-primer reach in a dense SWGA set; Clarke 2017 <5 kb criterion |
+| phi29 | 70,000 | 3,000 (±1 kb) | Per-primer reach in a dense SWGA set; Clarke 2017 <5 kb filter, Dwivedi-Yu 2023 1/2-5 kbp |
 | equiphi29 | 80,000 | 4,000 (±1 kb) | Slightly longer reach at 42-45 C; spacing-bounded |
 | bst | 2,000 | 1,000 (±0.5 kb) | Processivity-limited; reaction-time further shortens in LAMP context |
 | klenow | 10,000 | 1,500 (±0.5 kb) | Moderate strand displacement + 50 nt/s rate caps reach |

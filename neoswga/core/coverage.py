@@ -37,8 +37,9 @@ def compute_per_prefix_coverage(
         seq_lengths: genome lengths matching `prefixes` elementwise.
         extension: extension reach in bp. Default 3000 bp corresponds to
             the effective per-primer reach in a dense phi29 SWGA design
-            (Clarke et al. 2017 <5 kb inter-primer-site criterion;
-            Jaron et al. 2022 1/2-5 kbp observed densities). A position
+            (Clarke et al. 2017 post-hoc <5 kb inter-primer-site filter;
+            Dwivedi-Yu et al. 2023 1/2-5 kbp successful-set densities).
+            A position
             at ``p`` marks
             ``[max(0, p - extension), min(length, p + extension))``
             as occupied. Use :func:`polymerase_extension_reach` to pick
@@ -99,10 +100,10 @@ def polymerase_extension_reach(
       per-primer reach in a dense SWGA design (phi29 ~3 kb, equiphi29
       ~4 kb, bst ~1 kb, klenow ~1.5 kb). In dense multi-primer reactions
       extension is truncated by neighbouring primers' strand-displacement
-      products after a few kb — Clarke et al. (2017) adopt <5 kb mean
-      inter-primer-site spacing as a design target; Jaron et al. (2022)
-      report successful Prevotella sets at 1/2-5 kbp densities. Use this
-      for `fg_coverage` / `per_target_coverage`.
+      products after a few kb — Clarke et al. (2017) filter candidate
+      sets to <5 kb mean inter-primer-site spacing; Dwivedi-Yu et al.
+      (2023) report successful Prevotella sets at 1/2-5 kbp densities.
+      Use this for `fg_coverage` / `per_target_coverage`.
     - ``coverage_metric='processivity'``: returns the theoretical
       single-molecule processivity (phi29 70 kb, equiphi29 80 kb,
       bst 2 kb, klenow 10 kb). Use this when the question is graph-level

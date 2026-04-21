@@ -70,19 +70,23 @@ from neoswga.core.additives import AdditiveConcentrations
 # (3) Effective per-primer reach in a SWGA design — "how far downstream of
 #     each primer binding site does extension go before a neighbouring
 #     primer's extension displaces it?". Clarke et al. (2017) Bioinformatics
-#     (the swga toolkit) explicitly designed primer sets targeting **mean
-#     inter-primer-site spacing <5 kb**; Jaron et al. (2022) PLOS Comput
-#     Biol report successful SWGA primer sets with 1/2.0, 1/4.1, 1/4.9 kbp
-#     site densities. In dense SWGA the extension before displacement is
-#     bounded by this inter-site spacing: ~2-5 kb. THIS is the right number
-#     for the `fg_coverage` metric, which asks "what fraction of the target
-#     genome is within effective amplification reach of any primer in the
-#     set?".
+#     (the swga toolkit) post-hoc filtered their M. tuberculosis candidate
+#     sets to mean inter-primer-site spacing <5 kb ("we ... selected only
+#     those sets whose mean distance between binding sites on the M.
+#     tuberculosis genome was <5 kb"); Dwivedi-Yu et al. (2023) PLOS
+#     Comput Biol 19:e1010137 report SWGA primer sets on Prevotella
+#     melaninogenica with site densities of 1/2.0, 1/4.1, 1/4.9 kbp
+#     (successful) and 1/2.8, 1/5.0, 1/7.4 kbp (unsuccessful), placing
+#     practical SWGA designs in the 1/2-10 kbp density range. In dense
+#     SWGA the extension before displacement is bounded by this inter-
+#     site spacing: ~2-5 kb. THIS is the right number for the
+#     `fg_coverage` metric, which asks "what fraction of the target genome
+#     is within effective amplification reach of any primer in the set?".
 #
 # `typical_amplicon_length` below stores (3) — the per-primer effective
-# reach in a typical SWGA design. It is NOT the gel fragment size (that is
-# number (2), ~10 kb for phi29 MDA). Cite Clarke et al. (2017) and Jaron
-# et al. (2022), not Dean et al. (2002), for this field.
+# reach in a typical SWGA design. It is NOT the gel fragment size (that
+# is number (2), ~10 kb for phi29 MDA). Cite Clarke et al. (2017) and
+# Dwivedi-Yu et al. (2023), not Dean et al. (2002), for this field.
 # ---------------------------------------------------------------------------
 
 POLYMERASE_CHARACTERISTICS = {
@@ -92,9 +96,10 @@ POLYMERASE_CHARACTERISTICS = {
         'optimal_temp': 30.0,
         'processivity': 70000,  # ~70kb, Blanco et al. (1989) JBC 264:8935
         # typical_amplicon_length = effective per-primer reach in a dense
-        # SWGA design. Clarke et al. (2017) set <5 kb mean inter-primer
-        # spacing as their design criterion; Jaron et al. (2022) report
-        # successful Prevotella sets at 1 site per 2-5 kbp. At these
+        # SWGA design. Clarke et al. (2017) filter their M. tuberculosis
+        # candidate sets to mean inter-primer spacing <5 kb; Dwivedi-Yu
+        # et al. (2023) report Prevotella sets at 1 site per 2-5 kbp
+        # (successful) and 1 per 2.8-7.4 kbp (unsuccessful). At these
         # densities, extension from any one primer is truncated by
         # downstream primer-initiated strand displacement after ~2-5 kb.
         # NB: this is NOT the gel fragment size of the amplified product
@@ -167,10 +172,12 @@ def get_polymerase_processivity(polymerase: str) -> int:
 
     Returns:
         Maximum extension length in base pairs — the theoretical upper
-        bound on how far one binding event can reach. For realistic mean
-        fragment lengths observed in MDA / SWGA reactions, prefer
-        :func:`get_typical_amplicon_length` (typically 2-5x shorter than
-        processivity for phi29/equiphi29).
+        bound on how far one binding event can reach. For the per-primer
+        reach used in coverage metrics (bounded by inter-primer-site
+        spacing in a dense SWGA design, not by this value), prefer
+        :func:`get_typical_amplicon_length`. This function is
+        appropriate for amplicon-network graph reachability, not for
+        `fg_coverage`.
 
     Example:
         >>> get_polymerase_processivity('phi29')
@@ -200,11 +207,14 @@ def get_typical_amplicon_length(polymerase: str) -> int:
 
     Literature basis:
     - Clarke et al. (2017) Bioinformatics 33:2071-2077 — the swga toolkit
-      sets <5 kb mean inter-primer-site spacing as an explicit design
-      criterion; in that regime per-primer reach is spacing-bounded.
-    - Jaron et al. (2022) PLOS Comput Biol 18:e1010088 — published
-      Prevotella SWGA sets densities of 1 site per 2.0, 4.1, 4.9 kbp
-      (their Table 1) ⇒ mean per-primer reach 2-5 kb.
+      paper filters their M. tuberculosis candidate primer sets to mean
+      inter-primer-site spacing <5 kb (post-hoc selection, not a toolkit
+      default); in that regime per-primer reach is spacing-bounded.
+    - Dwivedi-Yu et al. (2023) PLOS Comput Biol 19:e1010137 — published
+      Prevotella SWGA sets with site densities of 1 per 2.0, 4.1, 4.9
+      kbp (successful) and 1 per 2.8, 5.0, 7.4 kbp (unsuccessful),
+      placing practical SWGA designs in the 1/2-10 kbp range and
+      giving mean per-primer reach of 2-5 kb for successful sets.
 
     Use this value for `fg_coverage` and `per_target_coverage`. Keep using
     :func:`get_polymerase_processivity` for amplicon-network graph
