@@ -68,7 +68,7 @@ Note the explicit `--optimization-method` flag: it is a CLI option, not a
 |------|---------------|
 | count-kmers | a few seconds |
 | filter | about 90 seconds |
-| score | about 15-20 minutes (random-forest feature computation dominates) |
+| score | seconds (thermodynamic histogram features are skipped by default; add `--full-score` to include them, which takes 15-20 minutes) |
 | optimize | under 1 second |
 
 ## Expected output

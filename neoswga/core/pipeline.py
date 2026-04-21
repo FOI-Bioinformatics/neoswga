@@ -785,7 +785,7 @@ def step3(validate_prerequisites=True):
     logger.info(f"Scoring {len(primer_list)} primers...")
     fg_scale = sum(fg_seq_lengths) / 6200 if fg_seq_lengths else 1.0
 
-    fast_score = getattr(parameter, 'fast_score', False)
+    fast_score = getattr(parameter, 'fast_score', True)
 
     with progress_context("Computing random forest features"):
         if fast_score:

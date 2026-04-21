@@ -722,10 +722,16 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Scoring method: rf (random forest, default), ml (deep learning), both (compare methods)')
     score_parser.add_argument('--min-amp-pred', type=float,
                              help='Minimum amplification prediction score (default: 10)')
+    score_parser.add_argument('--full-score', action='store_true',
+                             help='Include thermodynamic delta-G histogram features in '
+                                  'random-forest scoring. These features contribute <2%% of '
+                                  'model accuracy but >99%% of scoring compute time, so they '
+                                  'are skipped by default. Pass this flag only if you need '
+                                  'the full histogram output for downstream analysis.')
     score_parser.add_argument('--fast-score', action='store_true',
-                             help='Skip thermodynamic histogram features for ~100x speedup. '
-                                  'These features contribute <2%% of model accuracy but >99%% '
-                                  'of computation time. Recommended for large primer pools.')
+                             help='Deprecated alias for the current default behavior '
+                                  '(thermodynamic histogram features are skipped). '
+                                  'Accepted for backwards compatibility.')
 
     # ML-specific options (when --method ml or both)
     score_parser.add_argument('--model-path', type=str,
@@ -1873,10 +1879,15 @@ def run_step3(args):
                 logger.warning("To train enhanced model: python scripts/train_enhanced_rf.py")
                 use_enhanced = False
 
-        # Fast scoring mode: skip expensive delta-G histogram features
-        if getattr(args, 'fast_score', False):
+        # Scoring mode: fast (skip delta-G histograms) is the default.
+        # --full-score opts back in to the full RF feature set.
+        if getattr(args, 'full_score', False):
+            parameter.fast_score = False
+            logger.info("Full scoring: computing thermodynamic histogram features (slow)")
+        else:
             parameter.fast_score = True
-            logger.info("Fast scoring: skipping thermodynamic histogram features (~100x speedup)")
+            if getattr(args, 'fast_score', False):
+                logger.info("--fast-score is now the default; flag is a no-op")
 
         # Run step3 with QA if enabled
         if getattr(parameter, 'enable_qa', False):
