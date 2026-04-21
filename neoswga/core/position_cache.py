@@ -166,34 +166,13 @@ class PositionCache:
 
         return coverage
 
-    def compute_coverage_with_extension(self, fname_prefix: str, primers: List[str],
-                                       genome_length: int,
-                                       extension_reach: int = 70000) -> np.ndarray:
-        """Compute coverage array accounting for polymerase extension reach.
-
-        Each binding position is extended by ``extension_reach`` bp downstream,
-        reflecting the processivity of the polymerase used.
-
-        Args:
-            fname_prefix: Genome identifier
-            primers: List of primers
-            genome_length: Length of genome
-            extension_reach: Polymerase processivity in bp (default 70000 for Phi29)
-
-        Returns:
-            Boolean array of length genome_length (True = covered)
-        """
-        coverage = np.zeros(genome_length, dtype=bool)
-
-        for primer in primers:
-            positions = self.get_positions(fname_prefix, primer, 'both')
-            if len(positions) > 0:
-                valid_positions = positions[positions < genome_length]
-                for pos in valid_positions:
-                    end = min(pos + extension_reach, genome_length)
-                    coverage[pos:end] = True
-
-        return coverage
+    # Phase 17F: removed `compute_coverage_with_extension` — it was
+    # uncalled across the codebase, shipped the stale 70000 bp (processivity)
+    # default from before Phase 16's per-primer-reach semantics fix, and
+    # implemented a downstream-only extension model that differs from the
+    # centralized `coverage.compute_per_prefix_coverage` helper. Callers
+    # wanting per-prefix coverage should use that helper with explicit
+    # `extension` kwarg sourced from `coverage.polymerase_extension_reach`.
 
     def compute_statistics(self, fname_prefix: str, primers: List[str],
                           genome_length: int) -> Dict[str, float]:

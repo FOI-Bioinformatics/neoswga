@@ -166,6 +166,30 @@ DMSO / betaine / etc.) at two points:
    declared on each optimizer class (it is not a heuristic) and
    accurately reflects which path shapes primer selection.
 
+## Multi-target coverage: union vs. intersection
+
+When `fg_prefixes` lists more than one target genome, the coverage
+metric `fg_coverage` aggregates as the **union** across prefixes —
+i.e. a primer that binds only target A still contributes to the
+global coverage number, because SWGA amplifies any target it touches.
+`per_target_coverage` (populated by every optimizer since Phase 15A)
+is the per-target dict `{prefix: covered_fraction}` so users can see
+the imbalance directly.
+
+| Scenario | What you see | What it means |
+|---|---|---|
+| `fg_coverage = 0.95`, `per_target = {A: 0.95, B: 0.95}` | Balanced | Primer set amplifies both targets well. |
+| `fg_coverage = 0.90`, `per_target = {A: 0.95, B: 0.40}` | Target B underserved | Aggregate is misleading; target B is under-covered. A `per_target_coverage_below_threshold` warning fires when `min_per_target_coverage` > B's coverage. |
+| `fg_coverage = 1.00`, `per_target = {plasmid: 1.00}` on a 5 kb plasmid | Saturation | Phase 17B emits `coverage_saturated_on_small_genome` because N primers x 2 x per-primer-reach (~6-18 kb) exceeds the genome length; the 100% number is not a quality signal. |
+
+Neoswga does **not** compute an intersection coverage metric (how much
+of the genome is covered in *every* target simultaneously). For
+pan-primer designs that require "this primer must work on all targets",
+inspect `per_target_coverage` directly and reject sets where any entry
+is below your threshold. The HTML report surfaces the
+`per_target_coverage_below_threshold` warning visibly (Phase 17A) so
+this does not require reading the JSON.
+
 ## Diagnosing "no primers selected"
 
 The most common failure is empty filter output. In order of likelihood:

@@ -281,6 +281,15 @@ class PipelineMetrics:
     total_runtime_seconds: float = 0.0
     step_runtimes: Dict[str, float] = field(default_factory=dict)
 
+    # Post-optimization validator report (Phase 17A). Loaded from
+    # step4_improved_df_validation.json when available. Each issue is a
+    # dict {"level": "error"|"warning"|"info", "code": str, "detail": str}.
+    # The report module surfaces these in the HTML so users do not have to
+    # open the JSON to see per_target_coverage_below_threshold,
+    # blacklist_primer_in_set, duplicate-primer, etc. warnings.
+    validation_issues: List[Dict[str, str]] = field(default_factory=list)
+    validation_ok: bool = True
+
 
 def _load_csv(filepath: Path) -> List[Dict[str, str]]:
     """
@@ -343,6 +352,39 @@ def _load_optimizer_summary(results_path: Path) -> Optional[Dict]:
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load optimizer summary: {e}")
         return None
+
+
+def _load_validation_report(results_path: Path) -> tuple:
+    """Load step4 validator report written by OptimizationResult.validate().
+
+    Returns:
+        (issues, ok) where issues is a list of {"level","code","detail"}
+        dicts and ok is True when the validator reported no errors. Missing
+        or unreadable files yield ([], True) so downstream report code can
+        treat the absence as "no issues to surface".
+    """
+    report_file = results_path / 'step4_improved_df_validation.json'
+    if not report_file.exists():
+        return [], True
+    try:
+        with open(report_file, encoding='utf-8') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load validation report: {e}")
+        return [], True
+    issues = data.get('issues', []) if isinstance(data, dict) else []
+    ok = bool(data.get('ok', True)) if isinstance(data, dict) else True
+    # Normalise: ensure each issue has level/code/detail strings.
+    normalised = []
+    for it in issues:
+        if not isinstance(it, dict):
+            continue
+        normalised.append({
+            'level': str(it.get('level', 'warning')),
+            'code': str(it.get('code', 'unknown')),
+            'detail': str(it.get('detail', '')),
+        })
+    return normalised, ok
 
 
 def _extract_genome_info(params: Dict, prefix: str) -> Optional[GenomeInfo]:
@@ -574,6 +616,14 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         metrics.coverage.gap_gini = opt_metrics.get('gap_gini', 0.0)
         metrics.coverage.gap_entropy = opt_metrics.get('gap_entropy', 0.0)
         logger.info("Using real optimizer metrics for coverage data")
+
+    # Phase 17A: load validator report so the HTML can surface warnings
+    # (per_target_coverage_below_threshold, blacklist_primer_in_set,
+    # set_size_mismatch, duplicate_primers, ...) that Phase 15A/11D
+    # computed but previously only wrote to JSON.
+    metrics.validation_issues, metrics.validation_ok = _load_validation_report(
+        results_path
+    )
 
     # Try to load filtering stats if available
     filter_stats_file = results_path / 'filter_stats.json'

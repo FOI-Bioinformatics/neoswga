@@ -284,6 +284,43 @@ def run_optimization(
         if verbose:
             logger.info("  Host-free mode: no background genome data used")
 
+    # Phase 17D: validate user-supplied reaction conditions BEFORE loading
+    # candidates, so a params.json bounds error (e.g. formamide>10%) is
+    # reported as the specific config problem it is — not masked by a
+    # downstream "empty candidate pool" message. The failure is warning-
+    # level: the optimizer still runs additive-blind, but the user sees
+    # it in both the log and the validator-banner.
+    conditions = kwargs.pop('conditions', None)
+    _conditions_init_error: str = ""
+    if conditions is None:
+        try:
+            from .reaction_conditions import ReactionConditions
+            conditions = ReactionConditions(
+                temp=getattr(parameter, 'reaction_temp', None) or 30.0,
+                polymerase=getattr(parameter, 'polymerase', 'phi29'),
+                na_conc=getattr(parameter, 'na_conc', 50.0),
+                mg_conc=getattr(parameter, 'mg_conc', 10.0),
+                dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
+                betaine_m=getattr(parameter, 'betaine_m', 0.0),
+                trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
+                formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
+                ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
+                urea_m=getattr(parameter, 'urea_m', 0.0),
+                tmac_m=getattr(parameter, 'tmac_m', 0.0),
+            )
+        except (ValueError, TypeError, KeyError) as e:
+            _conditions_init_error = str(e)
+            logger.error(
+                f"ReactionConditions construction failed: {e}. "
+                f"Optimizer will run additive-BLIND — Tm calculations will "
+                f"fall back to the Wallace formula and your DMSO / betaine / "
+                f"formamide / etc. concentrations will be ignored. Check "
+                f"that your params.json values are within the bounds listed "
+                f"in `neoswga suggest --help` (e.g. DMSO 0-10%, betaine "
+                f"0-2.5M, formamide 0-10%)."
+            )
+            conditions = None
+
     # Load candidates from step3 if not provided
     if candidates is None:
         step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
@@ -293,6 +330,25 @@ def run_optimization(
             )
         step3_df = pd.read_csv(step3_path)
         candidates = step3_df['primer'].tolist()
+
+    # Phase 17C — empty candidate pool guard. If filter/score removed
+    # every primer, downstream optimizers behave inconsistently (some
+    # crash, some return empty results silently). Fail loudly here with
+    # a directly actionable message instead of dispatching into the
+    # factory with zero candidates.
+    if not candidates:
+        msg = (
+            "No candidate primers available for optimization. "
+            "Common causes: (1) `neoswga filter` produced an empty "
+            "step2_df.csv (try relaxing max_bg_freq / max_gini or "
+            "widening min_k-max_k); (2) `neoswga score` filtered all "
+            "candidates below min_amp_pred (try lowering min_amp_pred); "
+            "(3) caller passed an empty candidate list. Status: "
+            f"data_dir={getattr(parameter, 'data_dir', '?')}, "
+            f"method={method}."
+        )
+        logger.error(msg)
+        return OptimizationResult.failure(method, msg)
 
     # Set global random seed if provided (ensures reproducibility across all
     # optimizer components, not just those that accept a seed parameter)
@@ -339,35 +395,10 @@ def run_optimization(
         extension_reach=extension_reach,
     )
 
-    # Build ReactionConditions from parameter globals so every optimizer sees
-    # the user's additive cocktail. Kwarg-provided 'conditions' wins (for
-    # programmatic callers that already constructed one). Without this, the
-    # additive-aware Tm paths in network_optimizer / integrated_quality_scorer
-    # are dark code — they exist but never receive conditions at runtime.
-    conditions = kwargs.pop('conditions', None)
-    if conditions is None:
-        try:
-            from .reaction_conditions import ReactionConditions
-            conditions = ReactionConditions(
-                temp=getattr(parameter, 'reaction_temp', None) or 30.0,
-                polymerase=getattr(parameter, 'polymerase', 'phi29'),
-                na_conc=getattr(parameter, 'na_conc', 50.0),
-                mg_conc=getattr(parameter, 'mg_conc', 10.0),
-                dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
-                betaine_m=getattr(parameter, 'betaine_m', 0.0),
-                trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
-                formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
-                ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
-                urea_m=getattr(parameter, 'urea_m', 0.0),
-                tmac_m=getattr(parameter, 'tmac_m', 0.0),
-            )
-        except Exception as e:
-            logger.warning(
-                f"Could not construct ReactionConditions ({e}); optimizer "
-                f"runs additive-blind. This indicates a mismatch between "
-                f"parameter.* globals and ReactionConditions signature."
-            )
-            conditions = None
+    # Note: Phase 17D moved ReactionConditions construction to before the
+    # candidate-load guard so params.json bounds errors surface first.
+    # By this point `conditions` is either a valid object or None (with
+    # `_conditions_init_error` populated for downstream banner reporting).
 
     # Phase 15B: route `--application` into NetworkOptimizer's selection
     # knobs (tm_weight, uniformity_weight, dimer_penalty) so clinical users
@@ -421,6 +452,8 @@ def run_optimization(
     # aggregate. Computed in the caller (here) rather than in every
     # optimizer so all 16 methods get the same treatment uniformly. The
     # `dataclasses.replace` preserves frozen-dataclass immutability.
+    _saturation_warnings: list = []  # Phase 17B: collected here, reported below.
+    _coverage_extension: int = extension_reach
     try:
         if result.primers and fg_prefixes:
             from dataclasses import replace as _dc_replace
@@ -431,6 +464,7 @@ def run_optimization(
                 getattr(parameter, 'polymerase', 'phi29') or 'phi29',
                 default=extension_reach,
             )
+            _coverage_extension = _ext
             _, per_target = compute_per_prefix_coverage(
                 cache=cache,
                 primers=list(result.primers),
@@ -441,6 +475,33 @@ def run_optimization(
             if per_target:
                 new_metrics = _dc_replace(result.metrics, per_target_coverage=per_target)
                 result = _dc_replace(result, metrics=new_metrics)
+
+                # Phase 17B: small-genome coverage saturation check.
+                # If (num_primers * 2 * extension) >= genome_len, a primer
+                # set can trivially cover the genome regardless of design
+                # quality — the 100% coverage number is a saturation
+                # artefact, not a real property. Warn so the user does not
+                # mistake plasmid-scale scenarios for "perfect design".
+                n_primers = len(result.primers)
+                if n_primers > 0 and _ext > 0:
+                    for prefix, length in zip(fg_prefixes, fg_seq_lengths):
+                        if length <= 0:
+                            continue
+                        expected_window = n_primers * 2 * _ext
+                        saturation = length / expected_window if expected_window else 1.0
+                        cov = per_target.get(prefix, 0.0)
+                        if saturation < 1.0 and cov >= 0.95:
+                            _saturation_warnings.append({
+                                "level": "warning",
+                                "code": "coverage_saturated_on_small_genome",
+                                "detail": (
+                                    f"{prefix}: genome={length} bp, "
+                                    f"{n_primers} primers x 2x {_ext} bp "
+                                    f"reach = {expected_window} bp; "
+                                    f"coverage={cov:.1%} is saturation-"
+                                    f"bounded (metric unreliable)"
+                                ),
+                            })
     except Exception as e:
         logger.debug(f"per_target_coverage population skipped ({e})")
 
@@ -487,6 +548,29 @@ def run_optimization(
     except Exception as e:
         logger.debug(f"Post-optimization validator crashed ({e}); skipping")
         validation = None
+
+    # Phase 17B: attach saturation warnings so the HTML report surfaces
+    # them via the Phase 17A validator-banner path. Warnings only; the
+    # `ok` flag is unchanged because saturation is not a correctness bug.
+    if validation is not None and _saturation_warnings:
+        validation.setdefault("issues", []).extend(_saturation_warnings)
+        if verbose:
+            for w in _saturation_warnings:
+                logger.warning(f"{w['code']}: {w['detail']}")
+
+    # Phase 17D: also surface the ReactionConditions init failure so the
+    # report banner flags it. Marked as a warning (not error) because the
+    # optimizer still produced a primer set — just with additive-blind Tm.
+    if validation is not None and _conditions_init_error:
+        validation.setdefault("issues", []).append({
+            "level": "warning",
+            "code": "reaction_conditions_init_failed",
+            "detail": (
+                f"{_conditions_init_error}. Optimizer ran additive-blind; "
+                f"Tm calculations fell back to Wallace. Re-check params.json "
+                f"against the bounds documented in `neoswga suggest --help`."
+            ),
+        })
 
     if validation is not None:
         try:

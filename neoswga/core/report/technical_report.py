@@ -456,6 +456,47 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
             margin-bottom: 16px;
         }}
 
+        /* Validator warnings (Phase 17A) */
+        .validation-banner {{
+            padding: 14px 18px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 0.95em;
+        }}
+
+        .validation-banner.level-error {{
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }}
+
+        .validation-banner.level-warning {{
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }}
+
+        .validation-banner h3 {{
+            font-size: 1em;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }}
+
+        .validation-banner ul {{
+            margin: 0;
+            padding-left: 22px;
+        }}
+
+        .validation-banner li {{
+            margin-bottom: 4px;
+        }}
+
+        .validation-banner .code {{
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.9em;
+            font-weight: 600;
+        }}
+
         /* Grade Summary */
         .grade-summary {{
             display: flex;
@@ -915,6 +956,8 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
         <div class="section" id="summary">
             <h2>1. Executive Summary</h2>
 
+            {validation_banner_html}
+
             <div class="grade-summary">
                 <div class="grade-circle">{grade_letter}</div>
                 <div class="grade-details">
@@ -1215,6 +1258,52 @@ def _format_spacing(sites: int, genome_size: int) -> str:
 
 
 # Note: get_rating_class and get_progress_class are now imported from utils
+
+
+_VALIDATION_CODE_LABELS = {
+    "duplicate_primers": "Duplicate primers in set",
+    "set_size_mismatch": "Primer set size differs from requested target",
+    "coverage_below_threshold": "Aggregate foreground coverage below threshold",
+    "per_target_coverage_below_threshold": "One or more targets below coverage threshold",
+    "blacklist_primer_in_set": "Blacklist primer reached the final set",
+    "reaction_conditions_init_failed": "Reaction conditions failed to initialise",
+    "coverage_saturated_on_small_genome": "Coverage saturated on a small genome (metric unreliable)",
+}
+
+
+def _render_validation_banner(issues: List[dict]) -> str:
+    """Render validator warnings/errors (Phase 17A) at the top of section 1.
+
+    Previously these lived only in step4_improved_df_validation.json. Users
+    reading the technical report would see a quality grade without any
+    indication that one target was below coverage threshold, or that the
+    blacklist guard flagged a re-injection.
+    """
+    if not issues:
+        return ""
+    has_error = any(i.get("level") == "error" for i in issues)
+    level_class = "level-error" if has_error else "level-warning"
+    heading = (
+        "Validation errors — review before ordering primers"
+        if has_error
+        else "Validation warnings"
+    )
+    items = []
+    for it in issues:
+        code = str(it.get("code", "unknown"))
+        detail = str(it.get("detail", ""))
+        label = _VALIDATION_CODE_LABELS.get(code, code.replace("_", " "))
+        items.append(
+            f"<li><span class=\"code\">{html_escape(code)}</span> — "
+            f"{html_escape(label)}: {html_escape(detail)}</li>"
+        )
+    items_html = "\n".join(items)
+    return (
+        f'<div class="validation-banner {level_class}">'
+        f'<h3>{html_escape(heading)}</h3>'
+        f'<ul>{items_html}</ul>'
+        f'</div>'
+    )
 
 
 def _render_summary_metrics(quality: QualityAssessment) -> str:
@@ -1811,6 +1900,10 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         interactive_tm_gc=interactive_tm_gc,
         interactive_heatmap=interactive_heatmap,
         interactive_dimer_heatmap=interactive_dimer_heatmap,
+        # Phase 17A validator warnings/errors surfaced inside section 1
+        validation_banner_html=_render_validation_banner(
+            list(getattr(metrics, 'validation_issues', []) or [])
+        ),
     )
 
     return html
