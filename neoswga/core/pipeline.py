@@ -805,7 +805,7 @@ def step3(validate_prerequisites=True):
     # min_amp_pred: unitless amplification prediction score (~0-20 scale).
     # Combines Tm optimality, GC content, 3' stability, and binding energy.
     # Default 10.0 retains above-average primers.
-    threshold = parameter.min_amp_pred
+    threshold = parameter.min_amp_pred if parameter.min_amp_pred is not None else 10.0
     step3_df = results[results["on.target.pred"] >= threshold]
 
     # Auto-adjust threshold for small genomes where all primers score low
