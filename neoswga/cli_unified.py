@@ -931,14 +931,51 @@ Run "neoswga <command> --help" for details on a specific command.
                                     help='Minimal output')
 
     # =========================================================================
-    # UTILITY: Validate installation
+    # UTILITY: Validate (parent command with install/params/model subcommands)
     # =========================================================================
-    validate_parser = subparsers.add_parser('validate',
-                                           help='Validate installation and run tests')
+    validate_parser = subparsers.add_parser(
+        'validate',
+        help='Validate the installation, a params.json file, or the '
+             'mechanistic model. Run without a subcommand for installation '
+             'checks (backwards-compatible).',
+    )
+    # Backwards-compat flags (when invoked as `neoswga validate [--quick|--all]`
+    # with no subcommand — preserves the historical installation-check shape).
     validate_parser.add_argument('--quick', action='store_true',
-                                help='Run quick validation (subset of tests)')
+                                help='Run quick installation validation (subset of tests)')
     validate_parser.add_argument('--all', action='store_true',
-                                help='Run all tests including benchmarks')
+                                help='Run all installation tests including benchmarks')
+
+    validate_sub = validate_parser.add_subparsers(
+        dest='validate_mode',
+        metavar='{install,params,model}',
+        title='subcommands',
+    )
+
+    validate_install_sub = validate_sub.add_parser(
+        'install',
+        help='Check that Jellyfish, Python dependencies, and ML models load.',
+    )
+    validate_install_sub.add_argument('--quick', action='store_true',
+                                      help='Run quick validation (subset of tests)')
+    validate_install_sub.add_argument('--all', action='store_true',
+                                      help='Run all tests including benchmarks')
+
+    validate_params_sub = validate_sub.add_parser(
+        'params',
+        help='Validate a params.json file against the schema.',
+    )
+    validate_params_sub.add_argument('-j', '--json-file', required=True,
+                                     help='Parameters JSON file to validate')
+
+    validate_model_sub = validate_sub.add_parser(
+        'model',
+        help='Run regression tests on the mechanistic model.',
+    )
+    validate_model_sub.add_argument('--verbose', '-v', action='store_true',
+                                    help='Show detailed results for each test')
+    validate_model_sub.add_argument('--output-json', action='store_true',
+                                    help='Output results as JSON')
 
     # =========================================================================
     # UTILITY: Show presets
@@ -2556,7 +2593,24 @@ def run_build_filter(args):
 
 
 def run_validate(args):
-    """Run validation tests"""
+    """Dispatcher for `neoswga validate [install|params|model]`.
+
+    - No subcommand or `install`: installation / environment check
+      (historical behavior of `neoswga validate`).
+    - `params`: delegate to :func:`run_validate_params`.
+    - `model`: delegate to :func:`run_validate_model`.
+    """
+    mode = getattr(args, 'validate_mode', None)
+    if mode == 'params':
+        return run_validate_params(args)
+    if mode == 'model':
+        return run_validate_model(args)
+    # mode is None (bare `validate`) or 'install': installation check.
+    return _run_validate_installation(args)
+
+
+def _run_validate_installation(args):
+    """Run installation / environment validation tests."""
     from neoswga.core.validation import ValidationSuite, quick_validation
     from neoswga.core.gpu_acceleration import is_gpu_available, get_gpu_info
     from neoswga.core.kmer_counter import check_jellyfish_available
@@ -2826,8 +2880,18 @@ def run_init(args):
 
 
 def run_validate_params(args):
-    """Validate params.json configuration"""
+    """Validate params.json configuration.
+
+    Invoked as `neoswga validate params -j params.json` (preferred) or
+    `neoswga validate-params -j params.json` (deprecated alias).
+    """
     from neoswga.core.param_validator import validate_params_file
+
+    if getattr(args, 'command', None) == 'validate-params':
+        logger.warning(
+            "`neoswga validate-params` is deprecated; "
+            "use `neoswga validate params` instead."
+        )
 
     success, _ = validate_params_file(args.json_file, verbose=True)
     sys.exit(0 if success else 1)
@@ -2858,12 +2922,22 @@ def run_schema(args):
 
 
 def run_validate_model(args):
-    """Validate mechanistic model against expected behavior."""
+    """Validate mechanistic model against expected behavior.
+
+    Invoked as `neoswga validate model` (preferred) or
+    `neoswga validate-model` (deprecated alias).
+    """
     from neoswga.core.model_validation import (
         validate_mechanistic_model,
         format_validation_report,
     )
     import json
+
+    if getattr(args, 'command', None) == 'validate-model':
+        logger.warning(
+            "`neoswga validate-model` is deprecated; "
+            "use `neoswga validate model` instead."
+        )
 
     logger.info("Validating mechanistic model...")
     results = validate_mechanistic_model()
