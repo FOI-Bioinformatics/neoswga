@@ -982,8 +982,13 @@ Run "neoswga <command> --help" for details on a specific command.
     # =========================================================================
     # SETUP: Initialize new project (setup wizard)
     # =========================================================================
-    init_parser = subparsers.add_parser('init',
-                                        help='Set up a new primer design project with guided configuration')
+    init_parser = subparsers.add_parser(
+        'init',
+        help='Set up a new primer design project with guided configuration. '
+             'Requires a target genome path; use `neoswga start` for a '
+             'menu-driven entry point that walks you through choosing a '
+             'command first.',
+    )
     init_parser.add_argument('--genome', '-g', required=True,
                             help='Target genome FASTA file')
     init_parser.add_argument('--background', '-b',
@@ -1124,8 +1129,12 @@ Examples:
     # =========================================================================
     # SETUP: Interactive workflow selector
     # =========================================================================
-    subparsers.add_parser('start',
-                         help='Interactive menu to discover and launch neoswga features')
+    subparsers.add_parser(
+        'start',
+        help='Interactive menu to discover and launch neoswga features. '
+             'If you already know you want to create a params.json for a '
+             'specific genome, use `neoswga init -g GENOME` directly.',
+    )
 
     # =========================================================================
     # SETUP: Suggest reaction conditions
