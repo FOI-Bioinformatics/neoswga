@@ -31,7 +31,6 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 - `kmer_counter.py`: Multi-genome k-mer counter using Jellyfish
 - `multi_genome_filter.py`: Filter primers across multiple target genomes
 - `thermodynamic_filter.py`: Filter by Tm, secondary structure
-- `thermo_background_filter.py`: Thermodynamic-aware background filtering
 
 **Scoring (score command)**:
 - `rf_preprocessing.py`: Random forest feature engineering

@@ -716,10 +716,6 @@ Run "neoswga <command> --help" for details on a specific command.
                                          help='Amplification efficacy scoring with ML threshold control')
     add_common_options(score_parser)
 
-    # Scoring method (merges ml-predict)
-    score_parser.add_argument('--method', choices=['rf', 'ml', 'both'],
-                             default='rf',
-                             help='Scoring method: rf (random forest, default), ml (deep learning), both (compare methods)')
     score_parser.add_argument('--min-amp-pred', type=float,
                              help='Minimum amplification prediction score (default: 10)')
     score_parser.add_argument('--full-score', action='store_true',
@@ -732,12 +728,6 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Deprecated alias for the current default behavior '
                                   '(thermodynamic histogram features are skipped). '
                                   'Accepted for backwards compatibility.')
-
-    # ML-specific options (when --method ml or both)
-    score_parser.add_argument('--model-path', type=str,
-                             help='Path to pre-trained deep learning model')
-    score_parser.add_argument('--embedding-dim', type=int, default=128,
-                             help='Embedding dimension for deep learning (default: 128)')
 
     # Enhanced feature engineering options
     score_parser.add_argument('--use-enhanced-features', action='store_true',
