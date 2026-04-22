@@ -768,13 +768,19 @@ Run "neoswga <command> --help" for details on a specific command.
                                   'coverage-then-dimerfree (DS->clique cascade), '
                                   'dimerfree-scored (clique->network scoring). '
                                   'Use --method-guide for detailed comparison.')
-    opt_method_group.add_argument('--strategy',
+    opt_method_group.add_argument('--scoring-weights', '--strategy',
+                             dest='scoring_weights',
                              choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
                              default='balanced',
-                             help='Strategy preset for normalized optimizer: '
+                             help='Scoring-weight preset for the normalized optimizer: '
                                   'clinical (high specificity), discovery (max coverage), '
                                   'fast (quick screening), balanced (equal weights), '
-                                  'enrichment (sequencing). Only used with --optimization-method=normalized')
+                                  'enrichment (sequencing). Only used with '
+                                  '--optimization-method=normalized. '
+                                  '`--strategy` is the deprecated spelling; it still '
+                                  'works but overlaps confusingly with `--application`, '
+                                  'which is a separate knob that tunes set size rather '
+                                  'than scoring weights.')
     opt_method_group.add_argument('--method-guide', action='store_true',
                              help='Show optimization method selection guide and exit')
 
@@ -2201,10 +2207,14 @@ def run_step4(args):
         if minimize_primers:
             logger.info(f"Minimal primer selection enabled (target coverage: {target_coverage:.1%})")
 
-        # Get strategy for normalized optimizer
-        strategy = getattr(args, 'strategy', 'balanced')
+        # Get scoring-weights preset for normalized optimizer.
+        # argparse `--strategy` feeds the same `scoring_weights` dest via
+        # argument aliasing, so either spelling works.
+        strategy = getattr(args, 'scoring_weights', None) or getattr(
+            args, 'strategy', 'balanced'
+        )
         if args.optimization_method == 'normalized':
-            logger.info(f"Using normalized optimizer with strategy: {strategy}")
+            logger.info(f"Using normalized optimizer with scoring-weights: {strategy}")
 
         # Background pre-filter flag (enabled by default, --no-bg-prefilter disables)
         bg_prefilter = not getattr(args, 'no_bg_prefilter', False)

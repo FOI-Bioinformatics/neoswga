@@ -443,7 +443,7 @@ def run_optimization(
         'normalized': (
             "--optimization-method=normalized is a weighted-sum over the "
             "`network` objective. Prefer `--optimization-method=network` "
-            "with --strategy / --tm-weight / --uniformity-weight / "
+            "with --scoring-weights / --tm-weight / --uniformity-weight / "
             "--dimer-penalty for the same effect."
         ),
     }
