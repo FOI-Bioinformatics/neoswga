@@ -138,9 +138,9 @@ def test_plasmid_golden_snapshot(plasmid_workdir, reset_pipeline_state):
     dimer_risk = metrics.get('dimer_risk_score', 0.0)
 
     # Snapshot 3: fg_coverage must be high. The plasmid is 6.2 kb and
-    # phi29 reach is 3 kb, so a 2-3 primer set trivially covers it.
-    # Saturation-bounded, but we still assert the coverage number is
-    # non-degenerate (the Phase 17B warning fires elsewhere, not here).
+    # phi29 reach is 3 kb, so a single primer's window (±3 kb around
+    # each binding site, wrapping across the circular origin) covers
+    # ~97% of the plasmid. Multi-site / multi-primer sets saturate.
     assert fg_cov >= 0.95, (
         f"Plasmid fg_coverage should be >=0.95, got {fg_cov}. "
         f"Regression in coverage computation or optimizer dispatch."

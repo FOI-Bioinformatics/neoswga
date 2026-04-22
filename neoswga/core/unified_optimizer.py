@@ -378,20 +378,27 @@ def run_optimization(
             verbose=verbose,
         )
 
-    # Determine polymerase extension reach for coverage computation
+    # Determine polymerase extension reach for coverage computation.
+    # Uses realistic per-primer reach (phi29 ~3 kb, equiphi29 ~4 kb), not
+    # single-molecule processivity. See coverage.polymerase_extension_reach
+    # for the Clarke 2017 / Dwivedi-Yu 2023 rationale.
     polymerase = kwargs.get('polymerase') or getattr(parameter, 'polymerase', 'phi29')
     try:
-        from .reaction_conditions import get_polymerase_processivity
-        extension_reach = get_polymerase_processivity(polymerase)
+        from .coverage import polymerase_extension_reach
+        extension_reach = polymerase_extension_reach(polymerase, coverage_metric='realistic')
     except (ImportError, ValueError):
-        extension_reach = 70000  # Phi29 default
+        extension_reach = 3000  # phi29 realistic per-primer reach
 
     # Build optimizer config
+    fg_circular = kwargs.get('fg_circular')
+    if fg_circular is None:
+        fg_circular = bool(getattr(parameter, 'fg_circular', False))
     config = OptimizerConfig(
         target_set_size=target_size,
         max_iterations=kwargs.get('max_iterations', 100),
         verbose=verbose,
         extension_reach=extension_reach,
+        fg_circular=fg_circular,
     )
 
     # By this point `conditions` is either a valid object or None (with
@@ -469,6 +476,7 @@ def run_optimization(
                 prefixes=fg_prefixes,
                 seq_lengths=fg_seq_lengths,
                 extension=_ext,
+                circular=fg_circular,
             )
             if per_target:
                 new_metrics = _dc_replace(result.metrics, per_target_coverage=per_target)

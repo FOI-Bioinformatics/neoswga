@@ -141,9 +141,11 @@ class BackgroundAwareOptimizer:
         # Create sub-optimizers with adaptive bin_size for small genomes
         min_genome = min(fg_seq_lengths) if fg_seq_lengths else 100000
         bin_size = min(10000, max(100, min_genome // 10))
+        # Use realistic per-primer reach for coverage (phi29 ~3 kb); see
+        # coverage.polymerase_extension_reach docstring.
         self.coverage_optimizer = DominatingSetOptimizer(
             position_cache, fg_prefixes, fg_seq_lengths, bin_size=bin_size,
-            extension_reach=70000  # phi29 default processivity
+            extension_reach=3000,
         )
         self.network_optimizer = NetworkOptimizer(
             position_cache, fg_prefixes, bg_prefixes, fg_seq_lengths, bg_seq_lengths
@@ -340,7 +342,7 @@ class BackgroundAwareOptimizer:
 
         return current_primers, final_coverage, final_bg_sites
 
-    def _calculate_coverage(self, primers: List[str], extension_reach: int = 70000) -> float:
+    def _calculate_coverage(self, primers: List[str], extension_reach: int = 3000) -> float:
         """Calculate genome coverage accounting for polymerase extension.
 
         Each binding site covers a region of extension_reach bp in both

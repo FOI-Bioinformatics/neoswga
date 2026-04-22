@@ -391,8 +391,18 @@ class OptimizerConfig:
     verbose: bool = True
 
     # Polymerase-specific extension reach (bp) for coverage computation.
-    # Default 70000 (Phi29). Set from POLYMERASE_CHARACTERISTICS.
-    extension_reach: int = 70000
+    # Default 3000 is the realistic per-primer reach in a dense SWGA design
+    # (phi29 ~3 kb, equiphi29 ~4 kb; see coverage.polymerase_extension_reach
+    # and reaction_conditions.get_typical_amplicon_length). Per Phase 16
+    # critical gap #2, this value controls the coverage objective that
+    # optimizers maximize; using processivity here inflates fg_coverage
+    # 5-20x over what the set can actually amplify.
+    extension_reach: int = 3000
+
+    # Whether the target sequence is closed-circular. Controls whether the
+    # coverage window around a binding site wraps past the sequence ends.
+    # Populated from params.json `fg_circular` via unified_optimizer.
+    fg_circular: bool = False
 
     # Convergence criteria
     convergence_threshold: float = 0.001
@@ -729,31 +739,36 @@ class BaseOptimizer(ABC):
     def _compute_coverage(self, positions: List[int], total_length: int) -> float:
         """Compute coverage fraction from positions.
 
-        Uses ``config.extension_reach`` (polymerase processivity in bp) to
+        Uses ``config.extension_reach`` (per-primer reach in bp) to
         determine how far each binding site extends along the genome.
-        Phi29 extends in both directions from the primer binding site.
+        Each binding site marks ``[pos - reach, pos + reach]`` occupied
+        and coverage is the union across all positions.
+
+        When ``config.fg_circular`` is True, the window wraps past the
+        sequence ends instead of being clipped. Delegates the per-site
+        marking to :func:`coverage._mark_window` so this implementation
+        stays in sync with :func:`coverage.compute_per_prefix_coverage`.
         """
+        import numpy as np
+        from .coverage import _mark_window
+
         if not positions or total_length == 0:
             return 0.0
+
         extension_reach = self.config.extension_reach
+        circular = getattr(self.config, 'fg_circular', False)
 
-        # Build intervals: each binding site covers [pos - reach, pos + reach]
-        intervals = []
-        for pos in sorted(positions):
-            start = max(0, pos - extension_reach)
-            end = min(total_length, pos + extension_reach)
-            intervals.append((start, end))
+        # Full coverage short-circuit: on a circular target, a single
+        # binding site whose window spans the whole sequence covers
+        # everything.
+        if circular and 2 * extension_reach >= total_length:
+            return 1.0
 
-        # Merge overlapping intervals
-        merged = [intervals[0]]
-        for start, end in intervals[1:]:
-            if start <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-            else:
-                merged.append((start, end))
+        occupied = np.zeros(total_length, dtype=bool)
+        for pos in positions:
+            _mark_window(occupied, int(pos), extension_reach, total_length, circular)
 
-        covered = sum(end - start for start, end in merged)
-        return min(1.0, covered / total_length)
+        return float(occupied.sum()) / total_length
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
         """Compute gaps between adjacent binding sites."""
