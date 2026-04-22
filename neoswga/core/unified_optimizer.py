@@ -431,6 +431,30 @@ def run_optimization(
         except Exception as e:
             logger.debug(f"application weight lookup skipped: {e}")
 
+    # Deprecation warnings for wrapper / preset optimizers whose function
+    # is expressible via other flags (polymerase preset or --strategy /
+    # application weights). Fire once per run, not per primer.
+    _DEPRECATED_METHOD_HINTS = {
+        'equiphi29': (
+            "--optimization-method=equiphi29 wraps the default `hybrid` "
+            "optimizer at 42 C. Prefer `--polymerase=equiphi29` with the "
+            "default optimizer."
+        ),
+        'normalized': (
+            "--optimization-method=normalized is a weighted-sum over the "
+            "`network` objective. Prefer `--optimization-method=network` "
+            "with --strategy / --tm-weight / --uniformity-weight / "
+            "--dimer-penalty for the same effect."
+        ),
+    }
+    if method in _DEPRECATED_METHOD_HINTS:
+        logger.warning(
+            "deprecation: %s method remains available but will be removed "
+            "in a future release. %s",
+            method,
+            _DEPRECATED_METHOD_HINTS[method],
+        )
+
     # Create optimizer via factory
     try:
         optimizer = OptimizerFactory.create(
