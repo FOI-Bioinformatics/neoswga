@@ -735,11 +735,6 @@ Run "neoswga <command> --help" for details on a specific command.
     score_parser.add_argument('--enhanced-model-path', type=str, default=None,
                              help='Path to enhanced random forest model')
 
-    # Blacklist metadata (filtering happens at step2; this is a passthrough so
-    # params.json contains the full record for audit trails).
-    score_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
-                             help='Blacklist genome FASTA file(s); informational at this step, filtering happens in step2.')
-
     # =========================================================================
     # STEP 4: Primer set optimization
     # =========================================================================
@@ -879,11 +874,6 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Validate results with stochastic simulation (Gillespie algorithm)')
     opt_val_group.add_argument('--simulation-time', type=float, default=3600.0,
                              help='Simulation time in seconds (default: 3600)')
-
-    # Blacklist passthrough: filtering already happened at step2; included for
-    # CLI surface consistency and audit-trail parity with params.json.
-    optimize_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
-                             help='Blacklist genome FASTA file(s); informational at this step, filtering happens in step2.')
 
     # =========================================================================
     # UNIFIED: Complete pipeline (all 4 steps)
