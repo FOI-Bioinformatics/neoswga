@@ -10,8 +10,8 @@
   "polymerase": "equiphi29",
   "reaction_temp": 43.0,
 
-  "min_k": 15,
-  "max_k": 15,
+  "min_k": 17,
+  "max_k": 17,
   "long_primer_mode": true,
 
   "na_conc": 50.0,
@@ -21,7 +21,7 @@
   "dmso_percent": 5.0,
   "betaine_m": 1.5,
 
-  "min_fg_freq": 2e-3,
+  "min_fg_freq": 0.015,
   "max_bg_freq": 5e-6,
   "min_tm": 40,
   "max_tm": 65,
