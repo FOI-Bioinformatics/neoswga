@@ -640,10 +640,13 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         metrics.coverage is not None and metrics.coverage.from_optimizer
     )
     if from_optimizer:
-        coverage_badge_label = "Measured"
+        reach = metrics.coverage.extension_reach if metrics.coverage else None
+        coverage_badge_label = (
+            f"Measured ({reach:,} bp reach)" if reach else "Measured"
+        )
         coverage_badge_class = "badge-measured"
     else:
-        coverage_badge_label = "Estimated"
+        coverage_badge_label = "Estimated (30 kb/primer)"
         coverage_badge_class = "badge-estimated"
 
     # Gap analysis section

@@ -2134,9 +2134,13 @@ def run_step4(args):
                     logger.warning(f"Could not create mechanistic model: {e}")
                     mech_effects = create_baseline_effects()
 
-                # Get processivity based on polymerase
-                processivity_map = {'phi29': 70000, 'equiphi29': 80000, 'bst': 2000, 'klenow': 10000}
-                processivity = processivity_map.get(polymerase, 70000)
+                # Per-primer reach for the recommender. Uses realistic per-primer
+                # reach (Phase 16) so the prediction matches what the optimizer
+                # actually measures via base_optimizer.compute_metrics
+                # (extension_reach=3000 bp default). Passing theoretical
+                # processivity here under-counted required primers ~10-20x.
+                from neoswga.core.coverage import polymerase_extension_reach
+                processivity = polymerase_extension_reach(polymerase, coverage_metric='realistic')
 
                 # Get recommendation (supports new min_fg_bg_ratio parameter)
                 recommendation = recommend_set_size(

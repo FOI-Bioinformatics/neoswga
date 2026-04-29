@@ -511,12 +511,23 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
     num_primers = getattr(parameter, 'num_primers', 10)
     target_set_size = getattr(parameter, 'target_set_size', num_primers)
 
+    # Per-primer reach for coverage. Use realistic phi29 reach (Phase 16,
+    # default 3 kb) so this entry's coverage matches the dominating-set
+    # adapter and base_optimizer rather than reporting bin-only coverage.
+    polymerase = getattr(parameter, 'polymerase', 'phi29')
+    try:
+        from neoswga.core.coverage import polymerase_extension_reach
+        extension_reach = polymerase_extension_reach(polymerase, coverage_metric='realistic')
+    except (ImportError, ValueError):
+        extension_reach = 3000
+
     # Create dominating set optimizer
     optimizer = DominatingSetOptimizer(
         cache=cache,
         fg_prefixes=fg_prefixes,
         fg_seq_lengths=fg_seq_lengths,
-        bin_size=10000  # 10 kb bins
+        bin_size=10000,  # 10 kb bins
+        extension_reach=extension_reach,
     )
 
     # Run greedy optimization (fast, within ln(n) of optimal)

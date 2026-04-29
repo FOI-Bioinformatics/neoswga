@@ -192,7 +192,37 @@ class ParamValidator:
         # Check for suboptimal settings
         self._check_optimization(params)
 
+        # Flag no-background mode so users know bg-related filters are inert
+        self._check_background_source(params)
+
         return self.messages
+
+    def _check_background_source(self, params: Dict) -> None:
+        """Inform when no background source is configured.
+
+        With no bg_genomes, bg_prefixes, or bloom_filter_path, the
+        background-frequency filters and ratio gates have no effect; the
+        pipeline runs in foreground-only mode and specificity comes from
+        primer length and foreground filtering only.
+        """
+        has_bg_genomes = bool(params.get('bg_genomes'))
+        has_bg_prefixes = bool(params.get('bg_prefixes'))
+        has_bloom = bool(params.get('bloom_filter_path'))
+
+        if not (has_bg_genomes or has_bg_prefixes or has_bloom):
+            self.messages.append(ValidationMessage(
+                level=ValidationLevel.INFO,
+                parameter='bg_genomes',
+                message=(
+                    "Background-free mode: no bg_genomes, bg_prefixes, or "
+                    "bloom_filter_path configured. max_bg_freq and "
+                    "min_fg_to_bg_ratio will have no effect."
+                ),
+                suggestion=(
+                    "Add a background genome or Bloom filter if you need "
+                    "specificity filtering against host or related taxa."
+                ),
+            ))
 
     def _check_required(self, params: Dict) -> None:
         """Check required parameters exist."""

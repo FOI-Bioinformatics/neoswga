@@ -65,6 +65,12 @@ class PrimerSetMetrics:
     # instead of a single aggregate. Empty dict in single-genome mode.
     per_target_coverage: Dict[str, float] = field(default_factory=dict)
 
+    # Per-primer extension reach (bp) used to compute fg_coverage. Recorded
+    # so the report can label "95% coverage at 3 kb reach" rather than
+    # leaving the granularity ambiguous. Defaults to the Phase 16 realistic
+    # per-primer reach for phi29.
+    extension_reach: int = 3000
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -84,6 +90,7 @@ class PrimerSetMetrics:
             'strand_alternation_score': self.strand_alternation_score,
             'strand_coverage_ratio': self.strand_coverage_ratio,
             'per_target_coverage': dict(self.per_target_coverage),
+            'extension_reach': self.extension_reach,
         }
 
     # Application-profile weights for POST-HOC scoring (Phase 14C).
@@ -734,6 +741,7 @@ class BaseOptimizer(ABC):
             gap_entropy=gap_entropy,
             strand_alternation_score=strand_alt_score,
             strand_coverage_ratio=strand_cov_ratio,
+            extension_reach=self.config.extension_reach,
         )
 
     def _compute_coverage(self, positions: List[int], total_length: int) -> float:

@@ -343,11 +343,13 @@ class BackgroundAwareOptimizer:
         return current_primers, final_coverage, final_bg_sites
 
     def _calculate_coverage(self, primers: List[str], extension_reach: int = 3000) -> float:
-        """Calculate genome coverage accounting for polymerase extension.
+        """Genome coverage with strand-direction-aware polymerase extension.
 
-        Each binding site covers a region of extension_reach bp in both
-        directions. Coverage is the fraction of the genome within reach
-        of at least one binding site.
+        Forward-strand binding sites extend downstream only [pos, pos+reach);
+        reverse-strand sites extend upstream only [pos-reach, pos). This
+        matches phi29's directional extension from the primer 3' end and is
+        consistent with the bipartite-graph model in
+        dominating_set_optimizer.BipartiteGraph.add_primer_coverage.
         """
         if not primers:
             return 0.0
@@ -356,26 +358,23 @@ class BackgroundAwareOptimizer:
         if total_genome_length == 0:
             return 0.0
 
-        # Collect all binding positions across all foreground genomes
-        all_positions = []
+        intervals = []
         for primer in primers:
             for prefix in self.fg_prefixes:
-                positions = self.cache.get_positions(prefix, primer, 'both')
-                all_positions.extend(positions)
+                for pos in self.cache.get_positions(prefix, primer, 'forward'):
+                    start = int(pos)
+                    end = min(total_genome_length, start + extension_reach)
+                    if end > start:
+                        intervals.append((start, end))
+                for pos in self.cache.get_positions(prefix, primer, 'reverse'):
+                    end = int(pos)
+                    start = max(0, end - extension_reach)
+                    if end > start:
+                        intervals.append((start, end))
 
-        if not all_positions:
+        if not intervals:
             return 0.0
 
-        # Merge overlapping coverage intervals
-        all_positions.sort()
-        covered = 0
-        intervals = []
-        for pos in all_positions:
-            start = max(0, pos - extension_reach)
-            end = min(total_genome_length, pos + extension_reach)
-            intervals.append((start, end))
-
-        # Merge overlapping intervals
         intervals.sort()
         merged = [intervals[0]]
         for start, end in intervals[1:]:

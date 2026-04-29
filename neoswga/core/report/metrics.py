@@ -213,6 +213,10 @@ class CoverageMetrics:
     gap_gini: float = 0.0
     gap_entropy: float = 0.0
     from_optimizer: bool = False
+    # Per-primer extension reach (bp) used by the optimizer to compute
+    # overall_coverage. None when the value comes from the fallback
+    # estimate (n_primers * 30 kb) instead of a measured optimizer run.
+    extension_reach: Optional[int] = None
 
 
 @dataclass
@@ -606,6 +610,7 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         if 'fg_coverage' in opt_metrics:
             metrics.coverage.overall_coverage = opt_metrics['fg_coverage']
             metrics.coverage.from_optimizer = True
+            metrics.coverage.extension_reach = opt_metrics.get('extension_reach')
             if metrics.coverage.total_bases > 0:
                 metrics.coverage.covered_bases = int(
                     opt_metrics['fg_coverage'] * metrics.coverage.total_bases

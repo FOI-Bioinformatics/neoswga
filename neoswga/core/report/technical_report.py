@@ -1587,12 +1587,21 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     # Calculate derived values
     coverage_pct = metrics.coverage.overall_coverage * 100 if metrics.coverage else 0
     if metrics.coverage and metrics.coverage.from_optimizer:
-        coverage_source_note = (
-            "Coverage source: Measured from primer binding positions."
-        )
+        reach = metrics.coverage.extension_reach
+        if reach:
+            coverage_source_note = (
+                f"Coverage source: Measured from primer binding positions, "
+                f"interval coverage at {reach:,} bp per-primer reach."
+            )
+        else:
+            coverage_source_note = (
+                "Coverage source: Measured from primer binding positions."
+            )
     else:
         coverage_source_note = (
-            "Coverage source: Estimated from primer count (~30kb per primer)."
+            "Coverage source: Estimated from primer count "
+            "(~30 kb per primer; not a measured value). Run the optimizer "
+            "to obtain measured interval coverage."
         )
     total_sites = sum(p.fg_sites for p in metrics.primers)
     # Use 0 as default to indicate missing data, consistent with metrics.py

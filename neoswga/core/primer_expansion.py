@@ -162,7 +162,7 @@ class PrimerExpander:
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         bin_size: int = 10000,
-        max_extension: int = 70000,
+        max_extension: int = 3000,
     ):
         """
         Initialize primer expander.
@@ -174,7 +174,10 @@ class PrimerExpander:
             bg_prefixes: Background genome identifiers (optional)
             bg_seq_lengths: Background genome lengths (optional)
             bin_size: Bin size for coverage analysis (bp)
-            max_extension: Maximum polymerase extension distance (bp)
+            max_extension: Per-primer extension reach in bp. Defaults to 3000
+                (Phase 16 realistic per-primer reach for phi29 in dense SWGA),
+                matching base_optimizer.compute_metrics. Use 70000 for the
+                theoretical single-molecule processivity.
         """
         self.cache = position_cache
         self.fg_prefixes = fg_prefixes
@@ -463,6 +466,7 @@ class PrimerExpander:
             fg_prefixes=self.fg_prefixes,
             fg_seq_lengths=self.fg_seq_lengths,
             bin_size=self.bin_size,
+            extension_reach=self.max_extension,
         )
 
         result = optimizer.optimize_greedy(

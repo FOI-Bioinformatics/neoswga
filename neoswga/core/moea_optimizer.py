@@ -167,31 +167,26 @@ class PrimerSetProblem(Problem):
 
     def _calculate_coverage(self, primers: List[str], prefixes: List[str],
                            seq_lengths: List[int]) -> float:
-        """
-        Calculate genome coverage.
+        """Fraction of genome covered, using union-of-extension-window coverage.
 
-        Returns fraction of genome covered by primers.
+        Delegates to ``coverage.compute_per_prefix_coverage`` with the Phase 16
+        realistic per-primer reach (3000 bp) so the metric is comparable to the
+        coverage reported by base_optimizer and the dominating-set adapter.
         """
         if not primers:
             return 0.0
 
-        total_length = sum(seq_lengths)
-        covered_bases = 0
+        from neoswga.core.coverage import compute_per_prefix_coverage
 
-        for prefix, length in zip(prefixes, seq_lengths):
-            # Get all binding positions
-            positions = []
-            for primer in primers:
-                pos_fwd = self.cache.get_positions(prefix, primer, 'forward')
-                pos_rev = self.cache.get_positions(prefix, primer, 'reverse')
-                positions.extend(pos_fwd)
-                positions.extend(pos_rev)
-
-            if positions:
-                # Count unique positions (simplified coverage)
-                covered_bases += len(set(positions))
-
-        return covered_bases / total_length if total_length > 0 else 0.0
+        coverage, _ = compute_per_prefix_coverage(
+            cache=self.cache,
+            primers=primers,
+            prefixes=prefixes,
+            seq_lengths=seq_lengths,
+            extension=3000,
+            strand='both',
+        )
+        return coverage
 
     def _calculate_binding(self, primers: List[str], prefixes: List[str]) -> float:
         """
