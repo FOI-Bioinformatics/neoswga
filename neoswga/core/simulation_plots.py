@@ -16,15 +16,31 @@ Usage:
 """
 
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')  # Non-interactive backend
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
-import matplotlib.patches as mpatches
 from typing import Dict, List, Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    import matplotlib
+    matplotlib.use('Agg')  # Non-interactive backend
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+    import matplotlib.patches as mpatches
+    _MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    plt = None
+    Rectangle = None
+    mpatches = None
+    _MATPLOTLIB_AVAILABLE = False
+
+
+def _require_matplotlib():
+    if not _MATPLOTLIB_AVAILABLE:
+        raise ImportError(
+            "matplotlib is required for simulation plotting. "
+            "Install with: pip install neoswga[viz]"
+        )
 
 
 def generate_plots(result, simulator, analysis=None, output_file='simulation_plots.png'):
@@ -37,6 +53,7 @@ def generate_plots(result, simulator, analysis=None, output_file='simulation_plo
         analysis: Optional ComprehensiveAnalysis from SimulationAnalyzer
         output_file: Output file path
     """
+    _require_matplotlib()
     logger.info("Generating simulation plots...")
 
     # Create figure with subplots

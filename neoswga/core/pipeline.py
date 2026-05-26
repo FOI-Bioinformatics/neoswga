@@ -75,6 +75,13 @@ def _filter_blacklist_penalty(primers: List[str], bl_prefixes: List[str],
     Returns:
         Tuple of (boolean mask, list of bl_freq values).
     """
+    if len(bl_seq_lengths) != len(bl_prefixes):
+        raise ValueError(
+            f"bl_seq_lengths has {len(bl_seq_lengths)} entries but bl_prefixes "
+            f"has {len(bl_prefixes)}; each blacklist genome must have a known length. "
+            f"Check params.json and the blacklist preparation step."
+        )
+
     mask = []
     bl_freqs = []
     for primer in primers:
@@ -83,7 +90,7 @@ def _filter_blacklist_penalty(primers: List[str], bl_prefixes: List[str],
         total_length = 0
         for i, prefix in enumerate(bl_prefixes):
             kmer_file = f"{prefix}_{k}mer_all.txt"
-            seq_len = bl_seq_lengths[i] if i < len(bl_seq_lengths) else 1
+            seq_len = bl_seq_lengths[i]
             total_length += seq_len
             if os.path.exists(kmer_file):
                 try:

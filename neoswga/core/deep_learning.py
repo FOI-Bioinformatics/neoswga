@@ -604,7 +604,7 @@ class PrimerEmbedder:
 
         if DL_BACKEND == 'torch':
             import torch
-            self.model.load_state_dict(torch.load(path))
+            self.model.load_state_dict(torch.load(path, weights_only=True))
         elif DL_BACKEND == 'tensorflow':
             self.model.load_weights(path)
 
