@@ -310,9 +310,9 @@ class PositionDatabase:
                 except FileNotFoundError:
                     pass  # Skip missing files
 
-        print(f"Position database initialized:")
-        print(f"  Files: {len(self.handles)}")
-        print(f"  Cache size: {cache_size}")
+        logger.info(f"Position database initialized:")
+        logger.info(f"  Files: {len(self.handles)}")
+        logger.info(f"  Cache size: {cache_size}")
 
     def get_positions(self, primer: str, prefix: str) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -423,9 +423,9 @@ class PositionDatabase:
             primers: List of primers to preload
             prefix: File prefix
         """
-        print(f"Preloading {len(primers)} primers into cache...")
+        logger.info(f"Preloading {len(primers)} primers into cache...")
         self.batch_get_positions(primers, prefix)
-        print(f"  Cache now contains {len(self.cache)} entries")
+        logger.info(f"  Cache now contains {len(self.cache)} entries")
 
     def get_cache_stats(self) -> Dict:
         """Get cache statistics."""

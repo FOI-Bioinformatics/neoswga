@@ -12,6 +12,7 @@ Enables:
 - Optimal primer set selection via network properties
 """
 
+import logging
 import numpy as np
 import networkx as nx
 from typing import List, Dict, Tuple, Set, Optional
@@ -21,6 +22,8 @@ import h5py
 
 from neoswga.core import thermodynamics as thermo
 from neoswga.core import reaction_conditions as rc
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -105,7 +108,7 @@ class AmpliconNetwork:
 
         Creates nodes for binding sites and edges for valid amplicons.
         """
-        print("Building amplicon network...")
+        logger.info("Building amplicon network...")
 
         node_id = 0
         primer_nodes = defaultdict(list)  # primer -> node IDs
@@ -134,7 +137,7 @@ class AmpliconNetwork:
                 primer_nodes[(primer, 'reverse')].append(node_id)
                 node_id += 1
 
-        print(f"  Nodes: {self.G.number_of_nodes():,}")
+        logger.info(f"  Nodes: {self.G.number_of_nodes():,}")
 
         # Add edges for valid amplicons
         # Amplicon: forward primer -> downstream reverse primer
@@ -163,8 +166,8 @@ class AmpliconNetwork:
                             )
                             edge_count += 1
 
-        print(f"  Edges: {edge_count:,}")
-        print(f"  Potential amplicons: {edge_count:,}")
+        logger.info(f"  Edges: {edge_count:,}")
+        logger.info(f"  Potential amplicons: {edge_count:,}")
 
     def calculate_coverage(self) -> float:
         """
@@ -270,22 +273,22 @@ class AmpliconNetwork:
         Returns:
             NetworkMetrics object
         """
-        print("Analyzing amplicon network...")
+        logger.info("Analyzing amplicon network...")
 
         coverage = self.calculate_coverage()
-        print(f"  Coverage: {coverage:.1%}")
+        logger.info(f"  Coverage: {coverage:.1%}")
 
         hubs = self.find_hubs()
-        print(f"  Hubs: {len(hubs)}")
+        logger.info(f"  Hubs: {len(hubs)}")
 
         amplicon_stats = self.calculate_amplicon_statistics()
-        print(f"  Mean amplicon length: {amplicon_stats['mean']:.0f} bp")
+        logger.info(f"  Mean amplicon length: {amplicon_stats['mean']:.0f} bp")
 
         # Connected components
         components = list(nx.strongly_connected_components(self.G))
         largest_component = max(components, key=len) if components else set()
-        print(f"  Connected components: {len(components)}")
-        print(f"  Largest component: {len(largest_component)} nodes")
+        logger.info(f"  Connected components: {len(components)}")
+        logger.info(f"  Largest component: {len(largest_component)} nodes")
 
         # Graph metrics
         if self.G.number_of_nodes() > 0:
@@ -348,7 +351,7 @@ class AmpliconNetwork:
         Returns:
             List of (primer, centrality) sorted by importance
         """
-        print("Finding critical primers...")
+        logger.info("Finding critical primers...")
 
         # Calculate betweenness centrality
         betweenness = nx.betweenness_centrality(self.G)
@@ -400,13 +403,13 @@ def network_based_primer_selection(
     selected = []
     remaining = set(primer_candidates)
 
-    print(f"Network-based primer selection (target: {target_set_size} primers)")
+    logger.info(f"Network-based primer selection (target: {target_set_size} primers)")
 
     for iteration in range(target_set_size):
         best_primer = None
         best_coverage = 0.0
 
-        print(f"\nIteration {iteration + 1}/{target_set_size}")
+        logger.info(f"\nIteration {iteration + 1}/{target_set_size}")
 
         for candidate in remaining:
             # Test adding this primer
@@ -429,10 +432,10 @@ def network_based_primer_selection(
         if best_primer:
             selected.append(best_primer)
             remaining.remove(best_primer)
-            print(f"  Selected: {best_primer}")
-            print(f"  Coverage: {best_coverage:.1%}")
+            logger.info(f"  Selected: {best_primer}")
+            logger.info(f"  Coverage: {best_coverage:.1%}")
         else:
-            print("  No improvement possible")
+            logger.info("  No improvement possible")
             break
 
     return selected

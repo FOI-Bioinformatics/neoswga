@@ -16,6 +16,7 @@ Enables prediction of:
 - Primer set performance
 """
 
+import logging
 import math
 import numpy as np
 from typing import List, Dict, Tuple, Optional, Set, TYPE_CHECKING
@@ -23,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 import random
 import warnings
+
+logger = logging.getLogger(__name__)
 
 from neoswga.core import thermodynamics as thermo
 from neoswga.core import reaction_conditions as rc
@@ -329,22 +332,22 @@ class Phi29Simulator:
         self.forks_displaced = 0
         self.displacement_events = 0
 
-        print(f"Phi29 Simulator initialized:")
-        print(f"  Genome: {genome_length:,} bp (GC: {self.template_gc:.1%})")
-        print(f"  Primers: {len(primers)}")
-        print(f"  Polymerase: {conditions.polymerase}")
-        print(f"  Extension rate: {self.config.extension_rate:.0f} bp/s")
-        print(f"  Processivity: {self.config.processivity_limit:,} bp")
-        print(f"  Duration: {self.config.duration:.0f} s ({self.config.duration/3600:.1f} hours)")
+        logger.info(f"Phi29 Simulator initialized:")
+        logger.info(f"  Genome: {genome_length:,} bp (GC: {self.template_gc:.1%})")
+        logger.info(f"  Primers: {len(primers)}")
+        logger.info(f"  Polymerase: {conditions.polymerase}")
+        logger.info(f"  Extension rate: {self.config.extension_rate:.0f} bp/s")
+        logger.info(f"  Processivity: {self.config.processivity_limit:,} bp")
+        logger.info(f"  Duration: {self.config.duration:.0f} s ({self.config.duration/3600:.1f} hours)")
         if self.config.use_mechanistic_model:
-            print(f"  Mechanistic model: enabled (speed={self._speed_factor:.2f}, proc={self._processivity_factor:.2f})")
+            logger.info(f"  Mechanistic model: enabled (speed={self._speed_factor:.2f}, proc={self._processivity_factor:.2f})")
         if self.config.probabilistic_processivity:
-            print(f"  Processivity mode: probabilistic (geometric distribution)")
+            logger.info(f"  Processivity mode: probabilistic (geometric distribution)")
         if self.config.enable_strand_displacement:
-            print(f"  Strand displacement: enabled (hyperbranching)")
-            print(f"    Displacement probability: {self.config.displacement_probability:.0%}")
-            print(f"    ssDNA binding boost: {self.config.displaced_strand_binding_boost:.1f}x")
-            print(f"    Max amplification: {self.config.max_amplification_fold:.0e}x")
+            logger.info(f"  Strand displacement: enabled (hyperbranching)")
+            logger.info(f"    Displacement probability: {self.config.displacement_probability:.0%}")
+            logger.info(f"    ssDNA binding boost: {self.config.displaced_strand_binding_boost:.1f}x")
+            logger.info(f"    Max amplification: {self.config.max_amplification_fold:.0e}x")
 
     def _calculate_template_gc(self) -> float:
         """Calculate overall GC content of template."""
@@ -384,9 +387,9 @@ class Phi29Simulator:
         Returns:
             SimulationResult with coverage and amplification metrics
         """
-        print("\nStarting simulation...")
+        logger.info("\nStarting simulation...")
         if self.config.enable_strand_displacement:
-            print("  Hyperbranching mode: enabled")
+            logger.info("  Hyperbranching mode: enabled")
 
         # Initialize primers
         self._initialize_primers()
@@ -429,13 +432,13 @@ class Phi29Simulator:
                     if self.config.enable_strand_displacement:
                         msg += f", Amplification={amplification:.1f}x"
                         msg += f", Displaced strands={len(self.displaced_strands)}"
-                    print(msg)
+                    logger.info(msg)
 
             # Check for resource exhaustion
             if self._check_resource_limits():
                 if verbose:
-                    print(f"  Resource limit reached at t={self.current_time/60:.1f}min")
-                    print(f"    Amplification: {self._calculate_amplification_fold():.1f}x")
+                    logger.info(f"  Resource limit reached at t={self.current_time/60:.1f}min")
+                    logger.info(f"    Amplification: {self._calculate_amplification_fold():.1f}x")
                 resource_limited = True
                 break
 
@@ -443,21 +446,21 @@ class Phi29Simulator:
             active = sum(1 for f in self.forks if f.state == ForkState.ACTIVE)
             if active == 0 and self.current_time > 60:
                 if verbose:
-                    print(f"  No active forks at t={self.current_time/60:.1f}min, terminating early")
+                    logger.info(f"  No active forks at t={self.current_time/60:.1f}min, terminating early")
                 break
 
         final_coverage = self.coverage.sum() / self.genome_length
         final_amplification = self._calculate_amplification_fold()
 
         if verbose:
-            print(f"\nSimulation complete:")
-            print(f"  Final coverage: {final_coverage:.1%}")
-            print(f"  Forks created: {self.forks_created}")
-            print(f"  Forks terminated: {self.forks_terminated}")
+            logger.info(f"\nSimulation complete:")
+            logger.info(f"  Final coverage: {final_coverage:.1%}")
+            logger.info(f"  Forks created: {self.forks_created}")
+            logger.info(f"  Forks terminated: {self.forks_terminated}")
             if self.config.enable_strand_displacement:
-                print(f"  Displacement events: {self.displacement_events}")
-                print(f"  Displaced strands: {len(self.displaced_strands)}")
-                print(f"  Total bases synthesized: {self.total_bases_synthesized:,}")
+                logger.info(f"  Displacement events: {self.displacement_events}")
+                logger.info(f"  Displaced strands: {len(self.displaced_strands)}")
+                logger.info(f"  Total bases synthesized: {self.total_bases_synthesized:,}")
                 print(f"  Final amplification: {final_amplification:.1f}x")
                 if resource_limited:
                     print(f"  Note: Simulation ended due to resource limits")
@@ -1028,12 +1031,12 @@ def simulate_primer_set(primers: List[str],
 
     results = []
 
-    print(f"Running {n_replicates} simulation replicates...")
+    logger.info(f"Running {n_replicates} simulation replicates...")
 
     for i in range(n_replicates):
-        print(f"\n{'='*60}")
-        print(f"Replicate {i+1}/{n_replicates}")
-        print(f"{'='*60}")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Replicate {i+1}/{n_replicates}")
+        logger.info(f"{'='*60}")
 
         simulator = Phi29Simulator(
             primers, primer_positions, genome_length,
@@ -1049,12 +1052,12 @@ def simulate_primer_set(primers: List[str],
     coverages = [r.final_coverage_fraction for r in results]
     amplifications = [r.amplification_fold for r in results]
 
-    print(f"\n{'='*60}")
-    print("Aggregate Results:")
-    print(f"{'='*60}")
-    print(f"Coverage: {np.mean(coverages):.1%} +/- {np.std(coverages):.1%}")
-    print(f"Mean forks created: {np.mean([r.num_forks_created for r in results]):.0f}")
-    print(f"Mean fork travel: {np.mean([r.mean_fork_travel for r in results]):.0f} bp")
+    logger.info(f"\n{'='*60}")
+    logger.info("Aggregate Results:")
+    logger.info(f"{'='*60}")
+    logger.info(f"Coverage: {np.mean(coverages):.1%} +/- {np.std(coverages):.1%}")
+    logger.info(f"Mean forks created: {np.mean([r.num_forks_created for r in results]):.0f}")
+    logger.info(f"Mean fork travel: {np.mean([r.mean_fork_travel for r in results]):.0f} bp")
 
     # Hyperbranching metrics
     if config.enable_strand_displacement:

@@ -12,11 +12,15 @@ Integration Points:
     3. create_qa_aware_optimizer() - Network-aware optimization for Step 4
 """
 
+import logging
+
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from neoswga.core.three_prime_stability import (
     ThreePrimeStabilityAnalyzer,
@@ -110,10 +114,10 @@ def apply_post_step2_qa_filter(
     df['filter_reason'] = ''
 
     if verbose:
-        print(f"\n{'='*80}")
-        print("POST-STEP2 QA FILTERING")
-        print(f"{'='*80}")
-        print(f"Input primers: {primers_in}")
+        logger.info(f"\n{'='*80}")
+        logger.info("POST-STEP2 QA FILTERING")
+        logger.info(f"{'='*80}")
+        logger.info(f"Input primers: {primers_in}")
 
     # 1. 3' Stability Filter
     if config.enable_three_prime:
@@ -123,7 +127,7 @@ def apply_post_step2_qa_filter(
         )
 
         if verbose:
-            print(f"\n[1/3] 3' Stability Analysis ({config.three_prime_stringency})...")
+            logger.info(f"\n[1/3] 3' Stability Analysis ({config.three_prime_stringency})...")
 
         # Vectorized approach: analyze only primers that pass, in batch
         passing_mask = df['qa_pass']
@@ -156,13 +160,13 @@ def apply_post_step2_qa_filter(
 
         filter_reasons['3prime_stability'] = failed_3p
         if verbose:
-            print(f"   Filtered: {failed_3p} primers with poor 3' stability")
-            print(f"   Remaining: {df['qa_pass'].sum()}")
+            logger.info(f"   Filtered: {failed_3p} primers with poor 3' stability")
+            logger.info(f"   Remaining: {df['qa_pass'].sum()}")
 
     # 2. Dimer Network Filter
     if config.enable_dimer_network:
         if verbose:
-            print(f"\n[2/3] Dimer Network Analysis ({config.dimer_stringency})...")
+            logger.info(f"\n[2/3] Dimer Network Analysis ({config.dimer_stringency})...")
 
         # Only analyze primers that passed previous filters
         passing_primers = df[df['qa_pass']]['seq'].tolist()
@@ -195,17 +199,17 @@ def apply_post_step2_qa_filter(
 
             filter_reasons['dimer_hub'] = failed_dimer
             if verbose:
-                print(f"   Network size: {metrics.num_primers} primers")
-                print(f"   Hub primers filtered: {failed_dimer}")
-                print(f"   Remaining: {df['qa_pass'].sum()}")
+                logger.info(f"   Network size: {metrics.num_primers} primers")
+                logger.info(f"   Hub primers filtered: {failed_dimer}")
+                logger.info(f"   Remaining: {df['qa_pass'].sum()}")
         else:
             if verbose:
-                print("   No primers to analyze")
+                logger.info("   No primers to analyze")
 
     # 3. Integrated Quality Score
     if config.enable_integrated_scorer:
         if verbose:
-            print(f"\n[3/3] Integrated Quality Scoring...")
+            logger.info(f"\n[3/3] Integrated Quality Scoring...")
 
         scorer = create_quality_scorer('moderate', conditions)
 
@@ -228,7 +232,7 @@ def apply_post_step2_qa_filter(
 
         if verbose:
             mean_score = df[df['qa_pass']]['qa_score'].mean()
-            print(f"   Mean QA score: {mean_score:.3f}")
+            logger.info(f"   Mean QA score: {mean_score:.3f}")
 
     # Final results
     filtered_df = df[df['qa_pass']].copy()
@@ -237,16 +241,16 @@ def apply_post_step2_qa_filter(
     mean_qa_score = filtered_df['qa_score'].mean() if primers_out > 0 else 0.0
 
     if verbose:
-        print(f"\n{'='*80}")
-        print("QA FILTERING COMPLETE")
-        print(f"{'='*80}")
-        print(f"Input primers: {primers_in}")
-        print(f"Output primers: {primers_out}")
-        print(f"Filtered: {primers_filtered} ({100*primers_filtered/primers_in:.1f}%)")
-        print(f"Mean QA score: {mean_qa_score:.3f}")
-        print(f"\nFilter breakdown:")
+        logger.info(f"\n{'='*80}")
+        logger.info("QA FILTERING COMPLETE")
+        logger.info(f"{'='*80}")
+        logger.info(f"Input primers: {primers_in}")
+        logger.info(f"Output primers: {primers_out}")
+        logger.info(f"Filtered: {primers_filtered} ({100*primers_filtered/primers_in:.1f}%)")
+        logger.info(f"Mean QA score: {mean_qa_score:.3f}")
+        logger.info(f"\nFilter breakdown:")
         for reason, count in filter_reasons.items():
-            print(f"  {reason}: {count}")
+            logger.info(f"  {reason}: {count}")
 
     return QAFilterResult(
         primers_in=primers_in,
@@ -288,11 +292,11 @@ def combine_rf_qa_scores(
         >>> df.sort_values('composite_score', ascending=False)
     """
     if verbose:
-        print(f"\n{'='*80}")
-        print("COMBINING RF AND QA SCORES")
-        print(f"{'='*80}")
-        print(f"RF weight: {rf_weight:.2f}")
-        print(f"QA weight: {qa_weight:.2f}")
+        logger.info(f"\n{'='*80}")
+        logger.info("COMBINING RF AND QA SCORES")
+        logger.info(f"{'='*80}")
+        logger.info(f"RF weight: {rf_weight:.2f}")
+        logger.info(f"QA weight: {qa_weight:.2f}")
 
     df = step3_df.copy()
 
@@ -314,14 +318,14 @@ def combine_rf_qa_scores(
     )
 
     if verbose:
-        print(f"\nScore statistics:")
-        print(f"  RF scores: {df['score'].min():.2f} - {df['score'].max():.2f}")
-        print(f"  QA scores: {df['qa_score'].min():.3f} - {df['qa_score'].max():.3f}")
-        print(f"  Composite: {df['composite_score'].min():.3f} - {df['composite_score'].max():.3f}")
+        logger.info(f"\nScore statistics:")
+        logger.info(f"  RF scores: {df['score'].min():.2f} - {df['score'].max():.2f}")
+        logger.info(f"  QA scores: {df['qa_score'].min():.3f} - {df['qa_score'].max():.3f}")
+        logger.info(f"  Composite: {df['composite_score'].min():.3f} - {df['composite_score'].max():.3f}")
 
         # Show correlation
         correlation = df['rf_score_norm'].corr(df['qa_score'])
-        print(f"\nRF-QA correlation: {correlation:.3f}")
+        logger.info(f"\nRF-QA correlation: {correlation:.3f}")
 
     return df
 
@@ -392,14 +396,14 @@ class QAAwareOptimizer:
         # FIXED: Handle empty candidate list
         if not candidates:
             if verbose:
-                print("\nWarning: Empty candidate list provided to prefilter")
+                logger.info("\nWarning: Empty candidate list provided to prefilter")
             return [], {'original_count': 0, 'filtered_count': 0, 'hub_count': 0}
 
         if verbose:
-            print(f"\n{'='*80}")
-            print("QA-AWARE PRE-FILTERING")
-            print(f"{'='*80}")
-            print(f"Input candidates: {len(candidates)}")
+            logger.info(f"\n{'='*80}")
+            logger.info("QA-AWARE PRE-FILTERING")
+            logger.info(f"{'='*80}")
+            logger.info(f"Input candidates: {len(candidates)}")
 
         # Analyze dimer network
         metrics, profiles, matrix = self.dimer_analyzer.analyze_primer_set(candidates)
@@ -416,16 +420,16 @@ class QAAwareOptimizer:
                 hub_primers.append((profile.primer, profile.degree))
 
         if verbose:
-            print(f"\nNetwork analysis:")
-            print(f"  Total interactions: {metrics.total_interactions}")
-            print(f"  Mean degree: {metrics.mean_degree:.2f}")
-            print(f"  Hub primers (>{hub_threshold} interactions): {len(hub_primers)}")
-            print(f"  Remaining candidates: {len(filtered)}")
+            logger.info(f"\nNetwork analysis:")
+            logger.info(f"  Total interactions: {metrics.total_interactions}")
+            logger.info(f"  Mean degree: {metrics.mean_degree:.2f}")
+            logger.info(f"  Hub primers (>{hub_threshold} interactions): {len(hub_primers)}")
+            logger.info(f"  Remaining candidates: {len(filtered)}")
 
             if hub_primers:
-                print(f"\nTop hub primers removed:")
+                logger.info(f"\nTop hub primers removed:")
                 for primer, degree in sorted(hub_primers, key=lambda x: x[1], reverse=True)[:5]:
-                    print(f"    {primer}: {degree} interactions")
+                    logger.info(f"    {primer}: {degree} interactions")
 
         metadata = {
             'original_count': len(candidates),
@@ -454,7 +458,7 @@ class QAAwareOptimizer:
         # FIXED: Handle empty candidate list
         if not candidates:
             if verbose:
-                print("\nWarning: Empty candidate list provided to rank_by_quality")
+                logger.info("\nWarning: Empty candidate list provided to rank_by_quality")
             return []
 
         scorer = create_quality_scorer('moderate', self.conditions)
@@ -470,10 +474,10 @@ class QAAwareOptimizer:
         scores.sort(key=lambda x: x[1], reverse=True)
 
         if verbose and scores:  # FIXED: Check scores is not empty
-            print(f"\nQuality ranking:")
-            print(f"  Top score: {scores[0][1]:.3f}")
-            print(f"  Median score: {scores[len(scores)//2][1]:.3f}")
-            print(f"  Bottom score: {scores[-1][1]:.3f}")
+            logger.info(f"\nQuality ranking:")
+            logger.info(f"  Top score: {scores[0][1]:.3f}")
+            logger.info(f"  Median score: {scores[len(scores)//2][1]:.3f}")
+            logger.info(f"  Bottom score: {scores[-1][1]:.3f}")
 
         return scores
 
@@ -521,4 +525,4 @@ def save_qa_report(
     output_path.write_text('\n'.join(report_lines))
 
     if verbose:
-        print(f"\nQA report saved to: {output_path}")
+        logger.info(f"\nQA report saved to: {output_path}")
