@@ -115,7 +115,7 @@ Repository = "https://github.com/FOI-Bioinformatics/neoswga"
 neoswga = "neoswga.cli_unified:main"
 
 [tool.setuptools]
-packages = ["neoswga", "neoswga.core", "neoswga.core.report", "neoswga.core.experimental", "neoswga.core.schema"]
+packages = ["neoswga", "neoswga.core", "neoswga.core.report", "neoswga.core.schema"]
 package-dir = {"" = "."}
 include-package-data = true
 

@@ -460,7 +460,7 @@ PRESETS = {
         'na_conc': 50.0,
         'mg_conc': 0.0,
         'ssb': False,
-        'optimization_method': 'genetic_algorithm',
+        'optimization_method': 'hybrid',
         'target_set_size': 6
     },
     'enhanced_equiphi29': {
@@ -471,7 +471,7 @@ PRESETS = {
         'na_conc': 50.0,
         'mg_conc': 0.0,
         'ssb': True,
-        'optimization_method': 'genetic_algorithm',
+        'optimization_method': 'hybrid',
         'target_set_size': 6
     },
     'long_primers_15mer': {
@@ -482,7 +482,7 @@ PRESETS = {
         'na_conc': 50.0,
         'mg_conc': 0.0,
         'ssb': True,
-        'optimization_method': 'genetic_algorithm',
+        'optimization_method': 'hybrid',
         'target_set_size': 6
     },
     'high_gc_genome': {
@@ -493,7 +493,7 @@ PRESETS = {
         'na_conc': 50.0,
         'mg_conc': 0.0,
         'ssb': True,
-        'optimization_method': 'genetic_algorithm',
+        'optimization_method': 'hybrid',
         'target_set_size': 8
     }
 }
@@ -515,13 +515,13 @@ COMMAND_GROUPS = [
         'analyze-set', 'analyze-genome', 'analyze-dimers', 'analyze-stability',
     ]),
     ('Advanced', [
-        'auto-pipeline', 'multi-genome', 'simulate', 'optimize-conditions',
+        'multi-genome', 'simulate', 'optimize-conditions',
         'build-filter', 'background-list', 'background-add',
         'genome-add', 'genome-list', 'genome-remove',
     ]),
     ('Experimental', [
-        'active-learn', 'expand-primers', 'swap-primer', 'contract-set',
-        'rescore-set', 'predict-efficiency', 'ml-predict',
+        'expand-primers', 'swap-primer', 'contract-set',
+        'rescore-set', 'predict-efficiency',
         'design-oligos', 'validate-model',
     ]),
 ]
@@ -745,37 +745,24 @@ Run "neoswga <command> --help" for details on a specific command.
     # Method Selection
     opt_method_group = optimize_parser.add_argument_group('Method Selection')
     opt_method_group.add_argument('-m', '--optimization-method',
-                             choices=['hybrid', 'greedy', 'dominating-set', 'weighted-set-cover',
-                                     'network', 'genetic', 'background-aware',
-                                     'milp', 'equiphi29', 'moea', 'normalized', 'tiling',
-                                     'clique', 'coverage-then-dimerfree', 'dimerfree-scored',
-                                     'bg-prefilter', 'bg-prefilter-hybrid'],
+                             choices=['hybrid', 'dominating-set',
+                                     'network', 'background-aware'],
                              default='hybrid',
                              help='Optimization method. '
                                   'Decision tree: '
                                   'hybrid (default, general use), '
                                   'dominating-set (speed-critical, large pools), '
                                   'background-aware (clinical, 10-20x bg reduction), '
-                                  'clique (dimer-free requirement), '
-                                  'equiphi29 (GC-rich genomes >65%%), '
-                                  'milp (exact solution, small pools). '
-                                  'Pipelines: '
-                                  'coverage-then-dimerfree (DS->clique cascade), '
-                                  'dimerfree-scored (clique->network scoring). '
+                                  'network (Tm-weighted, dimer-aware). '
                                   'Use --method-guide for detailed comparison.')
-    opt_method_group.add_argument('--scoring-weights', '--strategy',
+    opt_method_group.add_argument('--scoring-weights',
                              dest='scoring_weights',
                              choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
                              default='balanced',
-                             help='Scoring-weight preset for the normalized optimizer: '
+                             help='Scoring-weight preset for the network optimizer: '
                                   'clinical (high specificity), discovery (max coverage), '
                                   'fast (quick screening), balanced (equal weights), '
-                                  'enrichment (sequencing). Only used with '
-                                  '--optimization-method=normalized. '
-                                  '`--strategy` is the deprecated spelling; it still '
-                                  'works but overlaps confusingly with `--application`, '
-                                  'which is a separate knob that tunes set size rather '
-                                  'than scoring weights.')
+                                  'enrichment (sequencing).')
     opt_method_group.add_argument('--method-guide', action='store_true',
                              help='Show optimization method selection guide and exit')
 
@@ -881,12 +868,6 @@ Run "neoswga <command> --help" for details on a specific command.
     design_parser = subparsers.add_parser('design',
                                           help='Run complete primer design pipeline (all 4 steps sequentially)')
     add_common_options(design_parser)
-
-    # Auto-tuning option (merges auto-pipeline)
-    design_parser.add_argument('--auto', action='store_true',
-                              help='Enable automatic parameter optimization')
-    design_parser.add_argument('--auto-iterations', type=int, default=5,
-                              help='Number of auto-tuning iterations (default: 5)')
 
     # Multi-genome option (merges multi-genome)
     design_parser.add_argument('--multi-genome', nargs='+', metavar='GENOME',
@@ -1238,21 +1219,6 @@ Examples:
                                          help='Reaction temperature in C (default: 37)')
 
     # =========================================================================
-    # CATEGORY 1: ML-based prediction (orphaned feature)
-    # =========================================================================
-    ml_predict_parser = subparsers.add_parser('ml-predict',
-                                              help='Deep learning-based amplification prediction')
-    ml_predict_parser.add_argument('--primers-file', '--primers', required=True,
-                                  dest='primers_file',
-                                  help='File containing primer sequences (one per line)')
-    ml_predict_parser.add_argument('--output', '-o', required=True,
-                                  help='Output directory for predictions')
-    ml_predict_parser.add_argument('--model', type=str,
-                                  help='Path to pre-trained model (optional)')
-    ml_predict_parser.add_argument('--use-gpu', action='store_true',
-                                  help='Use GPU acceleration for inference')
-
-    # =========================================================================
     # CATEGORY 1: Optimal oligo generator (orphaned feature)
     # =========================================================================
     design_oligos_parser = subparsers.add_parser('design-oligos',
@@ -1267,18 +1233,6 @@ Examples:
                                      help='Minimum primer length (default: 6)')
     design_oligos_parser.add_argument('--max-k', type=int, default=12,
                                      help='Maximum primer length (default: 12)')
-
-    # =========================================================================
-    # CATEGORY 3: Auto-tuning pipeline (orphaned feature)
-    # =========================================================================
-    auto_pipeline_parser = subparsers.add_parser('auto-pipeline',
-                                                  help='Automatic parameter optimization pipeline (experimental, use standard pipeline instead)')
-    auto_pipeline_parser.add_argument('-j', '--json-file', required=True,
-                                     help='Base parameters JSON file')
-    auto_pipeline_parser.add_argument('--iterations', type=int, default=5,
-                                     help='Number of optimization iterations (default: 5)')
-    auto_pipeline_parser.add_argument('--output', '-o', required=True,
-                                     help='Output directory for optimized parameters')
 
     # =========================================================================
     # CATEGORY 3: Multi-genome pipeline (orphaned feature)
@@ -1336,26 +1290,6 @@ Examples:
                                 help='Generate visualization plots')
     simulate_parser.add_argument('--report', action='store_true',
                                 help='Generate HTML report')
-
-    # =========================================================================
-    # CATEGORY 5: Active learning command (experimental)
-    # =========================================================================
-    active_learn_parser = subparsers.add_parser('active-learn',
-                                                help='[EXPERIMENTAL] Active learning for iterative primer optimization')
-    active_learn_parser.add_argument('-j', '--json-file', required=True,
-                                     help='Parameters JSON file (from optimize step)')
-    active_learn_parser.add_argument('--experimental-results',
-                                     help='CSV file with experimental outcomes (optional)')
-    active_learn_parser.add_argument('--num-candidates', type=int, default=10,
-                                     help='Number of candidate primer sets to generate (default: 10)')
-    active_learn_parser.add_argument('--max-primers', type=int, default=15,
-                                     help='Maximum primers per set (default: 15)')
-    active_learn_parser.add_argument('--exploration-weight', type=float, default=2.0,
-                                     help='Balance exploration vs exploitation (default: 2.0)')
-    active_learn_parser.add_argument('--output', '-o', required=True,
-                                     help='Output directory for active learning results')
-    active_learn_parser.add_argument('--quiet', '-q', action='store_true',
-                                     help='Suppress progress output')
 
     # Expand primers - add new primers to existing validated set
     expand_parser = subparsers.add_parser('expand-primers',
@@ -1595,30 +1529,6 @@ def add_common_options(parser):
     # Quality assurance (Category 3)
     parser.add_argument('--enable-qa', action='store_true',
                        help='Enable quality assurance checks at each step')
-
-
-_DEPRECATED_OPT_METHODS = {
-    'equiphi29': "Use `--optimization-method=network` with `--polymerase=equiphi29` instead.",
-    'normalized': "Use `--optimization-method=network` with `--scoring-weights=<preset>` instead.",
-}
-
-
-def _emit_optimize_deprecations(args):
-    """Emit DeprecationWarning for deprecated --optimization-method values
-    and the --strategy alias. Called from run_step4 before dispatch.
-    """
-    import warnings as _warnings
-    method = getattr(args, 'optimization_method', None)
-    if method in _DEPRECATED_OPT_METHODS:
-        msg = (f"--optimization-method={method!r} is deprecated and will be "
-               f"removed in a future release. {_DEPRECATED_OPT_METHODS[method]}")
-        _warnings.warn(msg, DeprecationWarning, stacklevel=2)
-        logger.warning(msg)
-    if '--strategy' in sys.argv:
-        msg = ("--strategy is deprecated; use --scoring-weights instead. "
-               "The alias still works but will be removed in a future release.")
-        _warnings.warn(msg, DeprecationWarning, stacklevel=2)
-        logger.warning(msg)
 
 
 def _record_run_manifest(step: str, args, parameter, input_files=None):
@@ -2121,7 +2031,6 @@ def run_step4(args):
             logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
         logger.info(f"Optimization method: {args.optimization_method}")
-        _emit_optimize_deprecations(args)
         logger.info(f"Position cache: {args.use_position_cache}")
         logger.info(f"Background filter: {args.use_background_filter}")
 
@@ -2268,14 +2177,7 @@ def run_step4(args):
         if minimize_primers:
             logger.info(f"Minimal primer selection enabled (target coverage: {target_coverage:.1%})")
 
-        # Get scoring-weights preset for normalized optimizer.
-        # argparse `--strategy` feeds the same `scoring_weights` dest via
-        # argument aliasing, so either spelling works.
-        strategy = getattr(args, 'scoring_weights', None) or getattr(
-            args, 'strategy', 'balanced'
-        )
-        if args.optimization_method == 'normalized':
-            logger.info(f"Using normalized optimizer with scoring-weights: {strategy}")
+        strategy = getattr(args, 'scoring_weights', 'balanced')
 
         # Background pre-filter flag (enabled by default, --no-bg-prefilter disables)
         bg_prefilter = not getattr(args, 'no_bg_prefilter', False)
@@ -3772,36 +3674,6 @@ def run_analyze_stability(args):
         sys.exit(1)
 
 
-def run_ml_predict(args):
-    """Deep learning-based amplification prediction"""
-    from neoswga.core import deep_learning
-
-    logger.info(f"Running ML prediction on primers from: {args.primers_file}")
-
-    try:
-        # Load primers from file
-        with open(args.primers_file, 'r') as f:
-            primer_list = [line.strip() for line in f if line.strip()]
-
-        logger.info(f"Loaded {len(primer_list)} primers")
-
-        # Run prediction
-        results = deep_learning.predict_amplification(
-            primers=primer_list,
-            model_path=args.model,
-            use_gpu=args.use_gpu,
-            output_dir=args.output
-        )
-
-        logger.info(f"ML prediction complete! Results saved to: {args.output}")
-
-    except Exception as e:
-        logger.error(f"ML prediction failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
-
 def run_design_oligos(args):
     """Alternative comprehensive primer design system"""
     from neoswga.core import optimal_oligo_generator
@@ -3833,29 +3705,6 @@ def run_design_oligos(args):
 # =========================================================================
 # CATEGORY 3: Handler functions for pipeline orphaned features
 # =========================================================================
-
-def run_auto_pipeline(args):
-    """Automatic parameter optimization pipeline"""
-    from neoswga.core import auto_swga_pipeline
-
-    logger.info(f"Running auto-tuning pipeline with {args.iterations} iterations")
-    logger.info(f"Base parameters: {args.json_file}")
-
-    try:
-        optimized_params = auto_swga_pipeline.auto_optimize(
-            base_params_file=args.json_file,
-            iterations=args.iterations,
-            output_dir=args.output
-        )
-
-        logger.info(f"Auto-tuning complete! Optimized parameters saved to: {args.output}")
-
-    except Exception as e:
-        logger.error(f"Auto-tuning failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
 
 def run_multi_genome(args):
     """Pan-genome primer design for multiple targets"""
@@ -4113,173 +3962,6 @@ def run_simulate(args):
         sys.exit(1)
 
 
-def run_active_learn(args):
-    """
-    Active learning for iterative primer optimization.
-
-    Uses Bayesian optimization to select the most informative primer sets
-    to test experimentally, learning from feedback to improve future designs.
-    """
-    from neoswga.core import parameter
-    from neoswga.core import pipeline as core_pipeline
-    import pandas as pd
-    import json as json_module
-
-    quiet = getattr(args, 'quiet', False)
-
-    if not quiet:
-        logger.info("Active Learning for Primer Optimization")
-        logger.info("=" * 60)
-
-    # Set json_file for pipeline initialization
-    merge_args_to_parameter(args, parameter, ['json_file'])
-
-    # Create output directory
-    os.makedirs(args.output, exist_ok=True)
-
-    try:
-        # Initialize pipeline to get genome info
-        if not quiet:
-            logger.info("Initializing pipeline...")
-        core_pipeline._initialize()
-
-        fg_prefixes = core_pipeline.fg_prefixes
-        bg_prefixes = core_pipeline.bg_prefixes
-        fg_seq_lengths = core_pipeline.fg_seq_lengths
-        bg_seq_lengths = core_pipeline.bg_seq_lengths
-
-        if not quiet:
-            logger.info(f"  Target genomes: {len(fg_prefixes)}")
-            logger.info(f"  Background genomes: {len(bg_prefixes)}")
-
-        # Load candidate primers from scored step3 output
-        data_dir = getattr(parameter, 'data_dir', '.')
-        step3_file = os.path.join(data_dir, 'step3_df.csv')
-
-        if not os.path.exists(step3_file):
-            logger.error(f"Step 3 output not found: {step3_file}")
-            logger.error("Run 'neoswga score' first to generate candidate primers.")
-            sys.exit(1)
-
-        if not quiet:
-            logger.info(f"Loading candidates from {step3_file}...")
-        df = pd.read_csv(step3_file)
-
-        primer_col = 'primer' if 'primer' in df.columns else 'seq'
-        if primer_col not in df.columns:
-            logger.error(f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}")
-            sys.exit(1)
-
-        candidates = df[primer_col].tolist()
-        if not quiet:
-            logger.info(f"  Loaded {len(candidates)} candidate primers")
-
-        # Initialize position cache
-        from neoswga.core.position_cache import PositionCache
-        if not quiet:
-            logger.info("Loading primer binding positions...")
-        cache = PositionCache(fg_prefixes, candidates[:500])  # Limit for memory
-
-        # Import active learning module
-        try:
-            from neoswga.core.active_learning import ActiveLearningLoop, HAS_GP
-            if not HAS_GP:
-                logger.error("Active learning requires scikit-learn with Gaussian Processes.")
-                logger.error("Install with: pip install scikit-learn")
-                sys.exit(1)
-        except ImportError as e:
-            logger.error(f"Failed to import active learning module: {e}")
-            sys.exit(1)
-
-        # Initialize active learning loop
-        if not quiet:
-            logger.info("Initializing active learning loop...")
-        al_loop = ActiveLearningLoop(
-            cache=cache,
-            fg_prefixes=fg_prefixes,
-            bg_prefixes=bg_prefixes,
-            fg_seq_lengths=fg_seq_lengths,
-            bg_seq_lengths=bg_seq_lengths,
-            results_dir=args.output
-        )
-
-        # Load experimental results if provided
-        if args.experimental_results:
-            if not quiet:
-                logger.info(f"Loading experimental results from {args.experimental_results}...")
-            try:
-                from neoswga.core.active_learning import ExperimentalResult
-                exp_df = pd.read_csv(args.experimental_results)
-                for _, row in exp_df.iterrows():
-                    result = ExperimentalResult(
-                        primer_set=row['primer_set'].split(';') if isinstance(row['primer_set'], str) else row['primer_set'],
-                        timestamp=row.get('timestamp', ''),
-                        enrichment_fold=row['enrichment_fold'],
-                        uniformity_score=row.get('uniformity_score', 0.5),
-                        temperature=row.get('temperature', 30.0),
-                        time_hours=row.get('time_hours', 4.0)
-                    )
-                    al_loop.add_experimental_result(result)
-                if not quiet:
-                    logger.info(f"  Loaded {len(exp_df)} experimental results")
-            except Exception as e:
-                logger.warning(f"Could not load experimental results: {e}")
-
-        # Recommend next experiment
-        if not quiet:
-            logger.info("")
-            logger.info("Generating candidate primer sets...")
-        recommendation = al_loop.recommend_next_experiment(
-            candidates=candidates[:500],  # Limit for performance
-            n_candidates=args.num_candidates,
-            max_primers=args.max_primers,
-            exploration_weight=args.exploration_weight
-        )
-
-        # Output results
-        output_file = os.path.join(args.output, 'recommendation.json')
-        with open(output_file, 'w') as f:
-            output_data = {
-                'primer_set': recommendation['primer_set'],
-                'predicted_enrichment': recommendation['predicted_enrichment'],
-                'prediction_uncertainty': recommendation['prediction_uncertainty'],
-                'n_experiments_so_far': recommendation['n_experiments_so_far'],
-                'features': {
-                    'n_primers': recommendation['features'].n_primers,
-                    'coverage_fraction': recommendation['features'].coverage_fraction,
-                    'mean_gap': recommendation['features'].mean_gap,
-                    'mean_tm': recommendation['features'].mean_tm
-                }
-            }
-            json_module.dump(output_data, f, indent=2)
-
-        # Print summary
-        if not quiet:
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info("RECOMMENDATION")
-            logger.info("=" * 60)
-            logger.info(f"Primer set ({len(recommendation['primer_set'])} primers):")
-            for primer in recommendation['primer_set']:
-                logger.info(f"  {primer}")
-            logger.info("")
-            logger.info(f"Predicted enrichment: {recommendation['predicted_enrichment']:.2f}x")
-            logger.info(f"Prediction uncertainty: {recommendation['prediction_uncertainty']:.2f}")
-            logger.info(f"Previous experiments: {recommendation['n_experiments_so_far']}")
-            logger.info("")
-            logger.info(f"Results saved to: {output_file}")
-            logger.info("")
-            logger.info("Next steps:")
-            logger.info("  1. Test this primer set experimentally")
-            logger.info("  2. Record enrichment and uniformity results")
-            logger.info("  3. Add results to experimental_results.csv")
-            logger.info("  4. Re-run active-learn to get next recommendation")
-
-    except Exception as e:
-        logger.error(f"Active learning failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
 
 
 def run_expand_primers(args):
@@ -5245,23 +4927,6 @@ def run_design(args):
     check_jellyfish_available()
     logger.info("Running complete primer design pipeline")
 
-    # Check for auto-tuning mode
-    if hasattr(args, 'auto') and args.auto:
-        logger.info(f"Auto-tuning mode enabled ({args.auto_iterations} iterations)")
-        from neoswga.core import auto_swga_pipeline
-        try:
-            optimized_params = auto_swga_pipeline.auto_optimize(
-                base_params_file=args.json_file,
-                iterations=args.auto_iterations,
-                output_dir=getattr(args, 'output', './auto_optimized')
-            )
-            logger.info("Auto-tuning complete! Using optimized parameters for pipeline run.")
-        except Exception as e:
-            logger.error(f"Auto-tuning failed: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-
     # Check for multi-genome mode
     if hasattr(args, 'multi_genome') and args.multi_genome:
         logger.info(f"Multi-genome mode enabled for {len(args.multi_genome)} genomes")
@@ -5392,18 +5057,13 @@ def main():
         'analyze-genome': run_analyze_genome,
         'analyze-dimers': run_analyze_dimers,
         'analyze-stability': run_analyze_stability,
-        'ml-predict': run_ml_predict,
         'design-oligos': run_design_oligos,
 
         # Category 3: Orphaned pipeline features (now exposed!)
-        'auto-pipeline': run_auto_pipeline,
         'multi-genome': run_multi_genome,
 
         # Category 4: Orphaned simulation features (now exposed!)
         'simulate': run_simulate,
-
-        # Category 5: Active learning (experimental)
-        'active-learn': run_active_learn,
 
         # Category 6: Iterative design
         'expand-primers': run_expand_primers,

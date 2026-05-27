@@ -117,52 +117,12 @@ def _ensure_optimizers_registered():
 
         # Import optimizer modules to trigger factory registration
         try:
-            from . import greedy_optimizer  # Greedy BFS implementations
             from . import dominating_set_adapter  # Graph-based set cover
             from . import hybrid_optimizer  # Two-stage hybrid
             from . import network_optimizer  # Network connectivity
-            from . import genetic_algorithm  # Evolutionary optimization
             from . import background_aware_optimizer  # Clinical/background-aware
-            from . import equiphi29_optimizer  # EquiPhi29-specific (42C, 12-15bp primers)
-            from . import tiling_optimizer  # Interval-based tiling coverage
         except ImportError as e:
             logger.warning(f"Some optimizer modules not available: {e}")
-
-        # Optional optimizers with external dependencies
-        try:
-            from . import milp_optimizer  # MILP (requires python-mip)
-        except ImportError:
-            pass  # python-mip not installed
-
-        try:
-            from . import normalized_optimizer  # Normalized scoring with strategy presets
-        except ImportError:
-            pass  # Should always work, but be safe
-
-        try:
-            from . import moea_optimizer  # MOEA (requires pymoo)
-        except ImportError:
-            pass  # pymoo not installed
-
-        try:
-            from . import multi_agent_optimizer  # Multi-agent parallel execution
-        except ImportError:
-            pass  # Should always work, but be safe
-
-        try:
-            from . import clique_optimizer  # Clique-based dimer-free (requires networkx)
-        except ImportError:
-            pass  # networkx not installed
-
-        try:
-            from . import background_prefilter  # Background pruning pre-filter
-        except ImportError:
-            pass  # Should always work, but be safe
-
-        try:
-            from . import serial_cascade_optimizer  # Serial pipeline combinations
-        except ImportError:
-            pass  # Should always work, but be safe
 
         _optimizers_registered = True
         logger.debug("Optimizer registration complete")
@@ -430,30 +390,6 @@ def run_optimization(
                 )
         except Exception as e:
             logger.debug(f"application weight lookup skipped: {e}")
-
-    # Deprecation warnings for wrapper / preset optimizers whose function
-    # is expressible via other flags (polymerase preset or --strategy /
-    # application weights). Fire once per run, not per primer.
-    _DEPRECATED_METHOD_HINTS = {
-        'equiphi29': (
-            "--optimization-method=equiphi29 wraps the default `hybrid` "
-            "optimizer at 42 C. Prefer `--polymerase=equiphi29` with the "
-            "default optimizer."
-        ),
-        'normalized': (
-            "--optimization-method=normalized is a weighted-sum over the "
-            "`network` objective. Prefer `--optimization-method=network` "
-            "with --scoring-weights / --tm-weight / --uniformity-weight / "
-            "--dimer-penalty for the same effect."
-        ),
-    }
-    if method in _DEPRECATED_METHOD_HINTS:
-        logger.warning(
-            "deprecation: %s method remains available but will be removed "
-            "in a future release. %s",
-            method,
-            _DEPRECATED_METHOD_HINTS[method],
-        )
 
     # Create optimizer via factory
     try:

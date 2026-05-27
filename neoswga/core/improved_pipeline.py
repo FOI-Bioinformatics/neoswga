@@ -22,7 +22,6 @@ from .position_cache import PositionCache
 from .background_filter import BackgroundFilter, BackgroundFilterConfig
 from .adaptive_filters import AdaptiveFilterPipeline
 from .network_optimizer import NetworkOptimizer
-from .milp_optimizer import MILPFallbackOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ class PipelineConfig:
     max_bg_1mm_matches: int = 100
 
     # Optimization
-    optimization_method: str = 'hybrid'  # 'greedy', 'milp', or 'hybrid'
+    optimization_method: str = 'hybrid'  # legacy field; ImprovedPipeline now always uses NetworkOptimizer
     num_primers: int = 10
     max_optimization_time: int = 300  # seconds
     max_extension: int = 70000  # Phi29 processivity
@@ -188,80 +187,20 @@ class ImprovedPipeline:
         fg_seq_lengths = self._get_genome_lengths(fg_genome_path)
         bg_seq_lengths = self._get_genome_lengths(bg_genome_path) if bg_genome_path else [0]
 
-        evaluation_optimizer = None  # May be set by Phase 4 branch for reuse
-
-        if self.config.optimization_method == 'hybrid':
-            optimizer = MILPFallbackOptimizer(
-                cache, fg_prefixes, bg_prefixes or [],
-                fg_seq_lengths, bg_seq_lengths
-            )
-            primers = optimizer.optimize(
-                candidates,
-                num_primers=self.config.num_primers,
-                max_time_seconds=self.config.max_optimization_time
-            )
-
-        elif self.config.optimization_method == 'milp':
-            from .milp_optimizer import MILPOptimizer
-            optimizer = MILPOptimizer(
-                cache, fg_prefixes, bg_prefixes or [],
-                fg_seq_lengths, bg_seq_lengths
-            )
-            primers = optimizer.optimize(
-                candidates,
-                num_primers=self.config.num_primers,
-                max_time_seconds=self.config.max_optimization_time
-            )
-
-        elif self.config.optimization_method == 'genetic':
-            from .genetic_algorithm import PrimerSetGA, GAConfig
-            from .reaction_conditions import ReactionConditions
-
-            # Configure GA
-            ga_config = GAConfig(
-                population_size=100,
-                generations=50,
-                mutation_rate=0.15,
-                crossover_rate=0.8,
-                min_set_size=max(4, self.config.num_primers - 2),
-                max_set_size=self.config.num_primers + 2
-            )
-
-            # Create reaction conditions
-            conditions = ReactionConditions(
-                temp=self.config.reaction_temp,
-                na_conc=self.config.na_conc
-            )
-
-            # Run genetic algorithm
-            ga = PrimerSetGA(
-                primer_pool=candidates,
-                fg_prefixes=fg_prefixes,
-                bg_prefixes=bg_prefixes or [],
-                fg_lengths=fg_seq_lengths,
-                bg_lengths=bg_seq_lengths,
-                conditions=conditions,
-                config=ga_config,
-                position_cache=cache
-            )
-            best_individual = ga.evolve(verbose=self.config.verbose)
-            primers = best_individual.primers
-
-        else:  # greedy/network
-            evaluation_optimizer = NetworkOptimizer(
-                cache, fg_prefixes, bg_prefixes or [],
-                fg_seq_lengths, bg_seq_lengths,
-                max_extension=self.config.max_extension,
-                uniformity_weight=self.config.uniformity_weight,
-                reaction_temp=self.config.reaction_temp,
-                tm_weight=self.config.tm_weight,
-                dimer_penalty=self.config.dimer_penalty,
-                max_dimer_bp=self.config.max_dimer_bp
-            )
-            primers = evaluation_optimizer.optimize_greedy(
-                candidates,
-                num_primers=self.config.num_primers
-            )
+        evaluation_optimizer = NetworkOptimizer(
+            cache, fg_prefixes, bg_prefixes or [],
+            fg_seq_lengths, bg_seq_lengths,
+            max_extension=self.config.max_extension,
+            uniformity_weight=self.config.uniformity_weight,
+            reaction_temp=self.config.reaction_temp,
+            tm_weight=self.config.tm_weight,
+            dimer_penalty=self.config.dimer_penalty,
+            max_dimer_bp=self.config.max_dimer_bp
+        )
+        primers = evaluation_optimizer.optimize_greedy(
+            candidates,
+            num_primers=self.config.num_primers
+        )
 
         timing['optimization'] = time.time() - phase4_start
         logger.info(f"Optimization completed in {timing['optimization']:.2f}s")
