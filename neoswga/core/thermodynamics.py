@@ -8,6 +8,15 @@ Implements the unified nearest-neighbor model (SantaLucia, 1998) with:
 - Helix initiation, terminal penalties, and symmetry corrections
 - Support for thermodynamic additives (DMSO, betaine, trehalose)
 
+This is the canonical Tm implementation for all new code. A second
+module, ``melting_temp.py``, also computes Tm. It is *not* a duplicate
+to be deleted: it is a numerically frozen shim that reproduces a known
+GC-fraction bug in the upstream ``melt`` package, kept solely so the
+bundled ``random_forest_filter.p`` (trained against that buggy output)
+continues to score primers consistently. See ``melting_temp.py`` for
+details. The shim can be removed only after the RF model is retrained
+(roadmap Phase 3).
+
 References:
 - SantaLucia (1998) PNAS 95:1460-1465
 - Owczarzy et al. (2008) Biochemistry 47:5336-5353

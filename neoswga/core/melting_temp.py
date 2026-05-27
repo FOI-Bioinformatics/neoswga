@@ -5,6 +5,15 @@ Vendored from the ``melt`` package (MIT license) to eliminate the dependency
 on ``pkg_resources``.  Only the ``temp()`` function and its helpers are
 retained; the CLI entry point has been removed.
 
+DO NOT delete this module in favor of ``thermodynamics.py``. The two are
+not interchangeable: ``temp()`` here deliberately reproduces a bug in the
+original ``melt`` package (see comment on ``fgc`` below) so its output
+stays consistent with the bundled ``random_forest_filter.p`` RF model,
+which was trained against the buggy values. Callers that need correct
+nearest-neighbor Tm should use ``thermodynamics.calculate_tm_basic`` or
+``calculate_tm_with_salt``. This shim can be retired once the RF model
+is retrained against corrected Tm features (roadmap Phase 3).
+
 Thermodynamic parameters:
     Allawi and SantaLucia (1997), Biochemistry 36: 10581-10594.
 
