@@ -41,7 +41,7 @@ dependencies = [
     "numpy>=1.24,<3",
     "pandas>=1.5,<3",
     "scipy>=1.10,<2",
-    "scikit-learn>=1.0,<2",
+    "scikit-learn>=1.7,<1.9",
     "h5py>=3.0,<4",
     "networkx>=2.8,<4",
     "biopython>=1.80,<2",
@@ -121,7 +121,7 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 neoswga = ["*.md"]
-"neoswga.core" = ["*.md", "models/*.p"]
+"neoswga.core" = ["*.md", "models/*.p", "models/*.json"]
 "neoswga.core.schema" = ["*.json"]
 
 [tool.black]

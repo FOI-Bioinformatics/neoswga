@@ -1597,6 +1597,30 @@ def add_common_options(parser):
                        help='Enable quality assurance checks at each step')
 
 
+_DEPRECATED_OPT_METHODS = {
+    'equiphi29': "Use `--optimization-method=network` with `--polymerase=equiphi29` instead.",
+    'normalized': "Use `--optimization-method=network` with `--scoring-weights=<preset>` instead.",
+}
+
+
+def _emit_optimize_deprecations(args):
+    """Emit DeprecationWarning for deprecated --optimization-method values
+    and the --strategy alias. Called from run_step4 before dispatch.
+    """
+    import warnings as _warnings
+    method = getattr(args, 'optimization_method', None)
+    if method in _DEPRECATED_OPT_METHODS:
+        msg = (f"--optimization-method={method!r} is deprecated and will be "
+               f"removed in a future release. {_DEPRECATED_OPT_METHODS[method]}")
+        _warnings.warn(msg, DeprecationWarning, stacklevel=2)
+        logger.warning(msg)
+    if '--strategy' in sys.argv:
+        msg = ("--strategy is deprecated; use --scoring-weights instead. "
+               "The alias still works but will be removed in a future release.")
+        _warnings.warn(msg, DeprecationWarning, stacklevel=2)
+        logger.warning(msg)
+
+
 def _record_run_manifest(step: str, args, parameter, input_files=None):
     """Best-effort wrapper around run_manifest.write_manifest.
 
@@ -2097,6 +2121,7 @@ def run_step4(args):
             logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
         logger.info(f"Optimization method: {args.optimization_method}")
+        _emit_optimize_deprecations(args)
         logger.info(f"Position cache: {args.use_position_cache}")
         logger.info(f"Background filter: {args.use_background_filter}")
 

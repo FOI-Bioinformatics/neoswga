@@ -55,11 +55,25 @@ from typing import Dict, List, Optional, Tuple
 # Secure Model Loading
 # =============================================================================
 
-# Known SHA-256 hashes of trusted model files
-# Update these when retraining models
-_TRUSTED_MODEL_HASHES = {
-    'random_forest_filter.p': '34ff084c7d2f6ded5d72811f0616bd0758b3d8965fac7d40d2ae62b747c0ba1b',
-}
+# Known SHA-256 hashes of trusted model files.
+# Maintained in neoswga/core/models/checksums.json so retraining or adding
+# per-polymerase models does not require touching this file.
+def _load_trusted_model_hashes() -> Dict[str, str]:
+    import json
+    path = os.path.join(os.path.dirname(__file__), 'models', 'checksums.json')
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logging.getLogger(__name__).warning(
+            f"Could not load model checksums from {path}: {e}. "
+            f"Model integrity verification will be skipped."
+        )
+        return {}
+    return {k: v for k, v in data.items() if not k.startswith('_')}
+
+
+_TRUSTED_MODEL_HASHES = _load_trusted_model_hashes()
 
 # Set to False to disable hash verification (not recommended for production)
 _VERIFY_MODEL_HASHES = True
@@ -115,8 +129,8 @@ def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
                 f"Expected: {expected_hash}\n"
                 f"Actual:   {actual_hash}\n"
                 f"The model file may have been corrupted or tampered with.\n"
-                f"To update the hash after retraining, update _TRUSTED_MODEL_HASHES "
-                f"in rf_preprocessing.py"
+                f"To update the hash after retraining, edit "
+                f"neoswga/core/models/checksums.json"
             )
         logging.getLogger(__name__).debug(
             f"Model hash verified: {model_name}"

@@ -1,0 +1,4 @@
+{
+  "_comment": "SHA-256 hashes of bundled model files. Add an entry per model after retraining; rf_preprocessing.load_model_safely() rejects unknown hashes unless verify_hash=False is passed explicitly.",
+  "random_forest_filter.p": "34ff084c7d2f6ded5d72811f0616bd0758b3d8965fac7d40d2ae62b747c0ba1b"
+}
