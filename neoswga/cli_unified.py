@@ -1597,6 +1597,25 @@ def add_common_options(parser):
                        help='Enable quality assurance checks at each step')
 
 
+def _record_run_manifest(step: str, args, parameter, input_files=None):
+    """Best-effort wrapper around run_manifest.write_manifest.
+
+    Failures are swallowed so manifest issues never break a pipeline that
+    otherwise succeeded.
+    """
+    try:
+        from neoswga.core.run_manifest import write_manifest
+        write_manifest(
+            step=step,
+            data_dir=getattr(parameter, 'data_dir', None),
+            params_path=getattr(args, 'json_file', None),
+            input_files=input_files,
+            seed=getattr(parameter, 'seed', None),
+        )
+    except Exception as e:
+        logger.debug(f"run_manifest write skipped: {e}")
+
+
 def run_step1(args):
     """Run step 1: K-mer preprocessing"""
     check_jellyfish_available()
@@ -1679,6 +1698,11 @@ def run_step1(args):
                 parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
                 parameter.max_bl_freq = args.max_bl_freq
+
+        _step1_inputs = list(getattr(parameter, 'fg_genomes', []) or []) + \
+                        list(getattr(parameter, 'bg_genomes', []) or []) + \
+                        list(getattr(parameter, 'bl_genomes', []) or [])
+        _record_run_manifest("count-kmers", args, parameter, input_files=_step1_inputs)
 
         _elapsed = _time.time() - _t0
         logger.info(f"Step 1 complete in {_elapsed:.1f}s")
@@ -1865,6 +1889,10 @@ def run_step2(args):
             import traceback
             traceback.print_exc()
         sys.exit(1)
+    _data_dir = getattr(parameter, 'data_dir', None)
+    _step2_out = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
+    _record_run_manifest("filter", args, parameter,
+                         input_files=[_step2_out] if _step2_out else None)
     _elapsed = _time.time() - _t0
     logger.info(f"Step 2 complete in {_elapsed:.1f}s")
 
@@ -1951,6 +1979,11 @@ def run_step3(args):
             import traceback
             traceback.print_exc()
         sys.exit(1)
+    _data_dir = getattr(parameter, 'data_dir', None)
+    _step3_in = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
+    _step3_out = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
+    _record_run_manifest("score", args, parameter,
+                         input_files=[p for p in [_step3_in, _step3_out] if p])
     _elapsed = _time.time() - _t0
     logger.info(f"Step 3 complete in {_elapsed:.1f}s")
 
@@ -2481,6 +2514,12 @@ def run_step4(args):
                 logger.warning(f"Stochastic validation not available: {e}")
             except Exception as e:
                 logger.warning(f"Validation failed: {e}")
+
+        _data_dir = getattr(parameter, 'data_dir', None)
+        _step4_in = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
+        _step4_out = os.path.join(_data_dir, "step4_improved_df.csv") if _data_dir else None
+        _record_run_manifest("optimize", args, parameter,
+                             input_files=[p for p in [_step4_in, _step4_out] if p])
 
         _elapsed = _time.time() - _t0
         logger.info(f"Step 4 complete in {_elapsed:.1f}s")
