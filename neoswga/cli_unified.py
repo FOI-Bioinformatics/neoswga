@@ -4100,6 +4100,25 @@ def run_analyze_coverage(args):
             f, indent=2,
         )
 
+    # In-silico binding-density BedGraph (per foreground prefix) so the primer
+    # binding distribution can be inspected alongside the gaps in a browser.
+    if primers:
+        from neoswga.core.export import export_to_bedgraph
+        for prefix, length in zip(fg_prefixes, fg_seq_lengths):
+            positions = {}
+            for p in primers:
+                sites = []
+                for pos in cache.get_positions(prefix, p, 'forward'):
+                    sites.append((int(pos), 'forward'))
+                for pos in cache.get_positions(prefix, p, 'reverse'):
+                    sites.append((int(pos), 'reverse'))
+                positions[p] = sites
+            base = os.path.basename(prefix) or 'genome'
+            export_to_bedgraph(
+                primers, positions, base, length,
+                os.path.join(args.output, f'{base}_binding_density.bedgraph'),
+            )
+
     if not quiet:
         logger.info(f"Found {len(gaps)} coverage gap(s); wrote BED + JSON to {args.output}")
         for g in gaps[:10]:
@@ -4176,8 +4195,10 @@ def run_expand_primers(args):
             logger.info(f"Loading candidates from {step3_file}...")
 
         df = pd.read_csv(step3_file)
-        primer_col = 'primer' if 'primer' in df.columns else 'seq'
-        if primer_col not in df.columns:
+        from neoswga.core.io_utils import primer_column
+        try:
+            primer_col = primer_column(df)
+        except KeyError:
             logger.error(f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}")
             sys.exit(1)
         candidates = df[primer_col].tolist()
