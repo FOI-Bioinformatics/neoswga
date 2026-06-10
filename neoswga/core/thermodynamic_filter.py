@@ -9,8 +9,8 @@ Filters candidate primers based on:
 4. Secondary structure (hairpins, self-complementarity)
 5. GC content constraints
 
-Integrates with optimal_oligo_generator to provide thermodynamically
-validated candidate sets.
+Used by multi_genome_pipeline to provide thermodynamically validated
+candidate sets.
 
 Author: NeoSWGA Development Team
 Date: November 2025

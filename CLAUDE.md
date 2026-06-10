@@ -42,7 +42,6 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 - `dominating_set_adapter.py` + `dominating_set_optimizer.py`: Graph-based greedy set cover (fast)
 - `network_optimizer.py`: Network-based with Tm weighting and dimer penalty
 - `background_aware_optimizer.py`: Three-stage optimizer with explicit background minimization (10-20x reduction)
-- `optimal_oligo_generator.py`: Alternative comprehensive primer design (separate `design-oligos` command)
 - `minimal_primer_selector.py`: Post-process to minimize primer count
 
 **Thermodynamics**:

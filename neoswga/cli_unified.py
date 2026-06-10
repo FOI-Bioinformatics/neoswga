@@ -583,7 +583,6 @@ COMMAND_GROUPS = [
             "contract-set",
             "rescore-set",
             "predict-efficiency",
-            "design-oligos",
             "validate-model",
         ],
     ),
@@ -1678,22 +1677,6 @@ Examples:
     # =========================================================================
     # CATEGORY 1: Optimal oligo generator (orphaned feature)
     # =========================================================================
-    design_oligos_parser = subparsers.add_parser(
-        "design-oligos", help="Alternative comprehensive primer design system"
-    )
-    design_oligos_parser.add_argument("--genome", required=True, help="Target genome FASTA file")
-    design_oligos_parser.add_argument(
-        "--output", "-o", required=True, help="Output directory for designed primers"
-    )
-    design_oligos_parser.add_argument(
-        "--num-primers", type=int, default=10, help="Number of primers to design (default: 10)"
-    )
-    design_oligos_parser.add_argument(
-        "--min-k", type=int, default=6, help="Minimum primer length (default: 6)"
-    )
-    design_oligos_parser.add_argument(
-        "--max-k", type=int, default=12, help="Maximum primer length (default: 12)"
-    )
 
     # =========================================================================
     # CATEGORY 3: Multi-genome pipeline (orphaned feature)
@@ -4410,30 +4393,6 @@ def run_analyze_stability(args):
         sys.exit(1)
 
 
-def run_design_oligos(args):
-    """Alternative comprehensive primer design system"""
-    from neoswga.core import optimal_oligo_generator
-
-    logger.info(f"Designing {args.num_primers} primers for: {args.genome}")
-    logger.info(f"K-mer range: {args.min_k}-{args.max_k}")
-
-    try:
-        generator = optimal_oligo_generator.OligoGenerator(
-            genome_path=args.genome, k_min=args.min_k, k_max=args.max_k
-        )
-
-        primers = generator.design_primers(num_primers=args.num_primers, output_dir=args.output)
-
-        logger.info(f"Primer design complete! {len(primers)} primers saved to: {args.output}")
-
-    except Exception as e:
-        logger.error(f"Primer design failed: {e}")
-        import traceback
-
-        traceback.print_exc()
-        sys.exit(1)
-
-
 # =========================================================================
 # CATEGORY 3: Handler functions for pipeline orphaned features
 # =========================================================================
@@ -4676,19 +4635,18 @@ def run_simulate(args):
             try:
                 from neoswga.core import simulation_plots
 
-                simulation_plots.generate_plots(results, args.output)
-            except ImportError:
-                logger.warning("Visualization module not available")
+                plot_path = str(Path(args.output) / "simulation_plots.png")
+                simulation_plots.plot_replication_summary(results, plot_path)
+            except ImportError as e:
+                logger.warning(f"Visualization unavailable (install neoswga[viz]): {e}")
 
         # Generate HTML report if requested
         if args.report:
             logger.info("Generating HTML report...")
-            try:
-                from neoswga.core import simulation_report
+            from neoswga.core import simulation_report
 
-                simulation_report.generate_report(results, args.output)
-            except ImportError:
-                logger.warning("Report module not available")
+            report_path = str(Path(args.output) / "simulation_report.html")
+            simulation_report.generate_replication_report(results, primers, report_path)
 
     except Exception as e:
         logger.error(f"Simulation failed: {e}")
@@ -6021,7 +5979,6 @@ def main():
         "analyze-dimers": run_analyze_dimers,
         "analyze-stability": run_analyze_stability,
         "analyze-coverage": run_analyze_coverage,
-        "design-oligos": run_design_oligos,
         # Category 3: Orphaned pipeline features (now exposed!)
         "multi-genome": run_multi_genome,
         # Category 4: Orphaned simulation features (now exposed!)

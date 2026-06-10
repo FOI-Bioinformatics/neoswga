@@ -477,7 +477,11 @@ def generate_html_report(result, output_file: str, analysis=None):
         bg_amp=result.background_amplification,
         specificity=result.specificity_score,
         specificity_alert=specificity_alert,
-        n_primers="N/A",  # Will be filled from context
+        n_primers=(
+            len(result.primer_contributions)
+            if getattr(result, "primer_contributions", None)
+            else "N/A"
+        ),
         details_html=details_html,
         recommendations_html=recommendations_html,
     )
@@ -487,6 +491,88 @@ def generate_html_report(result, output_file: str, analysis=None):
         f.write(html)
 
     logger.info(f"HTML report saved to: {output_file}")
+
+
+def generate_replication_report(results: dict, primers: list, output_file: str) -> None:
+    """Generate a self-contained HTML report for the agent-based replication
+    simulation.
+
+    Consumes the dict returned by ``replication_simulator.simulate_primer_set``
+    (not the ``SwgaSimulator`` ``SimulationResult`` used by
+    :func:`generate_html_report`). Renders only real simulation metrics.
+
+    Args:
+        results: dict with mean/std coverage, amplification, fork stats, and
+            ``all_results`` (per-replicate SimulationResult objects).
+        primers: the primer set that was simulated.
+        output_file: output HTML path.
+    """
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    all_results = list(results.get("all_results", []) or [])
+    n_rep = len(all_results)
+
+    def _metric_row(label, value):
+        return f"<tr><td>{label}</td><td style='text-align:right'>{value}</td></tr>"
+
+    metrics_rows = "".join(
+        [
+            _metric_row("Primers", len(primers)),
+            _metric_row("Replicates", n_rep),
+            _metric_row(
+                "Mean coverage",
+                f"{results.get('mean_coverage', 0.0):.1%} "
+                f"&plusmn; {results.get('std_coverage', 0.0):.1%}",
+            ),
+            _metric_row(
+                "Mean amplification",
+                f"{results.get('mean_amplification', 0.0):.1f}x "
+                f"&plusmn; {results.get('std_amplification', 0.0):.1f}x",
+            ),
+            _metric_row("Mean forks created", f"{results.get('mean_forks_created', 0.0):.0f}"),
+            _metric_row("Mean fork travel", f"{results.get('mean_fork_travel', 0.0):,.0f} bp"),
+            _metric_row(
+                "Mean displaced strands", f"{results.get('mean_displaced_strands', 0.0):.0f}"
+            ),
+            _metric_row(
+                "Mean bases synthesized", f"{results.get('mean_bases_synthesized', 0.0):,.0f}"
+            ),
+        ]
+    )
+
+    per_rep_rows = "".join(
+        f"<tr><td>{i + 1}</td>"
+        f"<td style='text-align:right'>{getattr(r, 'final_coverage_fraction', 0.0):.1%}</td>"
+        f"<td style='text-align:right'>{getattr(r, 'amplification_fold', 0.0):.1f}x</td>"
+        f"<td style='text-align:right'>{getattr(r, 'num_forks_created', 0):,}</td></tr>"
+        for i, r in enumerate(all_results)
+    )
+
+    primer_list = "".join(f"<li><code>{p}</code></li>" for p in primers)
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>SWGA Replication Simulation Report</title>
+<style>
+body{{font-family:-apple-system,Segoe UI,Roboto,sans-serif;margin:2rem;color:#222}}
+h1{{color:#1a5276}} table{{border-collapse:collapse;margin:1rem 0}}
+td,th{{border:1px solid #ddd;padding:6px 12px}} th{{background:#eef}}
+code{{background:#f4f4f4;padding:1px 4px;border-radius:3px}}
+.note{{color:#666;font-size:0.9em}}
+</style></head><body>
+<h1>SWGA Replication Simulation Report</h1>
+<p class="note">Generated {timestamp} &middot; agent-based phi29 replication simulation
+(all values measured from simulation).</p>
+<h2>Summary metrics</h2>
+<table>{metrics_rows}</table>
+<h2>Per-replicate results</h2>
+<table><tr><th>Replicate</th><th>Coverage</th><th>Amplification</th><th>Forks</th></tr>
+{per_rep_rows}</table>
+<h2>Primer set ({len(primers)})</h2>
+<ul>{primer_list}</ul>
+</body></html>"""
+
+    with open(output_file, "w") as f:
+        f.write(html)
+    logger.info(f"Simulation HTML report saved to: {output_file}")
 
 
 if __name__ == "__main__":
