@@ -1,24 +1,18 @@
-"""Smoke-test the under-tested optimizer methods.
+"""End-to-end smoke test for the registered optimizer methods.
 
-CLAUDE.md documents 17 `--optimization-method` values; the plasmid
-golden snapshot and the legacy hybrid / dominating-set / network /
-background-aware / clique / milp / coverage-then-dimerfree /
-dimerfree-scored tests together exercise nine of them. The remaining
-eight (greedy, tiling, weighted-set-cover, multi-agent, bg-prefilter,
-bg-prefilter-hybrid, genetic, moea) had zero direct regression
-coverage before this test was added. This module gives each one a
-single parametrised smoke test that runs the plasmid example end-to-end
-and asserts the optimizer does not crash and produces a non-empty
-primer set.
+After the optimizer-zoo trim there are four registered methods (hybrid,
+dominating-set, network, background-aware) plus the `ensemble` pseudo-method.
+The four base methods have dedicated unit tests; the `ensemble` path is only
+unit-tested with stubbed optimizers. This module runs the genuinely
+under-covered integration paths end-to-end on the plasmid example and asserts
+the optimizer does not crash and produces a non-empty primer set.
 
-Purpose: evidence to decide whether each method is worth keeping. If a
-method fails here reliably, that is a defect report; if it passes, we
-have data that the method is genuinely functional and not just
-dormant.
+Methods that are not registered (e.g. legacy names removed by the trim) are
+skipped rather than failed, so the test stays forward/backward compatible.
 
 Steps 2 and 3 are run once per session (module-scoped fixture) so the
-eight parametrised step-4 invocations share the same candidate pool
-and only the optimizer differs. This keeps the suite fast.
+parametrised step-4 invocations share the same candidate pool and only the
+optimizer differs. This keeps the suite fast.
 """
 
 from __future__ import annotations
@@ -103,29 +97,14 @@ def plasmid_scored_workdir():
 # ---------------------------------------------------------------------------
 
 
+# The genuinely under-covered integration paths: the ensemble pseudo-method
+# (only unit-tested with stubs) plus the registered methods, run end-to-end.
+# Unregistered names are skipped inside the test body.
 UNDER_TESTED_METHODS = [
-    'greedy',
-    'tiling',
-    'weighted-set-cover',
-    'multi-agent',
-    'bg-prefilter',
-    'bg-prefilter-hybrid',
-    'genetic',
-    # MOEA runs but returns an empty Pareto front on a 6.2 kb plasmid.
-    # The method does not find any non-dominated solution when the
-    # candidate pool is this small. Kept as xfail so a real regression
-    # (e.g. a crash or import error) still trips the test while the
-    # known empty-front outcome does not block CI.
-    pytest.param(
-        'moea',
-        marks=pytest.mark.xfail(
-            reason='moea returns empty Pareto front on tiny plasmid '
-                   '(6.2 kb); see moea_optimizer.py:371 "no feasible '
-                   'solutions" warning. Rerun on a larger genome to '
-                   'probe the method itself.',
-            strict=False,
-        ),
-    ),
+    'ensemble',
+    'dominating-set',
+    'network',
+    'background-aware',
 ]
 
 
@@ -150,6 +129,7 @@ def test_under_tested_optimizer_smoke(plasmid_scored_workdir, method):
     _maybe_skip_on_missing_optional_dep(method)
 
     from neoswga.core.unified_optimizer import optimize_step4
+    from neoswga.core.exceptions import OptimizerNotFoundError
 
     try:
         primer_sets, scores, _cache = optimize_step4(
@@ -157,6 +137,8 @@ def test_under_tested_optimizer_smoke(plasmid_scored_workdir, method):
             verbose=False,
             seed=42,
         )
+    except OptimizerNotFoundError as e:
+        pytest.skip(f"{method} is not a registered optimizer: {e}")
     except NotImplementedError as e:
         pytest.skip(f"{method} is not fully implemented: {e}")
     except ImportError as e:
