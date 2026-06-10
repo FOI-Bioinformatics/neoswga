@@ -213,6 +213,7 @@ def _run_ensemble(
     application: str = "balanced",
     seed=None,
     verbose: bool = True,
+    combine: str = "best",
     **kwargs,
 ) -> OptimizationResult:
     """Run several optimizers on one shared cache; keep the best.
@@ -298,6 +299,54 @@ def _run_ensemble(
         )
 
     winner = results[best_method]
+
+    # Union-combine: pool the (diverse) primers every method selected and
+    # re-optimize the winning method on that small pool. Other methods often
+    # found primers covering regions the winner missed; re-optimizing over the
+    # union can beat any single method. Guarded to NEVER worsen the winner.
+    if combine == "union" and len(results) > 1:
+        union_pool = list(dict.fromkeys(p for r in results.values() for p in r.primers))
+        if len(union_pool) > target_size:
+            _reseed(seed)
+            try:
+                combiner = OptimizerFactory.create(
+                    name=best_method,
+                    position_cache=cache,
+                    fg_prefixes=fg_prefixes,
+                    fg_seq_lengths=fg_seq_lengths,
+                    bg_prefixes=bg_prefixes,
+                    bg_seq_lengths=bg_seq_lengths,
+                    config=config,
+                    conditions=conditions,
+                    **kwargs,
+                )
+                combined = combiner.optimize(union_pool, target_size)
+                c_norm = combined.metrics.normalized_score(application=application)
+                w_norm = winner.metrics.normalized_score(application=application)
+                if combined.primers and c_norm >= w_norm:
+                    winner = combined
+                    for row in rows:
+                        row["selected"] = False
+                    rows.append(
+                        {
+                            "method": f"union({best_method})",
+                            "normalized_score": round(float(c_norm), 4),
+                            "score": float(combined.score),
+                            "n_primers": combined.num_primers,
+                            "fg_coverage": round(float(combined.metrics.fg_coverage), 4),
+                            "bg_coverage": round(float(combined.metrics.bg_coverage), 4),
+                            "status": combined.status.value,
+                            "selected": True,
+                        }
+                    )
+                    if verbose:
+                        logger.info(
+                            f"Ensemble union-combine improved the set "
+                            f"(normalized_score {w_norm:.4f} -> {c_norm:.4f})"
+                        )
+            except Exception as e:
+                logger.warning(f"  ensemble union-combine skipped: {e}")
+
     return _dc_replace(winner, ensemble_comparison=tuple(rows))
 
 
@@ -550,6 +599,7 @@ def run_optimization(
         # `seed` is captured separately and passed explicitly; remove it from
         # kwargs so it is not forwarded twice into _run_ensemble.
         kwargs.pop("seed", None)
+        ensemble_combine = kwargs.pop("ensemble_combine", "best")
         result = _run_ensemble(
             methods=ensemble_methods,
             cache=cache,
@@ -564,6 +614,7 @@ def run_optimization(
             application=(_application or "balanced"),
             seed=seed,
             verbose=verbose,
+            combine=ensemble_combine,
             **kwargs,
         )
     else:

@@ -958,6 +958,14 @@ Run "neoswga <command> --help" for details on a specific command.
         "is kept; a per-method comparison table is printed.",
     )
     opt_method_group.add_argument(
+        "--ensemble-combine",
+        choices=["best", "union"],
+        default="best",
+        help="How ensemble combines methods: 'best' keeps the single best set; "
+        "'union' additionally re-optimizes over the pooled primers from all "
+        "methods (can beat any single method; never worsens it).",
+    )
+    opt_method_group.add_argument(
         "--scoring-weights",
         dest="scoring_weights",
         choices=["clinical", "discovery", "fast", "balanced", "enrichment"],
@@ -1108,8 +1116,9 @@ Run "neoswga <command> --help" for details on a specific command.
     opt_mech_group.add_argument(
         "--mechanistic-weight",
         type=float,
-        default=0.3,
-        help="Weight for mechanistic model in scoring (0.0-1.0, default: 0.3)",
+        default=None,
+        help="Weight for mechanistic model in scoring (0.0-1.0, default 0.3 when "
+        "enabled). Setting this > 0 implies --use-mechanistic-model.",
     )
     opt_mech_group.add_argument(
         "--template-gc",
@@ -2811,7 +2820,19 @@ def run_step4(args):
         # its per-primer score. See network_optimizer.py:~630 where
         # self.mech_model is built from self.conditions. Phase 13B.
         _use_mech = getattr(args, "use_mechanistic_model", False)
-        _mech_weight = getattr(args, "mechanistic_weight", 0.3) if _use_mech else 0.0
+        # Footgun fix: a non-default --mechanistic-weight implies enabling the
+        # model. Previously the weight was silently ignored unless
+        # --use-mechanistic-model was also passed ("I set 0.5 and nothing changed").
+        _explicit_weight = getattr(args, "mechanistic_weight", None)
+        if not _use_mech and _explicit_weight is not None and _explicit_weight > 0:
+            _use_mech = True
+            logger.info(
+                "--mechanistic-weight > 0 implies --use-mechanistic-model; "
+                "enabling the mechanistic model."
+            )
+        _mech_weight = (
+            (_explicit_weight if _explicit_weight is not None else 0.3) if _use_mech else 0.0
+        )
         if _use_mech:
             logger.info(
                 f"Mechanistic model scoring enabled (weight={_mech_weight:.2f}). "
@@ -2879,6 +2900,7 @@ def run_step4(args):
             min_per_target_coverage=getattr(args, "min_per_target_coverage", 0.0),
             application=getattr(args, "application", "balanced"),
             ensemble_methods=getattr(args, "ensemble_methods", None),
+            ensemble_combine=getattr(args, "ensemble_combine", "best"),
         )
 
         if results:
