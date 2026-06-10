@@ -622,6 +622,12 @@ class NetworkOptimizer:
         self.bg_seq_lengths = bg_seq_lengths
         self.max_extension = max_extension
         self.uniformity_weight = uniformity_weight
+        # Fall back to the reaction temperature carried by `conditions` so that
+        # Tm-weighted selection (gated on reaction_temp being set) actually
+        # engages when the caller supplies conditions but no explicit
+        # reaction_temp — previously _calculate_tm_score was a silent no-op.
+        if reaction_temp is None and conditions is not None:
+            reaction_temp = getattr(conditions, "temp", None)
         self.reaction_temp = reaction_temp
         self.tm_weight = tm_weight
         self.dimer_penalty = dimer_penalty

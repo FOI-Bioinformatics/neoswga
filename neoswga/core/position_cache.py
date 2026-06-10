@@ -126,7 +126,12 @@ class PositionCache:
                 return cached
             fw = self.cache.get((fname_prefix, primer, "forward"), np.array([], dtype=np.int32))
             rv = self.cache.get((fname_prefix, primer, "reverse"), np.array([], dtype=np.int32))
-            combined = np.concatenate([fw, rv])
+            # For a palindromic (self-reverse-complementary) primer the same
+            # genome position appears under both the forward key and the reverse
+            # (== forward) key; np.unique dedups so the site is not double-counted
+            # in total_fg_sites / selectivity. np.unique also returns a sorted
+            # array, which downstream consumers tolerate.
+            combined = np.unique(np.concatenate([fw, rv]))
             self.cache[key] = combined
             return combined
         else:

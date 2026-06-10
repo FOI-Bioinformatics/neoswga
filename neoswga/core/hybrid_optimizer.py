@@ -173,6 +173,7 @@ class HybridOptimizer:
         bg_seq_lengths: Optional[List[int]] = None,
         bin_size: int = 10000,
         max_extension: int = 70000,
+        coverage_reach: Optional[int] = None,
         uniformity_weight: float = 0.0,
         polymerase: str = "phi29",
         genome_gc_content: Optional[float] = None,
@@ -220,11 +221,21 @@ class HybridOptimizer:
         self.poly_config = _get_polymerase_config(polymerase)
         self.genome_gc_content = genome_gc_content
 
-        # Apply polymerase preset for max_extension (caller can override)
+        # Apply polymerase preset for max_extension (caller can override).
+        # max_extension is the single-molecule processivity used for the Stage-2
+        # amplification-NETWORK connectivity question ("can two primers connect
+        # via one extension?").
         if max_extension == 70000 and polymerase != "phi29":
             self.max_extension = self.poly_config.max_extension
         else:
             self.max_extension = max_extension
+
+        # coverage_reach is the realistic per-primer reach used for the Stage-1
+        # set-cover COVERAGE objective, so selection optimizes the same coverage
+        # definition that base_optimizer.compute_metrics scores the result on
+        # (~3 kb for phi29). Defaults to max_extension only for backward
+        # compatibility; unified_optimizer passes the resolved realistic reach.
+        self.coverage_reach = coverage_reach if coverage_reach is not None else self.max_extension
 
         # GC-adaptive adjustments for polymerases that benefit from it
         if genome_gc_content is not None and self.poly_config.thermo_filter:
@@ -241,7 +252,9 @@ class HybridOptimizer:
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bin_size=bin_size,
-            extension_reach=self.max_extension,
+            # Stage-1 coverage uses the realistic per-primer reach so the
+            # selection objective matches how the result is scored.
+            extension_reach=self.coverage_reach,
         )
 
         self.network_optimizer = NetworkOptimizer(
@@ -1004,6 +1017,10 @@ class HybridBaseOptimizer(BaseOptimizer):
             bg_seq_lengths=bg_seq_lengths,
             bin_size=kwargs.get("bin_size", 10000),
             max_extension=kwargs.get("max_extension", 70000),
+            # Stage-1 coverage selection uses the realistic reach resolved by
+            # unified_optimizer (OptimizerConfig.extension_reach), so selection
+            # and the scored metrics.fg_coverage share one coverage definition.
+            coverage_reach=getattr(self.config, "extension_reach", None),
             polymerase=kwargs.get("polymerase", "phi29"),
             genome_gc_content=kwargs.get("genome_gc_content"),
             background_pruning=kwargs.get("background_pruning", False),
