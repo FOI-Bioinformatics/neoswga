@@ -44,6 +44,10 @@ def plasmid_scored_workdir():
     if not os.path.isdir(EXAMPLE_DIR):
         pytest.skip("Plasmid example data not available")
 
+    from neoswga.core.kmer_counter import check_jellyfish_available
+    if not check_jellyfish_available():
+        pytest.skip("jellyfish not available (required for count-kmers / step1)")
+
     tmpdir = tempfile.mkdtemp(prefix='neoswga_optmethods_')
     for fname in os.listdir(EXAMPLE_DIR):
         src = os.path.join(EXAMPLE_DIR, fname)
@@ -78,7 +82,11 @@ def plasmid_scored_workdir():
         param_mod.json_file = params_path
 
     _reset()
-    from neoswga.core.pipeline import step2, step3
+    from neoswga.core.pipeline import step1, step2, step3
+    # Generate the k-mer count files (count-kmers); they are not committed.
+    step1()
+
+    _reset()
     df2 = step2()
     assert len(df2) > 0, "fixture: step2 produced no candidates"
 

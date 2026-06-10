@@ -42,9 +42,12 @@ def _reset_pipeline_state(params_file):
 
 @pytest.fixture
 def primed_workdir(tmp_path):
-    """Copy plasmid example and run step2 + step3 so optimizers have data."""
+    """Copy plasmid example and run step1 + step2 + step3 so optimizers have data."""
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
+    from neoswga.core.kmer_counter import check_jellyfish_available
+    if not check_jellyfish_available():
+        pytest.skip("jellyfish not available (required for count-kmers / step1)")
     for fname in os.listdir(EXAMPLE_DIR):
         src = EXAMPLE_DIR / fname
         if src.is_file():
@@ -60,16 +63,18 @@ def primed_workdir(tmp_path):
         json.dump(params, fh, indent=2)
     os.chdir(tmp_path)
     _reset_pipeline_state(str(params_path))
-    from neoswga.core.pipeline import step2, step3
+    from neoswga.core.pipeline import step1, step2, step3
+    # Generate k-mer count files (count-kmers); not committed to the repo.
+    step1()
+    _reset_pipeline_state(str(params_path))
     step2()
     step3()
     return tmp_path
 
 
-# Fast, deterministic optimizers that finish in a few seconds each on the
-# plasmid example. Skip slow / optional ones (moea requires pymoo; milp
-# requires mip; genetic has DEAP).
-FAST_OPTIMIZERS = ["greedy", "dominating-set", "network", "tiling", "hybrid"]
+# The registered optimizers (post optimizer-zoo trim). All four finish in a
+# few seconds each on the plasmid example.
+FAST_OPTIMIZERS = ["dominating-set", "network", "hybrid", "background-aware"]
 
 
 @pytest.mark.integration

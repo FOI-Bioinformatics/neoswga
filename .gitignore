@@ -155,7 +155,20 @@ examples/**/step*.csv
 examples/**/step*.json
 examples/**/*.h5
 examples/**/report.html
+examples/**/*.bedgraph
+examples/**/*_all.txt
+examples/**/export/
+examples/**/params_backup.json
+examples/**/run_manifest.json
+examples/**/*technical_report.html
 examples/ecoli_environmental/ecoli_K12_MG1655.fasta
+
+# Root-level pipeline run artifacts
+/step4_improved_df_validation.json
+/step*_df.csv
+
+# Local planning/spec scratch (not part of the package)
+docs/superpowers/
 
 # Git worktrees
 .worktrees/
