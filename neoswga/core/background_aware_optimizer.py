@@ -661,6 +661,9 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             bg_prefixes=bg_prefixes or [],
             bg_seq_lengths=bg_seq_lengths or [],
             background_pruning=True,
+            # Realistic Stage-1 coverage reach (resolved by unified_optimizer),
+            # matching the scored metric and this optimizer's own 3 kb docstring.
+            coverage_reach=getattr(self.config, "extension_reach", None),
             background_weight=kwargs.get("background_weight", 2.0),
             min_coverage_threshold=kwargs.get("min_coverage_threshold", 0.95),
             polymerase=kwargs.get("polymerase", "phi29"),

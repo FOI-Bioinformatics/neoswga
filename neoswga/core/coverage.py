@@ -82,7 +82,10 @@ def compute_per_prefix_coverage(
             for primer in primers:
                 try:
                     positions = cache.get_positions(prefix, primer, strand)
-                except Exception:
+                except (KeyError, ValueError):
+                    # Genuinely-absent primer in this prefix; skip it. Do NOT
+                    # swallow I/O / HDF5 errors here — a systemic cache failure
+                    # must surface rather than silently undercount coverage.
                     continue
                 for pos in positions:
                     _mark_window(occupied, int(pos), extension, length, circular)

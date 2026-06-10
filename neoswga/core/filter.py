@@ -371,9 +371,19 @@ def get_all_rates(
             )
         scaled_min_fg, scaled_max_bg = _threshold_cache[primer_len]
         fg_count = primer_to_fg_count.get(primer, None)
-        fg_bool = fg_count is None or fg_count / fg_total_length > scaled_min_fg
+        # Guard against zero-length genomes (e.g. a foreground FASTA that failed
+        # to load to a real length) so a bad input raises clearly upstream
+        # rather than a per-primer ZeroDivisionError. A count with no length is
+        # uninterpretable; treat it as failing the frequency gate.
+        if fg_count is None or fg_total_length <= 0:
+            fg_bool = fg_count is None
+        else:
+            fg_bool = fg_count / fg_total_length > scaled_min_fg
         bg_count = primer_to_bg_count.get(primer, None)
-        bg_bool = bg_count is None or bg_count / bg_total_length < scaled_max_bg
+        if bg_count is None or bg_total_length <= 0:
+            bg_bool = bg_count is None
+        else:
+            bg_bool = bg_count / bg_total_length < scaled_max_bg
         results.append([primer, fg_count, bg_count, fg_bool, bg_bool])
 
     df = pd.DataFrame(results, columns=["primer", "fg_count", "bg_count", "fg_bool", "bg_bool"])

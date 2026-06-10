@@ -2953,7 +2953,16 @@ def run_step4(args):
                 fg_prefixes = parameter.fg_prefixes
                 bg_prefixes = getattr(parameter, "bg_prefixes", [])
 
-                # Create frontier generator
+                # Create frontier generator. The generator uses `processivity`
+                # as the coverage read-length, so pass the REALISTIC per-primer
+                # reach (phi29 ~3 kb), not single-molecule processivity (70 kb),
+                # which would inflate the frontier's coverage estimates.
+                from neoswga.core.coverage import polymerase_extension_reach
+
+                _frontier_reach = polymerase_extension_reach(
+                    getattr(parameter, "polymerase", "phi29") or "phi29",
+                    coverage_metric="realistic",
+                )
                 generator = ParetoFrontierGenerator(
                     primer_pool=primer_pool,
                     position_cache=cache,
@@ -2961,7 +2970,7 @@ def run_step4(args):
                     bg_prefixes=bg_prefixes,
                     fg_seq_lengths=fg_lengths,
                     bg_seq_lengths=bg_lengths,
-                    processivity=70000,
+                    processivity=_frontier_reach,
                 )
 
                 # Generate frontier (quick estimation only if requested)
