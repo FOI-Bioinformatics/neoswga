@@ -416,10 +416,21 @@ class BackgroundAwareOptimizer:
         return total_sites
 
     def _calculate_connectivity(self, primers: List[str]) -> float:
-        """Calculate amplification network connectivity."""
-        # Simplified connectivity metric
-        # Full implementation would use NetworkOptimizer's connectivity calculation
-        return min(1.0, len(primers) / 10.0)
+        """Calculate amplification-network connectivity for the primer set.
+
+        Builds the foreground amplification network (opposite-strand sites within
+        extension distance) and returns its algebraic connectivity score, instead
+        of the previous ``len(primers)/10`` placeholder that reported a fixed
+        value regardless of whether the network was actually connected.
+        """
+        if not primers:
+            return 0.0
+        try:
+            network = self.network_optimizer._build_network(primers, self.fg_prefixes)
+            return float(network.connectivity_score())
+        except Exception as e:  # pragma: no cover - defensive
+            logger.debug(f"connectivity computation failed ({e}); returning 0.0")
+            return 0.0
 
     def _estimate_naive_background(self, candidates: List[str], num_primers: int) -> int:
         """

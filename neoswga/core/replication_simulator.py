@@ -20,7 +20,7 @@ import logging
 import math
 import random
 import warnings
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
@@ -183,6 +183,9 @@ class SimulationConfig:
     max_amplification_fold: float = 1e6
 
     max_concurrent_forks: int = 1000  # Polymerase availability limit
+
+    # Random seed for reproducible simulation. None = nondeterministic.
+    seed: Optional[int] = None
 
 
 @dataclass
@@ -404,6 +407,10 @@ class Phi29Simulator:
         Returns:
             SimulationResult with coverage and amplification metrics
         """
+        if self.config.seed is not None:
+            random.seed(self.config.seed)
+            np.random.seed(self.config.seed)
+
         logger.info("\nStarting simulation...")
         if self.config.enable_strand_displacement:
             logger.info("  Hyperbranching mode: enabled")
@@ -1021,6 +1028,7 @@ def simulate_primer_set(
     n_replicates: int = 5,
     config: Optional[SimulationConfig] = None,
     mechanistic_model: Optional["MechanisticModel"] = None,
+    seed: Optional[int] = None,
 ) -> Dict:
     """
     Simulate primer set performance with multiple replicates.
@@ -1057,10 +1065,19 @@ def simulate_primer_set(
 
     logger.info(f"Running {n_replicates} simulation replicates...")
 
+    # Resolve the base seed: explicit arg wins, else the config's seed. When set,
+    # each replicate gets a distinct-but-reproducible derived seed so replicates
+    # differ while the whole run reproduces exactly.
+    base_seed = seed if seed is not None else config.seed
+
     for i in range(n_replicates):
         logger.info(f"\n{'='*60}")
         logger.info(f"Replicate {i+1}/{n_replicates}")
         logger.info(f"{'='*60}")
+
+        rep_config = config
+        if base_seed is not None:
+            rep_config = replace(config, seed=base_seed + i)
 
         simulator = Phi29Simulator(
             primers,
@@ -1068,7 +1085,7 @@ def simulate_primer_set(
             genome_length,
             genome_sequence,
             conditions,
-            config=config,
+            config=rep_config,
             mechanistic_model=mechanistic_model,
         )
 

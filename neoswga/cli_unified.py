@@ -1753,6 +1753,13 @@ Examples:
         "--visualize", action="store_true", help="Generate visualization plots"
     )
     simulate_parser.add_argument("--report", action="store_true", help="Generate HTML report")
+    simulate_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible simulation (replicates derive distinct "
+        "seeds so a run reproduces exactly).",
+    )
 
     # Expand primers - add new primers to existing validated set
     expand_parser = subparsers.add_parser(
@@ -3075,7 +3082,7 @@ def run_step4(args):
 
                     # Run validation
                     validation_results = validate_network_predictions(
-                        primers, fg_network, bg_network
+                        primers, fg_network, bg_network, seed=getattr(args, "seed", None)
                     )
 
                     # Report results
@@ -4610,6 +4617,7 @@ def run_simulate(args):
             genome_sequence=genome_sequence,
             conditions=conditions,
             n_replicates=n_replicates,
+            seed=getattr(args, "seed", None),
         )
 
         logger.info(f"\nSimulation complete!")

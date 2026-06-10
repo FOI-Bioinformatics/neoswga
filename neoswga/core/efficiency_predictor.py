@@ -526,14 +526,20 @@ class EfficiencyPredictor:
             if n < 2:
                 return 0.0, []
 
-            # Bound O(n^2) by sampling for large sets
+            # Bound O(n^2) by sampling for large sets. Seed the sampler from the
+            # primer set itself so the dimer-risk subsample (and therefore the
+            # SYNTHESIZE / CAUTION go-no-go recommendation) is reproducible for
+            # the same input instead of varying run-to-run on an unseeded RNG.
             if n > self.MAX_DIMER_ANALYSIS_PRIMERS:
                 if verbose:
                     logger.info(
                         f"  Sampling {self.MAX_DIMER_ANALYSIS_PRIMERS} primers "
                         f"for dimer analysis (total: {n})"
                     )
-                primers_to_check = random.sample(primers, self.MAX_DIMER_ANALYSIS_PRIMERS)
+                seed = hash(tuple(sorted(primers))) & 0xFFFFFFFF
+                primers_to_check = random.Random(seed).sample(
+                    primers, self.MAX_DIMER_ANALYSIS_PRIMERS
+                )
             else:
                 primers_to_check = primers
 
