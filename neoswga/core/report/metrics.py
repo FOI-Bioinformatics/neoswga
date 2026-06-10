@@ -187,15 +187,28 @@ class FilteringStats:
     final_candidates: int = 0
 
     def as_funnel(self) -> List[tuple]:
-        """Return filtering stages as a funnel list."""
-        return [
+        """Return filtering stages as a funnel list, in actual pipeline order.
+
+        Order matches how the filter step applies stages (frequency ->
+        thermodynamic/sequence-quality -> exclusion/blacklist -> Gini -> cap),
+        so the rendered funnel is monotonically non-increasing. Intermediate
+        stages with a 0 count (not recorded) are skipped; the total and final
+        are always shown.
+        """
+        ordered = [
             ("Total k-mers", self.total_kmers),
             ("After frequency filter", self.after_frequency),
-            ("After background filter", self.after_background),
-            ("After Gini filter", self.after_gini),
             ("After thermodynamic filter", self.after_thermodynamic),
+            ("After background/blacklist", self.after_background),
+            ("After Gini filter", self.after_gini),
             ("After complexity filter", self.after_complexity),
             ("Final candidates", self.final_candidates),
+        ]
+        # Keep the endpoints; drop zero-count intermediate stages.
+        return [
+            (label, count)
+            for i, (label, count) in enumerate(ordered)
+            if i in (0, len(ordered) - 1) or count > 0
         ]
 
 
@@ -222,6 +235,11 @@ class CoverageMetrics:
     # overall_coverage. None when the value comes from the fallback
     # estimate (n_primers * 30 kb) instead of a measured optimizer run.
     extension_reach: Optional[int] = None
+    # Per-target coverage (multi-genome runs): maps fg prefix -> coverage.
+    # Empty for single-genome runs. Read from the optimizer summary.
+    per_target_coverage: Dict[str, float] = field(default_factory=dict)
+    # Measured coverage uniformity (Gini of gap sizes) from the optimizer.
+    coverage_uniformity: Optional[float] = None
 
 
 @dataclass
@@ -233,6 +251,11 @@ class SpecificityMetrics:
     background_sites: int = 0
     target_density: float = 0.0  # sites per Mbp
     background_density: float = 0.0
+    # Measured values from the optimizer summary (preferred over the
+    # density-ratio estimate above when available).
+    selectivity_ratio: Optional[float] = None
+    bg_coverage: Optional[float] = None
+    from_optimizer: bool = False
 
 
 @dataclass
@@ -261,6 +284,12 @@ class UniformityMetrics:
     forward_sites: int = 0
     reverse_sites: int = 0
     strand_ratio: float = 1.0
+    # Measured strand-interleaving metrics from the optimizer (None = not
+    # available). strand_alternation_score: fraction of adjacent binding sites
+    # that alternate strands; strand_coverage_ratio: min/max fwd-vs-rev balance.
+    strand_alternation_score: Optional[float] = None
+    strand_coverage_ratio: Optional[float] = None
+    from_optimizer: bool = False
 
 
 @dataclass
@@ -289,6 +318,17 @@ class PipelineMetrics:
     specificity: Optional[SpecificityMetrics] = None
     thermodynamics: Optional[ThermodynamicMetrics] = None
     uniformity: Optional[UniformityMetrics] = None
+
+    # Optimizer extras read from step4_improved_df_summary.json (authoritative).
+    # ensemble_comparison: per-method rows from an --optimization-method=ensemble
+    # run; pareto_metrics: set-level Pareto solutions from MOEA / frontier.
+    ensemble_comparison: List[Dict] = field(default_factory=list)
+    pareto_metrics: List[Dict] = field(default_factory=list)
+    # Coverage gaps from the analyze-coverage command (coverage_gaps.json /
+    # merged_gaps.bed), when present in the results dir. None = not run.
+    coverage_gaps: Optional[Dict] = None
+    # Reaction conditions / additives used (from params.json), for the report.
+    reaction_conditions: Dict[str, Any] = field(default_factory=dict)
 
     # Runtime
     total_runtime_seconds: float = 0.0
@@ -557,6 +597,58 @@ def _calculate_uniformity_metrics(
     )
 
 
+def _load_coverage_gaps(results_path: Path) -> Optional[Dict]:
+    """Load coverage gaps written by `neoswga analyze-coverage`, if present.
+
+    Reads ``coverage_gaps.json`` (preferred) which records the merged in-silico
+    and BAM-derived gaps. Returns a dict with ``n_gaps``, ``used_bam``,
+    ``min_depth``, ``min_gap_size`` and a ``gaps`` list, or None when the
+    analyze-coverage step was not run.
+    """
+    gaps_json = results_path / "coverage_gaps.json"
+    if not gaps_json.exists():
+        return None
+    try:
+        with open(gaps_json, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "gaps" in data:
+            return data
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to load coverage_gaps.json: {e}")
+    return None
+
+
+def _extract_reaction_conditions(params: Dict[str, Any]) -> Dict[str, Any]:
+    """Pull the reaction conditions / additives actually used from params.
+
+    Surfaced in the report so a reader can see the polymerase, temperature,
+    salts, and additive concentrations behind the design. Only non-default
+    additive values are kept so the block stays focused.
+    """
+    if not params:
+        return {}
+    conditions: Dict[str, Any] = {}
+    for key in ("polymerase", "reaction_temp", "na_conc", "mg_conc", "primer_conc"):
+        if params.get(key) is not None:
+            conditions[key] = params[key]
+    additives = {}
+    for key in (
+        "dmso_percent",
+        "betaine_m",
+        "trehalose_m",
+        "formamide_percent",
+        "ethanol_percent",
+        "urea_m",
+        "tmac_m",
+    ):
+        val = params.get(key)
+        if val:  # only non-zero additives
+            additives[key] = val
+    if additives:
+        conditions["additives"] = additives
+    return conditions
+
+
 def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     """
     Collect all metrics from a pipeline results directory.
@@ -625,7 +717,49 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         metrics.coverage.max_gap = opt_metrics.get("max_gap", 0.0)
         metrics.coverage.gap_gini = opt_metrics.get("gap_gini", 0.0)
         metrics.coverage.gap_entropy = opt_metrics.get("gap_entropy", 0.0)
-        logger.info("Using real optimizer metrics for coverage data")
+        # Per-target coverage (multi-genome) and measured coverage uniformity.
+        if isinstance(opt_metrics.get("per_target_coverage"), dict):
+            metrics.coverage.per_target_coverage = opt_metrics["per_target_coverage"]
+        if "coverage_uniformity" in opt_metrics:
+            metrics.coverage.coverage_uniformity = _safe_float(opt_metrics["coverage_uniformity"])
+
+        # Prefer the optimizer's MEASURED selectivity / background coverage / site
+        # totals over the density-ratio estimate derived from the CSV.
+        if "selectivity_ratio" in opt_metrics:
+            metrics.specificity.selectivity_ratio = _safe_float(opt_metrics["selectivity_ratio"])
+            metrics.specificity.from_optimizer = True
+        if "bg_coverage" in opt_metrics:
+            metrics.specificity.bg_coverage = _safe_float(opt_metrics["bg_coverage"])
+        if "total_fg_sites" in opt_metrics:
+            metrics.specificity.target_sites = _safe_int(opt_metrics["total_fg_sites"])
+        if "total_bg_sites" in opt_metrics:
+            metrics.specificity.background_sites = _safe_int(opt_metrics["total_bg_sites"])
+
+        # Measured strand-interleaving metrics.
+        if metrics.uniformity is not None:
+            if "strand_alternation_score" in opt_metrics:
+                metrics.uniformity.strand_alternation_score = _safe_float(
+                    opt_metrics["strand_alternation_score"]
+                )
+                metrics.uniformity.from_optimizer = True
+            if "strand_coverage_ratio" in opt_metrics:
+                metrics.uniformity.strand_coverage_ratio = _safe_float(
+                    opt_metrics["strand_coverage_ratio"]
+                )
+        logger.info("Using real optimizer metrics for coverage/specificity/strand data")
+
+    # Top-level optimizer extras: ensemble per-method comparison and Pareto front.
+    if optimizer_summary:
+        if isinstance(optimizer_summary.get("ensemble_comparison"), list):
+            metrics.ensemble_comparison = optimizer_summary["ensemble_comparison"]
+        if isinstance(optimizer_summary.get("pareto_metrics"), list):
+            metrics.pareto_metrics = optimizer_summary["pareto_metrics"]
+
+    # Coverage gaps from the analyze-coverage command, if present.
+    metrics.coverage_gaps = _load_coverage_gaps(results_path)
+
+    # Reaction conditions / additives used (from params), for the report.
+    metrics.reaction_conditions = _extract_reaction_conditions(metrics.parameters)
 
     # Load validator report so the HTML can surface warnings
     # (per_target_coverage_below_threshold, blacklist_primer_in_set,

@@ -704,6 +704,8 @@ def step2(all_primers=None, validate_prerequisites=True):
         rate_df = filter_module.get_all_rates(all_primers, **kwargs)
     filtered_rate_df = rate_df[(rate_df["fg_bool"]) & (rate_df["bg_bool"])]
     filtered_rate_df = filtered_rate_df.drop(["fg_bool", "bg_bool"], axis=1)
+    # Funnel stage counts for filter_stats.json (real filtering funnel in reports).
+    _funnel = {"total_kmers": len(all_primers), "after_frequency": len(filtered_rate_df)}
     logger.info(
         f"Filtered {len(rate_df) - len(filtered_rate_df)} primers based on foreground/background rate"
     )
@@ -715,6 +717,7 @@ def step2(all_primers=None, validate_prerequisites=True):
     pre_quality_count = len(filtered_rate_df)
     quality_mask = filtered_rate_df["primer"].apply(filter_module.filter_extra)
     filtered_rate_df = filtered_rate_df[quality_mask].copy()
+    _funnel["after_thermodynamic"] = len(filtered_rate_df)
     quality_rejected = pre_quality_count - len(filtered_rate_df)
     if quality_rejected > 0:
         logger.info(
@@ -780,6 +783,8 @@ def step2(all_primers=None, validate_prerequisites=True):
                 filtered_rate_df["primer"], bg_prefixes, bg_genomes, circular=parameter.bg_circular
             )
 
+    # Count after exclusion/blacklist (before Gini) for the funnel.
+    _funnel["after_background"] = len(filtered_rate_df)
     with progress_context("Computing Gini index"):
         gini_df = filter_module.get_gini(
             fg_prefixes,
@@ -789,6 +794,7 @@ def step2(all_primers=None, validate_prerequisites=True):
             fg_circular,
             position_cache=fg_position_cache,
         )
+    _funnel["after_gini"] = len(gini_df)
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)
@@ -800,6 +806,17 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
+
+    # Write the real filtering funnel so reports show genuine per-stage counts
+    # instead of a fabricated estimate. Best-effort: never fail the filter step.
+    try:
+        import json as _json
+
+        _funnel["final_candidates"] = len(filtered_gini_df)
+        with open(os.path.join(parameter.data_dir, "filter_stats.json"), "w") as _fh:
+            _json.dump(_funnel, _fh, indent=2)
+    except Exception as _e:  # pragma: no cover - defensive
+        logger.debug(f"Could not write filter_stats.json: {_e}")
 
     if len(filtered_gini_df) == 0:
         logger.error(
