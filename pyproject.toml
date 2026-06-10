@@ -130,7 +130,11 @@ neoswga = ["*.md"]
 
 [tool.black]
 line-length = 100
-target-version = ['py311', 'py312', 'py313']
+# Target the minimum supported version. Targeting py313 makes black emit code
+# whose AST it cannot safety-verify when run on Python 3.11 (the CI lint
+# runner), leaving some files unformattable there; py311 output is valid for
+# all supported interpreters (3.11-3.13).
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
