@@ -71,32 +71,6 @@ def test_params_valid(scenario: str):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize("scenario", SCENARIOS)
-def test_filter_pipeline(scenario: str):
-    """Test the filter step of the pipeline."""
-    if not check_genome_available(scenario):
-        pytest.skip(f"Test genome not available for {scenario}")
-
-    from neoswga.core.pipeline import run_filter
-
-    scenario_dir = get_scenario_path(scenario)
-    params = load_params(scenario)
-
-    # Update paths to be absolute
-    params["fg_genomes"] = [str(scenario_dir / g) for g in params["fg_genomes"]]
-    params["fg_prefixes"] = [str(scenario_dir / p) for p in params["fg_prefixes"]]
-    if params.get("bg_genomes"):
-        params["bg_genomes"] = [str(scenario_dir / g) for g in params["bg_genomes"] if g]
-        params["bg_prefixes"] = [str(scenario_dir / p) for p in params.get("bg_prefixes", []) if p]
-
-    # Run filter (this is the core test)
-    # Note: Actual implementation depends on pipeline API
-    # This is a placeholder for the test structure
-    assert True  # Replace with actual pipeline call when ready
-
-
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.parametrize("scenario", SCENARIOS)
 def test_scenario_description(scenario: str):
     """Verify each scenario has a description."""
     params = load_params(scenario)

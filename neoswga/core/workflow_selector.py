@@ -9,10 +9,10 @@ neoswga features:
 4. Simulation
 """
 
-import sys
-import subprocess
 import shlex
-from typing import Optional, List, Tuple
+import subprocess
+import sys
+from typing import List, Optional, Tuple
 
 
 def clear_screen():
@@ -71,9 +71,9 @@ def prompt_execute(cmd: List[str], description: str = "") -> bool:
 
     while True:
         choice = input("Run this command? [y/n]: ").strip().lower()
-        if choice == 'y' or choice == 'yes':
+        if choice == "y" or choice == "yes":
             return execute_command(cmd)
-        elif choice == 'n' or choice == 'no':
+        elif choice == "n" or choice == "no":
             print("Skipped.")
             return False
         else:
@@ -118,7 +118,7 @@ def get_choice(max_option: int) -> Optional[int]:
     while True:
         choice = input("Select option: ").strip().lower()
 
-        if choice == 'q':
+        if choice == "q":
             return None
 
         try:
@@ -182,8 +182,10 @@ def run_workflow_selector():
 
             # Prompt for genome path
             genome = input("Enter path to target genome FASTA (or 'skip' to exit): ").strip()
-            if genome.lower() != 'skip' and genome:
-                background = input("Enter path to background genome FASTA (or Enter to skip): ").strip()
+            if genome.lower() != "skip" and genome:
+                background = input(
+                    "Enter path to background genome FASTA (or Enter to skip): "
+                ).strip()
                 cmd = ["neoswga", "init", "--genome", genome]
                 if background:
                     cmd.extend(["--background", background])
@@ -221,20 +223,34 @@ def run_workflow_selector():
                             print("\nPipeline stopped due to error or user choice.")
                             break
                 elif pipe_choice == 2:
-                    prompt_execute(["neoswga", "count-kmers", "-j", params_file], "Generate k-mer counts from genome")
+                    prompt_execute(
+                        ["neoswga", "count-kmers", "-j", params_file],
+                        "Generate k-mer counts from genome",
+                    )
                 elif pipe_choice == 3:
-                    prompt_execute(["neoswga", "filter", "-j", params_file], "Apply frequency and thermodynamic filters")
+                    prompt_execute(
+                        ["neoswga", "filter", "-j", params_file],
+                        "Apply frequency and thermodynamic filters",
+                    )
                 elif pipe_choice == 4:
-                    prompt_execute(["neoswga", "score", "-j", params_file], "Predict amplification efficacy")
+                    prompt_execute(
+                        ["neoswga", "score", "-j", params_file], "Predict amplification efficacy"
+                    )
                 elif pipe_choice == 5:
                     print("\nOptimization methods available:")
                     print("  1. hybrid (default)")
                     print("  2. dominating-set (8x faster)")
                     print("  3. background-aware (clinical, 10-20x bg reduction)")
                     method = input("Select method [1]: ").strip()
-                    methods = {'1': 'hybrid', '2': 'dominating-set', '3': 'background-aware'}
-                    opt_method = methods.get(method, 'hybrid')
-                    cmd = ["neoswga", "optimize", "-j", params_file, f"--optimization-method={opt_method}"]
+                    methods = {"1": "hybrid", "2": "dominating-set", "3": "background-aware"}
+                    opt_method = methods.get(method, "hybrid")
+                    cmd = [
+                        "neoswga",
+                        "optimize",
+                        "-j",
+                        params_file,
+                        f"--optimization-method={opt_method}",
+                    ]
                     prompt_execute(cmd, "Select optimal primer combination")
 
                 input("\nPress Enter to continue...")
@@ -254,7 +270,9 @@ def run_workflow_selector():
             params_file = input("Enter params.json path [params.json]: ").strip()
             if not params_file:
                 params_file = "params.json"
-            prompt_execute(["neoswga", "validate-params", "-j", params_file], "Check configuration for errors")
+            prompt_execute(
+                ["neoswga", "validate-params", "-j", params_file], "Check configuration for errors"
+            )
             input("\nPress Enter to continue...")
 
         elif choice == 4:  # Interpret results
@@ -271,7 +289,10 @@ def run_workflow_selector():
             results_dir = input("Enter results directory [results/]: ").strip()
             if not results_dir:
                 results_dir = "results/"
-            prompt_execute(["neoswga", "interpret", "-d", results_dir], "Quality assessment of primer design output")
+            prompt_execute(
+                ["neoswga", "interpret", "-d", results_dir],
+                "Quality assessment of primer design output",
+            )
             input("\nPress Enter to continue...")
 
         elif choice == 5:  # Advanced features
@@ -347,5 +368,5 @@ def run_workflow_selector():
                 input("\nPress Enter to continue...")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     run_workflow_selector()

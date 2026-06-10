@@ -13,7 +13,7 @@ Usage:
     neoswga count-kmers [options]
     neoswga filter [options]
     neoswga score [options]
-    neoswga optimize [options] [--optimization-method=hybrid|greedy|milp]
+    neoswga optimize [options] [--optimization-method=hybrid|dominating-set|network|background-aware|ensemble]
 
     # Utility commands
     neoswga build-filter <genome> <output_dir>
@@ -31,8 +31,8 @@ Examples:
     neoswga score -j params.json
     neoswga optimize -j params.json
 
-    # Control optimization method
-    neoswga optimize -j params.json --optimization-method=milp
+    # Control optimization method (hybrid|dominating-set|network|background-aware|ensemble)
+    neoswga optimize -j params.json --optimization-method=ensemble
     neoswga optimize -j params.json --use-background-filter --background-bloom-path filters/bg_bloom.pkl
 
     # Pre-build background filter (one-time, 30 min for human genome)
@@ -48,11 +48,11 @@ Examples:
     neoswga analyze-set --primers ACGTACGTACGT TGCATGCATGCA --fg target.fasta --fg-kmers data/target --output results/
 """
 
-import sys
-import os
 import argparse
-import logging
 import json
+import logging
+import os
+import sys
 
 # Import StepPrerequisiteError for proper exception handling
 # This is imported at module level so except clauses can catch it
@@ -62,13 +62,12 @@ except ImportError:
     # Define a fallback if pipeline module isn't available
     class StepPrerequisiteError(Exception):
         """Raised when a pipeline step's prerequisites are not satisfied."""
+
         pass
 
+
 # Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s: %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -77,7 +76,9 @@ def check_jellyfish_available():
 
     Called before commands that require Jellyfish (count-kmers, design).
     """
-    from neoswga.core.kmer_counter import check_jellyfish_available as _check, get_jellyfish_version
+    from neoswga.core.kmer_counter import check_jellyfish_available as _check
+    from neoswga.core.kmer_counter import get_jellyfish_version
+
     if not _check():
         logger.error(
             "Jellyfish is required but not found in PATH.\n"
@@ -89,7 +90,7 @@ def check_jellyfish_available():
         )
         sys.exit(1)
     version = get_jellyfish_version()
-    if version and version.split('.')[0] == '1':
+    if version and version.split(".")[0] == "1":
         logger.error(
             f"Jellyfish version {version} detected. NeoSWGA requires Jellyfish 2.x.\n"
             "Please upgrade: https://github.com/gmarcais/Jellyfish"
@@ -106,14 +107,14 @@ def check_jellyfish_available():
 # =============================================================================
 
 # Valid DNA bases (IUPAC nucleotide codes)
-VALID_DNA_BASES = frozenset('ACGTRYSWKMBDHVN')
+VALID_DNA_BASES = frozenset("ACGTRYSWKMBDHVN")
 
 # Primer length bounds
 MAX_PRIMER_LENGTH = 50
 MIN_PRIMER_LENGTH = 4
 
 # Forbidden characters in file paths (shell metacharacters, null bytes)
-FORBIDDEN_PATH_CHARS = frozenset(';&|`$\x00')
+FORBIDDEN_PATH_CHARS = frozenset(";&|`$\x00")
 
 
 def validate_primer_sequence(primer: str, name: str = "primer") -> str:
@@ -139,13 +140,11 @@ def validate_primer_sequence(primer: str, name: str = "primer") -> str:
     # Check length
     if len(primer) < MIN_PRIMER_LENGTH:
         raise ValueError(
-            f"Invalid {name} '{primer}': too short "
-            f"(minimum {MIN_PRIMER_LENGTH} bp)"
+            f"Invalid {name} '{primer}': too short " f"(minimum {MIN_PRIMER_LENGTH} bp)"
         )
     if len(primer) > MAX_PRIMER_LENGTH:
         raise ValueError(
-            f"Invalid {name} '{primer}': too long "
-            f"(maximum {MAX_PRIMER_LENGTH} bp)"
+            f"Invalid {name} '{primer}': too long " f"(maximum {MAX_PRIMER_LENGTH} bp)"
         )
 
     # Check for valid DNA bases only
@@ -174,7 +173,7 @@ def validate_path_security(path: str, context: str = "path") -> None:
         ValueError: If path contains security issues
     """
     # Check for path traversal BEFORE normalization (normpath resolves '..')
-    if '..' in path:
+    if ".." in path:
         raise ValueError(f"Invalid {context}: directory traversal not allowed")
 
     # Check for forbidden characters (shell metacharacters, null bytes)
@@ -226,7 +225,7 @@ def load_primers_from_file(filepath: str, name: str = "primer") -> list:
         for line_num, line in enumerate(f, 1):
             line = line.strip()
             # Skip empty lines and comments
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
             try:
                 primer = validate_primer_sequence(line, f"{name} (line {line_num})")
@@ -298,6 +297,7 @@ def collect_primers_from_args(
 # Parameter File Validation
 # =============================================================================
 
+
 def validate_params_json_file(path):
     """Validate that a parameter file exists and contains valid JSON.
 
@@ -320,55 +320,72 @@ def validate_params_json_file(path):
 
     # Validate that essential fields are present
     if not data:
-        print(f"Error: '{path}' is empty. At minimum, provide 'fg_genome' and 'data_dir'.", file=sys.stderr)
-        print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
+        print(
+            f"Error: '{path}' is empty. At minimum, provide 'fg_genome' and 'data_dir'.",
+            file=sys.stderr,
+        )
+        print(
+            "Run 'neoswga init --genome target.fasta' to create a valid configuration.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     # Check for data_dir
-    if 'data_dir' not in data:
+    if "data_dir" not in data:
         print(f"Error: '{path}' is missing required field 'data_dir'.", file=sys.stderr)
-        print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
+        print(
+            "Run 'neoswga init --genome target.fasta' to create a valid configuration.",
+            file=sys.stderr,
+        )
         sys.exit(1)
     # Validate data_dir exists (create if needed)
-    data_dir = data['data_dir']
-    if data_dir and data_dir != './' and data_dir != '.':
+    data_dir = data["data_dir"]
+    if data_dir and data_dir != "./" and data_dir != ".":
         if not os.path.isdir(data_dir):
             os.makedirs(data_dir, exist_ok=True)
             logger.info(f"Created data directory: {data_dir}")
     # Check for fg_prefixes (common missing field — #1 new-user crash)
-    if 'fg_genomes' in data and 'fg_prefixes' not in data:
+    if "fg_genomes" in data and "fg_prefixes" not in data:
         logger.warning(
             f"'{path}' is missing 'fg_prefixes'. "
             "Consider running 'neoswga init --genome target.fasta' for a complete config."
         )
     # Check for genome specification (multiple accepted conventions)
-    has_genome = any(k in data for k in ('fg_genome', 'fg_genomes', 'fg_prefixes'))
+    has_genome = any(k in data for k in ("fg_genome", "fg_genomes", "fg_prefixes"))
     if not has_genome:
         print(f"Error: '{path}' is missing genome specification.", file=sys.stderr)
-        print("Provide 'fg_genome', 'fg_genomes', or 'fg_prefixes' in your params.json.", file=sys.stderr)
-        print("Run 'neoswga init --genome target.fasta' to create a valid configuration.", file=sys.stderr)
+        print(
+            "Provide 'fg_genome', 'fg_genomes', or 'fg_prefixes' in your params.json.",
+            file=sys.stderr,
+        )
+        print(
+            "Run 'neoswga init --genome target.fasta' to create a valid configuration.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Run automatic parameter validation (ERROR-level issues only)
     try:
         from neoswga.core.param_validator import ParamValidator, ValidationLevel
+
         validator = ParamValidator()
         results = validator.validate_params(data)
         # Skip errors already handled by the checks above (required keys, file existence)
         # to avoid false positives — only catch value/type errors (ranges, polymerase, method)
-        already_checked = {'fg_genomes', 'bg_genomes', 'fg_prefixes', 'data_dir', 'params_file'}
+        already_checked = {"fg_genomes", "bg_genomes", "fg_prefixes", "data_dir", "params_file"}
         errors = [
-            r for r in results
+            r
+            for r in results
             if r.level == ValidationLevel.ERROR
             and r.parameter not in already_checked
-            and 'File not found' not in r.message
+            and "File not found" not in r.message
         ]
         if errors:
-            print(f"\nParameter validation found {len(errors)} error(s) in '{path}':",
-                  file=sys.stderr)
+            print(
+                f"\nParameter validation found {len(errors)} error(s) in '{path}':", file=sys.stderr
+            )
             for err in errors:
                 print(f"  - {err.message}", file=sys.stderr)
-            print(f"\nRun 'neoswga validate-params -j {path}' for full details.",
-                  file=sys.stderr)
+            print(f"\nRun 'neoswga validate-params -j {path}' for full details.", file=sys.stderr)
             sys.exit(1)
     except ImportError:
         pass  # ParamValidator not available — skip validation
@@ -380,6 +397,7 @@ def validate_params_json_file(path):
 # =============================================================================
 # Parameter Merger Utility
 # =============================================================================
+
 
 def merge_args_to_parameter(args, parameter, param_names, mapping=None):
     """
@@ -423,8 +441,8 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
     Can be explicitly enabled with --use-gpu.
     """
     # Check if user explicitly disabled GPU
-    no_gpu = getattr(args, 'no_gpu', False)
-    use_gpu = getattr(args, 'use_gpu', False)
+    no_gpu = getattr(args, "no_gpu", False)
+    use_gpu = getattr(args, "use_gpu", False)
 
     if no_gpu:
         parameter.use_gpu = False
@@ -433,7 +451,7 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
     if use_gpu:
         # User explicitly requested GPU
         parameter.use_gpu = True
-        parameter.gpu_device = getattr(args, 'gpu_device', 0)
+        parameter.gpu_device = getattr(args, "gpu_device", 0)
         if not quiet:
             logger.info(f"GPU acceleration enabled (device {parameter.gpu_device})")
         return
@@ -441,9 +459,10 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
     # Auto-detect GPU availability
     try:
         from neoswga.core.gpu_acceleration import is_gpu_available
+
         if is_gpu_available():
             parameter.use_gpu = True
-            parameter.gpu_device = getattr(args, 'gpu_device', 0)
+            parameter.gpu_device = getattr(args, "gpu_device", 0)
             if not quiet:
                 logger.info(f"GPU auto-detected and enabled (device {parameter.gpu_device})")
     except ImportError:
@@ -452,78 +471,122 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
 
 # Preset configurations for reaction conditions
 PRESETS = {
-    'standard_phi29': {
-        'temperature': 37.0,
-        'dmso_percent': 0.0,
-        'betaine_m': 0.0,
-        'polymerase': 'phi29',
-        'na_conc': 50.0,
-        'mg_conc': 0.0,
-        'ssb': False,
-        'optimization_method': 'genetic_algorithm',
-        'target_set_size': 6
+    "standard_phi29": {
+        "temperature": 37.0,
+        "dmso_percent": 0.0,
+        "betaine_m": 0.0,
+        "polymerase": "phi29",
+        "na_conc": 50.0,
+        "mg_conc": 0.0,
+        "ssb": False,
+        "optimization_method": "hybrid",
+        "target_set_size": 6,
     },
-    'enhanced_equiphi29': {
-        'temperature': 42.0,
-        'dmso_percent': 5.0,
-        'betaine_m': 1.0,
-        'polymerase': 'equiphi29',
-        'na_conc': 50.0,
-        'mg_conc': 0.0,
-        'ssb': True,
-        'optimization_method': 'genetic_algorithm',
-        'target_set_size': 6
+    "enhanced_equiphi29": {
+        "temperature": 42.0,
+        "dmso_percent": 5.0,
+        "betaine_m": 1.0,
+        "polymerase": "equiphi29",
+        "na_conc": 50.0,
+        "mg_conc": 0.0,
+        "ssb": True,
+        "optimization_method": "hybrid",
+        "target_set_size": 6,
     },
-    'long_primers_15mer': {
-        'temperature': 45.0,
-        'dmso_percent': 7.0,
-        'betaine_m': 1.5,
-        'polymerase': 'equiphi29',
-        'na_conc': 50.0,
-        'mg_conc': 0.0,
-        'ssb': True,
-        'optimization_method': 'genetic_algorithm',
-        'target_set_size': 6
+    "long_primers_15mer": {
+        "temperature": 45.0,
+        "dmso_percent": 7.0,
+        "betaine_m": 1.5,
+        "polymerase": "equiphi29",
+        "na_conc": 50.0,
+        "mg_conc": 0.0,
+        "ssb": True,
+        "optimization_method": "hybrid",
+        "target_set_size": 6,
     },
-    'high_gc_genome': {
-        'temperature': 45.0,
-        'dmso_percent': 10.0,
-        'betaine_m': 2.0,
-        'polymerase': 'equiphi29',
-        'na_conc': 50.0,
-        'mg_conc': 0.0,
-        'ssb': True,
-        'optimization_method': 'genetic_algorithm',
-        'target_set_size': 8
-    }
+    "high_gc_genome": {
+        "temperature": 45.0,
+        "dmso_percent": 10.0,
+        "betaine_m": 2.0,
+        "polymerase": "equiphi29",
+        "na_conc": 50.0,
+        "mg_conc": 0.0,
+        "ssb": True,
+        "optimization_method": "hybrid",
+        "target_set_size": 8,
+    },
 }
 
 
 # Command groups for organized help display
 COMMAND_GROUPS = [
-    ('Pipeline', [
-        'count-kmers', 'filter', 'score', 'optimize', 'design',
-    ]),
-    ('Setup', [
-        'init', 'start', 'validate', 'validate-params', 'schema', 'doctor',
-        'show-presets', 'suggest',
-    ]),
-    ('Results', [
-        'interpret', 'report', 'export',
-    ]),
-    ('Analysis', [
-        'analyze-set', 'analyze-genome', 'analyze-dimers', 'analyze-stability',
-    ]),
-    ('Advanced', [
-        'auto-pipeline', 'multi-genome', 'simulate', 'optimize-conditions',
-        'build-filter', 'background-list', 'background-add',
-        'genome-add', 'genome-list', 'genome-remove',
-    ]),
-    ('Experimental', [
-        'active-learn', 'expand-primers', 'swap-primer', 'contract-set',
-        'rescore-set', 'predict-efficiency', 'ml-predict',
-        'design-oligos', 'validate-model',
-    ]),
+    (
+        "Pipeline",
+        [
+            "count-kmers",
+            "filter",
+            "score",
+            "optimize",
+            "design",
+        ],
+    ),
+    (
+        "Setup",
+        [
+            "init",
+            "start",
+            "validate",
+            "validate-params",
+            "schema",
+            "doctor",
+            "show-presets",
+            "suggest",
+        ],
+    ),
+    (
+        "Results",
+        [
+            "interpret",
+            "report",
+            "export",
+        ],
+    ),
+    (
+        "Analysis",
+        [
+            "analyze-set",
+            "analyze-genome",
+            "analyze-dimers",
+            "analyze-stability",
+            "analyze-coverage",
+        ],
+    ),
+    (
+        "Advanced",
+        [
+            "multi-genome",
+            "simulate",
+            "optimize-conditions",
+            "build-filter",
+            "background-list",
+            "background-add",
+            "genome-add",
+            "genome-list",
+            "genome-remove",
+        ],
+    ),
+    (
+        "Experimental",
+        [
+            "expand-primers",
+            "swap-primer",
+            "contract-set",
+            "rescore-set",
+            "predict-efficiency",
+            "design-oligos",
+            "validate-model",
+        ],
+    ),
 ]
 
 
@@ -539,16 +602,16 @@ class GroupedHelpFormatter(argparse.RawDescriptionHelpFormatter):
         # Build a lookup from command name to its help string
         cmd_help = {}
         for choice_action in action._choices_actions:
-            cmd_help[choice_action.dest] = choice_action.help or ''
+            cmd_help[choice_action.dest] = choice_action.help or ""
 
         for group_name, commands in COMMAND_GROUPS:
-            parts.append(f'\n  {group_name}:')
+            parts.append(f"\n  {group_name}:")
             for cmd in commands:
-                help_text = cmd_help.get(cmd, '')
-                parts.append(f'    {cmd:<24s}{help_text}')
+                help_text = cmd_help.get(cmd, "")
+                parts.append(f"    {cmd:<24s}{help_text}")
 
-        parts.append('')
-        return '\n'.join(parts) + '\n'
+        parts.append("")
+        return "\n".join(parts) + "\n"
 
 
 def create_parser():
@@ -557,10 +620,10 @@ def create_parser():
     from neoswga import __version__
 
     parser = argparse.ArgumentParser(
-        prog='neoswga',
-        description='NeoSWGA - Selective Whole Genome Amplification primer design',
+        prog="neoswga",
+        description="NeoSWGA - Selective Whole Genome Amplification primer design",
         formatter_class=GroupedHelpFormatter,
-        epilog='''Quick Start:
+        epilog="""Quick Start:
   neoswga init --genome target.fasta --background host.fasta
   neoswga count-kmers -j params.json
   neoswga filter -j params.json
@@ -568,489 +631,824 @@ def create_parser():
   neoswga optimize -j params.json
 
 Run "neoswga <command> --help" for details on a specific command.
-        '''
+        """,
     )
-    parser.add_argument('--version', action='version',
-                        version=f'%(prog)s {__version__}')
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
 
-    subparsers = parser.add_subparsers(
-        dest='command', title='commands', metavar='<command>'
-    )
+    subparsers = parser.add_subparsers(dest="command", title="commands", metavar="<command>")
 
     # =========================================================================
     # STEP 1: K-mer preprocessing
     # =========================================================================
-    count_kmers_parser = subparsers.add_parser('count-kmers',
-                                               help='K-mer preprocessing with primer length control')
+    count_kmers_parser = subparsers.add_parser(
+        "count-kmers", help="K-mer preprocessing with primer length control"
+    )
     add_common_options(count_kmers_parser)
-    count_kmers_parser.add_argument('-x', '--fasta-fore', help='Target genome FASTA')
-    count_kmers_parser.add_argument('-y', '--fasta-back', help='Background genome FASTA')
-    count_kmers_parser.add_argument('-k', '--kmer-fore', help='Target k-mer prefix')
-    count_kmers_parser.add_argument('-l', '--kmer-back', help='Background k-mer prefix')
+    count_kmers_parser.add_argument("-x", "--fasta-fore", help="Target genome FASTA")
+    count_kmers_parser.add_argument("-y", "--fasta-back", help="Background genome FASTA")
+    count_kmers_parser.add_argument("-k", "--kmer-fore", help="Target k-mer prefix")
+    count_kmers_parser.add_argument("-l", "--kmer-back", help="Background k-mer prefix")
 
     # Primer length control (defaults from params.json, or 6-12 if not specified)
-    count_kmers_parser.add_argument('--min-k', type=int, default=None,
-                             help='Minimum primer length (default: from params.json or 6). Supported range: 6-18bp')
-    count_kmers_parser.add_argument('--max-k', type=int, default=None,
-                             help='Maximum primer length (default: from params.json or 12). Use 15-18bp with DMSO/betaine additives')
-    count_kmers_parser.add_argument('--exclusion-genome', type=str, default=None,
-                             help='Exclusion genome FASTA file (e.g., mtDNA)')
-    count_kmers_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
-                             help='Blacklist genome FASTA file(s) (penalty-weighted filtering)')
-    count_kmers_parser.add_argument('--bl-penalty', type=float, default=None,
-                             help='Blacklist penalty weight (default: 5.0)')
-    count_kmers_parser.add_argument('--max-bl-freq', type=float, default=None,
-                             help='Maximum blacklist frequency (default: 0.0, any hit rejects)')
+    count_kmers_parser.add_argument(
+        "--min-k",
+        type=int,
+        default=None,
+        help="Minimum primer length (default: from params.json or 6). Supported range: 6-18bp",
+    )
+    count_kmers_parser.add_argument(
+        "--max-k",
+        type=int,
+        default=None,
+        help="Maximum primer length (default: from params.json or 12). Use 15-18bp with DMSO/betaine additives",
+    )
+    count_kmers_parser.add_argument(
+        "--exclusion-genome",
+        type=str,
+        default=None,
+        help="Exclusion genome FASTA file (e.g., mtDNA)",
+    )
+    count_kmers_parser.add_argument(
+        "--blacklist",
+        "-bl",
+        nargs="+",
+        default=None,
+        help="Blacklist genome FASTA file(s) (penalty-weighted filtering)",
+    )
+    count_kmers_parser.add_argument(
+        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
+    )
+    count_kmers_parser.add_argument(
+        "--max-bl-freq",
+        type=float,
+        default=None,
+        help="Maximum blacklist frequency (default: 0.0, any hit rejects)",
+    )
 
     # =========================================================================
     # STEP 2: Candidate filtering
     # =========================================================================
-    filter_parser = subparsers.add_parser('filter',
-                                          help='Candidate primer filtering (adaptive GC + reaction conditions)')
+    filter_parser = subparsers.add_parser(
+        "filter", help="Candidate primer filtering (adaptive GC + reaction conditions)"
+    )
     add_common_options(filter_parser)
 
     # GC Filtering Options
-    step2_gc_group = filter_parser.add_argument_group('GC Content Filtering')
-    step2_gc_group.add_argument('--gc-tolerance', type=float, default=0.15,
-                                help='GC tolerance for adaptive filter (default: 0.15)')
-    step2_gc_group.add_argument('--gc-min', type=float,
-                                help='Explicit minimum GC content (overrides adaptive)')
-    step2_gc_group.add_argument('--gc-max', type=float,
-                                help='Explicit maximum GC content (overrides adaptive)')
+    step2_gc_group = filter_parser.add_argument_group("GC Content Filtering")
+    step2_gc_group.add_argument(
+        "--gc-tolerance",
+        type=float,
+        default=0.15,
+        help="GC tolerance for adaptive filter (default: 0.15)",
+    )
+    step2_gc_group.add_argument(
+        "--gc-min", type=float, help="Explicit minimum GC content (overrides adaptive)"
+    )
+    step2_gc_group.add_argument(
+        "--gc-max", type=float, help="Explicit maximum GC content (overrides adaptive)"
+    )
 
     # Reaction Conditions
-    step2_rxn_group = filter_parser.add_argument_group('Reaction Conditions')
-    step2_rxn_group.add_argument('--reaction-temp', type=float,
-                                 help='Reaction temperature in C (default: from params.json or polymerase preset)')
-    step2_rxn_group.add_argument('--na-conc', type=float,
-                                 help='Sodium concentration in mM (default: from params.json or 50.0)')
+    step2_rxn_group = filter_parser.add_argument_group("Reaction Conditions")
+    step2_rxn_group.add_argument(
+        "--reaction-temp",
+        type=float,
+        help="Reaction temperature in C (default: from params.json or polymerase preset)",
+    )
+    step2_rxn_group.add_argument(
+        "--na-conc",
+        type=float,
+        help="Sodium concentration in mM (default: from params.json or 50.0)",
+    )
 
     # Additives
-    step2_add_group = filter_parser.add_argument_group('Additives (enable longer primers & GC-extreme genomes)')
-    step2_add_group.add_argument('--dmso-percent', type=float,
-                                 help='DMSO concentration 0-10%% (Tm lowering, secondary structure reduction)')
-    step2_add_group.add_argument('--betaine-m', type=float,
-                                 help='Betaine concentration 0-2.5 M (equalizes AT/GC, enables longer primers)')
-    step2_add_group.add_argument('--trehalose-m', type=float,
-                                 help='Trehalose concentration 0-1.0 M (Tm lowering)')
-    step2_add_group.add_argument('--glycerol-percent', type=float,
-                                 help='Glycerol concentration 0-15%% (enzyme stabilizer)')
-    step2_add_group.add_argument('--bsa', type=float,
-                                 help='BSA concentration 0-400 ug/mL (inhibitor neutralizer)')
-    step2_add_group.add_argument('--peg-percent', type=float,
-                                 help='PEG concentration 0-15%% (molecular crowding)')
-    step2_add_group.add_argument('--mg-conc', type=float,
-                                 help='Mg2+ concentration in mM (auto-optimized if not specified)')
-    step2_add_group.add_argument('--ssb', action='store_true',
-                                 help='Use single-strand binding protein (lowers effective annealing temp)')
-    step2_add_group.add_argument('--ethanol-percent', type=float,
-                                 help='Ethanol concentration 0-5%% (secondary structure reduction)')
-    step2_add_group.add_argument('--urea-m', type=float,
-                                 help='Urea concentration 0-2.0 M (denatures GC-rich regions)')
-    step2_add_group.add_argument('--tmac-m', type=float,
-                                 help='TMAC concentration 0-0.1 M (equalizes AT/GC Tm)')
-    step2_add_group.add_argument('--formamide-percent', type=float,
-                                 help='Formamide concentration 0-10%% (Tm lowering)')
+    step2_add_group = filter_parser.add_argument_group(
+        "Additives (enable longer primers & GC-extreme genomes)"
+    )
+    step2_add_group.add_argument(
+        "--dmso-percent",
+        type=float,
+        help="DMSO concentration 0-10%% (Tm lowering, secondary structure reduction)",
+    )
+    step2_add_group.add_argument(
+        "--betaine-m",
+        type=float,
+        help="Betaine concentration 0-2.5 M (equalizes AT/GC, enables longer primers)",
+    )
+    step2_add_group.add_argument(
+        "--trehalose-m", type=float, help="Trehalose concentration 0-1.0 M (Tm lowering)"
+    )
+    step2_add_group.add_argument(
+        "--glycerol-percent", type=float, help="Glycerol concentration 0-15%% (enzyme stabilizer)"
+    )
+    step2_add_group.add_argument(
+        "--bsa", type=float, help="BSA concentration 0-400 ug/mL (inhibitor neutralizer)"
+    )
+    step2_add_group.add_argument(
+        "--peg-percent", type=float, help="PEG concentration 0-15%% (molecular crowding)"
+    )
+    step2_add_group.add_argument(
+        "--mg-conc", type=float, help="Mg2+ concentration in mM (auto-optimized if not specified)"
+    )
+    step2_add_group.add_argument(
+        "--ssb",
+        action="store_true",
+        help="Use single-strand binding protein (lowers effective annealing temp)",
+    )
+    step2_add_group.add_argument(
+        "--ethanol-percent",
+        type=float,
+        help="Ethanol concentration 0-5%% (secondary structure reduction)",
+    )
+    step2_add_group.add_argument(
+        "--urea-m", type=float, help="Urea concentration 0-2.0 M (denatures GC-rich regions)"
+    )
+    step2_add_group.add_argument(
+        "--tmac-m", type=float, help="TMAC concentration 0-0.1 M (equalizes AT/GC Tm)"
+    )
+    step2_add_group.add_argument(
+        "--formamide-percent", type=float, help="Formamide concentration 0-10%% (Tm lowering)"
+    )
 
     # Preset Conditions
-    filter_parser.add_argument('--preset', choices=[
-        'standard_phi29', 'enhanced_equiphi29', 'high_gc_genome',
-        'long_primers_15mer', 'q_solution', 'gc_melt', 'crude_sample', 'low_temp',
-        'bst', 'klenow', 'extreme_gc'
-    ], help='Use predefined reaction conditions preset')
+    filter_parser.add_argument(
+        "--preset",
+        choices=[
+            "standard_phi29",
+            "enhanced_equiphi29",
+            "high_gc_genome",
+            "long_primers_15mer",
+            "q_solution",
+            "gc_melt",
+            "crude_sample",
+            "low_temp",
+            "bst",
+            "klenow",
+            "extreme_gc",
+        ],
+        help="Use predefined reaction conditions preset",
+    )
 
     # Traditional Filtering Parameters
-    step2_trad_group = filter_parser.add_argument_group('Traditional Filtering')
-    step2_trad_group.add_argument('--min-fg-freq', type=float,
-                                  help='Minimum target genome frequency (default: 1e-5)')
-    step2_trad_group.add_argument('--max-bg-freq', type=float,
-                                  help='Maximum background genome frequency (default: 5e-6)')
-    step2_trad_group.add_argument('--max-gini', type=float,
-                                  help='Maximum Gini index for evenness (default: 0.6)')
-    step2_trad_group.add_argument('--max-primer', type=int,
-                                  help='Number of top primers to keep (default: 500)')
-    step2_trad_group.add_argument('--min-tm', type=float,
-                                  help='Minimum melting temperature in C (default: 15)')
-    step2_trad_group.add_argument('--max-tm', type=float,
-                                  help='Maximum melting temperature in C (default: 45)')
-    step2_trad_group.add_argument('--max-dimer-bp', type=int,
-                                  help='Maximum heterodimer base pairs (default: 3)')
-    step2_trad_group.add_argument('--max-self-dimer-bp', type=int,
-                                  help='Maximum self-dimer base pairs (default: 4)')
+    step2_trad_group = filter_parser.add_argument_group("Traditional Filtering")
+    step2_trad_group.add_argument(
+        "--min-fg-freq", type=float, help="Minimum target genome frequency (default: 1e-5)"
+    )
+    step2_trad_group.add_argument(
+        "--max-bg-freq", type=float, help="Maximum background genome frequency (default: 5e-6)"
+    )
+    step2_trad_group.add_argument(
+        "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.6)"
+    )
+    step2_trad_group.add_argument(
+        "--max-primer", type=int, help="Number of top primers to keep (default: 500)"
+    )
+    step2_trad_group.add_argument(
+        "--min-tm", type=float, help="Minimum melting temperature in C (default: 15)"
+    )
+    step2_trad_group.add_argument(
+        "--max-tm", type=float, help="Maximum melting temperature in C (default: 45)"
+    )
+    step2_trad_group.add_argument(
+        "--max-dimer-bp", type=int, help="Maximum heterodimer base pairs (default: 3)"
+    )
+    step2_trad_group.add_argument(
+        "--max-self-dimer-bp", type=int, help="Maximum self-dimer base pairs (default: 4)"
+    )
 
     # Background Bloom Filter (for large background genomes)
-    step2_bloom_group = filter_parser.add_argument_group('Background Filtering (for large genomes)')
-    step2_bloom_group.add_argument('--use-bloom-filter', action='store_true', default=False,
-                                   help='Use Bloom filter for background filtering (memory-efficient for human genome)')
-    step2_bloom_group.add_argument('--bloom-filter-path', type=str,
-                                   help='Path to pre-built Bloom filter (.pkl). Build with: neoswga build-filter')
-    step2_bloom_group.add_argument('--sampled-index-path', type=str,
-                                   help='Path to pre-built sampled index (.pkl) for count estimation')
-    step2_bloom_group.add_argument('--bloom-max-bg-matches', type=int, default=10,
-                                   help='Maximum background matches via Bloom filter (default: 10)')
+    step2_bloom_group = filter_parser.add_argument_group("Background Filtering (for large genomes)")
+    step2_bloom_group.add_argument(
+        "--use-bloom-filter",
+        action="store_true",
+        default=False,
+        help="Use Bloom filter for background filtering (memory-efficient for human genome)",
+    )
+    step2_bloom_group.add_argument(
+        "--bloom-filter-path",
+        type=str,
+        help="Path to pre-built Bloom filter (.pkl). Build with: neoswga build-filter",
+    )
+    step2_bloom_group.add_argument(
+        "--sampled-index-path",
+        type=str,
+        help="Path to pre-built sampled index (.pkl) for count estimation",
+    )
+    step2_bloom_group.add_argument(
+        "--bloom-max-bg-matches",
+        type=int,
+        default=10,
+        help="Maximum background matches via Bloom filter (default: 10)",
+    )
 
     # Exclusion Genome Filtering (zero-tolerance for contaminants)
     step2_excl_group = filter_parser.add_argument_group(
-        'Exclusion Genome Filtering (reject primers binding contaminant sequences)')
-    step2_excl_group.add_argument('--exclusion-genome', type=str, default=None,
-                                  help='Exclusion genome FASTA file (e.g., mtDNA, chloroplast). '
-                                       'Primers binding this genome are rejected.')
-    step2_excl_group.add_argument('--excl-threshold', type=int, default=0,
-                                  help='Maximum allowed hits in exclusion genome '
-                                       '(default: 0 = any hit rejects primer)')
+        "Exclusion Genome Filtering (reject primers binding contaminant sequences)"
+    )
+    step2_excl_group.add_argument(
+        "--exclusion-genome",
+        type=str,
+        default=None,
+        help="Exclusion genome FASTA file (e.g., mtDNA, chloroplast). "
+        "Primers binding this genome are rejected.",
+    )
+    step2_excl_group.add_argument(
+        "--excl-threshold",
+        type=int,
+        default=0,
+        help="Maximum allowed hits in exclusion genome " "(default: 0 = any hit rejects primer)",
+    )
 
     # Blacklist Genome Filtering (penalty-weighted)
     step2_bl_group = filter_parser.add_argument_group(
-        'Blacklist Genome Filtering (penalty-weighted filtering of contaminating sequences)')
-    step2_bl_group.add_argument('--blacklist', '-bl', nargs='+', default=None,
-                                help='Blacklist genome FASTA file(s)')
-    step2_bl_group.add_argument('--bl-penalty', type=float, default=None,
-                                help='Blacklist penalty weight (default: 5.0)')
-    step2_bl_group.add_argument('--max-bl-freq', type=float, default=None,
-                                help='Maximum blacklist frequency (default: 0.0, any hit rejects)')
+        "Blacklist Genome Filtering (penalty-weighted filtering of contaminating sequences)"
+    )
+    step2_bl_group.add_argument(
+        "--blacklist", "-bl", nargs="+", default=None, help="Blacklist genome FASTA file(s)"
+    )
+    step2_bl_group.add_argument(
+        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
+    )
+    step2_bl_group.add_argument(
+        "--max-bl-freq",
+        type=float,
+        default=None,
+        help="Maximum blacklist frequency (default: 0.0, any hit rejects)",
+    )
 
     # =========================================================================
     # STEP 3: Random forest scoring
     # =========================================================================
-    score_parser = subparsers.add_parser('score',
-                                         help='Amplification efficacy scoring with ML threshold control')
+    score_parser = subparsers.add_parser(
+        "score", help="Amplification efficacy scoring with ML threshold control"
+    )
     add_common_options(score_parser)
 
-    # Scoring method (merges ml-predict)
-    score_parser.add_argument('--method', choices=['rf', 'ml', 'both'],
-                             default='rf',
-                             help='Scoring method: rf (random forest, default), ml (deep learning), both (compare methods)')
-    score_parser.add_argument('--min-amp-pred', type=float,
-                             help='Minimum amplification prediction score (default: 10)')
-    score_parser.add_argument('--full-score', action='store_true',
-                             help='Include thermodynamic delta-G histogram features in '
-                                  'random-forest scoring. These features contribute <2%% of '
-                                  'model accuracy but >99%% of scoring compute time, so they '
-                                  'are skipped by default. Pass this flag only if you need '
-                                  'the full histogram output for downstream analysis.')
-    score_parser.add_argument('--fast-score', action='store_true',
-                             help='Deprecated alias for the current default behavior '
-                                  '(thermodynamic histogram features are skipped). '
-                                  'Accepted for backwards compatibility.')
-
-    # ML-specific options (when --method ml or both)
-    score_parser.add_argument('--model-path', type=str,
-                             help='Path to pre-trained deep learning model')
-    score_parser.add_argument('--embedding-dim', type=int, default=128,
-                             help='Embedding dimension for deep learning (default: 128)')
+    score_parser.add_argument(
+        "--min-amp-pred", type=float, help="Minimum amplification prediction score (default: 10)"
+    )
+    score_parser.add_argument(
+        "--full-score",
+        action="store_true",
+        help="Include thermodynamic delta-G histogram features in "
+        "random-forest scoring. These features contribute <2%% of "
+        "model accuracy but >99%% of scoring compute time, so they "
+        "are skipped by default. Pass this flag only if you need "
+        "the full histogram output for downstream analysis.",
+    )
+    score_parser.add_argument(
+        "--fast-score",
+        action="store_true",
+        help="Deprecated alias for the current default behavior "
+        "(thermodynamic histogram features are skipped). "
+        "Accepted for backwards compatibility.",
+    )
+    score_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible scoring. K-mer "
+        "sampling (on by default) is otherwise "
+        "non-deterministic; set this for repeatable "
+        "step3 output.",
+    )
 
     # Enhanced feature engineering options
-    score_parser.add_argument('--use-enhanced-features', action='store_true',
-                             help='Use enhanced 120+ feature model (requires enhanced_rf_model.pkl)')
-    score_parser.add_argument('--enhanced-model-path', type=str, default=None,
-                             help='Path to enhanced random forest model')
-
-    # Blacklist metadata (filtering happens at step2; this is a passthrough so
-    # params.json contains the full record for audit trails).
-    score_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
-                             help='Blacklist genome FASTA file(s); informational at this step, filtering happens in step2.')
+    score_parser.add_argument(
+        "--use-enhanced-features",
+        action="store_true",
+        help="Use enhanced 120+ feature model (requires enhanced_rf_model.pkl)",
+    )
+    score_parser.add_argument(
+        "--enhanced-model-path", type=str, default=None, help="Path to enhanced random forest model"
+    )
 
     # =========================================================================
     # STEP 4: Primer set optimization
     # =========================================================================
-    optimize_parser = subparsers.add_parser('optimize',
-                                            help='Primer set optimization (network-based + experimental)')
+    optimize_parser = subparsers.add_parser(
+        "optimize", help="Primer set optimization (network-based + experimental)"
+    )
     add_common_options(optimize_parser)
 
     # Method Selection
-    opt_method_group = optimize_parser.add_argument_group('Method Selection')
-    opt_method_group.add_argument('-m', '--optimization-method',
-                             choices=['hybrid', 'greedy', 'dominating-set', 'weighted-set-cover',
-                                     'network', 'genetic', 'background-aware',
-                                     'milp', 'equiphi29', 'moea', 'normalized', 'tiling',
-                                     'clique', 'coverage-then-dimerfree', 'dimerfree-scored',
-                                     'bg-prefilter', 'bg-prefilter-hybrid'],
-                             default='hybrid',
-                             help='Optimization method. '
-                                  'Decision tree: '
-                                  'hybrid (default, general use), '
-                                  'dominating-set (speed-critical, large pools), '
-                                  'background-aware (clinical, 10-20x bg reduction), '
-                                  'clique (dimer-free requirement), '
-                                  'equiphi29 (GC-rich genomes >65%%), '
-                                  'milp (exact solution, small pools). '
-                                  'Pipelines: '
-                                  'coverage-then-dimerfree (DS->clique cascade), '
-                                  'dimerfree-scored (clique->network scoring). '
-                                  'Use --method-guide for detailed comparison.')
-    opt_method_group.add_argument('--strategy',
-                             choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
-                             default='balanced',
-                             help='Strategy preset for normalized optimizer: '
-                                  'clinical (high specificity), discovery (max coverage), '
-                                  'fast (quick screening), balanced (equal weights), '
-                                  'enrichment (sequencing). Only used with --optimization-method=normalized')
-    opt_method_group.add_argument('--method-guide', action='store_true',
-                             help='Show optimization method selection guide and exit')
+    opt_method_group = optimize_parser.add_argument_group("Method Selection")
+    opt_method_group.add_argument(
+        "-m",
+        "--optimization-method",
+        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
+        default="hybrid",
+        help="Optimization method. "
+        "Decision tree: "
+        "hybrid (default, general use), "
+        "dominating-set (speed-critical, large pools), "
+        "background-aware (clinical, 10-20x bg reduction), "
+        "network (Tm-weighted, dimer-aware), "
+        "ensemble (run several and keep the best by "
+        "normalized score). "
+        "Use --method-guide for detailed comparison.",
+    )
+    opt_method_group.add_argument(
+        "--ensemble-methods",
+        nargs="+",
+        default=None,
+        metavar="METHOD",
+        help="Methods to run when --optimization-method=ensemble "
+        "(default: hybrid dominating-set network background-aware). "
+        "The best result by application-weighted normalized score "
+        "is kept; a per-method comparison table is printed.",
+    )
+    opt_method_group.add_argument(
+        "--scoring-weights",
+        dest="scoring_weights",
+        choices=["clinical", "discovery", "fast", "balanced", "enrichment"],
+        default="balanced",
+        help="Scoring-weight preset for the network optimizer: "
+        "clinical (high specificity), discovery (max coverage), "
+        "fast (quick screening), balanced (equal weights), "
+        "enrichment (sequencing).",
+    )
+    opt_method_group.add_argument(
+        "--method-guide",
+        action="store_true",
+        help="Show optimization method selection guide and exit",
+    )
 
     # Primer Strategy
-    opt_strategy_group = optimize_parser.add_argument_group('Primer Strategy')
-    opt_strategy_group.add_argument('--use-cooperative-binding', action='store_true',
-                             help='[EXPERIMENTAL] Cooperative binding model (not yet fully integrated)')
-    opt_strategy_group.add_argument('--primer-strategy', choices=['standard', 'hybrid'],
-                             default='standard',
-                             help='Primer design strategy (standard: uniform length, hybrid: mixed lengths)')
+    opt_strategy_group = optimize_parser.add_argument_group("Primer Strategy")
+    opt_strategy_group.add_argument(
+        "--use-cooperative-binding",
+        action="store_true",
+        help="[EXPERIMENTAL] Cooperative binding model (not yet fully integrated)",
+    )
+    opt_strategy_group.add_argument(
+        "--primer-strategy",
+        choices=["standard", "hybrid"],
+        default="standard",
+        help="Primer design strategy (standard: uniform length, hybrid: mixed lengths)",
+    )
 
     # Background Filtering
-    opt_bg_group = optimize_parser.add_argument_group('Background Filtering')
-    opt_bg_group.add_argument('--use-background-filter', action='store_true', default=False,
-                             help='Use Bloom filter for background filtering')
-    opt_bg_group.add_argument('--no-bg-prefilter', action='store_true', default=False,
-                             help='Disable automatic background pre-filtering of candidates '
-                                  '(enabled by default when background genome data is available)')
-    opt_bg_group.add_argument('--background-bloom-path', type=str,
-                             help='Path to pre-built Bloom filter')
-    opt_bg_group.add_argument('--background-sampled-path', type=str,
-                             help='Path to pre-built sampled index')
-    opt_bg_group.add_argument('--no-background', action='store_true', default=False,
-                             help='Host-free mode: optimize without background genome data. '
-                                  'Relies on intrinsic primer quality (Tm, complexity, evenness) '
-                                  'rather than fg/bg selectivity. Use when background genome is '
-                                  'unknown or unavailable.')
+    opt_bg_group = optimize_parser.add_argument_group("Background Filtering")
+    opt_bg_group.add_argument(
+        "--use-background-filter",
+        action="store_true",
+        default=False,
+        help="Use Bloom filter for background filtering",
+    )
+    opt_bg_group.add_argument(
+        "--no-bg-prefilter",
+        action="store_true",
+        default=False,
+        help="Disable automatic background pre-filtering of candidates "
+        "(enabled by default when background genome data is available)",
+    )
+    opt_bg_group.add_argument(
+        "--background-bloom-path", type=str, help="Path to pre-built Bloom filter"
+    )
+    opt_bg_group.add_argument(
+        "--background-sampled-path", type=str, help="Path to pre-built sampled index"
+    )
+    opt_bg_group.add_argument(
+        "--no-background",
+        action="store_true",
+        default=False,
+        help="Host-free mode: optimize without background genome data. "
+        "Relies on intrinsic primer quality (Tm, complexity, evenness) "
+        "rather than fg/bg selectivity. Use when background genome is "
+        "unknown or unavailable.",
+    )
 
     # Performance
-    opt_perf_group = optimize_parser.add_argument_group('Performance')
-    opt_perf_group.add_argument('--use-position-cache', action='store_true', default=True,
-                             help='Use in-memory position cache (default: True, 1000x speedup)')
-    opt_perf_group.add_argument('--no-position-cache', action='store_false', dest='use_position_cache',
-                             help='Disable position cache (slower)')
-    opt_perf_group.add_argument('--seed', type=int, default=None,
-                             help='Random seed for reproducible results. '
-                                  'Affects stochastic optimizers (genetic, moea). '
-                                  'Required for clinical/regulated workflows.')
-    opt_perf_group.add_argument('-n', '--num-primers', type=int,
-                             help='Number of primers to select (default: from params.json or 6)')
-    opt_perf_group.add_argument('--max-optimization-time', type=int, default=300,
-                             help='Maximum optimization time in seconds (default: 300)')
-    opt_perf_group.add_argument('--max-extension', type=int, default=70000,
-                             help='Maximum Phi29 extension length in bp (default: 70000)')
+    opt_perf_group = optimize_parser.add_argument_group("Performance")
+    opt_perf_group.add_argument(
+        "--use-position-cache",
+        action="store_true",
+        default=True,
+        help="Use in-memory position cache (default: True, 1000x speedup)",
+    )
+    opt_perf_group.add_argument(
+        "--no-position-cache",
+        action="store_false",
+        dest="use_position_cache",
+        help="Disable position cache (slower)",
+    )
+    opt_perf_group.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible results. "
+        "Affects stochastic optimizers (genetic, moea). "
+        "Required for clinical/regulated workflows.",
+    )
+    opt_perf_group.add_argument(
+        "-n",
+        "--num-primers",
+        type=int,
+        help="Number of primers to select (default: from params.json or 6)",
+    )
+    opt_perf_group.add_argument(
+        "--max-optimization-time",
+        type=int,
+        default=300,
+        help="Maximum optimization time in seconds (default: 300)",
+    )
+    opt_perf_group.add_argument(
+        "--max-extension",
+        type=int,
+        default=70000,
+        help="Maximum Phi29 extension length in bp (default: 70000)",
+    )
 
     # Set Size & Application
-    opt_size_group = optimize_parser.add_argument_group('Set Size & Application')
-    opt_size_group.add_argument('--auto-size', action='store_true',
-                             help='Automatically determine optimal primer set size based on '
-                                  'application profile and reaction conditions')
-    opt_size_group.add_argument('--application', type=str,
-                             choices=['balanced', 'discovery', 'clinical', 'enrichment', 'metagenomics'],
-                             default='enrichment',
-                             help='Application profile: '
-                                  'balanced (default scoring), '
-                                  'discovery (maximize sensitivity), '
-                                  'clinical (minimize false positives), '
-                                  'enrichment (balanced, default for auto-size), '
-                                  'metagenomics (capture diversity). '
-                                  'Drives --auto-size AND tunes normalized_score weights.')
-    opt_size_group.add_argument('--min-fg-bg-ratio', type=float,
-                             help='Minimum foreground/background binding site ratio. '
-                                  'Overrides application profile default. Higher values = more selective.')
-    opt_size_group.add_argument('--show-frontier', action='store_true',
-                             help='Show Pareto frontier of coverage vs fg/bg ratio tradeoffs '
-                                  '(requires matplotlib for plotting)')
-    opt_size_group.add_argument('--quick-estimate', action='store_true',
-                             help='Use quick estimation only for auto-size (skip full optimization at multiple sizes)')
+    opt_size_group = optimize_parser.add_argument_group("Set Size & Application")
+    opt_size_group.add_argument(
+        "--auto-size",
+        action="store_true",
+        help="Automatically determine optimal primer set size based on "
+        "application profile and reaction conditions",
+    )
+    opt_size_group.add_argument(
+        "--application",
+        type=str,
+        choices=["balanced", "discovery", "clinical", "enrichment", "metagenomics"],
+        default="enrichment",
+        help="Application profile: "
+        "balanced (default scoring), "
+        "discovery (maximize sensitivity), "
+        "clinical (minimize false positives), "
+        "enrichment (balanced, default for auto-size), "
+        "metagenomics (capture diversity). "
+        "Drives --auto-size AND tunes normalized_score weights.",
+    )
+    opt_size_group.add_argument(
+        "--min-fg-bg-ratio",
+        type=float,
+        help="Minimum foreground/background binding site ratio. "
+        "Overrides application profile default. Higher values = more selective.",
+    )
+    opt_size_group.add_argument(
+        "--show-frontier",
+        action="store_true",
+        help="Show Pareto frontier of coverage vs fg/bg ratio tradeoffs "
+        "(requires matplotlib for plotting)",
+    )
+    opt_size_group.add_argument(
+        "--quick-estimate",
+        action="store_true",
+        help="Use quick estimation only for auto-size (skip full optimization at multiple sizes)",
+    )
 
     # Mechanistic Model
-    opt_mech_group = optimize_parser.add_argument_group('Mechanistic Model')
-    opt_mech_group.add_argument('--use-mechanistic-model', action='store_true',
-                             help='Use mechanistic model for primer weighting during optimization')
-    opt_mech_group.add_argument('--mechanistic-weight', type=float, default=0.3,
-                             help='Weight for mechanistic model in scoring (0.0-1.0, default: 0.3)')
-    opt_mech_group.add_argument('--template-gc', type=float,
-                             help='Template genome GC content (0-1). Auto-detected if not specified.')
-    opt_mech_group.add_argument('--uniformity-weight', type=float, default=0.0,
-                             help='Weight for coverage uniformity in scoring (0.0-1.0, default: 0.0). '
-                                  'Higher values prioritize even genome coverage over raw enrichment.')
+    opt_mech_group = optimize_parser.add_argument_group("Mechanistic Model")
+    opt_mech_group.add_argument(
+        "--use-mechanistic-model",
+        action="store_true",
+        help="Use mechanistic model for primer weighting during optimization",
+    )
+    opt_mech_group.add_argument(
+        "--mechanistic-weight",
+        type=float,
+        default=0.3,
+        help="Weight for mechanistic model in scoring (0.0-1.0, default: 0.3)",
+    )
+    opt_mech_group.add_argument(
+        "--template-gc",
+        type=float,
+        help="Template genome GC content (0-1). Auto-detected if not specified.",
+    )
+    opt_mech_group.add_argument(
+        "--uniformity-weight",
+        type=float,
+        default=0.0,
+        help="Weight for coverage uniformity in scoring (0.0-1.0, default: 0.0). "
+        "Higher values prioritize even genome coverage over raw enrichment.",
+    )
 
     # Post-processing
-    opt_post_group = optimize_parser.add_argument_group('Post-processing')
-    opt_post_group.add_argument('--minimize-primers', action='store_true',
-                             help='Post-process to minimize primer count while maintaining coverage')
-    opt_post_group.add_argument('--target-coverage', type=float, default=0.70,
-                             help='Target genome coverage fraction when minimizing primers (default: 0.70)')
-    opt_post_group.add_argument('--min-per-target-coverage', type=float, default=0.0,
-                             help='Multi-genome runs only: minimum coverage required on every '
-                                  'individual target. Below this, the post-optimization validator '
-                                  'flags a warning. Default 0.0 (disabled).')
+    opt_post_group = optimize_parser.add_argument_group("Post-processing")
+    opt_post_group.add_argument(
+        "--minimize-primers",
+        action="store_true",
+        help="Post-process to minimize primer count while maintaining coverage",
+    )
+    opt_post_group.add_argument(
+        "--target-coverage",
+        type=float,
+        default=0.70,
+        help="Target genome coverage fraction when minimizing primers (default: 0.70)",
+    )
+    opt_post_group.add_argument(
+        "--min-per-target-coverage",
+        type=float,
+        default=0.0,
+        help="Multi-genome runs only: minimum coverage required on every "
+        "individual target. Below this, the post-optimization validator "
+        "flags a warning. Default 0.0 (disabled).",
+    )
 
     # Validation
-    opt_val_group = optimize_parser.add_argument_group('Validation')
-    opt_val_group.add_argument('--validate-simulation', action='store_true',
-                             help='Validate results with stochastic simulation (Gillespie algorithm)')
-    opt_val_group.add_argument('--simulation-time', type=float, default=3600.0,
-                             help='Simulation time in seconds (default: 3600)')
-
-    # Blacklist passthrough: filtering already happened at step2; included for
-    # CLI surface consistency and audit-trail parity with params.json.
-    optimize_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
-                             help='Blacklist genome FASTA file(s); informational at this step, filtering happens in step2.')
+    opt_val_group = optimize_parser.add_argument_group("Validation")
+    opt_val_group.add_argument(
+        "--validate-simulation",
+        action="store_true",
+        help="Validate results with stochastic simulation (Gillespie algorithm)",
+    )
+    opt_val_group.add_argument(
+        "--simulation-time",
+        type=float,
+        default=3600.0,
+        help="Simulation time in seconds (default: 3600)",
+    )
 
     # =========================================================================
     # UNIFIED: Complete pipeline (all 4 steps)
     # =========================================================================
-    design_parser = subparsers.add_parser('design',
-                                          help='Run complete primer design pipeline (all 4 steps sequentially)')
+    design_parser = subparsers.add_parser(
+        "design", help="Run complete primer design pipeline (all 4 steps sequentially)"
+    )
     add_common_options(design_parser)
 
-    # Auto-tuning option (merges auto-pipeline)
-    design_parser.add_argument('--auto', action='store_true',
-                              help='Enable automatic parameter optimization')
-    design_parser.add_argument('--auto-iterations', type=int, default=5,
-                              help='Number of auto-tuning iterations (default: 5)')
-
     # Multi-genome option (merges multi-genome)
-    design_parser.add_argument('--multi-genome', nargs='+', metavar='GENOME',
-                              help='Design pan-genome primers for multiple target genomes')
-    design_parser.add_argument('--min-coverage', type=float, default=0.8,
-                              help='Minimum fraction of genomes to cover (default: 0.8)')
+    design_parser.add_argument(
+        "--multi-genome",
+        nargs="+",
+        metavar="GENOME",
+        help="Design pan-genome primers for multiple target genomes",
+    )
+    design_parser.add_argument(
+        "--min-coverage",
+        type=float,
+        default=0.8,
+        help="Minimum fraction of genomes to cover (default: 0.8)",
+    )
 
     # Step control
-    design_parser.add_argument('--start-from', type=int, choices=[1, 2, 3, 4],
-                              help='Start from step: 1=count-kmers, 2=filter, 3=score, 4=optimize')
-    design_parser.add_argument('--stop-at', type=int, choices=[1, 2, 3, 4],
-                              help='Stop at step: 1=count-kmers, 2=filter, 3=score, 4=optimize')
+    design_parser.add_argument(
+        "--start-from",
+        type=int,
+        choices=[1, 2, 3, 4],
+        help="Start from step: 1=count-kmers, 2=filter, 3=score, 4=optimize",
+    )
+    design_parser.add_argument(
+        "--stop-at",
+        type=int,
+        choices=[1, 2, 3, 4],
+        help="Stop at step: 1=count-kmers, 2=filter, 3=score, 4=optimize",
+    )
 
     # =========================================================================
     # UTILITY: Build background filter
     # =========================================================================
-    build_filter_parser = subparsers.add_parser('build-filter',
-                                               help='Build background Bloom filter (one-time setup)')
-    build_filter_parser.add_argument('--genome', required=True, help='Path to background genome FASTA (or k-mer prefix with --from-kmers)')
-    build_filter_parser.add_argument('-o', '--output', '--output-dir', required=True,
-                                    dest='output_dir',
-                                    help='Output directory for filter files')
-    build_filter_parser.add_argument('--from-kmers', action='store_true',
-                                    help='Build from jellyfish k-mer files (MUCH faster for large genomes)')
-    build_filter_parser.add_argument('--min-k', type=int, default=6,
-                                    help='Minimum k-mer length (default: 6)')
-    build_filter_parser.add_argument('--max-k', type=int, default=12,
-                                    help='Maximum k-mer length (default: 12)')
-    build_filter_parser.add_argument('--force', action='store_true',
-                                    help='Rebuild even if filter exists')
-    build_filter_parser.add_argument('--capacity', type=int,
-                                    help='Bloom filter capacity (default: auto from genome size)')
-    build_filter_parser.add_argument('--error-rate', type=float, default=0.01,
-                                    help='Bloom filter error rate (default: 0.01)')
-    build_filter_parser.add_argument('-v', '--verbose', action='store_true',
-                                    help='Verbose output')
-    build_filter_parser.add_argument('-q', '--quiet', action='store_true',
-                                    help='Minimal output')
+    build_filter_parser = subparsers.add_parser(
+        "build-filter", help="Build background Bloom filter (one-time setup)"
+    )
+    build_filter_parser.add_argument(
+        "--genome",
+        required=True,
+        help="Path to background genome FASTA (or k-mer prefix with --from-kmers)",
+    )
+    build_filter_parser.add_argument(
+        "-o",
+        "--output",
+        "--output-dir",
+        required=True,
+        dest="output_dir",
+        help="Output directory for filter files",
+    )
+    build_filter_parser.add_argument(
+        "--from-kmers",
+        action="store_true",
+        help="Build from jellyfish k-mer files (MUCH faster for large genomes)",
+    )
+    build_filter_parser.add_argument(
+        "--min-k", type=int, default=6, help="Minimum k-mer length (default: 6)"
+    )
+    build_filter_parser.add_argument(
+        "--max-k", type=int, default=12, help="Maximum k-mer length (default: 12)"
+    )
+    build_filter_parser.add_argument(
+        "--force", action="store_true", help="Rebuild even if filter exists"
+    )
+    build_filter_parser.add_argument(
+        "--capacity", type=int, help="Bloom filter capacity (default: auto from genome size)"
+    )
+    build_filter_parser.add_argument(
+        "--error-rate", type=float, default=0.01, help="Bloom filter error rate (default: 0.01)"
+    )
+    build_filter_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    build_filter_parser.add_argument("-q", "--quiet", action="store_true", help="Minimal output")
 
     # =========================================================================
-    # UTILITY: Validate installation
+    # UTILITY: Validate (parent command with install/params/model subcommands)
     # =========================================================================
-    validate_parser = subparsers.add_parser('validate',
-                                           help='Validate installation and run tests')
-    validate_parser.add_argument('--quick', action='store_true',
-                                help='Run quick validation (subset of tests)')
-    validate_parser.add_argument('--all', action='store_true',
-                                help='Run all tests including benchmarks')
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Validate the installation, a params.json file, or the "
+        "mechanistic model. Run without a subcommand for installation "
+        "checks (backwards-compatible).",
+    )
+    # Backwards-compat flags (when invoked as `neoswga validate [--quick|--all]`
+    # with no subcommand — preserves the historical installation-check shape).
+    validate_parser.add_argument(
+        "--quick", action="store_true", help="Run quick installation validation (subset of tests)"
+    )
+    validate_parser.add_argument(
+        "--all", action="store_true", help="Run all installation tests including benchmarks"
+    )
+
+    validate_sub = validate_parser.add_subparsers(
+        dest="validate_mode",
+        metavar="{install,params,model}",
+        title="subcommands",
+    )
+
+    validate_install_sub = validate_sub.add_parser(
+        "install",
+        help="Check that Jellyfish, Python dependencies, and ML models load.",
+    )
+    validate_install_sub.add_argument(
+        "--quick", action="store_true", help="Run quick validation (subset of tests)"
+    )
+    validate_install_sub.add_argument(
+        "--all", action="store_true", help="Run all tests including benchmarks"
+    )
+
+    validate_params_sub = validate_sub.add_parser(
+        "params",
+        help="Validate a params.json file against the schema.",
+    )
+    validate_params_sub.add_argument(
+        "-j", "--json-file", required=True, help="Parameters JSON file to validate"
+    )
+
+    validate_model_sub = validate_sub.add_parser(
+        "model",
+        help="Run regression tests on the mechanistic model.",
+    )
+    validate_model_sub.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed results for each test"
+    )
+    validate_model_sub.add_argument(
+        "--output-json", action="store_true", help="Output results as JSON"
+    )
 
     # =========================================================================
     # UTILITY: Show presets
     # =========================================================================
-    subparsers.add_parser('show-presets',
-                         help='Show available reaction condition presets')
+    subparsers.add_parser("show-presets", help="Show available reaction condition presets")
 
     # =========================================================================
     # SETUP: Initialize new project (setup wizard)
     # =========================================================================
-    init_parser = subparsers.add_parser('init',
-                                        help='Set up a new primer design project with guided configuration')
-    init_parser.add_argument('--genome', '-g', required=True,
-                            help='Target genome FASTA file')
-    init_parser.add_argument('--background', '-b',
-                            help='Background genome FASTA file (optional)')
-    init_parser.add_argument('--output', '-o', default='params.json',
-                            help='Output params.json path (default: params.json)')
-    init_parser.add_argument('--output-dir', default='results',
-                            help='Directory for pipeline output files (default: results)')
-    init_parser.add_argument('--advanced', '-a', action='store_true',
-                            help='Show advanced configuration options')
-    init_parser.add_argument('--yes', '-y', action='store_true',
-                            help='Auto-approve without prompting')
-    init_parser.add_argument('--non-interactive', action='store_true',
-                            help='Run non-interactively with defaults')
-    init_parser.add_argument('--blacklist', '-bl', nargs='+', default=None,
-                            help='Blacklist genome FASTA file(s) for contamination filtering')
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Set up a new primer design project with guided configuration. "
+        "Requires a target genome path; use `neoswga start` for a "
+        "menu-driven entry point that walks you through choosing a "
+        "command first.",
+    )
+    init_parser.add_argument("--genome", "-g", required=True, help="Target genome FASTA file")
+    init_parser.add_argument("--background", "-b", help="Background genome FASTA file (optional)")
+    init_parser.add_argument(
+        "--output",
+        "-o",
+        default="params.json",
+        help="Output params.json path (default: params.json)",
+    )
+    init_parser.add_argument(
+        "--output-dir",
+        default="results",
+        help="Directory for pipeline output files (default: results)",
+    )
+    init_parser.add_argument(
+        "--advanced", "-a", action="store_true", help="Show advanced configuration options"
+    )
+    init_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Auto-approve without prompting"
+    )
+    init_parser.add_argument(
+        "--non-interactive", action="store_true", help="Run non-interactively with defaults"
+    )
+    init_parser.add_argument(
+        "--blacklist",
+        "-bl",
+        nargs="+",
+        default=None,
+        help="Blacklist genome FASTA file(s) for contamination filtering",
+    )
 
     # =========================================================================
     # SETUP: Validate parameters
     # =========================================================================
-    validate_params_parser = subparsers.add_parser('validate-params',
-                                                   help='Validate params.json configuration before running')
-    validate_params_parser.add_argument('-j', '--json-file', required=True,
-                                       help='Parameters JSON file to validate')
+    validate_params_parser = subparsers.add_parser(
+        "validate-params", help="Validate params.json configuration before running"
+    )
+    validate_params_parser.add_argument(
+        "-j", "--json-file", required=True, help="Parameters JSON file to validate"
+    )
 
     # =========================================================================
     # SETUP: Dump canonical JSON schema
     # =========================================================================
-    schema_parser = subparsers.add_parser('schema',
-                                          help='Inspect or dump the canonical params.json schema')
-    schema_parser.add_argument('--dump', action='store_true',
-                               help='Print the params.json JSON Schema to stdout')
-    schema_parser.add_argument('--output', '-o', type=str, default=None,
-                               help='Write the schema to the given file instead of stdout')
+    schema_parser = subparsers.add_parser(
+        "schema", help="Inspect or dump the canonical params.json schema"
+    )
+    schema_parser.add_argument(
+        "--dump", action="store_true", help="Print the params.json JSON Schema to stdout"
+    )
+    schema_parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=None,
+        help="Write the schema to the given file instead of stdout",
+    )
 
     # =========================================================================
     # SETUP: Diagnostic health check
     # =========================================================================
-    doctor_parser = subparsers.add_parser('doctor',
-                                          help='Run a diagnostic health check on the installation, '
-                                               'params.json, and optimizer capability matrix')
-    doctor_parser.add_argument('-j', '--json-file', type=str, default=None,
-                               help='Optional params.json to include in the diagnostic')
-    doctor_parser.add_argument('--json', dest='output_json', action='store_true',
-                               help='Emit the diagnostic report as JSON instead of text')
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Run a diagnostic health check on the installation, "
+        "params.json, and optimizer capability matrix",
+    )
+    doctor_parser.add_argument(
+        "-j",
+        "--json-file",
+        type=str,
+        default=None,
+        help="Optional params.json to include in the diagnostic",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        dest="output_json",
+        action="store_true",
+        help="Emit the diagnostic report as JSON instead of text",
+    )
 
     # =========================================================================
     # SETUP: Validate mechanistic model
     # =========================================================================
-    validate_model_parser = subparsers.add_parser('validate-model',
-                                                   help='Validate mechanistic model against expected behavior')
-    validate_model_parser.add_argument('--verbose', '-v', action='store_true',
-                                       help='Show detailed results for each test')
-    validate_model_parser.add_argument('--output-json', action='store_true',
-                                       help='Output results as JSON')
+    validate_model_parser = subparsers.add_parser(
+        "validate-model", help="Validate mechanistic model against expected behavior"
+    )
+    validate_model_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed results for each test"
+    )
+    validate_model_parser.add_argument(
+        "--output-json", action="store_true", help="Output results as JSON"
+    )
 
     # =========================================================================
     # SETUP: Interpret results
     # =========================================================================
-    interpret_parser = subparsers.add_parser('interpret',
-                                             help='Interpret pipeline results and provide quality assessment')
-    interpret_parser.add_argument('-d', '--dir', required=True,
-                                 help='Results directory containing step4_improved_df.csv')
+    interpret_parser = subparsers.add_parser(
+        "interpret", help="Interpret pipeline results and provide quality assessment"
+    )
+    interpret_parser.add_argument(
+        "-d", "--dir", required=True, help="Results directory containing step4_improved_df.csv"
+    )
 
     # =========================================================================
     # SETUP: Generate report
     # =========================================================================
-    report_parser = subparsers.add_parser('report',
-                                          help='Generate comprehensive HTML report for primer set')
-    report_parser.add_argument('-d', '--dir', required=True,
-                               help='Results directory containing pipeline output')
-    report_parser.add_argument('-o', '--output',
-                               help='Output file path (default: <dir>/report.html)')
-    report_parser.add_argument('--format', choices=['html', 'json'], default='html',
-                               help='Output format (default: html)')
-    report_parser.add_argument('--level', choices=['summary', 'full'], default='summary',
-                               help='Report level: summary (1-page) or full (technical report)')
-    report_parser.add_argument('--check', action='store_true',
-                               help='Validate only, do not generate report')
-    report_parser.add_argument('--interactive', action='store_true',
-                               help='Include interactive Plotly charts (requires plotly)')
-    report_parser.add_argument('-q', '--quiet', action='store_true',
-                               help='Suppress progress messages')
+    report_parser = subparsers.add_parser(
+        "report", help="Generate comprehensive HTML report for primer set"
+    )
+    report_parser.add_argument(
+        "-d", "--dir", required=True, help="Results directory containing pipeline output"
+    )
+    report_parser.add_argument(
+        "-o", "--output", help="Output file path (default: <dir>/report.html)"
+    )
+    report_parser.add_argument(
+        "--format", choices=["html", "json"], default="html", help="Output format (default: html)"
+    )
+    report_parser.add_argument(
+        "--level",
+        choices=["summary", "full"],
+        default="summary",
+        help="Report level: summary (1-page) or full (technical report)",
+    )
+    report_parser.add_argument(
+        "--check", action="store_true", help="Validate only, do not generate report"
+    )
+    report_parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Include interactive Plotly charts (requires plotly)",
+    )
+    report_parser.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress progress messages"
+    )
 
     # =========================================================================
     # EXPORT: Primer export for synthesis ordering
     # =========================================================================
     export_parser = subparsers.add_parser(
-        'export',
-        help='Export primers for synthesis ordering',
+        "export",
+        help="Export primers for synthesis ordering",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description="""
 Export optimized primers in formats ready for synthesis ordering.
@@ -1064,426 +1462,585 @@ Examples:
   neoswga export -d ./results/
   neoswga export -d ./results/ -o ./order/ --vendor idt --project MyProject
   neoswga export -d ./results/ --format fasta --output primers.fasta
-"""
+""",
     )
-    export_parser.add_argument('-d', '--dir', required=True,
-                               help='Results directory containing step4_improved_df.csv')
-    export_parser.add_argument('-o', '--output', default='./export',
-                               help='Output directory (default: ./export)')
-    export_parser.add_argument('--project', default='SWGA',
-                               help='Project name for file naming (default: SWGA)')
-    export_parser.add_argument('--vendor', default='idt',
-                               choices=['idt', 'twist', 'sigma', 'generic'],
-                               help='Vendor format for CSV (default: idt)')
-    export_parser.add_argument('--format', choices=['all', 'fasta', 'csv', 'protocol', 'bed', 'bedgraph'],
-                               default='all',
-                               help='Export format (default: all)')
-    export_parser.add_argument('-j', '--json-file',
-                               help='params.json for reaction conditions')
-    export_parser.add_argument('--modifications',
-                               choices=['none', 'standard', 'low-input'],
-                               default='standard',
-                               help="Modification profile: none (bare primers), "
-                                    "standard (3' PTO for exonuclease protection), "
-                                    "low-input (3' PTO + 5' C18 spacer for tdMDA) "
-                                    "(default: standard)")
-    export_parser.add_argument('--pto-bonds', type=int, default=None,
-                               help="Override number of 3' phosphorothioate bonds (default: 2)")
-    export_parser.add_argument('--no-modifications', action='store_true',
-                               help='Export bare sequences without modifications '
-                                    '(equivalent to --modifications none)')
-    export_parser.add_argument('--genome-name', default='genome',
-                               help='Chromosome/contig name for BED/BedGraph output (default: genome)')
-    export_parser.add_argument('--window-size', type=int, default=1000,
-                               help='Window size in bp for BedGraph binning (default: 1000)')
+    export_parser.add_argument(
+        "-d", "--dir", required=True, help="Results directory containing step4_improved_df.csv"
+    )
+    export_parser.add_argument(
+        "-o", "--output", default="./export", help="Output directory (default: ./export)"
+    )
+    export_parser.add_argument(
+        "--project", default="SWGA", help="Project name for file naming (default: SWGA)"
+    )
+    export_parser.add_argument(
+        "--vendor",
+        default="idt",
+        choices=["idt", "twist", "sigma", "generic"],
+        help="Vendor format for CSV (default: idt)",
+    )
+    export_parser.add_argument(
+        "--format",
+        choices=["all", "fasta", "csv", "protocol", "bed", "bedgraph"],
+        default="all",
+        help="Export format (default: all)",
+    )
+    export_parser.add_argument("-j", "--json-file", help="params.json for reaction conditions")
+    export_parser.add_argument(
+        "--modifications",
+        choices=["none", "standard", "low-input"],
+        default="standard",
+        help="Modification profile: none (bare primers), "
+        "standard (3' PTO for exonuclease protection), "
+        "low-input (3' PTO + 5' C18 spacer for tdMDA) "
+        "(default: standard)",
+    )
+    export_parser.add_argument(
+        "--pto-bonds",
+        type=int,
+        default=None,
+        help="Override number of 3' phosphorothioate bonds (default: 2)",
+    )
+    export_parser.add_argument(
+        "--no-modifications",
+        action="store_true",
+        help="Export bare sequences without modifications " "(equivalent to --modifications none)",
+    )
+    export_parser.add_argument(
+        "--genome-name",
+        default="genome",
+        help="Chromosome/contig name for BED/BedGraph output (default: genome)",
+    )
+    export_parser.add_argument(
+        "--window-size",
+        type=int,
+        default=1000,
+        help="Window size in bp for BedGraph binning (default: 1000)",
+    )
     export_parser.set_defaults(func=run_export)
 
     # =========================================================================
     # SETUP: Interactive workflow selector
     # =========================================================================
-    subparsers.add_parser('start',
-                         help='Interactive menu to discover and launch neoswga features')
+    subparsers.add_parser(
+        "start",
+        help="Interactive menu to discover and launch neoswga features. "
+        "If you already know you want to create a params.json for a "
+        "specific genome, use `neoswga init -g GENOME` directly.",
+    )
 
     # =========================================================================
     # SETUP: Suggest reaction conditions
     # =========================================================================
-    suggest_parser = subparsers.add_parser('suggest',
-                                           help='Suggest optimal reaction conditions based on genome and primer length')
-    suggest_parser.add_argument('--genome-gc', type=float,
-                               help='Target genome GC content (0-1, e.g., 0.65 for 65%%)')
-    suggest_parser.add_argument('--genome', type=str,
-                               help='Target genome FASTA file (calculates GC automatically)')
-    suggest_parser.add_argument('--primer-length', '-l', type=int,
-                               help='Target primer length in bp')
-    suggest_parser.add_argument('--context', '-c', choices=['standard', 'clinical', 'high_throughput', 'low_input'],
-                               default='standard',
-                               help='Application context (default: standard)')
-    suggest_parser.add_argument('--polymerase', choices=['phi29', 'equiphi29', 'bst', 'klenow'],
-                               default='phi29',
-                               help='Polymerase type (default: phi29)')
-    suggest_parser.add_argument('--optimize-for', choices=['amplification', 'specificity', 'coverage', 'processivity'],
-                               default='amplification',
-                               help='Optimization goal (default: amplification)')
-    suggest_parser.add_argument('--use-optimizer', action='store_true',
-                               help='Use advanced multi-additive optimizer (grid search)')
-    suggest_parser.add_argument('--sweep', action='store_true',
-                               help='Sweep a grid of reaction conditions and rank by '
-                                    'predicted amplification factor')
-    suggest_parser.add_argument('--kmer-range', action='store_true',
-                               help='Print a recommended (min_k, max_k) range based on genome size, '
-                                    'GC, and polymerase, then exit')
-    suggest_parser.add_argument('--genome-size', type=int,
-                               help='Target genome size in bp (for --kmer-range). Auto-derived from --genome if that flag is given.')
-    suggest_parser.add_argument('--output', '-o', type=str,
-                               help='Output CSV path for condition sweep results')
+    suggest_parser = subparsers.add_parser(
+        "suggest", help="Suggest optimal reaction conditions based on genome and primer length"
+    )
+    suggest_parser.add_argument(
+        "--genome-gc", type=float, help="Target genome GC content (0-1, e.g., 0.65 for 65%%)"
+    )
+    suggest_parser.add_argument(
+        "--genome", type=str, help="Target genome FASTA file (calculates GC automatically)"
+    )
+    suggest_parser.add_argument(
+        "--primer-length", "-l", type=int, help="Target primer length in bp"
+    )
+    suggest_parser.add_argument(
+        "--context",
+        "-c",
+        choices=["standard", "clinical", "high_throughput", "low_input"],
+        default="standard",
+        help="Application context (default: standard)",
+    )
+    suggest_parser.add_argument(
+        "--polymerase",
+        choices=["phi29", "equiphi29", "bst", "klenow"],
+        default="phi29",
+        help="Polymerase type (default: phi29)",
+    )
+    suggest_parser.add_argument(
+        "--optimize-for",
+        choices=["amplification", "specificity", "coverage", "processivity"],
+        default="amplification",
+        help="Optimization goal (default: amplification)",
+    )
+    suggest_parser.add_argument(
+        "--use-optimizer",
+        action="store_true",
+        help="Use advanced multi-additive optimizer (grid search)",
+    )
+    suggest_parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Sweep a grid of reaction conditions and rank by " "predicted amplification factor",
+    )
+    suggest_parser.add_argument(
+        "--kmer-range",
+        action="store_true",
+        help="Print a recommended (min_k, max_k) range based on genome size, "
+        "GC, and polymerase, then exit",
+    )
+    suggest_parser.add_argument(
+        "--genome-size",
+        type=int,
+        help="Target genome size in bp (for --kmer-range). Auto-derived from --genome if that flag is given.",
+    )
+    suggest_parser.add_argument(
+        "--output", "-o", type=str, help="Output CSV path for condition sweep results"
+    )
 
     # =========================================================================
     # ADVANCED: Optimize conditions
     # =========================================================================
-    optimize_cond_parser = subparsers.add_parser('optimize-conditions',
-                                                 help='Find optimal reaction conditions for a genome')
-    optimize_cond_parser.add_argument('--fg', '--foreground', required=True,
-                                     help='Foreground genome FASTA file')
-    optimize_cond_parser.add_argument('--output', '-o', required=True,
-                                     help='Output directory')
-    optimize_cond_parser.add_argument('--target-k', type=int,
-                                     help='Target k-mer length to optimize for')
+    optimize_cond_parser = subparsers.add_parser(
+        "optimize-conditions", help="Find optimal reaction conditions for a genome"
+    )
+    optimize_cond_parser.add_argument(
+        "--fg", "--foreground", required=True, help="Foreground genome FASTA file"
+    )
+    optimize_cond_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    optimize_cond_parser.add_argument(
+        "--target-k", type=int, help="Target k-mer length to optimize for"
+    )
 
     # =========================================================================
     # ADVANCED: Analyze primer set
     # =========================================================================
-    analyze_parser = subparsers.add_parser('analyze-set',
-                                          help='[EXPERIMENTAL] Analyze an existing primer set')
-    analyze_parser.add_argument('--primers', required=True, nargs='+',
-                               help='Primer sequences to analyze')
-    analyze_parser.add_argument('--fg', required=True,
-                               help='Foreground genome FASTA')
-    analyze_parser.add_argument('--fg-kmers', required=True,
-                               help='Foreground k-mer file prefix')
-    analyze_parser.add_argument('--output', '-o', required=True,
-                               help='Output directory')
-    analyze_parser.add_argument('--preset', default='standard_phi29',
-                               help='Reaction conditions preset')
-    analyze_parser.add_argument('--simulate', action='store_true',
-                               help='Run replication simulation')
+    analyze_parser = subparsers.add_parser(
+        "analyze-set", help="[EXPERIMENTAL] Analyze an existing primer set"
+    )
+    analyze_parser.add_argument(
+        "--primers", required=True, nargs="+", help="Primer sequences to analyze"
+    )
+    analyze_parser.add_argument("--fg", required=True, help="Foreground genome FASTA")
+    analyze_parser.add_argument("--fg-kmers", required=True, help="Foreground k-mer file prefix")
+    analyze_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    analyze_parser.add_argument(
+        "--preset", default="standard_phi29", help="Reaction conditions preset"
+    )
+    analyze_parser.add_argument(
+        "--simulate", action="store_true", help="Run replication simulation"
+    )
 
     # =========================================================================
     # CATEGORY 1: Genome analysis (orphaned feature)
     # =========================================================================
-    analyze_genome_parser = subparsers.add_parser('analyze-genome',
-                                                   help='[EXPERIMENTAL] Analyze genome suitability for SWGA')
-    analyze_genome_parser.add_argument('--genome', required=True,
-                                      help='Genome FASTA file to analyze')
-    analyze_genome_parser.add_argument('--output', '-o', required=True,
-                                      help='Output directory for analysis report')
-    analyze_genome_parser.add_argument('--window-size', type=int, default=1000,
-                                      help='Window size for GC profiling (default: 1000bp)')
+    analyze_genome_parser = subparsers.add_parser(
+        "analyze-genome", help="[EXPERIMENTAL] Analyze genome suitability for SWGA"
+    )
+    analyze_genome_parser.add_argument(
+        "--genome", required=True, help="Genome FASTA file to analyze"
+    )
+    analyze_genome_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for analysis report"
+    )
+    analyze_genome_parser.add_argument(
+        "--window-size",
+        type=int,
+        default=1000,
+        help="Window size for GC profiling (default: 1000bp)",
+    )
 
     # =========================================================================
     # CATEGORY 1: Dimer network analysis (orphaned feature)
     # =========================================================================
-    analyze_dimers_parser = subparsers.add_parser('analyze-dimers',
-                                                   help='[EXPERIMENTAL] Analyze primer dimer interaction network')
-    analyze_dimers_parser.add_argument('--primers', required=True, nargs='+',
-                                      help='Primer sequences to analyze')
-    analyze_dimers_parser.add_argument('--output', '-o', required=True,
-                                      help='Output directory for network visualization')
-    analyze_dimers_parser.add_argument('--threshold', type=float, default=0.3,
-                                      help='Dimer severity threshold (default: 0.3)')
-    analyze_dimers_parser.add_argument('--visualize', action='store_true',
-                                      help='Generate network visualization')
+    analyze_dimers_parser = subparsers.add_parser(
+        "analyze-dimers", help="[EXPERIMENTAL] Analyze primer dimer interaction network"
+    )
+    analyze_dimers_parser.add_argument(
+        "--primers", required=True, nargs="+", help="Primer sequences to analyze"
+    )
+    analyze_dimers_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for network visualization"
+    )
+    analyze_dimers_parser.add_argument(
+        "--threshold", type=float, default=0.3, help="Dimer severity threshold (default: 0.3)"
+    )
+    analyze_dimers_parser.add_argument(
+        "--visualize", action="store_true", help="Generate network visualization"
+    )
 
     # =========================================================================
     # CATEGORY 1: 3' stability analysis (orphaned feature)
     # =========================================================================
-    analyze_stability_parser = subparsers.add_parser('analyze-stability',
-                                                     help="Analyze 3' end stability and specificity")
-    analyze_stability_parser.add_argument('--primers', required=True, nargs='+',
-                                         help='Primer sequences to analyze')
-    analyze_stability_parser.add_argument('--output', '-o', required=True,
-                                         help='Output file for stability report')
-    analyze_stability_parser.add_argument('--temp', type=float, default=37.0,
-                                         help='Reaction temperature in C (default: 37)')
-
-    # =========================================================================
-    # CATEGORY 1: ML-based prediction (orphaned feature)
-    # =========================================================================
-    ml_predict_parser = subparsers.add_parser('ml-predict',
-                                              help='Deep learning-based amplification prediction')
-    ml_predict_parser.add_argument('--primers-file', '--primers', required=True,
-                                  dest='primers_file',
-                                  help='File containing primer sequences (one per line)')
-    ml_predict_parser.add_argument('--output', '-o', required=True,
-                                  help='Output directory for predictions')
-    ml_predict_parser.add_argument('--model', type=str,
-                                  help='Path to pre-trained model (optional)')
-    ml_predict_parser.add_argument('--use-gpu', action='store_true',
-                                  help='Use GPU acceleration for inference')
+    analyze_stability_parser = subparsers.add_parser(
+        "analyze-stability", help="Analyze 3' end stability and specificity"
+    )
+    analyze_stability_parser.add_argument(
+        "--primers", required=True, nargs="+", help="Primer sequences to analyze"
+    )
+    analyze_stability_parser.add_argument(
+        "--output", "-o", required=True, help="Output file for stability report"
+    )
+    analyze_stability_parser.add_argument(
+        "--temp", type=float, default=37.0, help="Reaction temperature in C (default: 37)"
+    )
 
     # =========================================================================
     # CATEGORY 1: Optimal oligo generator (orphaned feature)
     # =========================================================================
-    design_oligos_parser = subparsers.add_parser('design-oligos',
-                                                  help='Alternative comprehensive primer design system')
-    design_oligos_parser.add_argument('--genome', required=True,
-                                     help='Target genome FASTA file')
-    design_oligos_parser.add_argument('--output', '-o', required=True,
-                                     help='Output directory for designed primers')
-    design_oligos_parser.add_argument('--num-primers', type=int, default=10,
-                                     help='Number of primers to design (default: 10)')
-    design_oligos_parser.add_argument('--min-k', type=int, default=6,
-                                     help='Minimum primer length (default: 6)')
-    design_oligos_parser.add_argument('--max-k', type=int, default=12,
-                                     help='Maximum primer length (default: 12)')
-
-    # =========================================================================
-    # CATEGORY 3: Auto-tuning pipeline (orphaned feature)
-    # =========================================================================
-    auto_pipeline_parser = subparsers.add_parser('auto-pipeline',
-                                                  help='Automatic parameter optimization pipeline (experimental, use standard pipeline instead)')
-    auto_pipeline_parser.add_argument('-j', '--json-file', required=True,
-                                     help='Base parameters JSON file')
-    auto_pipeline_parser.add_argument('--iterations', type=int, default=5,
-                                     help='Number of optimization iterations (default: 5)')
-    auto_pipeline_parser.add_argument('--output', '-o', required=True,
-                                     help='Output directory for optimized parameters')
+    design_oligos_parser = subparsers.add_parser(
+        "design-oligos", help="Alternative comprehensive primer design system"
+    )
+    design_oligos_parser.add_argument("--genome", required=True, help="Target genome FASTA file")
+    design_oligos_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for designed primers"
+    )
+    design_oligos_parser.add_argument(
+        "--num-primers", type=int, default=10, help="Number of primers to design (default: 10)"
+    )
+    design_oligos_parser.add_argument(
+        "--min-k", type=int, default=6, help="Minimum primer length (default: 6)"
+    )
+    design_oligos_parser.add_argument(
+        "--max-k", type=int, default=12, help="Maximum primer length (default: 12)"
+    )
 
     # =========================================================================
     # CATEGORY 3: Multi-genome pipeline (orphaned feature)
     # =========================================================================
-    multi_genome_parser = subparsers.add_parser('multi-genome',
-                                                help='Pan-genome primer design for multiple targets')
-    multi_genome_parser.add_argument('--genomes', required=True, nargs='+',
-                                    help='List of target genome FASTA files')
-    multi_genome_parser.add_argument('--background', nargs='+',
-                                    help='Background genome FASTA files (e.g., host DNA)')
-    multi_genome_parser.add_argument('--blacklist', nargs='+',
-                                    help='Blacklist genome FASTA files (strongly avoid, e.g., other pathogens)')
-    multi_genome_parser.add_argument('--output', '-o', required=True,
-                                    help='Output directory')
-    multi_genome_parser.add_argument('--num-primers', type=int, default=12,
-                                    help='Number of primers to design (default: 12)')
-    multi_genome_parser.add_argument('--min-k', type=int, default=8,
-                                    help='Minimum primer length (default: 8)')
-    multi_genome_parser.add_argument('--max-k', type=int, default=12,
-                                    help='Maximum primer length (default: 12)')
-    multi_genome_parser.add_argument('--polymerase',
-                                    choices=['phi29', 'equiphi29', 'bst', 'klenow'],
-                                    help='Polymerase type: phi29 (30C), equiphi29 (42C), '
-                                         'bst (63C), klenow (37C)')
-    multi_genome_parser.add_argument('--validate-simulation', action='store_true',
-                                    help='Validate with simulation')
-    multi_genome_parser.add_argument('--quiet', action='store_true',
-                                    help='Minimal output')
+    multi_genome_parser = subparsers.add_parser(
+        "multi-genome", help="Pan-genome primer design for multiple targets"
+    )
+    multi_genome_parser.add_argument(
+        "--genomes", required=True, nargs="+", help="List of target genome FASTA files"
+    )
+    multi_genome_parser.add_argument(
+        "--background", nargs="+", help="Background genome FASTA files (e.g., host DNA)"
+    )
+    multi_genome_parser.add_argument(
+        "--blacklist",
+        nargs="+",
+        help="Blacklist genome FASTA files (strongly avoid, e.g., other pathogens)",
+    )
+    multi_genome_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    multi_genome_parser.add_argument(
+        "--num-primers", type=int, default=12, help="Number of primers to design (default: 12)"
+    )
+    multi_genome_parser.add_argument(
+        "--min-k", type=int, default=8, help="Minimum primer length (default: 8)"
+    )
+    multi_genome_parser.add_argument(
+        "--max-k", type=int, default=12, help="Maximum primer length (default: 12)"
+    )
+    multi_genome_parser.add_argument(
+        "--polymerase",
+        choices=["phi29", "equiphi29", "bst", "klenow"],
+        help="Polymerase type: phi29 (30C), equiphi29 (42C), " "bst (63C), klenow (37C)",
+    )
+    multi_genome_parser.add_argument(
+        "--validate-simulation", action="store_true", help="Validate with simulation"
+    )
+    multi_genome_parser.add_argument("--quiet", action="store_true", help="Minimal output")
 
     # =========================================================================
     # CATEGORY 4: Simulation command (orphaned features)
     # =========================================================================
-    simulate_parser = subparsers.add_parser('simulate',
-                                           help='Agent-based replication simulation')
+    simulate_parser = subparsers.add_parser("simulate", help="Agent-based replication simulation")
     sim_input = simulate_parser.add_mutually_exclusive_group(required=True)
-    sim_input.add_argument('--primers', nargs='+',
-                                help='Primer sequences to simulate')
-    sim_input.add_argument('--from-results', type=str, metavar='DIR_OR_CSV',
-                                help='Read primers from pipeline results directory or step4 CSV file '
-                                     '(e.g., --from-results results/ or --from-results step4_improved_df.csv)')
-    simulate_parser.add_argument('--genome', required=True,
-                                help='Target genome FASTA file')
-    simulate_parser.add_argument('--output', '-o', required=True,
-                                help='Output directory for simulation results')
-    simulate_parser.add_argument('--duration', '--cycles', type=int, default=60,
-                                help='Simulation duration in minutes (default: 60)')
-    simulate_parser.add_argument('--replicates', type=int, default=5,
-                                help='Number of simulation replicates (default: 5)')
-    simulate_parser.add_argument('--polymerase',
-                                choices=['phi29', 'equiphi29', 'bst', 'klenow'],
-                                default='phi29',
-                                help='Polymerase type: phi29 (30C), equiphi29 (42C), '
-                                     'bst (63C), klenow (37C) (default: phi29)')
-    simulate_parser.add_argument('--visualize', action='store_true',
-                                help='Generate visualization plots')
-    simulate_parser.add_argument('--report', action='store_true',
-                                help='Generate HTML report')
-
-    # =========================================================================
-    # CATEGORY 5: Active learning command (experimental)
-    # =========================================================================
-    active_learn_parser = subparsers.add_parser('active-learn',
-                                                help='[EXPERIMENTAL] Active learning for iterative primer optimization')
-    active_learn_parser.add_argument('-j', '--json-file', required=True,
-                                     help='Parameters JSON file (from optimize step)')
-    active_learn_parser.add_argument('--experimental-results',
-                                     help='CSV file with experimental outcomes (optional)')
-    active_learn_parser.add_argument('--num-candidates', type=int, default=10,
-                                     help='Number of candidate primer sets to generate (default: 10)')
-    active_learn_parser.add_argument('--max-primers', type=int, default=15,
-                                     help='Maximum primers per set (default: 15)')
-    active_learn_parser.add_argument('--exploration-weight', type=float, default=2.0,
-                                     help='Balance exploration vs exploitation (default: 2.0)')
-    active_learn_parser.add_argument('--output', '-o', required=True,
-                                     help='Output directory for active learning results')
-    active_learn_parser.add_argument('--quiet', '-q', action='store_true',
-                                     help='Suppress progress output')
+    sim_input.add_argument("--primers", nargs="+", help="Primer sequences to simulate")
+    sim_input.add_argument(
+        "--from-results",
+        type=str,
+        metavar="DIR_OR_CSV",
+        help="Read primers from pipeline results directory or step4 CSV file "
+        "(e.g., --from-results results/ or --from-results step4_improved_df.csv)",
+    )
+    simulate_parser.add_argument("--genome", required=True, help="Target genome FASTA file")
+    simulate_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for simulation results"
+    )
+    simulate_parser.add_argument(
+        "--duration",
+        "--cycles",
+        type=int,
+        default=60,
+        help="Simulation duration in minutes (default: 60)",
+    )
+    simulate_parser.add_argument(
+        "--replicates", type=int, default=5, help="Number of simulation replicates (default: 5)"
+    )
+    simulate_parser.add_argument(
+        "--polymerase",
+        choices=["phi29", "equiphi29", "bst", "klenow"],
+        default="phi29",
+        help="Polymerase type: phi29 (30C), equiphi29 (42C), "
+        "bst (63C), klenow (37C) (default: phi29)",
+    )
+    simulate_parser.add_argument(
+        "--visualize", action="store_true", help="Generate visualization plots"
+    )
+    simulate_parser.add_argument("--report", action="store_true", help="Generate HTML report")
 
     # Expand primers - add new primers to existing validated set
-    expand_parser = subparsers.add_parser('expand-primers',
-        help='Expand existing primer set with additional primers to fill coverage gaps')
-    expand_parser.add_argument('-j', '--json-file', required=True,
-                               help='Parameters JSON file')
-    expand_parser.add_argument('--fixed-primers', nargs='+', required=True,
-                               help='Primer sequences to keep (already validated)')
-    expand_parser.add_argument('--fixed-primers-file',
-                               help='File with fixed primers (one per line)')
-    expand_parser.add_argument('--failed-primers', nargs='+',
-                               help='Primer sequences to exclude (failed in wet lab)')
-    expand_parser.add_argument('--failed-primers-file',
-                               help='File with failed primers to exclude (one per line)')
-    expand_parser.add_argument('--num-new', type=int, default=6,
-                               help='Number of new primers to add (default: 6)')
-    expand_parser.add_argument('--optimization-method', default='hybrid',
-                               choices=['hybrid', 'dominating-set'],
-                               help='Optimization method (default: hybrid)')
-    expand_parser.add_argument('--output', '-o', required=True,
-                               help='Output directory for expanded primer set')
-    expand_parser.add_argument('--quiet', '-q', action='store_true',
-                               help='Suppress progress output')
+    expand_parser = subparsers.add_parser(
+        "expand-primers",
+        help="Expand existing primer set with additional primers to fill coverage gaps",
+    )
+    expand_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    expand_parser.add_argument(
+        "--fixed-primers",
+        nargs="+",
+        required=True,
+        help="Primer sequences to keep (already validated)",
+    )
+    expand_parser.add_argument(
+        "--fixed-primers-file", help="File with fixed primers (one per line)"
+    )
+    expand_parser.add_argument(
+        "--failed-primers", nargs="+", help="Primer sequences to exclude (failed in wet lab)"
+    )
+    expand_parser.add_argument(
+        "--failed-primers-file", help="File with failed primers to exclude (one per line)"
+    )
+    expand_parser.add_argument(
+        "--num-new", type=int, default=6, help="Number of new primers to add (default: 6)"
+    )
+    expand_parser.add_argument(
+        "--optimization-method",
+        default="hybrid",
+        choices=["hybrid", "dominating-set", "network", "background-aware"],
+        help="Optimization method (default: hybrid)",
+    )
+    expand_parser.add_argument(
+        "--bam",
+        help="Mapped BAM of real sequencing reads against the "
+        "target genome. Low-depth regions are merged with "
+        "in-silico coverage gaps and the candidate pool is "
+        "focused on primers that bind inside the gaps. "
+        "Requires the [bam] extra (pip install 'neoswga[bam]').",
+    )
+    expand_parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=5,
+        help="Sequencing depth below which a base counts as a " "BAM coverage gap (default: 5).",
+    )
+    expand_parser.add_argument(
+        "--min-gap-size",
+        type=int,
+        default=10000,
+        help="Minimum gap length to act on, bp (default: 10000).",
+    )
+    expand_parser.add_argument(
+        "--contig-alias",
+        action="append",
+        default=None,
+        metavar="FG=BAMCONTIG",
+        help="Map a foreground prefix/basename to a BAM contig "
+        "name when they differ. Repeatable.",
+    )
+    expand_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for expanded primer set"
+    )
+    expand_parser.add_argument(
+        "--quiet", "-q", action="store_true", help="Suppress progress output"
+    )
+
+    # Analyze coverage - read-only inspection of in-silico + BAM gaps
+    cov_parser = subparsers.add_parser(
+        "analyze-coverage",
+        help="Report coverage gaps for a primer set, from in-silico binding "
+        "sites and (optionally) real sequencing depth (BAM). Read-only.",
+    )
+    cov_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    cov_parser.add_argument(
+        "--primers", nargs="+", help="Current primer set (the primers to assess)."
+    )
+    cov_parser.add_argument("--primers-file", help="File with current primers (one per line).")
+    cov_parser.add_argument(
+        "--bam", help="Mapped BAM of real reads vs the target genome. " "Requires the [bam] extra."
+    )
+    cov_parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=5,
+        help="Depth below which a base is a BAM gap (default: 5).",
+    )
+    cov_parser.add_argument(
+        "--min-gap-size",
+        type=int,
+        default=10000,
+        help="Minimum gap length to report, bp (default: 10000).",
+    )
+    cov_parser.add_argument(
+        "--contig-alias",
+        action="append",
+        default=None,
+        metavar="FG=BAMCONTIG",
+        help="Map a foreground prefix/basename to a BAM contig. " "Repeatable.",
+    )
+    cov_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for gap BED/JSON."
+    )
+    cov_parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
 
     # Swap primer: replace worst performers with better candidates
-    swap_parser = subparsers.add_parser('swap-primer',
-        help='Replace under-performing primers in an existing set with better '
-             'candidates from a pool (greedy dimer-aware optimization).')
-    swap_parser.add_argument('-j', '--json-file', required=True,
-                             help='Parameters JSON file')
-    swap_parser.add_argument('--primers', nargs='+', required=True,
-                             help='Current primer set')
-    swap_parser.add_argument('--primers-file',
-                             help='File with current primers (one per line)')
-    swap_parser.add_argument('--candidates-file',
-                             help='File with candidate pool for replacement, '
-                                  'one primer per line. Defaults to step2_df.csv '
-                                  'primers if present in data_dir.')
-    swap_parser.add_argument('--max-swaps', type=int, default=3,
-                             help='Maximum replacements to attempt (default: 3)')
-    swap_parser.add_argument('--output', '-o',
-                             help='Output JSON with before/after set and per-swap '
-                                  'deltas (default: stdout)')
-    swap_parser.add_argument('--quiet', '-q', action='store_true')
+    swap_parser = subparsers.add_parser(
+        "swap-primer",
+        help="Replace under-performing primers in an existing set with better "
+        "candidates from a pool (greedy dimer-aware optimization).",
+    )
+    swap_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    swap_parser.add_argument("--primers", nargs="+", required=True, help="Current primer set")
+    swap_parser.add_argument("--primers-file", help="File with current primers (one per line)")
+    swap_parser.add_argument(
+        "--candidates-file",
+        help="File with candidate pool for replacement, "
+        "one primer per line. Defaults to step2_df.csv "
+        "primers if present in data_dir.",
+    )
+    swap_parser.add_argument(
+        "--max-swaps", type=int, default=3, help="Maximum replacements to attempt (default: 3)"
+    )
+    swap_parser.add_argument(
+        "--output",
+        "-o",
+        help="Output JSON with before/after set and per-swap " "deltas (default: stdout)",
+    )
+    swap_parser.add_argument("--quiet", "-q", action="store_true")
 
     # Contract set: remove redundant primers while keeping coverage above threshold
-    contract_parser = subparsers.add_parser('contract-set',
-        help='Remove redundant primers from a set while keeping coverage above '
-             '--min-coverage. Greedy leave-one-out.')
-    contract_parser.add_argument('-j', '--json-file', required=True)
-    contract_parser.add_argument('--primers', nargs='+', required=True)
-    contract_parser.add_argument('--primers-file')
-    contract_parser.add_argument('--min-coverage', type=float, default=0.70,
-                                 help='Minimum foreground coverage to keep (default: 0.70)')
-    contract_parser.add_argument('--output', '-o')
-    contract_parser.add_argument('--quiet', '-q', action='store_true')
+    contract_parser = subparsers.add_parser(
+        "contract-set",
+        help="Remove redundant primers from a set while keeping coverage above "
+        "--min-coverage. Greedy leave-one-out.",
+    )
+    contract_parser.add_argument("-j", "--json-file", required=True)
+    contract_parser.add_argument("--primers", nargs="+", required=True)
+    contract_parser.add_argument("--primers-file")
+    contract_parser.add_argument(
+        "--min-coverage",
+        type=float,
+        default=0.70,
+        help="Minimum foreground coverage to keep (default: 0.70)",
+    )
+    contract_parser.add_argument("--output", "-o")
+    contract_parser.add_argument("--quiet", "-q", action="store_true")
 
     # Rescore set under arbitrary conditions
-    rescore_parser = subparsers.add_parser('rescore-set',
-        help='Rescore an existing primer set under arbitrary reaction '
-             'conditions (polymerase + additives) without re-optimizing.')
-    rescore_parser.add_argument('-j', '--json-file', required=True)
-    rescore_parser.add_argument('--primers', nargs='+', required=True)
-    rescore_parser.add_argument('--primers-file')
-    rescore_parser.add_argument('--polymerase',
-                                choices=['phi29', 'equiphi29', 'bst', 'klenow'])
-    rescore_parser.add_argument('--reaction-temp', type=float)
-    rescore_parser.add_argument('--mg-conc', type=float)
-    rescore_parser.add_argument('--na-conc', type=float)
-    rescore_parser.add_argument('--dmso-percent', type=float)
-    rescore_parser.add_argument('--betaine-m', type=float)
-    rescore_parser.add_argument('--trehalose-m', type=float)
-    rescore_parser.add_argument('--formamide-percent', type=float)
-    rescore_parser.add_argument('--ethanol-percent', type=float)
-    rescore_parser.add_argument('--urea-m', type=float)
-    rescore_parser.add_argument('--tmac-m', type=float)
-    rescore_parser.add_argument('--output', '-o')
-    rescore_parser.add_argument('--quiet', '-q', action='store_true')
+    rescore_parser = subparsers.add_parser(
+        "rescore-set",
+        help="Rescore an existing primer set under arbitrary reaction "
+        "conditions (polymerase + additives) without re-optimizing.",
+    )
+    rescore_parser.add_argument("-j", "--json-file", required=True)
+    rescore_parser.add_argument("--primers", nargs="+", required=True)
+    rescore_parser.add_argument("--primers-file")
+    rescore_parser.add_argument("--polymerase", choices=["phi29", "equiphi29", "bst", "klenow"])
+    rescore_parser.add_argument("--reaction-temp", type=float)
+    rescore_parser.add_argument("--mg-conc", type=float)
+    rescore_parser.add_argument("--na-conc", type=float)
+    rescore_parser.add_argument("--dmso-percent", type=float)
+    rescore_parser.add_argument("--betaine-m", type=float)
+    rescore_parser.add_argument("--trehalose-m", type=float)
+    rescore_parser.add_argument("--formamide-percent", type=float)
+    rescore_parser.add_argument("--ethanol-percent", type=float)
+    rescore_parser.add_argument("--urea-m", type=float)
+    rescore_parser.add_argument("--tmac-m", type=float)
+    rescore_parser.add_argument("--output", "-o")
+    rescore_parser.add_argument("--quiet", "-q", action="store_true")
 
     # Predict efficiency - unified confidence score for primer set
-    predict_parser = subparsers.add_parser('predict-efficiency',
-        help='Predict efficiency of primer set before synthesis')
-    predict_parser.add_argument('-j', '--json-file', required=True,
-                                help='Parameters JSON file')
-    predict_parser.add_argument('--primers', nargs='+', required=True,
-                                help='Primer sequences to evaluate')
-    predict_parser.add_argument('--primers-file',
-                                help='File with primers (one per line)')
-    predict_parser.add_argument('--run-simulation', action='store_true',
-                                help='Run simulation for more accurate prediction (slower)')
-    predict_parser.add_argument('--track', action='store_true',
-                                help='Record prediction for later outcome tracking')
-    predict_parser.add_argument('--output', '-o',
-                                help='Output JSON file for prediction results')
-    predict_parser.add_argument('--quiet', '-q', action='store_true',
-                                help='Suppress progress output')
+    predict_parser = subparsers.add_parser(
+        "predict-efficiency", help="Predict efficiency of primer set before synthesis"
+    )
+    predict_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    predict_parser.add_argument(
+        "--primers", nargs="+", required=True, help="Primer sequences to evaluate"
+    )
+    predict_parser.add_argument("--primers-file", help="File with primers (one per line)")
+    predict_parser.add_argument(
+        "--run-simulation",
+        action="store_true",
+        help="Run simulation for more accurate prediction (slower)",
+    )
+    predict_parser.add_argument(
+        "--track", action="store_true", help="Record prediction for later outcome tracking"
+    )
+    predict_parser.add_argument("--output", "-o", help="Output JSON file for prediction results")
+    predict_parser.add_argument(
+        "--quiet", "-q", action="store_true", help="Suppress progress output"
+    )
 
     # Background registry - list available pre-computed backgrounds
-    bg_list_parser = subparsers.add_parser('background-list',
-        help='List available pre-computed background genomes')
-    bg_list_parser.add_argument('--discover', action='store_true',
-                                help='Search for new backgrounds in default directories')
-    bg_list_parser.add_argument('--search',
-                                help='Search for backgrounds by name or species')
-    bg_list_parser.add_argument('--quiet', '-q', action='store_true',
-                                help='Suppress verbose output')
+    bg_list_parser = subparsers.add_parser(
+        "background-list", help="List available pre-computed background genomes"
+    )
+    bg_list_parser.add_argument(
+        "--discover", action="store_true", help="Search for new backgrounds in default directories"
+    )
+    bg_list_parser.add_argument("--search", help="Search for backgrounds by name or species")
+    bg_list_parser.add_argument(
+        "--quiet", "-q", action="store_true", help="Suppress verbose output"
+    )
 
     # Background registry - add new background
-    bg_add_parser = subparsers.add_parser('background-add',
-        help='Add a pre-computed background to the registry')
-    bg_add_parser.add_argument('--name', required=True,
-                               help='Human-readable name (e.g., "Human GRCh38")')
-    bg_add_parser.add_argument('--species', required=True,
-                               help='Species name (e.g., "Homo sapiens")')
-    bg_add_parser.add_argument('--bloom-path',
-                               help='Path to Bloom filter pickle file')
-    bg_add_parser.add_argument('--kmer-prefix',
-                               help='Prefix for k-mer files (without _Xmer_all.txt)')
-    bg_add_parser.add_argument('--genome-size', type=int, default=0,
-                               help='Genome size in bp')
-    bg_add_parser.add_argument('--min-k', type=int, default=6,
-                               help='Minimum k-mer length (default: 6)')
-    bg_add_parser.add_argument('--max-k', type=int, default=12,
-                               help='Maximum k-mer length (default: 12)')
-    bg_add_parser.add_argument('--description',
-                               help='Additional description')
-    bg_add_parser.add_argument('--overwrite', action='store_true',
-                               help='Overwrite existing entry with same name')
+    bg_add_parser = subparsers.add_parser(
+        "background-add", help="Add a pre-computed background to the registry"
+    )
+    bg_add_parser.add_argument(
+        "--name", required=True, help='Human-readable name (e.g., "Human GRCh38")'
+    )
+    bg_add_parser.add_argument(
+        "--species", required=True, help='Species name (e.g., "Homo sapiens")'
+    )
+    bg_add_parser.add_argument("--bloom-path", help="Path to Bloom filter pickle file")
+    bg_add_parser.add_argument(
+        "--kmer-prefix", help="Prefix for k-mer files (without _Xmer_all.txt)"
+    )
+    bg_add_parser.add_argument("--genome-size", type=int, default=0, help="Genome size in bp")
+    bg_add_parser.add_argument(
+        "--min-k", type=int, default=6, help="Minimum k-mer length (default: 6)"
+    )
+    bg_add_parser.add_argument(
+        "--max-k", type=int, default=12, help="Maximum k-mer length (default: 12)"
+    )
+    bg_add_parser.add_argument("--description", help="Additional description")
+    bg_add_parser.add_argument(
+        "--overwrite", action="store_true", help="Overwrite existing entry with same name"
+    )
 
     # =========================================================================
     # UTILITY: Genome library management
     # =========================================================================
-    genome_add_parser = subparsers.add_parser('genome-add',
-                                               help='Add a genome to the pre-calculated library')
-    genome_add_parser.add_argument('name', help='Identifier for the genome (e.g., human-grch38)')
-    genome_add_parser.add_argument('fasta', help='Path to genome FASTA file')
-    genome_add_parser.add_argument('--role', choices=['bg', 'bl'], default='bg',
-                                   help='Role: bg (background) or bl (blacklist). Default: bg')
-    genome_add_parser.add_argument('--species', default='',
-                                   help='Species name (optional)')
-    genome_add_parser.add_argument('--k-ranges', default='6-12,12-18',
-                                   help='K-mer ranges to compute (default: 6-12,12-18)')
-    genome_add_parser.add_argument('--no-bloom', action='store_true',
-                                   help='Skip Bloom filter construction')
+    genome_add_parser = subparsers.add_parser(
+        "genome-add", help="Add a genome to the pre-calculated library"
+    )
+    genome_add_parser.add_argument("name", help="Identifier for the genome (e.g., human-grch38)")
+    genome_add_parser.add_argument("fasta", help="Path to genome FASTA file")
+    genome_add_parser.add_argument(
+        "--role",
+        choices=["bg", "bl"],
+        default="bg",
+        help="Role: bg (background) or bl (blacklist). Default: bg",
+    )
+    genome_add_parser.add_argument("--species", default="", help="Species name (optional)")
+    genome_add_parser.add_argument(
+        "--k-ranges", default="6-12,12-18", help="K-mer ranges to compute (default: 6-12,12-18)"
+    )
+    genome_add_parser.add_argument(
+        "--no-bloom", action="store_true", help="Skip Bloom filter construction"
+    )
 
-    genome_list_parser = subparsers.add_parser('genome-list',
-                                                help='List genomes in the pre-calculated library')
-    genome_list_parser.add_argument('--verbose', '-v', action='store_true',
-                                    help='Show detailed information')
+    genome_list_parser = subparsers.add_parser(
+        "genome-list", help="List genomes in the pre-calculated library"
+    )
+    genome_list_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed information"
+    )
 
-    genome_remove_parser = subparsers.add_parser('genome-remove',
-                                                  help='Remove a genome from the pre-calculated library')
-    genome_remove_parser.add_argument('name', help='Identifier of genome to remove')
+    genome_remove_parser = subparsers.add_parser(
+        "genome-remove", help="Remove a genome from the pre-calculated library"
+    )
+    genome_remove_parser.add_argument("name", help="Identifier of genome to remove")
 
     # Validate that all registered commands appear in COMMAND_GROUPS
     grouped_cmds = {cmd for _, cmds in COMMAND_GROUPS for cmd in cmds}
-    registered_cmds = set(subparsers.choices.keys()) if hasattr(subparsers, 'choices') else set()
+    registered_cmds = set(subparsers.choices.keys()) if hasattr(subparsers, "choices") else set()
     missing = registered_cmds - grouped_cmds
     if missing:
         import warnings
+
         warnings.warn(
             f"Commands not listed in COMMAND_GROUPS: {', '.join(sorted(missing))}",
             stacklevel=2,
@@ -1505,17 +2062,17 @@ def load_preset_conditions(preset_name):
     from neoswga.core import reaction_conditions as rc
 
     preset_map = {
-        'standard_phi29': rc.get_standard_conditions(),
-        'enhanced_equiphi29': rc.get_enhanced_conditions(),
-        'high_gc_genome': rc.get_high_gc_conditions(),
-        'long_primers_15mer': rc.get_enhanced_conditions(),  # Same as enhanced but user intent is longer primers
-        'q_solution': rc.get_q_solution_equivalent(),
-        'gc_melt': rc.get_gc_melt_conditions(),
-        'crude_sample': rc.get_crude_sample_conditions(),
-        'low_temp': rc.get_low_temp_conditions(),
-        'bst': rc.get_bst_conditions(),
-        'klenow': rc.get_klenow_conditions(),
-        'extreme_gc': rc.get_extreme_gc_conditions()
+        "standard_phi29": rc.get_standard_conditions(),
+        "enhanced_equiphi29": rc.get_enhanced_conditions(),
+        "high_gc_genome": rc.get_high_gc_conditions(),
+        "long_primers_15mer": rc.get_enhanced_conditions(),  # Same as enhanced but user intent is longer primers
+        "q_solution": rc.get_q_solution_equivalent(),
+        "gc_melt": rc.get_gc_melt_conditions(),
+        "crude_sample": rc.get_crude_sample_conditions(),
+        "low_temp": rc.get_low_temp_conditions(),
+        "bst": rc.get_bst_conditions(),
+        "klenow": rc.get_klenow_conditions(),
+        "extreme_gc": rc.get_extreme_gc_conditions(),
     }
 
     if preset_name not in preset_map:
@@ -1526,43 +2083,71 @@ def load_preset_conditions(preset_name):
 
     # Convert ReactionConditions to dict
     return {
-        'reaction_temp': conditions.temp,
-        'polymerase': conditions.polymerase,
-        'dmso_percent': conditions.dmso_percent,
-        'betaine_m': conditions.betaine_m,
-        'trehalose_m': conditions.trehalose_m,
-        'glycerol_percent': conditions.glycerol_percent,
-        'bsa_ug_ml': conditions.bsa_ug_ml,
-        'peg_percent': conditions.peg_percent,
-        'na_conc': conditions.na_conc,
-        'mg_conc': conditions.mg_conc,
-        'ssb': conditions.ssb
+        "reaction_temp": conditions.temp,
+        "polymerase": conditions.polymerase,
+        "dmso_percent": conditions.dmso_percent,
+        "betaine_m": conditions.betaine_m,
+        "trehalose_m": conditions.trehalose_m,
+        "glycerol_percent": conditions.glycerol_percent,
+        "bsa_ug_ml": conditions.bsa_ug_ml,
+        "peg_percent": conditions.peg_percent,
+        "na_conc": conditions.na_conc,
+        "mg_conc": conditions.mg_conc,
+        "ssb": conditions.ssb,
     }
 
 
 def add_common_options(parser):
     """Add options common to all steps"""
-    parser.add_argument('-j', '--json-file', type=str,
-                       help='Parameters JSON file')
-    parser.add_argument('-z', '--data-dir', type=str, help='Data directory')
-    parser.add_argument('--polymerase', choices=['phi29', 'equiphi29', 'bst', 'klenow'],
-                       help='Polymerase type: phi29 (30-40C), equiphi29 (42-45C), bst (60-65C), klenow (25-40C)')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                       help='Verbose output')
-    parser.add_argument('-q', '--quiet', action='store_true',
-                       help='Minimal output')
+    parser.add_argument("-j", "--json-file", type=str, help="Parameters JSON file")
+    parser.add_argument("-z", "--data-dir", type=str, help="Data directory")
+    parser.add_argument(
+        "--polymerase",
+        choices=["phi29", "equiphi29", "bst", "klenow"],
+        help="Polymerase type: phi29 (30-40C), equiphi29 (42-45C), bst (60-65C), klenow (25-40C)",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Minimal output")
 
     # GPU acceleration (Category 1 orphaned feature)
-    parser.add_argument('--use-gpu', action='store_true',
-                       help='Use GPU acceleration (requires CuPy). Provides 10-100x speedup for large genomes')
-    parser.add_argument('--no-gpu', action='store_true',
-                       help='Disable auto-GPU detection (GPU is auto-enabled when CuPy is available)')
-    parser.add_argument('--gpu-device', type=int, default=0,
-                       help='GPU device ID to use (default: 0)')
+    parser.add_argument(
+        "--use-gpu",
+        action="store_true",
+        help="Use GPU acceleration (requires CuPy). Provides 10-100x speedup for large genomes",
+    )
+    parser.add_argument(
+        "--no-gpu",
+        action="store_true",
+        help="Disable auto-GPU detection (GPU is auto-enabled when CuPy is available)",
+    )
+    parser.add_argument(
+        "--gpu-device", type=int, default=0, help="GPU device ID to use (default: 0)"
+    )
 
     # Quality assurance (Category 3)
-    parser.add_argument('--enable-qa', action='store_true',
-                       help='Enable quality assurance checks at each step')
+    parser.add_argument(
+        "--enable-qa", action="store_true", help="Enable quality assurance checks at each step"
+    )
+
+
+def _record_run_manifest(step: str, args, parameter, input_files=None):
+    """Best-effort wrapper around run_manifest.write_manifest.
+
+    Failures are swallowed so manifest issues never break a pipeline that
+    otherwise succeeded.
+    """
+    try:
+        from neoswga.core.run_manifest import write_manifest
+
+        write_manifest(
+            step=step,
+            data_dir=getattr(parameter, "data_dir", None),
+            params_path=getattr(args, "json_file", None),
+            input_files=input_files,
+            seed=getattr(parameter, "seed", None),
+        )
+    except Exception as e:
+        logger.debug(f"run_manifest write skipped: {e}")
 
 
 def run_step1(args):
@@ -1570,54 +2155,58 @@ def run_step1(args):
     check_jellyfish_available()
     validate_params_json_file(args.json_file)
     import time as _time
+
     _t0 = _time.time()
     logger.info("Step 1: K-mer preprocessing starting...")
     try:
-        from neoswga.core import pipeline, parameter
+        from neoswga.core import parameter, pipeline
 
         # Set json_file if provided (needed for _initialize to load params)
-        merge_args_to_parameter(args, parameter, ['json_file'])
+        merge_args_to_parameter(args, parameter, ["json_file"])
 
         # Apply CLI k-mer range arguments BEFORE initialization
         # This ensures they're available when _initialize() reads defaults
-        merge_args_to_parameter(args, parameter, ['min_k', 'max_k'])
+        merge_args_to_parameter(args, parameter, ["min_k", "max_k"])
 
         # Initialize pipeline (lazy init, loads params from JSON)
         pipeline._initialize()
 
         # Re-apply CLI arguments after initialization to ensure they take precedence
         # (initialization may have overwritten them with JSON values)
-        merge_args_to_parameter(args, parameter, ['min_k', 'max_k'])
+        merge_args_to_parameter(args, parameter, ["min_k", "max_k"])
 
         # GPU acceleration (with auto-detection)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
         # QA integration (boolean flag)
-        if hasattr(args, 'enable_qa') and args.enable_qa:
+        if hasattr(args, "enable_qa") and args.enable_qa:
             parameter.enable_qa = True
 
         # Log effective parameters
         if not args.quiet:
-            min_k = getattr(parameter, 'min_k', 6)
-            max_k = getattr(parameter, 'max_k', 12)
+            min_k = getattr(parameter, "min_k", 6)
+            max_k = getattr(parameter, "max_k", 12)
             logger.info(f"K-mer range: {min_k}-{max_k}bp")
 
         # Run step1 (QA integration is only available for step2-4)
-        if getattr(parameter, 'enable_qa', False):
-            logger.info("Note: QA integration is available for filter/score/optimize steps, not count-kmers")
+        if getattr(parameter, "enable_qa", False):
+            logger.info(
+                "Note: QA integration is available for filter/score/optimize steps, not count-kmers"
+            )
         pipeline.step1()
 
         # Count k-mers for exclusion genome if specified via CLI
-        excl_genome = getattr(args, 'exclusion_genome', None)
+        excl_genome = getattr(args, "exclusion_genome", None)
         if excl_genome:
             if not os.path.exists(excl_genome):
                 logger.error(f"Exclusion genome not found: {excl_genome}")
                 sys.exit(1)
             from neoswga.core.kmer_counter import run_jellyfish as _run_jf
+
             excl_name = os.path.splitext(os.path.basename(excl_genome))[0]
             excl_prefix = os.path.join(parameter.data_dir, f"excl_{excl_name}")
-            min_k = getattr(parameter, 'min_k', 6)
-            max_k = getattr(parameter, 'max_k', 12)
+            min_k = getattr(parameter, "min_k", 6)
+            max_k = getattr(parameter, "max_k", 12)
             logger.info(f"Counting k-mers in exclusion genome: {excl_genome}")
             _run_jf(excl_genome, excl_prefix, min_k, max_k)
             # Store exclusion prefix for downstream steps
@@ -1625,16 +2214,17 @@ def run_step1(args):
             parameter.excl_prefixes = [excl_prefix]
 
         # Count k-mers for blacklist genome(s) if specified via CLI
-        bl_genomes_cli = getattr(args, 'blacklist', None)
+        bl_genomes_cli = getattr(args, "blacklist", None)
         if bl_genomes_cli:
             from neoswga.core.kmer_counter import run_jellyfish as _run_jf_bl
+
             for bl_genome in bl_genomes_cli:
                 if not os.path.exists(bl_genome):
                     logger.error(f"Blacklist genome not found: {bl_genome}")
                     sys.exit(1)
             bl_prefixes_cli = []
-            min_k = getattr(parameter, 'min_k', 6)
-            max_k = getattr(parameter, 'max_k', 12)
+            min_k = getattr(parameter, "min_k", 6)
+            max_k = getattr(parameter, "max_k", 12)
             for bl_genome in bl_genomes_cli:
                 bl_name = os.path.splitext(os.path.basename(bl_genome))[0]
                 bl_prefix = os.path.join(parameter.data_dir, f"bl_{bl_name}")
@@ -1647,6 +2237,13 @@ def run_step1(args):
                 parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
                 parameter.max_bl_freq = args.max_bl_freq
+
+        _step1_inputs = (
+            list(getattr(parameter, "fg_genomes", []) or [])
+            + list(getattr(parameter, "bg_genomes", []) or [])
+            + list(getattr(parameter, "bl_genomes", []) or [])
+        )
+        _record_run_manifest("count-kmers", args, parameter, input_files=_step1_inputs)
 
         _elapsed = _time.time() - _t0
         logger.info(f"Step 1 complete in {_elapsed:.1f}s")
@@ -1662,14 +2259,15 @@ def run_step2(args):
     """Run step 2: Candidate filtering with reaction conditions"""
     validate_params_json_file(args.json_file)
     import time as _time
+
     _t0 = _time.time()
     logger.info("Running step2 (candidate primer filtering)")
 
     try:
-        from neoswga.core import pipeline, parameter
+        from neoswga.core import parameter, pipeline
 
         # Set json_file if provided (needed for _initialize to load params)
-        if hasattr(args, 'json_file') and args.json_file:
+        if hasattr(args, "json_file") and args.json_file:
             parameter.json_file = args.json_file
 
         # Initialize pipeline (lazy init, loads params from JSON)
@@ -1679,11 +2277,11 @@ def run_step2(args):
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
         # QA integration
-        if hasattr(args, 'enable_qa') and args.enable_qa:
+        if hasattr(args, "enable_qa") and args.enable_qa:
             parameter.enable_qa = True
 
         # Apply preset if specified
-        if hasattr(args, 'preset') and args.preset:
+        if hasattr(args, "preset") and args.preset:
             logger.info(f"Loading preset: {args.preset}")
             preset_params = load_preset_conditions(args.preset)
 
@@ -1697,42 +2295,67 @@ def run_step2(args):
 
         # Apply CLI arguments to parameter module using merger utility
         # GC filtering
-        merge_args_to_parameter(args, parameter, ['gc_min', 'gc_max'])
+        merge_args_to_parameter(args, parameter, ["gc_min", "gc_max"])
 
         # Special handling for gc_tolerance (calculates gc_min/gc_max from genome GC)
-        if hasattr(args, 'gc_tolerance') and args.gc_tolerance is not None:
-            if (not hasattr(args, 'gc_min') or args.gc_min is None) and hasattr(parameter, 'genome_gc') and parameter.genome_gc:
+        if hasattr(args, "gc_tolerance") and args.gc_tolerance is not None:
+            if (
+                (not hasattr(args, "gc_min") or args.gc_min is None)
+                and hasattr(parameter, "genome_gc")
+                and parameter.genome_gc
+            ):
                 parameter.gc_min = max(0.20, parameter.genome_gc - args.gc_tolerance)
                 parameter.gc_max = min(0.80, parameter.genome_gc + args.gc_tolerance)
 
         # Reaction conditions
-        merge_args_to_parameter(args, parameter, ['reaction_temp', 'na_conc', 'mg_conc'])
+        merge_args_to_parameter(args, parameter, ["reaction_temp", "na_conc", "mg_conc"])
 
         # Additives (with bsa -> bsa_ug_ml mapping)
-        merge_args_to_parameter(args, parameter, [
-            'dmso_percent', 'betaine_m', 'trehalose_m', 'glycerol_percent',
-            'peg_percent', 'ethanol_percent', 'urea_m', 'tmac_m', 'formamide_percent'
-        ])
-        merge_args_to_parameter(args, parameter, ['bsa'], {'bsa': 'bsa_ug_ml'})
+        merge_args_to_parameter(
+            args,
+            parameter,
+            [
+                "dmso_percent",
+                "betaine_m",
+                "trehalose_m",
+                "glycerol_percent",
+                "peg_percent",
+                "ethanol_percent",
+                "urea_m",
+                "tmac_m",
+                "formamide_percent",
+            ],
+        )
+        merge_args_to_parameter(args, parameter, ["bsa"], {"bsa": "bsa_ug_ml"})
 
         # Boolean flag for SSB (special handling)
-        if hasattr(args, 'ssb') and args.ssb:
+        if hasattr(args, "ssb") and args.ssb:
             parameter.ssb = True
 
         # Traditional filtering parameters
-        merge_args_to_parameter(args, parameter, [
-            'min_fg_freq', 'max_bg_freq', 'max_gini', 'max_primer',
-            'min_tm', 'max_tm', 'max_dimer_bp', 'max_self_dimer_bp'
-        ])
+        merge_args_to_parameter(
+            args,
+            parameter,
+            [
+                "min_fg_freq",
+                "max_bg_freq",
+                "max_gini",
+                "max_primer",
+                "min_tm",
+                "max_tm",
+                "max_dimer_bp",
+                "max_self_dimer_bp",
+            ],
+        )
 
         # Polymerase
-        merge_args_to_parameter(args, parameter, ['polymerase'])
+        merge_args_to_parameter(args, parameter, ["polymerase"])
 
         # Bloom filter for large background genomes
-        use_bloom = getattr(args, 'use_bloom_filter', False)
-        bloom_path = getattr(args, 'bloom_filter_path', None)
-        sampled_path = getattr(args, 'sampled_index_path', None)
-        bloom_max_bg = getattr(args, 'bloom_max_bg_matches', 10)
+        use_bloom = getattr(args, "use_bloom_filter", False)
+        bloom_path = getattr(args, "bloom_filter_path", None)
+        sampled_path = getattr(args, "sampled_index_path", None)
+        bloom_max_bg = getattr(args, "bloom_max_bg_matches", 10)
 
         if use_bloom or bloom_path:
             parameter.use_bloom_filter = True
@@ -1747,7 +2370,7 @@ def run_step2(args):
                     logger.info(f"  Sampled index: {sampled_path}")
 
         # Handle exclusion genome from CLI
-        excl_genome = getattr(args, 'exclusion_genome', None)
+        excl_genome = getattr(args, "exclusion_genome", None)
         if excl_genome:
             if not os.path.exists(excl_genome):
                 logger.error(f"Exclusion genome not found: {excl_genome}")
@@ -1756,7 +2379,7 @@ def run_step2(args):
             excl_prefix = os.path.join(parameter.data_dir, f"excl_{excl_name}")
             parameter.excl_genomes = [excl_genome]
             parameter.excl_prefixes = [excl_prefix]
-            excl_threshold = getattr(args, 'excl_threshold', 0)
+            excl_threshold = getattr(args, "excl_threshold", 0)
             if excl_threshold is not None:
                 parameter.excl_threshold = excl_threshold
             if not args.quiet:
@@ -1764,7 +2387,7 @@ def run_step2(args):
                 logger.info(f"  Threshold: {parameter.excl_threshold} (0 = reject any hit)")
 
         # Handle blacklist genome(s) from CLI
-        bl_genomes_cli = getattr(args, 'blacklist', None)
+        bl_genomes_cli = getattr(args, "blacklist", None)
         if bl_genomes_cli:
             for bl_genome in bl_genomes_cli:
                 if not os.path.exists(bl_genome):
@@ -1779,8 +2402,10 @@ def run_step2(args):
             parameter.bl_prefixes = bl_prefixes_cli
             # Compute blacklist lengths so the frequency denominator is correct.
             from neoswga.core import utility as _utility
+
             parameter.bl_seq_lengths = _utility.get_all_seq_lengths(
-                fname_genomes=bl_genomes_cli, cpus=getattr(parameter, 'cpus', 1))
+                fname_genomes=bl_genomes_cli, cpus=getattr(parameter, "cpus", 1)
+            )
             if args.bl_penalty is not None:
                 parameter.bl_penalty = args.bl_penalty
             if args.max_bl_freq is not None:
@@ -1792,20 +2417,21 @@ def run_step2(args):
         # Log effective parameters
         if not args.quiet:
             logger.info("Effective parameters:")
-            if hasattr(parameter, 'gc_min'):
+            if hasattr(parameter, "gc_min"):
                 logger.info(f"  GC range: {parameter.gc_min:.3f} - {parameter.gc_max:.3f}")
-            if hasattr(parameter, 'reaction_temp'):
+            if hasattr(parameter, "reaction_temp"):
                 logger.info(f"  Reaction temp: {parameter.reaction_temp}C")
-            if hasattr(parameter, 'polymerase'):
+            if hasattr(parameter, "polymerase"):
                 logger.info(f"  Polymerase: {parameter.polymerase}")
-            if hasattr(parameter, 'dmso_percent') and parameter.dmso_percent > 0:
+            if hasattr(parameter, "dmso_percent") and parameter.dmso_percent > 0:
                 logger.info(f"  DMSO: {parameter.dmso_percent}%")
-            if hasattr(parameter, 'betaine_m') and parameter.betaine_m > 0:
+            if hasattr(parameter, "betaine_m") and parameter.betaine_m > 0:
                 logger.info(f"  Betaine: {parameter.betaine_m} M")
 
         # Run step2 with QA if enabled
-        if getattr(parameter, 'enable_qa', False):
+        if getattr(parameter, "enable_qa", False):
             from neoswga.core import pipeline_qa_integration
+
             pipeline_qa_integration.run_step2_with_qa()
         else:
             pipeline.step2()
@@ -1831,8 +2457,14 @@ def run_step2(args):
         logger.error(f"Step 2 failed: {e}")
         if logger.level <= logging.DEBUG:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
+    _data_dir = getattr(parameter, "data_dir", None)
+    _step2_out = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
+    _record_run_manifest(
+        "filter", args, parameter, input_files=[_step2_out] if _step2_out else None
+    )
     _elapsed = _time.time() - _t0
     logger.info(f"Step 2 complete in {_elapsed:.1f}s")
 
@@ -1841,35 +2473,45 @@ def run_step3(args):
     """Run step 3: Random forest scoring"""
     validate_params_json_file(args.json_file)
     import time as _time
+
     _t0 = _time.time()
     try:
-        from neoswga.core import pipeline, parameter
+        from neoswga.core import parameter, pipeline
 
         # Set json_file and initialize pipeline
-        merge_args_to_parameter(args, parameter, ['json_file'])
+        merge_args_to_parameter(args, parameter, ["json_file"])
         pipeline._initialize()
 
         # GPU acceleration (with auto-detection)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
+        # Reproducible scoring: seed the k-mer sampling RNG if requested.
+        if getattr(args, "seed", None) is not None:
+            from neoswga.core.rf_preprocessing import set_kmer_sampling_seed
+
+            set_kmer_sampling_seed(args.seed)
+            if not args.quiet:
+                logger.info(f"K-mer sampling seeded with {args.seed} for reproducible scoring")
+
         # QA integration (boolean flag)
-        if hasattr(args, 'enable_qa') and args.enable_qa:
+        if hasattr(args, "enable_qa") and args.enable_qa:
             parameter.enable_qa = True
 
         # Apply CLI arguments to parameter module
-        merge_args_to_parameter(args, parameter, ['min_amp_pred'])
+        merge_args_to_parameter(args, parameter, ["min_amp_pred"])
 
         # Log effective parameters
         if not args.quiet:
-            min_amp_pred = getattr(parameter, 'min_amp_pred', None) or 'auto'
+            min_amp_pred = getattr(parameter, "min_amp_pred", None) or "auto"
             logger.info(f"Minimum amplification prediction score: {min_amp_pred}")
 
         # Enhanced feature engineering
-        use_enhanced = getattr(args, 'use_enhanced_features', False)
-        enhanced_model_path = getattr(args, 'enhanced_model_path', None)
+        use_enhanced = getattr(args, "use_enhanced_features", False)
+        enhanced_model_path = getattr(args, "enhanced_model_path", None)
 
         if use_enhanced:
             from neoswga.core.rf_preprocessing import is_enhanced_model_available
+
             if is_enhanced_model_available(enhanced_model_path):
                 logger.info("Using enhanced 120+ feature model")
                 parameter.use_enhanced_features = True
@@ -1881,17 +2523,18 @@ def run_step3(args):
 
         # Scoring mode: fast (skip delta-G histograms) is the default.
         # --full-score opts back in to the full RF feature set.
-        if getattr(args, 'full_score', False):
+        if getattr(args, "full_score", False):
             parameter.fast_score = False
             logger.info("Full scoring: computing thermodynamic histogram features (slow)")
         else:
             parameter.fast_score = True
-            if getattr(args, 'fast_score', False):
+            if getattr(args, "fast_score", False):
                 logger.info("--fast-score is now the default; flag is a no-op")
 
         # Run step3 with QA if enabled
-        if getattr(parameter, 'enable_qa', False):
+        if getattr(parameter, "enable_qa", False):
             from neoswga.core import pipeline_qa_integration
+
             pipeline_qa_integration.run_step3_with_qa()
         else:
             pipeline.step3()
@@ -1917,8 +2560,15 @@ def run_step3(args):
         logger.error(f"Step 3 failed: {e}")
         if logger.level <= logging.DEBUG:
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
+    _data_dir = getattr(parameter, "data_dir", None)
+    _step3_in = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
+    _step3_out = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
+    _record_run_manifest(
+        "score", args, parameter, input_files=[p for p in [_step3_in, _step3_out] if p]
+    )
     _elapsed = _time.time() - _t0
     logger.info(f"Step 3 complete in {_elapsed:.1f}s")
 
@@ -1930,78 +2580,43 @@ OPTIMIZATION METHOD SELECTION GUIDE
 ====================================
 
 Decision Tree:
-  Speed critical?           -> dominating-set
-  Need dimer-free?          -> clique (or coverage-then-dimerfree)
-  Clinical/diagnostic?      -> background-aware
-  GC-rich genome (>65%)?    -> equiphi29
-  Exact solution needed?    -> milp (pools <100)
-  Want coverage + no dimers -> coverage-then-dimerfree
-  Default                   -> hybrid
+  Speed critical / large pool?   -> dominating-set
+  Clinical / low background?     -> background-aware
+  Tm-balanced, dimer-aware?      -> network
+  Not sure / want the best?      -> ensemble (runs all, keeps the best)
+  Default                        -> hybrid
 
-Single-Stage Methods:
-+------------------+--------+-----------+-------------+------------------------+
-| Method           | Speed  | Coverage  | Specificity | Best For               |
-+------------------+--------+-----------+-------------+------------------------+
-| hybrid           | Medium | Excellent | Good        | General use (default)  |
-| dominating-set   | Fast   | Excellent | Fair        | Large pools, quick     |
-| background-aware | Slow   | Good      | Excellent   | Clinical, low bg       |
-| clique           | Var.   | Good      | Good        | Dimer-free guarantee   |
-| equiphi29        | Medium | Good      | Good        | GC-rich, 42-45C        |
-| normalized       | Medium | Varies    | Varies      | Configurable weights   |
-| network          | Medium | Good      | Good        | Tm-balanced sets       |
-| genetic          | Slow   | Good      | Good        | Multi-objective        |
-| moea             | Slow   | Good      | Good        | Pareto optimization    |
-| milp             | Var.   | Optimal   | Good        | Exact (small sets)     |
-| greedy           | Fast   | Fair      | Fair        | Simple baseline        |
-| tiling           | Fast   | Excellent | Fair        | Uniform spacing        |
-+------------------+--------+-----------+-------------+------------------------+
+Methods:
++------------------+--------+-----------+-------------+--------------------------+
+| Method           | Speed  | Coverage  | Specificity | Best For                 |
++------------------+--------+-----------+-------------+--------------------------+
+| hybrid           | Medium | Excellent | Good        | General use (default)    |
+| dominating-set   | Fast   | Excellent | Fair        | Large pools, quick       |
+| network          | Medium | Good      | Good        | Tm-balanced, dimer-aware |
+| background-aware | Slow   | Good      | Excellent   | Clinical, low background |
+| ensemble         | Slow   | Best-of   | Best-of     | Run all, keep best by    |
+|                  |        |           |             | normalized score         |
++------------------+--------+-----------+-------------+--------------------------+
 
-Pipeline Methods (serial cascades):
-+-------------------------+----------+--------------------------------------+
-| Method                  | Speed    | Description                          |
-+-------------------------+----------+--------------------------------------+
-| coverage-then-dimerfree | Moderate | DS -> Clique (coverage + dimer-free) |
-| dimerfree-scored        | Moderate | Clique -> Network (dimer-free +      |
-|                         |          | connectivity scoring)                |
-| bg-prefilter            | Moderate | Background pruning pre-filter alone  |
-| bg-prefilter-hybrid     | Moderate | BG pruning -> Hybrid (bg reduction   |
-|                         |          | + general optimization)              |
-+-------------------------+----------+--------------------------------------+
-
-Strategy Presets (for --optimization-method=normalized):
-+-------------+--------------------------------------------------+
-| Strategy    | Description                                      |
-+-------------+--------------------------------------------------+
-| clinical    | High specificity (40% background weight)         |
-| discovery   | Max coverage (40% coverage weight)               |
-| fast        | Quick screening (no background penalty)          |
-| balanced    | Equal weights across all objectives              |
-| enrichment  | Sequencing enrichment (balanced coverage/amp)    |
-+-------------+--------------------------------------------------+
+Application weighting (--application) tunes how the normalized score and the
+selection knobs trade coverage vs specificity:
+  balanced | discovery (max coverage) | clinical (max specificity) |
+  enrichment (sequencing) | metagenomics (capture diversity)
 
 Usage Examples:
   # Default (hybrid)
   neoswga optimize -j params.json
 
-  # Fast screening
+  # Fast screening on a large candidate pool
   neoswga optimize -j params.json --optimization-method=dominating-set
 
   # Clinical samples (low background)
-  neoswga optimize -j params.json --optimization-method=background-aware
+  neoswga optimize -j params.json --optimization-method=background-aware --application=clinical
 
-  # Guaranteed dimer-free sets (pools <200 primers)
-  neoswga optimize -j params.json --optimization-method=clique
-
-  # Coverage-first, then dimer-free filtering
-  neoswga optimize -j params.json --optimization-method=coverage-then-dimerfree
-
-  # Dimer-free with network connectivity scoring
-  neoswga optimize -j params.json --optimization-method=dimerfree-scored
-
-  # Strategy-based with clinical preset
-  neoswga optimize -j params.json --optimization-method=normalized --strategy=clinical
-
-For detailed documentation: docs/optimization_guide.md
+  # Run several methods and keep the best (prints a comparison table)
+  neoswga optimize -j params.json --optimization-method=ensemble
+  neoswga optimize -j params.json --optimization-method=ensemble \\
+      --ensemble-methods hybrid network background-aware
 """
     print(guide)
 
@@ -2010,10 +2625,11 @@ def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
     validate_params_json_file(args.json_file)
     import time as _time
+
     _t0 = _time.time()
 
     # Handle --method-guide option
-    if getattr(args, 'method_guide', False):
+    if getattr(args, "method_guide", False):
         print_method_guide()
         return
 
@@ -2023,12 +2639,12 @@ def run_step4(args):
         from neoswga.core import parameter
 
         # Set json_file if provided
-        merge_args_to_parameter(args, parameter, ['json_file'])
+        merge_args_to_parameter(args, parameter, ["json_file"])
 
         # Pass polymerase info to optimizer (use adapted value, not raw JSON,
         # so GC-adaptive strategy recommendations are respected)
-        polymerase = getattr(parameter, 'polymerase', 'phi29')
-        if polymerase != 'phi29':
+        polymerase = getattr(parameter, "polymerase", "phi29")
+        if polymerase != "phi29":
             logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
         logger.info(f"Optimization method: {args.optimization_method}")
@@ -2039,27 +2655,27 @@ def run_step4(args):
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
         # QA integration (boolean flag)
-        if hasattr(args, 'enable_qa') and args.enable_qa:
+        if hasattr(args, "enable_qa") and args.enable_qa:
             parameter.enable_qa = True
 
         # Set num_primers from CLI or JSON file (special handling needed)
-        if hasattr(args, 'num_primers') and args.num_primers:
+        if hasattr(args, "num_primers") and args.num_primers:
             parameter.num_primers = args.num_primers
             parameter.target_set_size = args.num_primers
             logger.info(f"Target primer count: {args.num_primers}")
-        elif not hasattr(parameter, 'num_primers') or not parameter.num_primers:
+        elif not hasattr(parameter, "num_primers") or not parameter.num_primers:
             # Try to read from JSON if loaded
-            json_data = getattr(parameter, '_json_data', {})
-            num_primers = json_data.get('num_primers', json_data.get('target_set_size', 6))
+            json_data = getattr(parameter, "_json_data", {})
+            num_primers = json_data.get("num_primers", json_data.get("target_set_size", 6))
             parameter.num_primers = num_primers
             parameter.target_set_size = num_primers
 
         # Automatic set size optimization (overrides num_primers if enabled)
-        auto_size = getattr(args, 'auto_size', False)
-        application = getattr(args, 'application', 'enrichment')
-        min_fg_bg_ratio = getattr(args, 'min_fg_bg_ratio', None)
-        show_frontier = getattr(args, 'show_frontier', False)
-        quick_estimate = getattr(args, 'quick_estimate', False)
+        auto_size = getattr(args, "auto_size", False)
+        application = getattr(args, "application", "enrichment")
+        min_fg_bg_ratio = getattr(args, "min_fg_bg_ratio", None)
+        show_frontier = getattr(args, "show_frontier", False)
+        quick_estimate = getattr(args, "quick_estimate", False)
 
         if auto_size:
             logger.info("=" * 60)
@@ -2067,44 +2683,58 @@ def run_step4(args):
             logger.info("=" * 60)
 
             try:
-                from neoswga.core.set_size_optimizer import recommend_set_size, create_baseline_effects
                 from neoswga.core.mechanistic_model import MechanisticModel
                 from neoswga.core.reaction_conditions import ReactionConditions
+                from neoswga.core.set_size_optimizer import (
+                    create_baseline_effects,
+                    recommend_set_size,
+                )
 
                 # Get genome information
-                json_data = getattr(parameter, '_json_data', {})
-                fg_seq_lengths = getattr(parameter, 'fg_seq_lengths', [])
-                genome_length = sum(fg_seq_lengths) if fg_seq_lengths else json_data.get('fg_genome_length', 1_000_000)
-                primer_length = json_data.get('max_k', 12)
+                json_data = getattr(parameter, "_json_data", {})
+                fg_seq_lengths = getattr(parameter, "fg_seq_lengths", [])
+                genome_length = (
+                    sum(fg_seq_lengths)
+                    if fg_seq_lengths
+                    else json_data.get("fg_genome_length", 1_000_000)
+                )
+                primer_length = json_data.get("max_k", 12)
 
                 # Get template GC content
-                template_gc = getattr(args, 'template_gc', None)
+                template_gc = getattr(args, "template_gc", None)
                 if template_gc is None:
                     # Try to calculate from genome or use default
-                    template_gc = json_data.get('fg_gc', 0.5)
+                    template_gc = json_data.get("fg_gc", 0.5)
 
                 # Get polymerase and create conditions
-                polymerase = json_data.get('polymerase', 'phi29')
-                reaction_temp = json_data.get('reaction_temp', 30.0 if polymerase == 'phi29' else 42.0)
+                polymerase = json_data.get("polymerase", "phi29")
+                reaction_temp = json_data.get(
+                    "reaction_temp", 30.0 if polymerase == "phi29" else 42.0
+                )
 
                 try:
                     conditions = ReactionConditions(
                         temp=reaction_temp,
                         polymerase=polymerase,
-                        mg_conc=json_data.get('mg_conc', 2.5),
-                        dmso_percent=json_data.get('dmso_percent', 0.0),
-                        betaine_m=json_data.get('betaine_m', 0.0),
+                        mg_conc=json_data.get("mg_conc", 2.5),
+                        dmso_percent=json_data.get("dmso_percent", 0.0),
+                        betaine_m=json_data.get("betaine_m", 0.0),
                     )
                     model = MechanisticModel(conditions)
-                    sample_primer = 'A' * primer_length  # Neutral sequence
+                    sample_primer = "A" * primer_length  # Neutral sequence
                     mech_effects = model.calculate_effects(sample_primer, template_gc)
                 except Exception as e:
                     logger.warning(f"Could not create mechanistic model: {e}")
                     mech_effects = create_baseline_effects()
 
-                # Get processivity based on polymerase
-                processivity_map = {'phi29': 70000, 'equiphi29': 80000, 'bst': 2000, 'klenow': 10000}
-                processivity = processivity_map.get(polymerase, 70000)
+                # Per-primer reach for the recommender. Uses realistic per-primer
+                # reach (Phase 16) so the prediction matches what the optimizer
+                # actually measures via base_optimizer.compute_metrics
+                # (extension_reach=3000 bp default). Passing theoretical
+                # processivity here under-counted required primers ~10-20x.
+                from neoswga.core.coverage import polymerase_extension_reach
+
+                processivity = polymerase_extension_reach(polymerase, coverage_metric="realistic")
 
                 # Get recommendation (supports new min_fg_bg_ratio parameter)
                 recommendation = recommend_set_size(
@@ -2116,7 +2746,7 @@ def run_step4(args):
                     min_fg_bg_ratio=min_fg_bg_ratio,
                 )
 
-                auto_num_primers = recommendation['recommended_size']
+                auto_num_primers = recommendation["recommended_size"]
                 parameter.num_primers = auto_num_primers
                 parameter.target_set_size = auto_num_primers
 
@@ -2128,14 +2758,16 @@ def run_step4(args):
                 logger.info(f"Target coverage: {recommendation['target_coverage']:.0%}")
                 logger.info(f"Min fg/bg ratio: {recommendation['min_fg_bg_ratio']:.1f}")
                 logger.info(f"Recommended set size: {auto_num_primers} primers")
-                logger.info(f"  (typical range: {recommendation['size_range'][0]}-{recommendation['size_range'][1]})")
+                logger.info(
+                    f"  (typical range: {recommendation['size_range'][0]}-{recommendation['size_range'][1]})"
+                )
                 logger.info("=" * 60)
 
             except Exception as e:
                 logger.warning(f"Auto-size failed: {e}. Using default num_primers.")
 
         # Cooperative binding (experimental - not yet fully integrated)
-        if hasattr(args, 'use_cooperative_binding') and args.use_cooperative_binding:
+        if hasattr(args, "use_cooperative_binding") and args.use_cooperative_binding:
             logger.warning("--use-cooperative-binding is experimental and not yet fully integrated")
             parameter.use_cooperative_binding = True
 
@@ -2146,8 +2778,8 @@ def run_step4(args):
         # `mechanistic_weight * predicted_amplification_factor` term into
         # its per-primer score. See network_optimizer.py:~630 where
         # self.mech_model is built from self.conditions. Phase 13B.
-        _use_mech = getattr(args, 'use_mechanistic_model', False)
-        _mech_weight = getattr(args, 'mechanistic_weight', 0.3) if _use_mech else 0.0
+        _use_mech = getattr(args, "use_mechanistic_model", False)
+        _mech_weight = getattr(args, "mechanistic_weight", 0.3) if _use_mech else 0.0
         if _use_mech:
             logger.info(
                 f"Mechanistic model scoring enabled (weight={_mech_weight:.2f}). "
@@ -2156,46 +2788,44 @@ def run_step4(args):
             )
 
         # Primer strategy
-        merge_args_to_parameter(args, parameter, ['primer_strategy'])
-        if hasattr(args, 'primer_strategy') and args.primer_strategy == 'hybrid':
+        merge_args_to_parameter(args, parameter, ["primer_strategy"])
+        if hasattr(args, "primer_strategy") and args.primer_strategy == "hybrid":
             logger.info("Using hybrid primer strategy (mixed lengths)")
 
         # Use unified optimizer framework (all methods handled via factory pattern)
-        from neoswga.core.unified_optimizer import optimize_step4, list_available_optimizers
+        from neoswga.core.unified_optimizer import list_available_optimizers, optimize_step4
 
         # Get uniformity weight from args (default 0.0 for backward compatibility)
-        uniformity_weight = getattr(args, 'uniformity_weight', 0.0)
+        uniformity_weight = getattr(args, "uniformity_weight", 0.0)
         if uniformity_weight > 0:
             logger.info(f"Uniformity weight: {uniformity_weight:.2f}")
 
         # Get minimal primer selection options
-        minimize_primers = getattr(args, 'minimize_primers', False)
-        target_coverage = getattr(args, 'target_coverage', 0.70)
+        minimize_primers = getattr(args, "minimize_primers", False)
+        target_coverage = getattr(args, "target_coverage", 0.70)
         if minimize_primers:
-            logger.info(f"Minimal primer selection enabled (target coverage: {target_coverage:.1%})")
+            logger.info(
+                f"Minimal primer selection enabled (target coverage: {target_coverage:.1%})"
+            )
 
-        # Get strategy for normalized optimizer
-        strategy = getattr(args, 'strategy', 'balanced')
-        if args.optimization_method == 'normalized':
-            logger.info(f"Using normalized optimizer with strategy: {strategy}")
+        strategy = getattr(args, "scoring_weights", "balanced")
 
         # Background pre-filter flag (enabled by default, --no-bg-prefilter disables)
-        bg_prefilter = not getattr(args, 'no_bg_prefilter', False)
+        bg_prefilter = not getattr(args, "no_bg_prefilter", False)
 
         # Host-free mode: optimize without background genome data
-        no_background = getattr(args, 'no_background', False)
+        no_background = getattr(args, "no_background", False)
         if no_background:
             logger.info("Host-free mode: background genome data will be ignored")
 
         # Run unified optimization
         # Random seed for reproducibility (stochastic optimizers)
-        seed = getattr(args, 'seed', None)
+        seed = getattr(args, "seed", None)
         if seed is not None:
             logger.info(f"Random seed: {seed}")
 
         # Pass explicit target_size from parameter module to avoid re-initialization override
-        target_size = getattr(parameter, 'target_set_size',
-                              getattr(parameter, 'num_primers', 6))
+        target_size = getattr(parameter, "target_set_size", getattr(parameter, "num_primers", 6))
 
         results, scores, cache = optimize_step4(
             use_cache=args.use_position_cache,
@@ -2214,13 +2844,14 @@ def run_step4(args):
             mechanistic_weight=_mech_weight,  # 0 if flag not set; else user value
             # Phase 11D / 14C — per-target coverage floor and application
             # profile. Both are consumed by unified_optimizer.run_optimization.
-            min_per_target_coverage=getattr(args, 'min_per_target_coverage', 0.0),
-            application=getattr(args, 'application', 'balanced'),
+            min_per_target_coverage=getattr(args, "min_per_target_coverage", 0.0),
+            application=getattr(args, "application", "balanced"),
+            ensemble_methods=getattr(args, "ensemble_methods", None),
         )
 
         if results:
-            target_size = getattr(parameter, 'num_primers', 6)
-            target_size = getattr(parameter, 'target_set_size', target_size)
+            target_size = getattr(parameter, "num_primers", 6)
+            target_size = getattr(parameter, "target_set_size", target_size)
             num_found = len(results[0])
             logger.info(f"Selected {num_found} primers")
             logger.info(f"Score: {scores[0]:.4f}")
@@ -2234,8 +2865,7 @@ def run_step4(args):
                 logger.warning("  - Widening k-mer range (min_k / max_k)")
                 logger.warning("  - Increasing candidate pool (max_primer)")
                 logger.warning(
-                    f"  - Trying a different optimizer "
-                    f"(current: {args.optimization_method})"
+                    f"  - Trying a different optimizer " f"(current: {args.optimization_method})"
                 )
         else:
             logger.error("No primer sets found. Optimization failed.")
@@ -2248,8 +2878,9 @@ def run_step4(args):
         # or pandas.
         if show_frontier and results:
             from neoswga.core import unified_optimizer as _uo
-            _last = getattr(_uo, '_LAST_RESULT', None)
-            if _last is not None and getattr(_last, 'pareto_front', None):
+
+            _last = getattr(_uo, "_LAST_RESULT", None)
+            if _last is not None and getattr(_last, "pareto_front", None):
                 logger.info("")
                 logger.info("=" * 60)
                 logger.info("MOEA Pareto Front (non-dominated solutions)")
@@ -2271,15 +2902,49 @@ def run_step4(args):
                     )
                     logger.info(row)
 
+        # Ensemble per-method comparison table. Printed whenever an ensemble
+        # run populated OptimizationResult.ensemble_comparison, so the user
+        # sees which method won and by how much.
+        if results:
+            from neoswga.core import unified_optimizer as _uo
+
+            _last = getattr(_uo, "_LAST_RESULT", None)
+            _cmp = getattr(_last, "ensemble_comparison", None) if _last is not None else None
+            if _cmp:
+                logger.info("")
+                logger.info("=" * 60)
+                logger.info("Ensemble comparison (best by normalized score)")
+                logger.info("=" * 60)
+                header = (
+                    f"{'method':>16}  {'norm_score':>10}  {'n':>3}  "
+                    f"{'fg_cov':>7}  {'bg_cov':>7}  {'status':>9}  sel"
+                )
+                logger.info(header)
+                logger.info("-" * len(header))
+                for row_d in _cmp:
+                    logger.info(
+                        f"{row_d.get('method', '?'):>16}  "
+                        f"{row_d.get('normalized_score', 0.0):>10.4f}  "
+                        f"{row_d.get('n_primers', 0):>3}  "
+                        f"{row_d.get('fg_coverage', 0.0):>7.3f}  "
+                        f"{row_d.get('bg_coverage', 0.0):>7.3f}  "
+                        f"{row_d.get('status', '?'):>9}  "
+                        f"{'*' if row_d.get('selected') else ''}"
+                    )
+
         # Show Pareto frontier analysis (optional)
         if show_frontier and results and cache is not None:
             try:
                 import pandas as pd
-                from neoswga.core.set_size_optimizer import (
-                    ParetoFrontierGenerator, select_from_frontier
-                )
+
                 from neoswga.core.pareto_frontier import (
-                    generate_frontier_report, summarize_frontier_for_cli, plot_frontier
+                    generate_frontier_report,
+                    plot_frontier,
+                    summarize_frontier_for_cli,
+                )
+                from neoswga.core.set_size_optimizer import (
+                    ParetoFrontierGenerator,
+                    select_from_frontier,
                 )
 
                 logger.info("")
@@ -2289,8 +2954,8 @@ def run_step4(args):
 
                 # Load step2 or step3 DataFrame for primer pool
                 data_dir = parameter.data_dir
-                step3_file = os.path.join(data_dir, 'step3_df.csv')
-                step2_file = os.path.join(data_dir, 'step2_df.csv')
+                step3_file = os.path.join(data_dir, "step3_df.csv")
+                step2_file = os.path.join(data_dir, "step2_df.csv")
 
                 if os.path.exists(step3_file):
                     primer_pool = pd.read_csv(step3_file)
@@ -2300,10 +2965,10 @@ def run_step4(args):
                     raise FileNotFoundError("No primer pool CSV found")
 
                 # Get genome lengths
-                fg_lengths = getattr(parameter, 'fg_lengths', [1_000_000])
-                bg_lengths = getattr(parameter, 'bg_lengths', [])
+                fg_lengths = getattr(parameter, "fg_lengths", [1_000_000])
+                bg_lengths = getattr(parameter, "bg_lengths", [])
                 fg_prefixes = parameter.fg_prefixes
-                bg_prefixes = getattr(parameter, 'bg_prefixes', [])
+                bg_prefixes = getattr(parameter, "bg_prefixes", [])
 
                 # Create frontier generator
                 generator = ParetoFrontierGenerator(
@@ -2341,10 +3006,11 @@ def run_step4(args):
                 # Try to save plot
                 try:
                     fig = plot_frontier(frontier_result, application=application)
-                    plot_path = os.path.join(data_dir, 'pareto_frontier.png')
-                    fig.savefig(plot_path, dpi=150, bbox_inches='tight')
+                    plot_path = os.path.join(data_dir, "pareto_frontier.png")
+                    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
                     logger.info(f"Pareto frontier plot saved to: {plot_path}")
                     import matplotlib.pyplot as plt
+
                     plt.close(fig)
                 except Exception as e:
                     logger.debug(f"Could not save frontier plot: {e}")
@@ -2354,32 +3020,33 @@ def run_step4(args):
             except Exception as e:
                 logger.warning(f"Pareto frontier analysis failed: {e}")
                 import traceback
+
                 logger.debug(traceback.format_exc())
 
         # Phase 5: Stochastic validation (optional)
-        validate_simulation = getattr(args, 'validate_simulation', False)
+        validate_simulation = getattr(args, "validate_simulation", False)
         if validate_simulation and results:
-            simulation_time = getattr(args, 'simulation_time', 3600.0)
+            simulation_time = getattr(args, "simulation_time", 3600.0)
             logger.info("=" * 60)
             logger.info("Stochastic Validation (Gillespie Algorithm)")
             logger.info("=" * 60)
             logger.info(f"Simulation time: {simulation_time/3600:.1f} hours")
 
             try:
-                from neoswga.core.stochastic_simulator import validate_network_predictions
                 from neoswga.core.amplicon_network import AmpliconNetwork
+                from neoswga.core.stochastic_simulator import validate_network_predictions
 
                 primers = results[0]
 
                 # Build simplified networks for validation
                 # Get genome lengths and positions from cache
                 fg_prefixes = parameter.fg_prefixes
-                bg_prefixes = getattr(parameter, 'bg_prefixes', [])
+                bg_prefixes = getattr(parameter, "bg_prefixes", [])
 
                 if cache is not None:
                     # Build AmpliconNetwork for target
-                    fg_genome_length = sum(getattr(parameter, 'fg_lengths', [1000000]))
-                    bg_genome_length = sum(getattr(parameter, 'bg_lengths', [1000000]))
+                    fg_genome_length = sum(getattr(parameter, "fg_lengths", [1000000]))
+                    bg_genome_length = sum(getattr(parameter, "bg_lengths", [1000000]))
 
                     # Create networks from cache
                     from neoswga.core.network_optimizer import AmplificationNetwork
@@ -2389,12 +3056,12 @@ def run_step4(args):
                     for primer in primers:
                         for prefix in fg_prefixes:
                             try:
-                                fw_pos = cache.get_positions(prefix, primer, 'forward')
-                                rv_pos = cache.get_positions(prefix, primer, 'reverse')
+                                fw_pos = cache.get_positions(prefix, primer, "forward")
+                                rv_pos = cache.get_positions(prefix, primer, "reverse")
                                 for pos in fw_pos:
-                                    fg_network.add_site(pos, primer, 'forward')
+                                    fg_network.add_site(pos, primer, "forward")
                                 for pos in rv_pos:
-                                    fg_network.add_site(pos, primer, 'reverse')
+                                    fg_network.add_site(pos, primer, "reverse")
                             except Exception:
                                 pass
                     fg_network.build_graph()
@@ -2404,12 +3071,12 @@ def run_step4(args):
                     for primer in primers:
                         for prefix in bg_prefixes:
                             try:
-                                fw_pos = cache.get_positions(prefix, primer, 'forward')
-                                rv_pos = cache.get_positions(prefix, primer, 'reverse')
+                                fw_pos = cache.get_positions(prefix, primer, "forward")
+                                rv_pos = cache.get_positions(prefix, primer, "reverse")
                                 for pos in fw_pos:
-                                    bg_network.add_site(pos, primer, 'forward')
+                                    bg_network.add_site(pos, primer, "forward")
                                 for pos in rv_pos:
-                                    bg_network.add_site(pos, primer, 'reverse')
+                                    bg_network.add_site(pos, primer, "reverse")
                             except Exception:
                                 pass
                     bg_network.build_graph()
@@ -2420,16 +3087,16 @@ def run_step4(args):
                     )
 
                     # Report results
-                    predicted = validation_results['predicted']
-                    simulated = validation_results['simulated']
-                    validation = validation_results['validation']
+                    predicted = validation_results["predicted"]
+                    simulated = validation_results["simulated"]
+                    validation = validation_results["validation"]
 
                     logger.info("\nPrediction vs Simulation:")
                     logger.info(f"  Predicted enrichment: {predicted['enrichment']:.0f}x")
                     logger.info(f"  Simulated enrichment: {simulated['enrichment']:.0f}x")
                     logger.info(f"  Prediction error: {validation['prediction_error']:.1%}")
 
-                    if validation['prediction_accurate']:
+                    if validation["prediction_accurate"]:
                         logger.info("  Status: VALIDATED (within 50% of simulation)")
                     else:
                         logger.warning("  Status: DIVERGENT (>50% error)")
@@ -2442,10 +3109,17 @@ def run_step4(args):
             except Exception as e:
                 logger.warning(f"Validation failed: {e}")
 
+        _data_dir = getattr(parameter, "data_dir", None)
+        _step4_in = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
+        _step4_out = os.path.join(_data_dir, "step4_improved_df.csv") if _data_dir else None
+        _record_run_manifest(
+            "optimize", args, parameter, input_files=[p for p in [_step4_in, _step4_out] if p]
+        )
+
         _elapsed = _time.time() - _t0
         logger.info(f"Step 4 complete in {_elapsed:.1f}s")
         if not args.quiet:
-            data_dir = getattr(parameter, 'data_dir', '.')
+            data_dir = getattr(parameter, "data_dir", ".")
             print(f"\nDone! View results:")
             print(f"  neoswga interpret -d {data_dir}")
             print(f"  neoswga report -d {data_dir}")
@@ -2464,6 +3138,7 @@ def run_step4(args):
         logger.error(f"Step 4 failed: {e}")
         if logger.level <= logging.DEBUG:
             import traceback
+
             traceback.print_exc()
         else:
             logger.error("Run with --verbose for full traceback")
@@ -2472,8 +3147,9 @@ def run_step4(args):
 
 def run_build_filter(args):
     """Build background Bloom filter"""
-    from neoswga.core.background_filter import BackgroundBloomFilter, SampledGenomeIndex
     import pickle
+
+    from neoswga.core.background_filter import BackgroundBloomFilter, SampledGenomeIndex
 
     logger.info("Building background filter")
     logger.info(f"Input: {args.genome}")
@@ -2481,18 +3157,18 @@ def run_build_filter(args):
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-    bloom_path = os.path.join(args.output_dir, 'bg_bloom.pkl')
-    sampled_path = os.path.join(args.output_dir, 'bg_sampled.pkl')
+    bloom_path = os.path.join(args.output_dir, "bg_bloom.pkl")
+    sampled_path = os.path.join(args.output_dir, "bg_sampled.pkl")
 
     if not args.force and os.path.exists(bloom_path):
         logger.warning("Filter already exists. Use --force to rebuild.")
         return
 
     try:
-        min_k = getattr(args, 'min_k', 6)
-        max_k = getattr(args, 'max_k', 12)
+        min_k = getattr(args, "min_k", 6)
+        max_k = getattr(args, "max_k", 12)
 
-        if getattr(args, 'from_kmers', False):
+        if getattr(args, "from_kmers", False):
             # Build from pre-computed k-mer files (MUCH faster)
             logger.info(f"Building from k-mer files (prefix: {args.genome})")
             logger.info(f"K-mer range: {min_k}-{max_k}bp")
@@ -2515,7 +3191,9 @@ def run_build_filter(args):
 
             # Build sampled index from k-mer files (simpler - just use the counts)
             logger.info("Building sampled index from k-mer files...")
-            sampled = SampledGenomeIndex(sample_rate=1)  # rate=1 since k-mer files are already unique
+            sampled = SampledGenomeIndex(
+                sample_rate=1
+            )  # rate=1 since k-mer files are already unique
             for k in range(min_k, max_k + 1):
                 fpath = f"{args.genome}_{k}mer_all.txt"
                 if os.path.exists(fpath):
@@ -2536,6 +3214,7 @@ def run_build_filter(args):
             capacity = args.capacity
             if capacity is None:
                 from Bio import SeqIO
+
                 total_size = 0
                 for record in SeqIO.parse(args.genome, "fasta"):
                     total_size += len(record.seq)
@@ -2561,22 +3240,42 @@ def run_build_filter(args):
     except Exception as e:
         logger.error(f"Failed to build filter: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
 def run_validate(args):
-    """Run validation tests"""
-    from neoswga.core.validation import ValidationSuite, quick_validation
-    from neoswga.core.gpu_acceleration import is_gpu_available, get_gpu_info
+    """Dispatcher for `neoswga validate [install|params|model]`.
+
+    - No subcommand or `install`: installation / environment check
+      (historical behavior of `neoswga validate`).
+    - `params`: delegate to :func:`run_validate_params`.
+    - `model`: delegate to :func:`run_validate_model`.
+    """
+    mode = getattr(args, "validate_mode", None)
+    if mode == "params":
+        return run_validate_params(args)
+    if mode == "model":
+        return run_validate_model(args)
+    # mode is None (bare `validate`) or 'install': installation check.
+    return _run_validate_installation(args)
+
+
+def _run_validate_installation(args):
+    """Run installation / environment validation tests."""
+    from neoswga.core.gpu_acceleration import get_gpu_info, is_gpu_available
     from neoswga.core.kmer_counter import check_jellyfish_available
+    from neoswga.core.validation import ValidationSuite, quick_validation
 
     # Show system capabilities
     logger.info("System Capabilities:")
     logger.info(f"  Jellyfish: {'Available' if check_jellyfish_available() else 'NOT FOUND'}")
     if is_gpu_available():
         gpu_info = get_gpu_info()
-        logger.info(f"  GPU: {gpu_info.get('device_name', 'Available')} ({gpu_info.get('memory_total_gb', 0):.1f} GB)")
+        logger.info(
+            f"  GPU: {gpu_info.get('device_name', 'Available')} ({gpu_info.get('memory_total_gb', 0):.1f} GB)"
+        )
     else:
         logger.info("  GPU: Not available (install CuPy for GPU acceleration)")
 
@@ -2591,7 +3290,14 @@ def run_validate(args):
         # Also run benchmarks if available
         try:
             import importlib.util
-            bench_path = os.path.join(os.path.dirname(__file__), '..', 'scripts', 'benchmarking', 'benchmark_improvements.py')
+
+            bench_path = os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "scripts",
+                "benchmarking",
+                "benchmark_improvements.py",
+            )
             spec = importlib.util.spec_from_file_location("benchmark_improvements", bench_path)
             if spec and spec.loader:
                 logger.info("\nRunning benchmarks...")
@@ -2642,7 +3348,10 @@ def run_doctor(args):
     if jelly:
         try:
             version = _subprocess.run(
-                [jelly, "--version"], capture_output=True, text=True, timeout=5,
+                [jelly, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             first = (version.stdout or version.stderr or "").splitlines()
             summary["tools"]["jellyfish"] = {
@@ -2662,10 +3371,12 @@ def run_doctor(args):
     # references `self.conditions`. The awareness flag is computed by grepping
     # the source file for ReactionConditions usage plus `self.conditions`.
     try:
-        from neoswga.core.optimizer_factory import OptimizerRegistry, OptimizerFactory
+        from neoswga.core.optimizer_factory import OptimizerFactory, OptimizerRegistry
+
         # Force registration of built-in optimizers
         try:
             from neoswga.core import unified_optimizer as _uo
+
             _uo._ensure_optimizers_registered()
         except Exception:
             pass
@@ -2677,12 +3388,14 @@ def run_doctor(args):
             # ReactionConditions in selection opt-in by setting
             # ADDITIVE_AWARE = True on the class.
             aware = bool(getattr(cls, "ADDITIVE_AWARE", False))
-            summary["optimizers"].append({
-                "name": name,
-                "class": f"{cls.__module__}.{cls.__name__}",
-                "additive_aware": aware,
-                "description": registered[name],
-            })
+            summary["optimizers"].append(
+                {
+                    "name": name,
+                    "class": f"{cls.__module__}.{cls.__name__}",
+                    "additive_aware": aware,
+                    "description": registered[name],
+                }
+            )
     except Exception as e:
         warnings.append(f"Optimizer discovery failed: {e}")
 
@@ -2701,10 +3414,16 @@ def run_doctor(args):
                     "reaction_temp": raw.get("reaction_temp"),
                     "mg_conc": raw.get("mg_conc"),
                     "additives": {
-                        k: raw.get(k, 0.0) for k in
-                        ("dmso_percent", "betaine_m", "trehalose_m",
-                         "formamide_percent", "ethanol_percent",
-                         "urea_m", "tmac_m")
+                        k: raw.get(k, 0.0)
+                        for k in (
+                            "dmso_percent",
+                            "betaine_m",
+                            "trehalose_m",
+                            "formamide_percent",
+                            "ethanol_percent",
+                            "urea_m",
+                            "tmac_m",
+                        )
                     },
                     "min_k": raw.get("min_k"),
                     "max_k": raw.get("max_k"),
@@ -2773,7 +3492,9 @@ def run_doctor(args):
             print(f"  schema_version: {ps['schema_version']}")
             print(f"  polymerase: {ps['polymerase']}  reaction_temp: {ps['reaction_temp']}")
             print(f"  min_k: {ps['min_k']}  max_k: {ps['max_k']}")
-            print(f"  targets: {ps['num_targets']}  backgrounds: {ps['num_backgrounds']}  blacklists: {ps['num_blacklists']}")
+            print(
+                f"  targets: {ps['num_targets']}  backgrounds: {ps['num_backgrounds']}  blacklists: {ps['num_blacklists']}"
+            )
             nz_add = {k: v for k, v in ps["additives"].items() if v}
             if nz_add:
                 print(f"  additives: {nz_add}")
@@ -2799,6 +3520,7 @@ def run_doctor(args):
 def _import_neoswga_version() -> str:
     try:
         import neoswga
+
         return getattr(neoswga, "__version__", "unknown")
     except Exception:
         return "unknown"
@@ -2806,8 +3528,9 @@ def _import_neoswga_version() -> str:
 
 def run_init(args):
     """Run the setup wizard to create params.json"""
-    from neoswga.core.wizard import run_wizard
     import inspect
+
+    from neoswga.core.wizard import run_wizard
 
     try:
         # Build kwargs, only pass blacklist_paths if wizard supports it
@@ -2820,10 +3543,10 @@ def run_init(args):
             advanced=args.advanced,
             auto_approve=args.yes,
         )
-        if getattr(args, 'blacklist', None):
+        if getattr(args, "blacklist", None):
             sig = inspect.signature(run_wizard)
-            if 'blacklist_paths' in sig.parameters:
-                wizard_kwargs['blacklist_paths'] = args.blacklist
+            if "blacklist_paths" in sig.parameters:
+                wizard_kwargs["blacklist_paths"] = args.blacklist
             else:
                 logger.warning("Blacklist support for init requires wizard update")
         run_wizard(**wizard_kwargs)
@@ -2836,8 +3559,17 @@ def run_init(args):
 
 
 def run_validate_params(args):
-    """Validate params.json configuration"""
+    """Validate params.json configuration.
+
+    Invoked as `neoswga validate params -j params.json` (preferred) or
+    `neoswga validate-params -j params.json` (deprecated alias).
+    """
     from neoswga.core.param_validator import validate_params_file
+
+    if getattr(args, "command", None) == "validate-params":
+        logger.warning(
+            "`neoswga validate-params` is deprecated; " "use `neoswga validate params` instead."
+        )
 
     success, _ = validate_params_file(args.json_file, verbose=True)
     sys.exit(0 if success else 1)
@@ -2851,16 +3583,18 @@ def run_schema(args):
     and for human-readable review.
     """
     import json
+
     try:
         from neoswga.core.schema import load_schema
+
         schema = load_schema()
     except Exception as e:
         logger.error(f"Could not load params schema: {e}")
         sys.exit(1)
 
     output = json.dumps(schema, indent=2)
-    if getattr(args, 'output', None):
-        with open(args.output, 'w', encoding='utf-8') as fh:
+    if getattr(args, "output", None):
+        with open(args.output, "w", encoding="utf-8") as fh:
             fh.write(output + "\n")
         logger.info(f"Schema written to {args.output}")
     else:
@@ -2868,28 +3602,38 @@ def run_schema(args):
 
 
 def run_validate_model(args):
-    """Validate mechanistic model against expected behavior."""
-    from neoswga.core.model_validation import (
-        validate_mechanistic_model,
-        format_validation_report,
-    )
+    """Validate mechanistic model against expected behavior.
+
+    Invoked as `neoswga validate model` (preferred) or
+    `neoswga validate-model` (deprecated alias).
+    """
     import json
+
+    from neoswga.core.model_validation import (
+        format_validation_report,
+        validate_mechanistic_model,
+    )
+
+    if getattr(args, "command", None) == "validate-model":
+        logger.warning(
+            "`neoswga validate-model` is deprecated; " "use `neoswga validate model` instead."
+        )
 
     logger.info("Validating mechanistic model...")
     results = validate_mechanistic_model()
 
-    if getattr(args, 'output_json', False):
+    if getattr(args, "output_json", False):
         # Output as JSON
         # Convert results to JSON-serializable format
         json_results = []
         for r in results:
             jr = {
-                'test': r.get('test', 'Unknown'),
-                'passed': r.get('passed', False),
-                'summary': r.get('summary', ''),
+                "test": r.get("test", "Unknown"),
+                "passed": r.get("passed", False),
+                "summary": r.get("summary", ""),
             }
-            if 'error' in r:
-                jr['error'] = r['error']
+            if "error" in r:
+                jr["error"] = r["error"]
             json_results.append(jr)
         print(json.dumps(json_results, indent=2))
     else:
@@ -2898,7 +3642,7 @@ def run_validate_model(args):
         print(report)
 
     # Exit with appropriate code
-    all_passed = all(r.get('passed', False) for r in results)
+    all_passed = all(r.get("passed", False) for r in results)
     sys.exit(0 if all_passed else 1)
 
 
@@ -2919,19 +3663,20 @@ def run_report(args):
 
     # Import validation module
     from neoswga.core.report.validation import (
-        validate_results_directory,
-        validate_metrics,
         ValidationLevel,
+        validate_metrics,
+        validate_results_directory,
     )
 
     results_dir = Path(args.dir)
-    quiet = getattr(args, 'quiet', False)
-    check_only = getattr(args, 'check', False)
-    interactive = getattr(args, 'interactive', False)
+    quiet = getattr(args, "quiet", False)
+    check_only = getattr(args, "check", False)
+    interactive = getattr(args, "interactive", False)
 
     # Check if interactive mode is requested but Plotly is not available
     if interactive:
         from neoswga.core.report.visualizations import is_plotly_available
+
         if not is_plotly_available():
             print("Warning: Interactive charts requested but Plotly is not installed.")
             print("Install with: pip install plotly  (or: pip install neoswga[interactive])")
@@ -2970,21 +3715,22 @@ def run_report(args):
         return
 
     # Determine output path
-    level = getattr(args, 'level', 'summary')
+    level = getattr(args, "level", "summary")
     if args.output:
         output_path = args.output
     else:
-        if level == 'full':
-            output_path = str(results_dir / 'technical_report.html')
+        if level == "full":
+            output_path = str(results_dir / "technical_report.html")
         else:
-            output_path = str(results_dir / 'report.html')
+            output_path = str(results_dir / "report.html")
 
     try:
-        if args.format == 'json':
+        if args.format == "json":
             # JSON export
+            import json
+
             from neoswga.core.report.metrics import collect_pipeline_metrics
             from neoswga.core.report.quality import calculate_quality_grade
-            import json
 
             progress("Collecting pipeline metrics...")
             metrics = collect_pipeline_metrics(args.dir)
@@ -3001,37 +3747,38 @@ def run_report(args):
 
             # Build JSON output
             report_data = {
-                'grade': quality.grade.value,
-                'composite_score': quality.composite_score,
-                'recommendation': quality.recommendation,
-                'recommendation_details': quality.recommendation_details,
-                'considerations': quality.considerations,
-                'primer_count': metrics.primer_count,
-                'components': [
+                "grade": quality.grade.value,
+                "composite_score": quality.composite_score,
+                "recommendation": quality.recommendation,
+                "recommendation_details": quality.recommendation_details,
+                "considerations": quality.considerations,
+                "primer_count": metrics.primer_count,
+                "components": [
                     {
-                        'name': c.name,
-                        'weight': c.weight,
-                        'raw_value': c.raw_value,
-                        'normalized_score': c.normalized_score,
-                        'rating': c.rating,
+                        "name": c.name,
+                        "weight": c.weight,
+                        "raw_value": c.raw_value,
+                        "normalized_score": c.normalized_score,
+                        "rating": c.rating,
                     }
                     for c in quality.components
                 ],
             }
 
             # Change extension if needed
-            if not output_path.endswith('.json'):
-                output_path = output_path.rsplit('.', 1)[0] + '.json'
+            if not output_path.endswith(".json"):
+                output_path = output_path.rsplit(".", 1)[0] + ".json"
 
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
                 json.dump(report_data, f, indent=2)
 
-            print(f"\nQuality Grade: {quality.grade.value} "
-                  f"({quality.composite_score:.2f}/1.00)")
+            print(
+                f"\nQuality Grade: {quality.grade.value} " f"({quality.composite_score:.2f}/1.00)"
+            )
             print(f"Recommendation: {quality.recommendation}")
             print(f"\nJSON report saved to: {output_path}")
 
-        elif level == 'full':
+        elif level == "full":
             # Full technical report
             try:
                 from neoswga.core.report import generate_technical_report
@@ -3047,8 +3794,10 @@ def run_report(args):
                 progress("Generating technical report...")
 
             data = generate_technical_report(args.dir, output_path, interactive=interactive)
-            print(f"\nQuality Grade: {data.quality.grade.value} "
-                  f"({data.quality.composite_score:.2f}/1.00)")
+            print(
+                f"\nQuality Grade: {data.quality.grade.value} "
+                f"({data.quality.composite_score:.2f}/1.00)"
+            )
             print(f"Recommendation: {data.quality.recommendation}")
             print(f"Primers analyzed: {data.metrics.primer_count}")
             if interactive:
@@ -3072,8 +3821,10 @@ def run_report(args):
                 progress("Generating executive summary...")
 
             summary = generate_executive_summary(args.dir, output_path, interactive=interactive)
-            print(f"\nQuality Grade: {summary.quality.grade.value} "
-                  f"({summary.quality.composite_score:.2f}/1.00)")
+            print(
+                f"\nQuality Grade: {summary.quality.grade.value} "
+                f"({summary.quality.composite_score:.2f}/1.00)"
+            )
             print(f"Recommendation: {summary.quality.recommendation}")
             if interactive:
                 print(f"\nReport with interactive charts saved to: {output_path}")
@@ -3086,6 +3837,7 @@ def run_report(args):
     except Exception as e:
         logger.error(f"Failed to generate report: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -3100,19 +3852,21 @@ def _load_primer_positions(results_dir, primers):
     Returns:
         Dict mapping primer to list of (position, strand) tuples.
     """
-    import h5py
     import glob as glob_module
+
+    import h5py
+
     from neoswga.core.thermodynamics import reverse_complement
 
     positions = {}
-    h5_files = glob_module.glob(os.path.join(results_dir, '*_positions.h5'))
+    h5_files = glob_module.glob(os.path.join(results_dir, "*_positions.h5"))
 
     if not h5_files:
-        params_path = os.path.join(results_dir, 'params.json')
+        params_path = os.path.join(results_dir, "params.json")
         if os.path.exists(params_path):
             with open(params_path) as f:
                 params = json.load(f)
-            fg_prefixes = params.get('fg_prefixes', [])
+            fg_prefixes = params.get("fg_prefixes", [])
             for prefix in fg_prefixes:
                 h5_files.extend(glob_module.glob(f"{prefix}_*_positions.h5"))
 
@@ -3132,14 +3886,14 @@ def _load_primer_positions(results_dir, primers):
             if f"_{k}mer_" not in h5_path:
                 continue
             try:
-                with h5py.File(h5_path, 'r') as db:
+                with h5py.File(h5_path, "r") as db:
                     if primer in db:
                         for pos in db[primer][:]:
-                            sites.append((int(pos), 'forward'))
+                            sites.append((int(pos), "forward"))
                     rc = rc_map[primer]
                     if rc in db:
                         for pos in db[rc][:]:
-                            sites.append((int(pos), 'reverse'))
+                            sites.append((int(pos), "reverse"))
             except Exception as e:
                 logger.warning(f"Error reading {h5_path}: {e}")
         positions[primer] = sites
@@ -3156,11 +3910,11 @@ def _get_genome_length(results_dir):
     Returns:
         Total genome length in bp, or 0 if not determinable.
     """
-    params_path = os.path.join(results_dir, 'params.json')
+    params_path = os.path.join(results_dir, "params.json")
     if os.path.exists(params_path):
         with open(params_path) as f:
             params = json.load(f)
-        lengths = params.get('fg_seq_lengths', [])
+        lengths = params.get("fg_seq_lengths", [])
         if lengths:
             return sum(lengths)
     logger.warning("Could not determine genome length. Using 0.")
@@ -3169,13 +3923,14 @@ def _get_genome_length(results_dir):
 
 def run_export(args):
     """Export primers for synthesis ordering."""
-    from neoswga.core.export import PrimerExporter, PrimerModifications
     from pathlib import Path
+
+    from neoswga.core.export import PrimerExporter, PrimerModifications
 
     try:
         # Determine modification profile
-        if getattr(args, 'no_modifications', False):
-            mods = PrimerModifications.from_profile('none')
+        if getattr(args, "no_modifications", False):
+            mods = PrimerModifications.from_profile("none")
         else:
             mods = PrimerModifications.from_profile(args.modifications)
             # Override PTO bonds if specified
@@ -3184,8 +3939,7 @@ def run_export(args):
 
         # Load exporter from results
         exporter = PrimerExporter.from_results_dir(
-            args.dir,
-            params_file=getattr(args, 'json_file', None)
+            args.dir, params_file=getattr(args, "json_file", None)
         )
         exporter.modifications = mods
 
@@ -3194,55 +3948,51 @@ def run_export(args):
 
         output_dir = Path(args.output)
 
-        if args.format == 'all':
+        if args.format == "all":
             outputs = exporter.export_all(
-                str(output_dir),
-                project_name=args.project,
-                vendors=[args.vendor]
+                str(output_dir), project_name=args.project, vendors=[args.vendor]
             )
             print("\nExported files:")
             for fmt, path in outputs.items():
                 print(f"  {fmt}: {path}")
 
-        elif args.format == 'fasta':
+        elif args.format == "fasta":
             output_dir.mkdir(parents=True, exist_ok=True)
             fasta_path = output_dir / f"{args.project}_primers.fasta"
             exporter.export_fasta(str(fasta_path), prefix=args.project, include_metadata=True)
             print(f"Exported: {fasta_path}")
 
-        elif args.format == 'csv':
+        elif args.format == "csv":
             output_dir.mkdir(parents=True, exist_ok=True)
             csv_path = output_dir / f"{args.project}_order_{args.vendor}.csv"
             exporter.export_vendor_csv(str(csv_path), vendor=args.vendor, project_name=args.project)
             print(f"Exported: {csv_path}")
 
-        elif args.format == 'protocol':
+        elif args.format == "protocol":
             output_dir.mkdir(parents=True, exist_ok=True)
             protocol_path = output_dir / f"{args.project}_protocol.md"
             exporter.export_protocol(str(protocol_path))
             print(f"Exported: {protocol_path}")
 
-        elif args.format in ('bed', 'bedgraph'):
+        elif args.format in ("bed", "bedgraph"):
             output_dir.mkdir(parents=True, exist_ok=True)
 
             # Load positions from results directory
             positions = _load_primer_positions(args.dir, exporter.primers)
 
-            if args.format == 'bed':
+            if args.format == "bed":
                 bed_path = output_dir / f"{args.project}_binding_sites.bed"
-                exporter.export_bed(
-                    str(bed_path), positions,
-                    genome_name=args.genome_name
-                )
+                exporter.export_bed(str(bed_path), positions, genome_name=args.genome_name)
                 print(f"Exported: {bed_path}")
             else:
                 genome_length = _get_genome_length(args.dir)
                 bg_path = output_dir / f"{args.project}_coverage.bedgraph"
                 exporter.export_bedgraph(
-                    str(bg_path), positions,
+                    str(bg_path),
+                    positions,
                     genome_name=args.genome_name,
                     genome_length=genome_length,
-                    window_size=args.window_size
+                    window_size=args.window_size,
                 )
                 print(f"Exported: {bg_path}")
 
@@ -3250,11 +4000,14 @@ def run_export(args):
 
     except FileNotFoundError as e:
         logger.error(str(e))
-        logger.error("Make sure to run the full pipeline (count-kmers, filter, score, optimize) first.")
+        logger.error(
+            "Make sure to run the full pipeline (count-kmers, filter, score, optimize) first."
+        )
         sys.exit(1)
     except Exception as e:
         logger.error(f"Export failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -3262,6 +4015,7 @@ def run_export(args):
 def run_start(args):
     """Run interactive workflow selector"""
     from neoswga.core.workflow_selector import run_workflow_selector
+
     run_workflow_selector()
 
 
@@ -3272,6 +4026,7 @@ def run_suggest(args):
     # Calculate GC from genome file if provided
     if args.genome and not genome_gc:
         from neoswga.core.genome_analysis import calculate_genome_gc
+
         try:
             genome_gc = calculate_genome_gc(args.genome)
             logger.info(f"Calculated GC content: {genome_gc:.1%}")
@@ -3282,12 +4037,12 @@ def run_suggest(args):
     # K-mer range suggestion: emit a recommended (min_k, max_k) based on
     # genome size + GC + polymerase, then exit. Complements the warning in
     # get_params() by giving the user a direct answer.
-    if getattr(args, 'kmer_range', False):
+    if getattr(args, "kmer_range", False):
         from neoswga.core.condition_suggester import suggest_kmer_range
         from neoswga.core.genome_io import GenomeLoader
 
-        genome_size = getattr(args, 'genome_size', None)
-        if genome_size is None and getattr(args, 'genome', None):
+        genome_size = getattr(args, "genome_size", None)
+        if genome_size is None and getattr(args, "genome", None):
             try:
                 sequence = GenomeLoader().load_genome(args.genome, return_stats=False)
                 genome_size = len(sequence)
@@ -3298,13 +4053,17 @@ def run_suggest(args):
             logger.error("--kmer-range requires --genome-size or --genome")
             sys.exit(1)
 
-        polymerase = getattr(args, 'polymerase', 'phi29')
+        polymerase = getattr(args, "polymerase", "phi29")
         min_k, max_k = suggest_kmer_range(
-            genome_size, gc=genome_gc, polymerase=polymerase,
+            genome_size,
+            gc=genome_gc,
+            polymerase=polymerase,
         )
-        print(f"Recommended k-mer range for {genome_size:,} bp, "
-              f"GC={genome_gc if genome_gc is not None else 'unknown'}, "
-              f"polymerase={polymerase}:")
+        print(
+            f"Recommended k-mer range for {genome_size:,} bp, "
+            f"GC={genome_gc if genome_gc is not None else 'unknown'}, "
+            f"polymerase={polymerase}:"
+        )
         print(f"  min_k = {min_k}")
         print(f"  max_k = {max_k}")
         print(f"\nAdd to params.json:")
@@ -3313,14 +4072,18 @@ def run_suggest(args):
         return
 
     # Condition sweep mode
-    if getattr(args, 'sweep', False):
+    if getattr(args, "sweep", False):
         from neoswga.core.condition_suggester import sweep_conditions
+
         primer_length = args.primer_length
         if primer_length is None:
             # Default primer length by polymerase type
-            polymerase = getattr(args, 'polymerase', 'phi29')
+            polymerase = getattr(args, "polymerase", "phi29")
             primer_length_defaults = {
-                'phi29': 9, 'equiphi29': 15, 'bst': 20, 'klenow': 12,
+                "phi29": 9,
+                "equiphi29": 15,
+                "bst": 20,
+                "klenow": 12,
             }
             primer_length = primer_length_defaults.get(polymerase, 10)
         if genome_gc is None:
@@ -3329,8 +4092,8 @@ def run_suggest(args):
         sweep_conditions(
             genome_gc=genome_gc,
             primer_length=primer_length,
-            polymerase=getattr(args, 'polymerase', 'phi29'),
-            output_path=getattr(args, 'output', None),
+            polymerase=getattr(args, "polymerase", "phi29"),
+            output_path=getattr(args, "output", None),
             verbose=True,
         )
         return
@@ -3340,11 +4103,11 @@ def run_suggest(args):
         sys.exit(1)
 
     # Use advanced optimizer if requested or if polymerase/optimize-for specified
-    use_optimizer = getattr(args, 'use_optimizer', False)
-    polymerase = getattr(args, 'polymerase', 'phi29')
-    optimize_for = getattr(args, 'optimize_for', 'amplification')
+    use_optimizer = getattr(args, "use_optimizer", False)
+    polymerase = getattr(args, "polymerase", "phi29")
+    optimize_for = getattr(args, "optimize_for", "amplification")
 
-    if use_optimizer or polymerase != 'phi29' or optimize_for != 'amplification':
+    if use_optimizer or polymerase != "phi29" or optimize_for != "amplification":
         # Use new AdditiveOptimizer
         from neoswga.core.additive_optimizer import AdditiveOptimizer
         from neoswga.core.mechanistic_params import get_polymerase_params
@@ -3353,8 +4116,9 @@ def run_suggest(args):
         primer_length = args.primer_length
         if primer_length is None:
             poly_params = get_polymerase_params(polymerase)
-            primer_length = int((poly_params['primer_length_range'][0] +
-                                poly_params['primer_length_range'][1]) / 2)
+            primer_length = int(
+                (poly_params["primer_length_range"][0] + poly_params["primer_length_range"][1]) / 2
+            )
             logger.info(f"Using default primer length for {polymerase}: {primer_length}bp")
 
         # Default GC if not provided
@@ -3375,19 +4139,20 @@ def run_suggest(args):
     else:
         # Use original suggest_conditions for backward compatibility
         from neoswga.core.condition_suggester import suggest_conditions
+
         suggest_conditions(
             genome_gc=genome_gc,
             primer_length=args.primer_length,
             context=args.context,
-            verbose=True
+            verbose=True,
         )
 
 
 def show_presets():
     """Show available reaction condition presets"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("Available Reaction Condition Presets")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
     # Show presets from the PRESETS dict
     for name, config in PRESETS.items():
@@ -3401,17 +4166,26 @@ def show_presets():
         print()
 
     # Show additional presets available via --preset but not in PRESETS dict
-    additional = ['q_solution', 'gc_melt', 'crude_sample', 'low_temp', 'bst', 'klenow', 'extreme_gc']
+    additional = [
+        "q_solution",
+        "gc_melt",
+        "crude_sample",
+        "low_temp",
+        "bst",
+        "klenow",
+        "extreme_gc",
+    ]
     try:
         from neoswga.core import reaction_conditions as rc
+
         preset_funcs = {
-            'q_solution': ('Q-solution equivalent', rc.get_q_solution_equivalent),
-            'gc_melt': ('GC-melt conditions', rc.get_gc_melt_conditions),
-            'crude_sample': ('Crude sample conditions', rc.get_crude_sample_conditions),
-            'low_temp': ('Low temperature conditions', rc.get_low_temp_conditions),
-            'bst': ('Bst polymerase conditions', rc.get_bst_conditions),
-            'klenow': ('Klenow polymerase conditions', rc.get_klenow_conditions),
-            'extreme_gc': ('Extreme GC content conditions', rc.get_extreme_gc_conditions),
+            "q_solution": ("Q-solution equivalent", rc.get_q_solution_equivalent),
+            "gc_melt": ("GC-melt conditions", rc.get_gc_melt_conditions),
+            "crude_sample": ("Crude sample conditions", rc.get_crude_sample_conditions),
+            "low_temp": ("Low temperature conditions", rc.get_low_temp_conditions),
+            "bst": ("Bst polymerase conditions", rc.get_bst_conditions),
+            "klenow": ("Klenow polymerase conditions", rc.get_klenow_conditions),
+            "extreme_gc": ("Extreme GC content conditions", rc.get_extreme_gc_conditions),
         }
         for name in additional:
             desc, func = preset_funcs[name]
@@ -3419,10 +4193,12 @@ def show_presets():
                 cond = func()
                 print(f"{name}:")
                 print(f"  {desc}")
-                print(f"  Temperature: {cond.temp}C, Na+: {cond.na_conc} mM, Mg2+: {cond.mg_conc} mM")
-                if hasattr(cond, 'dmso_percent') and cond.dmso_percent:
+                print(
+                    f"  Temperature: {cond.temp}C, Na+: {cond.na_conc} mM, Mg2+: {cond.mg_conc} mM"
+                )
+                if hasattr(cond, "dmso_percent") and cond.dmso_percent:
                     print(f"  DMSO: {cond.dmso_percent}%")
-                if hasattr(cond, 'betaine_m') and cond.betaine_m:
+                if hasattr(cond, "betaine_m") and cond.betaine_m:
                     print(f"  Betaine: {cond.betaine_m} M")
                 print()
             except Exception:
@@ -3436,18 +4212,19 @@ def show_presets():
 
 def optimize_conditions(args):
     """Optimize reaction conditions for a genome"""
-    from neoswga.core import reaction_conditions as rc
     from Bio import SeqIO
+
+    from neoswga.core import reaction_conditions as rc
 
     logger.info("Analyzing genome and recommending optimal conditions...")
 
     # Load genome
-    records = list(SeqIO.parse(args.fg, 'fasta'))
+    records = list(SeqIO.parse(args.fg, "fasta"))
     genome_seq = str(records[0].seq).upper()
     genome_length = len(genome_seq)
 
     # Calculate GC content
-    gc_content = (genome_seq.count('G') + genome_seq.count('C')) / genome_length
+    gc_content = (genome_seq.count("G") + genome_seq.count("C")) / genome_length
 
     print(f"\nGenome properties:")
     print(f"  Length: {genome_length:,} bp")
@@ -3462,13 +4239,13 @@ def optimize_conditions(args):
     print(f"  Polymerase: {recommendations['polymerase']}")
     print(f"  DMSO: {recommendations['dmso_percent']:.1f}%")
     print(f"  Betaine: {recommendations['betaine_m']:.1f} M")
-    if recommendations['ssb']:
+    if recommendations["ssb"]:
         print(f"  SSB: Recommended")
 
     # Save recommendations
     os.makedirs(args.output, exist_ok=True)
-    rec_file = os.path.join(args.output, 'recommended_conditions.json')
-    with open(rec_file, 'w') as f:
+    rec_file = os.path.join(args.output, "recommended_conditions.json")
+    with open(rec_file, "w") as f:
         json.dump(recommendations, f, indent=2)
 
     print(f"\nRecommendations saved to: {rec_file}")
@@ -3477,18 +4254,18 @@ def optimize_conditions(args):
 def analyze_primer_set(args):
     """Analyze an existing primer set"""
     from neoswga.core import reaction_conditions as rc
-    from neoswga.core import thermodynamics as thermo
     from neoswga.core import secondary_structure as ss
+    from neoswga.core import thermodynamics as thermo
 
     logger.info("Analyzing primer set...")
 
     # Load preset config
     config_dict = PRESETS[args.preset]
     conditions = rc.ReactionConditions(
-        temp=config_dict['temperature'],
-        dmso_percent=config_dict['dmso_percent'],
-        betaine_m=config_dict['betaine_m'],
-        polymerase=config_dict['polymerase']
+        temp=config_dict["temperature"],
+        dmso_percent=config_dict["dmso_percent"],
+        betaine_m=config_dict["betaine_m"],
+        polymerase=config_dict["polymerase"],
     )
 
     primers = args.primers
@@ -3538,6 +4315,7 @@ def analyze_primer_set(args):
 # CATEGORY 1: Handler functions for orphaned features
 # =========================================================================
 
+
 def run_analyze_genome(args):
     """Analyze genome suitability for SWGA"""
     from neoswga.core import genome_analysis
@@ -3546,9 +4324,7 @@ def run_analyze_genome(args):
 
     try:
         results = genome_analysis.analyze_genome(
-            genome_path=args.genome,
-            window_size=args.window_size,
-            output_dir=args.output
+            genome_path=args.genome, window_size=args.window_size, output_dir=args.output
         )
 
         logger.info(f"Analysis complete! Report saved to: {args.output}")
@@ -3556,6 +4332,7 @@ def run_analyze_genome(args):
     except Exception as e:
         logger.error(f"Genome analysis failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -3577,20 +4354,21 @@ def run_analyze_dimers(args):
         os.makedirs(args.output, exist_ok=True)
 
         # Write summary
-        summary_path = os.path.join(args.output, 'dimer_summary.txt')
-        with open(summary_path, 'w') as f:
-            f.write(str(metrics) + '\n')
+        summary_path = os.path.join(args.output, "dimer_summary.txt")
+        with open(summary_path, "w") as f:
+            f.write(str(metrics) + "\n")
             for primer, profile in profiles.items():
                 f.write(f"\n{primer}: {profile}\n")
 
         logger.info(f"Dimer analysis complete! Results saved to: {args.output}")
 
-        if getattr(metrics, 'num_hub_primers', 0) > 0:
+        if getattr(metrics, "num_hub_primers", 0) > 0:
             logger.warning(f"Found {metrics.num_hub_primers} hub primers with many interactions")
 
     except Exception as e:
         logger.error(f"Dimer analysis failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -3618,7 +4396,7 @@ def run_analyze_stability(args):
             os.makedirs(output_dir, exist_ok=True)
 
         # Write report
-        with open(args.output, 'w') as f:
+        with open(args.output, "w") as f:
             for primer, stability in zip(args.primers, results):
                 f.write(f"{primer}\t{stability}\n")
 
@@ -3627,36 +4405,7 @@ def run_analyze_stability(args):
     except Exception as e:
         logger.error(f"Stability analysis failed: {e}")
         import traceback
-        traceback.print_exc()
-        sys.exit(1)
 
-
-def run_ml_predict(args):
-    """Deep learning-based amplification prediction"""
-    from neoswga.core import deep_learning
-
-    logger.info(f"Running ML prediction on primers from: {args.primers_file}")
-
-    try:
-        # Load primers from file
-        with open(args.primers_file, 'r') as f:
-            primer_list = [line.strip() for line in f if line.strip()]
-
-        logger.info(f"Loaded {len(primer_list)} primers")
-
-        # Run prediction
-        results = deep_learning.predict_amplification(
-            primers=primer_list,
-            model_path=args.model,
-            use_gpu=args.use_gpu,
-            output_dir=args.output
-        )
-
-        logger.info(f"ML prediction complete! Results saved to: {args.output}")
-
-    except Exception as e:
-        logger.error(f"ML prediction failed: {e}")
-        import traceback
         traceback.print_exc()
         sys.exit(1)
 
@@ -3670,21 +4419,17 @@ def run_design_oligos(args):
 
     try:
         generator = optimal_oligo_generator.OligoGenerator(
-            genome_path=args.genome,
-            k_min=args.min_k,
-            k_max=args.max_k
+            genome_path=args.genome, k_min=args.min_k, k_max=args.max_k
         )
 
-        primers = generator.design_primers(
-            num_primers=args.num_primers,
-            output_dir=args.output
-        )
+        primers = generator.design_primers(num_primers=args.num_primers, output_dir=args.output)
 
         logger.info(f"Primer design complete! {len(primers)} primers saved to: {args.output}")
 
     except Exception as e:
         logger.error(f"Primer design failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -3693,34 +4438,13 @@ def run_design_oligos(args):
 # CATEGORY 3: Handler functions for pipeline orphaned features
 # =========================================================================
 
-def run_auto_pipeline(args):
-    """Automatic parameter optimization pipeline"""
-    from neoswga.core import auto_swga_pipeline
-
-    logger.info(f"Running auto-tuning pipeline with {args.iterations} iterations")
-    logger.info(f"Base parameters: {args.json_file}")
-
-    try:
-        optimized_params = auto_swga_pipeline.auto_optimize(
-            base_params_file=args.json_file,
-            iterations=args.iterations,
-            output_dir=args.output
-        )
-
-        logger.info(f"Auto-tuning complete! Optimized parameters saved to: {args.output}")
-
-    except Exception as e:
-        logger.error(f"Auto-tuning failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
 
 def run_multi_genome(args):
     """Pan-genome primer design for multiple targets"""
-    from neoswga.core.multi_genome_pipeline import MultiGenomePipeline
-    from neoswga.core.multi_genome_filter import GenomeSet
     from pathlib import Path
+
+    from neoswga.core.multi_genome_filter import GenomeSet
+    from neoswga.core.multi_genome_pipeline import MultiGenomePipeline
 
     logger.info(f"Designing pan-genome primers for {len(args.genomes)} genomes")
 
@@ -3731,42 +4455,31 @@ def run_multi_genome(args):
         # Add all genomes as targets
         for i, genome_path in enumerate(args.genomes):
             genome_name = Path(genome_path).stem
-            genome_set.add_genome(
-                name=genome_name,
-                fasta_path=genome_path,
-                role="target"
-            )
+            genome_set.add_genome(name=genome_name, fasta_path=genome_path, role="target")
             logger.info(f"  Added target: {genome_name}")
 
         # Add background genomes if provided
-        if hasattr(args, 'background') and args.background:
+        if hasattr(args, "background") and args.background:
             for bg_path in args.background:
                 bg_name = Path(bg_path).stem
-                genome_set.add_genome(
-                    name=bg_name,
-                    fasta_path=bg_path,
-                    role="background"
-                )
+                genome_set.add_genome(name=bg_name, fasta_path=bg_path, role="background")
                 logger.info(f"  Added background: {bg_name}")
 
         # Add blacklist genomes if provided
-        if hasattr(args, 'blacklist') and args.blacklist:
+        if hasattr(args, "blacklist") and args.blacklist:
             for bl_path in args.blacklist:
                 bl_name = Path(bl_path).stem
                 genome_set.add_genome(
-                    name=bl_name,
-                    fasta_path=bl_path,
-                    role="blacklist",
-                    penalty_weight=5.0
+                    name=bl_name, fasta_path=bl_path, role="blacklist", penalty_weight=5.0
                 )
                 logger.info(f"  Added blacklist: {bl_name}")
 
         # Get optional parameters
-        primer_count = getattr(args, 'num_primers', 12)
-        min_k = getattr(args, 'min_k', None)
-        max_k = getattr(args, 'max_k', None)
+        primer_count = getattr(args, "num_primers", 12)
+        min_k = getattr(args, "min_k", None)
+        max_k = getattr(args, "max_k", None)
         kmer_range = (min_k, max_k) if min_k and max_k else None
-        polymerase = getattr(args, 'polymerase', None)
+        polymerase = getattr(args, "polymerase", None)
 
         # Create and run pipeline
         pipeline = MultiGenomePipeline(
@@ -3775,10 +4488,10 @@ def run_multi_genome(args):
             kmer_range=kmer_range,
             preferred_polymerase=polymerase,
             primer_count=primer_count,
-            validate_with_simulation=getattr(args, 'validate_simulation', False)
+            validate_with_simulation=getattr(args, "validate_simulation", False),
         )
 
-        result = pipeline.run(verbose=not getattr(args, 'quiet', False))
+        result = pipeline.run(verbose=not getattr(args, "quiet", False))
         pipeline.save_results(result)
 
         logger.info(f"Pan-genome design complete! Results saved to: {args.output}")
@@ -3788,6 +4501,7 @@ def run_multi_genome(args):
     except Exception as e:
         logger.error(f"Multi-genome pipeline failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -3796,24 +4510,32 @@ def run_multi_genome(args):
 # CATEGORY 4: Handler function for simulation orphaned features
 # =========================================================================
 
+
 def run_simulate(args):
     """Monte Carlo amplification simulation"""
-    from neoswga.core.replication_simulator import Phi29Simulator, SimulationConfig, simulate_primer_set
+    import json
+    from pathlib import Path
+
+    from Bio import SeqIO
+
     from neoswga.core import reaction_conditions as rc
     from neoswga.core.genome_io import GenomeLoader
-    from Bio import SeqIO
-    from pathlib import Path
-    import json
+    from neoswga.core.replication_simulator import (
+        Phi29Simulator,
+        SimulationConfig,
+        simulate_primer_set,
+    )
 
     # Resolve primers from --primers or --from-results
     if args.from_results:
         import pandas as pd
+
         source = args.from_results
         if os.path.isdir(source):
             # Look for step4 CSV in the directory
             candidates = [
-                os.path.join(source, 'step4_improved_df.csv'),
-                os.path.join(source, 'step4_df.csv'),
+                os.path.join(source, "step4_improved_df.csv"),
+                os.path.join(source, "step4_df.csv"),
             ]
             csv_path = None
             for c in candidates:
@@ -3832,10 +4554,10 @@ def run_simulate(args):
 
         logger.info(f"Loading primers from {csv_path}")
         df = pd.read_csv(csv_path)
-        if 'primer' not in df.columns:
+        if "primer" not in df.columns:
             logger.error(f"CSV file {csv_path} has no 'primer' column")
             sys.exit(1)
-        primers = df['primer'].tolist()
+        primers = df["primer"].tolist()
         logger.info(f"Loaded {len(primers)} primers from results")
     else:
         primers = args.primers
@@ -3857,8 +4579,8 @@ def run_simulate(args):
         logger.info("Finding primer binding positions...")
         primer_positions = {}
         for primer in primers:
-            primer_positions[primer] = {'forward': [], 'reverse': []}
-            primer_rc = primer.translate(str.maketrans('ACGT', 'TGCA'))[::-1]
+            primer_positions[primer] = {"forward": [], "reverse": []}
+            primer_rc = primer.translate(str.maketrans("ACGT", "TGCA"))[::-1]
 
             # Find forward positions
             pos = 0
@@ -3866,7 +4588,7 @@ def run_simulate(args):
                 pos = genome_sequence.find(primer, pos)
                 if pos == -1:
                     break
-                primer_positions[primer]['forward'].append(pos)
+                primer_positions[primer]["forward"].append(pos)
                 pos += 1
 
             # Find reverse positions
@@ -3875,45 +4597,42 @@ def run_simulate(args):
                 pos = genome_sequence.find(primer_rc, pos)
                 if pos == -1:
                     break
-                primer_positions[primer]['reverse'].append(pos)
+                primer_positions[primer]["reverse"].append(pos)
                 pos += 1
 
-            total = len(primer_positions[primer]['forward']) + len(primer_positions[primer]['reverse'])
+            total = len(primer_positions[primer]["forward"]) + len(
+                primer_positions[primer]["reverse"]
+            )
             logger.info(f"  {primer}: {total} binding sites")
 
         # Get reaction conditions based on polymerase type
-        polymerase = getattr(args, 'polymerase', 'phi29')
+        polymerase = getattr(args, "polymerase", "phi29")
 
         # Get polymerase characteristics for optimal temperature
         from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
+
         if polymerase not in POLYMERASE_CHARACTERISTICS:
             logger.error(f"Unknown polymerase: {polymerase}")
             logger.info(f"Available: {list(POLYMERASE_CHARACTERISTICS.keys())}")
             sys.exit(1)
 
         poly_info = POLYMERASE_CHARACTERISTICS[polymerase]
-        optimal_temp = poly_info['optimal_temp']
-        processivity = poly_info['processivity']
+        optimal_temp = poly_info["optimal_temp"]
+        processivity = poly_info["processivity"]
 
         logger.info(f"Polymerase: {polymerase}")
         logger.info(f"  Optimal temperature: {optimal_temp}C")
         logger.info(f"  Processivity: {processivity:,} bp")
 
         # Create conditions with appropriate temperature
-        conditions = rc.ReactionConditions(
-            temp=optimal_temp,
-            polymerase=polymerase
-        )
+        conditions = rc.ReactionConditions(temp=optimal_temp, polymerase=polymerase)
 
         # Configure simulation
         duration = args.duration * 60.0  # Convert minutes to seconds
-        config = SimulationConfig(
-            duration=duration,
-            polymerase_type=polymerase
-        )
+        config = SimulationConfig(duration=duration, polymerase_type=polymerase)
 
         # Run simulation with replicates
-        n_replicates = getattr(args, 'replicates', 5)
+        n_replicates = getattr(args, "replicates", 5)
         logger.info(f"\nRunning {n_replicates} simulation replicates...")
 
         results = simulate_primer_set(
@@ -3922,7 +4641,7 @@ def run_simulate(args):
             genome_length=genome_length,
             genome_sequence=genome_sequence,
             conditions=conditions,
-            n_replicates=n_replicates
+            n_replicates=n_replicates,
         )
 
         logger.info(f"\nSimulation complete!")
@@ -3933,18 +4652,22 @@ def run_simulate(args):
 
         # Save results
         results_file = Path(args.output) / "simulation_results.json"
-        with open(results_file, 'w') as f:
-            json.dump({
-                'primers': primers,
-                'genome_length': genome_length,
-                'mean_coverage': results['mean_coverage'],
-                'std_coverage': results['std_coverage'],
-                'mean_forks_created': results['mean_forks_created'],
-                'mean_fork_travel': results['mean_fork_travel'],
-                'n_replicates': n_replicates,
-                'polymerase': polymerase,
-                'duration_seconds': duration
-            }, f, indent=2)
+        with open(results_file, "w") as f:
+            json.dump(
+                {
+                    "primers": primers,
+                    "genome_length": genome_length,
+                    "mean_coverage": results["mean_coverage"],
+                    "std_coverage": results["std_coverage"],
+                    "mean_forks_created": results["mean_forks_created"],
+                    "mean_fork_travel": results["mean_fork_travel"],
+                    "n_replicates": n_replicates,
+                    "polymerase": polymerase,
+                    "duration_seconds": duration,
+                },
+                f,
+                indent=2,
+            )
         logger.info(f"Results saved to: {results_file}")
 
         # Generate visualizations if requested
@@ -3952,6 +4675,7 @@ def run_simulate(args):
             logger.info("Generating visualization plots...")
             try:
                 from neoswga.core import simulation_plots
+
                 simulation_plots.generate_plots(results, args.output)
             except ImportError:
                 logger.warning("Visualization module not available")
@@ -3961,6 +4685,7 @@ def run_simulate(args):
             logger.info("Generating HTML report...")
             try:
                 from neoswga.core import simulation_report
+
                 simulation_report.generate_report(results, args.output)
             except ImportError:
                 logger.warning("Report module not available")
@@ -3968,177 +4693,131 @@ def run_simulate(args):
     except Exception as e:
         logger.error(f"Simulation failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
 
-def run_active_learn(args):
-    """
-    Active learning for iterative primer optimization.
+def run_analyze_coverage(args):
+    """Read-only coverage-gap report from in-silico binding sites + optional BAM.
 
-    Uses Bayesian optimization to select the most informative primer sets
-    to test experimentally, learning from feedback to improve future designs.
+    Computes in-silico gaps for the given primer set, optionally merges low
+    sequencing-depth regions from a mapped BAM, and writes the merged gaps as
+    BED + JSON (plus an in-silico binding-density BedGraph). No optimizer runs.
     """
-    from neoswga.core import parameter
-    from neoswga.core import pipeline as core_pipeline
-    import pandas as pd
     import json as json_module
 
-    quiet = getattr(args, 'quiet', False)
+    from neoswga.core import parameter
+    from neoswga.core import pipeline as core_pipeline
+    from neoswga.core.export import export_gaps_to_bed
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.primer_expansion import PrimerExpander
+
+    quiet = getattr(args, "quiet", False)
+
+    primers = collect_primers_from_args(
+        getattr(args, "primers", None),
+        getattr(args, "primers_file", None),
+        name="primer",
+        allow_empty=True,
+    )
+
+    validate_params_json_file(args.json_file)
+    merge_args_to_parameter(args, parameter, ["json_file"])
+    core_pipeline._initialize()
+
+    fg_prefixes = core_pipeline.fg_prefixes
+    fg_seq_lengths = core_pipeline.fg_seq_lengths
+    bg_prefixes = core_pipeline.bg_prefixes
+    bg_seq_lengths = core_pipeline.bg_seq_lengths
+
+    cache = PositionCache(fg_prefixes, list(set(primers)) or ["A" * 8])
+    expander = PrimerExpander(
+        position_cache=cache,
+        fg_prefixes=fg_prefixes,
+        fg_seq_lengths=fg_seq_lengths,
+        bg_prefixes=bg_prefixes,
+        bg_seq_lengths=bg_seq_lengths,
+    )
+
+    bam_gaps_list = None
+    if getattr(args, "bam", None):
+        from neoswga.core.bam_coverage import bam_gaps
+
+        aliases = {}
+        for item in getattr(args, "contig_alias", None) or []:
+            if "=" in item:
+                k, v = item.split("=", 1)
+                aliases[k] = v
+        fg_circular = bool(getattr(parameter, "fg_circular", False))
+        try:
+            bam_gaps_list = bam_gaps(
+                args.bam,
+                fg_prefixes,
+                fg_seq_lengths,
+                min_depth=args.min_depth,
+                min_gap_size=args.min_gap_size,
+                circular=fg_circular,
+                contig_aliases=aliases or None,
+            )
+        except RuntimeError as e:
+            logger.error(str(e))
+            sys.exit(1)
+        if not quiet:
+            logger.info(f"BAM low-depth gaps: {len(bam_gaps_list)}")
+
+    gaps = expander.identify_gaps(
+        primers,
+        min_gap_size=args.min_gap_size,
+        extra_gaps=bam_gaps_list,
+        merge=True,
+    )
+
+    os.makedirs(args.output, exist_ok=True)
+    export_gaps_to_bed(gaps, os.path.join(args.output, "coverage_gaps.bed"))
+    with open(os.path.join(args.output, "coverage_gaps.json"), "w") as f:
+        json_module.dump(
+            {
+                "n_gaps": len(gaps),
+                "min_depth": args.min_depth,
+                "min_gap_size": args.min_gap_size,
+                "used_bam": bool(getattr(args, "bam", None)),
+                "gaps": [
+                    {"chromosome": g.chromosome, "start": g.start, "end": g.end, "size": g.size}
+                    for g in gaps
+                ],
+            },
+            f,
+            indent=2,
+        )
+
+    # In-silico binding-density BedGraph (per foreground prefix) so the primer
+    # binding distribution can be inspected alongside the gaps in a browser.
+    if primers:
+        from neoswga.core.export import export_to_bedgraph
+
+        for prefix, length in zip(fg_prefixes, fg_seq_lengths):
+            positions = {}
+            for p in primers:
+                sites = []
+                for pos in cache.get_positions(prefix, p, "forward"):
+                    sites.append((int(pos), "forward"))
+                for pos in cache.get_positions(prefix, p, "reverse"):
+                    sites.append((int(pos), "reverse"))
+                positions[p] = sites
+            base = os.path.basename(prefix) or "genome"
+            export_to_bedgraph(
+                primers,
+                positions,
+                base,
+                length,
+                os.path.join(args.output, f"{base}_binding_density.bedgraph"),
+            )
 
     if not quiet:
-        logger.info("Active Learning for Primer Optimization")
-        logger.info("=" * 60)
-
-    # Set json_file for pipeline initialization
-    merge_args_to_parameter(args, parameter, ['json_file'])
-
-    # Create output directory
-    os.makedirs(args.output, exist_ok=True)
-
-    try:
-        # Initialize pipeline to get genome info
-        if not quiet:
-            logger.info("Initializing pipeline...")
-        core_pipeline._initialize()
-
-        fg_prefixes = core_pipeline.fg_prefixes
-        bg_prefixes = core_pipeline.bg_prefixes
-        fg_seq_lengths = core_pipeline.fg_seq_lengths
-        bg_seq_lengths = core_pipeline.bg_seq_lengths
-
-        if not quiet:
-            logger.info(f"  Target genomes: {len(fg_prefixes)}")
-            logger.info(f"  Background genomes: {len(bg_prefixes)}")
-
-        # Load candidate primers from scored step3 output
-        data_dir = getattr(parameter, 'data_dir', '.')
-        step3_file = os.path.join(data_dir, 'step3_df.csv')
-
-        if not os.path.exists(step3_file):
-            logger.error(f"Step 3 output not found: {step3_file}")
-            logger.error("Run 'neoswga score' first to generate candidate primers.")
-            sys.exit(1)
-
-        if not quiet:
-            logger.info(f"Loading candidates from {step3_file}...")
-        df = pd.read_csv(step3_file)
-
-        primer_col = 'primer' if 'primer' in df.columns else 'seq'
-        if primer_col not in df.columns:
-            logger.error(f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}")
-            sys.exit(1)
-
-        candidates = df[primer_col].tolist()
-        if not quiet:
-            logger.info(f"  Loaded {len(candidates)} candidate primers")
-
-        # Initialize position cache
-        from neoswga.core.position_cache import PositionCache
-        if not quiet:
-            logger.info("Loading primer binding positions...")
-        cache = PositionCache(fg_prefixes, candidates[:500])  # Limit for memory
-
-        # Import active learning module
-        try:
-            from neoswga.core.active_learning import ActiveLearningLoop, HAS_GP
-            if not HAS_GP:
-                logger.error("Active learning requires scikit-learn with Gaussian Processes.")
-                logger.error("Install with: pip install scikit-learn")
-                sys.exit(1)
-        except ImportError as e:
-            logger.error(f"Failed to import active learning module: {e}")
-            sys.exit(1)
-
-        # Initialize active learning loop
-        if not quiet:
-            logger.info("Initializing active learning loop...")
-        al_loop = ActiveLearningLoop(
-            cache=cache,
-            fg_prefixes=fg_prefixes,
-            bg_prefixes=bg_prefixes,
-            fg_seq_lengths=fg_seq_lengths,
-            bg_seq_lengths=bg_seq_lengths,
-            results_dir=args.output
-        )
-
-        # Load experimental results if provided
-        if args.experimental_results:
-            if not quiet:
-                logger.info(f"Loading experimental results from {args.experimental_results}...")
-            try:
-                from neoswga.core.active_learning import ExperimentalResult
-                exp_df = pd.read_csv(args.experimental_results)
-                for _, row in exp_df.iterrows():
-                    result = ExperimentalResult(
-                        primer_set=row['primer_set'].split(';') if isinstance(row['primer_set'], str) else row['primer_set'],
-                        timestamp=row.get('timestamp', ''),
-                        enrichment_fold=row['enrichment_fold'],
-                        uniformity_score=row.get('uniformity_score', 0.5),
-                        temperature=row.get('temperature', 30.0),
-                        time_hours=row.get('time_hours', 4.0)
-                    )
-                    al_loop.add_experimental_result(result)
-                if not quiet:
-                    logger.info(f"  Loaded {len(exp_df)} experimental results")
-            except Exception as e:
-                logger.warning(f"Could not load experimental results: {e}")
-
-        # Recommend next experiment
-        if not quiet:
-            logger.info("")
-            logger.info("Generating candidate primer sets...")
-        recommendation = al_loop.recommend_next_experiment(
-            candidates=candidates[:500],  # Limit for performance
-            n_candidates=args.num_candidates,
-            max_primers=args.max_primers,
-            exploration_weight=args.exploration_weight
-        )
-
-        # Output results
-        output_file = os.path.join(args.output, 'recommendation.json')
-        with open(output_file, 'w') as f:
-            output_data = {
-                'primer_set': recommendation['primer_set'],
-                'predicted_enrichment': recommendation['predicted_enrichment'],
-                'prediction_uncertainty': recommendation['prediction_uncertainty'],
-                'n_experiments_so_far': recommendation['n_experiments_so_far'],
-                'features': {
-                    'n_primers': recommendation['features'].n_primers,
-                    'coverage_fraction': recommendation['features'].coverage_fraction,
-                    'mean_gap': recommendation['features'].mean_gap,
-                    'mean_tm': recommendation['features'].mean_tm
-                }
-            }
-            json_module.dump(output_data, f, indent=2)
-
-        # Print summary
-        if not quiet:
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info("RECOMMENDATION")
-            logger.info("=" * 60)
-            logger.info(f"Primer set ({len(recommendation['primer_set'])} primers):")
-            for primer in recommendation['primer_set']:
-                logger.info(f"  {primer}")
-            logger.info("")
-            logger.info(f"Predicted enrichment: {recommendation['predicted_enrichment']:.2f}x")
-            logger.info(f"Prediction uncertainty: {recommendation['prediction_uncertainty']:.2f}")
-            logger.info(f"Previous experiments: {recommendation['n_experiments_so_far']}")
-            logger.info("")
-            logger.info(f"Results saved to: {output_file}")
-            logger.info("")
-            logger.info("Next steps:")
-            logger.info("  1. Test this primer set experimentally")
-            logger.info("  2. Record enrichment and uniformity results")
-            logger.info("  3. Add results to experimental_results.csv")
-            logger.info("  4. Re-run active-learn to get next recommendation")
-
-    except Exception as e:
-        logger.error(f"Active learning failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        logger.info(f"Found {len(gaps)} coverage gap(s); wrote BED + JSON to {args.output}")
+        for g in gaps[:10]:
+            logger.info(f"  {g.chromosome}: {g.start:,}-{g.end:,} ({g.size:,} bp)")
 
 
 def run_expand_primers(args):
@@ -4148,14 +4827,16 @@ def run_expand_primers(args):
     Useful for iterative design where some primers have been validated
     experimentally and user wants to add more to fill coverage gaps.
     """
-    from neoswga.core import parameter
-    from neoswga.core import pipeline as core_pipeline
-    from neoswga.core.primer_expansion import PrimerExpander
-    from neoswga.core.position_cache import PositionCache
-    import pandas as pd
     import json as json_module
 
-    quiet = getattr(args, 'quiet', False)
+    import pandas as pd
+
+    from neoswga.core import parameter
+    from neoswga.core import pipeline as core_pipeline
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.primer_expansion import PrimerExpander
+
+    quiet = getattr(args, "quiet", False)
 
     if not quiet:
         logger.info("Primer Set Expansion")
@@ -4182,7 +4863,7 @@ def run_expand_primers(args):
         logger.info(f"Target new primers: {args.num_new}")
 
     # Set json_file for pipeline initialization
-    merge_args_to_parameter(args, parameter, ['json_file'])
+    merge_args_to_parameter(args, parameter, ["json_file"])
 
     # Create output directory
     os.makedirs(args.output, exist_ok=True)
@@ -4199,8 +4880,8 @@ def run_expand_primers(args):
         bg_seq_lengths = core_pipeline.bg_seq_lengths
 
         # Load candidate primers from scored step3 output
-        data_dir = getattr(parameter, 'data_dir', '.')
-        step3_file = os.path.join(data_dir, 'step3_df.csv')
+        data_dir = getattr(parameter, "data_dir", ".")
+        step3_file = os.path.join(data_dir, "step3_df.csv")
 
         if not os.path.exists(step3_file):
             logger.error(f"Step 3 output not found: {step3_file}")
@@ -4211,9 +4892,14 @@ def run_expand_primers(args):
             logger.info(f"Loading candidates from {step3_file}...")
 
         df = pd.read_csv(step3_file)
-        primer_col = 'primer' if 'primer' in df.columns else 'seq'
-        if primer_col not in df.columns:
-            logger.error(f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}")
+        from neoswga.core.io_utils import primer_column
+
+        try:
+            primer_col = primer_column(df)
+        except KeyError:
+            logger.error(
+                f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}"
+            )
             sys.exit(1)
         candidates = df[primer_col].tolist()
 
@@ -4236,7 +4922,51 @@ def run_expand_primers(args):
             bg_seq_lengths=bg_seq_lengths,
         )
 
-        # Run expansion
+        # Build target gaps: in-silico gaps from the fixed set, optionally
+        # merged with low sequencing-depth regions from a mapped BAM.
+        bam_gaps_list = None
+        if getattr(args, "bam", None):
+            try:
+                from neoswga.core.bam_coverage import bam_gaps
+            except Exception as e:
+                logger.error(str(e))
+                sys.exit(1)
+            aliases = {}
+            for item in getattr(args, "contig_alias", None) or []:
+                if "=" in item:
+                    k, v = item.split("=", 1)
+                    aliases[k] = v
+            fg_circular = bool(getattr(parameter, "fg_circular", False))
+            try:
+                bam_gaps_list = bam_gaps(
+                    args.bam,
+                    fg_prefixes,
+                    fg_seq_lengths,
+                    min_depth=args.min_depth,
+                    min_gap_size=args.min_gap_size,
+                    circular=fg_circular,
+                    contig_aliases=aliases or None,
+                )
+            except RuntimeError as e:  # pysam missing
+                logger.error(str(e))
+                sys.exit(1)
+            if not quiet:
+                logger.info(f"BAM low-depth gaps: {len(bam_gaps_list)}")
+
+        target_gaps = expander.identify_gaps(
+            fixed_primers,
+            min_gap_size=args.min_gap_size,
+            extra_gaps=bam_gaps_list,
+            merge=True,
+        )
+
+        os.makedirs(args.output, exist_ok=True)
+        if target_gaps:
+            from neoswga.core.export import export_gaps_to_bed
+
+            export_gaps_to_bed(target_gaps, os.path.join(args.output, "merged_gaps.bed"))
+
+        # Run expansion (focus candidates on the gaps when we have any)
         result = expander.expand(
             candidates=candidates,
             fixed_primers=fixed_primers,
@@ -4244,19 +4974,22 @@ def run_expand_primers(args):
             target_new=args.num_new,
             optimization_method=args.optimization_method,
             verbose=not quiet,
+            target_gaps=target_gaps or None,
         )
 
         # Save results
-        result_file = os.path.join(args.output, 'expansion_result.json')
-        with open(result_file, 'w') as f:
+        result_file = os.path.join(args.output, "expansion_result.json")
+        with open(result_file, "w") as f:
             json_module.dump(result.to_dict(), f, indent=2)
 
         # Save primers as CSV
-        primers_file = os.path.join(args.output, 'expanded_primers.csv')
-        pd.DataFrame({
-            'primer': result.combined_set,
-            'type': ['fixed'] * result.n_fixed + ['new'] * result.n_new,
-        }).to_csv(primers_file, index=False)
+        primers_file = os.path.join(args.output, "expanded_primers.csv")
+        pd.DataFrame(
+            {
+                "primer": result.combined_set,
+                "type": ["fixed"] * result.n_fixed + ["new"] * result.n_new,
+            }
+        ).to_csv(primers_file, index=False)
 
         # Print summary
         if not quiet:
@@ -4281,6 +5014,7 @@ def run_expand_primers(args):
     except Exception as e:
         logger.error(f"Primer expansion failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -4289,10 +5023,10 @@ def _load_primer_list(cli_primers, primers_file, name="primer"):
     """Collect primers from --primers or --primers-file."""
     primers = list(cli_primers or [])
     if primers_file:
-        with open(primers_file, 'r') as fh:
+        with open(primers_file, "r") as fh:
             for line in fh:
                 p = line.strip().split()[0] if line.strip() else ""
-                if p and not p.startswith('#'):
+                if p and not p.startswith("#"):
                     primers.append(p)
     primers = [p.upper().strip() for p in primers if p.strip()]
     if not primers:
@@ -4304,42 +5038,47 @@ def _load_primer_list(cli_primers, primers_file, name="primer"):
 def _load_candidate_pool(candidates_file, data_dir):
     """Load a candidate-pool primer list from --candidates-file or data_dir/step2_df.csv."""
     import pandas as pd
+
     candidates = []
     if candidates_file and os.path.exists(candidates_file):
-        with open(candidates_file, 'r') as fh:
+        with open(candidates_file, "r") as fh:
             for line in fh:
                 p = line.strip().split()[0] if line.strip() else ""
-                if p and not p.startswith('#'):
+                if p and not p.startswith("#"):
                     candidates.append(p)
     else:
-        step2 = os.path.join(data_dir or ".", 'step2_df.csv')
+        step2 = os.path.join(data_dir or ".", "step2_df.csv")
         if os.path.isfile(step2):
             df = pd.read_csv(step2)
-            if 'primer' in df.columns:
-                candidates = df['primer'].astype(str).tolist()
+            if "primer" in df.columns:
+                candidates = df["primer"].astype(str).tolist()
     return [c.upper().strip() for c in candidates if c.strip()]
 
 
 def run_swap_primer(args):
     """Swap under-performing primers in a set with better candidates."""
     import json as _json
+
     from neoswga.core import parameter
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
     from neoswga.core.reaction_conditions import ReactionConditions
 
     validate_params_json_file(args.json_file)
-    merge_args_to_parameter(args, parameter, ['json_file'])
+    merge_args_to_parameter(args, parameter, ["json_file"])
     # Ensure parameter globals are populated from params.json
     import neoswga.core.pipeline as pipeline_mod
+
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
 
     current = _load_primer_list(args.primers, args.primers_file, name="current primer")
-    data_dir = getattr(parameter, 'data_dir', '.')
+    data_dir = getattr(parameter, "data_dir", ".")
     candidates = _load_candidate_pool(args.candidates_file, data_dir)
     if not candidates:
-        logger.error("No candidate pool available. Provide --candidates-file or "
-                     "run 'neoswga filter' first to generate step2_df.csv.")
+        logger.error(
+            "No candidate pool available. Provide --candidates-file or "
+            "run 'neoswga filter' first to generate step2_df.csv."
+        )
         sys.exit(1)
 
     # Blacklist guard (review I4): when params.json carries bl_genomes,
@@ -4347,19 +5086,23 @@ def run_swap_primer(args):
     # blacklist. Prevents swap-primer from re-injecting primers a user
     # loads from an external --candidates-file that was not passed through
     # the neoswga filter step.
-    bl_prefixes = list(getattr(parameter, 'bl_prefixes', []) or [])
-    bl_lengths = list(getattr(parameter, 'bl_seq_lengths', []) or [])
+    bl_prefixes = list(getattr(parameter, "bl_prefixes", []) or [])
+    bl_lengths = list(getattr(parameter, "bl_seq_lengths", []) or [])
     forbidden_primers: set = set()
     if bl_prefixes and bl_lengths:
         try:
             from neoswga.core.pipeline import _filter_blacklist_penalty
+
             _, bl_freqs = _filter_blacklist_penalty(
-                candidates, bl_prefixes, bl_lengths,
-                max_bl_freq=getattr(parameter, 'max_bl_freq', 0.0) or 0.0,
+                candidates,
+                bl_prefixes,
+                bl_lengths,
+                max_bl_freq=getattr(parameter, "max_bl_freq", 0.0) or 0.0,
             )
             forbidden_primers = {
-                p for p, f in zip(candidates, bl_freqs)
-                if f > (getattr(parameter, 'max_bl_freq', 0.0) or 0.0)
+                p
+                for p, f in zip(candidates, bl_freqs)
+                if f > (getattr(parameter, "max_bl_freq", 0.0) or 0.0)
             }
             if forbidden_primers:
                 logger.warning(
@@ -4373,17 +5116,17 @@ def run_swap_primer(args):
             logger.debug(f"Blacklist guard skipped: {e}")
 
     conditions = ReactionConditions(
-        temp=getattr(parameter, 'reaction_temp', 30.0) or 30.0,
-        polymerase=getattr(parameter, 'polymerase', 'phi29'),
-        na_conc=getattr(parameter, 'na_conc', 50.0),
-        mg_conc=getattr(parameter, 'mg_conc', 10.0),
-        dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
-        betaine_m=getattr(parameter, 'betaine_m', 0.0),
-        trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
-        formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
-        ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
-        urea_m=getattr(parameter, 'urea_m', 0.0),
-        tmac_m=getattr(parameter, 'tmac_m', 0.0),
+        temp=getattr(parameter, "reaction_temp", 30.0) or 30.0,
+        polymerase=getattr(parameter, "polymerase", "phi29"),
+        na_conc=getattr(parameter, "na_conc", 50.0),
+        mg_conc=getattr(parameter, "mg_conc", 10.0),
+        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
+        betaine_m=getattr(parameter, "betaine_m", 0.0),
+        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
+        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
+        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
+        urea_m=getattr(parameter, "urea_m", 0.0),
+        tmac_m=getattr(parameter, "tmac_m", 0.0),
     )
     analyzer = create_dimer_network_analyzer(conditions)
 
@@ -4391,7 +5134,9 @@ def run_swap_primer(args):
     before_metrics, _before_profiles, _before_matrix = analyzer.analyze_primer_set(current)
     # Greedy swap
     improved, after_metrics = analyzer.optimize_set_greedy(
-        list(current), candidates, max_iterations=args.max_swaps,
+        list(current),
+        candidates,
+        max_iterations=args.max_swaps,
     )
 
     swapped_in = [p for p in improved if p not in current]
@@ -4418,7 +5163,7 @@ def run_swap_primer(args):
 
     output_json = _json.dumps(result, indent=2)
     if args.output:
-        with open(args.output, 'w') as fh:
+        with open(args.output, "w") as fh:
             fh.write(output_json + "\n")
         if not args.quiet:
             logger.info(f"swap-primer results written to {args.output}")
@@ -4429,23 +5174,25 @@ def run_swap_primer(args):
 def run_contract_set(args):
     """Greedy leave-one-out contraction that keeps coverage above threshold."""
     import json as _json
+
     from neoswga.core import parameter
     from neoswga.core.position_cache import PositionCache
 
     validate_params_json_file(args.json_file)
-    merge_args_to_parameter(args, parameter, ['json_file'])
+    merge_args_to_parameter(args, parameter, ["json_file"])
     import neoswga.core.pipeline as pipeline_mod
+
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
 
     current = _load_primer_list(args.primers, args.primers_file, name="primer")
-    fg_prefixes = list(getattr(parameter, 'fg_prefixes', []) or [])
+    fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
     # fg_seq_lengths flows through _json_data / data dict rather than the module
     # globals, so fall back to _json_data if the global is empty.
-    fg_lengths = list(getattr(parameter, 'fg_seq_lengths', []) or [])
+    fg_lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
     if not fg_lengths:
-        raw = getattr(parameter, '_json_data', {}) or {}
-        fg_lengths = list(raw.get('fg_seq_lengths', []) or [])
+        raw = getattr(parameter, "_json_data", {}) or {}
+        fg_lengths = list(raw.get("fg_seq_lengths", []) or [])
     if not fg_prefixes:
         logger.error("No fg_prefixes available; cannot compute coverage.")
         sys.exit(1)
@@ -4463,12 +5210,13 @@ def run_contract_set(args):
         covered = 0
         extension = 70000
         import numpy as _np
+
         for prefix, length in zip(fg_prefixes, fg_lengths or [0] * len(fg_prefixes)):
             if length <= 0:
                 continue
             occupied = _np.zeros(length, dtype=bool)
             for primer in primers:
-                positions = cache.get_positions(prefix, primer, 'both')
+                positions = cache.get_positions(prefix, primer, "both")
                 for pos in positions:
                     start = max(0, int(pos) - extension)
                     end = min(length, int(pos) + extension)
@@ -4489,29 +5237,29 @@ def run_contract_set(args):
     #   w_dimer = 0.25  (prefer removing dimer-prone primers)
     #   w_tm    = 0.20  (prefer removing primers with poor Tm fit)
     #   w_bg    = 0.15  (prefer removing primers with high bg frequency)
+    from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
     from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
     from neoswga.core.reaction_conditions import ReactionConditions
-    from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
 
     conditions = ReactionConditions(
-        temp=getattr(parameter, 'reaction_temp', 30.0) or 30.0,
-        polymerase=getattr(parameter, 'polymerase', 'phi29'),
-        na_conc=getattr(parameter, 'na_conc', 50.0),
-        mg_conc=getattr(parameter, 'mg_conc', 10.0),
-        dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
-        betaine_m=getattr(parameter, 'betaine_m', 0.0),
-        trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
-        formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
-        ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
-        urea_m=getattr(parameter, 'urea_m', 0.0),
-        tmac_m=getattr(parameter, 'tmac_m', 0.0),
+        temp=getattr(parameter, "reaction_temp", 30.0) or 30.0,
+        polymerase=getattr(parameter, "polymerase", "phi29"),
+        na_conc=getattr(parameter, "na_conc", 50.0),
+        mg_conc=getattr(parameter, "mg_conc", 10.0),
+        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
+        betaine_m=getattr(parameter, "betaine_m", 0.0),
+        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
+        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
+        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
+        urea_m=getattr(parameter, "urea_m", 0.0),
+        tmac_m=getattr(parameter, "tmac_m", 0.0),
     )
     scorer = IntegratedQualityScorer(conditions=conditions)
     dimer_analyzer = create_dimer_network_analyzer(conditions=conditions)
 
     W_COV, W_DIMER, W_TM, W_BG = 0.40, 0.25, 0.20, 0.15
-    min_tm = getattr(parameter, 'min_tm', 15.0) or 15.0
-    max_tm = getattr(parameter, 'max_tm', 45.0) or 45.0
+    min_tm = getattr(parameter, "min_tm", 15.0) or 15.0
+    max_tm = getattr(parameter, "max_tm", 45.0) or 45.0
     target_tm = (min_tm + max_tm) / 2.0
     tm_window = max(1.0, (max_tm - min_tm) / 2.0)
 
@@ -4525,7 +5273,8 @@ def run_contract_set(args):
         if len(primers_in_set) > 1:
             try:
                 bmetrics, profiles, _ = dimer_analyzer.analyze_primer_set(
-                    primers_in_set, verbose=False,
+                    primers_in_set,
+                    verbose=False,
                 )
                 prof = profiles.get(primer)
                 dimer_risk = float(prof.mean_severity) if prof else 0.0
@@ -4536,7 +5285,7 @@ def run_contract_set(args):
 
         # 3. Tm fit under conditions
         try:
-            gc = sum(1 for b in primer if b in 'GC') / max(len(primer), 1)
+            gc = sum(1 for b in primer if b in "GC") / max(len(primer), 1)
             tm = scorer._primer_tm(primer, gc, len(primer))
             tm_deficit = abs(tm - target_tm) / tm_window
         except Exception:
@@ -4545,12 +5294,10 @@ def run_contract_set(args):
         # 4. Background frequency (approximate from position cache counts
         # across bg_prefixes if available). Zero when no background
         # data present.
-        bg_prefixes = list(getattr(parameter, 'bg_prefixes', []) or [])
-        bg_lengths = list(getattr(parameter, 'bg_seq_lengths', []) or [])
-        if not bg_lengths and getattr(parameter, '_json_data', None):
-            bg_lengths = list(
-                parameter._json_data.get('bg_seq_lengths', []) or []
-            )
+        bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
+        bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
+        if not bg_lengths and getattr(parameter, "_json_data", None):
+            bg_lengths = list(parameter._json_data.get("bg_seq_lengths", []) or [])
         bg_freq = 0.0
         if bg_prefixes and bg_lengths:
             try:
@@ -4558,7 +5305,7 @@ def run_contract_set(args):
                 hits = 0
                 total = 0
                 for p, L in zip(bg_prefixes, bg_lengths):
-                    hits += len(bg_cache.get_positions(p, primer, 'both'))
+                    hits += len(bg_cache.get_positions(p, primer, "both"))
                     total += L
                 bg_freq = hits / total if total else 0.0
             except Exception:
@@ -4568,7 +5315,7 @@ def run_contract_set(args):
         # We INVERT cov_contribution — losing a lot of coverage means low
         # removal preference.
         deficit = (
-            - W_COV * cov_contribution
+            -W_COV * cov_contribution
             + W_DIMER * dimer_risk
             + W_TM * min(tm_deficit, 1.0)
             + W_BG * min(bg_freq * 1000, 1.0)  # scale bg_freq for visibility
@@ -4594,12 +5341,16 @@ def run_contract_set(args):
             trial_cov = _coverage(trial)
             if trial_cov >= args.min_coverage:
                 kept = trial
-                removed.append({
-                    "primer": candidate,
-                    "resulting_coverage": trial_cov,
-                })
+                removed.append(
+                    {
+                        "primer": candidate,
+                        "resulting_coverage": trial_cov,
+                    }
+                )
                 if not args.quiet:
-                    logger.info(f"Removed {candidate} (quality-weighted) -> coverage {trial_cov:.1%}")
+                    logger.info(
+                        f"Removed {candidate} (quality-weighted) -> coverage {trial_cov:.1%}"
+                    )
                 dropped_this_round = True
                 break
         if not dropped_this_round:
@@ -4617,7 +5368,7 @@ def run_contract_set(args):
 
     output_json = _json.dumps(result, indent=2)
     if args.output:
-        with open(args.output, 'w') as fh:
+        with open(args.output, "w") as fh:
             fh.write(output_json + "\n")
         if not args.quiet:
             logger.info(f"contract-set results written to {args.output}")
@@ -4628,13 +5379,15 @@ def run_contract_set(args):
 def run_rescore_set(args):
     """Rescore an existing primer set under arbitrary reaction conditions."""
     import json as _json
+
     from neoswga.core import parameter
     from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
     from neoswga.core.reaction_conditions import ReactionConditions
 
     validate_params_json_file(args.json_file)
-    merge_args_to_parameter(args, parameter, ['json_file'])
+    merge_args_to_parameter(args, parameter, ["json_file"])
     import neoswga.core.pipeline as pipeline_mod
+
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
 
@@ -4648,37 +5401,43 @@ def run_rescore_set(args):
         return pv if pv is not None else fallback
 
     conditions = ReactionConditions(
-        temp=_pick('reaction_temp', 30.0) or 30.0,
-        polymerase=_pick('polymerase', 'phi29'),
-        na_conc=_pick('na_conc', 50.0),
-        mg_conc=_pick('mg_conc', 10.0),
-        dmso_percent=_pick('dmso_percent', 0.0),
-        betaine_m=_pick('betaine_m', 0.0),
-        trehalose_m=_pick('trehalose_m', 0.0),
-        formamide_percent=_pick('formamide_percent', 0.0),
-        ethanol_percent=_pick('ethanol_percent', 0.0),
-        urea_m=_pick('urea_m', 0.0),
-        tmac_m=_pick('tmac_m', 0.0),
+        temp=_pick("reaction_temp", 30.0) or 30.0,
+        polymerase=_pick("polymerase", "phi29"),
+        na_conc=_pick("na_conc", 50.0),
+        mg_conc=_pick("mg_conc", 10.0),
+        dmso_percent=_pick("dmso_percent", 0.0),
+        betaine_m=_pick("betaine_m", 0.0),
+        trehalose_m=_pick("trehalose_m", 0.0),
+        formamide_percent=_pick("formamide_percent", 0.0),
+        ethanol_percent=_pick("ethanol_percent", 0.0),
+        urea_m=_pick("urea_m", 0.0),
+        tmac_m=_pick("tmac_m", 0.0),
     )
 
     scorer = IntegratedQualityScorer(conditions=conditions)
     per_primer = []
     for p in primers:
         q = scorer.score_primer(p)
-        per_primer.append({
-            "primer": p,
-            "overall_score": float(q.overall_score),
-            "strand_bias_score": float(q.strand_bias_score),
-            "dimer_score": float(q.dimer_score),
-            "three_prime_score": float(q.three_prime_score),
-            "complexity_score": float(q.complexity_score),
-            "thermo_score": float(q.thermo_score),
-            "passes_all": bool(q.passes_all),
-            "failure_reasons": [str(r) for r in q.failure_reasons],
-            "tm_effective_c": float(scorer._primer_tm(
-                p, sum(1 for b in p if b in 'GC') / max(len(p), 1), len(p),
-            )),
-        })
+        per_primer.append(
+            {
+                "primer": p,
+                "overall_score": float(q.overall_score),
+                "strand_bias_score": float(q.strand_bias_score),
+                "dimer_score": float(q.dimer_score),
+                "three_prime_score": float(q.three_prime_score),
+                "complexity_score": float(q.complexity_score),
+                "thermo_score": float(q.thermo_score),
+                "passes_all": bool(q.passes_all),
+                "failure_reasons": [str(r) for r in q.failure_reasons],
+                "tm_effective_c": float(
+                    scorer._primer_tm(
+                        p,
+                        sum(1 for b in p if b in "GC") / max(len(p), 1),
+                        len(p),
+                    )
+                ),
+            }
+        )
 
     _, set_score = scorer.analyze_primer_set(primers)
 
@@ -4691,22 +5450,23 @@ def run_rescore_set(args):
     try:
         from neoswga.core.position_cache import PositionCache
         from neoswga.core.reaction_conditions import get_polymerase_processivity
+
         try:
             extension = int(get_polymerase_processivity(conditions.polymerase))
         except Exception:
             extension = 70_000
 
-        fg_prefixes = list(getattr(parameter, 'fg_prefixes', []) or [])
-        fg_lengths = list(getattr(parameter, 'fg_seq_lengths', []) or [])
+        fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
+        fg_lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
         if not fg_lengths:
-            raw = getattr(parameter, '_json_data', {}) or {}
-            fg_lengths = list(raw.get('fg_seq_lengths', []) or [])
+            raw = getattr(parameter, "_json_data", {}) or {}
+            fg_lengths = list(raw.get("fg_seq_lengths", []) or [])
 
-        bg_prefixes = list(getattr(parameter, 'bg_prefixes', []) or [])
-        bg_lengths = list(getattr(parameter, 'bg_seq_lengths', []) or [])
+        bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
+        bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
         if not bg_lengths:
-            raw = getattr(parameter, '_json_data', {}) or {}
-            bg_lengths = list(raw.get('bg_seq_lengths', []) or [])
+            raw = getattr(parameter, "_json_data", {}) or {}
+            bg_lengths = list(raw.get("bg_seq_lengths", []) or [])
 
         all_prefixes = fg_prefixes + bg_prefixes
         cache = PositionCache(all_prefixes, primers) if all_prefixes else None
@@ -4715,6 +5475,7 @@ def run_rescore_set(args):
             if not prefix_list or not length_list or cache is None:
                 return 0.0, {}
             import numpy as _np
+
             per_prefix: dict = {}
             total_cov = 0
             total_len = 0
@@ -4725,7 +5486,7 @@ def run_rescore_set(args):
                 occupied = _np.zeros(length, dtype=bool)
                 for primer in primers:
                     try:
-                        positions = cache.get_positions(prefix, primer, 'both')
+                        positions = cache.get_positions(prefix, primer, "both")
                     except Exception:
                         continue
                     for pos in positions:
@@ -4747,9 +5508,7 @@ def run_rescore_set(args):
             "per_target_coverage": {k: float(v) for k, v in fg_per_target.items()},
             "bg_coverage": float(bg_cov),
             "per_background_coverage": {k: float(v) for k, v in bg_per_prefix.items()},
-            "selectivity_ratio": float(
-                (fg_cov / bg_cov) if bg_cov > 1e-12 else (fg_cov * 1000.0)
-            ),
+            "selectivity_ratio": float((fg_cov / bg_cov) if bg_cov > 1e-12 else (fg_cov * 1000.0)),
             "extension_reach_bp": int(extension),
         }
     except Exception as e:
@@ -4782,7 +5541,7 @@ def run_rescore_set(args):
 
     output_json = _json.dumps(result, indent=2)
     if args.output:
-        with open(args.output, 'w') as fh:
+        with open(args.output, "w") as fh:
             fh.write(output_json + "\n")
         if not args.quiet:
             logger.info(f"rescore-set results written to {args.output}")
@@ -4797,14 +5556,15 @@ def run_predict_efficiency(args):
     Provides unified confidence score with SYNTHESIZE/CAUTION/DO_NOT_SYNTHESIZE
     recommendation.
     """
+    import json as json_module
+
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
     from neoswga.core.efficiency_predictor import EfficiencyPredictor
     from neoswga.core.experimental_tracker import ExperimentalTracker
     from neoswga.core.position_cache import PositionCache
-    import json as json_module
 
-    quiet = getattr(args, 'quiet', False)
+    quiet = getattr(args, "quiet", False)
 
     if not quiet:
         logger.info("Primer Set Efficiency Prediction")
@@ -4822,7 +5582,7 @@ def run_predict_efficiency(args):
         logger.info(f"Evaluating {len(primers)} primers")
 
     # Set json_file for pipeline initialization
-    merge_args_to_parameter(args, parameter, ['json_file'])
+    merge_args_to_parameter(args, parameter, ["json_file"])
 
     try:
         # Initialize pipeline to get genome info
@@ -4843,11 +5603,12 @@ def run_predict_efficiency(args):
         # Load genome sequence if simulation requested
         genome_sequence = None
         if args.run_simulation:
-            fg_genomes = getattr(parameter, 'fg_genomes', [])
+            fg_genomes = getattr(parameter, "fg_genomes", [])
             if fg_genomes:
                 if not quiet:
                     logger.info("Loading genome for simulation...")
                 from neoswga.core.genome_io import read_genome
+
                 genome_sequence = read_genome(fg_genomes[0])
 
         # Create predictor
@@ -4880,7 +5641,7 @@ def run_predict_efficiency(args):
 
         # Save result if output specified
         if args.output:
-            with open(args.output, 'w') as f:
+            with open(args.output, "w") as f:
                 json_module.dump(result.to_dict(), f, indent=2)
             if not quiet:
                 logger.info(f"\nResults saved to: {args.output}")
@@ -4891,10 +5652,14 @@ def run_predict_efficiency(args):
             logger.info("=" * 60)
             logger.info("PREDICTION RESULT")
             logger.info("=" * 60)
-            logger.info(f"Confidence: {result.confidence_score:.2f} ({result.recommendation.value})")
+            logger.info(
+                f"Confidence: {result.confidence_score:.2f} ({result.recommendation.value})"
+            )
             logger.info(f"")
             logger.info(f"Predicted enrichment: {result.predicted_enrichment:.0f}x")
-            logger.info(f"  95% CI: {result.enrichment_ci_low:.0f}x - {result.enrichment_ci_high:.0f}x")
+            logger.info(
+                f"  95% CI: {result.enrichment_ci_low:.0f}x - {result.enrichment_ci_high:.0f}x"
+            )
             logger.info(f"Predicted coverage: {result.predicted_coverage:.1%}")
             logger.info(f"")
             logger.info(f"Component scores:")
@@ -4918,6 +5683,7 @@ def run_predict_efficiency(args):
     except Exception as e:
         logger.error(f"Prediction failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -4926,7 +5692,7 @@ def run_background_list(args):
     """List available pre-computed background genomes."""
     from neoswga.core.background_registry import BackgroundRegistry
 
-    quiet = getattr(args, 'quiet', False)
+    quiet = getattr(args, "quiet", False)
 
     registry = BackgroundRegistry(auto_discover=False)
 
@@ -4953,7 +5719,9 @@ def run_background_list(args):
         logger.info("  No backgrounds found")
         logger.info("")
         logger.info("Add backgrounds with:")
-        logger.info("  neoswga background-add --name 'Human GRCh38' --species 'Homo sapiens' --bloom-path /path/to/bloom.pkl")
+        logger.info(
+            "  neoswga background-add --name 'Human GRCh38' --species 'Homo sapiens' --bloom-path /path/to/bloom.pkl"
+        )
         logger.info("")
         logger.info("Or run discovery to find existing files:")
         logger.info("  neoswga background-list --discover")
@@ -5021,14 +5789,15 @@ def run_background_add(args):
 # UTILITY: Genome library management
 # =========================================================================
 
+
 def run_genome_add(args):
     """Add a genome to the pre-calculated library."""
     from neoswga.core.genome_library import GenomeLibrary
 
     # Parse k-ranges
     k_ranges = []
-    for part in args.k_ranges.split(','):
-        parts = part.strip().split('-')
+    for part in args.k_ranges.split(","):
+        parts = part.strip().split("-")
         if len(parts) == 2:
             k_ranges.append((int(parts[0]), int(parts[1])))
         else:
@@ -5041,7 +5810,7 @@ def run_genome_add(args):
         sys.exit(1)
 
     library = GenomeLibrary()
-    bloom = 'no' if args.no_bloom else 'auto'
+    bloom = "no" if args.no_bloom else "auto"
     entry = library.add(
         name=args.name,
         fasta_path=fasta_path,
@@ -5073,9 +5842,13 @@ def run_genome_list(args):
     print(f"Genome library ({len(entries)} entries):")
     print("-" * 60)
     for entry in entries:
-        size_str = f"{entry.genome_size / 1e6:.1f} Mbp" if entry.genome_size >= 1e6 else f"{entry.genome_size:,} bp"
+        size_str = (
+            f"{entry.genome_size / 1e6:.1f} Mbp"
+            if entry.genome_size >= 1e6
+            else f"{entry.genome_size:,} bp"
+        )
         print(f"  {entry.name:<25} {size_str:>12}  GC={entry.gc_content:.1%}  role={entry.role}")
-        if getattr(args, 'verbose', False):
+        if getattr(args, "verbose", False):
             print(f"    FASTA: {entry.fasta_path}")
             print(f"    K-mer ranges: {entry.computed_k_ranges}")
             if entry.bloom_path:
@@ -5099,49 +5872,35 @@ def run_genome_remove(args):
 # UNIFIED: Complete pipeline handler
 # =========================================================================
 
+
 def run_design(args):
     """Run complete primer design pipeline (all 4 steps)"""
     check_jellyfish_available()
     logger.info("Running complete primer design pipeline")
 
-    # Check for auto-tuning mode
-    if hasattr(args, 'auto') and args.auto:
-        logger.info(f"Auto-tuning mode enabled ({args.auto_iterations} iterations)")
-        from neoswga.core import auto_swga_pipeline
-        try:
-            optimized_params = auto_swga_pipeline.auto_optimize(
-                base_params_file=args.json_file,
-                iterations=args.auto_iterations,
-                output_dir=getattr(args, 'output', './auto_optimized')
-            )
-            logger.info("Auto-tuning complete! Using optimized parameters for pipeline run.")
-        except Exception as e:
-            logger.error(f"Auto-tuning failed: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
-
     # Check for multi-genome mode
-    if hasattr(args, 'multi_genome') and args.multi_genome:
+    if hasattr(args, "multi_genome") and args.multi_genome:
         logger.info(f"Multi-genome mode enabled for {len(args.multi_genome)} genomes")
         from neoswga.core import multi_genome_pipeline
+
         try:
             results = multi_genome_pipeline.design_pan_genome_primers(
                 genome_paths=args.multi_genome,
                 min_coverage=args.min_coverage,
-                output_dir=getattr(args, 'output', './multi_genome_output')
+                output_dir=getattr(args, "output", "./multi_genome_output"),
             )
             logger.info(f"Pan-genome design complete! Designed {len(results['primers'])} primers")
             return
         except Exception as e:
             logger.error(f"Multi-genome pipeline failed: {e}")
             import traceback
+
             traceback.print_exc()
             sys.exit(1)
 
     # Determine which steps to run
-    start_step = getattr(args, 'start_from', None) or 1
-    stop_step = getattr(args, 'stop_at', None) or 4
+    start_step = getattr(args, "start_from", None) or 1
+    stop_step = getattr(args, "stop_at", None) or 4
 
     if start_step > stop_step:
         logger.error("--start-from must be <= --stop-at")
@@ -5152,15 +5911,24 @@ def run_design(args):
     # Ensure optimize-specific attributes exist on args namespace
     # (the design subparser doesn't define these but run_step4 needs them)
     optimize_defaults = {
-        'optimization_method': 'hybrid', 'num_primers': None,
-        'iterations': None, 'max_sets': None, 'no_background': False,
-        'use_mechanistic_model': False, 'mechanistic_weight': 0.3,
-        'auto_size': False, 'application': 'enrichment',
-        'validate_with_simulation': False, 'method_guide': False,
-        'no_bg_prefilter': False, 'strategy': None,
-        'use_position_cache': True, 'use_background_filter': False,
-        'use_cooperative_binding': False, 'primer_strategy': None,
-        'enable_qa': False,
+        "optimization_method": "hybrid",
+        "num_primers": None,
+        "iterations": None,
+        "max_sets": None,
+        "no_background": False,
+        "use_mechanistic_model": False,
+        "mechanistic_weight": 0.3,
+        "auto_size": False,
+        "application": "enrichment",
+        "validate_with_simulation": False,
+        "method_guide": False,
+        "no_bg_prefilter": False,
+        "strategy": None,
+        "use_position_cache": True,
+        "use_background_filter": False,
+        "use_cooperative_binding": False,
+        "primer_strategy": None,
+        "enable_qa": False,
     }
     for attr, default in optimize_defaults.items():
         if not hasattr(args, attr):
@@ -5199,6 +5967,7 @@ def run_design(args):
     except Exception as e:
         logger.error(f"Pipeline failed at step: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 
@@ -5210,75 +5979,66 @@ def main():
 
     if not args.command:
         parser.print_help()
-        print("\nTip: New to neoswga? Start with 'neoswga init --genome target.fasta'", file=sys.stderr)
+        print(
+            "\nTip: New to neoswga? Start with 'neoswga init --genome target.fasta'",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Set verbosity
-    if getattr(args, 'quiet', False):
+    if getattr(args, "quiet", False):
         logging.getLogger().setLevel(logging.WARNING)
-    elif getattr(args, 'verbose', False):
+    elif getattr(args, "verbose", False):
         logging.getLogger().setLevel(logging.DEBUG)
 
     # Dispatch to appropriate command
     commands = {
         # Standard pipeline
-        'count-kmers': run_step1,
-        'filter': run_step2,
-        'score': run_step3,
-        'optimize': run_step4,
-
+        "count-kmers": run_step1,
+        "filter": run_step2,
+        "score": run_step3,
+        "optimize": run_step4,
         # Unified pipeline
-        'design': run_design,
-
+        "design": run_design,
         # Utility commands
-        'build-filter': run_build_filter,
-        'validate': run_validate,
-        'show-presets': lambda args: show_presets(),
-        'init': run_init,
-        'validate-params': run_validate_params,
-        'schema': run_schema,
-        'doctor': run_doctor,
-        'validate-model': run_validate_model,
-        'interpret': run_interpret,
-        'report': run_report,
-        'export': run_export,
-        'start': run_start,
-        'suggest': run_suggest,
-        'optimize-conditions': optimize_conditions,
-        'analyze-set': analyze_primer_set,
-
+        "build-filter": run_build_filter,
+        "validate": run_validate,
+        "show-presets": lambda args: show_presets(),
+        "init": run_init,
+        "validate-params": run_validate_params,
+        "schema": run_schema,
+        "doctor": run_doctor,
+        "validate-model": run_validate_model,
+        "interpret": run_interpret,
+        "report": run_report,
+        "export": run_export,
+        "start": run_start,
+        "suggest": run_suggest,
+        "optimize-conditions": optimize_conditions,
+        "analyze-set": analyze_primer_set,
         # Category 1: Orphaned analysis features (now exposed!)
-        'analyze-genome': run_analyze_genome,
-        'analyze-dimers': run_analyze_dimers,
-        'analyze-stability': run_analyze_stability,
-        'ml-predict': run_ml_predict,
-        'design-oligos': run_design_oligos,
-
+        "analyze-genome": run_analyze_genome,
+        "analyze-dimers": run_analyze_dimers,
+        "analyze-stability": run_analyze_stability,
+        "analyze-coverage": run_analyze_coverage,
+        "design-oligos": run_design_oligos,
         # Category 3: Orphaned pipeline features (now exposed!)
-        'auto-pipeline': run_auto_pipeline,
-        'multi-genome': run_multi_genome,
-
+        "multi-genome": run_multi_genome,
         # Category 4: Orphaned simulation features (now exposed!)
-        'simulate': run_simulate,
-
-        # Category 5: Active learning (experimental)
-        'active-learn': run_active_learn,
-
+        "simulate": run_simulate,
         # Category 6: Iterative design
-        'expand-primers': run_expand_primers,
-        'swap-primer': run_swap_primer,
-        'contract-set': run_contract_set,
-        'rescore-set': run_rescore_set,
-        'predict-efficiency': run_predict_efficiency,
-
+        "expand-primers": run_expand_primers,
+        "swap-primer": run_swap_primer,
+        "contract-set": run_contract_set,
+        "rescore-set": run_rescore_set,
+        "predict-efficiency": run_predict_efficiency,
         # Category 7: Background registry
-        'background-list': run_background_list,
-        'background-add': run_background_add,
-
+        "background-list": run_background_list,
+        "background-add": run_background_add,
         # Category 8: Genome library
-        'genome-add': run_genome_add,
-        'genome-list': run_genome_list,
-        'genome-remove': run_genome_remove,
+        "genome-add": run_genome_add,
+        "genome-list": run_genome_list,
+        "genome-remove": run_genome_remove,
     }
 
     command_func = commands.get(args.command)
@@ -5294,13 +6054,18 @@ def main():
             sys.exit(1)
         except KeyError as e:
             logger.error(f"Missing required parameter: {e}")
-            logger.error("Run 'neoswga init --genome target.fasta' to create a complete params.json")
-            logger.error("Or run 'neoswga validate-params -j params.json' to check your configuration")
+            logger.error(
+                "Run 'neoswga init --genome target.fasta' to create a complete params.json"
+            )
+            logger.error(
+                "Or run 'neoswga validate-params -j params.json' to check your configuration"
+            )
             sys.exit(1)
         except (ValueError, TypeError) as e:
             logger.error(f"Invalid input: {e}")
-            if getattr(args, 'verbose', False):
+            if getattr(args, "verbose", False):
                 import traceback
+
                 traceback.print_exc()
             sys.exit(1)
         except PermissionError as e:
@@ -5309,8 +6074,9 @@ def main():
             sys.exit(1)
         except Exception as e:
             logger.error(f"Command failed: {e}")
-            if getattr(args, 'verbose', False):
+            if getattr(args, "verbose", False):
                 import traceback
+
                 traceback.print_exc()
             else:
                 logger.error("Run with --verbose for full traceback")
@@ -5321,5 +6087,5 @@ def main():
         sys.exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

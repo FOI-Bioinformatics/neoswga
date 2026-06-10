@@ -179,6 +179,38 @@ class TestE2EReportGeneration:
         assert "Measured" in html
         assert "badge-measured" in html
 
+    def test_coverage_badge_includes_extension_reach_when_available(self, bacillus_results_dir):
+        """Measured-coverage badge labels the per-primer reach so users know
+        the granularity of the reported coverage value.
+        """
+        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics.coverage = CoverageMetrics(
+            overall_coverage=0.85,
+            covered_bases=3400000,
+            total_bases=4000000,
+            from_optimizer=True,
+            extension_reach=3000,
+        )
+
+        quality = calculate_quality_grade(metrics)
+        summary = create_executive_summary(metrics, quality)
+        html = render_executive_summary(summary)
+
+        assert "Measured" in html
+        assert "3,000 bp reach" in html
+
+    def test_coverage_badge_estimated_label_disambiguates_30kb_default(self, bacillus_results_dir):
+        """The fallback estimate must be labelled as '30 kb/primer' so users
+        do not mistake it for a measured value.
+        """
+        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        # Bacillus fixture has from_optimizer=False
+        quality = calculate_quality_grade(metrics)
+        summary = create_executive_summary(metrics, quality)
+        html = render_executive_summary(summary)
+
+        assert "30 kb/primer" in html
+
     def test_gap_analysis_shown_when_available(self, bacillus_results_dir):
         """Gap analysis section appears when gap metrics are available."""
         metrics = collect_pipeline_metrics(str(bacillus_results_dir))

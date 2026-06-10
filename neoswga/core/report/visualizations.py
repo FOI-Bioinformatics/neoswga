@@ -11,8 +11,8 @@ All functions return empty strings when Plotly is not installed,
 allowing graceful degradation.
 """
 
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
 import logging
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +21,15 @@ _PLOTLY_AVAILABLE = False
 try:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
+
     _PLOTLY_AVAILABLE = True
 except ImportError:
     go = None  # type: ignore
     make_subplots = None  # type: ignore
 
 if TYPE_CHECKING:
-    from neoswga.core.report.quality import GradeComponent
     from neoswga.core.report.metrics import PrimerMetrics
+    from neoswga.core.report.quality import GradeComponent
 
 
 def is_plotly_available() -> bool:
@@ -51,9 +52,7 @@ CHART_COLORS = {
     "info": "#4299e1",
     "muted": "#a0aec0",
     # Gradient for funnel
-    "funnel_gradient": [
-        "#2c5282", "#3182ce", "#4299e1", "#63b3ed", "#90cdf4", "#bee3f8"
-    ],
+    "funnel_gradient": ["#2c5282", "#3182ce", "#4299e1", "#63b3ed", "#90cdf4", "#bee3f8"],
     # Radar chart fill
     "radar_fill": "rgba(66, 153, 225, 0.3)",
     "radar_line": "#2c5282",
@@ -67,7 +66,7 @@ CHART_COLORS = {
 
 def render_filtering_funnel(
     funnel_data: List[tuple],
-    include_plotlyjs: str = 'cdn',
+    include_plotlyjs: str = "cdn",
     height: int = 400,
 ) -> str:
     """
@@ -99,19 +98,19 @@ def render_filtering_funnel(
     initial = values[0] if values else 1
     percentages = [f"{(v / initial * 100):.1f}%" for v in values]
 
-    fig = go.Figure(go.Funnel(
-        y=stages,
-        x=values,
-        textposition="inside",
-        textinfo="value+percent initial",
-        texttemplate="%{x:,.0f}<br>(%{percentInitial:.1%})",
-        marker=dict(
-            color=CHART_COLORS["funnel_gradient"][:len(stages)],
-        ),
-        connector=dict(
-            line=dict(color=CHART_COLORS["muted"], width=1)
-        ),
-    ))
+    fig = go.Figure(
+        go.Funnel(
+            y=stages,
+            x=values,
+            textposition="inside",
+            textinfo="value+percent initial",
+            texttemplate="%{x:,.0f}<br>(%{percentInitial:.1%})",
+            marker=dict(
+                color=CHART_COLORS["funnel_gradient"][: len(stages)],
+            ),
+            connector=dict(line=dict(color=CHART_COLORS["muted"], width=1)),
+        )
+    )
 
     fig.update_layout(
         title=dict(
@@ -129,13 +128,13 @@ def render_filtering_funnel(
     return fig.to_html(
         full_html=False,
         include_plotlyjs=include_plotlyjs,
-        config={'displayModeBar': False, 'responsive': True}
+        config={"displayModeBar": False, "responsive": True},
     )
 
 
 def render_component_radar(
-    components: List['GradeComponent'],
-    include_plotlyjs: str = 'cdn',
+    components: List["GradeComponent"],
+    include_plotlyjs: str = "cdn",
     height: int = 400,
 ) -> str:
     """
@@ -178,16 +177,18 @@ def render_component_radar(
 
     fig = go.Figure()
 
-    fig.add_trace(go.Scatterpolar(
-        r=scores_closed,
-        theta=names_closed,
-        fill='toself',
-        fillcolor=CHART_COLORS["radar_fill"],
-        line=dict(color=CHART_COLORS["radar_line"], width=2),
-        name='Quality Score',
-        hovertext=hover_text_closed,
-        hoverinfo="text",
-    ))
+    fig.add_trace(
+        go.Scatterpolar(
+            r=scores_closed,
+            theta=names_closed,
+            fill="toself",
+            fillcolor=CHART_COLORS["radar_fill"],
+            line=dict(color=CHART_COLORS["radar_line"], width=2),
+            name="Quality Score",
+            hovertext=hover_text_closed,
+            hoverinfo="text",
+        )
+    )
 
     fig.update_layout(
         polar=dict(
@@ -219,14 +220,14 @@ def render_component_radar(
     return fig.to_html(
         full_html=False,
         include_plotlyjs=include_plotlyjs,
-        config={'displayModeBar': False, 'responsive': True}
+        config={"displayModeBar": False, "responsive": True},
     )
 
 
 def render_tm_gc_distribution(
-    primers: List['PrimerMetrics'],
+    primers: List["PrimerMetrics"],
     reaction_temp: float = 30.0,
-    include_plotlyjs: str = 'cdn',
+    include_plotlyjs: str = "cdn",
     height: int = 350,
 ) -> str:
     """
@@ -261,8 +262,9 @@ def render_tm_gc_distribution(
         return ""
 
     fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=('Tm Distribution', 'Tm vs GC Content'),
+        rows=1,
+        cols=2,
+        subplot_titles=("Tm Distribution", "Tm vs GC Content"),
         horizontal_spacing=0.12,
     )
 
@@ -275,7 +277,8 @@ def render_tm_gc_distribution(
             name="Tm",
             hovertemplate="Tm: %{x:.1f}C<br>Count: %{y}<extra></extra>",
         ),
-        row=1, col=1
+        row=1,
+        col=1,
     )
 
     # Add reaction temperature reference line
@@ -285,20 +288,20 @@ def render_tm_gc_distribution(
         line_color=CHART_COLORS["danger"],
         annotation_text=f"Reaction: {reaction_temp}C",
         annotation_position="top",
-        row=1, col=1
+        row=1,
+        col=1,
     )
 
     # Tm vs GC scatter
     hover_text = [
-        f"Seq: {seq}<br>Tm: {tm:.1f}C<br>GC: {gc:.0f}%"
-        for seq, tm, gc in zip(sequences, tms, gcs)
+        f"Seq: {seq}<br>Tm: {tm:.1f}C<br>GC: {gc:.0f}%" for seq, tm, gc in zip(sequences, tms, gcs)
     ]
 
     fig.add_trace(
         go.Scatter(
             x=gcs,
             y=tms,
-            mode='markers',
+            mode="markers",
             marker=dict(
                 color=CHART_COLORS["secondary"],
                 size=10,
@@ -308,7 +311,8 @@ def render_tm_gc_distribution(
             hovertext=hover_text,
             hoverinfo="text",
         ),
-        row=1, col=2
+        row=1,
+        col=2,
     )
 
     fig.update_layout(
@@ -328,14 +332,14 @@ def render_tm_gc_distribution(
     return fig.to_html(
         full_html=False,
         include_plotlyjs=include_plotlyjs,
-        config={'displayModeBar': False, 'responsive': True}
+        config={"displayModeBar": False, "responsive": True},
     )
 
 
 def render_coverage_specificity_scatter(
-    primers: List['PrimerMetrics'],
+    primers: List["PrimerMetrics"],
     genome_size: int = 0,
-    include_plotlyjs: str = 'cdn',
+    include_plotlyjs: str = "cdn",
     height: int = 400,
 ) -> str:
     """
@@ -389,41 +393,43 @@ def render_coverage_specificity_scatter(
     fig = go.Figure()
 
     # Main scatter plot
-    fig.add_trace(go.Scatter(
-        x=coverage_values,
-        y=specificity_values,
-        mode='markers',
-        marker=dict(
-            size=12,
-            color=colors,
-            colorscale='Viridis',
-            showscale=True,
-            colorbar=dict(
-                title=dict(text="Quality", font=dict(size=11)),
-                tickfont=dict(size=10),
+    fig.add_trace(
+        go.Scatter(
+            x=coverage_values,
+            y=specificity_values,
+            mode="markers",
+            marker=dict(
+                size=12,
+                color=colors,
+                colorscale="Viridis",
+                showscale=True,
+                colorbar=dict(
+                    title=dict(text="Quality", font=dict(size=11)),
+                    tickfont=dict(size=10),
+                ),
+                line=dict(width=1, color="white"),
             ),
-            line=dict(width=1, color='white'),
-        ),
-        text=hover_text,
-        hoverinfo="text",
-        name="Primers",
-    ))
+            text=hover_text,
+            hoverinfo="text",
+            name="Primers",
+        )
+    )
 
     # Calculate and add Pareto frontier
-    pareto_points = _calculate_pareto_frontier(
-        list(zip(coverage_values, specificity_values))
-    )
+    pareto_points = _calculate_pareto_frontier(list(zip(coverage_values, specificity_values)))
     if len(pareto_points) > 1:
         pareto_x = [p[0] for p in pareto_points]
         pareto_y = [p[1] for p in pareto_points]
-        fig.add_trace(go.Scatter(
-            x=pareto_x,
-            y=pareto_y,
-            mode='lines',
-            line=dict(color=CHART_COLORS["success"], width=2, dash='dash'),
-            name="Pareto Frontier",
-            hoverinfo="skip",
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=pareto_x,
+                y=pareto_y,
+                mode="lines",
+                line=dict(color=CHART_COLORS["success"], width=2, dash="dash"),
+                name="Pareto Frontier",
+                hoverinfo="skip",
+            )
+        )
 
     fig.update_layout(
         title=dict(
@@ -453,7 +459,7 @@ def render_coverage_specificity_scatter(
     return fig.to_html(
         full_html=False,
         include_plotlyjs=include_plotlyjs,
-        config={'displayModeBar': False, 'responsive': True}
+        config={"displayModeBar": False, "responsive": True},
     )
 
 
@@ -476,7 +482,7 @@ def _calculate_pareto_frontier(points: List[tuple]) -> List[tuple]:
     sorted_points = sorted(points, key=lambda p: (-p[0], -p[1]))
 
     pareto = []
-    max_y = float('-inf')
+    max_y = float("-inf")
 
     for point in sorted_points:
         if point[1] > max_y:
@@ -488,8 +494,8 @@ def _calculate_pareto_frontier(points: List[tuple]) -> List[tuple]:
 
 
 def render_primer_heatmap(
-    primers: List['PrimerMetrics'],
-    include_plotlyjs: str = 'cdn',
+    primers: List["PrimerMetrics"],
+    include_plotlyjs: str = "cdn",
     height: int = 400,
 ) -> str:
     """
@@ -514,7 +520,7 @@ def render_primer_heatmap(
         return ""
 
     # Metrics to display (normalized 0-1)
-    metrics = ['GC%', 'Tm', 'Specificity', 'Uniformity', 'Quality']
+    metrics = ["GC%", "Tm", "Specificity", "Uniformity", "Quality"]
 
     # Build data matrix
     z_data = []
@@ -532,15 +538,17 @@ def render_primer_heatmap(
 
         z_data.append([gc_norm, tm_norm, spec_norm, uniform_norm, quality_norm])
 
-    fig = go.Figure(data=go.Heatmap(
-        z=z_data,
-        x=metrics,
-        y=y_labels,
-        colorscale='RdYlGn',
-        zmin=0,
-        zmax=1,
-        hovertemplate="Primer: %{y}<br>Metric: %{x}<br>Score: %{z:.2f}<extra></extra>",
-    ))
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=z_data,
+            x=metrics,
+            y=y_labels,
+            colorscale="RdYlGn",
+            zmin=0,
+            zmax=1,
+            hovertemplate="Primer: %{y}<br>Metric: %{x}<br>Score: %{z:.2f}<extra></extra>",
+        )
+    )
 
     fig.update_layout(
         title=dict(
@@ -556,7 +564,7 @@ def render_primer_heatmap(
     return fig.to_html(
         full_html=False,
         include_plotlyjs=include_plotlyjs,
-        config={'displayModeBar': False, 'responsive': True}
+        config={"displayModeBar": False, "responsive": True},
     )
 
 
@@ -579,24 +587,31 @@ def _calculate_heterodimer_dg(seq1: str, seq2: str) -> float:
         return 0.0
 
     # Reverse complement mapping
-    complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G',
-                  'a': 't', 't': 'a', 'g': 'c', 'c': 'g'}
+    complement = {"A": "T", "T": "A", "G": "C", "C": "G", "a": "t", "t": "a", "g": "c", "c": "g"}
 
     # Get reverse complement of seq2
-    seq2_rc = ''.join(complement.get(b, 'N') for b in reversed(seq2.upper()))
+    seq2_rc = "".join(complement.get(b, "N") for b in reversed(seq2.upper()))
     seq1_upper = seq1.upper()
 
     # Nearest-neighbor delta G values (kcal/mol) at 37C, 1M Na+
     # Based on SantaLucia unified parameters
     nn_dg = {
-        'AA': -1.00, 'TT': -1.00,
-        'AT': -0.88, 'TA': -0.58,
-        'CA': -1.45, 'TG': -1.45,
-        'GT': -1.44, 'AC': -1.44,
-        'CT': -1.28, 'AG': -1.28,
-        'GA': -1.30, 'TC': -1.30,
-        'CG': -2.17, 'GC': -2.24,
-        'GG': -1.84, 'CC': -1.84,
+        "AA": -1.00,
+        "TT": -1.00,
+        "AT": -0.88,
+        "TA": -0.58,
+        "CA": -1.45,
+        "TG": -1.45,
+        "GT": -1.44,
+        "AC": -1.44,
+        "CT": -1.28,
+        "AG": -1.28,
+        "GA": -1.30,
+        "TC": -1.30,
+        "CG": -2.17,
+        "GC": -2.24,
+        "GG": -1.84,
+        "CC": -1.84,
     }
 
     # Find the most stable complementary alignment
@@ -669,7 +684,7 @@ def _calculate_self_dimer_dg(seq: str) -> float:
 
 
 def _build_dimer_matrix(
-    primers: List['PrimerMetrics'],
+    primers: List["PrimerMetrics"],
     max_primers: int = 20,
 ) -> tuple:
     """
@@ -715,8 +730,8 @@ def _build_dimer_matrix(
 
 
 def render_dimer_network_heatmap(
-    primers: List['PrimerMetrics'],
-    include_plotlyjs: str = 'cdn',
+    primers: List["PrimerMetrics"],
+    include_plotlyjs: str = "cdn",
     height: int = 500,
     max_primers: int = 20,
     show_values: bool = True,
@@ -790,12 +805,12 @@ def render_dimer_network_heatmap(
     # Custom colorscale: Green (safe) -> Yellow (moderate) -> Red (dangerous)
     # Values map to absolute dG, so higher abs value = more risk = redder
     colorscale = [
-        [0.0, '#38a169'],    # Green - dG near 0 (no interaction)
-        [0.25, '#68d391'],   # Light green
-        [0.4, '#f6e05e'],    # Yellow - moderate risk starts
-        [0.55, '#ed8936'],   # Orange
-        [0.7, '#e53e3e'],    # Red - high risk
-        [1.0, '#9b2c2c'],    # Dark red - very high risk
+        [0.0, "#38a169"],  # Green - dG near 0 (no interaction)
+        [0.25, "#68d391"],  # Light green
+        [0.4, "#f6e05e"],  # Yellow - moderate risk starts
+        [0.55, "#ed8936"],  # Orange
+        [0.7, "#e53e3e"],  # Red - high risk
+        [1.0, "#9b2c2c"],  # Dark red - very high risk
     ]
 
     # Normalize matrix for colorscale (map dG to 0-1 range)
@@ -812,24 +827,26 @@ def render_dimer_network_heatmap(
     fig = go.Figure()
 
     # Main heatmap
-    fig.add_trace(go.Heatmap(
-        z=z_normalized,
-        x=labels,
-        y=labels,
-        colorscale=colorscale,
-        zmin=0,
-        zmax=1,
-        text=hover_text,
-        hoverinfo="text",
-        showscale=True,
-        colorbar=dict(
-            title=dict(text="Interaction<br>Strength", font=dict(size=11)),
-            tickvals=[0, 0.25, 0.5, 0.75, 1.0],
-            ticktext=["None", "Low", "Moderate", "High", "Very High"],
-            tickfont=dict(size=10),
-            len=0.8,
-        ),
-    ))
+    fig.add_trace(
+        go.Heatmap(
+            z=z_normalized,
+            x=labels,
+            y=labels,
+            colorscale=colorscale,
+            zmin=0,
+            zmax=1,
+            text=hover_text,
+            hoverinfo="text",
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="Interaction<br>Strength", font=dict(size=11)),
+                tickvals=[0, 0.25, 0.5, 0.75, 1.0],
+                ticktext=["None", "Low", "Moderate", "High", "Very High"],
+                tickfont=dict(size=10),
+                len=0.8,
+            ),
+        )
+    )
 
     # Add text annotations for significant interactions
     annotations_list = []
@@ -840,21 +857,25 @@ def render_dimer_network_heatmap(
                 # Only show text for moderate/high risk interactions
                 if dg < -3:
                     # Use white text on dark cells, dark text on light cells
-                    color = 'white' if dg < -5 else '#2d3748'
-                    annotations_list.append(dict(
-                        x=labels[j],
-                        y=labels[i],
-                        text=f"{dg:.0f}",
-                        showarrow=False,
-                        font=dict(size=9, color=color),
-                    ))
+                    color = "white" if dg < -5 else "#2d3748"
+                    annotations_list.append(
+                        dict(
+                            x=labels[j],
+                            y=labels[i],
+                            text=f"{dg:.0f}",
+                            showarrow=False,
+                            font=dict(size=9, color=color),
+                        )
+                    )
 
     # Count risk levels for subtitle
-    high_risk = sum(1 for i in range(n) for j in range(i+1, n) if matrix[i][j] < -6)
-    moderate_risk = sum(1 for i in range(n) for j in range(i+1, n) if -6 <= matrix[i][j] < -4)
+    high_risk = sum(1 for i in range(n) for j in range(i + 1, n) if matrix[i][j] < -6)
+    moderate_risk = sum(1 for i in range(n) for j in range(i + 1, n) if -6 <= matrix[i][j] < -4)
     total_pairs = n * (n - 1) // 2
 
-    subtitle_text = f"{total_pairs} primer pairs analyzed: {high_risk} high risk, {moderate_risk} moderate risk"
+    subtitle_text = (
+        f"{total_pairs} primer pairs analyzed: {high_risk} high risk, {moderate_risk} moderate risk"
+    )
 
     fig.update_layout(
         title=dict(
@@ -888,13 +909,13 @@ def render_dimer_network_heatmap(
     return fig.to_html(
         full_html=False,
         include_plotlyjs=include_plotlyjs,
-        config={'displayModeBar': True, 'responsive': True}
+        config={"displayModeBar": True, "responsive": True},
     )
 
 
 def render_dimer_network_graph(
-    primers: List['PrimerMetrics'],
-    include_plotlyjs: str = 'cdn',
+    primers: List["PrimerMetrics"],
+    include_plotlyjs: str = "cdn",
     height: int = 500,
     max_primers: int = 15,
     dg_threshold: float = -4.0,
@@ -966,21 +987,23 @@ def render_dimer_network_graph(
 
         # Color based on risk level
         if dg < -6:
-            color = '#c53030'  # Red - high risk
+            color = "#c53030"  # Red - high risk
         elif dg < -5:
-            color = '#ed8936'  # Orange
+            color = "#ed8936"  # Orange
         else:
-            color = '#ecc94b'  # Yellow - moderate
+            color = "#ecc94b"  # Yellow - moderate
 
-        fig.add_trace(go.Scatter(
-            x=[node_x[i], node_x[j], None],
-            y=[node_y[i], node_y[j], None],
-            mode='lines',
-            line=dict(width=weight, color=color),
-            hoverinfo='text',
-            hovertext=f"<b>{labels[i]}</b> - <b>{labels[j]}</b><br>dG: {dg:.1f} kcal/mol",
-            showlegend=False,
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=[node_x[i], node_x[j], None],
+                y=[node_y[i], node_y[j], None],
+                mode="lines",
+                line=dict(width=weight, color=color),
+                hoverinfo="text",
+                hovertext=f"<b>{labels[i]}</b> - <b>{labels[j]}</b><br>dG: {dg:.1f} kcal/mol",
+                showlegend=False,
+            )
+        )
 
     # Count interactions per primer for node sizing
     interaction_counts = [0] * n
@@ -998,11 +1021,11 @@ def render_dimer_network_graph(
         self_dg = _calculate_self_dimer_dg(seq)
         self_dimer_dgs.append(self_dg)
         if self_dg < -6:
-            node_colors.append('#c53030')  # Red
+            node_colors.append("#c53030")  # Red
         elif self_dg < -4:
-            node_colors.append('#ed8936')  # Orange
+            node_colors.append("#ed8936")  # Orange
         else:
-            node_colors.append('#38a169')  # Green
+            node_colors.append("#38a169")  # Green
 
     # Create node hover text
     node_text = []
@@ -1017,22 +1040,24 @@ def render_dimer_network_graph(
         node_text.append(text)
 
     # Add nodes
-    fig.add_trace(go.Scatter(
-        x=node_x,
-        y=node_y,
-        mode='markers+text',
-        marker=dict(
-            size=node_sizes,
-            color=node_colors,
-            line=dict(width=2, color='white'),
-        ),
-        text=labels,
-        textposition="top center",
-        textfont=dict(size=9),
-        hovertext=node_text,
-        hoverinfo='text',
-        showlegend=False,
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=node_x,
+            y=node_y,
+            mode="markers+text",
+            marker=dict(
+                size=node_sizes,
+                color=node_colors,
+                line=dict(width=2, color="white"),
+            ),
+            text=labels,
+            textposition="top center",
+            textfont=dict(size=9),
+            hovertext=node_text,
+            hoverinfo="text",
+            showlegend=False,
+        )
+    )
 
     # Summary statistics for subtitle
     high_risk = sum(1 for _, _, dg in edges if dg < -6)
@@ -1067,11 +1092,11 @@ def render_dimer_network_graph(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"),
-        hovermode='closest',
+        hovermode="closest",
     )
 
     return fig.to_html(
         full_html=False,
         include_plotlyjs=include_plotlyjs,
-        config={'displayModeBar': False, 'responsive': True}
+        config={"displayModeBar": False, "responsive": True},
     )

@@ -8,18 +8,29 @@ Implements the unified nearest-neighbor model (SantaLucia, 1998) with:
 - Helix initiation, terminal penalties, and symmetry corrections
 - Support for thermodynamic additives (DMSO, betaine, trehalose)
 
+This is the canonical Tm implementation for all new code. A second
+module, ``melting_temp.py``, also computes Tm. It is *not* a duplicate
+to be deleted: it is a numerically frozen shim that reproduces a known
+GC-fraction bug in the upstream ``melt`` package, kept solely so the
+bundled ``random_forest_filter.p`` (trained against that buggy output)
+continues to score primers consistently. See ``melting_temp.py`` for
+details. The shim can be removed only after the RF model is retrained
+(roadmap Phase 3).
+
 References:
 - SantaLucia (1998) PNAS 95:1460-1465
 - Owczarzy et al. (2008) Biochemistry 47:5336-5353
 """
 
-import numpy as np
-import warnings
 import logging
-from typing import Dict, Tuple, Optional, List, Any
+import warnings
 from functools import lru_cache
+from typing import Any, Dict, List, Optional, Tuple
 
-from neoswga.core.utility import complement as _util_complement, reverse as _util_reverse
+import numpy as np
+
+from neoswga.core.utility import complement as _util_complement
+from neoswga.core.utility import reverse as _util_reverse
 
 logger = logging.getLogger(__name__)
 
@@ -36,47 +47,47 @@ ENTHALPY_NN = {
     # The 10 canonical Watson-Crick nearest-neighbor stacks
     # Stack notation: 5'-XY-3' on top strand / 3'-ZW-5' on bottom strand
     # Values in kcal/mol
-    'AA/TT': -7.9,
-    'AT/TA': -7.2,
-    'TA/AT': -7.2,
-    'CA/GT': -8.5,
-    'GT/CA': -8.4,
-    'CT/GA': -7.8,
-    'GA/CT': -8.2,
-    'CG/GC': -10.6,
-    'GC/CG': -9.8,
-    'GG/CC': -8.0,
+    "AA/TT": -7.9,
+    "AT/TA": -7.2,
+    "TA/AT": -7.2,
+    "CA/GT": -8.5,
+    "GT/CA": -8.4,
+    "CT/GA": -7.8,
+    "GA/CT": -8.2,
+    "CG/GC": -10.6,
+    "GC/CG": -9.8,
+    "GG/CC": -8.0,
     # Reverse-complement equivalents for faster lookup
     # (avoids runtime reverse_complement calculation)
-    'TT/AA': -7.9,   # = AA/TT
-    'AC/TG': -8.4,   # = GT/CA
-    'TC/AG': -8.2,   # = GA/CT
-    'AG/TC': -8.0,   # = GG/CC (entropy differs slightly)
-    'TG/AC': -8.5,   # = CA/GT
-    'CC/GG': -8.0,   # = GG/CC
+    "TT/AA": -7.9,  # = AA/TT
+    "AC/TG": -8.4,  # = GT/CA
+    "TC/AG": -8.2,  # = GA/CT
+    "AG/TC": -8.0,  # = GG/CC (entropy differs slightly)
+    "TG/AC": -8.5,  # = CA/GT
+    "CC/GG": -8.0,  # = GG/CC
 }
 
 # Entropy values (cal/(mol*K)) - must match ENTHALPY_NN keys
 ENTROPY_NN = {
     # SantaLucia (1998) unified NN parameters - Table 1
     # Values in cal/(mol*K)
-    'AA/TT': -22.2,
-    'AT/TA': -20.4,
-    'TA/AT': -21.3,
-    'CA/GT': -22.7,
-    'GT/CA': -22.4,
-    'CT/GA': -21.0,
-    'GA/CT': -22.2,
-    'CG/GC': -27.2,
-    'GC/CG': -24.4,
-    'GG/CC': -19.9,
+    "AA/TT": -22.2,
+    "AT/TA": -20.4,
+    "TA/AT": -21.3,
+    "CA/GT": -22.7,
+    "GT/CA": -22.4,
+    "CT/GA": -21.0,
+    "GA/CT": -22.2,
+    "CG/GC": -27.2,
+    "GC/CG": -24.4,
+    "GG/CC": -19.9,
     # Reverse-complement equivalents
-    'TT/AA': -22.2,   # = AA/TT
-    'AC/TG': -22.4,   # = GT/CA
-    'TC/AG': -22.2,   # = GA/CT
-    'AG/TC': -19.9,   # = GG/CC
-    'TG/AC': -22.7,   # = CA/GT
-    'CC/GG': -19.9,   # = GG/CC
+    "TT/AA": -22.2,  # = AA/TT
+    "AC/TG": -22.4,  # = GT/CA
+    "TC/AG": -22.2,  # = GA/CT
+    "AG/TC": -19.9,  # = GG/CC
+    "TG/AC": -22.7,  # = CA/GT
+    "CC/GG": -19.9,  # = GG/CC
 }
 
 # The 10 canonical Watson-Crick nearest-neighbor stacks from SantaLucia (1998):
@@ -97,7 +108,7 @@ SYMMETRY_ENTROPY = -1.4  # cal/(mol*K)
 
 
 # IUPAC ambiguous base codes
-IUPAC_AMBIGUOUS = set('NRYSWKMBDHV')
+IUPAC_AMBIGUOUS = set("NRYSWKMBDHV")
 
 
 def normalize_sequence(seq: str) -> str:
@@ -129,9 +140,10 @@ def has_ambiguous_bases(seq: str) -> bool:
 
 
 _RC_TABLE = str.maketrans(
-    'ATGCNRYWSKMBDHV',
-    'TACGNNNNNNNNNNN',
+    "ATGCNRYWSKMBDHV",
+    "TACGNNNNNNNNNNN",
 )
+
 
 def reverse_complement(seq: str) -> str:
     """
@@ -151,12 +163,14 @@ def is_palindrome(seq: str) -> bool:
 
 def is_watson_crick(base1: str, base2: str) -> bool:
     """Check if two bases form Watson-Crick pair."""
-    pairs = {('A', 'T'), ('T', 'A'), ('G', 'C'), ('C', 'G')}
+    pairs = {("A", "T"), ("T", "A"), ("G", "C"), ("C", "G")}
     return (base1, base2) in pairs
 
 
 @lru_cache(maxsize=1000000)
-def calculate_enthalpy_entropy_cached(seq: str, complementary: Optional[str] = None) -> Tuple[float, float]:
+def calculate_enthalpy_entropy_cached(
+    seq: str, complementary: Optional[str] = None
+) -> Tuple[float, float]:
     """
     Cached version of enthalpy/entropy calculation.
     Uses LRU cache (1M entries) for 100-1000x speedup on repeated sequences.
@@ -164,7 +178,9 @@ def calculate_enthalpy_entropy_cached(seq: str, complementary: Optional[str] = N
     return _calculate_enthalpy_entropy_impl(seq, complementary)
 
 
-def calculate_enthalpy_entropy(seq: str, complementary: Optional[str] = None) -> Tuple[float, float]:
+def calculate_enthalpy_entropy(
+    seq: str, complementary: Optional[str] = None
+) -> Tuple[float, float]:
     """
     Calculate total enthalpy and entropy for DNA duplex using nearest-neighbor model.
 
@@ -181,7 +197,9 @@ def calculate_enthalpy_entropy(seq: str, complementary: Optional[str] = None) ->
     return calculate_enthalpy_entropy_cached(seq, complementary)
 
 
-def _calculate_enthalpy_entropy_impl(seq: str, complementary: Optional[str] = None) -> Tuple[float, float]:
+def _calculate_enthalpy_entropy_impl(
+    seq: str, complementary: Optional[str] = None
+) -> Tuple[float, float]:
     """
     Implementation of enthalpy/entropy calculation (uncached).
 
@@ -208,7 +226,7 @@ def _calculate_enthalpy_entropy_impl(seq: str, complementary: Optional[str] = No
         warnings.warn(
             f"Sequence contains ambiguous bases: {seq}. "
             "Tm calculation will use default penalty values for unknown stacks.",
-            UserWarning
+            UserWarning,
         )
 
     if len(seq) != len(complementary):
@@ -233,8 +251,8 @@ def _calculate_enthalpy_entropy_impl(seq: str, complementary: Optional[str] = No
     # Sum nearest-neighbor contributions
     for i in range(len(seq) - 1):
         # Get dinucleotide stack
-        stack_top = seq[i:i+2]
-        stack_bottom = complement_3to5[i:i+2]  # Already in 3'->5' orientation
+        stack_top = seq[i : i + 2]
+        stack_bottom = complement_3to5[i : i + 2]  # Already in 3'->5' orientation
 
         # Create stack notation: top/bottom (SantaLucia convention)
         stack = f"{stack_top}/{stack_bottom}"
@@ -255,11 +273,11 @@ def _calculate_enthalpy_entropy_impl(seq: str, complementary: Optional[str] = No
                 total_entropy += -21.0  # Average value
 
     # Terminal AT penalty
-    if seq[0] in ['A', 'T']:
+    if seq[0] in ["A", "T"]:
         total_enthalpy += TERMINAL_AT_ENTHALPY
         total_entropy += TERMINAL_AT_ENTROPY
 
-    if seq[-1] in ['A', 'T']:
+    if seq[-1] in ["A", "T"]:
         total_enthalpy += TERMINAL_AT_ENTHALPY
         total_entropy += TERMINAL_AT_ENTROPY
 
@@ -341,11 +359,13 @@ def calculate_salt_correction(na_conc: float = 50, mg_conc: float = 0) -> float:
     return salt_correction
 
 
-def calculate_tm_with_salt(seq: str,
-                           na_conc: float = 50,
-                           mg_conc: float = 0,
-                           primer_conc: float = 0.5e-6,
-                           method: str = 'entropy') -> float:
+def calculate_tm_with_salt(
+    seq: str,
+    na_conc: float = 50,
+    mg_conc: float = 0,
+    primer_conc: float = 0.5e-6,
+    method: str = "entropy",
+) -> float:
     """
     Calculate melting temperature with salt corrections.
 
@@ -368,7 +388,7 @@ def calculate_tm_with_salt(seq: str,
     Returns:
         Tm in degrees Celsius
     """
-    if method == 'entropy':
+    if method == "entropy":
         return _calculate_tm_entropy_salt(seq, na_conc, mg_conc, primer_conc)
     else:
         tm_basic = calculate_tm_basic(seq, primer_conc)
@@ -376,10 +396,9 @@ def calculate_tm_with_salt(seq: str,
         return tm_basic + salt_corr
 
 
-def _calculate_tm_entropy_salt(seq: str,
-                               na_conc: float = 50,
-                               mg_conc: float = 0,
-                               primer_conc: float = 0.5e-6) -> float:
+def _calculate_tm_entropy_salt(
+    seq: str, na_conc: float = 50, mg_conc: float = 0, primer_conc: float = 0.5e-6
+) -> float:
     """
     Calculate Tm with Owczarzy (2004) entropy-based salt correction.
 
@@ -446,10 +465,9 @@ def calculate_free_energy(seq: str, temperature: float = 37.0) -> float:
     return delta_g
 
 
-def calculate_binding_probability(seq: str,
-                                  temperature: float = 37.0,
-                                  na_conc: float = 50,
-                                  mg_conc: float = 0) -> float:
+def calculate_binding_probability(
+    seq: str, temperature: float = 37.0, na_conc: float = 50, mg_conc: float = 0
+) -> float:
     """
     Calculate probability of primer being bound at given temperature.
 
@@ -476,9 +494,13 @@ def calculate_binding_probability(seq: str,
     return p_bound
 
 
-def energy_to_tm(delta_g: float, seq_length: int,
-                 na_conc: float = 50, mg_conc: float = 0,
-                 reference_temp: float = 37.0) -> float:
+def energy_to_tm(
+    delta_g: float,
+    seq_length: int,
+    na_conc: float = 50,
+    mg_conc: float = 0,
+    reference_temp: float = 37.0,
+) -> float:
     """
     Estimate Tm from free energy (approximate conversion).
 
@@ -516,7 +538,7 @@ def energy_to_tm(delta_g: float, seq_length: int,
     # Standard primer concentration: 0.5 uM = 0.5e-6 M
     denominator = est_entropy + R * np.log(0.5e-6 / 4)
     if abs(denominator) < 1e-10:
-        return float('nan')  # Avoid division by zero
+        return float("nan")  # Avoid division by zero
 
     tm_kelvin = est_enthalpy / denominator
     tm_celsius = tm_kelvin - 273.15
@@ -527,10 +549,9 @@ def energy_to_tm(delta_g: float, seq_length: int,
     return tm_celsius + salt_corr
 
 
-def calculate_tm_range(seq: str,
-                       na_conc: float = 50,
-                       mg_conc: float = 0,
-                       primer_conc: float = 0.5e-6) -> Tuple[float, float]:
+def calculate_tm_range(
+    seq: str, na_conc: float = 50, mg_conc: float = 0, primer_conc: float = 0.5e-6
+) -> Tuple[float, float]:
     """
     Calculate Tm range accounting for uncertainty.
 
@@ -557,10 +578,11 @@ def calculate_tm_range(seq: str,
 # GC Content and Quick Estimates
 # ========================================
 
+
 def gc_content(seq: str) -> float:
     """Calculate GC content as fraction."""
     seq_upper = seq.upper()
-    gc_count = seq_upper.count('G') + seq_upper.count('C')
+    gc_count = seq_upper.count("G") + seq_upper.count("C")
     return gc_count / len(seq) if len(seq) > 0 else 0.0
 
 
@@ -579,8 +601,8 @@ def wallace_tm(seq: str) -> float:
         Tm in degrees Celsius
     """
     seq_upper = seq.upper()
-    at_count = seq_upper.count('A') + seq_upper.count('T')
-    gc_count = seq_upper.count('G') + seq_upper.count('C')
+    at_count = seq_upper.count("A") + seq_upper.count("T")
+    gc_count = seq_upper.count("G") + seq_upper.count("C")
 
     return 2 * at_count + 4 * gc_count
 
@@ -593,25 +615,73 @@ def wallace_tm(seq: str) -> float:
 # Free energy values for mismatched nearest-neighbor doublets
 # From SantaLucia (1998) - includes internal mismatches
 DELTA_G_MISMATCH = {
-    'GA/CA': 0.17, 'GA/CC': 0.81, 'GA/CG': -0.25, 'GA/CT': -1.30,
-    'GC/CA': 0.47, 'GC/CC': 0.79, 'GC/CG': -2.24, 'GC/CT': 0.62,
-    'GG/CA': -0.52, 'GG/CC': -1.84, 'GG/CG': -1.11, 'GG/CT': 0.08,
-    'GT/CA': -1.44, 'GT/CC': 0.98, 'GT/CG': -0.59, 'GT/CT': 0.45,
-    'CA/GA': 0.43, 'CA/GC': 0.75, 'CA/GG': 0.03, 'CA/GT': -1.45,
-    'CC/GA': 0.79, 'CC/GC': 0.70, 'CC/GG': -1.84, 'CC/GT': 0.62,
-    'CG/GA': 0.11, 'CG/GC': -2.17, 'CG/GG': -0.11, 'CG/GT': -0.47,
-    'CT/GA': -1.28, 'CT/GC': 0.40, 'CT/GG': -0.32, 'CT/GT': -0.12,
-    'AA/TA': 0.61, 'AA/TC': 0.88, 'AA/TG': 0.14, 'AA/TT': -1.00,
-    'AC/TA': 0.77, 'AC/TC': 1.33, 'AC/TG': -1.44, 'AC/TT': 0.64,
-    'AG/TA': 0.02, 'AG/TC': -1.28, 'AG/TG': -0.13, 'AG/TT': 0.71,
-    'AT/TA': -0.88, 'AT/TC': 0.73, 'AT/TG': 0.07, 'AT/TT': 0.69,
-    'TA/AA': 0.69, 'TA/AC': 0.92, 'TA/AG': 0.42, 'TA/AT': -0.58,
-    'TC/AA': 1.33, 'TC/AC': 1.05, 'TC/AG': -1.30, 'TC/AT': 0.97,
-    'TG/AA': 0.74, 'TG/AC': -1.45, 'TG/AG': 0.44, 'TG/AT': 0.43,
-    'TT/AA': -1.00, 'TT/AC': 0.75, 'TT/AG': 0.34, 'TT/AT': 0.68
+    "GA/CA": 0.17,
+    "GA/CC": 0.81,
+    "GA/CG": -0.25,
+    "GA/CT": -1.30,
+    "GC/CA": 0.47,
+    "GC/CC": 0.79,
+    "GC/CG": -2.24,
+    "GC/CT": 0.62,
+    "GG/CA": -0.52,
+    "GG/CC": -1.84,
+    "GG/CG": -1.11,
+    "GG/CT": 0.08,
+    "GT/CA": -1.44,
+    "GT/CC": 0.98,
+    "GT/CG": -0.59,
+    "GT/CT": 0.45,
+    "CA/GA": 0.43,
+    "CA/GC": 0.75,
+    "CA/GG": 0.03,
+    "CA/GT": -1.45,
+    "CC/GA": 0.79,
+    "CC/GC": 0.70,
+    "CC/GG": -1.84,
+    "CC/GT": 0.62,
+    "CG/GA": 0.11,
+    "CG/GC": -2.17,
+    "CG/GG": -0.11,
+    "CG/GT": -0.47,
+    "CT/GA": -1.28,
+    "CT/GC": 0.40,
+    "CT/GG": -0.32,
+    "CT/GT": -0.12,
+    "AA/TA": 0.61,
+    "AA/TC": 0.88,
+    "AA/TG": 0.14,
+    "AA/TT": -1.00,
+    "AC/TA": 0.77,
+    "AC/TC": 1.33,
+    "AC/TG": -1.44,
+    "AC/TT": 0.64,
+    "AG/TA": 0.02,
+    "AG/TC": -1.28,
+    "AG/TG": -0.13,
+    "AG/TT": 0.71,
+    "AT/TA": -0.88,
+    "AT/TC": 0.73,
+    "AT/TG": 0.07,
+    "AT/TT": 0.69,
+    "TA/AA": 0.69,
+    "TA/AC": 0.92,
+    "TA/AG": 0.42,
+    "TA/AT": -0.58,
+    "TC/AA": 1.33,
+    "TC/AC": 1.05,
+    "TC/AG": -1.30,
+    "TC/AT": 0.97,
+    "TG/AA": 0.74,
+    "TG/AC": -1.45,
+    "TG/AG": 0.44,
+    "TG/AT": 0.43,
+    "TT/AA": -1.00,
+    "TT/AC": 0.75,
+    "TT/AG": 0.34,
+    "TT/AT": 0.68,
 }
 
-NN_INIT_CORRECTIONS = {'G/C': 0.98, 'A/T': 1.03, 'C/G': 0.98, 'T/A': 1.03}
+NN_INIT_CORRECTIONS = {"G/C": 0.98, "A/T": 1.03, "C/G": 0.98, "T/A": 1.03}
 
 # ---------------------------------------------------------------------------
 # Numeric encoding for inner-loop lookups (avoids string allocation and dict
@@ -622,29 +692,34 @@ NN_INIT_CORRECTIONS = {'G/C': 0.98, 'A/T': 1.03, 'C/G': 0.98, 'T/A': 1.03}
 # penalty value.
 # ---------------------------------------------------------------------------
 _BASE_ORD = [255] * 256  # ordinal -> encoded value; 255 = unknown
-_BASE_ORD[ord('A')] = 0; _BASE_ORD[ord('C')] = 1
-_BASE_ORD[ord('G')] = 2; _BASE_ORD[ord('T')] = 3
+_BASE_ORD[ord("A")] = 0
+_BASE_ORD[ord("C")] = 1
+_BASE_ORD[ord("G")] = 2
+_BASE_ORD[ord("T")] = 3
 
 _COMPLEMENT_ORD = {0: 3, 1: 2, 2: 1, 3: 0}  # A<->T, C<->G
 
 # Build flat array for nearest-neighbor delta-G lookups
-_DG_ARRAY = [float('nan')] * 256
+_DG_ARRAY = [float("nan")] * 256
 for _k, _v in DELTA_G_MISMATCH.items():
-    _b = _k.replace('/', '')  # e.g. 'GA/CA' -> 'GACA'
-    _i = (_BASE_ORD[ord(_b[0])] * 64 + _BASE_ORD[ord(_b[1])] * 16 +
-          _BASE_ORD[ord(_b[2])] * 4 + _BASE_ORD[ord(_b[3])])
+    _b = _k.replace("/", "")  # e.g. 'GA/CA' -> 'GACA'
+    _i = (
+        _BASE_ORD[ord(_b[0])] * 64
+        + _BASE_ORD[ord(_b[1])] * 16
+        + _BASE_ORD[ord(_b[2])] * 4
+        + _BASE_ORD[ord(_b[3])]
+    )
     _DG_ARRAY[_i] = _v
 
 # Terminal correction array indexed by (x_base, y_base) -> 4*x + y
-_INIT_ARRAY = [float('nan')] * 16
+_INIT_ARRAY = [float("nan")] * 16
 for _k, _v in NN_INIT_CORRECTIONS.items():
     _x_enc = _BASE_ORD[ord(_k[0])]
     _y_enc = _BASE_ORD[ord(_k[2])]
     _INIT_ARRAY[_x_enc * 4 + _y_enc] = _v
 
 # Module-level complement map (avoids rebuilding dict on every call)
-_COMPLEMENT_MAP = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G',
-                   'a': 't', 't': 'a', 'g': 'c', 'c': 'g'}
+_COMPLEMENT_MAP = {"A": "T", "T": "A", "G": "C", "C": "G", "a": "t", "t": "a", "g": "c", "c": "g"}
 
 
 def complement(base: str) -> str:
@@ -763,8 +838,8 @@ def clear_thermodynamic_caches() -> None:
 def get_cache_stats() -> Dict[str, Any]:
     """Return cache statistics for performance monitoring."""
     return {
-        'enthalpy_entropy': calculate_enthalpy_entropy_cached.cache_info(),
-        'free_energy': compute_free_energy_for_two_strings_cached.cache_info()
+        "enthalpy_entropy": calculate_enthalpy_entropy_cached.cache_info(),
+        "free_energy": compute_free_energy_for_two_strings_cached.cache_info(),
     }
 
 
@@ -801,10 +876,10 @@ def log_cache_stats(label: str = "") -> None:
 # Vectorized Batch Tm Calculations
 # ========================================
 
-def calculate_tm_batch(sequences: List[str],
-                       na_conc: float = 50.0,
-                       mg_conc: float = 0.0,
-                       primer_conc: float = 0.5e-6) -> np.ndarray:
+
+def calculate_tm_batch(
+    sequences: List[str], na_conc: float = 50.0, mg_conc: float = 0.0, primer_conc: float = 0.5e-6
+) -> np.ndarray:
     """
     Calculate Tm for a batch of sequences using vectorized operations.
 
@@ -842,17 +917,19 @@ def calculate_tm_batch(sequences: List[str],
     return tm_values
 
 
-def calculate_tm_batch_with_additives(sequences: List[str],
-                                       na_conc: float = 50.0,
-                                       mg_conc: float = 0.0,
-                                       primer_conc: float = 0.5e-6,
-                                       dmso_percent: float = 0.0,
-                                       betaine_m: float = 0.0,
-                                       formamide_percent: float = 0.0,
-                                       trehalose_m: float = 0.0,
-                                       ethanol_percent: float = 0.0,
-                                       urea_m: float = 0.0,
-                                       tmac_m: float = 0.0) -> np.ndarray:
+def calculate_tm_batch_with_additives(
+    sequences: List[str],
+    na_conc: float = 50.0,
+    mg_conc: float = 0.0,
+    primer_conc: float = 0.5e-6,
+    dmso_percent: float = 0.0,
+    betaine_m: float = 0.0,
+    formamide_percent: float = 0.0,
+    trehalose_m: float = 0.0,
+    ethanol_percent: float = 0.0,
+    urea_m: float = 0.0,
+    tmac_m: float = 0.0,
+) -> np.ndarray:
     """
     DEPRECATED: Calculate Tm for a batch of sequences with additive corrections.
 
@@ -896,7 +973,7 @@ def calculate_tm_batch_with_additives(sequences: List[str],
         "neoswga.core.reaction_conditions instead, which implements "
         "GC-dependent corrections for TMAC and betaine.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     # Get base Tm values
     tm_values = calculate_tm_batch(sequences, na_conc, mg_conc, primer_conc)
@@ -906,13 +983,13 @@ def calculate_tm_batch_with_additives(sequences: List[str],
     # The betaine coefficient (2.3) is particularly inaccurate for AT-rich genomes.
     # Use ReactionConditions.calculate_effective_tm() for accurate calculations.
     additive_correction = 0.0
-    additive_correction -= 0.6 * dmso_percent      # DMSO
-    additive_correction -= 2.3 * betaine_m         # Betaine (WRONG - ignores GC-dependence)
-    additive_correction -= 0.65 * formamide_percent # Formamide
-    additive_correction -= 5.0 * trehalose_m       # Trehalose
-    additive_correction -= 0.5 * ethanol_percent   # Ethanol
-    additive_correction -= 5.0 * urea_m            # Urea
-    additive_correction -= 10.0 * tmac_m           # TMAC (~-1C per 0.1M)
+    additive_correction -= 0.6 * dmso_percent  # DMSO
+    additive_correction -= 2.3 * betaine_m  # Betaine (WRONG - ignores GC-dependence)
+    additive_correction -= 0.65 * formamide_percent  # Formamide
+    additive_correction -= 5.0 * trehalose_m  # Trehalose
+    additive_correction -= 0.5 * ethanol_percent  # Ethanol
+    additive_correction -= 5.0 * urea_m  # Urea
+    additive_correction -= 10.0 * tmac_m  # TMAC (~-1C per 0.1M)
 
     # Apply correction to all sequences (vectorized)
     if additive_correction != 0.0:
@@ -935,7 +1012,7 @@ def calculate_gc_batch(sequences: List[str]) -> np.ndarray:
 
     for i, seq in enumerate(sequences):
         seq_upper = seq.upper()
-        gc_count = seq_upper.count('G') + seq_upper.count('C')
+        gc_count = seq_upper.count("G") + seq_upper.count("C")
         gc_values[i] = gc_count / len(seq) if len(seq) > 0 else 0.0
 
     return gc_values
@@ -957,8 +1034,8 @@ def calculate_wallace_tm_batch(sequences: List[str]) -> np.ndarray:
 
     for i, seq in enumerate(sequences):
         seq_upper = seq.upper()
-        at_count = seq_upper.count('A') + seq_upper.count('T')
-        gc_count = seq_upper.count('G') + seq_upper.count('C')
+        at_count = seq_upper.count("A") + seq_upper.count("T")
+        gc_count = seq_upper.count("G") + seq_upper.count("C")
         tm_values[i] = 2 * at_count + 4 * gc_count
 
     return tm_values
@@ -968,7 +1045,8 @@ def calculate_wallace_tm_batch(sequences: List[str]) -> np.ndarray:
 # Helper to create ReactionConditions from parameters
 # ========================================
 
-def get_reaction_conditions_from_params() -> 'ReactionConditions':
+
+def get_reaction_conditions_from_params() -> "ReactionConditions":
     """
     Create a ReactionConditions object from the current parameter module settings.
 
@@ -979,33 +1057,34 @@ def get_reaction_conditions_from_params() -> 'ReactionConditions':
     Returns:
         ReactionConditions object configured with current parameter settings
     """
-    from neoswga.core.reaction_conditions import ReactionConditions
     import neoswga.core.parameter as parameter
+    from neoswga.core.reaction_conditions import ReactionConditions
 
     # Get reaction temperature, defaulting to polymerase optimal temp
-    reaction_temp = getattr(parameter, 'reaction_temp', None)
-    polymerase = getattr(parameter, 'polymerase', 'phi29')
+    reaction_temp = getattr(parameter, "reaction_temp", None)
+    polymerase = getattr(parameter, "polymerase", "phi29")
 
     # Auto-set temperature based on polymerase if not specified
     if reaction_temp is None:
         from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
+
         if polymerase.lower() in POLYMERASE_CHARACTERISTICS:
-            reaction_temp = POLYMERASE_CHARACTERISTICS[polymerase.lower()]['optimal_temp']
+            reaction_temp = POLYMERASE_CHARACTERISTICS[polymerase.lower()]["optimal_temp"]
         else:
             reaction_temp = 30.0  # Default to phi29 temperature
 
     return ReactionConditions(
         temp=reaction_temp,
-        na_conc=getattr(parameter, 'na_conc', 50.0),
-        mg_conc=getattr(parameter, 'mg_conc', 2.0),
-        dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
-        betaine_m=getattr(parameter, 'betaine_m', 0.0),
-        trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
-        formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
-        ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
-        urea_m=getattr(parameter, 'urea_m', 0.0),
-        tmac_m=getattr(parameter, 'tmac_m', 0.0),
-        polymerase=polymerase
+        na_conc=getattr(parameter, "na_conc", 50.0),
+        mg_conc=getattr(parameter, "mg_conc", 2.0),
+        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
+        betaine_m=getattr(parameter, "betaine_m", 0.0),
+        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
+        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
+        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
+        urea_m=getattr(parameter, "urea_m", 0.0),
+        tmac_m=getattr(parameter, "tmac_m", 0.0),
+        polymerase=polymerase,
     )
 
 

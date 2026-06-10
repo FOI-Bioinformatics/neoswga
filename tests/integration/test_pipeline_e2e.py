@@ -39,6 +39,33 @@ def pipeline_workdir():
     original_cwd = os.getcwd()
     os.chdir(tmpdir)
 
+    # Prime the pipeline outputs (step2 -> step3 -> step4) so the read-only
+    # tests in this class find step2_df.csv / step3_df.csv / step4_improved_df.csv
+    # regardless of execution order. Tests that exercise a specific step delete
+    # and regenerate their own target, so this priming does not mask them.
+    # The k-mer count files are copied from EXAMPLE_DIR (generated once by the
+    # session-scoped _ensure_example_kmers fixture in conftest).
+    def _reset():
+        import neoswga.core.pipeline as pipeline_mod
+        from neoswga.core import parameter
+        pipeline_mod._initialized = False
+        for attr in ('fg_prefixes', 'bg_prefixes', 'fg_genomes', 'bg_genomes',
+                     'fg_seq_lengths', 'bg_seq_lengths', 'fg_circular', 'bg_circular'):
+            setattr(pipeline_mod, attr, None)
+        parameter.json_file = params_path
+
+    try:
+        from neoswga.core.pipeline import step2, step3
+        from neoswga.core.unified_optimizer import optimize_step4
+        _reset(); step2()
+        _reset(); step3()
+        _reset(); optimize_step4(optimization_method='dominating-set', verbose=False)
+    except Exception:
+        # Leave the workdir as-is; step-specific tests will surface failures.
+        pass
+    finally:
+        _reset()
+
     yield tmpdir
 
     os.chdir(original_cwd)

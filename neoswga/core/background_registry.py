@@ -30,11 +30,11 @@ Usage:
 import json
 import logging
 import os
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
 from glob import glob
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,7 @@ class BackgroundEntry:
         description: Additional description
         source: Source/reference for the genome
     """
+
     name: str
     species: str
     genome_size: int
@@ -91,31 +92,31 @@ class BackgroundEntry:
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""
         return {
-            'name': self.name,
-            'species': self.species,
-            'genome_size': self.genome_size,
-            'bloom_path': self.bloom_path,
-            'kmer_prefix': self.kmer_prefix,
-            'k_range': list(self.k_range),
-            'created_date': self.created_date,
-            'description': self.description,
-            'source': self.source,
+            "name": self.name,
+            "species": self.species,
+            "genome_size": self.genome_size,
+            "bloom_path": self.bloom_path,
+            "kmer_prefix": self.kmer_prefix,
+            "k_range": list(self.k_range),
+            "created_date": self.created_date,
+            "description": self.description,
+            "source": self.source,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'BackgroundEntry':
+    def from_dict(cls, data: Dict) -> "BackgroundEntry":
         """Create from dictionary."""
-        k_range = tuple(data.get('k_range', [6, 12]))
+        k_range = tuple(data.get("k_range", [6, 12]))
         return cls(
-            name=data['name'],
-            species=data['species'],
-            genome_size=data['genome_size'],
-            bloom_path=data.get('bloom_path'),
-            kmer_prefix=data.get('kmer_prefix'),
+            name=data["name"],
+            species=data["species"],
+            genome_size=data["genome_size"],
+            bloom_path=data.get("bloom_path"),
+            kmer_prefix=data.get("kmer_prefix"),
             k_range=k_range,
-            created_date=data.get('created_date', ''),
-            description=data.get('description', ''),
-            source=data.get('source', ''),
+            created_date=data.get("created_date", ""),
+            description=data.get("description", ""),
+            source=data.get("source", ""),
         )
 
     def __str__(self) -> str:
@@ -144,9 +145,9 @@ class BackgroundRegistry:
 
     # Default search directories
     DEFAULT_DIRS = [
-        '~/.neoswga/backgrounds',
-        './backgrounds',
-        './filters',
+        "~/.neoswga/backgrounds",
+        "./backgrounds",
+        "./filters",
     ]
 
     def __init__(
@@ -163,9 +164,9 @@ class BackgroundRegistry:
             auto_discover: Whether to auto-discover backgrounds on init
         """
         if registry_path is None:
-            registry_dir = Path.home() / '.neoswga'
+            registry_dir = Path.home() / ".neoswga"
             registry_dir.mkdir(exist_ok=True)
-            registry_path = str(registry_dir / 'background_registry.json')
+            registry_path = str(registry_dir / "background_registry.json")
 
         self.registry_path = registry_path
         self.entries: Dict[str, BackgroundEntry] = {}
@@ -180,7 +181,7 @@ class BackgroundRegistry:
             try:
                 with open(self.registry_path) as f:
                     data = json.load(f)
-                    for entry_data in data.get('entries', []):
+                    for entry_data in data.get("entries", []):
                         entry = BackgroundEntry.from_dict(entry_data)
                         self.entries[entry.name] = entry
                 logger.debug(f"Loaded {len(self.entries)} background entries")
@@ -194,11 +195,11 @@ class BackgroundRegistry:
         """Save registry to file."""
         try:
             data = {
-                'version': '1.0',
-                'updated': datetime.now().isoformat(),
-                'entries': [entry.to_dict() for entry in self.entries.values()],
+                "version": "1.0",
+                "updated": datetime.now().isoformat(),
+                "entries": [entry.to_dict() for entry in self.entries.values()],
             }
-            with open(self.registry_path, 'w') as f:
+            with open(self.registry_path, "w") as f:
                 json.dump(data, f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save registry: {e}")
@@ -327,7 +328,7 @@ class BackgroundRegistry:
                 logger.info(f"Searching {dir_path}...")
 
             # Look for Bloom filters
-            bloom_files = glob(os.path.join(dir_path, '*_bloom*.pkl'))
+            bloom_files = glob(os.path.join(dir_path, "*_bloom*.pkl"))
             for bloom_file in bloom_files:
                 name = self._infer_name_from_bloom(bloom_file)
                 if name and name not in self.entries:
@@ -344,9 +345,9 @@ class BackgroundRegistry:
                         logger.info(f"  Found: {name}")
 
             # Look for k-mer file sets
-            kmer_files = glob(os.path.join(dir_path, '*_6mer_all.txt'))
+            kmer_files = glob(os.path.join(dir_path, "*_6mer_all.txt"))
             for kmer_file in kmer_files:
-                prefix = kmer_file.replace('_6mer_all.txt', '')
+                prefix = kmer_file.replace("_6mer_all.txt", "")
                 name = self._infer_name_from_prefix(prefix)
                 if name and name not in self.entries:
                     # Determine k-mer range
@@ -373,9 +374,9 @@ class BackgroundRegistry:
         basename = os.path.basename(bloom_path)
         # Remove common suffixes
         name = basename
-        for suffix in ['_bloom_filter.pkl', '_bloom.pkl', '.pkl']:
+        for suffix in ["_bloom_filter.pkl", "_bloom.pkl", ".pkl"]:
             if name.endswith(suffix):
-                name = name[:-len(suffix)]
+                name = name[: -len(suffix)]
                 break
         return name if name else None
 
@@ -414,8 +415,7 @@ class BackgroundRegistry:
         results = []
 
         for entry in self.entries.values():
-            if (query_lower in entry.name.lower() or
-                query_lower in entry.species.lower()):
+            if query_lower in entry.name.lower() or query_lower in entry.species.lower():
                 results.append(entry)
 
         return results
@@ -423,23 +423,23 @@ class BackgroundRegistry:
 
 # Common pre-defined backgrounds
 COMMON_BACKGROUNDS = {
-    'human': {
-        'name': 'Human GRCh38',
-        'species': 'Homo sapiens',
-        'genome_size': 3_088_286_401,
-        'source': 'NCBI GRCh38',
+    "human": {
+        "name": "Human GRCh38",
+        "species": "Homo sapiens",
+        "genome_size": 3_088_286_401,
+        "source": "NCBI GRCh38",
     },
-    'mouse': {
-        'name': 'Mouse GRCm39',
-        'species': 'Mus musculus',
-        'genome_size': 2_728_222_451,
-        'source': 'NCBI GRCm39',
+    "mouse": {
+        "name": "Mouse GRCm39",
+        "species": "Mus musculus",
+        "genome_size": 2_728_222_451,
+        "source": "NCBI GRCm39",
     },
-    'ecoli': {
-        'name': 'E. coli K-12',
-        'species': 'Escherichia coli',
-        'genome_size': 4_641_652,
-        'source': 'NCBI NC_000913',
+    "ecoli": {
+        "name": "E. coli K-12",
+        "species": "Escherichia coli",
+        "genome_size": 4_641_652,
+        "source": "NCBI NC_000913",
     },
 }
 

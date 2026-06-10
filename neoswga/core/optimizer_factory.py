@@ -21,9 +21,9 @@ Usage:
         ...
 """
 
-from typing import Dict, Type, Optional, List, Any, Callable
 import logging
 import threading
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from .base_optimizer import BaseOptimizer, OptimizerConfig
 from .exceptions import OptimizerNotFoundError
@@ -55,10 +55,7 @@ class OptimizerRegistry:
 
     @classmethod
     def register(
-        cls,
-        name: str,
-        aliases: Optional[List[str]] = None,
-        description: Optional[str] = None
+        cls, name: str, aliases: Optional[List[str]] = None, description: Optional[str] = None
     ) -> Callable[[Type[BaseOptimizer]], Type[BaseOptimizer]]:
         """
         Decorator to register an optimizer class.
@@ -77,6 +74,7 @@ class OptimizerRegistry:
                 '''Greedy breadth-first search optimizer.'''
                 ...
         """
+
         def decorator(optimizer_class: Type[BaseOptimizer]) -> Type[BaseOptimizer]:
             # Validate
             if not issubclass(optimizer_class, BaseOptimizer):
@@ -93,7 +91,7 @@ class OptimizerRegistry:
                 desc = description or optimizer_class.__doc__
                 if desc:
                     # Take first line of docstring
-                    cls._descriptions[name] = desc.strip().split('\n')[0]
+                    cls._descriptions[name] = desc.strip().split("\n")[0]
                 else:
                     cls._descriptions[name] = f"{name} optimizer"
 
@@ -191,7 +189,7 @@ class OptimizerFactory:
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
-        **kwargs
+        **kwargs,
     ) -> BaseOptimizer:
         """
         Create optimizer instance by name.
@@ -250,7 +248,7 @@ class OptimizerFactory:
                 bg_prefixes=bg_prefixes,
                 bg_seq_lengths=bg_seq_lengths,
                 config=optimizer_config,
-                **kwargs
+                **kwargs,
             )
             logger.info(f"Created optimizer: {optimizer.name}")
             return optimizer
@@ -283,54 +281,51 @@ class OptimizerFactory:
             OptimizerNotFoundError: If requested optimizer is not registered
             InvalidParameterError: If required parameters are missing/invalid
         """
-        from .parameter import get_params
         from .exceptions import InvalidParameterError
+        from .parameter import get_params
 
         # Get optimizer name with validation
-        method = params.get('optimization_method', 'greedy')
+        method = params.get("optimization_method", "greedy")
 
         # Validate that optimizer exists before proceeding
         if not OptimizerRegistry.is_registered(method):
             available = list(OptimizerRegistry.list_all().keys())
             from .exceptions import OptimizerNotFoundError
+
             raise OptimizerNotFoundError(method, available)
 
         # Build prefixes from data_dir
-        data_dir = params.get('data_dir', '.')
-        fg_prefix = params.get('fg_prefix')
-        bg_prefix = params.get('bg_prefix')
+        data_dir = params.get("data_dir", ".")
+        fg_prefix = params.get("fg_prefix")
+        bg_prefix = params.get("bg_prefix")
 
         fg_prefixes = [fg_prefix] if fg_prefix else []
         bg_prefixes = [bg_prefix] if bg_prefix else []
 
         # Get sequence lengths (would need to be loaded from somewhere)
-        fg_seq_lengths = params.get('fg_seq_lengths', [])
-        bg_seq_lengths = params.get('bg_seq_lengths', [])
+        fg_seq_lengths = params.get("fg_seq_lengths", [])
+        bg_seq_lengths = params.get("bg_seq_lengths", [])
 
         # Validate target set size
-        target_set_size = params.get('num_primers', params.get('target_set_size', 6))
+        target_set_size = params.get("num_primers", params.get("target_set_size", 6))
         if not isinstance(target_set_size, int) or target_set_size < 1:
             raise InvalidParameterError(
-                'target_set_size', target_set_size,
-                "must be a positive integer"
+                "target_set_size", target_set_size, "must be a positive integer"
             )
 
         # Validate iterations
-        iterations = params.get('iterations', 100)
+        iterations = params.get("iterations", 100)
         if not isinstance(iterations, int) or iterations < 1:
-            raise InvalidParameterError(
-                'iterations', iterations,
-                "must be a positive integer"
-            )
+            raise InvalidParameterError("iterations", iterations, "must be a positive integer")
 
         # Build config
         config = OptimizerConfig(
             target_set_size=target_set_size,
             max_iterations=iterations,
-            max_dimer_bp=params.get('max_dimer_bp', 4),
-            min_tm=params.get('min_tm', 20.0),
-            max_tm=params.get('max_tm', 50.0),
-            verbose=params.get('verbose', True),
+            max_dimer_bp=params.get("max_dimer_bp", 4),
+            min_tm=params.get("min_tm", 20.0),
+            max_tm=params.get("max_tm", 50.0),
+            verbose=params.get("verbose", True),
         )
 
         return OptimizerFactory.create(
@@ -366,19 +361,15 @@ class OptimizerFactory:
         """
         optimizer_class = OptimizerRegistry.get(name)
         return {
-            'name': name,
-            'class': optimizer_class.__name__,
-            'description': OptimizerRegistry._descriptions.get(name, ''),
-            'supports_background': getattr(optimizer_class, 'supports_background', True),
-            'module': optimizer_class.__module__,
+            "name": name,
+            "class": optimizer_class.__name__,
+            "description": OptimizerRegistry._descriptions.get(name, ""),
+            "supports_background": getattr(optimizer_class, "supports_background", True),
+            "module": optimizer_class.__module__,
         }
 
     @staticmethod
-    def register(
-        name: str,
-        aliases: Optional[List[str]] = None,
-        description: Optional[str] = None
-    ):
+    def register(name: str, aliases: Optional[List[str]] = None, description: Optional[str] = None):
         """
         Decorator to register an optimizer class.
 
@@ -397,6 +388,7 @@ class OptimizerFactory:
 # =============================================================================
 # Import and register built-in optimizers when this module is loaded.
 # Each optimizer module should use @OptimizerFactory.register() decorator.
+
 
 def _register_builtin_optimizers():
     """

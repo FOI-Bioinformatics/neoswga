@@ -20,18 +20,19 @@ Usage:
 """
 
 import json
-import os
 import logging
+import os
 import threading
-import pandas as pd
 from dataclasses import dataclass
-from typing import List, Dict, Tuple, Optional, Any
+from typing import Any, Dict, List, Optional, Tuple
 
+import pandas as pd
+
+from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
 from .position_cache import PositionCache
 from .progress import progress_context
-from . import parameter
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ _registration_lock = threading.Lock()
 # Exposed so the CLI can surface pareto_front / validation without changing
 # the legacy (primer_sets, scores, cache) return contract. Access via
 # unified_optimizer._LAST_RESULT; do not rely on this for library use.
-_LAST_RESULT: Optional['OptimizationResult'] = None
+_LAST_RESULT: Optional["OptimizationResult"] = None
 
 
 @dataclass
@@ -53,17 +54,18 @@ class OptimizationConfig:
 
     Combines all parameters needed for optimization in one place.
     """
+
     # Optimizer selection
-    method: str = 'hybrid'
+    method: str = "hybrid"
 
     # Target parameters
     target_set_size: int = 6
     max_iterations: int = 100
 
     # File paths
-    data_dir: str = '.'
-    step3_file: str = 'step3_df.csv'
-    output_file: str = 'step4_improved_df.csv'
+    data_dir: str = "."
+    step3_file: str = "step3_df.csv"
+    output_file: str = "step4_improved_df.csv"
 
     # Genome info (loaded from pipeline if not provided)
     fg_prefixes: Optional[List[str]] = None
@@ -117,59 +119,26 @@ def _ensure_optimizers_registered():
 
         # Import optimizer modules to trigger factory registration
         try:
-            from . import greedy_optimizer  # Greedy BFS implementations
+            from . import background_aware_optimizer  # Clinical/background-aware
             from . import dominating_set_adapter  # Graph-based set cover
             from . import hybrid_optimizer  # Two-stage hybrid
             from . import network_optimizer  # Network connectivity
-            from . import genetic_algorithm  # Evolutionary optimization
-            from . import background_aware_optimizer  # Clinical/background-aware
-            from . import equiphi29_optimizer  # EquiPhi29-specific (42C, 12-15bp primers)
-            from . import tiling_optimizer  # Interval-based tiling coverage
         except ImportError as e:
             logger.warning(f"Some optimizer modules not available: {e}")
-
-        # Optional optimizers with external dependencies
-        try:
-            from . import milp_optimizer  # MILP (requires python-mip)
-        except ImportError:
-            pass  # python-mip not installed
-
-        try:
-            from . import normalized_optimizer  # Normalized scoring with strategy presets
-        except ImportError:
-            pass  # Should always work, but be safe
-
-        try:
-            from . import moea_optimizer  # MOEA (requires pymoo)
-        except ImportError:
-            pass  # pymoo not installed
-
-        try:
-            from . import multi_agent_optimizer  # Multi-agent parallel execution
-        except ImportError:
-            pass  # Should always work, but be safe
-
-        try:
-            from . import clique_optimizer  # Clique-based dimer-free (requires networkx)
-        except ImportError:
-            pass  # networkx not installed
-
-        try:
-            from . import background_prefilter  # Background pruning pre-filter
-        except ImportError:
-            pass  # Should always work, but be safe
-
-        try:
-            from . import serial_cascade_optimizer  # Serial pipeline combinations
-        except ImportError:
-            pass  # Should always work, but be safe
 
         _optimizers_registered = True
         logger.debug("Optimizer registration complete")
 
 
-def _prefilter_by_background(cache, candidates, fg_prefixes, bg_prefixes,
-                              min_ratio=1.0, max_removal_fraction=0.20, verbose=False):
+def _prefilter_by_background(
+    cache,
+    candidates,
+    fg_prefixes,
+    bg_prefixes,
+    min_ratio=1.0,
+    max_removal_fraction=0.20,
+    verbose=False,
+):
     """Remove candidates with poor foreground/background binding ratio.
 
     Keeps all primers with ratio >= min_ratio. If that would remove more
@@ -190,8 +159,8 @@ def _prefilter_by_background(cache, candidates, fg_prefixes, bg_prefixes,
     """
     ratios = []
     for primer in candidates:
-        fg_count = sum(len(cache.get_positions(p, primer, 'both')) for p in fg_prefixes)
-        bg_count = sum(len(cache.get_positions(p, primer, 'both')) for p in bg_prefixes)
+        fg_count = sum(len(cache.get_positions(p, primer, "both")) for p in fg_prefixes)
+        bg_count = sum(len(cache.get_positions(p, primer, "both")) for p in bg_prefixes)
         ratios.append((fg_count / (bg_count + 1), primer))
 
     # Keep primers above threshold
@@ -211,8 +180,129 @@ def _prefilter_by_background(cache, candidates, fg_prefixes, bg_prefixes,
     return filtered if filtered else candidates  # never return empty
 
 
+def _reseed(seed) -> None:
+    """Re-seed all RNGs so ensemble methods are mutually reproducible and
+    order-independent. No-op when seed is None."""
+    if seed is None:
+        return
+    import random
+
+    import numpy as np
+
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        from .rf_preprocessing import set_kmer_sampling_seed
+
+        set_kmer_sampling_seed(seed)
+    except Exception:
+        pass
+
+
+def _run_ensemble(
+    methods: List[str],
+    cache,
+    candidates: List[str],
+    fg_prefixes: List[str],
+    fg_seq_lengths: List[int],
+    bg_prefixes: Optional[List[str]],
+    bg_seq_lengths: Optional[List[int]],
+    target_size: int,
+    config,
+    conditions,
+    application: str = "balanced",
+    seed=None,
+    verbose: bool = True,
+    **kwargs,
+) -> OptimizationResult:
+    """Run several optimizers on one shared cache; keep the best.
+
+    Methods are compared by ``normalized_score`` (a [0,1] value comparable
+    across optimizer types, weighted by ``application``) — NOT raw ``score``,
+    which is on per-optimizer scales. A per-method comparison table is attached
+    to the returned result as ``ensemble_comparison``. Per-method failures are
+    logged and skipped (graceful degradation); if every method fails the result
+    is an ERROR.
+
+    Building the PositionCache once (passed in as ``cache``) is the key speed
+    win over calling run_optimization N times.
+    """
+    from dataclasses import replace as _dc_replace
+
+    rows: List[Dict[str, Any]] = []
+    results: Dict[str, OptimizationResult] = {}
+
+    for m in methods:
+        _reseed(seed)  # order-independent reproducibility
+        try:
+            optimizer = OptimizerFactory.create(
+                name=m,
+                position_cache=cache,
+                fg_prefixes=fg_prefixes,
+                fg_seq_lengths=fg_seq_lengths,
+                bg_prefixes=bg_prefixes,
+                bg_seq_lengths=bg_seq_lengths,
+                config=config,
+                conditions=conditions,
+                **kwargs,
+            )
+            with progress_context(f"  ensemble: {optimizer.name}", disable=not verbose):
+                res = optimizer.optimize(candidates, target_size)
+        except Exception as e:
+            logger.warning(f"  ensemble method '{m}' failed: {e}")
+            rows.append(
+                {
+                    "method": m,
+                    "normalized_score": 0.0,
+                    "score": float("-inf"),
+                    "n_primers": 0,
+                    "fg_coverage": 0.0,
+                    "bg_coverage": 0.0,
+                    "status": "error",
+                    "selected": False,
+                }
+            )
+            continue
+
+        norm = res.metrics.normalized_score(application=application)
+        results[m] = res
+        rows.append(
+            {
+                "method": m,
+                "normalized_score": round(float(norm), 4),
+                "score": float(res.score),
+                "n_primers": res.num_primers,
+                "fg_coverage": round(float(res.metrics.fg_coverage), 4),
+                "bg_coverage": round(float(res.metrics.bg_coverage), 4),
+                "status": res.status.value,
+                "selected": False,
+            }
+        )
+
+    if not results:
+        return OptimizationResult.failure("ensemble", f"All ensemble methods failed: {methods}")
+
+    # Pick the winner by normalized_score (application-weighted).
+    best_method = max(
+        results,
+        key=lambda m: results[m].metrics.normalized_score(application=application),
+    )
+    for row in rows:
+        row["selected"] = row["method"] == best_method and row["status"] != "error"
+
+    if verbose:
+        logger.info(
+            f"Ensemble winner: '{best_method}' "
+            f"(normalized_score={results[best_method].metrics.normalized_score(application=application):.4f}, "
+            f"application='{application}')"
+        )
+
+    winner = results[best_method]
+    return _dc_replace(winner, ensemble_comparison=tuple(rows))
+
+
 def run_optimization(
-    method: str = 'hybrid',
+    method: str = "hybrid",
     candidates: Optional[List[str]] = None,
     fg_prefixes: Optional[List[str]] = None,
     fg_seq_lengths: Optional[List[int]] = None,
@@ -220,7 +310,7 @@ def run_optimization(
     bg_seq_lengths: Optional[List[int]] = None,
     target_size: int = 6,
     verbose: bool = True,
-    **kwargs
+    **kwargs,
 ) -> OptimizationResult:
     """
     Run primer set optimization using specified method.
@@ -271,14 +361,15 @@ def run_optimization(
     # Load parameters from pipeline if needed
     if fg_prefixes is None or fg_seq_lengths is None:
         from . import pipeline as core_pipeline
+
         core_pipeline._initialize()
         fg_prefixes = core_pipeline.fg_prefixes
         fg_seq_lengths = core_pipeline.fg_seq_lengths
-        bg_prefixes = bg_prefixes or getattr(core_pipeline, 'bg_prefixes', [])
-        bg_seq_lengths = bg_seq_lengths or getattr(core_pipeline, 'bg_seq_lengths', [])
+        bg_prefixes = bg_prefixes or getattr(core_pipeline, "bg_prefixes", [])
+        bg_seq_lengths = bg_seq_lengths or getattr(core_pipeline, "bg_seq_lengths", [])
 
     # Handle no-background (host-free) mode
-    if kwargs.get('no_background', False):
+    if kwargs.get("no_background", False):
         bg_prefixes = []
         bg_seq_lengths = []
         if verbose:
@@ -290,23 +381,24 @@ def run_optimization(
     # "empty candidate pool" message. The failure is non-fatal: the
     # optimizer still runs (additive-blind), but the user sees it in both
     # the log and the validator-banner.
-    conditions = kwargs.pop('conditions', None)
+    conditions = kwargs.pop("conditions", None)
     _conditions_init_error: str = ""
     if conditions is None:
         try:
             from .reaction_conditions import ReactionConditions
+
             conditions = ReactionConditions(
-                temp=getattr(parameter, 'reaction_temp', None) or 30.0,
-                polymerase=getattr(parameter, 'polymerase', 'phi29'),
-                na_conc=getattr(parameter, 'na_conc', 50.0),
-                mg_conc=getattr(parameter, 'mg_conc', 10.0),
-                dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
-                betaine_m=getattr(parameter, 'betaine_m', 0.0),
-                trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
-                formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
-                ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
-                urea_m=getattr(parameter, 'urea_m', 0.0),
-                tmac_m=getattr(parameter, 'tmac_m', 0.0),
+                temp=getattr(parameter, "reaction_temp", None) or 30.0,
+                polymerase=getattr(parameter, "polymerase", "phi29"),
+                na_conc=getattr(parameter, "na_conc", 50.0),
+                mg_conc=getattr(parameter, "mg_conc", 10.0),
+                dmso_percent=getattr(parameter, "dmso_percent", 0.0),
+                betaine_m=getattr(parameter, "betaine_m", 0.0),
+                trehalose_m=getattr(parameter, "trehalose_m", 0.0),
+                formamide_percent=getattr(parameter, "formamide_percent", 0.0),
+                ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
+                urea_m=getattr(parameter, "urea_m", 0.0),
+                tmac_m=getattr(parameter, "tmac_m", 0.0),
             )
         except (ValueError, TypeError, KeyError) as e:
             _conditions_init_error = str(e)
@@ -325,11 +417,9 @@ def run_optimization(
     if candidates is None:
         step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
         if not os.path.exists(step3_path):
-            return OptimizationResult.failure(
-                method, f"Step 3 output not found: {step3_path}"
-            )
+            return OptimizationResult.failure(method, f"Step 3 output not found: {step3_path}")
         step3_df = pd.read_csv(step3_path)
-        candidates = step3_df['primer'].tolist()
+        candidates = step3_df["primer"].tolist()
 
     # Empty candidate pool guard. If filter/score removed every primer,
     # downstream optimizers behave inconsistently (some crash, some
@@ -351,12 +441,22 @@ def run_optimization(
 
     # Set global random seed if provided (ensures reproducibility across all
     # optimizer components, not just those that accept a seed parameter)
-    seed = kwargs.get('seed')
+    seed = kwargs.get("seed")
     if seed is not None:
         import random
+
         import numpy as np
+
         random.seed(seed)
         np.random.seed(seed)
+        # Also seed the RF k-mer sampling RNG so any re-scoring during
+        # optimization is reproducible (k-mer sampling is on by default).
+        try:
+            from .rf_preprocessing import set_kmer_sampling_seed
+
+            set_kmer_sampling_seed(seed)
+        except Exception as e:
+            logger.debug(f"Could not seed k-mer sampling RNG: {e}")
         if verbose:
             logger.info(f"Random seed set to {seed} for reproducibility")
 
@@ -370,28 +470,39 @@ def run_optimization(
         cache = PositionCache(fg_prefixes + (bg_prefixes or []), candidates)
 
     # Optional: pre-filter candidates by fg/bg binding ratio
-    if bg_prefixes and kwargs.get('bg_prefilter', True):
+    if bg_prefixes and kwargs.get("bg_prefilter", True):
         candidates = _prefilter_by_background(
-            cache, candidates, fg_prefixes, bg_prefixes,
-            min_ratio=kwargs.get('bg_min_ratio', 1.0),
-            max_removal_fraction=kwargs.get('bg_max_removal', 0.20),
+            cache,
+            candidates,
+            fg_prefixes,
+            bg_prefixes,
+            min_ratio=kwargs.get("bg_min_ratio", 1.0),
+            max_removal_fraction=kwargs.get("bg_max_removal", 0.20),
             verbose=verbose,
         )
 
-    # Determine polymerase extension reach for coverage computation
-    polymerase = kwargs.get('polymerase') or getattr(parameter, 'polymerase', 'phi29')
+    # Determine polymerase extension reach for coverage computation.
+    # Uses realistic per-primer reach (phi29 ~3 kb, equiphi29 ~4 kb), not
+    # single-molecule processivity. See coverage.polymerase_extension_reach
+    # for the Clarke 2017 / Dwivedi-Yu 2023 rationale.
+    polymerase = kwargs.get("polymerase") or getattr(parameter, "polymerase", "phi29")
     try:
-        from .reaction_conditions import get_polymerase_processivity
-        extension_reach = get_polymerase_processivity(polymerase)
+        from .coverage import polymerase_extension_reach
+
+        extension_reach = polymerase_extension_reach(polymerase, coverage_metric="realistic")
     except (ImportError, ValueError):
-        extension_reach = 70000  # Phi29 default
+        extension_reach = 3000  # phi29 realistic per-primer reach
 
     # Build optimizer config
+    fg_circular = kwargs.get("fg_circular")
+    if fg_circular is None:
+        fg_circular = bool(getattr(parameter, "fg_circular", False))
     config = OptimizerConfig(
         target_set_size=target_size,
-        max_iterations=kwargs.get('max_iterations', 100),
+        max_iterations=kwargs.get("max_iterations", 100),
         verbose=verbose,
         extension_reach=extension_reach,
+        fg_circular=fg_circular,
     )
 
     # By this point `conditions` is either a valid object or None (with
@@ -404,13 +515,14 @@ def run_optimization(
     # display ordering. Caller-supplied values (via kwargs) always win
     # over the application preset so the CLI-level --tm-weight etc.
     # continue to work.
-    _application = kwargs.pop('application', None)
+    _application = kwargs.pop("application", None)
     if _application:
         try:
             from .base_optimizer import OPTIMIZER_APPLICATION_WEIGHTS
+
             _w = OPTIMIZER_APPLICATION_WEIGHTS.get(
-                (_application or 'balanced').lower(),
-                OPTIMIZER_APPLICATION_WEIGHTS['balanced'],
+                (_application or "balanced").lower(),
+                OPTIMIZER_APPLICATION_WEIGHTS["balanced"],
             )
             for weight_key, weight_val in _w.items():
                 kwargs.setdefault(weight_key, weight_val)
@@ -424,26 +536,57 @@ def run_optimization(
         except Exception as e:
             logger.debug(f"application weight lookup skipped: {e}")
 
-    # Create optimizer via factory
-    try:
-        optimizer = OptimizerFactory.create(
-            name=method,
-            position_cache=cache,
+    # Ensemble path: run several methods on the SAME position cache and keep
+    # the best by normalized_score. Falls through to the shared
+    # post-processing below so the winner gets per-target coverage, saturation
+    # checks, and the validation report like any single-method run.
+    if method in ("ensemble", "auto", "all"):
+        ensemble_methods = kwargs.pop("ensemble_methods", None) or [
+            "hybrid",
+            "dominating-set",
+            "network",
+            "background-aware",
+        ]
+        # `seed` is captured separately and passed explicitly; remove it from
+        # kwargs so it is not forwarded twice into _run_ensemble.
+        kwargs.pop("seed", None)
+        result = _run_ensemble(
+            methods=ensemble_methods,
+            cache=cache,
+            candidates=candidates,
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
+            target_size=target_size,
             config=config,
             conditions=conditions,
-            **kwargs
+            application=(_application or "balanced"),
+            seed=seed,
+            verbose=verbose,
+            **kwargs,
         )
-    except Exception as e:
-        logger.error(f"Failed to create optimizer '{method}': {e}")
-        return OptimizationResult.failure(method, str(e))
+    else:
+        # Create optimizer via factory
+        try:
+            optimizer = OptimizerFactory.create(
+                name=method,
+                position_cache=cache,
+                fg_prefixes=fg_prefixes,
+                fg_seq_lengths=fg_seq_lengths,
+                bg_prefixes=bg_prefixes,
+                bg_seq_lengths=bg_seq_lengths,
+                config=config,
+                conditions=conditions,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create optimizer '{method}': {e}")
+            return OptimizationResult.failure(method, str(e))
 
-    # Run optimization
-    with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
-        result = optimizer.optimize(candidates, target_size)
+        # Run optimization
+        with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
+            result = optimizer.optimize(candidates, target_size)
 
     # Phase 15A: populate per_target_coverage on the result so multi-
     # target runs surface "target A 95% / target B 40%" instead of one
@@ -455,11 +598,14 @@ def run_optimization(
     try:
         if result.primers and fg_prefixes:
             from dataclasses import replace as _dc_replace
+
             from .coverage import (
-                compute_per_prefix_coverage, polymerase_extension_reach,
+                compute_per_prefix_coverage,
+                polymerase_extension_reach,
             )
+
             _ext = polymerase_extension_reach(
-                getattr(parameter, 'polymerase', 'phi29') or 'phi29',
+                getattr(parameter, "polymerase", "phi29") or "phi29",
                 default=extension_reach,
             )
             _coverage_extension = _ext
@@ -469,6 +615,7 @@ def run_optimization(
                 prefixes=fg_prefixes,
                 seq_lengths=fg_seq_lengths,
                 extension=_ext,
+                circular=fg_circular,
             )
             if per_target:
                 new_metrics = _dc_replace(result.metrics, per_target_coverage=per_target)
@@ -489,17 +636,19 @@ def run_optimization(
                         saturation = length / expected_window if expected_window else 1.0
                         cov = per_target.get(prefix, 0.0)
                         if saturation < 1.0 and cov >= 0.95:
-                            _saturation_warnings.append({
-                                "level": "warning",
-                                "code": "coverage_saturated_on_small_genome",
-                                "detail": (
-                                    f"{prefix}: genome={length} bp, "
-                                    f"{n_primers} primers x 2x {_ext} bp "
-                                    f"reach = {expected_window} bp; "
-                                    f"coverage={cov:.1%} is saturation-"
-                                    f"bounded (metric unreliable)"
-                                ),
-                            })
+                            _saturation_warnings.append(
+                                {
+                                    "level": "warning",
+                                    "code": "coverage_saturated_on_small_genome",
+                                    "detail": (
+                                        f"{prefix}: genome={length} bp, "
+                                        f"{n_primers} primers x 2x {_ext} bp "
+                                        f"reach = {expected_window} bp; "
+                                        f"coverage={cov:.1%} is saturation-"
+                                        f"bounded (metric unreliable)"
+                                    ),
+                                }
+                            )
     except Exception as e:
         logger.debug(f"per_target_coverage population skipped ({e})")
 
@@ -515,19 +664,20 @@ def run_optimization(
         # params.bl_prefixes using the same helper the filter step uses,
         # and pass the hits as forbidden primers to validate().
         forbidden: list = []
-        bl_prefixes_list = list(getattr(parameter, 'bl_prefixes', []) or [])
-        bl_lengths_list = list(getattr(parameter, 'bl_seq_lengths', []) or [])
+        bl_prefixes_list = list(getattr(parameter, "bl_prefixes", []) or [])
+        bl_lengths_list = list(getattr(parameter, "bl_seq_lengths", []) or [])
         if bl_prefixes_list and bl_lengths_list and candidates:
             try:
                 from .pipeline import _filter_blacklist_penalty
-                max_bl = getattr(parameter, 'max_bl_freq', 0.0) or 0.0
+
+                max_bl = getattr(parameter, "max_bl_freq", 0.0) or 0.0
                 _mask, _freqs = _filter_blacklist_penalty(
-                    list(candidates), bl_prefixes_list, bl_lengths_list,
+                    list(candidates),
+                    bl_prefixes_list,
+                    bl_lengths_list,
                     max_bl_freq=max_bl,
                 )
-                forbidden = [
-                    p for p, f in zip(candidates, _freqs) if f > max_bl
-                ]
+                forbidden = [p for p, f in zip(candidates, _freqs) if f > max_bl]
                 if forbidden and verbose:
                     logger.warning(
                         f"Library blacklist guard: {len(forbidden)} "
@@ -540,7 +690,7 @@ def run_optimization(
         validation = result.validate(
             target_size=target_size,
             min_coverage=0.0,  # soft by default; caller can tighten
-            min_per_target_coverage=kwargs.get('min_per_target_coverage', 0.0),
+            min_per_target_coverage=kwargs.get("min_per_target_coverage", 0.0),
             forbidden_primers=forbidden or None,
         )
     except Exception as e:
@@ -560,20 +710,23 @@ def run_optimization(
     # Marked as a warning (not error) because the optimizer still
     # produced a primer set — just with additive-blind Tm.
     if validation is not None and _conditions_init_error:
-        validation.setdefault("issues", []).append({
-            "level": "warning",
-            "code": "reaction_conditions_init_failed",
-            "detail": (
-                f"{_conditions_init_error}. Optimizer ran additive-blind; "
-                f"Tm calculations fell back to Wallace. Re-check params.json "
-                f"against the bounds documented in `neoswga suggest --help`."
-            ),
-        })
+        validation.setdefault("issues", []).append(
+            {
+                "level": "warning",
+                "code": "reaction_conditions_init_failed",
+                "detail": (
+                    f"{_conditions_init_error}. Optimizer ran additive-blind; "
+                    f"Tm calculations fell back to Wallace. Re-check params.json "
+                    f"against the bounds documented in `neoswga suggest --help`."
+                ),
+            }
+        )
 
     if validation is not None:
         try:
             import json as _json
-            data_dir = getattr(parameter, 'data_dir', None) or os.getcwd()
+
+            data_dir = getattr(parameter, "data_dir", None) or os.getcwd()
             out_path = os.path.join(data_dir, "step4_improved_df_validation.json")
             with open(out_path, "w") as fh:
                 _json.dump(validation, fh, indent=2)
@@ -636,9 +789,7 @@ def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResu
 
 
 def save_results(
-    result: OptimizationResult,
-    output_path: str,
-    include_all_sets: bool = False
+    result: OptimizationResult, output_path: str, include_all_sets: bool = False
 ) -> None:
     """
     Save optimization results to CSV.
@@ -656,35 +807,37 @@ def save_results(
     metrics = result.metrics
     records = []
     for primer in result.primers:
-        records.append({
-            'primer': primer,
-            'set_index': 0,
-            'score': result.score,
-            'normalized_score': result.normalized_score,
-            'coverage': metrics.fg_coverage,
-            'bg_coverage': metrics.bg_coverage,
-            'selectivity': metrics.selectivity_ratio,
-            'mean_gap': metrics.mean_gap,
-            'max_gap': metrics.max_gap,
-            'coverage_uniformity': metrics.coverage_uniformity,
-            'gap_gini': metrics.gap_gini,
-            'gap_entropy': metrics.gap_entropy,
-            'dimer_risk_score': metrics.dimer_risk_score,
-            'strand_alternation': metrics.strand_alternation_score,
-            'strand_coverage_ratio': metrics.strand_coverage_ratio,
-            'mean_tm': metrics.mean_tm,
-            'optimizer': result.optimizer_name,
-        })
+        records.append(
+            {
+                "primer": primer,
+                "set_index": 0,
+                "score": result.score,
+                "normalized_score": result.normalized_score,
+                "coverage": metrics.fg_coverage,
+                "bg_coverage": metrics.bg_coverage,
+                "selectivity": metrics.selectivity_ratio,
+                "mean_gap": metrics.mean_gap,
+                "max_gap": metrics.max_gap,
+                "coverage_uniformity": metrics.coverage_uniformity,
+                "gap_gini": metrics.gap_gini,
+                "gap_entropy": metrics.gap_entropy,
+                "dimer_risk_score": metrics.dimer_risk_score,
+                "strand_alternation": metrics.strand_alternation_score,
+                "strand_coverage_ratio": metrics.strand_coverage_ratio,
+                "mean_tm": metrics.mean_tm,
+                "optimizer": result.optimizer_name,
+            }
+        )
 
     df = pd.DataFrame(records)
     df.to_csv(output_path, index=False)
     logger.info(f"Results saved to {output_path}")
 
     # Write summary JSON alongside CSV
-    summary_path = os.path.splitext(output_path)[0] + '_summary.json'
+    summary_path = os.path.splitext(output_path)[0] + "_summary.json"
     try:
         summary = result.to_dict()
-        with open(summary_path, 'w') as f:
+        with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2, default=str)
         logger.info(f"Summary saved to {summary_path}")
     except Exception as e:
@@ -701,17 +854,28 @@ def _write_audit_trail(output_path: str, result: OptimizationResult) -> None:
     optimizer configuration so that results can be traced back to the
     exact conditions that produced them.
     """
-    from datetime import datetime, timezone
     import hashlib
+    from datetime import datetime, timezone
 
-    audit_path = os.path.splitext(output_path)[0] + '_audit.json'
+    audit_path = os.path.splitext(output_path)[0] + "_audit.json"
     try:
         # Collect parameters hash
         params_dict = {}
-        for attr in ['fg_genomes', 'bg_genomes', 'min_k', 'max_k',
-                      'min_fg_freq', 'max_bg_freq', 'max_gini',
-                      'num_primers', 'target_set_size', 'polymerase',
-                      'reaction_temp', 'na_conc', 'mg_conc']:
+        for attr in [
+            "fg_genomes",
+            "bg_genomes",
+            "min_k",
+            "max_k",
+            "min_fg_freq",
+            "max_bg_freq",
+            "max_gini",
+            "num_primers",
+            "target_set_size",
+            "polymerase",
+            "reaction_temp",
+            "na_conc",
+            "mg_conc",
+        ]:
             val = getattr(parameter, attr, None)
             if val is not None:
                 params_dict[attr] = str(val)
@@ -721,22 +885,23 @@ def _write_audit_trail(output_path: str, result: OptimizationResult) -> None:
 
         try:
             from neoswga import __version__
+
             version = __version__
         except ImportError:
-            version = 'unknown'
+            version = "unknown"
 
         audit = {
-            'neoswga_version': version,
-            'timestamp': datetime.now(timezone.utc).isoformat(),
-            'params_hash': params_hash,
-            'optimizer': result.optimizer_name,
-            'num_primers': result.num_primers,
-            'score': float(result.score) if result.score else None,
-            'status': result.status.value if result.status else None,
-            'parameters': params_dict,
+            "neoswga_version": version,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "params_hash": params_hash,
+            "optimizer": result.optimizer_name,
+            "num_primers": result.num_primers,
+            "score": float(result.score) if result.score else None,
+            "status": result.status.value if result.status else None,
+            "parameters": params_dict,
         }
 
-        with open(audit_path, 'w') as f:
+        with open(audit_path, "w") as f:
             json.dump(audit, f, indent=2)
         logger.info(f"Audit trail saved to {audit_path}")
     except Exception as e:
@@ -769,9 +934,9 @@ def _simulation_rescore(
         return None
 
     try:
-        from .simulation_fitness import SimulationBasedEvaluator
-        from .position_cache import PositionCache
         from .genome_io import GenomeLoader
+        from .position_cache import PositionCache
+        from .simulation_fitness import SimulationBasedEvaluator
     except ImportError as e:
         if verbose:
             logger.warning(f"Simulation modules not available: {e}")
@@ -782,7 +947,7 @@ def _simulation_rescore(
         genome_seq = None
         genome_length = sum(fg_seq_lengths)
 
-        fg_genomes = getattr(parameter, 'fg_genomes', [])
+        fg_genomes = getattr(parameter, "fg_genomes", [])
         if fg_genomes:
             try:
                 loader = GenomeLoader()
@@ -811,11 +976,11 @@ def _simulation_rescore(
         fitness = evaluator.evaluate(primers, verbose=verbose)
 
         return {
-            'simulation_coverage': fitness.mean_coverage,
-            'simulation_uniformity': fitness.coverage_uniformity,
-            'simulation_fitness': fitness.fitness_score,
-            'simulation_forks': fitness.mean_forks_created,
-            'simulation_time': fitness.simulation_time,
+            "simulation_coverage": fitness.mean_coverage,
+            "simulation_uniformity": fitness.coverage_uniformity,
+            "simulation_fitness": fitness.fitness_score,
+            "simulation_forks": fitness.mean_forks_created,
+            "simulation_time": fitness.simulation_time,
         }
     except Exception as e:
         if verbose:
@@ -826,12 +991,12 @@ def _simulation_rescore(
 def optimize_step4(
     use_cache: bool = True,
     use_background_filter: bool = True,
-    optimization_method: str = 'hybrid',
+    optimization_method: str = "hybrid",
     verbose: bool = True,
     uniformity_weight: float = 0.0,
     minimize_primers: bool = False,
     target_coverage: float = 0.70,
-    **kwargs
+    **kwargs,
 ) -> Tuple[List[List[str]], List[float], Any]:
     """
     Drop-in replacement for improved_step4 from pipeline_integration.
@@ -861,10 +1026,10 @@ def optimize_step4(
     _LAST_RESULT = None
 
     # Get target size: prefer explicit kwarg, then parameter module, then default
-    target_size = kwargs.pop('target_size', None)
+    target_size = kwargs.pop("target_size", None)
     if target_size is None:
-        target_size = getattr(parameter, 'num_primers', 6)
-        target_size = getattr(parameter, 'target_set_size', target_size)
+        target_size = getattr(parameter, "num_primers", 6)
+        target_size = getattr(parameter, "target_set_size", target_size)
 
     if verbose:
         logger.info(f"Unified optimizer: method={optimization_method}")
@@ -877,11 +1042,11 @@ def optimize_step4(
         uniformity_weight=uniformity_weight,
         minimize_primers=minimize_primers,
         target_coverage=target_coverage,
-        **kwargs
+        **kwargs,
     )
 
     # Optional simulation-based re-scoring
-    if kwargs.get('validate_with_simulation', False) and result.is_success:
+    if kwargs.get("validate_with_simulation", False) and result.is_success:
         if verbose:
             logger.info("")
             logger.info("=" * 60)
@@ -889,13 +1054,16 @@ def optimize_step4(
             logger.info("=" * 60)
 
         # Resolve genome prefixes for simulation
-        sim_fg_prefixes = getattr(parameter, 'fg_prefixes', [])
-        sim_fg_seq_lengths = getattr(parameter, 'fg_seq_lengths', [])
+        sim_fg_prefixes = getattr(parameter, "fg_prefixes", [])
+        sim_fg_seq_lengths = getattr(parameter, "fg_seq_lengths", [])
 
-        sim_time = kwargs.get('simulation_time', 1800.0)
+        sim_time = kwargs.get("simulation_time", 1800.0)
         sim_results = _simulation_rescore(
-            result, sim_fg_prefixes, sim_fg_seq_lengths,
-            simulation_time=sim_time, verbose=verbose,
+            result,
+            sim_fg_prefixes,
+            sim_fg_seq_lengths,
+            simulation_time=sim_time,
+            verbose=verbose,
         )
 
         if sim_results:
@@ -920,7 +1088,8 @@ def optimize_step4(
 
         # Return cache placeholder (for compatibility)
         from .position_cache import PositionCache
-        fg_prefixes = getattr(parameter, 'fg_prefixes', [])
+
+        fg_prefixes = getattr(parameter, "fg_prefixes", [])
         cache = PositionCache(fg_prefixes, list(result.primers)) if fg_prefixes else None
 
         return primer_sets, scores, cache
@@ -934,33 +1103,13 @@ def main():
     """CLI entry point for standalone optimization."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="NeoSWGA Primer Set Optimization"
-    )
+    parser = argparse.ArgumentParser(description="NeoSWGA Primer Set Optimization")
+    parser.add_argument("-m", "--method", default="hybrid", help="Optimization method")
+    parser.add_argument("-j", "--json-file", help="Parameters JSON file")
+    parser.add_argument("-n", "--num-primers", type=int, default=6, help="Target number of primers")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument(
-        '-m', '--method',
-        default='hybrid',
-        help='Optimization method'
-    )
-    parser.add_argument(
-        '-j', '--json-file',
-        help='Parameters JSON file'
-    )
-    parser.add_argument(
-        '-n', '--num-primers',
-        type=int,
-        default=6,
-        help='Target number of primers'
-    )
-    parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Verbose output'
-    )
-    parser.add_argument(
-        '--list-methods',
-        action='store_true',
-        help='List available optimization methods'
+        "--list-methods", action="store_true", help="List available optimization methods"
     )
 
     args = parser.parse_args()
@@ -975,6 +1124,7 @@ def main():
     if args.json_file:
         parameter.json_file = args.json_file
         from . import pipeline as core_pipeline
+
         core_pipeline._initialize()
 
     # Run optimization
@@ -995,5 +1145,5 @@ def main():
         exit(1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

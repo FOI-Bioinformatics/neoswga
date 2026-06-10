@@ -21,7 +21,6 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 - `pipeline.py`: Main pipeline functions (count-kmers, filter, score, optimize)
 - `improved_pipeline.py`: Performance-optimized pipeline with background filtering
 - `pipeline_qa_integration.py`: Quality assurance hooks for filtering
-- `auto_swga_pipeline.py`: Automatic parameter optimization pipeline
 - `multi_genome_pipeline.py`: Pan-genome primer design for multiple targets
 
 **Filtering (filter command)**:
@@ -31,7 +30,6 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 - `kmer_counter.py`: Multi-genome k-mer counter using Jellyfish
 - `multi_genome_filter.py`: Filter primers across multiple target genomes
 - `thermodynamic_filter.py`: Filter by Tm, secondary structure
-- `thermo_background_filter.py`: Thermodynamic-aware background filtering
 
 **Scoring (score command)**:
 - `rf_preprocessing.py`: Random forest feature engineering
@@ -39,17 +37,12 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 - `integrated_quality_scorer.py`: Multi-criteria quality scoring
 - Pre-trained model: `neoswga/core/models/random_forest_filter.p`
 
-**Optimization (optimize command)**:
-- `network_optimizer.py`: Network-based optimization (default, includes Tm weighting and dimer penalty)
-- `genetic_algorithm.py`: GA-based optimization
-- `optimize.py`: Original greedy breadth-first search
-- `milp_optimizer.py`: Mixed-integer linear programming (requires `mip` package)
-- `hybrid_optimizer.py`: Hybrid approach combining multiple strategies
-- `dominating_set_optimizer.py`: Graph-based greedy set cover (8x faster, ln(n) approximation)
+**Optimization (optimize command)** — four methods, dispatched via `unified_optimizer`:
+- `hybrid_optimizer.py`: Two-stage hybrid (default, general use)
+- `dominating_set_adapter.py` + `dominating_set_optimizer.py`: Graph-based greedy set cover (fast)
+- `network_optimizer.py`: Network-based with Tm weighting and dimer penalty
 - `background_aware_optimizer.py`: Three-stage optimizer with explicit background minimization (10-20x reduction)
-- `moea_optimizer.py`: Multi-objective evolutionary algorithm
-- `equiphi29_optimizer.py`: EquiPhi29-specific optimization at 42-45C
-- `optimal_oligo_generator.py`: Alternative comprehensive primer design
+- `optimal_oligo_generator.py`: Alternative comprehensive primer design (separate `design-oligos` command)
 - `minimal_primer_selector.py`: Post-process to minimize primer count
 
 **Thermodynamics**:
@@ -110,17 +103,9 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
   - `validation.py`: Input validation before report generation
   - `utils.py`: Shared utilities and chart color schemes
 
-**Experimental/Advanced** (in `neoswga/core/experimental/`, not fully integrated):
-- `cooperative_binding_selector.py`: Network-based cooperative binding model
-- `hybrid_primer_strategy.py`: Core + supplemental mixed-length primer strategy
-- `simulate_command.py`: Alternative simulation CLI implementation
-
-**Experimental** (in main core/, not fully validated):
-- `active_learning.py`: Active learning for iterative primer optimization
-- `adaptive_search.py`: Adaptive search strategies
-- `advanced_features.py`: Advanced feature engineering
-- `deep_learning.py`: Deep learning-based prediction (stub, requires training data)
-- `gc_adaptive_strategy.py`: GC-adaptive primer design
+**Optional / advanced** (in main core/, wired into the kept paths):
+- `advanced_features.py`: Advanced feature engineering used by `rf_preprocessing.py`
+- `gc_adaptive_strategy.py`: GC-adaptive primer design used by `pipeline.py` and `multi_genome_pipeline.py`
 
 ### Data Flow
 
@@ -150,30 +135,30 @@ neoswga optimize -j params.json     # Step 4: Find optimal primer sets
 
 ### Optimization Methods
 ```bash
-# Standard (default)
-neoswga optimize -j params.json --optimization-method=hybrid
-
-# Fast graph-based (8x faster)
-neoswga optimize -j params.json --optimization-method=dominating-set
-
-# Clinical (10-20x background reduction)
-neoswga optimize -j params.json --optimization-method=background-aware
-
-# Other options: greedy, milp, network, genetic, moea
+neoswga optimize -j params.json --optimization-method=hybrid           # default
+neoswga optimize -j params.json --optimization-method=dominating-set   # fast graph-based
+neoswga optimize -j params.json --optimization-method=background-aware # clinical, 10-20x bg reduction
+neoswga optimize -j params.json --optimization-method=network          # Tm-weighted, dimer-aware
+neoswga optimize -j params.json --optimization-method=ensemble         # run all, keep best
 ```
 
 **Optimization Method Comparison**:
 
 | Method | Speed | Best For | Notes |
 |--------|-------|----------|-------|
-| `hybrid` | Medium | General use (default) | Combines network + greedy approaches |
-| `dominating-set` | Fast (8x) | Large primer pools | Graph-based set cover, ln(n) approximation |
+| `hybrid` | Medium | General use (default) | Combines network + set-cover approaches |
+| `dominating-set` | Fast | Large primer pools | Graph-based set cover, ln(n) approximation |
 | `background-aware` | Slow | Clinical applications | 10-20x background reduction, three-stage |
-| `greedy` | Fast | Simple optimization | Original breadth-first search |
 | `network` | Medium | Tm-weighted selection | Dimer penalty aware |
-| `genetic` | Slow | Complex multi-objective | GA-based, good for exploration |
-| `moea` | Slow | Pareto optimization | Multi-objective evolutionary |
-| `milp` | Variable | Exact solutions | Requires `mip` package |
+| `ensemble` | Slow | Best-of, unsure which | Runs several methods on one shared cache, keeps the best by application-weighted `normalized_score`, prints a per-method comparison table |
+
+**Ensemble** runs a configurable set of methods (default all four) and keeps
+the winner. It builds the `PositionCache` once and re-seeds before each method
+so results are reproducible and order-independent. Pick the subset with
+`--ensemble-methods hybrid network background-aware`. Selection is by
+`normalized_score` (a [0,1] value comparable across optimizers; raw `score` is
+NOT comparable), weighted by `--application`. The runner-up table is written to
+`step4_improved_df_summary.json` as `ensemble_comparison`.
 
 ### Utility Commands
 ```bash
@@ -240,10 +225,34 @@ neoswga analyze-genome --genome target.fna --output analysis/
 
 # Dimer network analysis
 neoswga analyze-dimers --primers SEQ1 SEQ2 --output dimers/ --visualize
-
-# Active learning for iterative optimization (experimental)
-neoswga active-learn -j params.json --output active_learn/ --num-candidates 10
 ```
+
+### Adding oligos to an existing set (in-silico + real BAM coverage)
+
+For iterative design: keep validated primers, exclude failed ones, and add new
+primers that fill coverage gaps. Gaps can come from in-silico binding positions
+and/or from real sequencing depth (a BAM mapped to the target genome). BAM
+support needs the `[bam]` extra (`pip install 'neoswga[bam]'`, brings pysam).
+
+```bash
+# Inspect gaps only (read-only): writes coverage_gaps.bed + .json
+neoswga analyze-coverage -j params.json --primers SEQ1 SEQ2 \
+    --bam reads.bam --min-depth 5 --min-gap-size 10000 -o cov/
+
+# Add primers, focusing the candidate pool on the merged gaps
+neoswga expand-primers -j params.json --fixed-primers SEQ1 SEQ2 \
+    --failed-primers SEQ3 --num-new 6 --bam reads.bam --min-depth 5 \
+    --optimization-method hybrid -o expanded/
+```
+
+- BAM contigs are matched to foreground prefixes by exact/basename/`chr`-prefix
+  then unique-length fallback; override with `--contig-alias FG=BAMCONTIG`.
+- A base counts as a gap when its mapped depth `< --min-depth`; runs shorter
+  than `--min-gap-size` bp are ignored. On circular targets (`fg_circular`) a
+  gap spanning the origin is merged into one.
+- Candidate selection is a HARD pre-filter (only primers binding inside a gap),
+  with fallback to the full pool if too few remain to reach `--num-new`.
+- Outputs: `merged_gaps.bed`, `expansion_result.json`, `expanded_primers.csv`.
 
 ## Key Parameters (params.json)
 
@@ -272,7 +281,7 @@ neoswga active-learn -j params.json --output active_learn/ --num-candidates 10
 | `klenow` | 25-40C | 8-15 bp | Room temperature, lower processivity |
 
 **Optimization**:
-- `optimization_method`: 'hybrid' (default), 'dominating-set' (fast), 'background-aware' (clinical), 'greedy', 'milp', 'network', 'genetic', 'moea'
+- `optimization_method`: 'hybrid' (default), 'dominating-set' (fast), 'background-aware' (clinical), 'network'
 - `num_primers`, `target_set_size`: Desired primer set size (default: 6)
 - `iterations`: Search iterations (default: 8)
 - `max_sets`: Parallel primer sets to build (default: 5)
@@ -451,17 +460,14 @@ All functions return empty string when Plotly is not installed (graceful degrada
 
 ```bash
 pytest tests/                         # All unit tests
-pytest tests/test_genetic_algorithm_integration.py  # Specific test
+pytest tests/test_hybrid_optimizer.py  # Specific test
 neoswga validate --quick              # Quick validation
 ```
 
 **Integration tests** (`tests/integration/`):
-- `phi29_baseline/`, `phi29_ga/`: Phi29 polymerase tests
-- `equiphi29_baseline/`, `equiphi29_long/`: EquiPhi29 tests
-
-**Validation tests** (`validation_tests/`):
-- `test_gc_filter_fix.py`: Adaptive GC filter validation
-- `test_complexity_filter.py`: Sequence complexity filtering
+- `phi29_baseline/`, `phi29_with_bg/`: Phi29 polymerase scenarios (no background / with background)
+- `equiphi29_baseline/`: EquiPhi29 scenario
+- End-to-end tests: `test_pipeline_e2e.py`, `test_integration.py`, `test_optimizer_method_coverage.py`, etc.
 
 ## Development Tasks
 
@@ -532,10 +538,9 @@ neoswga/
     # Scoring
     rf_preprocessing.py, primer_attributes.py
 
-    # Optimization (9 optimizers)
-    network_optimizer.py, genetic_algorithm.py, optimize.py,
-    milp_optimizer.py, hybrid_optimizer.py, dominating_set_optimizer.py,
-    background_aware_optimizer.py, moea_optimizer.py, equiphi29_optimizer.py
+    # Optimization (4 methods via unified_optimizer)
+    hybrid_optimizer.py, dominating_set_adapter.py, dominating_set_optimizer.py,
+    network_optimizer.py, background_aware_optimizer.py
 
     # Thermodynamics
     thermodynamics.py, reaction_conditions.py,
@@ -563,13 +568,9 @@ neoswga/
     # Utilities
     utility.py, parameter.py, validation.py, genome_io.py
 
-    # Experimental (not fully integrated)
-    experimental/
-      cooperative_binding_selector.py, hybrid_primer_strategy.py,
-      simulate_command.py
-
     models/                # ML models
       random_forest_filter.p
+      checksums.json       # SHA-256 allowlist
 tests/
   integration/             # Integration test scenarios
   report/                  # Report module tests
@@ -577,7 +578,6 @@ tests/
 examples/
   plasmid_example/         # Self-contained example (pcDNA vs pLTR plasmids)
 scripts/                   # Development utilities
-validation_tests/          # Validation test suite
 docs/                      # Documentation
   archive/                 # Historical documents
   validation/              # Validation reports

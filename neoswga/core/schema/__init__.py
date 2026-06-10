@@ -16,5 +16,6 @@ def load_schema() -> dict:
     Raises FileNotFoundError if the schema has not been shipped.
     """
     import json
+
     with SCHEMA_PATH.open("r", encoding="utf-8") as fh:
         return json.load(fh)

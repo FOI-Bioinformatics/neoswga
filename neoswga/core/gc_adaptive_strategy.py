@@ -16,19 +16,21 @@ Version: 3.0 - Phase 3.2
 """
 
 import logging
-import numpy as np
-from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
 class GenomeClass(Enum):
     """Genome classification by GC content"""
-    AT_RICH = "at_rich"      # <35% GC
-    BALANCED = "balanced"     # 35-65% GC
-    GC_RICH = "gc_rich"       # >65% GC
+
+    AT_RICH = "at_rich"  # <35% GC
+    BALANCED = "balanced"  # 35-65% GC
+    GC_RICH = "gc_rich"  # >65% GC
 
 
 @dataclass
@@ -38,6 +40,7 @@ class GCAdaptiveParameters:
 
     All parameters automatically adjusted based on genome GC content.
     """
+
     # Genome characteristics
     genome_class: GenomeClass
     gc_content: float
@@ -60,12 +63,12 @@ class GCAdaptiveParameters:
 
     # Chemical additives
     betaine_concentration: float  # M
-    dmso_concentration: float     # % v/v
+    dmso_concentration: float  # % v/v
 
     # Thermodynamic thresholds
-    max_homodimer_dg: float    # kcal/mol
+    max_homodimer_dg: float  # kcal/mol
     max_heterodimer_dg: float  # kcal/mol
-    max_hairpin_dg: float      # kcal/mol
+    max_hairpin_dg: float  # kcal/mol
 
     # Primer count adjustment
     primer_count_multiplier: float
@@ -104,8 +107,9 @@ class GCAdaptiveStrategy:
         print(f"Use {params.recommended_polymerase} at {params.reaction_temp}°C")
     """
 
-    def __init__(self, genome_sequence: Optional[str] = None,
-                 genome_gc_content: Optional[float] = None):
+    def __init__(
+        self, genome_sequence: Optional[str] = None, genome_gc_content: Optional[float] = None
+    ):
         """
         Initialize GC-adaptive strategy.
 
@@ -133,7 +137,7 @@ class GCAdaptiveStrategy:
     def _calculate_gc(self, sequence: str) -> float:
         """Calculate GC content from sequence"""
         upper_seq = sequence.upper()
-        gc_count = upper_seq.count('G') + upper_seq.count('C')
+        gc_count = upper_seq.count("G") + upper_seq.count("C")
         total = len(upper_seq)
         return gc_count / total if total > 0 else 0.5
 
@@ -163,7 +167,7 @@ class GCAdaptiveStrategy:
             polymerase = self._select_polymerase()
 
         # Get base parameters for polymerase
-        if polymerase == 'equiphi29':
+        if polymerase == "equiphi29":
             params = self._get_equiphi29_parameters()
         else:
             params = self._get_phi29_parameters()
@@ -184,21 +188,21 @@ class GCAdaptiveStrategy:
         """
         if self.genome_class == GenomeClass.GC_RICH:
             logger.info("  Selected EquiPhi29 (GC-rich genome)")
-            return 'equiphi29'
+            return "equiphi29"
         elif self.genome_class == GenomeClass.AT_RICH:
             logger.info("  Selected Phi29 (AT-rich genome)")
-            return 'phi29'
+            return "phi29"
         else:
             # Balanced: EquiPhi29 slightly preferred for overall performance
             logger.info("  Selected EquiPhi29 (balanced genome)")
-            return 'equiphi29'
+            return "equiphi29"
 
     def _get_phi29_parameters(self) -> GCAdaptiveParameters:
         """Get base Phi29 parameters"""
         return GCAdaptiveParameters(
             genome_class=self.genome_class,
             gc_content=self.gc_content,
-            recommended_polymerase='phi29',
+            recommended_polymerase="phi29",
             kmer_range=(8, 12),
             optimal_kmer=10,
             reaction_temp=30.0,
@@ -214,7 +218,7 @@ class GCAdaptiveStrategy:
             primer_count_multiplier=1.0,
             max_extension=70000,
             extension_rate=167.0,
-            confidence=0.85
+            confidence=0.85,
         )
 
     def _get_equiphi29_parameters(self) -> GCAdaptiveParameters:
@@ -222,7 +226,7 @@ class GCAdaptiveStrategy:
         return GCAdaptiveParameters(
             genome_class=self.genome_class,
             gc_content=self.gc_content,
-            recommended_polymerase='equiphi29',
+            recommended_polymerase="equiphi29",
             kmer_range=(11, 15),
             optimal_kmer=12,
             reaction_temp=42.0,
@@ -238,7 +242,7 @@ class GCAdaptiveStrategy:
             primer_count_multiplier=0.85,
             max_extension=80000,
             extension_rate=200.0,
-            confidence=0.90
+            confidence=0.90,
         )
 
     def _adjust_for_gc(self, params: GCAdaptiveParameters, polymerase: str) -> GCAdaptiveParameters:
@@ -249,7 +253,7 @@ class GCAdaptiveStrategy:
             logger.info("  Applying GC-rich adjustments:")
 
             # Use maximum betaine
-            if polymerase == 'equiphi29':
+            if polymerase == "equiphi29":
                 params.betaine_concentration = 2.0
                 params.max_gc = 0.80
                 params.kmer_range = (12, 15)
@@ -266,7 +270,7 @@ class GCAdaptiveStrategy:
                 logger.info(f"    Added DMSO: {params.dmso_concentration}% v/v")
 
             # Higher confidence for EquiPhi29 on GC-rich
-            if polymerase == 'equiphi29':
+            if polymerase == "equiphi29":
                 params.confidence = 0.95
 
             logger.info(f"    Betaine: {params.betaine_concentration}M")
@@ -278,7 +282,7 @@ class GCAdaptiveStrategy:
             logger.info("  Applying AT-rich adjustments:")
 
             # Use less betaine
-            if polymerase == 'equiphi29':
+            if polymerase == "equiphi29":
                 params.betaine_concentration = 0.5
                 params.min_gc = 0.20
                 params.kmer_range = (10, 13)
@@ -295,7 +299,7 @@ class GCAdaptiveStrategy:
                 logger.info(f"    Lowered min Tm: {params.min_primer_tm}°C")
 
             # Higher confidence for Phi29 on AT-rich
-            if polymerase == 'phi29':
+            if polymerase == "phi29":
                 params.confidence = 0.92
 
             logger.info(f"    Betaine: {params.betaine_concentration}M")
@@ -305,7 +309,7 @@ class GCAdaptiveStrategy:
         else:
             # Balanced genome - use standard parameters
             logger.info("  Using standard parameters (balanced genome)")
-            if polymerase == 'equiphi29':
+            if polymerase == "equiphi29":
                 params.betaine_concentration = 1.0
 
         return params
@@ -370,7 +374,7 @@ Rationale:
         return report
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 
@@ -378,25 +382,25 @@ if __name__ == '__main__':
     print("Automatically optimizes parameters for any genome GC content\n")
 
     # Example 1: GC-rich genome (Plasmodium falciparum, 19% GC)
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("Example 1: AT-rich genome (Plasmodium, 19% GC)")
-    print("="*80)
+    print("=" * 80)
     strategy1 = GCAdaptiveStrategy(genome_gc_content=0.19)
     params1 = strategy1.get_parameters()
     print(params1)
 
     # Example 2: Balanced genome (E. coli, 50% GC)
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("Example 2: Balanced genome (E. coli, 50% GC)")
-    print("="*80)
+    print("=" * 80)
     strategy2 = GCAdaptiveStrategy(genome_gc_content=0.50)
     params2 = strategy2.get_parameters()
     print(params2)
 
     # Example 3: GC-rich genome (Streptomyces, 72% GC)
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("Example 3: GC-rich genome (Streptomyces, 72% GC)")
-    print("="*80)
+    print("=" * 80)
     strategy3 = GCAdaptiveStrategy(genome_gc_content=0.72)
     params3 = strategy3.get_parameters()
     print(params3)

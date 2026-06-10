@@ -12,20 +12,26 @@ Enables:
 - Optimal primer set selection via network properties
 """
 
-import numpy as np
-import networkx as nx
-from typing import List, Dict, Tuple, Set, Optional
-from dataclasses import dataclass
+import logging
+import warnings
 from collections import defaultdict
-import h5py
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
 
-from neoswga.core import thermodynamics as thermo
+import h5py
+import networkx as nx
+import numpy as np
+
 from neoswga.core import reaction_conditions as rc
+from neoswga.core import thermodynamics as thermo
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class NetworkMetrics:
     """Metrics from amplicon network analysis."""
+
     coverage_fraction: float
     num_amplicons: int
     num_hubs: int
@@ -47,11 +53,13 @@ class AmpliconNetwork:
     to predict coverage and identify optimal primer sets.
     """
 
-    def __init__(self,
-                 primers: List[str],
-                 genome_length: int,
-                 max_amplicon_length: int = 5000,
-                 min_amplicon_length: int = 200):
+    def __init__(
+        self,
+        primers: List[str],
+        genome_length: int,
+        max_amplicon_length: int = 5000,
+        min_amplicon_length: int = 200,
+    ):
         """
         Initialize amplicon network.
 
@@ -82,7 +90,7 @@ class AmpliconNetwork:
             hdf5_file = f"{hdf5_prefix}_{k}mer_positions.h5"
 
             try:
-                with h5py.File(hdf5_file, 'r') as f:
+                with h5py.File(hdf5_file, "r") as f:
                     if primer in f:
                         positions = f[primer][:]
 
@@ -105,7 +113,7 @@ class AmpliconNetwork:
 
         Creates nodes for binding sites and edges for valid amplicons.
         """
-        print("Building amplicon network...")
+        logger.info("Building amplicon network...")
 
         node_id = 0
         primer_nodes = defaultdict(list)  # primer -> node IDs
@@ -114,57 +122,48 @@ class AmpliconNetwork:
         for primer in self.primers:
             # Forward strand sites
             for pos in self.positions_forward[primer]:
-                self.G.add_node(
-                    node_id,
-                    primer=primer,
-                    position=pos,
-                    strand='forward'
-                )
-                primer_nodes[(primer, 'forward')].append(node_id)
+                self.G.add_node(node_id, primer=primer, position=pos, strand="forward")
+                primer_nodes[(primer, "forward")].append(node_id)
                 node_id += 1
 
             # Reverse strand sites
             for pos in self.positions_reverse[primer]:
-                self.G.add_node(
-                    node_id,
-                    primer=primer,
-                    position=pos,
-                    strand='reverse'
-                )
-                primer_nodes[(primer, 'reverse')].append(node_id)
+                self.G.add_node(node_id, primer=primer, position=pos, strand="reverse")
+                primer_nodes[(primer, "reverse")].append(node_id)
                 node_id += 1
 
-        print(f"  Nodes: {self.G.number_of_nodes():,}")
+        logger.info(f"  Nodes: {self.G.number_of_nodes():,}")
 
         # Add edges for valid amplicons
         # Amplicon: forward primer -> downstream reverse primer
         edge_count = 0
 
         for primer_fwd in self.primers:
-            fwd_nodes = primer_nodes[(primer_fwd, 'forward')]
+            fwd_nodes = primer_nodes[(primer_fwd, "forward")]
 
             for primer_rev in self.primers:
-                rev_nodes = primer_nodes[(primer_rev, 'reverse')]
+                rev_nodes = primer_nodes[(primer_rev, "reverse")]
 
                 # Connect forward -> reverse if within distance limits
                 for fwd_node in fwd_nodes:
-                    fwd_pos = self.G.nodes[fwd_node]['position']
+                    fwd_pos = self.G.nodes[fwd_node]["position"]
 
                     for rev_node in rev_nodes:
-                        rev_pos = self.G.nodes[rev_node]['position']
+                        rev_pos = self.G.nodes[rev_node]["position"]
 
                         amplicon_length = rev_pos - fwd_pos
 
                         if self.min_amplicon_length <= amplicon_length <= self.max_amplicon_length:
                             self.G.add_edge(
-                                fwd_node, rev_node,
+                                fwd_node,
+                                rev_node,
                                 length=amplicon_length,
-                                primers=(primer_fwd, primer_rev)
+                                primers=(primer_fwd, primer_rev),
                             )
                             edge_count += 1
 
-        print(f"  Edges: {edge_count:,}")
-        print(f"  Potential amplicons: {edge_count:,}")
+        logger.info(f"  Edges: {edge_count:,}")
+        logger.info(f"  Potential amplicons: {edge_count:,}")
 
     def calculate_coverage(self) -> float:
         """
@@ -186,7 +185,7 @@ class AmpliconNetwork:
 
         for component in components:
             if len(component) > 1:
-                positions = [self.G.nodes[n]['position'] for n in component]
+                positions = [self.G.nodes[n]["position"] for n in component]
                 start = min(positions)
                 end = max(positions)
 
@@ -243,24 +242,17 @@ class AmpliconNetwork:
             Dictionary with length statistics
         """
         if self.G.number_of_edges() == 0:
-            return {
-                'count': 0,
-                'mean': 0,
-                'median': 0,
-                'std': 0,
-                'min': 0,
-                'max': 0
-            }
+            return {"count": 0, "mean": 0, "median": 0, "std": 0, "min": 0, "max": 0}
 
-        lengths = [data['length'] for _, _, data in self.G.edges(data=True)]
+        lengths = [data["length"] for _, _, data in self.G.edges(data=True)]
 
         return {
-            'count': len(lengths),
-            'mean': np.mean(lengths),
-            'median': np.median(lengths),
-            'std': np.std(lengths),
-            'min': np.min(lengths),
-            'max': np.max(lengths)
+            "count": len(lengths),
+            "mean": np.mean(lengths),
+            "median": np.median(lengths),
+            "std": np.std(lengths),
+            "min": np.min(lengths),
+            "max": np.max(lengths),
         }
 
     def analyze(self) -> NetworkMetrics:
@@ -270,22 +262,22 @@ class AmpliconNetwork:
         Returns:
             NetworkMetrics object
         """
-        print("Analyzing amplicon network...")
+        logger.info("Analyzing amplicon network...")
 
         coverage = self.calculate_coverage()
-        print(f"  Coverage: {coverage:.1%}")
+        logger.info(f"  Coverage: {coverage:.1%}")
 
         hubs = self.find_hubs()
-        print(f"  Hubs: {len(hubs)}")
+        logger.info(f"  Hubs: {len(hubs)}")
 
         amplicon_stats = self.calculate_amplicon_statistics()
-        print(f"  Mean amplicon length: {amplicon_stats['mean']:.0f} bp")
+        logger.info(f"  Mean amplicon length: {amplicon_stats['mean']:.0f} bp")
 
         # Connected components
         components = list(nx.strongly_connected_components(self.G))
         largest_component = max(components, key=len) if components else set()
-        print(f"  Connected components: {len(components)}")
-        print(f"  Largest component: {len(largest_component)} nodes")
+        logger.info(f"  Connected components: {len(components)}")
+        logger.info(f"  Largest component: {len(largest_component)} nodes")
 
         # Graph metrics
         if self.G.number_of_nodes() > 0:
@@ -302,16 +294,16 @@ class AmpliconNetwork:
 
         return NetworkMetrics(
             coverage_fraction=coverage,
-            num_amplicons=amplicon_stats['count'],
+            num_amplicons=amplicon_stats["count"],
             num_hubs=len(hubs),
-            mean_amplicon_length=amplicon_stats['mean'],
-            median_amplicon_length=amplicon_stats['median'],
-            max_amplicon_length=amplicon_stats['max'],
+            mean_amplicon_length=amplicon_stats["mean"],
+            median_amplicon_length=amplicon_stats["median"],
+            max_amplicon_length=amplicon_stats["max"],
             strongly_connected_components=len(components),
             largest_component_size=len(largest_component),
             average_clustering=clustering,
             network_density=density,
-            mean_degree=mean_degree
+            mean_degree=mean_degree,
         )
 
     def visualize_subgraph(self, max_nodes: int = 100) -> nx.DiGraph:
@@ -348,7 +340,7 @@ class AmpliconNetwork:
         Returns:
             List of (primer, centrality) sorted by importance
         """
-        print("Finding critical primers...")
+        logger.info("Finding critical primers...")
 
         # Calculate betweenness centrality
         betweenness = nx.betweenness_centrality(self.G)
@@ -357,7 +349,7 @@ class AmpliconNetwork:
         primer_centrality = defaultdict(list)
 
         for node, centrality in betweenness.items():
-            primer = self.G.nodes[node]['primer']
+            primer = self.G.nodes[node]["primer"]
             primer_centrality[primer].append(centrality)
 
         # Average centrality per primer
@@ -377,7 +369,7 @@ def network_based_primer_selection(
     genome_length: int,
     hdf5_prefix: str,
     target_set_size: int = 6,
-    max_amplicon_length: int = 5000
+    max_amplicon_length: int = 5000,
 ) -> List[str]:
     """
     Select primer set that maximizes network connectivity.
@@ -400,22 +392,20 @@ def network_based_primer_selection(
     selected = []
     remaining = set(primer_candidates)
 
-    print(f"Network-based primer selection (target: {target_set_size} primers)")
+    logger.info(f"Network-based primer selection (target: {target_set_size} primers)")
 
     for iteration in range(target_set_size):
         best_primer = None
         best_coverage = 0.0
 
-        print(f"\nIteration {iteration + 1}/{target_set_size}")
+        logger.info(f"\nIteration {iteration + 1}/{target_set_size}")
 
         for candidate in remaining:
             # Test adding this primer
             test_set = selected + [candidate]
 
             # Build network
-            network = AmpliconNetwork(
-                test_set, genome_length, max_amplicon_length
-            )
+            network = AmpliconNetwork(test_set, genome_length, max_amplicon_length)
             network.load_positions_from_hdf5(hdf5_prefix)
             network.build_network()
 
@@ -429,10 +419,10 @@ def network_based_primer_selection(
         if best_primer:
             selected.append(best_primer)
             remaining.remove(best_primer)
-            print(f"  Selected: {best_primer}")
-            print(f"  Coverage: {best_coverage:.1%}")
+            logger.info(f"  Selected: {best_primer}")
+            logger.info(f"  Coverage: {best_coverage:.1%}")
         else:
-            print("  No improvement possible")
+            logger.info("  No improvement possible")
             break
 
     return selected

@@ -41,7 +41,7 @@ dependencies = [
     "numpy>=1.24,<3",
     "pandas>=1.5,<3",
     "scipy>=1.10,<2",
-    "scikit-learn>=1.0,<2",
+    "scikit-learn>=1.7,<1.9",
     "h5py>=3.0,<4",
     "networkx>=2.8,<4",
     "biopython>=1.80,<2",
@@ -65,6 +65,9 @@ fast = [
 interactive = [
     "plotly>=5.0.0",
 ]
+bam = [
+    "pysam>=0.22",
+]
 gpu = [
     "cupy-cuda11x>=11.0.0",
 ]
@@ -82,11 +85,12 @@ dev = [
     "pytest-cov>=3.0.0",
     "pytest-timeout>=2.0.0",
     "hypothesis>=6.0.0",
-    "black>=22.0.0",
+    # Pinned to match CI lint (formatting output is version-sensitive).
+    "black==26.5.1",
     "flake8>=4.0.0",
     "ruff>=0.5.0",
     "mypy>=1.0",
-    "isort>=5.10.0",
+    "isort==8.0.1",
     "pre-commit>=3.0.0",
     "build>=1.0.0",
     "twine>=5.0.0",
@@ -99,6 +103,7 @@ all = [
     "mip>=1.13.0",
     "pyahocorasick>=2.0.0",
     "plotly>=5.0.0",
+    "pysam>=0.22",
     "matplotlib>=3.5,<4",
     "seaborn>=0.12,<1",
     "openpyxl>=3.0,<4",
@@ -115,18 +120,22 @@ Repository = "https://github.com/FOI-Bioinformatics/neoswga"
 neoswga = "neoswga.cli_unified:main"
 
 [tool.setuptools]
-packages = ["neoswga", "neoswga.core", "neoswga.core.report", "neoswga.core.experimental", "neoswga.core.schema"]
+packages = ["neoswga", "neoswga.core", "neoswga.core.report", "neoswga.core.schema"]
 package-dir = {"" = "."}
 include-package-data = true
 
 [tool.setuptools.package-data]
 neoswga = ["*.md"]
-"neoswga.core" = ["*.md", "models/*.p"]
+"neoswga.core" = ["*.md", "models/*.p", "models/*.json"]
 "neoswga.core.schema" = ["*.json"]
 
 [tool.black]
 line-length = 100
-target-version = ['py311', 'py312', 'py313']
+# Target the minimum supported version. Targeting py313 makes black emit code
+# whose AST it cannot safety-verify when run on Python 3.11 (the CI lint
+# runner), leaving some files unformattable there; py311 output is valid for
+# all supported interpreters (3.11-3.13).
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(

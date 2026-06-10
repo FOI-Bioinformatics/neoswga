@@ -10,16 +10,17 @@ Analyzes pipeline output files and provides:
 
 import csv
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 
 class QualityRating(Enum):
     """Quality rating levels."""
+
     EXCELLENT = "EXCELLENT"
     GOOD = "GOOD"
     ACCEPTABLE = "ACCEPTABLE"
@@ -30,6 +31,7 @@ class QualityRating(Enum):
 @dataclass
 class MetricAssessment:
     """Assessment of a single metric."""
+
     name: str
     value: float
     rating: QualityRating
@@ -41,6 +43,7 @@ class MetricAssessment:
 @dataclass
 class ResultsReport:
     """Complete results interpretation report."""
+
     primer_count: int
     assessments: List[MetricAssessment]
     overall_rating: QualityRating
@@ -80,8 +83,9 @@ DIMER_SCORE_THRESHOLDS = {  # Lower is better
 }
 
 
-def rate_metric(value: float, thresholds: Dict[QualityRating, float],
-                lower_is_better: bool = False) -> QualityRating:
+def rate_metric(
+    value: float, thresholds: Dict[QualityRating, float], lower_is_better: bool = False
+) -> QualityRating:
     """
     Rate a metric value against thresholds.
 
@@ -135,8 +139,8 @@ class ResultsInterpreter:
             results_dir: Path to directory containing pipeline output
         """
         self.results_dir = Path(results_dir)
-        self.step4_file = self.results_dir / 'step4_improved_df.csv'
-        self.step3_file = self.results_dir / 'step3_df.csv'
+        self.step4_file = self.results_dir / "step4_improved_df.csv"
+        self.step3_file = self.results_dir / "step3_df.csv"
 
     def analyze(self) -> ResultsReport:
         """
@@ -153,8 +157,7 @@ class ResultsInterpreter:
             logger.warning("Using step3 results (optimize step not run)")
         else:
             raise FileNotFoundError(
-                f"No results found in {self.results_dir}. "
-                "Run the pipeline first."
+                f"No results found in {self.results_dir}. " "Run the pipeline first."
             )
 
         assessments = []
@@ -164,14 +167,16 @@ class ResultsInterpreter:
         coverage = self._calculate_coverage(primers)
         if coverage is not None:
             rating = rate_metric(coverage, COVERAGE_THRESHOLDS)
-            assessments.append(MetricAssessment(
-                name="Genome Coverage",
-                value=coverage,
-                rating=rating,
-                unit="%",
-                context=f"Percentage of target genome covered by primer binding",
-                threshold_info=f">95% excellent, >85% good, >70% acceptable"
-            ))
+            assessments.append(
+                MetricAssessment(
+                    name="Genome Coverage",
+                    value=coverage,
+                    rating=rating,
+                    unit="%",
+                    context=f"Percentage of target genome covered by primer binding",
+                    threshold_info=f">95% excellent, >85% good, >70% acceptable",
+                )
+            )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
                 warnings.append("Low coverage may result in amplification gaps")
 
@@ -179,14 +184,16 @@ class ResultsInterpreter:
         enrichment = self._calculate_enrichment(primers)
         if enrichment is not None:
             rating = rate_metric(enrichment, ENRICHMENT_THRESHOLDS)
-            assessments.append(MetricAssessment(
-                name="Enrichment Ratio",
-                value=enrichment,
-                rating=rating,
-                unit="x",
-                context="Expected fold-enrichment of target vs background",
-                threshold_info=">200x excellent, >100x good, >50x acceptable"
-            ))
+            assessments.append(
+                MetricAssessment(
+                    name="Enrichment Ratio",
+                    value=enrichment,
+                    rating=rating,
+                    unit="x",
+                    context="Expected fold-enrichment of target vs background",
+                    threshold_info=">200x excellent, >100x good, >50x acceptable",
+                )
+            )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
                 warnings.append("Low enrichment may result in high background")
 
@@ -194,14 +201,16 @@ class ResultsInterpreter:
         uniformity = self._calculate_uniformity(primers)
         if uniformity is not None:
             rating = rate_metric(uniformity, UNIFORMITY_THRESHOLDS, lower_is_better=True)
-            assessments.append(MetricAssessment(
-                name="Binding Uniformity",
-                value=uniformity,
-                rating=rating,
-                unit="Gini",
-                context="Evenness of primer binding across genome (0=uniform, 1=clustered)",
-                threshold_info="<0.3 excellent, <0.45 good, <0.6 acceptable"
-            ))
+            assessments.append(
+                MetricAssessment(
+                    name="Binding Uniformity",
+                    value=uniformity,
+                    rating=rating,
+                    unit="Gini",
+                    context="Evenness of primer binding across genome (0=uniform, 1=clustered)",
+                    threshold_info="<0.3 excellent, <0.45 good, <0.6 acceptable",
+                )
+            )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
                 warnings.append("Uneven binding may cause amplification bias")
 
@@ -209,14 +218,16 @@ class ResultsInterpreter:
         dimer_score = self._calculate_dimer_score(primers)
         if dimer_score is not None:
             rating = rate_metric(dimer_score, DIMER_SCORE_THRESHOLDS, lower_is_better=True)
-            assessments.append(MetricAssessment(
-                name="Dimer Risk",
-                value=dimer_score,
-                rating=rating,
-                unit="score",
-                context="Risk of primer-dimer formation (lower is better)",
-                threshold_info="<0.1 excellent, <0.2 good, <0.35 acceptable"
-            ))
+            assessments.append(
+                MetricAssessment(
+                    name="Dimer Risk",
+                    value=dimer_score,
+                    rating=rating,
+                    unit="score",
+                    context="Risk of primer-dimer formation (lower is better)",
+                    threshold_info="<0.1 excellent, <0.2 good, <0.35 acceptable",
+                )
+            )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
                 warnings.append("High dimer risk may reduce amplification efficiency")
 
@@ -229,7 +240,7 @@ class ResultsInterpreter:
                 QualityRating.GOOD: 4,
                 QualityRating.ACCEPTABLE: 3,
                 QualityRating.POOR: 2,
-                QualityRating.CRITICAL: 1
+                QualityRating.CRITICAL: 1,
             }
             avg_score = sum(rating_scores[a.rating] for a in assessments) / len(assessments)
             if avg_score >= 4.5:
@@ -280,13 +291,13 @@ class ResultsInterpreter:
     def _calculate_coverage(self, primers: List[Dict]) -> Optional[float]:
         """Calculate genome coverage from primer data."""
         # Look for coverage field
-        for key in ['coverage', 'genome_coverage', 'fg_coverage']:
+        for key in ["coverage", "genome_coverage", "fg_coverage"]:
             values = [float(p.get(key, 0)) for p in primers if key in p]
             if values:
                 return max(values)  # Return best coverage
 
         # Calculate from set_coverage if available
-        for key in ['set_coverage']:
+        for key in ["set_coverage"]:
             values = [float(p.get(key, 0)) for p in primers if key in p]
             if values:
                 return values[0]  # First set's coverage
@@ -296,15 +307,15 @@ class ResultsInterpreter:
     def _calculate_enrichment(self, primers: List[Dict]) -> Optional[float]:
         """Calculate enrichment ratio from primer data."""
         # Look for enrichment field
-        for key in ['enrichment', 'enrichment_ratio', 'fg_bg_ratio']:
+        for key in ["enrichment", "enrichment_ratio", "fg_bg_ratio"]:
             values = [float(p.get(key, 0)) for p in primers if key in p]
             if values:
                 return sum(values) / len(values)  # Average enrichment
 
         # Calculate from fg_freq and bg_freq
         try:
-            fg_freqs = [float(p.get('fg_freq', 0)) for p in primers]
-            bg_freqs = [float(p.get('bg_freq', 0)) for p in primers]
+            fg_freqs = [float(p.get("fg_freq", 0)) for p in primers]
+            bg_freqs = [float(p.get("bg_freq", 0)) for p in primers]
 
             # Filter out zero/near-zero background values to avoid division by zero
             valid_pairs = [(fg, bg) for fg, bg in zip(fg_freqs, bg_freqs) if bg > 1e-10]
@@ -314,7 +325,7 @@ class ResultsInterpreter:
                 return sum(ratios) / len(ratios)
             elif any(fg > 0 for fg in fg_freqs):
                 # Foreground signal but no background = very high enrichment
-                return float('inf')
+                return float("inf")
         except (ValueError, ZeroDivisionError):
             pass
 
@@ -322,7 +333,7 @@ class ResultsInterpreter:
 
     def _calculate_uniformity(self, primers: List[Dict]) -> Optional[float]:
         """Calculate binding uniformity (Gini index) from primer data."""
-        for key in ['gini', 'gini_index', 'uniformity']:
+        for key in ["gini", "gini_index", "uniformity"]:
             values = [float(p.get(key, 0)) for p in primers if key in p]
             if values:
                 # Use max (worst-case) Gini for quality assessment
@@ -332,7 +343,7 @@ class ResultsInterpreter:
 
     def _calculate_dimer_score(self, primers: List[Dict]) -> Optional[float]:
         """Calculate dimer risk score from primer data."""
-        for key in ['dimer_score', 'dimer_risk', 'heterodimer_score']:
+        for key in ["dimer_score", "dimer_risk", "heterodimer_score"]:
             values = [float(p.get(key, 0)) for p in primers if key in p]
             if values:
                 return max(values)  # Worst case dimer risk
@@ -349,16 +360,17 @@ class ResultsInterpreter:
         """
         try:
             import json
+
             from neoswga.core.mechanistic_model import MechanisticModel
             from neoswga.core.reaction_conditions import ReactionConditions
         except ImportError:
             return None
 
         # Try to load params.json
-        params_path = self.results_dir / 'params.json'
+        params_path = self.results_dir / "params.json"
         if not params_path.exists():
             # Try parent directory
-            params_path = self.results_dir.parent / 'params.json'
+            params_path = self.results_dir.parent / "params.json"
             if not params_path.exists():
                 return None
 
@@ -369,29 +381,29 @@ class ResultsInterpreter:
             return None
 
         # Build reaction conditions
-        polymerase = params.get('polymerase', 'phi29')
+        polymerase = params.get("polymerase", "phi29")
         try:
             conditions = ReactionConditions(
-                temp=params.get('reaction_temp', 30.0),
+                temp=params.get("reaction_temp", 30.0),
                 polymerase=polymerase,
-                na_conc=params.get('na_conc', 50.0),
-                mg_conc=params.get('mg_conc', 2.5),
-                dmso_percent=params.get('dmso_percent', 0.0),
-                betaine_m=params.get('betaine_m', 0.0),
-                trehalose_m=params.get('trehalose_m', 0.0),
+                na_conc=params.get("na_conc", 50.0),
+                mg_conc=params.get("mg_conc", 2.5),
+                dmso_percent=params.get("dmso_percent", 0.0),
+                betaine_m=params.get("betaine_m", 0.0),
+                trehalose_m=params.get("trehalose_m", 0.0),
             )
         except Exception:
             return None
 
         # Get template GC
-        template_gc = params.get('fg_gc', 0.5)
+        template_gc = params.get("fg_gc", 0.5)
 
         # Calculate amplification factors for each primer
         try:
             model = MechanisticModel(conditions)
             primer_seqs = []
             for row in primers:
-                seq = row.get('primer', row.get('sequence', ''))
+                seq = row.get("primer", row.get("sequence", ""))
                 if seq:
                     primer_seqs.append(seq)
 
@@ -411,12 +423,15 @@ class ResultsInterpreter:
             # mean_amplification_factor ^ (N * coverage_efficiency).
             # We use a simplified estimate: mean_factor * num_primers * processivity_scaling
             processivity_map = {
-                'phi29': 70000, 'equiphi29': 80000,
-                'bst': 2000, 'klenow': 10000,
+                "phi29": 70000,
+                "equiphi29": 80000,
+                "bst": 2000,
+                "klenow": 10000,
             }
             processivity = processivity_map.get(polymerase, 70000)
             # Scale by log2 of processivity relative to typical genome regions
             import math
+
             processivity_bonus = math.log2(processivity / 1000.0)
 
             # Enrichment estimate: exponential scaling with primer count
@@ -426,33 +441,34 @@ class ResultsInterpreter:
             estimated_enrichment = max(1.0, min(estimated_enrichment, 10000.0))
 
             return {
-                'estimated_fold_enrichment': estimated_enrichment,
-                'mean_amplification_factor': mean_factor,
-                'num_primers': len(primer_seqs),
-                'polymerase': polymerase,
-                'reaction_temp': conditions.temp,
-                'confidence': 'moderate' if 0.3 < mean_factor < 0.9 else 'low',
+                "estimated_fold_enrichment": estimated_enrichment,
+                "mean_amplification_factor": mean_factor,
+                "num_primers": len(primer_seqs),
+                "polymerase": polymerase,
+                "reaction_temp": conditions.temp,
+                "confidence": "moderate" if 0.3 < mean_factor < 0.9 else "low",
             }
         except Exception as e:
             logger.debug(f"Enrichment estimation failed: {e}")
             return None
 
-    def _generate_recommendation(self, overall: QualityRating,
-                                  warnings: List[str]) -> Tuple[str, List[str]]:
+    def _generate_recommendation(
+        self, overall: QualityRating, warnings: List[str]
+    ) -> Tuple[str, List[str]]:
         """Generate recommendation and next steps based on assessment."""
         if overall == QualityRating.EXCELLENT:
             recommendation = "Ready for synthesis. Excellent primer set quality."
             next_steps = [
                 "Order primers for experimental validation",
                 "Consider running simulation for additional confidence",
-                "Prepare SWGA reaction with recommended conditions"
+                "Prepare SWGA reaction with recommended conditions",
             ]
         elif overall == QualityRating.GOOD:
             recommendation = "Ready for synthesis. Good primer set quality."
             next_steps = [
                 "Order primers for experimental validation",
                 "Monitor coverage uniformity during amplification",
-                "Consider backup primer designs if results are variable"
+                "Consider backup primer designs if results are variable",
             ]
         elif overall == QualityRating.ACCEPTABLE:
             recommendation = "Consider optimization before synthesis."
@@ -460,7 +476,7 @@ class ResultsInterpreter:
                 "Re-run optimization with different parameters",
                 "Try background-aware optimization for better specificity",
                 "Consider increasing primer pool size",
-                "If time-critical, proceed with caution"
+                "If time-critical, proceed with caution",
             ]
         elif overall == QualityRating.POOR:
             recommendation = "Optimization recommended before synthesis."
@@ -468,7 +484,7 @@ class ResultsInterpreter:
                 "Review parameter settings (GC bounds, Tm range)",
                 "Try different optimization method (dominating-set, background-aware)",
                 "Increase max_primer to expand candidate pool",
-                "Check if genome is suitable for SWGA (run analyze-genome)"
+                "Check if genome is suitable for SWGA (run analyze-genome)",
             ]
         else:  # CRITICAL
             recommendation = "Do not proceed. Significant issues detected."
@@ -476,7 +492,7 @@ class ResultsInterpreter:
                 "Review genome suitability with analyze-genome",
                 "Check parameter configuration with validate-params",
                 "Consider if target genome is appropriate for SWGA",
-                "Contact support if issues persist"
+                "Contact support if issues persist",
             ]
 
         return recommendation, next_steps
@@ -542,7 +558,7 @@ def interpret_results(results_dir: str, verbose: bool = True) -> ResultsReport:
     return report
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 2:

@@ -27,32 +27,31 @@ Version: 3.3 - Integration Layer
 """
 
 import logging
-from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 
+from neoswga.core.dimer_network_analyzer import DimerNetworkAnalyzer, create_dimer_network_analyzer
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.strand_bias_analyzer import (
     StrandBiasAnalyzer,
+    StrandBindingSite,
     create_strand_bias_analyzer,
-    StrandBindingSite
-)
-from neoswga.core.dimer_network_analyzer import (
-    DimerNetworkAnalyzer,
-    create_dimer_network_analyzer
 )
 from neoswga.core.three_prime_stability import (
     ThreePrimeStabilityAnalyzer,
     create_three_prime_analyzer,
-    create_three_prime_analyzer_adaptive
+    create_three_prime_analyzer_adaptive,
 )
-from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
 
 
 class QualityDimension(Enum):
     """Quality dimensions for primer evaluation."""
+
     STRAND_BIAS = "strand_bias"
     DIMER_NETWORK = "dimer_network"
     THREE_PRIME_STABILITY = "three_prime_stability"
@@ -63,6 +62,7 @@ class QualityDimension(Enum):
 @dataclass
 class PrimerQualityScore:
     """Comprehensive quality score for a single primer."""
+
     primer: str
 
     # Individual dimension scores (0-1, higher is better)
@@ -89,16 +89,19 @@ class PrimerQualityScore:
 
     def __str__(self):
         status = "PASS" if self.passes_all else "FAIL"
-        return (f"{self.primer} ({status}): Overall={self.overall_score:.3f}, Rank={self.rank}\n"
-                f"  Strand: {self.strand_bias_score:.2f}, "
-                f"Dimer: {self.dimer_score:.2f}, "
-                f"3': {self.three_prime_score:.2f}\n"
-                f"  Failures: {', '.join(self.failure_reasons) if self.failure_reasons else 'None'}")
+        return (
+            f"{self.primer} ({status}): Overall={self.overall_score:.3f}, Rank={self.rank}\n"
+            f"  Strand: {self.strand_bias_score:.2f}, "
+            f"Dimer: {self.dimer_score:.2f}, "
+            f"3': {self.three_prime_score:.2f}\n"
+            f"  Failures: {', '.join(self.failure_reasons) if self.failure_reasons else 'None'}"
+        )
 
 
 @dataclass
 class SetQualityScore:
     """Comprehensive quality score for a primer set."""
+
     primers: List[str]
 
     # Set-level scores (0-1)
@@ -118,12 +121,14 @@ class SetQualityScore:
 
     def __str__(self):
         status = "PASS" if self.passes else f"FAIL ({self.failure_reason})"
-        return (f"Primer Set ({len(self.primers)} primers): {status}\n"
-                f"  Mean quality: {self.mean_overall_score:.3f}, "
-                f"Min quality: {self.min_overall_score:.3f}\n"
-                f"  Failures: Strand={self.num_failing_strand}, "
-                f"Dimer={self.num_failing_dimer}, "
-                f"3'={self.num_failing_three_prime}")
+        return (
+            f"Primer Set ({len(self.primers)} primers): {status}\n"
+            f"  Mean quality: {self.mean_overall_score:.3f}, "
+            f"Min quality: {self.min_overall_score:.3f}\n"
+            f"  Failures: Strand={self.num_failing_strand}, "
+            f"Dimer={self.num_failing_dimer}, "
+            f"3'={self.num_failing_three_prime}"
+        )
 
 
 class IntegratedQualityScorer:
@@ -152,11 +157,13 @@ class IntegratedQualityScorer:
     - Complexity: 5% (background binding proxy)
     """
 
-    def __init__(self,
-                 conditions: Optional[ReactionConditions] = None,
-                 stringency: str = 'moderate',
-                 weights: Optional[Dict[str, float]] = None,
-                 genome_gc: Optional[float] = None):
+    def __init__(
+        self,
+        conditions: Optional[ReactionConditions] = None,
+        stringency: str = "moderate",
+        weights: Optional[Dict[str, float]] = None,
+        genome_gc: Optional[float] = None,
+    ):
         """
         Initialize integrated quality scorer.
 
@@ -189,9 +196,7 @@ class IntegratedQualityScorer:
         # Use genome-adaptive analyzer if genome_gc provided
         if genome_gc is not None:
             self.three_prime_analyzer = create_three_prime_analyzer_adaptive(
-                genome_gc=genome_gc,
-                stringency=stringency,
-                conditions=conditions
+                genome_gc=genome_gc, stringency=stringency, conditions=conditions
             )
             logger.info(f"Using genome-adaptive QA for {genome_gc:.1%} GC genome")
         else:
@@ -203,11 +208,11 @@ class IntegratedQualityScorer:
         # by coverage (35%) and specificity (30%) for grading experimental outcomes.
         if weights is None:
             self.weights = {
-                'dimer': 0.35,
-                'three_prime': 0.25,
-                'strand_bias': 0.20,
-                'thermodynamics': 0.15,
-                'complexity': 0.05
+                "dimer": 0.35,
+                "three_prime": 0.25,
+                "strand_bias": 0.20,
+                "thermodynamics": 0.15,
+                "complexity": 0.05,
             }
         else:
             self.weights = weights
@@ -216,11 +221,11 @@ class IntegratedQualityScorer:
         total = sum(self.weights.values())
         if not np.isclose(total, 1.0):
             logger.warning(f"Weights sum to {total}, normalizing to 1.0")
-            self.weights = {k: v/total for k, v in self.weights.items()}
+            self.weights = {k: v / total for k, v in self.weights.items()}
 
-    def score_primer(self,
-                    primer: str,
-                    binding_sites: Optional[List[StrandBindingSite]] = None) -> PrimerQualityScore:
+    def score_primer(
+        self, primer: str, binding_sites: Optional[List[StrandBindingSite]] = None
+    ) -> PrimerQualityScore:
         """
         Calculate comprehensive quality score for a single primer.
 
@@ -266,11 +271,11 @@ class IntegratedQualityScorer:
 
         # Calculate overall composite score
         overall_score = (
-            self.weights['strand_bias'] * strand_score +
-            self.weights['three_prime'] * three_prime_score +
-            self.weights['complexity'] * complexity_score +
-            self.weights['thermodynamics'] * thermo_score +
-            self.weights['dimer'] * dimer_score
+            self.weights["strand_bias"] * strand_score
+            + self.weights["three_prime"] * three_prime_score
+            + self.weights["complexity"] * complexity_score
+            + self.weights["thermodynamics"] * thermo_score
+            + self.weights["dimer"] * dimer_score
         )
 
         return PrimerQualityScore(
@@ -285,13 +290,15 @@ class IntegratedQualityScorer:
             passes_dimer=passes_dimer,
             passes_three_prime=passes_three_prime,
             passes_all=(passes_strand and passes_dimer and passes_three_prime),
-            failure_reasons=failure_reasons
+            failure_reasons=failure_reasons,
         )
 
-    def analyze_primer_set(self,
-                          primers: List[str],
-                          binding_sites_dict: Optional[Dict[str, List[StrandBindingSite]]] = None,
-                          verbose: bool = False) -> Tuple[List[PrimerQualityScore], SetQualityScore]:
+    def analyze_primer_set(
+        self,
+        primers: List[str],
+        binding_sites_dict: Optional[Dict[str, List[StrandBindingSite]]] = None,
+        verbose: bool = False,
+    ) -> Tuple[List[PrimerQualityScore], SetQualityScore]:
         """
         Comprehensive quality analysis of primer set.
 
@@ -331,25 +338,25 @@ class IntegratedQualityScorer:
             # Recalculate overall score with updated dimer score
             score = primer_scores[primer]
             score.overall_score = (
-                self.weights['strand_bias'] * score.strand_bias_score +
-                self.weights['three_prime'] * score.three_prime_score +
-                self.weights['complexity'] * score.complexity_score +
-                self.weights['thermodynamics'] * score.thermo_score +
-                self.weights['dimer'] * score.dimer_score
+                self.weights["strand_bias"] * score.strand_bias_score
+                + self.weights["three_prime"] * score.three_prime_score
+                + self.weights["complexity"] * score.complexity_score
+                + self.weights["thermodynamics"] * score.thermo_score
+                + self.weights["dimer"] * score.dimer_score
             )
 
             # Update pass/fail
-            score.passes_all = (score.passes_strand_bias and
-                              score.passes_dimer and
-                              score.passes_three_prime)
+            score.passes_all = (
+                score.passes_strand_bias and score.passes_dimer and score.passes_three_prime
+            )
 
             if not score.passes_dimer:
-                score.failure_reasons.append(f"Dimer: Hub primer ({profile.num_interactions} interactions)")
+                score.failure_reasons.append(
+                    f"Dimer: Hub primer ({profile.num_interactions} interactions)"
+                )
 
         # Step 3: Rank primers by overall quality
-        sorted_scores = sorted(primer_scores.values(),
-                             key=lambda x: x.overall_score,
-                             reverse=True)
+        sorted_scores = sorted(primer_scores.values(), key=lambda x: x.overall_score, reverse=True)
 
         for rank, score in enumerate(sorted_scores, 1):
             score.rank = rank
@@ -364,8 +371,10 @@ class IntegratedQualityScorer:
 
         # Set-level strand bias (if available)
         if binding_sites_dict:
-            strand_biases = [self.strand_analyzer.analyze_primer(p, binding_sites_dict.get(p, []))
-                           for p in primers]
+            strand_biases = [
+                self.strand_analyzer.analyze_primer(p, binding_sites_dict.get(p, []))
+                for p in primers
+            ]
             set_strand_metrics = self.strand_analyzer.analyze_primer_set(strand_biases)
             set_strand_score = 1.0 - set_strand_metrics.mean_bias_score
         else:
@@ -396,15 +405,16 @@ class IntegratedQualityScorer:
             failure_reason=failure_reason,
             num_failing_strand=num_failing_strand,
             num_failing_dimer=num_failing_dimer,
-            num_failing_three_prime=num_failing_three_prime
+            num_failing_three_prime=num_failing_three_prime,
         )
 
         if verbose:
             logger.info(f"\n{set_score}")
             logger.info("\nTop 5 primers by quality:")
             for score in sorted_scores[:5]:
-                logger.info(f"  {score.rank}. {score.primer[:10]}... "
-                          f"(score={score.overall_score:.3f})")
+                logger.info(
+                    f"  {score.rank}. {score.primer[:10]}... " f"(score={score.overall_score:.3f})"
+                )
 
             if num_failing_strand + num_failing_dimer + num_failing_three_prime > 0:
                 logger.info(f"\nQuality issues detected:")
@@ -432,7 +442,7 @@ class IntegratedQualityScorer:
         # Count unique 4-mers
         kmers = set()
         for i in range(len(primer) - 3):
-            kmer = primer[i:i+4]
+            kmer = primer[i : i + 4]
             kmers.add(kmer)
 
         # Maximum possible unique 4-mers for this length
@@ -460,7 +470,7 @@ class IntegratedQualityScorer:
         Returns:
             Score 0-1 (1 = optimal Tm range)
         """
-        gc_count = sum(1 for b in primer if b in 'GC')
+        gc_count = sum(1 for b in primer if b in "GC")
         primer_len = len(primer)
         gc_fraction = gc_count / primer_len if primer_len else 0.5
 
@@ -492,7 +502,8 @@ class IntegratedQualityScorer:
         """
         try:
             from neoswga.core.thermodynamics import calculate_tm_with_salt
-            na = getattr(self.conditions, 'na_conc', 50.0) if self.conditions else 50.0
+
+            na = getattr(self.conditions, "na_conc", 50.0) if self.conditions else 50.0
             base_tm = calculate_tm_with_salt(primer, na_conc=na)
             if self.conditions is not None:
                 base_tm += self.conditions.calculate_tm_correction(
@@ -506,9 +517,9 @@ class IntegratedQualityScorer:
             at_count = primer_len - gc_count
             return 2 * at_count + 4 * gc_count
 
-    def get_recommendations(self,
-                          primer_scores: List[PrimerQualityScore],
-                          set_score: SetQualityScore) -> List[str]:
+    def get_recommendations(
+        self, primer_scores: List[PrimerQualityScore], set_score: SetQualityScore
+    ) -> List[str]:
         """
         Generate actionable recommendations for improving primer set.
 
@@ -527,20 +538,18 @@ class IntegratedQualityScorer:
 
         # Identify weakest dimension
         mean_scores = {
-            'strand': np.mean([s.strand_bias_score for s in primer_scores]),
-            'dimer': np.mean([s.dimer_score for s in primer_scores]),
-            'three_prime': np.mean([s.three_prime_score for s in primer_scores]),
-            'complexity': np.mean([s.complexity_score for s in primer_scores]),
-            'thermo': np.mean([s.thermo_score for s in primer_scores])
+            "strand": np.mean([s.strand_bias_score for s in primer_scores]),
+            "dimer": np.mean([s.dimer_score for s in primer_scores]),
+            "three_prime": np.mean([s.three_prime_score for s in primer_scores]),
+            "complexity": np.mean([s.complexity_score for s in primer_scores]),
+            "thermo": np.mean([s.thermo_score for s in primer_scores]),
         }
 
         weakest_dim = min(mean_scores, key=mean_scores.get)
         weakest_score = mean_scores[weakest_dim]
 
         if weakest_score < 0.7:
-            recommendations.append(
-                f"Weakest dimension: {weakest_dim} (mean={weakest_score:.2f})"
-            )
+            recommendations.append(f"Weakest dimension: {weakest_dim} (mean={weakest_score:.2f})")
 
         # Specific recommendations
         if set_score.num_failing_dimer > 0:
@@ -554,9 +563,7 @@ class IntegratedQualityScorer:
             )
 
         if set_score.num_failing_strand > 0:
-            recommendations.append(
-                f"Address strand bias in {set_score.num_failing_strand} primers"
-            )
+            recommendations.append(f"Address strand bias in {set_score.num_failing_strand} primers")
 
         # Weakest link
         worst_primer = min(primer_scores, key=lambda x: x.overall_score)
@@ -568,10 +575,12 @@ class IntegratedQualityScorer:
         return recommendations
 
 
-def create_quality_scorer(stringency: str = 'moderate',
-                         conditions: Optional[ReactionConditions] = None,
-                         weights: Optional[Dict[str, float]] = None,
-                         genome_gc: Optional[float] = None) -> IntegratedQualityScorer:
+def create_quality_scorer(
+    stringency: str = "moderate",
+    conditions: Optional[ReactionConditions] = None,
+    weights: Optional[Dict[str, float]] = None,
+    genome_gc: Optional[float] = None,
+) -> IntegratedQualityScorer:
     """
     Factory function to create IntegratedQualityScorer with preset stringency.
 
@@ -595,18 +604,17 @@ def create_quality_scorer(stringency: str = 'moderate',
         >>> quality = scorer.score_primer('ATATATATATAT')  # AT-rich primer
     """
     return IntegratedQualityScorer(
-        conditions=conditions,
-        stringency=stringency,
-        weights=weights,
-        genome_gc=genome_gc
+        conditions=conditions, stringency=stringency, weights=weights, genome_gc=genome_gc
     )
 
 
-def quick_score_primers(primers: List[str],
-                       binding_sites_dict: Optional[Dict[str, List[StrandBindingSite]]] = None,
-                       stringency: str = 'moderate',
-                       conditions: Optional[ReactionConditions] = None,
-                       genome_gc: Optional[float] = None) -> Tuple[List[PrimerQualityScore], SetQualityScore]:
+def quick_score_primers(
+    primers: List[str],
+    binding_sites_dict: Optional[Dict[str, List[StrandBindingSite]]] = None,
+    stringency: str = "moderate",
+    conditions: Optional[ReactionConditions] = None,
+    genome_gc: Optional[float] = None,
+) -> Tuple[List[PrimerQualityScore], SetQualityScore]:
     """
     Quick utility for integrated quality scoring.
 
@@ -629,13 +637,13 @@ if __name__ == "__main__":
     print("Testing Integrated Quality Scorer...\n")
 
     # Create scorer
-    scorer = IntegratedQualityScorer(stringency='moderate')
+    scorer = IntegratedQualityScorer(stringency="moderate")
 
     # Example primer set
     test_primers = [
         "ACGTACGTACGTGC",  # Good primer
-        "AAAAAAAAAAAAA",   # Low complexity
-        "GCGCGCGCGCGCG",   # High GC, potential dimers
+        "AAAAAAAAAAAAA",  # Low complexity
+        "GCGCGCGCGCGCG",  # High GC, potential dimers
         "ACGTACGTACGTAT",  # Marginal 3' stability
         "TGCATGCATGCATG",  # Balanced
     ]
@@ -645,12 +653,12 @@ if __name__ == "__main__":
     # Analyze
     primer_scores, set_score = scorer.analyze_primer_set(test_primers, verbose=True)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("RECOMMENDATIONS:")
-    print("="*60)
+    print("=" * 60)
     recommendations = scorer.get_recommendations(primer_scores, set_score)
     for i, rec in enumerate(recommendations, 1):
         print(f"{i}. {rec}")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Integrated Quality Scorer ready for pipeline integration!")

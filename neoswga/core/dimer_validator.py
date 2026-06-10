@@ -24,8 +24,9 @@ Usage:
 """
 
 import logging
+from typing import List, Optional, Tuple
+
 import numpy as np
-from typing import List, Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,14 +59,14 @@ class DimerValidator:
         key = (primer1, primer2) if primer1 <= primer2 else (primer2, primer1)
         if key not in self._pair_cache:
             from . import dimer
-            self._pair_cache[key] = not dimer.is_dimer_fast(
-                primer1, primer2, self.max_dimer_bp
-            )
+
+            self._pair_cache[key] = not dimer.is_dimer_fast(primer1, primer2, self.max_dimer_bp)
         return self._pair_cache[key]
 
     def has_self_dimer(self, primer: str) -> bool:
         """Check whether a primer forms a homodimer."""
         from . import dimer
+
         return dimer.is_dimer_fast(primer, primer, self.max_self_dimer_bp)
 
     def build_matrix(self, primers: List[str]) -> np.ndarray:
@@ -84,13 +85,9 @@ class DimerValidator:
         from . import dimer
 
         if len(primers) > _PARALLEL_THRESHOLD:
-            matrix = dimer.heterodimer_matrix_parallel(
-                primers, max_dimer_bp=self.max_dimer_bp
-            )
+            matrix = dimer.heterodimer_matrix_parallel(primers, max_dimer_bp=self.max_dimer_bp)
         else:
-            matrix = dimer.heterodimer_matrix_fast(
-                primers, max_dimer_bp=self.max_dimer_bp
-            )
+            matrix = dimer.heterodimer_matrix_fast(primers, max_dimer_bp=self.max_dimer_bp)
 
         return matrix.astype(bool)
 
@@ -116,9 +113,7 @@ class DimerValidator:
                     dimers += 1
         return dimers / total
 
-    def incompatible_pairs(
-        self, primers: List[str]
-    ) -> List[Tuple[str, str]]:
+    def incompatible_pairs(self, primers: List[str]) -> List[Tuple[str, str]]:
         """Return list of primer pairs that form dimers."""
         pairs = []
         for i in range(len(primers)):

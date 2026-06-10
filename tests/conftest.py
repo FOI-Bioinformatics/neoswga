@@ -4,11 +4,78 @@ Centralizes commonly duplicated test data: primer sequences, genome strings,
 reaction conditions, mock caches, and temporary FASTA files.
 """
 
-import numpy as np
-import pytest
+import glob
+import os
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from neoswga.core.reaction_conditions import ReactionConditions
+
+_EXAMPLE_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "examples", "plasmid_example"
+)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _prime_plasmid_example():
+    """Prime the plasmid example with pipeline outputs once per session.
+
+    Several tests depend on generated files in ``examples/plasmid_example/`` that
+    are NOT committed (they are gitignored build artifacts):
+
+    - Integration tests copy the directory (incl. the ``*_Nmer_all.txt`` k-mer
+      files) into a tmpdir.
+    - The swap-primer / contract-set / rescore-set CLI smoke tests run the CLI
+      with ``cwd=examples/plasmid_example`` and need ``step2_df.csv`` /
+      ``step3_df.csv`` and the ``*_positions.h5`` files.
+
+    On a clean checkout / CI these do not exist, so those tests fail. This
+    session-scoped autouse fixture runs ``count-kmers`` -> ``filter`` ->
+    ``score`` once in the example directory to generate them (the default 6-12
+    k range covers every range the tests use). It is a no-op when the outputs
+    already exist (a dev's primed directory) or when jellyfish is unavailable
+    (the pipeline's hard dependency); dependent tests then skip or surface the
+    missing dependency themselves.
+    """
+    if not os.path.isdir(_EXAMPLE_DIR):
+        return
+
+    have_kmers = bool(glob.glob(os.path.join(_EXAMPLE_DIR, "*mer_all.txt")))
+    have_step3 = os.path.exists(os.path.join(_EXAMPLE_DIR, "step3_df.csv"))
+    if have_kmers and have_step3:
+        return  # already primed
+
+    try:
+        from neoswga.core.kmer_counter import check_jellyfish_available
+    except Exception:
+        return
+    if not check_jellyfish_available():
+        return
+
+    import neoswga.core.pipeline as pipeline_mod
+    from neoswga.core import parameter
+
+    def _reset():
+        pipeline_mod._initialized = False
+        for attr in ("fg_prefixes", "bg_prefixes", "fg_genomes", "bg_genomes",
+                     "fg_seq_lengths", "bg_seq_lengths", "fg_circular", "bg_circular"):
+            setattr(pipeline_mod, attr, None)
+        parameter.json_file = "params.json"
+
+    cwd = os.getcwd()
+    try:
+        os.chdir(_EXAMPLE_DIR)
+        _reset(); pipeline_mod._initialize(); pipeline_mod.step1()
+        _reset(); pipeline_mod.step2()
+        _reset(); pipeline_mod.step3()
+    except Exception:
+        # Best-effort priming; dependent tests will report any real problem.
+        pass
+    finally:
+        _reset()
+        os.chdir(cwd)
 
 
 # ---------------------------------------------------------------------------

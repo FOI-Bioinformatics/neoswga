@@ -5,7 +5,7 @@ Provides a hierarchy of exceptions for different error conditions,
 enabling proper error handling and informative error messages.
 """
 
-from typing import Optional, List, Any
+from typing import Any, List, Optional
 
 
 class NeoSWGAError(Exception):
@@ -21,6 +21,7 @@ class NeoSWGAError(Exception):
         except NeoSWGAError as e:
             logger.error(f"NeoSWGA error: {e}")
     """
+
     pass
 
 
@@ -28,8 +29,10 @@ class NeoSWGAError(Exception):
 # File and I/O Errors
 # =============================================================================
 
+
 class FileError(NeoSWGAError):
     """Base class for file-related errors."""
+
     pass
 
 
@@ -39,6 +42,7 @@ class PositionFileNotFoundError(FileError):
 
     Raised when attempting to load primer positions from a non-existent file.
     """
+
     def __init__(self, filepath: str, primer_length: Optional[int] = None):
         self.filepath = filepath
         self.primer_length = primer_length
@@ -55,6 +59,7 @@ class PositionFileCorruptError(FileError):
 
     Raised when an HDF5 file exists but cannot be read properly.
     """
+
     def __init__(self, filepath: str, reason: str = ""):
         self.filepath = filepath
         self.reason = reason
@@ -68,6 +73,7 @@ class GenomeFileError(FileError):
     """
     Error reading genome FASTA file.
     """
+
     def __init__(self, filepath: str, reason: str = ""):
         self.filepath = filepath
         self.reason = reason
@@ -81,6 +87,7 @@ class KmerFileError(FileError):
     """
     Error with k-mer count file.
     """
+
     def __init__(self, filepath: str, reason: str = ""):
         self.filepath = filepath
         self.reason = reason
@@ -94,8 +101,10 @@ class KmerFileError(FileError):
 # Primer Validation Errors
 # =============================================================================
 
+
 class PrimerError(NeoSWGAError):
     """Base class for primer-related errors."""
+
     pass
 
 
@@ -105,6 +114,7 @@ class InvalidPrimerError(PrimerError):
 
     Raised when a primer contains invalid characters or has invalid properties.
     """
+
     def __init__(self, primer: str, reason: str):
         self.primer = primer
         self.reason = reason
@@ -115,6 +125,7 @@ class PrimerLengthError(PrimerError):
     """
     Primer length outside valid range.
     """
+
     def __init__(self, primer: str, length: int, min_k: int, max_k: int):
         self.primer = primer
         self.length = length
@@ -129,6 +140,7 @@ class PrimerDimerError(PrimerError):
     """
     Primer dimer formation detected.
     """
+
     def __init__(self, primer1: str, primer2: str, dimer_length: int):
         self.primer1 = primer1
         self.primer2 = primer2
@@ -145,6 +157,7 @@ class NoCandidatesError(PrimerError):
 
     Raised when all primers are filtered out before optimization.
     """
+
     def __init__(self, original_count: int, filter_stage: str = ""):
         self.original_count = original_count
         self.filter_stage = filter_stage
@@ -158,8 +171,10 @@ class NoCandidatesError(PrimerError):
 # Optimization Errors
 # =============================================================================
 
+
 class OptimizationError(NeoSWGAError):
     """Base class for optimization-related errors."""
+
     pass
 
 
@@ -170,12 +185,13 @@ class OptimizerConvergenceError(OptimizationError):
     Raised when optimization does not find a satisfactory solution
     within the allowed iterations.
     """
+
     def __init__(
         self,
         optimizer_name: str,
         iterations: int,
         best_score: float,
-        target_score: Optional[float] = None
+        target_score: Optional[float] = None,
     ):
         self.optimizer_name = optimizer_name
         self.iterations = iterations
@@ -195,12 +211,8 @@ class InsufficientCoverageError(OptimizationError):
 
     Raised when the optimized primer set does not meet coverage requirements.
     """
-    def __init__(
-        self,
-        achieved_coverage: float,
-        required_coverage: float,
-        num_primers: int
-    ):
+
+    def __init__(self, achieved_coverage: float, required_coverage: float, num_primers: int):
         self.achieved_coverage = achieved_coverage
         self.required_coverage = required_coverage
         self.num_primers = num_primers
@@ -214,12 +226,12 @@ class OptimizerNotFoundError(OptimizationError):
     """
     Unknown optimizer type requested.
     """
+
     def __init__(self, optimizer_name: str, available: List[str]):
         self.optimizer_name = optimizer_name
         self.available = available
         super().__init__(
-            f"Unknown optimizer '{optimizer_name}'. "
-            f"Available: {', '.join(sorted(available))}"
+            f"Unknown optimizer '{optimizer_name}'. " f"Available: {', '.join(sorted(available))}"
         )
 
 
@@ -227,8 +239,10 @@ class OptimizerNotFoundError(OptimizationError):
 # Configuration Errors
 # =============================================================================
 
+
 class ConfigurationError(NeoSWGAError):
     """Base class for configuration-related errors."""
+
     pass
 
 
@@ -236,6 +250,7 @@ class InvalidParameterError(ConfigurationError):
     """
     Invalid parameter value in configuration.
     """
+
     def __init__(self, param_name: str, value: Any, reason: str):
         self.param_name = param_name
         self.value = value
@@ -247,6 +262,7 @@ class MissingParameterError(ConfigurationError):
     """
     Required parameter missing from configuration.
     """
+
     def __init__(self, param_name: str, context: str = ""):
         self.param_name = param_name
         self.context = context
@@ -260,20 +276,21 @@ class IncompatibleParametersError(ConfigurationError):
     """
     Incompatible parameter combination.
     """
+
     def __init__(self, params: List[str], reason: str):
         self.params = params
         self.reason = reason
-        super().__init__(
-            f"Incompatible parameters {params}: {reason}"
-        )
+        super().__init__(f"Incompatible parameters {params}: {reason}")
 
 
 # =============================================================================
 # Thermodynamic Errors
 # =============================================================================
 
+
 class ThermodynamicError(NeoSWGAError):
     """Base class for thermodynamic calculation errors."""
+
     pass
 
 
@@ -281,35 +298,35 @@ class TmOutOfRangeError(ThermodynamicError):
     """
     Melting temperature outside valid range.
     """
+
     def __init__(self, primer: str, tm: float, min_tm: float, max_tm: float):
         self.primer = primer
         self.tm = tm
         self.min_tm = min_tm
         self.max_tm = max_tm
-        super().__init__(
-            f"Tm for '{primer}' is {tm:.1f}C, outside range [{min_tm}, {max_tm}]C"
-        )
+        super().__init__(f"Tm for '{primer}' is {tm:.1f}C, outside range [{min_tm}, {max_tm}]C")
 
 
 class SecondaryStructureError(ThermodynamicError):
     """
     Problematic secondary structure detected.
     """
+
     def __init__(self, primer: str, structure_type: str, delta_g: float):
         self.primer = primer
         self.structure_type = structure_type
         self.delta_g = delta_g
-        super().__init__(
-            f"Problematic {structure_type} in '{primer}' (dG={delta_g:.1f} kcal/mol)"
-        )
+        super().__init__(f"Problematic {structure_type} in '{primer}' (dG={delta_g:.1f} kcal/mol)")
 
 
 # =============================================================================
 # Runtime Errors
 # =============================================================================
 
+
 class ResourceError(NeoSWGAError):
     """Base class for resource-related errors."""
+
     pass
 
 
@@ -317,6 +334,7 @@ class MemoryLimitError(ResourceError):
     """
     Memory limit exceeded.
     """
+
     def __init__(self, operation: str, required_mb: float, available_mb: float):
         self.operation = operation
         self.required_mb = required_mb
@@ -333,18 +351,18 @@ class OperationTimeoutError(ResourceError):
 
     Note: Named OperationTimeoutError to avoid shadowing the built-in TimeoutError.
     """
+
     def __init__(self, operation: str, timeout_seconds: float):
         self.operation = operation
         self.timeout_seconds = timeout_seconds
-        super().__init__(
-            f"Operation '{operation}' timed out after {timeout_seconds:.0f} seconds"
-        )
+        super().__init__(f"Operation '{operation}' timed out after {timeout_seconds:.0f} seconds")
 
 
 class JellyfishError(ResourceError):
     """
     Error running Jellyfish k-mer counter.
     """
+
     def __init__(self, command: str, return_code: int, stderr: str = ""):
         self.command = command
         self.return_code = return_code
@@ -359,8 +377,10 @@ class JellyfishError(ResourceError):
 # Validation Errors
 # =============================================================================
 
+
 class ValidationError(NeoSWGAError):
     """Base class for validation errors."""
+
     pass
 
 
@@ -368,13 +388,12 @@ class DataIntegrityError(ValidationError):
     """
     Data integrity check failed.
     """
+
     def __init__(self, data_type: str, expected: Any, actual: Any):
         self.data_type = data_type
         self.expected = expected
         self.actual = actual
-        super().__init__(
-            f"Data integrity error in {data_type}: expected {expected}, got {actual}"
-        )
+        super().__init__(f"Data integrity error in {data_type}: expected {expected}, got {actual}")
 
 
 class PipelineStateError(ValidationError):
@@ -383,6 +402,7 @@ class PipelineStateError(ValidationError):
 
     For example, trying to run optimize before score.
     """
+
     def __init__(self, operation: str, required_state: str, current_state: str):
         self.operation = operation
         self.required_state = required_state

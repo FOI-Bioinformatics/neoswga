@@ -18,15 +18,16 @@ Version: 3.0 - Phase 2.1
 """
 
 import logging
-from collections import defaultdict
-from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass, field
 import time
-import numpy as np
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple
+
 import networkx as nx
+import numpy as np
 
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
-from neoswga.core.network_optimizer import NetworkOptimizer, AmplificationNetwork
+from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +36,11 @@ logger = logging.getLogger(__name__)
 # Polymerase presets for polymerase-aware optimization
 # =========================================================================
 
+
 @dataclass
 class PolymeraseConfig:
     """Per-polymerase configuration defaults for hybrid optimization."""
+
     max_extension: int = 70000
     thermo_filter: bool = False
     primer_multiplier: float = 1.0
@@ -50,7 +53,7 @@ class PolymeraseConfig:
 
 # Standard polymerase presets
 POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
-    'phi29': PolymeraseConfig(
+    "phi29": PolymeraseConfig(
         max_extension=70000,
         thermo_filter=False,
         primer_multiplier=1.0,
@@ -58,7 +61,7 @@ POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
         min_primer_tm=20.0,
         max_primer_tm=50.0,
     ),
-    'equiphi29': PolymeraseConfig(
+    "equiphi29": PolymeraseConfig(
         max_extension=80000,
         thermo_filter=True,
         primer_multiplier=0.85,
@@ -68,7 +71,7 @@ POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
         min_gc=0.25,
         max_gc=0.75,
     ),
-    'bst': PolymeraseConfig(
+    "bst": PolymeraseConfig(
         max_extension=10000,
         thermo_filter=True,
         primer_multiplier=1.0,
@@ -76,7 +79,7 @@ POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
         min_primer_tm=50.0,
         max_primer_tm=75.0,
     ),
-    'klenow': PolymeraseConfig(
+    "klenow": PolymeraseConfig(
         max_extension=5000,
         thermo_filter=False,
         primer_multiplier=1.0,
@@ -89,12 +92,13 @@ POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
 
 def _get_polymerase_config(polymerase: str) -> PolymeraseConfig:
     """Get polymerase config, falling back to phi29 defaults."""
-    return POLYMERASE_PRESETS.get(polymerase, POLYMERASE_PRESETS['phi29'])
+    return POLYMERASE_PRESETS.get(polymerase, POLYMERASE_PRESETS["phi29"])
 
 
 @dataclass
 class HybridResult:
     """Result from hybrid optimization"""
+
     # Final primer set
     primers: List[str]
 
@@ -160,21 +164,24 @@ class HybridOptimizer:
     while maintaining good coverage.
     """
 
-    def __init__(self, position_cache,
-                 fg_prefixes: List[str],
-                 fg_seq_lengths: List[int],
-                 bg_prefixes: Optional[List[str]] = None,
-                 bg_seq_lengths: Optional[List[int]] = None,
-                 bin_size: int = 10000,
-                 max_extension: int = 70000,
-                 uniformity_weight: float = 0.0,
-                 polymerase: str = 'phi29',
-                 genome_gc_content: Optional[float] = None,
-                 background_pruning: bool = False,
-                 background_weight: float = 2.0,
-                 min_coverage_threshold: float = 0.95,
-                 conditions=None,
-                 mechanistic_weight: float = 0.0):
+    def __init__(
+        self,
+        position_cache,
+        fg_prefixes: List[str],
+        fg_seq_lengths: List[int],
+        bg_prefixes: Optional[List[str]] = None,
+        bg_seq_lengths: Optional[List[int]] = None,
+        bin_size: int = 10000,
+        max_extension: int = 70000,
+        uniformity_weight: float = 0.0,
+        polymerase: str = "phi29",
+        genome_gc_content: Optional[float] = None,
+        background_pruning: bool = False,
+        background_weight: float = 2.0,
+        min_coverage_threshold: float = 0.95,
+        conditions=None,
+        mechanistic_weight: float = 0.0,
+    ):
         """
         Initialize hybrid optimizer.
 
@@ -214,7 +221,7 @@ class HybridOptimizer:
         self.genome_gc_content = genome_gc_content
 
         # Apply polymerase preset for max_extension (caller can override)
-        if max_extension == 70000 and polymerase != 'phi29':
+        if max_extension == 70000 and polymerase != "phi29":
             self.max_extension = self.poly_config.max_extension
         else:
             self.max_extension = max_extension
@@ -234,7 +241,7 @@ class HybridOptimizer:
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bin_size=bin_size,
-            extension_reach=self.max_extension
+            extension_reach=self.max_extension,
         )
 
         self.network_optimizer = NetworkOptimizer(
@@ -279,14 +286,17 @@ class HybridOptimizer:
             self.poly_config.min_gc = 0.20
             logger.info("  AT-rich genome detected - widening GC acceptance")
 
-    def optimize(self, candidates: List[str],
-                final_count: int = 12,
-                stage1_count: Optional[int] = None,
-                fixed_primers: Optional[List[str]] = None,
-                verbose: bool = True,
-                validate_with_simulation: bool = False,
-                genome_sequence: Optional[str] = None,
-                simulation_replicates: int = 3) -> HybridResult:
+    def optimize(
+        self,
+        candidates: List[str],
+        final_count: int = 12,
+        stage1_count: Optional[int] = None,
+        fixed_primers: Optional[List[str]] = None,
+        verbose: bool = True,
+        validate_with_simulation: bool = False,
+        genome_sequence: Optional[str] = None,
+        simulation_replicates: int = 3,
+    ) -> HybridResult:
         """
         Two-stage hybrid optimization.
 
@@ -324,9 +334,9 @@ class HybridOptimizer:
                 stages = "Multi-Stage (coverage + bg-pruning + network)"
             if self.poly_config.thermo_filter and self.background_pruning:
                 stages = "Multi-Stage (thermo-filter + coverage + bg-pruning + network)"
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info(f"HYBRID OPTIMIZATION ({stages})")
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info(f"Input: {len(candidates)} candidates")
             logger.info(f"Polymerase: {self.polymerase}")
             if n_fixed > 0:
@@ -360,23 +370,25 @@ class HybridOptimizer:
                 stage1_coverage=coverage,
                 stage1_regions_covered=0,
                 stage2_primers=fixed_primers,
-                stage2_connectivity=stats['connectivity'],
-                stage2_predicted_amplification=stats['predicted_amplification'],
-                stage2_largest_component=stats['largest_component'],
+                stage2_connectivity=stats["connectivity"],
+                stage2_predicted_amplification=stats["predicted_amplification"],
+                stage2_largest_component=stats["largest_component"],
                 final_coverage=coverage,
-                final_connectivity=stats['connectivity'],
-                final_predicted_amplification=stats['predicted_amplification'],
+                final_connectivity=stats["connectivity"],
+                final_predicted_amplification=stats["predicted_amplification"],
                 runtime_stage1=0.0,
                 runtime_stage2=0.0,
                 runtime_simulation=0.0,
-                total_runtime=time.time() - total_start
+                total_runtime=time.time() - total_start,
             )
 
         # Apply primer count multiplier from polymerase preset
         adjusted_final_count = max(6, int(final_count * self.poly_config.primer_multiplier))
         if adjusted_final_count != final_count and verbose:
-            logger.info(f"Adjusted target from {final_count} to {adjusted_final_count} "
-                       f"({self.polymerase} multiplier: {self.poly_config.primer_multiplier})")
+            logger.info(
+                f"Adjusted target from {final_count} to {adjusted_final_count} "
+                f"({self.polymerase} multiplier: {self.poly_config.primer_multiplier})"
+            )
             final_count = adjusted_final_count
 
         # Auto-determine Stage 1 count if not specified
@@ -391,8 +403,12 @@ class HybridOptimizer:
 
         if verbose:
             if n_fixed > 0:
-                logger.info(f"Stage 1 target: {stage1_count - n_fixed} new primers + {n_fixed} fixed")
-                logger.info(f"Stage 2 target: {target_new} new primers + {n_fixed} fixed = {final_count} total")
+                logger.info(
+                    f"Stage 1 target: {stage1_count - n_fixed} new primers + {n_fixed} fixed"
+                )
+                logger.info(
+                    f"Stage 2 target: {target_new} new primers + {n_fixed} fixed = {final_count} total"
+                )
             else:
                 logger.info(f"Stage 1 target: {stage1_count} primers (coverage)")
                 logger.info(f"Stage 2 target: {final_count} primers (network)")
@@ -402,9 +418,9 @@ class HybridOptimizer:
         # ===================================================================
 
         if verbose:
-            logger.info("\n" + "-"*80)
+            logger.info("\n" + "-" * 80)
             logger.info("STAGE 1: Coverage Optimization (Dominating Set)")
-            logger.info("-"*80)
+            logger.info("-" * 80)
             if n_fixed > 0:
                 logger.info(f"Pre-selecting {n_fixed} fixed primers")
 
@@ -417,16 +433,16 @@ class HybridOptimizer:
             candidates=candidates_filtered,
             max_primers=stage1_new_count,
             fixed_primers=fixed_primers,
-            verbose=verbose
+            verbose=verbose,
         )
 
         stage1_runtime = time.time() - stage1_start
 
         # Combine fixed primers with newly selected primers
-        stage1_new_primers = stage1_result['primers']
+        stage1_new_primers = stage1_result["primers"]
         stage1_primers = fixed_primers + [p for p in stage1_new_primers if p not in fixed_primers]
-        stage1_coverage = stage1_result['coverage']
-        stage1_regions = stage1_result['covered_regions']
+        stage1_coverage = stage1_result["coverage"]
+        stage1_regions = stage1_result["covered_regions"]
 
         if verbose:
             logger.info(f"\nStage 1 complete:")
@@ -457,17 +473,17 @@ class HybridOptimizer:
                 stage1_coverage=stage1_coverage,
                 stage1_regions_covered=stage1_regions,
                 stage2_primers=stage1_primers,
-                stage2_connectivity=stats['connectivity'],
-                stage2_predicted_amplification=stats['predicted_amplification'],
-                stage2_largest_component=stats['largest_component'],
+                stage2_connectivity=stats["connectivity"],
+                stage2_predicted_amplification=stats["predicted_amplification"],
+                stage2_largest_component=stats["largest_component"],
                 final_coverage=stage1_coverage,
-                final_connectivity=stats['connectivity'],
-                final_predicted_amplification=stats['predicted_amplification'],
+                final_connectivity=stats["connectivity"],
+                final_predicted_amplification=stats["predicted_amplification"],
                 simulation_fitness=None,  # Skip simulation for early return
                 runtime_stage1=stage1_runtime,
                 runtime_stage2=0.0,
                 runtime_simulation=0.0,
-                total_runtime=total_runtime
+                total_runtime=total_runtime,
             )
 
         # ===================================================================
@@ -477,9 +493,9 @@ class HybridOptimizer:
         stage1_5_runtime = 0.0
         if self.background_pruning and self.bg_prefixes:
             if verbose:
-                logger.info("\n" + "-"*80)
+                logger.info("\n" + "-" * 80)
                 logger.info("STAGE 1.5: Background Pruning")
-                logger.info("-"*80)
+                logger.info("-" * 80)
 
             stage1_5_start = time.time()
 
@@ -506,19 +522,16 @@ class HybridOptimizer:
         # ===================================================================
 
         if verbose:
-            logger.info("\n" + "-"*80)
+            logger.info("\n" + "-" * 80)
             logger.info("STAGE 2: Network Refinement (Amplification)")
-            logger.info("-"*80)
+            logger.info("-" * 80)
 
         stage2_start = time.time()
 
         # Use network-based selection from Stage 1 primers
         # Fixed primers will never be removed during refinement
         stage2_primers = self._network_refine(
-            stage1_primers,
-            target_count=final_count,
-            fixed_primers=fixed_primers,
-            verbose=verbose
+            stage1_primers, target_count=final_count, fixed_primers=fixed_primers, verbose=verbose
         )
 
         stage2_runtime = time.time() - stage2_start
@@ -546,14 +559,16 @@ class HybridOptimizer:
 
         if validate_with_simulation:
             if genome_sequence is None:
-                logger.warning("Simulation validation requested but no genome sequence provided - skipping")
+                logger.warning(
+                    "Simulation validation requested but no genome sequence provided - skipping"
+                )
             elif len(stage2_primers) == 0:
                 logger.warning("No primers selected - skipping simulation validation")
             else:
                 if verbose:
-                    logger.info("\n" + "-"*80)
+                    logger.info("\n" + "-" * 80)
                     logger.info("STAGE 3: Simulation Validation")
-                    logger.info("-"*80)
+                    logger.info("-" * 80)
 
                 simulation_start = time.time()
 
@@ -564,7 +579,7 @@ class HybridOptimizer:
                         genome_sequence=genome_sequence,
                         genome_length=self.fg_seq_lengths[0],
                         position_cache=self.position_cache,
-                        n_replicates=simulation_replicates
+                        n_replicates=simulation_replicates,
                     )
 
                     simulation_fitness = evaluator.evaluate(stage2_primers, verbose=verbose)
@@ -583,9 +598,9 @@ class HybridOptimizer:
         total_runtime = time.time() - total_start
 
         if verbose:
-            logger.info("\n" + "="*80)
+            logger.info("\n" + "=" * 80)
             logger.info("HYBRID OPTIMIZATION COMPLETE")
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info(f"Final primers: {len(stage2_primers)}")
             logger.info(f"Final coverage: {final_coverage_result:.1%}")
             logger.info(f"Final connectivity: {final_stats['connectivity']:.2f}")
@@ -593,7 +608,7 @@ class HybridOptimizer:
             if simulation_fitness:
                 logger.info(f"Simulation fitness: {simulation_fitness.fitness_score:.3f}")
             logger.info(f"Total runtime: {total_runtime:.2f}s")
-            logger.info("="*80)
+            logger.info("=" * 80)
 
         return HybridResult(
             primers=stage2_primers,
@@ -601,22 +616,26 @@ class HybridOptimizer:
             stage1_coverage=stage1_coverage,
             stage1_regions_covered=stage1_regions,
             stage2_primers=stage2_primers,
-            stage2_connectivity=final_stats['connectivity'],
-            stage2_predicted_amplification=final_stats['predicted_amplification'],
-            stage2_largest_component=final_stats['largest_component'],
+            stage2_connectivity=final_stats["connectivity"],
+            stage2_predicted_amplification=final_stats["predicted_amplification"],
+            stage2_largest_component=final_stats["largest_component"],
             final_coverage=final_coverage_result,
-            final_connectivity=final_stats['connectivity'],
-            final_predicted_amplification=final_stats['predicted_amplification'],
+            final_connectivity=final_stats["connectivity"],
+            final_predicted_amplification=final_stats["predicted_amplification"],
             simulation_fitness=simulation_fitness,
             runtime_stage1=stage1_runtime,
             runtime_stage2=stage2_runtime,
             runtime_simulation=simulation_runtime,
-            total_runtime=total_runtime
+            total_runtime=total_runtime,
         )
 
-    def _network_refine(self, primers: List[str], target_count: int,
-                       fixed_primers: Optional[List[str]] = None,
-                       verbose: bool = True) -> List[str]:
+    def _network_refine(
+        self,
+        primers: List[str],
+        target_count: int,
+        fixed_primers: Optional[List[str]] = None,
+        verbose: bool = True,
+    ) -> List[str]:
         """
         Refine primer set using network analysis.
 
@@ -650,7 +669,9 @@ class HybridOptimizer:
         initial_stats = full_network.get_statistics()
 
         if verbose:
-            logger.info(f"Initial network: {initial_stats['largest_component']} sites in largest component")
+            logger.info(
+                f"Initial network: {initial_stats['largest_component']} sites in largest component"
+            )
 
         # Pre-index nodes by primer for O(1) lookup
         nodes_by_primer = defaultdict(set)
@@ -663,7 +684,7 @@ class HybridOptimizer:
 
         while len(current_primers) > target_count:
             best_to_remove = None
-            best_score_after_removal = -float('inf')
+            best_score_after_removal = -float("inf")
 
             # Try removing each primer using subgraph views (O(1) each)
             for primer in current_primers:
@@ -682,7 +703,7 @@ class HybridOptimizer:
                     connectivity = 0.0
                 else:
                     try:
-                        connectivity = nx.algebraic_connectivity(subgraph, method='tracemin_lu')
+                        connectivity = nx.algebraic_connectivity(subgraph, method="tracemin_lu")
                     except (nx.NetworkXError, ValueError, np.linalg.LinAlgError):
                         connectivity = 0.0
 
@@ -717,11 +738,17 @@ class HybridOptimizer:
 
         if verbose:
             try:
-                final_connectivity = nx.algebraic_connectivity(final_subgraph, method='tracemin_lu') if len(final_subgraph) >= 2 else 0.0
+                final_connectivity = (
+                    nx.algebraic_connectivity(final_subgraph, method="tracemin_lu")
+                    if len(final_subgraph) >= 2
+                    else 0.0
+                )
             except (nx.NetworkXError, ValueError, np.linalg.LinAlgError):
                 final_connectivity = 0.0
             logger.info(f"Final network: {final_largest} sites in largest component")
-            logger.info(f"Connectivity improved: {initial_stats['connectivity']:.2f} → {final_connectivity:.2f}")
+            logger.info(
+                f"Connectivity improved: {initial_stats['connectivity']:.2f} → {final_connectivity:.2f}"
+            )
 
         return current_primers
 
@@ -732,13 +759,13 @@ class HybridOptimizer:
         for primer in primers:
             for prefix in self.fg_prefixes:
                 # Use 'forward'/'reverse' (not '+'/'-') for PositionCache API
-                positions_fwd = self.position_cache.get_positions(prefix, primer, 'forward')
-                positions_rev = self.position_cache.get_positions(prefix, primer, 'reverse')
+                positions_fwd = self.position_cache.get_positions(prefix, primer, "forward")
+                positions_rev = self.position_cache.get_positions(prefix, primer, "reverse")
 
                 if len(positions_fwd) > 0:
-                    network.add_primer_sites(primer, positions_fwd, '+')
+                    network.add_primer_sites(primer, positions_fwd, "+")
                 if len(positions_rev) > 0:
-                    network.add_primer_sites(primer, positions_rev, '-')
+                    network.add_primer_sites(primer, positions_rev, "-")
 
         network.build_edges()
         return network
@@ -752,8 +779,8 @@ class HybridOptimizer:
         for primer in primers:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
                 # Use 'forward'/'reverse' (not '+'/'-') for PositionCache API
-                positions_fwd = self.position_cache.get_positions(prefix, primer, 'forward')
-                positions_rev = self.position_cache.get_positions(prefix, primer, 'reverse')
+                positions_fwd = self.position_cache.get_positions(prefix, primer, "forward")
+                positions_rev = self.position_cache.get_positions(prefix, primer, "reverse")
                 positions = np.concatenate([positions_fwd, positions_rev])
 
                 if len(positions) > 0:
@@ -763,17 +790,14 @@ class HybridOptimizer:
             return 0.0
 
         # Calculate total genome bins
-        total_bins = sum((length + self.bin_size - 1) // self.bin_size
-                        for length in self.fg_seq_lengths)
+        total_bins = sum(
+            (length + self.bin_size - 1) // self.bin_size for length in self.fg_seq_lengths
+        )
 
         coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
         return coverage
 
-    def _thermo_filter_candidates(
-        self,
-        candidates: List[str],
-        verbose: bool = True
-    ) -> List[str]:
+    def _thermo_filter_candidates(self, candidates: List[str], verbose: bool = True) -> List[str]:
         """
         Apply thermodynamic filtering based on polymerase requirements.
 
@@ -781,15 +805,15 @@ class HybridOptimizer:
         the configured polymerase.
         """
         if verbose:
-            logger.info("\n" + "-"*80)
-            logger.info(f"PRE-STAGE: Thermodynamic Filtering ({self.polymerase}, "
-                       f"{self.poly_config.reaction_temp}C)")
-            logger.info("-"*80)
+            logger.info("\n" + "-" * 80)
+            logger.info(
+                f"PRE-STAGE: Thermodynamic Filtering ({self.polymerase}, "
+                f"{self.poly_config.reaction_temp}C)"
+            )
+            logger.info("-" * 80)
 
         try:
-            from neoswga.core.thermodynamic_filter import (
-                ThermodynamicFilter, ThermodynamicCriteria
-            )
+            from neoswga.core.thermodynamic_filter import ThermodynamicCriteria, ThermodynamicFilter
 
             criteria = ThermodynamicCriteria(
                 min_tm=self.poly_config.min_primer_tm,
@@ -815,14 +839,15 @@ class HybridOptimizer:
 
             if verbose:
                 logger.info(f"Filtered: {len(filtered)}/{len(candidates)} passed")
-                if stats.get('mean_tm') is not None:
+                if stats.get("mean_tm") is not None:
                     logger.info(f"  Mean Tm: {stats['mean_tm']:.1f}C")
-                if stats.get('mean_gc') is not None:
+                if stats.get("mean_gc") is not None:
                     logger.info(f"  Mean GC: {stats['mean_gc']:.1%}")
 
             if len(filtered) == 0:
-                logger.warning("No primers passed thermodynamic filtering, "
-                             "using unfiltered candidates")
+                logger.warning(
+                    "No primers passed thermodynamic filtering, " "using unfiltered candidates"
+                )
                 return candidates
 
             return filtered
@@ -832,10 +857,7 @@ class HybridOptimizer:
             return candidates
 
     def _prune_background(
-        self,
-        primers: List[str],
-        target_size: int,
-        verbose: bool = False
+        self, primers: List[str], target_size: int, verbose: bool = False
     ) -> Tuple[List[str], float, int]:
         """
         Greedy background pruning: remove primers with worst background/coverage ratio.
@@ -858,8 +880,10 @@ class HybridOptimizer:
 
         if verbose:
             logger.info(f"  Background pruning: {len(current_primers)} -> {target_size} primers")
-            logger.info(f"  Initial: coverage={current_coverage:.1%}, "
-                       f"background={self._count_background_sites(current_primers)} sites")
+            logger.info(
+                f"  Initial: coverage={current_coverage:.1%}, "
+                f"background={self._count_background_sites(current_primers)} sites"
+            )
 
         removed_count = 0
 
@@ -896,9 +920,11 @@ class HybridOptimizer:
             removed_count += 1
 
             if verbose and removed_count % 2 == 0:
-                logger.info(f"    Removed {removed_count} primers, "
-                           f"coverage={current_coverage:.1%}, "
-                           f"background={self._count_background_sites(current_primers)} sites")
+                logger.info(
+                    f"    Removed {removed_count} primers, "
+                    f"coverage={current_coverage:.1%}, "
+                    f"background={self._count_background_sites(current_primers)} sites"
+                )
 
         final_coverage = self._calculate_coverage(current_primers)
         final_bg_sites = self._count_background_sites(current_primers)
@@ -913,8 +939,8 @@ class HybridOptimizer:
         total_sites = 0
         for primer in primers:
             for bg_prefix in self.bg_prefixes:
-                fwd = self.position_cache.get_positions(bg_prefix, primer, 'forward')
-                rev = self.position_cache.get_positions(bg_prefix, primer, 'reverse')
+                fwd = self.position_cache.get_positions(bg_prefix, primer, "forward")
+                rev = self.position_cache.get_positions(bg_prefix, primer, "reverse")
                 total_sites += len(fwd) + len(rev)
 
         return total_sites
@@ -925,13 +951,16 @@ class HybridOptimizer:
 # =============================================================================
 
 from neoswga.core.base_optimizer import (
-    BaseOptimizer, OptimizationResult, OptimizationStatus,
-    PrimerSetMetrics, OptimizerConfig
+    BaseOptimizer,
+    OptimizationResult,
+    OptimizationStatus,
+    OptimizerConfig,
+    PrimerSetMetrics,
 )
 from neoswga.core.optimizer_factory import OptimizerFactory
 
 
-@OptimizerFactory.register('hybrid', aliases=['hybrid-optimizer', 'two-stage'])
+@OptimizerFactory.register("hybrid", aliases=["hybrid-optimizer", "two-stage"])
 class HybridBaseOptimizer(BaseOptimizer):
     """
     Hybrid optimizer implementing BaseOptimizer interface.
@@ -956,11 +985,15 @@ class HybridBaseOptimizer(BaseOptimizer):
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
         conditions=None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
-            position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config,
+            position_cache,
+            fg_prefixes,
+            fg_seq_lengths,
+            bg_prefixes,
+            bg_seq_lengths,
+            config,
             conditions=conditions,
         )
         self._hybrid = HybridOptimizer(
@@ -969,15 +1002,15 @@ class HybridBaseOptimizer(BaseOptimizer):
             fg_seq_lengths=fg_seq_lengths,
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
-            bin_size=kwargs.get('bin_size', 10000),
-            max_extension=kwargs.get('max_extension', 70000),
-            polymerase=kwargs.get('polymerase', 'phi29'),
-            genome_gc_content=kwargs.get('genome_gc_content'),
-            background_pruning=kwargs.get('background_pruning', False),
-            background_weight=kwargs.get('background_weight', 2.0),
-            min_coverage_threshold=kwargs.get('min_coverage_threshold', 0.95),
+            bin_size=kwargs.get("bin_size", 10000),
+            max_extension=kwargs.get("max_extension", 70000),
+            polymerase=kwargs.get("polymerase", "phi29"),
+            genome_gc_content=kwargs.get("genome_gc_content"),
+            background_pruning=kwargs.get("background_pruning", False),
+            background_weight=kwargs.get("background_weight", 2.0),
+            min_coverage_threshold=kwargs.get("min_coverage_threshold", 0.95),
             conditions=conditions,
-            mechanistic_weight=kwargs.get('mechanistic_weight', 0.0),
+            mechanistic_weight=kwargs.get("mechanistic_weight", 0.0),
         )
 
     @property
@@ -995,7 +1028,7 @@ class HybridBaseOptimizer(BaseOptimizer):
         candidates: List[str],
         target_size: Optional[int] = None,
         fixed_primers: Optional[List[str]] = None,
-        **kwargs
+        **kwargs,
     ) -> OptimizationResult:
         """Run hybrid optimization."""
         candidates = self._validate_candidates(candidates)

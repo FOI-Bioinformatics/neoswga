@@ -29,8 +29,9 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple
 from enum import Enum
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 class Recommendation(Enum):
     """Synthesis recommendation based on confidence score."""
+
     SYNTHESIZE = "SYNTHESIZE"
     CAUTION = "CAUTION"
     DO_NOT_SYNTHESIZE = "DO_NOT_SYNTHESIZE"
@@ -59,6 +61,7 @@ class EfficiencyPrediction:
         limiting_factors: Issues that limit predicted performance
         improvement_suggestions: Suggestions to improve the set
     """
+
     confidence_score: float
     recommendation: Recommendation
     ml_score: float
@@ -81,6 +84,7 @@ class EfficiencyPrediction:
             if value is None:
                 return None
             import math
+
             if math.isnan(value):
                 return None
             if math.isinf(value):
@@ -88,19 +92,19 @@ class EfficiencyPrediction:
             return float(value)
 
         return {
-            'confidence_score': _safe_float(self.confidence_score),
-            'recommendation': self.recommendation.value,
-            'ml_score': _safe_float(self.ml_score),
-            'network_score': _safe_float(self.network_score),
-            'simulation_score': _safe_float(self.simulation_score),
-            'predicted_enrichment': _safe_float(self.predicted_enrichment),
-            'enrichment_ci': [
+            "confidence_score": _safe_float(self.confidence_score),
+            "recommendation": self.recommendation.value,
+            "ml_score": _safe_float(self.ml_score),
+            "network_score": _safe_float(self.network_score),
+            "simulation_score": _safe_float(self.simulation_score),
+            "predicted_enrichment": _safe_float(self.predicted_enrichment),
+            "enrichment_ci": [
                 _safe_float(self.enrichment_ci_low),
-                _safe_float(self.enrichment_ci_high)
+                _safe_float(self.enrichment_ci_high),
             ],
-            'predicted_coverage': _safe_float(self.predicted_coverage),
-            'limiting_factors': self.limiting_factors,
-            'improvement_suggestions': self.improvement_suggestions,
+            "predicted_coverage": _safe_float(self.predicted_coverage),
+            "limiting_factors": self.limiting_factors,
+            "improvement_suggestions": self.improvement_suggestions,
         }
 
     def __str__(self) -> str:
@@ -114,13 +118,15 @@ class EfficiencyPrediction:
         if self.simulation_score is not None:
             lines.append(f"  Simulation score: {self.simulation_score:.2f}")
 
-        lines.extend([
-            f"",
-            f"Predictions:",
-            f"  Enrichment: {self.predicted_enrichment:.0f}x "
-            f"(95% CI: {self.enrichment_ci_low:.0f}-{self.enrichment_ci_high:.0f}x)",
-            f"  Coverage: {self.predicted_coverage:.1%}",
-        ])
+        lines.extend(
+            [
+                f"",
+                f"Predictions:",
+                f"  Enrichment: {self.predicted_enrichment:.0f}x "
+                f"(95% CI: {self.enrichment_ci_low:.0f}-{self.enrichment_ci_high:.0f}x)",
+                f"  Coverage: {self.predicted_coverage:.1%}",
+            ]
+        )
 
         if self.limiting_factors:
             lines.append(f"")
@@ -208,9 +214,9 @@ class EfficiencyPredictor:
             return self._empty_prediction("No primers provided")
 
         if verbose:
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info("EFFICIENCY PREDICTION")
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info(f"Analyzing {len(primers)} primers")
 
         limiting_factors = []
@@ -280,9 +286,9 @@ class EfficiencyPredictor:
         if simulation_score is not None:
             # Use all three components
             confidence = (
-                self.WEIGHT_ML * ml_score +
-                self.WEIGHT_NETWORK * network_score +
-                self.WEIGHT_SIMULATION * simulation_score
+                self.WEIGHT_ML * ml_score
+                + self.WEIGHT_NETWORK * network_score
+                + self.WEIGHT_SIMULATION * simulation_score
             )
         else:
             # Redistribute simulation weight
@@ -291,7 +297,7 @@ class EfficiencyPredictor:
             confidence = ml_weight * ml_score + network_weight * network_score
 
         # Apply penalties
-        confidence *= (1 - dimer_risk * 0.3)  # Dimer penalty
+        confidence *= 1 - dimer_risk * 0.3  # Dimer penalty
         confidence *= min(1.0, coverage / 0.8)  # Coverage penalty
 
         # Clamp to 0-1
@@ -315,9 +321,9 @@ class EfficiencyPredictor:
             predicted_enrichment *= simulation_score
 
         if verbose:
-            logger.info("\n" + "="*60)
+            logger.info("\n" + "=" * 60)
             logger.info("PREDICTION SUMMARY")
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info(f"Confidence: {confidence:.2f} ({recommendation.value})")
             logger.info(f"Predicted enrichment: {predicted_enrichment:.0f}x")
             logger.info(f"Coverage: {coverage:.1%}")
@@ -350,9 +356,7 @@ class EfficiencyPredictor:
             improvement_suggestions=[],
         )
 
-    def _calculate_ml_score(
-        self, primers: List[str], verbose: bool
-    ) -> Tuple[float, float]:
+    def _calculate_ml_score(self, primers: List[str], verbose: bool) -> Tuple[float, float]:
         """
         Calculate ML-based score using random forest model.
 
@@ -364,13 +368,14 @@ class EfficiencyPredictor:
             Only loads from the package's models directory for security.
         """
         try:
-            import pickle
             import os
+            import pickle
+
             from neoswga.core.rf_preprocessing import compute_primer_features
 
             # Load the random forest model from package directory only
             package_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(package_dir, 'models', 'random_forest_filter.p')
+            model_path = os.path.join(package_dir, "models", "random_forest_filter.p")
 
             # Security: Verify model path is within package directory
             model_path = os.path.abspath(model_path)
@@ -384,7 +389,8 @@ class EfficiencyPredictor:
                 return 0.6, 50.0  # Default estimate
 
             from neoswga.core.safe_pickle import safe_load
-            model = safe_load(model_path, context='sklearn_model')
+
+            model = safe_load(model_path, context="sklearn_model")
 
             # Get predictions for each primer
             scores = []
@@ -415,9 +421,7 @@ class EfficiencyPredictor:
                 logger.warning(f"ML scoring failed: {e}")
             return 0.5, 30.0  # Default
 
-    def _calculate_network_score(
-        self, primers: List[str], verbose: bool
-    ) -> Tuple[float, Dict]:
+    def _calculate_network_score(self, primers: List[str], verbose: bool) -> Tuple[float, Dict]:
         """
         Calculate network connectivity score.
 
@@ -431,20 +435,20 @@ class EfficiencyPredictor:
 
             for primer in primers:
                 for prefix in self.fg_prefixes:
-                    positions_fwd = self.cache.get_positions(prefix, primer, 'forward')
-                    positions_rev = self.cache.get_positions(prefix, primer, 'reverse')
+                    positions_fwd = self.cache.get_positions(prefix, primer, "forward")
+                    positions_rev = self.cache.get_positions(prefix, primer, "reverse")
 
                     if len(positions_fwd) > 0:
-                        network.add_primer_sites(primer, positions_fwd, '+')
+                        network.add_primer_sites(primer, positions_fwd, "+")
                     if len(positions_rev) > 0:
-                        network.add_primer_sites(primer, positions_rev, '-')
+                        network.add_primer_sites(primer, positions_rev, "-")
 
             network.build_edges()
             stats = network.get_statistics()
 
             # Normalize connectivity to 0-1
-            connectivity = stats.get('connectivity', 0)
-            predicted_amp = stats.get('predicted_amplification', 1)
+            connectivity = stats.get("connectivity", 0)
+            predicted_amp = stats.get("predicted_amplification", 1)
 
             # Score based on connectivity and predicted amplification
             network_score = min(1.0, connectivity * 0.5 + min(predicted_amp / 200, 0.5))
@@ -461,9 +465,7 @@ class EfficiencyPredictor:
                 logger.warning(f"Network analysis failed: {e}")
             return 0.5, {}
 
-    def _calculate_coverage(
-        self, primers: List[str], verbose: bool
-    ) -> Tuple[float, Dict]:
+    def _calculate_coverage(self, primers: List[str], verbose: bool) -> Tuple[float, Dict]:
         """
         Calculate genome coverage.
 
@@ -478,20 +480,17 @@ class EfficiencyPredictor:
 
             for primer in primers:
                 for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                    positions = self.cache.get_positions(prefix, primer, 'both')
+                    positions = self.cache.get_positions(prefix, primer, "both")
                     if len(positions) > 0:
                         graph.add_primer_coverage(primer, positions, prefix, length)
 
-            total_bins = sum(
-                (length + bin_size - 1) // bin_size
-                for length in self.fg_seq_lengths
-            )
+            total_bins = sum((length + bin_size - 1) // bin_size for length in self.fg_seq_lengths)
 
             coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
 
             stats = {
-                'covered_bins': len(graph.regions),
-                'total_bins': total_bins,
+                "covered_bins": len(graph.regions),
+                "total_bins": total_bins,
             }
 
             if verbose:
@@ -508,9 +507,7 @@ class EfficiencyPredictor:
     # Maximum primers to analyze for O(n^2) operations
     MAX_DIMER_ANALYSIS_PRIMERS = 50
 
-    def _calculate_dimer_risk(
-        self, primers: List[str], verbose: bool
-    ) -> Tuple[float, List[str]]:
+    def _calculate_dimer_risk(self, primers: List[str], verbose: bool) -> Tuple[float, List[str]]:
         """
         Calculate primer-dimer risk.
 
@@ -521,8 +518,9 @@ class EfficiencyPredictor:
             Tuple of (risk_fraction, list_of_issues)
         """
         try:
-            from neoswga.core import dimer
             import random
+
+            from neoswga.core import dimer
 
             n = len(primers)
             if n < 2:
@@ -547,7 +545,9 @@ class EfficiencyPredictor:
             for i in range(n_check):
                 for j in range(i + 1, n_check):
                     total_pairs += 1
-                    if dimer.is_dimer_fast(primers_to_check[i], primers_to_check[j], max_dimer_bp=4):
+                    if dimer.is_dimer_fast(
+                        primers_to_check[i], primers_to_check[j], max_dimer_bp=4
+                    ):
                         dimer_pairs += 1
                         if len(issues) < 3:  # Limit reported issues
                             issues.append(
@@ -628,11 +628,12 @@ def predict_efficiency(
     Returns:
         EfficiencyPrediction with results
     """
-    import os
     import json
-    from neoswga.core.position_cache import PositionCache
+    import os
+
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
+    from neoswga.core.position_cache import PositionCache
 
     # Load parameters
     parameter.json_file = params_path
@@ -649,9 +650,10 @@ def predict_efficiency(
     # Load genome sequence if simulation requested
     genome_sequence = None
     if run_simulation:
-        fg_genomes = getattr(parameter, 'fg_genomes', [])
+        fg_genomes = getattr(parameter, "fg_genomes", [])
         if fg_genomes:
             from neoswga.core.genome_io import read_genome
+
             genome_sequence = read_genome(fg_genomes[0])
 
     # Create predictor
@@ -673,7 +675,7 @@ def predict_efficiency(
 
     # Save result if output path specified
     if output_path:
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(result.to_dict(), f, indent=2)
 
     return result

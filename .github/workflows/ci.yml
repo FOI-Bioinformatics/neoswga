@@ -18,7 +18,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install linting tools
-        run: pip install "black>=22.0.0" "isort>=5.10.0" "ruff>=0.5.0" "mypy>=1.0"
+        # Pin black/isort to exact versions: their formatting output changes
+        # between releases, so an unpinned range makes `--check` nondeterministic
+        # (a newer black on the runner can demand reformatting the repo cannot
+        # reproduce locally). Bump deliberately, reformatting in the same commit.
+        run: pip install "black==26.5.1" "isort==8.0.1" "ruff>=0.5.0" "mypy>=1.0"
 
       - name: Check formatting with black
         run: black --check neoswga/
@@ -48,6 +52,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Install Jellyfish (k-mer counter)
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y jellyfish
+          else
+            brew install jellyfish
+          fi
 
       - name: Install package with dev dependencies
         run: pip install -e ".[dev]"

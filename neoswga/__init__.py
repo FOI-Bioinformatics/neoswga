@@ -71,18 +71,18 @@ def print_info():
 # `from neoswga import X` resolves without loading heavy optimizer
 # machinery for simple CLI consumers.
 _LAZY_EXPORTS = {
-    "run_optimization":             "neoswga.core.unified_optimizer",
-    "optimize_step4":               "neoswga.core.unified_optimizer",
-    "OptimizationResult":           "neoswga.core.base_optimizer",
-    "OptimizationStatus":           "neoswga.core.base_optimizer",
-    "PrimerSetMetrics":             "neoswga.core.base_optimizer",
-    "OptimizerFactory":             "neoswga.core.optimizer_factory",
-    "ReactionConditions":           "neoswga.core.reaction_conditions",
-    "get_polymerase_processivity":  "neoswga.core.reaction_conditions",
-    "get_typical_amplicon_length":  "neoswga.core.reaction_conditions",
-    "compute_per_prefix_coverage":  "neoswga.core.coverage",
-    "polymerase_extension_reach":   "neoswga.core.coverage",
-    "PositionCache":                "neoswga.core.position_cache",
+    "run_optimization": "neoswga.core.unified_optimizer",
+    "optimize_step4": "neoswga.core.unified_optimizer",
+    "OptimizationResult": "neoswga.core.base_optimizer",
+    "OptimizationStatus": "neoswga.core.base_optimizer",
+    "PrimerSetMetrics": "neoswga.core.base_optimizer",
+    "OptimizerFactory": "neoswga.core.optimizer_factory",
+    "ReactionConditions": "neoswga.core.reaction_conditions",
+    "get_polymerase_processivity": "neoswga.core.reaction_conditions",
+    "get_typical_amplicon_length": "neoswga.core.reaction_conditions",
+    "compute_per_prefix_coverage": "neoswga.core.coverage",
+    "polymerase_extension_reach": "neoswga.core.coverage",
+    "PositionCache": "neoswga.core.position_cache",
 }
 
 
@@ -94,6 +94,7 @@ def __getattr__(name):
     """
     if name in _LAZY_EXPORTS:
         from importlib import import_module
+
         module = import_module(_LAZY_EXPORTS[name])
         value = getattr(module, name)
         # Cache on the module so subsequent lookups skip the import.

@@ -28,14 +28,15 @@ Version: 3.0 - Phase 2 Advanced (Background-Aware)
 """
 
 import logging
-from typing import List, Dict, Optional, Tuple, Set
-from dataclasses import dataclass
 import time
-import numpy as np
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
 
-from neoswga.core.hybrid_optimizer import HybridOptimizer, HybridResult
+import numpy as np
+
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
+from neoswga.core.hybrid_optimizer import HybridOptimizer, HybridResult
 from neoswga.core.network_optimizer import NetworkOptimizer
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BackgroundAwareResult:
     """Result from background-aware optimization"""
+
     # Final primer set
     primers: List[str]
 
@@ -110,14 +112,16 @@ class BackgroundAwareOptimizer:
     This is THE optimizer for longer primers with host backgrounds.
     """
 
-    def __init__(self,
-                 position_cache,
-                 fg_prefixes: List[str],
-                 bg_prefixes: List[str],
-                 fg_seq_lengths: List[int],
-                 bg_seq_lengths: List[int],
-                 background_weight: float = 2.0,
-                 min_coverage_threshold: float = 0.95):
+    def __init__(
+        self,
+        position_cache,
+        fg_prefixes: List[str],
+        bg_prefixes: List[str],
+        fg_seq_lengths: List[int],
+        bg_seq_lengths: List[int],
+        background_weight: float = 2.0,
+        min_coverage_threshold: float = 0.95,
+    ):
         """
         Initialize background-aware optimizer.
 
@@ -141,18 +145,22 @@ class BackgroundAwareOptimizer:
         # Create sub-optimizers with adaptive bin_size for small genomes
         min_genome = min(fg_seq_lengths) if fg_seq_lengths else 100000
         bin_size = min(10000, max(100, min_genome // 10))
+        # Use realistic per-primer reach for coverage (phi29 ~3 kb); see
+        # coverage.polymerase_extension_reach docstring.
         self.coverage_optimizer = DominatingSetOptimizer(
-            position_cache, fg_prefixes, fg_seq_lengths, bin_size=bin_size,
-            extension_reach=70000  # phi29 default processivity
+            position_cache,
+            fg_prefixes,
+            fg_seq_lengths,
+            bin_size=bin_size,
+            extension_reach=3000,
         )
         self.network_optimizer = NetworkOptimizer(
             position_cache, fg_prefixes, bg_prefixes, fg_seq_lengths, bg_seq_lengths
         )
 
-    def optimize(self,
-                candidates: List[str],
-                num_primers: int = 10,
-                verbose: bool = False) -> BackgroundAwareResult:
+    def optimize(
+        self, candidates: List[str], num_primers: int = 10, verbose: bool = False
+    ) -> BackgroundAwareResult:
         """
         Run three-stage background-aware optimization.
 
@@ -166,7 +174,9 @@ class BackgroundAwareOptimizer:
         """
         total_start = time.time()
 
-        logger.info(f"Starting background-aware optimization: {len(candidates)} candidates → {num_primers} primers")
+        logger.info(
+            f"Starting background-aware optimization: {len(candidates)} candidates → {num_primers} primers"
+        )
 
         # ===== STAGE 1: COVERAGE MAXIMIZATION =====
         stage1_start = time.time()
@@ -174,36 +184,38 @@ class BackgroundAwareOptimizer:
 
         # Select ~2× desired primers for stage 2 pruning
         stage1_size = min(num_primers * 2, len(candidates))
-        stage1_result = self.coverage_optimizer.optimize_greedy(
-            candidates, max_primers=stage1_size
-        )
-        stage1_primers = stage1_result['primers']
+        stage1_result = self.coverage_optimizer.optimize_greedy(candidates, max_primers=stage1_size)
+        stage1_primers = stage1_result["primers"]
         stage1_coverage = self._calculate_coverage(stage1_primers)
         stage1_bg_sites = self._count_background_sites(stage1_primers)
 
         stage1_time = time.time() - stage1_start
-        logger.info(f"  Stage 1 complete: {len(stage1_primers)} primers, "
-                   f"coverage={stage1_coverage:.1%}, "
-                   f"background={stage1_bg_sites} sites "
-                   f"({stage1_time:.2f}s)")
+        logger.info(
+            f"  Stage 1 complete: {len(stage1_primers)} primers, "
+            f"coverage={stage1_coverage:.1%}, "
+            f"background={stage1_bg_sites} sites "
+            f"({stage1_time:.2f}s)"
+        )
 
         # ===== STAGE 2: BACKGROUND PRUNING (NEW!) =====
         stage2_start = time.time()
-        logger.info(f"Stage 2: Minimizing background binding (target {num_primers * 1.5:.0f} primers)...")
+        logger.info(
+            f"Stage 2: Minimizing background binding (target {num_primers * 1.5:.0f} primers)..."
+        )
 
         stage2_primers, stage2_coverage, stage2_bg_sites = self._prune_background(
-            stage1_primers,
-            target_size=int(num_primers * 1.5),
-            verbose=verbose
+            stage1_primers, target_size=int(num_primers * 1.5), verbose=verbose
         )
 
         stage2_time = time.time() - stage2_start
         stage2_reduction = stage1_bg_sites / max(stage2_bg_sites, 1)
 
-        logger.info(f"  Stage 2 complete: {len(stage2_primers)} primers, "
-                   f"coverage={stage2_coverage:.1%}, "
-                   f"background={stage2_bg_sites} sites ({stage2_reduction:.1f}× reduction) "
-                   f"({stage2_time:.2f}s)")
+        logger.info(
+            f"  Stage 2 complete: {len(stage2_primers)} primers, "
+            f"coverage={stage2_coverage:.1%}, "
+            f"background={stage2_bg_sites} sites ({stage2_reduction:.1f}× reduction) "
+            f"({stage2_time:.2f}s)"
+        )
 
         # ===== STAGE 3: NETWORK REFINEMENT =====
         stage3_start = time.time()
@@ -217,11 +229,13 @@ class BackgroundAwareOptimizer:
         stage3_bg_sites = self._count_background_sites(stage3_primers)
 
         stage3_time = time.time() - stage3_start
-        logger.info(f"  Stage 3 complete: {len(stage3_primers)} primers, "
-                   f"coverage={stage3_coverage:.1%}, "
-                   f"connectivity={stage3_connectivity:.2f}, "
-                   f"background={stage3_bg_sites} sites "
-                   f"({stage3_time:.2f}s)")
+        logger.info(
+            f"  Stage 3 complete: {len(stage3_primers)} primers, "
+            f"coverage={stage3_coverage:.1%}, "
+            f"connectivity={stage3_connectivity:.2f}, "
+            f"background={stage3_bg_sites} sites "
+            f"({stage3_time:.2f}s)"
+        )
 
         # Calculate overall metrics
         total_time = time.time() - total_start
@@ -250,17 +264,16 @@ class BackgroundAwareOptimizer:
             runtime_stage1=stage1_time,
             runtime_stage2=stage2_time,
             runtime_stage3=stage3_time,
-            total_runtime=total_time
+            total_runtime=total_time,
         )
 
         logger.info(f"\nFinal result:\n{result}")
 
         return result
 
-    def _prune_background(self,
-                         primers: List[str],
-                         target_size: int,
-                         verbose: bool = False) -> Tuple[List[str], float, int]:
+    def _prune_background(
+        self, primers: List[str], target_size: int, verbose: bool = False
+    ) -> Tuple[List[str], float, int]:
         """
         Greedy background pruning: remove primers with worst background/coverage ratio.
 
@@ -285,8 +298,10 @@ class BackgroundAwareOptimizer:
 
         if verbose:
             logger.info(f"  Background pruning: {len(current_primers)} → {target_size} primers")
-            logger.info(f"  Initial: coverage={current_coverage:.1%}, "
-                       f"background={self._count_background_sites(current_primers)} sites")
+            logger.info(
+                f"  Initial: coverage={current_coverage:.1%}, "
+                f"background={self._count_background_sites(current_primers)} sites"
+            )
 
         removed_count = 0
 
@@ -331,21 +346,25 @@ class BackgroundAwareOptimizer:
             removed_count += 1
 
             if verbose and removed_count % 2 == 0:
-                logger.info(f"    Removed {removed_count} primers, "
-                           f"coverage={current_coverage:.1%}, "
-                           f"background={self._count_background_sites(current_primers)} sites")
+                logger.info(
+                    f"    Removed {removed_count} primers, "
+                    f"coverage={current_coverage:.1%}, "
+                    f"background={self._count_background_sites(current_primers)} sites"
+                )
 
         final_coverage = self._calculate_coverage(current_primers)
         final_bg_sites = self._count_background_sites(current_primers)
 
         return current_primers, final_coverage, final_bg_sites
 
-    def _calculate_coverage(self, primers: List[str], extension_reach: int = 70000) -> float:
-        """Calculate genome coverage accounting for polymerase extension.
+    def _calculate_coverage(self, primers: List[str], extension_reach: int = 3000) -> float:
+        """Genome coverage with strand-direction-aware polymerase extension.
 
-        Each binding site covers a region of extension_reach bp in both
-        directions. Coverage is the fraction of the genome within reach
-        of at least one binding site.
+        Forward-strand binding sites extend downstream only [pos, pos+reach);
+        reverse-strand sites extend upstream only [pos-reach, pos). This
+        matches phi29's directional extension from the primer 3' end and is
+        consistent with the bipartite-graph model in
+        dominating_set_optimizer.BipartiteGraph.add_primer_coverage.
         """
         if not primers:
             return 0.0
@@ -354,26 +373,23 @@ class BackgroundAwareOptimizer:
         if total_genome_length == 0:
             return 0.0
 
-        # Collect all binding positions across all foreground genomes
-        all_positions = []
+        intervals = []
         for primer in primers:
             for prefix in self.fg_prefixes:
-                positions = self.cache.get_positions(prefix, primer, 'both')
-                all_positions.extend(positions)
+                for pos in self.cache.get_positions(prefix, primer, "forward"):
+                    start = int(pos)
+                    end = min(total_genome_length, start + extension_reach)
+                    if end > start:
+                        intervals.append((start, end))
+                for pos in self.cache.get_positions(prefix, primer, "reverse"):
+                    end = int(pos)
+                    start = max(0, end - extension_reach)
+                    if end > start:
+                        intervals.append((start, end))
 
-        if not all_positions:
+        if not intervals:
             return 0.0
 
-        # Merge overlapping coverage intervals
-        all_positions.sort()
-        covered = 0
-        intervals = []
-        for pos in all_positions:
-            start = max(0, pos - extension_reach)
-            end = min(total_genome_length, pos + extension_reach)
-            intervals.append((start, end))
-
-        # Merge overlapping intervals
         intervals.sort()
         merged = [intervals[0]]
         for start, end in intervals[1:]:
@@ -394,7 +410,7 @@ class BackgroundAwareOptimizer:
 
         for primer in primers:
             for bg_prefix in self.bg_prefixes:
-                positions = self.cache.get_positions(bg_prefix, primer, 'both')
+                positions = self.cache.get_positions(bg_prefix, primer, "both")
                 total_sites += len(positions)
 
         return total_sites
@@ -444,7 +460,9 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
         - scores: List containing the optimization score
     """
     import os
+
     import pandas as pd
+
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
     from neoswga.core.position_cache import PositionCache
@@ -461,10 +479,12 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
     # Load candidates from step3 output
     step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
     if not os.path.exists(step3_path):
-        raise FileNotFoundError(f"Step 3 output not found: {step3_path}. Run 'neoswga score' first.")
+        raise FileNotFoundError(
+            f"Step 3 output not found: {step3_path}. Run 'neoswga score' first."
+        )
 
     step3_df = pd.read_csv(step3_path)
-    candidates = step3_df['primer'].tolist()
+    candidates = step3_df["primer"].tolist()
 
     if verbose:
         logger.info(f"Loaded {len(candidates)} candidate primers from step3_df.csv")
@@ -478,8 +498,8 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
     cache = PositionCache(fg_prefixes + bg_prefixes, candidates)
 
     # Get number of primers to select
-    num_primers = getattr(parameter, 'num_primers', 10)
-    target_set_size = getattr(parameter, 'target_set_size', num_primers)
+    num_primers = getattr(parameter, "num_primers", 10)
+    target_set_size = getattr(parameter, "target_set_size", num_primers)
 
     # Create background-aware optimizer
     optimizer = BackgroundAwareOptimizer(
@@ -487,45 +507,47 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
         fg_prefixes=fg_prefixes,
         bg_prefixes=bg_prefixes,
         fg_seq_lengths=fg_seq_lengths,
-        bg_seq_lengths=bg_seq_lengths
+        bg_seq_lengths=bg_seq_lengths,
     )
 
     # Run optimization
     if verbose:
         logger.info(f"Running background-aware optimization for {target_set_size} primers...")
 
-    result = optimizer.optimize(
-        candidates=candidates,
-        num_primers=target_set_size,
-        verbose=verbose
-    )
+    result = optimizer.optimize(candidates=candidates, num_primers=target_set_size, verbose=verbose)
 
     # Save results to CSV
     output_csv = os.path.join(parameter.data_dir, "step4_improved_df.csv")
-    results_df = pd.DataFrame({
-        'primer': result.primers,
-        'score': [result.final_coverage] * len(result.primers),
-        'set_index': [0] * len(result.primers),
-        'background_sites': [result.final_background_sites] * len(result.primers),
-        'background_reduction': [result.background_reduction_vs_naive] * len(result.primers)
-    })
+    results_df = pd.DataFrame(
+        {
+            "primer": result.primers,
+            "score": [result.final_coverage] * len(result.primers),
+            "set_index": [0] * len(result.primers),
+            "background_sites": [result.final_background_sites] * len(result.primers),
+            "background_reduction": [result.background_reduction_vs_naive] * len(result.primers),
+        }
+    )
     results_df.to_csv(output_csv, index=False)
 
     if verbose:
         logger.info(f"Results saved to {output_csv}")
-        logger.info(f"Background reduction: {result.background_reduction_vs_naive:.1f}x vs naive selection")
+        logger.info(
+            f"Background reduction: {result.background_reduction_vs_naive:.1f}x vs naive selection"
+        )
 
     # Return in standard format (list of primer sets, list of scores)
     return [result.primers], [result.final_coverage]
 
 
-def compare_optimizers(candidates: List[str],
-                      position_cache,
-                      fg_prefixes: List[str],
-                      bg_prefixes: List[str],
-                      fg_seq_lengths: List[int],
-                      bg_seq_lengths: List[int],
-                      num_primers: int = 10) -> Dict[str, any]:
+def compare_optimizers(
+    candidates: List[str],
+    position_cache,
+    fg_prefixes: List[str],
+    bg_prefixes: List[str],
+    fg_seq_lengths: List[int],
+    bg_seq_lengths: List[int],
+    num_primers: int = 10,
+) -> Dict[str, any]:
     """
     Compare background-aware optimizer vs standard hybrid optimizer.
 
@@ -543,15 +565,14 @@ def compare_optimizers(candidates: List[str],
     # Standard hybrid optimizer
     logger.info("\nRunning STANDARD hybrid optimizer...")
     standard_opt = HybridOptimizer(
-        position_cache, fg_prefixes, bg_prefixes,
-        fg_seq_lengths, bg_seq_lengths
+        position_cache, fg_prefixes, bg_prefixes, fg_seq_lengths, bg_seq_lengths
     )
     standard_result = standard_opt.optimize(candidates, num_primers=num_primers)
     # Aggregate background hits across ALL background prefixes, not just the first.
     # Previously only bg_prefixes[0] was measured, underreporting background load
     # when multiple host/off-target genomes were provided.
     standard_bg = sum(
-        len(position_cache.get_positions(bg_prefix, p, 'both'))
+        len(position_cache.get_positions(bg_prefix, p, "both"))
         for p in standard_result.primers
         for bg_prefix in bg_prefixes
     )
@@ -559,8 +580,7 @@ def compare_optimizers(candidates: List[str],
     # Background-aware optimizer
     logger.info("\nRunning BACKGROUND-AWARE optimizer...")
     bg_aware_opt = BackgroundAwareOptimizer(
-        position_cache, fg_prefixes, bg_prefixes,
-        fg_seq_lengths, bg_seq_lengths
+        position_cache, fg_prefixes, bg_prefixes, fg_seq_lengths, bg_seq_lengths
     )
     bg_aware_result = bg_aware_opt.optimize(candidates, num_primers=num_primers)
 
@@ -569,14 +589,16 @@ def compare_optimizers(candidates: List[str],
 
     logger.info(f"\nCOMPARISON RESULTS:")
     logger.info(f"Standard: {len(standard_result.primers)} primers, {standard_bg} background sites")
-    logger.info(f"Background-aware: {len(bg_aware_result.primers)} primers, "
-               f"{bg_aware_result.final_background_sites} background sites")
+    logger.info(
+        f"Background-aware: {len(bg_aware_result.primers)} primers, "
+        f"{bg_aware_result.final_background_sites} background sites"
+    )
     logger.info(f"Improvement: {improvement:.1f}× fewer background sites!")
 
     return {
-        'standard': standard_result,
-        'background_aware': bg_aware_result,
-        'improvement_factor': improvement
+        "standard": standard_result,
+        "background_aware": bg_aware_result,
+        "improvement_factor": improvement,
     }
 
 
@@ -585,13 +607,16 @@ def compare_optimizers(candidates: List[str],
 # =============================================================================
 
 from neoswga.core.base_optimizer import (
-    BaseOptimizer, OptimizationResult, OptimizationStatus,
-    PrimerSetMetrics, OptimizerConfig
+    BaseOptimizer,
+    OptimizationResult,
+    OptimizationStatus,
+    OptimizerConfig,
+    PrimerSetMetrics,
 )
 from neoswga.core.optimizer_factory import OptimizerFactory
 
 
-@OptimizerFactory.register('background-aware', aliases=['clinical', 'bg-aware'])
+@OptimizerFactory.register("background-aware", aliases=["clinical", "bg-aware"])
 class BackgroundAwareBaseOptimizer(BaseOptimizer):
     """
     Background-aware optimizer implementing BaseOptimizer interface.
@@ -614,16 +639,21 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
         conditions=None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
-            position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config,
+            position_cache,
+            fg_prefixes,
+            fg_seq_lengths,
+            bg_prefixes,
+            bg_seq_lengths,
+            config,
             conditions=conditions,
         )
 
         # Delegate to HybridOptimizer with background pruning enabled
         from neoswga.core.hybrid_optimizer import HybridOptimizer
+
         self._hybrid = HybridOptimizer(
             position_cache=position_cache,
             fg_prefixes=fg_prefixes,
@@ -631,15 +661,15 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             bg_prefixes=bg_prefixes or [],
             bg_seq_lengths=bg_seq_lengths or [],
             background_pruning=True,
-            background_weight=kwargs.get('background_weight', 2.0),
-            min_coverage_threshold=kwargs.get('min_coverage_threshold', 0.95),
-            polymerase=kwargs.get('polymerase', 'phi29'),
+            background_weight=kwargs.get("background_weight", 2.0),
+            min_coverage_threshold=kwargs.get("min_coverage_threshold", 0.95),
+            polymerase=kwargs.get("polymerase", "phi29"),
             # Forward ReactionConditions + mechanistic weight so the clinical
             # background-aware optimizer's stage-3 network refinement honours
             # DMSO / betaine / etc. Review I1: previously these dropped at
             # this seam even though self.conditions was set on the wrapper.
             conditions=conditions,
-            mechanistic_weight=kwargs.get('mechanistic_weight', 0.0),
+            mechanistic_weight=kwargs.get("mechanistic_weight", 0.0),
         )
 
         # Keep the direct optimizer for backward compat (standalone use)
@@ -667,16 +697,12 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
         return True
 
     def optimize(
-        self,
-        candidates: List[str],
-        target_size: Optional[int] = None,
-        **kwargs
+        self, candidates: List[str], target_size: Optional[int] = None, **kwargs
     ) -> OptimizationResult:
         """Run background-aware optimization via HybridOptimizer."""
         if not self.bg_prefixes:
             return OptimizationResult.failure(
-                self.name,
-                "Background-aware optimizer requires background genome data"
+                self.name, "Background-aware optimizer requires background genome data"
             )
 
         candidates = self._validate_candidates(candidates)
@@ -703,7 +729,7 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
                 iterations=3,  # Three stages
                 optimizer_name=self.name,
                 message=f"Coverage: {result.final_coverage:.1%}, "
-                        f"Connectivity: {result.final_connectivity:.2f}",
+                f"Connectivity: {result.final_connectivity:.2f}",
             )
 
         except Exception as e:

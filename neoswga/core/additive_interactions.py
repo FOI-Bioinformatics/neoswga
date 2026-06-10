@@ -24,10 +24,10 @@ Literature basis:
 - Varadharajan et al. (2017): EquiPhi29 optimization
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, TYPE_CHECKING, Callable
-from enum import Enum
 import math
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 if TYPE_CHECKING:
     from neoswga.core.reaction_conditions import ReactionConditions
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 
 class Pathway(Enum):
     """Pathways that can be affected by additive interactions."""
+
     PROCESSIVITY = "processivity"
     STABILITY = "stability"
     SPEED = "speed"
@@ -46,9 +47,10 @@ class Pathway(Enum):
 
 class EffectType(Enum):
     """Type of interaction effect."""
-    SYNERGY = "synergy"           # Combined effect > sum of parts
-    ANTAGONISM = "antagonism"     # Additives counteract each other
-    CONDITIONAL = "conditional"   # Effect depends on specific conditions
+
+    SYNERGY = "synergy"  # Combined effect > sum of parts
+    ANTAGONISM = "antagonism"  # Additives counteract each other
+    CONDITIONAL = "conditional"  # Effect depends on specific conditions
 
 
 @dataclass
@@ -78,6 +80,7 @@ class AdditiveInteraction:
         description: Human-readable description of the mechanism
         reference: Literature reference
     """
+
     name: str
     additives: List[str]
     pathway: Pathway
@@ -101,29 +104,27 @@ class AdditiveInteraction:
     description: str = ""
     reference: str = ""
 
-    def get_additive_concentration(self, conditions: 'ReactionConditions',
-                                    additive: str) -> float:
+    def get_additive_concentration(self, conditions: "ReactionConditions", additive: str) -> float:
         """Get concentration of an additive from conditions."""
         # Map additive names to condition attributes
         mapping = {
-            'dmso': conditions.dmso_percent,
-            'betaine': conditions.betaine_m,
-            'trehalose': conditions.trehalose_m,
-            'formamide': conditions.formamide_percent,
-            'mg': conditions.mg_conc,
-            'na': conditions.na_conc,
-            'glycerol': conditions.glycerol_percent,
-            'peg': conditions.peg_percent,
-            'bsa': conditions.bsa_ug_ml / 100.0,  # Normalize to useful scale
-            'ssb': 1.0 if conditions.ssb else 0.0,
-            'ethanol': conditions.ethanol_percent,
-            'urea': conditions.urea_m,
-            'tmac': conditions.tmac_m,
+            "dmso": conditions.dmso_percent,
+            "betaine": conditions.betaine_m,
+            "trehalose": conditions.trehalose_m,
+            "formamide": conditions.formamide_percent,
+            "mg": conditions.mg_conc,
+            "na": conditions.na_conc,
+            "glycerol": conditions.glycerol_percent,
+            "peg": conditions.peg_percent,
+            "bsa": conditions.bsa_ug_ml / 100.0,  # Normalize to useful scale
+            "ssb": 1.0 if conditions.ssb else 0.0,
+            "ethanol": conditions.ethanol_percent,
+            "urea": conditions.urea_m,
+            "tmac": conditions.tmac_m,
         }
         return mapping.get(additive.lower(), 0.0)
 
-    def is_active(self, conditions: 'ReactionConditions',
-                  template_gc: float = 0.5) -> bool:
+    def is_active(self, conditions: "ReactionConditions", template_gc: float = 0.5) -> bool:
         """
         Check if this interaction is active under given conditions.
 
@@ -149,8 +150,7 @@ class AdditiveInteraction:
 
         return True
 
-    def calculate_effect(self, conditions: 'ReactionConditions',
-                         template_gc: float = 0.5) -> float:
+    def calculate_effect(self, conditions: "ReactionConditions", template_gc: float = 0.5) -> float:
         """
         Calculate the effect multiplier for this interaction.
 
@@ -173,7 +173,7 @@ class AdditiveInteraction:
         for additive in self.additives:
             conc = self.get_additive_concentration(conditions, additive)
             min_conc = self.min_concentrations.get(additive, 0.0)
-            max_conc = self.max_concentrations.get(additive, float('inf'))
+            max_conc = self.max_concentrations.get(additive, float("inf"))
 
             # Use concentration above threshold, capped at max
             effective_conc = min(conc, max_conc) - min_conc
@@ -245,22 +245,19 @@ class AdditiveInteractionRegistry:
         key = pathway.value
         if key not in self._pathway_cache:
             self._pathway_cache[key] = [
-                i for i in self.interactions.values()
-                if i.pathway == pathway
+                i for i in self.interactions.values() if i.pathway == pathway
             ]
         return self._pathway_cache[key]
 
-    def get_active_interactions(self, conditions: 'ReactionConditions',
-                                 template_gc: float = 0.5) -> List[AdditiveInteraction]:
+    def get_active_interactions(
+        self, conditions: "ReactionConditions", template_gc: float = 0.5
+    ) -> List[AdditiveInteraction]:
         """Get all interactions that are active under given conditions."""
-        return [
-            i for i in self.interactions.values()
-            if i.is_active(conditions, template_gc)
-        ]
+        return [i for i in self.interactions.values() if i.is_active(conditions, template_gc)]
 
-    def calculate_pathway_modifier(self, pathway: Pathway,
-                                    conditions: 'ReactionConditions',
-                                    template_gc: float = 0.5) -> float:
+    def calculate_pathway_modifier(
+        self, pathway: Pathway, conditions: "ReactionConditions", template_gc: float = 0.5
+    ) -> float:
         """
         Calculate combined effect of all active interactions on a pathway.
 
@@ -280,8 +277,9 @@ class AdditiveInteractionRegistry:
             modifier *= interaction.calculate_effect(conditions, template_gc)
         return modifier
 
-    def calculate_all_modifiers(self, conditions: 'ReactionConditions',
-                                 template_gc: float = 0.5) -> Dict[str, float]:
+    def calculate_all_modifiers(
+        self, conditions: "ReactionConditions", template_gc: float = 0.5
+    ) -> Dict[str, float]:
         """
         Calculate modifiers for all pathways.
 
@@ -297,8 +295,9 @@ class AdditiveInteractionRegistry:
             for pathway in Pathway
         }
 
-    def get_interaction_report(self, conditions: 'ReactionConditions',
-                                template_gc: float = 0.5) -> str:
+    def get_interaction_report(
+        self, conditions: "ReactionConditions", template_gc: float = 0.5
+    ) -> str:
         """
         Generate a human-readable report of active interactions.
 
@@ -353,45 +352,51 @@ class AdditiveInteractionRegistry:
         # Betaine-trehalose synergy
         # Both stabilize proteins through different mechanisms
         # Combined effect is greater than sum of individual effects
-        self.register(AdditiveInteraction(
-            name='betaine_trehalose_synergy',
-            additives=['betaine', 'trehalose'],
-            pathway=Pathway.STABILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.15,
-            min_concentrations={'betaine': 0.5, 'trehalose': 0.1},
-            max_concentrations={'betaine': 1.5, 'trehalose': 0.5},
-            description="Combined osmolyte protection enhances enzyme stability",
-            reference="Vasilescu et al. (2008)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="betaine_trehalose_synergy",
+                additives=["betaine", "trehalose"],
+                pathway=Pathway.STABILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.15,
+                min_concentrations={"betaine": 0.5, "trehalose": 0.1},
+                max_concentrations={"betaine": 1.5, "trehalose": 0.5},
+                description="Combined osmolyte protection enhances enzyme stability",
+                reference="Vasilescu et al. (2008)",
+            )
+        )
 
         # Betaine-trehalose also boosts processivity slightly
-        self.register(AdditiveInteraction(
-            name='betaine_trehalose_processivity',
-            additives=['betaine', 'trehalose'],
-            pathway=Pathway.PROCESSIVITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.05,  # 0.3 * 0.15 from original
-            min_concentrations={'betaine': 0.5, 'trehalose': 0.1},
-            max_concentrations={'betaine': 1.5, 'trehalose': 0.5},
-            description="Enzyme stabilization indirectly improves processivity",
-            reference="Vasilescu et al. (2008)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="betaine_trehalose_processivity",
+                additives=["betaine", "trehalose"],
+                pathway=Pathway.PROCESSIVITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.05,  # 0.3 * 0.15 from original
+                min_concentrations={"betaine": 0.5, "trehalose": 0.1},
+                max_concentrations={"betaine": 1.5, "trehalose": 0.5},
+                description="Enzyme stabilization indirectly improves processivity",
+                reference="Vasilescu et al. (2008)",
+            )
+        )
 
         # DMSO-formamide antagonism
         # Both destabilize DNA but compete for similar binding sites on enzyme
         # Combined destabilization is less than expected
-        self.register(AdditiveInteraction(
-            name='dmso_formamide_antagonism',
-            additives=['dmso', 'formamide'],
-            pathway=Pathway.STABILITY,
-            effect_type=EffectType.SYNERGY,  # Actually reduces penalty, so synergy on stability
-            base_coefficient=0.015,  # 0.03 * 0.5 from original
-            min_concentrations={'dmso': 2.0, 'formamide': 1.0},
-            max_concentrations={'dmso': 8.0, 'formamide': 5.0},
-            description="Competing destabilizers partially neutralize each other",
-            reference="Sarkar et al. (1990)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="dmso_formamide_antagonism",
+                additives=["dmso", "formamide"],
+                pathway=Pathway.STABILITY,
+                effect_type=EffectType.SYNERGY,  # Actually reduces penalty, so synergy on stability
+                base_coefficient=0.015,  # 0.03 * 0.5 from original
+                min_concentrations={"dmso": 2.0, "formamide": 1.0},
+                max_concentrations={"dmso": 8.0, "formamide": 5.0},
+                description="Competing destabilizers partially neutralize each other",
+                reference="Sarkar et al. (1990)",
+            )
+        )
 
         # =====================================================================
         # New interactions (previously missing)
@@ -401,77 +406,87 @@ class AdditiveInteractionRegistry:
         # Both affect GC normalization but through different mechanisms
         # Betaine reduces GC Tm penalty, DMSO destabilizes all duplexes
         # Combined: enhanced ability to handle high-GC templates
-        self.register(AdditiveInteraction(
-            name='betaine_dmso_gc_synergy',
-            additives=['betaine', 'dmso'],
-            pathway=Pathway.ACCESSIBILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.08,
-            min_concentrations={'betaine': 0.5, 'dmso': 2.0},
-            max_concentrations={'betaine': 2.0, 'dmso': 8.0},
-            requires_high_gc=True,
-            gc_threshold=0.55,
-            description="Combined GC normalization improves high-GC template accessibility",
-            reference="Henke et al. (1997)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="betaine_dmso_gc_synergy",
+                additives=["betaine", "dmso"],
+                pathway=Pathway.ACCESSIBILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.08,
+                min_concentrations={"betaine": 0.5, "dmso": 2.0},
+                max_concentrations={"betaine": 2.0, "dmso": 8.0},
+                requires_high_gc=True,
+                gc_threshold=0.55,
+                description="Combined GC normalization improves high-GC template accessibility",
+                reference="Henke et al. (1997)",
+            )
+        )
 
         # Betaine-DMSO also affects Tm
-        self.register(AdditiveInteraction(
-            name='betaine_dmso_tm_enhancement',
-            additives=['betaine', 'dmso'],
-            pathway=Pathway.TM,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.02,
-            min_concentrations={'betaine': 0.5, 'dmso': 2.0},
-            max_concentrations={'betaine': 2.0, 'dmso': 8.0},
-            requires_high_gc=True,
-            gc_threshold=0.55,
-            description="Combined effect reduces Tm depression for high-GC primers",
-            reference="Henke et al. (1997)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="betaine_dmso_tm_enhancement",
+                additives=["betaine", "dmso"],
+                pathway=Pathway.TM,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.02,
+                min_concentrations={"betaine": 0.5, "dmso": 2.0},
+                max_concentrations={"betaine": 2.0, "dmso": 8.0},
+                requires_high_gc=True,
+                gc_threshold=0.55,
+                description="Combined effect reduces Tm depression for high-GC primers",
+                reference="Henke et al. (1997)",
+            )
+        )
 
         # Trehalose-DMSO interaction
         # Trehalose stabilizes enzyme while DMSO improves DNA accessibility
         # Combined: can use higher DMSO with less enzyme inhibition
-        self.register(AdditiveInteraction(
-            name='trehalose_dmso_protection',
-            additives=['trehalose', 'dmso'],
-            pathway=Pathway.STABILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.12,
-            min_concentrations={'trehalose': 0.1, 'dmso': 3.0},
-            max_concentrations={'trehalose': 0.5, 'dmso': 8.0},
-            description="Trehalose protects enzyme from DMSO destabilization",
-            reference="Musso et al. (2006)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="trehalose_dmso_protection",
+                additives=["trehalose", "dmso"],
+                pathway=Pathway.STABILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.12,
+                min_concentrations={"trehalose": 0.1, "dmso": 3.0},
+                max_concentrations={"trehalose": 0.5, "dmso": 8.0},
+                description="Trehalose protects enzyme from DMSO destabilization",
+                reference="Musso et al. (2006)",
+            )
+        )
 
         # SSB-betaine synergy for binding
         # SSB keeps DNA single-stranded, betaine helps primers access
-        self.register(AdditiveInteraction(
-            name='ssb_betaine_binding',
-            additives=['ssb', 'betaine'],
-            pathway=Pathway.KON,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.3,
-            min_concentrations={'ssb': 1.0, 'betaine': 0.5},
-            max_concentrations={'betaine': 2.0},
-            description="SSB maintains ssDNA while betaine enhances primer binding",
-            reference="Varadharajan et al. (2017)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="ssb_betaine_binding",
+                additives=["ssb", "betaine"],
+                pathway=Pathway.KON,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.3,
+                min_concentrations={"ssb": 1.0, "betaine": 0.5},
+                max_concentrations={"betaine": 2.0},
+                description="SSB maintains ssDNA while betaine enhances primer binding",
+                reference="Varadharajan et al. (2017)",
+            )
+        )
 
         # PEG-betaine interaction
         # Both are crowding agents - excessive combined crowding can inhibit
-        self.register(AdditiveInteraction(
-            name='peg_betaine_crowding',
-            additives=['peg', 'betaine'],
-            pathway=Pathway.SPEED,
-            effect_type=EffectType.ANTAGONISM,
-            base_coefficient=0.02,
-            min_concentrations={'peg': 2.0, 'betaine': 1.0},
-            max_concentrations={'peg': 10.0, 'betaine': 2.0},
-            description="Excessive molecular crowding can slow polymerase",
-            reference="Ralser et al. (2006)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="peg_betaine_crowding",
+                additives=["peg", "betaine"],
+                pathway=Pathway.SPEED,
+                effect_type=EffectType.ANTAGONISM,
+                base_coefficient=0.02,
+                min_concentrations={"peg": 2.0, "betaine": 1.0},
+                max_concentrations={"peg": 10.0, "betaine": 2.0},
+                description="Excessive molecular crowding can slow polymerase",
+                reference="Ralser et al. (2006)",
+            )
+        )
 
         # =====================================================================
         # Temperature-dependent interactions
@@ -479,19 +494,21 @@ class AdditiveInteractionRegistry:
 
         # High-temperature betaine effectiveness
         # Betaine is more effective at higher temperatures (EquiPhi29 conditions)
-        self.register(AdditiveInteraction(
-            name='betaine_high_temp_boost',
-            additives=['betaine'],
-            pathway=Pathway.STABILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.05,
-            min_concentrations={'betaine': 0.5},
-            max_concentrations={'betaine': 2.0},
-            temperature_coefficient=0.02,  # Effect increases with temp
-            reference_temp=30.0,
-            description="Betaine stabilization is more important at elevated temperatures",
-            reference="Varadharajan et al. (2017)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="betaine_high_temp_boost",
+                additives=["betaine"],
+                pathway=Pathway.STABILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.05,
+                min_concentrations={"betaine": 0.5},
+                max_concentrations={"betaine": 2.0},
+                temperature_coefficient=0.02,  # Effect increases with temp
+                reference_temp=30.0,
+                description="Betaine stabilization is more important at elevated temperatures",
+                reference="Varadharajan et al. (2017)",
+            )
+        )
 
         # =====================================================================
         # Three-way interactions
@@ -499,32 +516,36 @@ class AdditiveInteractionRegistry:
 
         # Betaine-DMSO-trehalose triple
         # Optimal SWGA additive combination
-        self.register(AdditiveInteraction(
-            name='optimal_swga_triple',
-            additives=['betaine', 'dmso', 'trehalose'],
-            pathway=Pathway.PROCESSIVITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.03,
-            min_concentrations={'betaine': 1.0, 'dmso': 3.0, 'trehalose': 0.2},
-            max_concentrations={'betaine': 2.0, 'dmso': 6.0, 'trehalose': 0.5},
-            description="Optimal three-additive combination for enhanced SWGA",
-            reference="Musso et al. (2006)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="optimal_swga_triple",
+                additives=["betaine", "dmso", "trehalose"],
+                pathway=Pathway.PROCESSIVITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.03,
+                min_concentrations={"betaine": 1.0, "dmso": 3.0, "trehalose": 0.2},
+                max_concentrations={"betaine": 2.0, "dmso": 6.0, "trehalose": 0.5},
+                description="Optimal three-additive combination for enhanced SWGA",
+                reference="Musso et al. (2006)",
+            )
+        )
 
         # Betaine-DMSO-trehalose also enhances accessibility
-        self.register(AdditiveInteraction(
-            name='optimal_swga_triple_accessibility',
-            additives=['betaine', 'dmso', 'trehalose'],
-            pathway=Pathway.ACCESSIBILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.04,
-            min_concentrations={'betaine': 1.0, 'dmso': 3.0, 'trehalose': 0.2},
-            max_concentrations={'betaine': 2.0, 'dmso': 6.0, 'trehalose': 0.5},
-            requires_high_gc=True,
-            gc_threshold=0.50,
-            description="Enhanced template accessibility with optimal additive mix",
-            reference="Musso et al. (2006)"
-        ))
+        self.register(
+            AdditiveInteraction(
+                name="optimal_swga_triple_accessibility",
+                additives=["betaine", "dmso", "trehalose"],
+                pathway=Pathway.ACCESSIBILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.04,
+                min_concentrations={"betaine": 1.0, "dmso": 3.0, "trehalose": 0.2},
+                max_concentrations={"betaine": 2.0, "dmso": 6.0, "trehalose": 0.5},
+                requires_high_gc=True,
+                gc_threshold=0.50,
+                description="Enhanced template accessibility with optimal additive mix",
+                reference="Musso et al. (2006)",
+            )
+        )
 
 
 # Global default registry
@@ -546,10 +567,11 @@ def reset_default_registry() -> None:
     _default_registry = None
 
 
-def calculate_interaction_modifiers(conditions: 'ReactionConditions',
-                                     template_gc: float = 0.5,
-                                     registry: Optional[AdditiveInteractionRegistry] = None
-                                     ) -> Dict[str, float]:
+def calculate_interaction_modifiers(
+    conditions: "ReactionConditions",
+    template_gc: float = 0.5,
+    registry: Optional[AdditiveInteractionRegistry] = None,
+) -> Dict[str, float]:
     """
     Convenience function to calculate all interaction modifiers.
 

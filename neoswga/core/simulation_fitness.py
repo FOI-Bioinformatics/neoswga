@@ -17,17 +17,14 @@ Version: 3.0 - Phase 2.2
 """
 
 import logging
-import numpy as np
-from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
 
-from neoswga.core.replication_simulator import (
-    Phi29Simulator,
-    SimulationConfig,
-    simulate_primer_set
-)
+import numpy as np
+
 from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.replication_simulator import Phi29Simulator, SimulationConfig, simulate_primer_set
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +32,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SimulationFitness:
     """Fitness metrics from simulation-based evaluation"""
+
     # Coverage metrics
     mean_coverage: float  # 0-1, fraction of genome covered
-    std_coverage: float   # Variation across replicates
+    std_coverage: float  # Variation across replicates
 
     # Amplification metrics
     mean_forks_created: float
@@ -67,13 +65,15 @@ class SimulationBasedEvaluator:
     - Parameter tuning and benchmarking
     """
 
-    def __init__(self,
-                 genome_sequence: str,
-                 genome_length: int,
-                 position_cache,
-                 conditions: Optional[ReactionConditions] = None,
-                 n_replicates: int = 3,
-                 simulation_duration: float = 3600.0):
+    def __init__(
+        self,
+        genome_sequence: str,
+        genome_length: int,
+        position_cache,
+        conditions: Optional[ReactionConditions] = None,
+        n_replicates: int = 3,
+        simulation_duration: float = 3600.0,
+    ):
         """
         Initialize simulation-based evaluator.
 
@@ -118,7 +118,7 @@ class SimulationBasedEvaluator:
 
         # Check if we have any positions
         total_positions = sum(
-            len(positions.get('forward', [])) + len(positions.get('reverse', []))
+            len(positions.get("forward", [])) + len(positions.get("reverse", []))
             for positions in primer_positions.values()
         )
 
@@ -132,7 +132,7 @@ class SimulationBasedEvaluator:
                 coverage_uniformity=0.0,
                 fitness_score=0.0,
                 simulation_time=time.time() - start_time,
-                n_replicates=0
+                n_replicates=0,
             )
 
         # Run simulation with multiple replicates
@@ -149,7 +149,7 @@ class SimulationBasedEvaluator:
             config = SimulationConfig(
                 duration=self.simulation_duration,
                 time_step=1.0,
-                polymerase_type=self._get_polymerase_type()
+                polymerase_type=self._get_polymerase_type(),
             )
 
             simulator = Phi29Simulator(
@@ -158,7 +158,7 @@ class SimulationBasedEvaluator:
                 genome_length=self.genome_length,
                 genome_sequence=self.genome_sequence,
                 conditions=self.conditions or self._get_default_conditions(),
-                config=config
+                config=config,
             )
 
             # Run simulation
@@ -187,11 +187,7 @@ class SimulationBasedEvaluator:
         # Calculate composite fitness score
         # Weights: coverage (60%), uniformity (30%), efficiency (10%)
         efficiency = min(mean_forks / (len(primers) * 100), 1.0)  # Normalized fork creation
-        fitness_score = (
-            0.6 * mean_coverage +
-            0.3 * coverage_uniformity +
-            0.1 * efficiency
-        )
+        fitness_score = 0.6 * mean_coverage + 0.3 * coverage_uniformity + 0.1 * efficiency
 
         simulation_time = time.time() - start_time
 
@@ -212,7 +208,7 @@ class SimulationBasedEvaluator:
             coverage_uniformity=coverage_uniformity,
             fitness_score=fitness_score,
             simulation_time=simulation_time,
-            n_replicates=self.n_replicates
+            n_replicates=self.n_replicates,
         )
 
     def _build_position_dict(self, primers: List[str]) -> Dict[str, Dict[str, List[int]]]:
@@ -232,8 +228,8 @@ class SimulationBasedEvaluator:
                 # Position cache API: get_positions(genome_id, primer, strand)
                 # We need to know the genome ID - for now assume it's set during init
                 # This will need to be adjusted based on actual cache structure
-                fwd = self.position_cache.get_positions('', primer, 'forward')
-                rev = self.position_cache.get_positions('', primer, 'reverse')
+                fwd = self.position_cache.get_positions("", primer, "forward")
+                rev = self.position_cache.get_positions("", primer, "reverse")
 
                 if len(fwd) > 0:
                     forward_positions = fwd.tolist()
@@ -243,34 +239,33 @@ class SimulationBasedEvaluator:
                 # If cache access fails, just skip this primer
                 logger.debug(f"Cache access failed for primer {primer}: {e}")
 
-            positions[primer] = {
-                'forward': forward_positions,
-                'reverse': reverse_positions
-            }
+            positions[primer] = {"forward": forward_positions, "reverse": reverse_positions}
 
         return positions
 
     def _get_polymerase_type(self) -> str:
         """Determine polymerase type from conditions"""
         if self.conditions is None:
-            return 'phi29'
+            return "phi29"
 
         # Check temperature to infer polymerase
-        if hasattr(self.conditions, 'temp'):
+        if hasattr(self.conditions, "temp"):
             if self.conditions.temp >= 42:
-                return 'equiphi29'
+                return "equiphi29"
             else:
-                return 'phi29'
+                return "phi29"
 
-        return 'phi29'
+        return "phi29"
 
     def _get_default_conditions(self) -> ReactionConditions:
         """Get default reaction conditions"""
         from neoswga.core.reaction_conditions import get_enhanced_conditions
+
         return get_enhanced_conditions()
 
-    def compare_sets(self, primer_sets: List[Tuple[str, List[str]]],
-                    verbose: bool = True) -> List[Tuple[str, SimulationFitness]]:
+    def compare_sets(
+        self, primer_sets: List[Tuple[str, List[str]]], verbose: bool = True
+    ) -> List[Tuple[str, SimulationFitness]]:
         """
         Compare multiple primer sets using simulation.
 
@@ -310,7 +305,7 @@ class SimulationBasedEvaluator:
         return results
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 

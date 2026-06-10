@@ -15,12 +15,13 @@ References:
 - Markham & Zuker (2008) Methods Mol Biol 453:3-31
 """
 
-import numpy as np
-from typing import List, Tuple, Dict, Optional
 import warnings
-from neoswga.core import thermodynamics as thermo
-from neoswga.core import reaction_conditions as rc
+from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
+from neoswga.core import reaction_conditions as rc
+from neoswga.core import thermodynamics as thermo
 
 # ========================================
 # Loop and Bulge Penalties
@@ -33,6 +34,7 @@ from neoswga.core import reaction_conditions as rc
 #
 # Bulge penalties follow Mathews et al. (1999) and Freier et al. (1986)
 # PNAS 83:9373-9377 for single-nucleotide bulges.
+
 
 def loop_penalty(size: int) -> float:
     """
@@ -59,7 +61,7 @@ def loop_penalty(size: int) -> float:
         # G_loop(n) = G_loop(6) + 1.75 * R * T * ln(n/6)
         # R = 1.987 cal/(mol*K), T = 310.15 K (37C reference), convert to kcal/mol
         R_kcal = 1.987e-3  # kcal/(mol*K)
-        T_ref = 310.15     # 37C in Kelvin (standard reference temperature)
+        T_ref = 310.15  # 37C in Kelvin (standard reference temperature)
         return 5.4 + 1.75 * R_kcal * T_ref * np.log(size / 6.0)
 
 
@@ -92,6 +94,7 @@ def bulge_penalty(size: int) -> float:
 # Dynamic Programming for Structure Prediction
 # ========================================
 
+
 class StructurePrediction:
     """
     Predict secondary structures using dynamic programming.
@@ -108,7 +111,7 @@ class StructurePrediction:
 
     def is_complementary(self, base1: str, base2: str) -> bool:
         """Check if two bases are Watson-Crick complementary."""
-        pairs = {('A', 'T'), ('T', 'A'), ('G', 'C'), ('C', 'G')}
+        pairs = {("A", "T"), ("T", "A"), ("G", "C"), ("C", "G")}
         return (base1.upper(), base2.upper()) in pairs
 
     def predict_heterodimer(self, seq1: str, seq2: str) -> Dict:
@@ -168,54 +171,56 @@ class StructurePrediction:
                 # seq2_rc which already maps that G back to C, so the match
                 # never fired and every pair reported severity=0.
                 if i > 0 and j > 0:
-                    if seq1[i-1].upper() == seq2_rc[j-1].upper():
+                    if seq1[i - 1].upper() == seq2_rc[j - 1].upper():
                         # Check if we can form a stack
                         if i >= 2 and j >= 2:
                             # Get stacking energy
-                            stack1 = seq1[i-2:i]
-                            stack2 = seq2_rc[j-2:j]
+                            stack1 = seq1[i - 2 : i]
+                            stack2 = seq2_rc[j - 2 : j]
 
                             # Calculate ΔG for this stack
                             try:
-                                enthalpy, entropy = thermo.calculate_enthalpy_entropy(stack1 + stack2)
+                                enthalpy, entropy = thermo.calculate_enthalpy_entropy(
+                                    stack1 + stack2
+                                )
                                 T = self.conditions.temp + 273.15
                                 stack_energy = enthalpy - (T * entropy / 1000)
                             except (KeyError, ValueError, TypeError):
                                 # Unknown dinucleotide stack, use average energy
                                 stack_energy = -2.0  # Average stack energy
 
-                            if E[i-1][j-1] + stack_energy < current_min:
-                                current_min = E[i-1][j-1] + stack_energy
-                                parent[(i, j)] = (i-1, j-1, 'pair')
+                            if E[i - 1][j - 1] + stack_energy < current_min:
+                                current_min = E[i - 1][j - 1] + stack_energy
+                                parent[(i, j)] = (i - 1, j - 1, "pair")
                         else:
                             # First pair - initiation energy
-                            if E[i-1][j-1] < current_min:
-                                current_min = E[i-1][j-1]
-                                parent[(i, j)] = (i-1, j-1, 'init')
+                            if E[i - 1][j - 1] < current_min:
+                                current_min = E[i - 1][j - 1]
+                                parent[(i, j)] = (i - 1, j - 1, "init")
 
                 # Option 2: Bulge in seq1
                 if i > 0:
                     for k in range(1, min(i, 7)):  # Max bulge size 6
                         penalty = bulge_penalty(k)
-                        if E[i-k][j] + penalty < current_min:
-                            current_min = E[i-k][j] + penalty
-                            parent[(i, j)] = (i-k, j, f'bulge1_{k}')
+                        if E[i - k][j] + penalty < current_min:
+                            current_min = E[i - k][j] + penalty
+                            parent[(i, j)] = (i - k, j, f"bulge1_{k}")
 
                 # Option 3: Bulge in seq2
                 if j > 0:
                     for k in range(1, min(j, 7)):
                         penalty = bulge_penalty(k)
-                        if E[i][j-k] + penalty < current_min:
-                            current_min = E[i][j-k] + penalty
-                            parent[(i, j)] = (i, j-k, f'bulge2_{k}')
+                        if E[i][j - k] + penalty < current_min:
+                            current_min = E[i][j - k] + penalty
+                            parent[(i, j)] = (i, j - k, f"bulge2_{k}")
 
                 # Option 4: Internal loop
                 if i > 0 and j > 0:
                     for k in range(1, min(i, j, 7)):
                         penalty = loop_penalty(k * 2)
-                        if E[i-k][j-k] + penalty < current_min:
-                            current_min = E[i-k][j-k] + penalty
-                            parent[(i, j)] = (i-k, j-k, f'loop_{k}')
+                        if E[i - k][j - k] + penalty < current_min:
+                            current_min = E[i - k][j - k] + penalty
+                            parent[(i, j)] = (i - k, j - k, f"loop_{k}")
 
                 E[i][j] = current_min
 
@@ -232,7 +237,7 @@ class StructurePrediction:
             min_energy,
             min(n, m) // 2,  # Approximate binding length
             self.conditions.na_conc,
-            self.conditions.mg_conc
+            self.conditions.mg_conc,
         )
 
         # Check if stable at reaction temperature
@@ -255,14 +260,14 @@ class StructurePrediction:
             length_score = min(1, binding_len / 10)  # Scale 0-10 bp
 
             # Combined severity
-            severity = (energy_score * 0.4 + tm_score * 0.4 + length_score * 0.2)
+            severity = energy_score * 0.4 + tm_score * 0.4 + length_score * 0.2
 
         return {
-            'energy': min_energy,
-            'tm': estimated_tm,
-            'forms_dimer': stable_at_temp,
-            'severity': severity,
-            'binding_length': self._estimate_binding_length(parent, n, m)
+            "energy": min_energy,
+            "tm": estimated_tm,
+            "forms_dimer": stable_at_temp,
+            "severity": severity,
+            "binding_length": self._estimate_binding_length(parent, n, m),
         }
 
     def _estimate_binding_length(self, parent: Dict, n: int, m: int) -> int:
@@ -282,7 +287,7 @@ class StructurePrediction:
 
         while pos in parent:
             prev_i, prev_j, move_type = parent[pos]
-            if 'pair' in move_type or 'init' in move_type:
+            if "pair" in move_type or "init" in move_type:
                 count += 1
             pos = (prev_i, prev_j)
 
@@ -316,7 +321,7 @@ class StructurePrediction:
         # Check consecutive matches at very end (most critical)
         consecutive_3prime = 0
         for i in range(min(len(term1), len(term2))):
-            if self.is_complementary(term1[-(i+1)], term2[-(i+1)]):
+            if self.is_complementary(term1[-(i + 1)], term2[-(i + 1)]):
                 consecutive_3prime += 1
             else:
                 break
@@ -378,20 +383,16 @@ class StructurePrediction:
 
                 for stem_len in range(min_stem, max_stem + 1):
                     # Check if stem regions are complementary
-                    stem_5prime = seq[loop_start - stem_len:loop_start]
-                    stem_3prime = seq[loop_end:loop_end + stem_len]
+                    stem_5prime = seq[loop_start - stem_len : loop_start]
+                    stem_3prime = seq[loop_end : loop_end + stem_len]
 
                     if self._is_stem(stem_5prime, stem_3prime):
                         # Calculate hairpin energy
-                        energy = self._calculate_hairpin_energy(
-                            stem_5prime, stem_3prime, loop_size
-                        )
+                        energy = self._calculate_hairpin_energy(stem_5prime, stem_3prime, loop_size)
 
                         # Estimate Tm
                         tm = thermo.energy_to_tm(
-                            energy, stem_len,
-                            self.conditions.na_conc,
-                            self.conditions.mg_conc
+                            energy, stem_len, self.conditions.na_conc, self.conditions.mg_conc
                         )
 
                         # Apply additive correction with GC-dependent effects
@@ -402,17 +403,19 @@ class StructurePrediction:
                         # Check if stable
                         stable = tm_effective > self.conditions.temp
 
-                        hairpins.append({
-                            'position': loop_start - stem_len,
-                            'loop_size': loop_size,
-                            'stem_length': stem_len,
-                            'energy': energy,
-                            'tm': tm_effective,
-                            'stable': stable
-                        })
+                        hairpins.append(
+                            {
+                                "position": loop_start - stem_len,
+                                "loop_size": loop_size,
+                                "stem_length": stem_len,
+                                "energy": energy,
+                                "tm": tm_effective,
+                                "stable": stable,
+                            }
+                        )
 
         # Sort by energy (most stable first)
-        hairpins.sort(key=lambda x: x['energy'])
+        hairpins.sort(key=lambda x: x["energy"])
 
         return hairpins
 
@@ -469,8 +472,10 @@ class StructurePrediction:
 # High-Level Interface Functions
 # ========================================
 
-def check_heterodimer(seq1: str, seq2: str,
-                      conditions: Optional[rc.ReactionConditions] = None) -> Dict:
+
+def check_heterodimer(
+    seq1: str, seq2: str, conditions: Optional[rc.ReactionConditions] = None
+) -> Dict:
     """
     Check if two primers form heterodimers.
 
@@ -486,8 +491,7 @@ def check_heterodimer(seq1: str, seq2: str,
     return predictor.predict_heterodimer(seq1, seq2)
 
 
-def check_homodimer(seq: str,
-                    conditions: Optional[rc.ReactionConditions] = None) -> Dict:
+def check_homodimer(seq: str, conditions: Optional[rc.ReactionConditions] = None) -> Dict:
     """
     Check if primer forms homodimers (self-complementary).
 
@@ -502,8 +506,7 @@ def check_homodimer(seq: str,
     return predictor.predict_heterodimer(seq, seq)
 
 
-def check_hairpins(seq: str,
-                  conditions: Optional[rc.ReactionConditions] = None) -> List[Dict]:
+def check_hairpins(seq: str, conditions: Optional[rc.ReactionConditions] = None) -> List[Dict]:
     """
     Find all hairpin structures in sequence.
 
@@ -518,8 +521,9 @@ def check_hairpins(seq: str,
     return predictor.predict_hairpin(seq)
 
 
-def calculate_dimer_matrix(primers: List[str],
-                          conditions: Optional[rc.ReactionConditions] = None) -> np.ndarray:
+def calculate_dimer_matrix(
+    primers: List[str], conditions: Optional[rc.ReactionConditions] = None
+) -> np.ndarray:
     """
     Calculate pairwise dimer severity matrix.
 
@@ -544,17 +548,19 @@ def calculate_dimer_matrix(primers: List[str],
                 # Heterodimer
                 result = predictor.predict_heterodimer(primers[i], primers[j])
 
-            severity = result['severity']
+            severity = result["severity"]
             matrix[i][j] = severity
             matrix[j][i] = severity
 
     return matrix
 
 
-def filter_primers_by_structure(primers: List[str],
-                                max_hairpin_tm: float = 35.0,
-                                max_self_dimer_severity: float = 0.3,
-                                conditions: Optional[rc.ReactionConditions] = None) -> List[str]:
+def filter_primers_by_structure(
+    primers: List[str],
+    max_hairpin_tm: float = 35.0,
+    max_self_dimer_severity: float = 0.3,
+    conditions: Optional[rc.ReactionConditions] = None,
+) -> List[str]:
     """
     Filter primers that have problematic secondary structures.
 
@@ -574,13 +580,13 @@ def filter_primers_by_structure(primers: List[str],
         # Check hairpins
         hairpins = predictor.predict_hairpin(primer)
         if hairpins:
-            max_hp_tm = max(h['tm'] for h in hairpins)
+            max_hp_tm = max(h["tm"] for h in hairpins)
             if max_hp_tm > max_hairpin_tm:
                 continue  # Skip primers with stable hairpins
 
         # Check self-dimers
         self_dimer = predictor.predict_heterodimer(primer, primer)
-        if self_dimer['severity'] > max_self_dimer_severity:
+        if self_dimer["severity"] > max_self_dimer_severity:
             continue  # Skip primers with strong self-dimers
 
         filtered.append(primer)

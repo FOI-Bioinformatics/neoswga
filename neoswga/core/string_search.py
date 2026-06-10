@@ -1,17 +1,19 @@
-from neoswga.core import utility as _utility
-from neoswga.core import parameter
-import multiprocessing
-import h5py
-import os
 import logging
+import multiprocessing
+import os
 from typing import Dict, List, Optional
 
+import h5py
+
+from neoswga.core import parameter
+from neoswga.core import utility as _utility
 from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
 
 try:
     import ahocorasick
+
     AHOCORASICK_AVAILABLE = True
 except ImportError:
     AHOCORASICK_AVAILABLE = False
@@ -49,7 +51,7 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
 
     # Read entire genome into memory
     seq_generator = _utility.read_fasta_file(seq_fname)
-    sequence = ''.join(seq_generator).upper()
+    sequence = "".join(seq_generator).upper()
 
     _genome_cache[seq_fname] = sequence
     logger.info(f"Cached genome sequence: {len(sequence):,} bp")
@@ -84,9 +86,9 @@ def get_genome_cache_stats() -> Dict[str, int]:
     """Return statistics about the genome cache."""
     total_bp = sum(len(seq) for seq in _genome_cache.values())
     return {
-        'num_genomes': len(_genome_cache),
-        'total_bp': total_bp,
-        'memory_mb': total_bp // (1024 * 1024)
+        "num_genomes": len(_genome_cache),
+        "total_bp": total_bp,
+        "memory_mb": total_bp // (1024 * 1024),
     }
 
 
@@ -118,7 +120,7 @@ def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular):
 
     if circular:
         max_k = max(primer_lists_by_k.keys())
-        search_seq = sequence + sequence[:max_k - 1]
+        search_seq = sequence + sequence[: max_k - 1]
     else:
         search_seq = sequence
 
@@ -158,7 +160,7 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
     sequence = get_cached_genome_sequence(seq_fname)
 
     if fname_prefix is not None:
-        print("Starting the search for " + fname_prefix + ' ' + str(k) + 'mers...')
+        print("Starting the search for " + fname_prefix + " " + str(k) + "mers...")
 
     # Optimized sliding window search using cached sequence
     seq_len = len(sequence)
@@ -167,16 +169,17 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
     for i in range(search_len - k + 1):
         if i < seq_len - k + 1:
             # Normal position within sequence
-            current_kmer = sequence[i:i+k]
+            current_kmer = sequence[i : i + k]
         else:
             # Circular wrap-around: combine end with beginning
             wrap_pos = i - (seq_len - k + 1)
-            current_kmer = sequence[seq_len - k + 1 + wrap_pos:] + sequence[:wrap_pos + 1]
+            current_kmer = sequence[seq_len - k + 1 + wrap_pos :] + sequence[: wrap_pos + 1]
 
         if current_kmer in kmer_dict:
             kmer_dict[current_kmer].append(i)
 
     return kmer_dict
+
 
 def write_to_h5py(kmer_dict, fname_prefix):
     """
@@ -192,8 +195,8 @@ def write_to_h5py(kmer_dict, fname_prefix):
     if not kmer_dict:
         return  # Nothing to write
     k = len(next(iter(kmer_dict.keys())))
-    h5_path = fname_prefix + '_' + str(k) + 'mer_positions.h5'
-    with h5py.File(h5_path, 'r+') as f:
+    h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
+    with h5py.File(h5_path, "r+") as f:
         for kmer, positions in kmer_dict.items():
             if kmer not in f:
                 f.create_dataset(kmer, data=positions)
@@ -203,6 +206,7 @@ def write_to_h5py(kmer_dict, fname_prefix):
             else:
                 del f[kmer]
                 f.create_dataset(kmer, data=positions)
+
 
 def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
     """
@@ -219,24 +223,24 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
         return primer_list
 
     k = len(primer_list[0])
-    h5_path = fname_prefix + '_' + str(k) + 'mer_positions.h5'
+    h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
 
     if not os.path.exists(h5_path):
         # Create empty HDF5 file using context manager
-        with h5py.File(h5_path, 'a'):
+        with h5py.File(h5_path, "a"):
             pass
         return primer_list
 
     # Load all k-mers present in genome
     all_present_kmers_in_genome = set()
-    txt_path = fname_prefix + '_' + str(k) + 'mer_all.txt'
-    with open(txt_path, 'r') as txt_f:
+    txt_path = fname_prefix + "_" + str(k) + "mer_all.txt"
+    with open(txt_path, "r") as txt_f:
         for line in txt_f:
             curr_kmer = line.split(" ")[0]
             all_present_kmers_in_genome.add(curr_kmer)
 
     # Get existing keys from HDF5 file using context manager
-    with h5py.File(h5_path, 'r') as f:
+    with h5py.File(h5_path, "r") as f:
         keys = set(f.keys())
 
     filtered_primer_list = []
@@ -246,7 +250,10 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
                 filtered_primer_list.append(primer)
     return filtered_primer_list
 
-def get_positions(primer_list, fname_prefixes, fname_genomes, circular, overwrite=False, no_all_primer_files=False):
+
+def get_positions(
+    primer_list, fname_prefixes, fname_genomes, circular, overwrite=False, no_all_primer_files=False
+):
     """
     Launches a multiprocessing pool to check if all primers exists in their relevant h5py file and modifies the file
     if frequencies for that k-mer is missing.
@@ -289,14 +296,12 @@ def get_positions(primer_list, fname_prefixes, fname_genomes, circular, overwrit
 
             # Ensure HDF5 files exist for each k before writing
             for k in primer_lists_by_k:
-                h5_path = fg_prefix + '_' + str(k) + 'mer_positions.h5'
+                h5_path = fg_prefix + "_" + str(k) + "mer_positions.h5"
                 if not os.path.exists(h5_path):
-                    with h5py.File(h5_path, 'a'):
+                    with h5py.File(h5_path, "a"):
                         pass
 
-            all_positions = get_all_positions_multi_k(
-                primer_lists_by_k, fname_genomes[i], circular
-            )
+            all_positions = get_all_positions_multi_k(primer_lists_by_k, fname_genomes[i], circular)
 
             # Store in cache and write to HDF5 for persistence
             for primer, positions in all_positions.items():
@@ -314,13 +319,23 @@ def get_positions(primer_list, fname_prefixes, fname_genomes, circular, overwrit
         tasks = []
         for i, fg_prefix in enumerate(fname_prefixes):
             for k in k_range:
-                tasks.append(([primer for primer in primer_list if len(primer) == k], fg_prefix, fname_genomes[i], k, circular, overwrite))
+                tasks.append(
+                    (
+                        [primer for primer in primer_list if len(primer) == k],
+                        fg_prefix,
+                        fname_genomes[i],
+                        k,
+                        circular,
+                        overwrite,
+                    )
+                )
 
         # Use context manager to ensure proper pool cleanup (prevents resource leaks)
         with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
             pool.map(append_positions_to_h5py_file, tasks)
 
         return None
+
 
 def append_positions_to_h5py_file(task):
     """
@@ -351,5 +366,7 @@ def append_positions_to_h5py_file(task):
         filtered_list = one_k_list
 
     if len(filtered_list) > 0:
-        kmer_dict = get_all_positions_per_k(list(set(filtered_list)), fname_genome, circular, fname_prefix)
+        kmer_dict = get_all_positions_per_k(
+            list(set(filtered_list)), fname_genome, circular, fname_prefix
+        )
         write_to_h5py(kmer_dict, fname_prefix)

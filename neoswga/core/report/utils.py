@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Optional
 
 from neoswga.core.report.quality import QualityGrade
 
-
 # Human-readable labels for validator issue codes emitted by
 # OptimizationResult.validate() and the saturation / conditions-init
 # extensions in unified_optimizer.run_optimization. Keep this dict in
@@ -92,9 +91,7 @@ def render_validation_banner(issues: List[dict]) -> str:
     has_error = any(i.get("level") == "error" for i in issues)
     level_class = "level-error" if has_error else "level-warning"
     heading = (
-        "Validation errors — review before ordering primers"
-        if has_error
-        else "Validation warnings"
+        "Validation errors — review before ordering primers" if has_error else "Validation warnings"
     )
     items: List[str] = []
     for it in issues:
@@ -102,14 +99,14 @@ def render_validation_banner(issues: List[dict]) -> str:
         detail = str(it.get("detail", ""))
         label = VALIDATION_CODE_LABELS.get(code, code.replace("_", " "))
         items.append(
-            f"<li><span class=\"code\">{html_escape(code)}</span> — "
+            f'<li><span class="code">{html_escape(code)}</span> — '
             f"{html_escape(label)}: {html_escape(detail)}</li>"
         )
     return (
         f'<div class="validation-banner {level_class}">'
-        f'<h3>{html_escape(heading)}</h3>'
+        f"<h3>{html_escape(heading)}</h3>"
         f'<ul>{"".join(items)}</ul>'
-        f'</div>'
+        f"</div>"
     )
 
 
@@ -117,6 +114,7 @@ def get_version() -> str:
     """Get NeoSWGA version from package metadata."""
     try:
         from neoswga import __version__
+
         return __version__
     except ImportError:
         return "unknown"
@@ -132,9 +130,7 @@ CHART_COLORS = {
     "info": "#4299e1",
     "muted": "#a0aec0",
     # Gradient for funnel charts
-    "funnel_gradient": [
-        "#2c5282", "#3182ce", "#4299e1", "#63b3ed", "#90cdf4", "#bee3f8"
-    ],
+    "funnel_gradient": ["#2c5282", "#3182ce", "#4299e1", "#63b3ed", "#90cdf4", "#bee3f8"],
     # Radar chart styling
     "radar_fill": "rgba(66, 153, 225, 0.3)",
     "radar_line": "#2c5282",
@@ -175,7 +171,7 @@ def escape_format_braces(text: str) -> str:
     Returns:
         Text with braces escaped for safe use in format strings
     """
-    return text.replace('{', '{{').replace('}', '}}')
+    return text.replace("{", "{{").replace("}", "}}")
 
 
 def get_grade_colors(grade: QualityGrade) -> Dict[str, str]:

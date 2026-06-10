@@ -7,10 +7,10 @@ Works without external dependencies (no tqdm required).
 
 import sys
 import time
-from typing import Optional, Iterable, TypeVar, Iterator
 from contextlib import contextmanager
+from typing import Iterable, Iterator, Optional, TypeVar
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class ProgressBar:
@@ -35,7 +35,7 @@ class ProgressBar:
         desc: str = "",
         unit: str = "it",
         width: int = 40,
-        disable: bool = False
+        disable: bool = False,
     ):
         """
         Initialize progress bar.
@@ -115,7 +115,7 @@ class ProgressBar:
         total: Optional[int] = None,
         desc: str = "",
         unit: str = "it",
-        disable: bool = False
+        disable: bool = False,
     ) -> Iterator[T]:
         """
         Wrap an iterable with a progress bar.
@@ -173,25 +173,25 @@ class StepProgress:
         self.steps = steps
         self.disable = disable
         self.current_step = -1
-        self.step_status = ['pending'] * len(steps)
+        self.step_status = ["pending"] * len(steps)
         self.start_time = time.time()
 
     def start_step(self, step: int) -> None:
         """Mark a step as started."""
         self.current_step = step
-        self.step_status[step] = 'running'
+        self.step_status[step] = "running"
         if not self.disable:
             self._print_status()
 
     def complete_step(self, step: int) -> None:
         """Mark a step as completed."""
-        self.step_status[step] = 'done'
+        self.step_status[step] = "done"
         if not self.disable:
             self._print_status()
 
     def fail_step(self, step: int, error: str = "") -> None:
         """Mark a step as failed."""
-        self.step_status[step] = 'failed'
+        self.step_status[step] = "failed"
         if not self.disable:
             self._print_status()
             if error:
@@ -203,11 +203,11 @@ class StepProgress:
 
         print(f"\n--- Pipeline Progress ({_format_time(elapsed)}) ---")
         for i, (step, status) in enumerate(zip(self.steps, self.step_status)):
-            if status == 'done':
+            if status == "done":
                 icon = "[OK]"
-            elif status == 'running':
+            elif status == "running":
                 icon = "[..]"
-            elif status == 'failed':
+            elif status == "failed":
                 icon = "[!!]"
             else:
                 icon = "[  ]"

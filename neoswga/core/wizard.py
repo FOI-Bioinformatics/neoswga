@@ -17,14 +17,10 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
-from neoswga.core.genome_analysis import (
-    calculate_genome_stats,
-    get_gc_class,
-    recommend_adaptive_qa
-)
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
+from neoswga.core.genome_analysis import calculate_genome_stats, get_gc_class, recommend_adaptive_qa
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +29,10 @@ logger = logging.getLogger(__name__)
 # Input Validation Helpers
 # =============================================================================
 
-def _get_valid_int(prompt: str, default: int, min_val: int, max_val: int,
-                   max_attempts: int = 3) -> int:
+
+def _get_valid_int(
+    prompt: str, default: int, min_val: int, max_val: int, max_attempts: int = 3
+) -> int:
     """
     Get validated integer input with retry.
 
@@ -64,8 +62,9 @@ def _get_valid_int(prompt: str, default: int, min_val: int, max_val: int,
     return default
 
 
-def _get_valid_float(prompt: str, default: float, min_val: float, max_val: float,
-                     max_attempts: int = 3) -> float:
+def _get_valid_float(
+    prompt: str, default: float, min_val: float, max_val: float, max_attempts: int = 3
+) -> float:
     """
     Get validated float input with retry.
 
@@ -95,9 +94,14 @@ def _get_valid_float(prompt: str, default: float, min_val: float, max_val: float
     return default
 
 
-def _get_valid_range(prompt: str, default_min: int, default_max: int,
-                     abs_min: int = 4, abs_max: int = 30,
-                     max_attempts: int = 3) -> tuple:
+def _get_valid_range(
+    prompt: str,
+    default_min: int,
+    default_max: int,
+    abs_min: int = 4,
+    abs_max: int = 30,
+    max_attempts: int = 3,
+) -> tuple:
     """
     Get validated range input (two integers).
 
@@ -139,22 +143,23 @@ def _get_valid_range(prompt: str, default_min: int, default_max: int,
 def check_jellyfish_available() -> bool:
     """Check if Jellyfish is available in PATH."""
     import shutil
-    return shutil.which('jellyfish') is not None
+
+    return shutil.which("jellyfish") is not None
 
 
 # GC class to human-readable description
 GC_CLASS_DESCRIPTIONS = {
-    'extreme_at': 'Extreme AT-rich (like Plasmodium)',
-    'at_rich': 'AT-rich (like Francisella, Wolbachia)',
-    'balanced': 'Balanced (like E. coli)',
-    'gc_rich': 'GC-rich (like Mycobacterium, Burkholderia)',
-    'extreme_gc': 'Extreme GC-rich (like Streptomyces)'
+    "extreme_at": "Extreme AT-rich (like Plasmodium)",
+    "at_rich": "AT-rich (like Francisella, Wolbachia)",
+    "balanced": "Balanced (like E. coli)",
+    "gc_rich": "GC-rich (like Mycobacterium, Burkholderia)",
+    "extreme_gc": "Extreme GC-rich (like Streptomyces)",
 }
 
 # Polymerase descriptions for users
 POLYMERASE_DESCRIPTIONS = {
-    'phi29': 'Standard SWGA at 30C with short primers (6-12 bp)',
-    'equiphi29': 'Higher specificity at 42C with longer primers (12-18 bp)'
+    "phi29": "Standard SWGA at 30C with short primers (6-12 bp)",
+    "equiphi29": "Higher specificity at 42C with longer primers (12-18 bp)",
 }
 
 
@@ -228,10 +233,10 @@ class SetupWizard:
 
         # Calculate stats
         self.target_stats = calculate_genome_stats(self.target_path)
-        gc = self.target_stats['gc_content']
-        length = self.target_stats['length']
-        n_contigs = self.target_stats['n_contigs']
-        gc_std = self.target_stats.get('gc_std', 0)
+        gc = self.target_stats["gc_content"]
+        length = self.target_stats["length"]
+        n_contigs = self.target_stats["n_contigs"]
+        gc_std = self.target_stats.get("gc_std", 0)
 
         # Classify
         self.gc_class = get_gc_class(gc)
@@ -248,8 +253,8 @@ class SetupWizard:
         self.recommended_kmer_range = params.kmer_range
         self.recommended_temp = params.reaction_temp
         self.recommended_additives = {
-            'betaine_m': params.betaine_concentration,
-            'dmso_percent': params.dmso_concentration
+            "betaine_m": params.betaine_concentration,
+            "dmso_percent": params.dmso_concentration,
         }
 
         # Collect warnings
@@ -301,10 +306,12 @@ class SetupWizard:
         print("Recommendations:")
         print(f"  Polymerase:    {self.recommended_polymerase.upper()}")
         print(f"  Temperature:   {self.recommended_temp}C")
-        print(f"  Primer length: {self.recommended_kmer_range[0]}-{self.recommended_kmer_range[1]} bp")
-        if self.recommended_additives['betaine_m'] > 0:
+        print(
+            f"  Primer length: {self.recommended_kmer_range[0]}-{self.recommended_kmer_range[1]} bp"
+        )
+        if self.recommended_additives["betaine_m"] > 0:
             print(f"  Betaine:       {self.recommended_additives['betaine_m']}M")
-        if self.recommended_additives['dmso_percent'] > 0:
+        if self.recommended_additives["dmso_percent"] > 0:
             print(f"  DMSO:          {self.recommended_additives['dmso_percent']}%")
         print()
         print(f"Adaptive QA: {qa_rec['reason']}")
@@ -317,14 +324,14 @@ class SetupWizard:
                 print(f"  ! {w}")
 
         return {
-            'stats': self.target_stats,
-            'gc_class': self.gc_class,
-            'polymerase': self.recommended_polymerase,
-            'kmer_range': self.recommended_kmer_range,
-            'temperature': self.recommended_temp,
-            'additives': self.recommended_additives,
-            'qa_recommendation': qa_rec,
-            'warnings': self.warnings
+            "stats": self.target_stats,
+            "gc_class": self.gc_class,
+            "polymerase": self.recommended_polymerase,
+            "kmer_range": self.recommended_kmer_range,
+            "temperature": self.recommended_temp,
+            "additives": self.recommended_additives,
+            "qa_recommendation": qa_rec,
+            "warnings": self.warnings,
         }
 
     def analyze_background(self, genome_path: str) -> Dict:
@@ -351,7 +358,7 @@ class SetupWizard:
         print(f"  Contigs:    {self.background_stats['n_contigs']}")
         print(f"  GC content: {self.background_stats['gc_content']:.1%}")
 
-        return {'stats': self.background_stats}
+        return {"stats": self.background_stats}
 
     def analyze_blacklist(self, genome_paths: List[str]) -> List[Dict]:
         """Analyze blacklist genome(s).
@@ -379,7 +386,7 @@ class SetupWizard:
             print(f"  Contigs:    {stats['n_contigs']}")
             print(f"  GC content: {stats['gc_content']:.1%}")
 
-            results.append({'stats': stats})
+            results.append({"stats": stats})
 
         return results
 
@@ -387,6 +394,7 @@ class SetupWizard:
         """Check if genomes match library entries and suggest pre-calculated data."""
         try:
             from neoswga.core.genome_library import GenomeLibrary
+
             library = GenomeLibrary()
             entries = library.list()
         except Exception:
@@ -434,26 +442,28 @@ class SetupWizard:
 
         # Polymerase selection
         print(f"\nPolymerase [recommended: {self.recommended_polymerase}]:")
-        print("  1. phi29    - " + POLYMERASE_DESCRIPTIONS['phi29'])
-        print("  2. equiphi29 - " + POLYMERASE_DESCRIPTIONS['equiphi29'])
+        print("  1. phi29    - " + POLYMERASE_DESCRIPTIONS["phi29"])
+        print("  2. equiphi29 - " + POLYMERASE_DESCRIPTIONS["equiphi29"])
 
         choice = input("Select (1/2) or press Enter for recommended: ").strip()
-        if choice == '1':
-            self.user_overrides['polymerase'] = 'phi29'
-        elif choice == '2':
-            self.user_overrides['polymerase'] = 'equiphi29'
+        if choice == "1":
+            self.user_overrides["polymerase"] = "phi29"
+        elif choice == "2":
+            self.user_overrides["polymerase"] = "equiphi29"
 
         # Primer length with validation
         rec_min, rec_max = self.recommended_kmer_range
         print(f"\nPrimer length range [recommended: {rec_min}-{rec_max} bp]:")
         min_k, max_k = _get_valid_range(
             f"Enter range (e.g., {rec_min} {rec_max}) or press Enter: ",
-            default_min=rec_min, default_max=rec_max,
-            abs_min=6, abs_max=25
+            default_min=rec_min,
+            default_max=rec_max,
+            abs_min=6,
+            abs_max=25,
         )
         if min_k != rec_min or max_k != rec_max:
-            self.user_overrides['min_k'] = min_k
-            self.user_overrides['max_k'] = max_k
+            self.user_overrides["min_k"] = min_k
+            self.user_overrides["max_k"] = max_k
 
         # Advanced options
         if self.advanced:
@@ -464,23 +474,24 @@ class SetupWizard:
         print("\n--- Advanced Options ---")
 
         # Additives with validation
-        rec_betaine = self.recommended_additives['betaine_m']
+        rec_betaine = self.recommended_additives["betaine_m"]
         print(f"\nBetaine concentration [recommended: {rec_betaine}M]:")
         betaine = _get_valid_float(
             "Enter concentration (M) or press Enter: ",
-            default=rec_betaine, min_val=0.0, max_val=2.5
+            default=rec_betaine,
+            min_val=0.0,
+            max_val=2.5,
         )
         if betaine != rec_betaine:
-            self.user_overrides['betaine_m'] = betaine
+            self.user_overrides["betaine_m"] = betaine
 
-        rec_dmso = self.recommended_additives['dmso_percent']
+        rec_dmso = self.recommended_additives["dmso_percent"]
         print(f"\nDMSO concentration [recommended: {rec_dmso}%]:")
         dmso = _get_valid_float(
-            "Enter concentration (%) or press Enter: ",
-            default=rec_dmso, min_val=0.0, max_val=10.0
+            "Enter concentration (%) or press Enter: ", default=rec_dmso, min_val=0.0, max_val=10.0
         )
         if dmso != rec_dmso:
-            self.user_overrides['dmso_percent'] = dmso
+            self.user_overrides["dmso_percent"] = dmso
 
         # Optimization method
         print("\nOptimization method:")
@@ -488,20 +499,17 @@ class SetupWizard:
         print("  2. dominating-set   - Fast graph-based (8x faster)")
         print("  3. background-aware - Clinical applications (10-20x bg reduction)")
         method = input("Select (1/2/3) or press Enter for default: ").strip()
-        methods = {'1': 'hybrid', '2': 'dominating-set', '3': 'background-aware'}
+        methods = {"1": "hybrid", "2": "dominating-set", "3": "background-aware"}
         if method in methods:
-            self.user_overrides['optimization_method'] = methods[method]
+            self.user_overrides["optimization_method"] = methods[method]
 
         # Number of primers with validation
         print("\nTarget primer set size [default: 6]:")
-        num = _get_valid_int(
-            "Enter number or press Enter: ",
-            default=6, min_val=1, max_val=50
-        )
+        num = _get_valid_int("Enter number or press Enter: ", default=6, min_val=1, max_val=50)
         if num != 6:
-            self.user_overrides['num_primers'] = num
+            self.user_overrides["num_primers"] = num
 
-    def generate_config(self, output_dir: str = 'results') -> Dict[str, Any]:
+    def generate_config(self, output_dir: str = "results") -> Dict[str, Any]:
         """
         Generate complete configuration dictionary.
 
@@ -515,14 +523,14 @@ class SetupWizard:
             raise ValueError("Must analyze genome first")
 
         # Start with recommended values
-        polymerase = self.user_overrides.get('polymerase', self.recommended_polymerase)
-        min_k = self.user_overrides.get('min_k', self.recommended_kmer_range[0])
-        max_k = self.user_overrides.get('max_k', self.recommended_kmer_range[1])
-        betaine = self.user_overrides.get('betaine_m', self.recommended_additives['betaine_m'])
-        dmso = self.user_overrides.get('dmso_percent', self.recommended_additives['dmso_percent'])
+        polymerase = self.user_overrides.get("polymerase", self.recommended_polymerase)
+        min_k = self.user_overrides.get("min_k", self.recommended_kmer_range[0])
+        max_k = self.user_overrides.get("max_k", self.recommended_kmer_range[1])
+        betaine = self.user_overrides.get("betaine_m", self.recommended_additives["betaine_m"])
+        dmso = self.user_overrides.get("dmso_percent", self.recommended_additives["dmso_percent"])
 
         # Calculate GC bounds
-        gc = self.target_stats['gc_content']
+        gc = self.target_stats["gc_content"]
         gc_tolerance = 0.15
         gc_min = max(0.0, gc - gc_tolerance)
         gc_max = min(1.0, gc + gc_tolerance)
@@ -530,83 +538,73 @@ class SetupWizard:
         # Build config
         config = {
             # Schema version for reproducibility
-            'schema_version': 1,
-
+            "schema_version": 1,
             # Genome paths
-            'fg_genomes': [str(self.target_path.resolve())],
-            'fg_prefixes': [str(Path(output_dir) / self.target_path.stem)],
-            'data_dir': output_dir,
-
+            "fg_genomes": [str(self.target_path.resolve())],
+            "fg_prefixes": [str(Path(output_dir) / self.target_path.stem)],
+            "data_dir": output_dir,
             # Genome characteristics
-            'genome_gc': round(gc, 4),
-
+            "genome_gc": round(gc, 4),
             # Polymerase and temperature (match temp to selected polymerase)
-            'polymerase': polymerase,
-            'reaction_temp': 42.0 if polymerase == 'equiphi29' else (63.0 if polymerase == 'bst' else 30.0),
-
+            "polymerase": polymerase,
+            "reaction_temp": (
+                42.0 if polymerase == "equiphi29" else (63.0 if polymerase == "bst" else 30.0)
+            ),
             # Primer length
-            'min_k': min_k,
-            'max_k': max_k,
-
+            "min_k": min_k,
+            "max_k": max_k,
             # GC content filtering
-            'gc_tolerance': gc_tolerance,
-            'gc_min': round(gc_min, 2),
-            'gc_max': round(gc_max, 2),
-
+            "gc_tolerance": gc_tolerance,
+            "gc_min": round(gc_min, 2),
+            "gc_max": round(gc_max, 2),
             # Additives
-            'dmso_percent': dmso,
-            'betaine_m': betaine,
-            'trehalose_m': 0.0,
-
+            "dmso_percent": dmso,
+            "betaine_m": betaine,
+            "trehalose_m": 0.0,
             # Salt concentrations
-            'na_conc': 50.0,
-            'mg_conc': 2.0 if self.gc_class in ('extreme_at', 'at_rich') else 0.0,
-
+            "na_conc": 50.0,
+            "mg_conc": 2.0 if self.gc_class in ("extreme_at", "at_rich") else 0.0,
             # Filtering thresholds
-            'min_fg_freq': 1e-5,
-            'max_bg_freq': 5e-5,
-            'max_gini': 0.6,
-            'max_primer': 500,
-
+            "min_fg_freq": 1e-5,
+            "max_bg_freq": 5e-6,
+            "max_gini": 0.6,
+            "max_primer": 500,
             # Thermodynamic filters
-            'min_tm': 10.0 if polymerase == 'phi29' else 20.0,
-            'max_tm': 45.0 if polymerase == 'phi29' else 55.0,
-            'max_dimer_bp': 3,
-            'max_self_dimer_bp': 4,
-
+            "min_tm": 10.0 if polymerase == "phi29" else 20.0,
+            "max_tm": 45.0 if polymerase == "phi29" else 55.0,
+            "max_dimer_bp": 3,
+            "max_self_dimer_bp": 4,
             # Optimization
-            'num_primers': self.user_overrides.get('num_primers', 6),
-            'target_set_size': self.user_overrides.get('num_primers', 6),
-            'optimization_method': self.user_overrides.get('optimization_method', 'hybrid'),
-            'iterations': 8,
-            'max_sets': 5,
-
+            "num_primers": self.user_overrides.get("num_primers", 6),
+            "target_set_size": self.user_overrides.get("num_primers", 6),
+            "optimization_method": self.user_overrides.get("optimization_method", "hybrid"),
+            "iterations": 8,
+            "max_sets": 5,
             # Execution
-            'cpus': 4,
-            'verbose': True,
-
+            "cpus": 4,
+            "verbose": True,
             # Genome topology
-            'fg_circular': True,
-            'bg_circular': False
+            "fg_circular": True,
+            "bg_circular": False,
         }
 
         # Add background if provided
         if self.background_path is not None:
-            config['bg_genomes'] = [str(self.background_path.resolve())]
-            config['bg_prefixes'] = [str(Path(output_dir) / self.background_path.stem)]
+            config["bg_genomes"] = [str(self.background_path.resolve())]
+            config["bg_prefixes"] = [str(Path(output_dir) / self.background_path.stem)]
 
         # Add blacklist if provided
         if self.blacklist_paths:
-            config['bl_genomes'] = [str(p.resolve()) for p in self.blacklist_paths]
-            config['bl_prefixes'] = [
+            config["bl_genomes"] = [str(p.resolve()) for p in self.blacklist_paths]
+            config["bl_prefixes"] = [
                 str(Path(output_dir) / f"bl_{p.stem}") for p in self.blacklist_paths
             ]
-            config['bl_penalty'] = 5.0
-            config['max_bl_freq'] = 0.0
+            config["bl_penalty"] = 5.0
+            config["max_bl_freq"] = 0.0
 
         return config
 
-    def write_params(self, output_path: str, output_dir: str = 'results') -> Path:
+    def write_params(self, output_path: str, output_dir: str = "results") -> Path:
         """
         Write configuration to params.json.
 
@@ -623,7 +621,7 @@ class SetupWizard:
         # Create output directory if needed
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             json.dump(config, f, indent=2)
 
         print(f"\nConfiguration written to: {output_path}")
@@ -634,9 +632,9 @@ class SetupWizard:
         if self.target_stats is None:
             return
 
-        polymerase = self.user_overrides.get('polymerase', self.recommended_polymerase)
-        min_k = self.user_overrides.get('min_k', self.recommended_kmer_range[0])
-        max_k = self.user_overrides.get('max_k', self.recommended_kmer_range[1])
+        polymerase = self.user_overrides.get("polymerase", self.recommended_polymerase)
+        min_k = self.user_overrides.get("min_k", self.recommended_kmer_range[0])
+        max_k = self.user_overrides.get("max_k", self.recommended_kmer_range[1])
 
         print("\n" + "=" * 50)
         print("CONFIGURATION SUMMARY")
@@ -646,7 +644,7 @@ class SetupWizard:
         if self.background_path:
             print(f"Background:       {self.background_path.name}")
         if self.blacklist_paths:
-            bl_names = ', '.join(p.name for p in self.blacklist_paths)
+            bl_names = ", ".join(p.name for p in self.blacklist_paths)
             print(f"Blacklist:        {bl_names}")
         print()
         print(f"Polymerase:       {polymerase.upper()}")
@@ -664,11 +662,11 @@ def run_wizard(
     genome_path: str,
     background_path: Optional[str] = None,
     blacklist_paths: Optional[List[str]] = None,
-    output_path: str = 'params.json',
-    output_dir: str = 'results',
+    output_path: str = "params.json",
+    output_dir: str = "results",
     interactive: bool = True,
     advanced: bool = False,
-    auto_approve: bool = False
+    auto_approve: bool = False,
 ) -> Dict[str, Any]:
     """
     Run the setup wizard.
@@ -702,7 +700,7 @@ def run_wizard(
         print("       Or: brew install jellyfish (macOS)")
         if interactive and not auto_approve:
             cont = input("\nContinue anyway? [y/N]: ").strip().lower()
-            if cont != 'y':
+            if cont != "y":
                 print("Aborted. Please install Jellyfish first.")
                 raise RuntimeError("Jellyfish not found in PATH")
 
@@ -733,7 +731,7 @@ def run_wizard(
         print(f"  [!!] Output file exists: {output_path}")
         if interactive and not auto_approve:
             overwrite = input("       Overwrite? [y/N]: ").strip().lower()
-            if overwrite != 'y':
+            if overwrite != "y":
                 print("Aborted. Choose a different output path.")
                 return {}
 
@@ -762,7 +760,7 @@ def run_wizard(
     if interactive and not auto_approve:
         print()
         confirm = input("Write configuration? [Y/n]: ").strip().lower()
-        if confirm == 'n':
+        if confirm == "n":
             print("Aborted.")
             return wizard.generate_config(output_dir)
 
@@ -792,7 +790,7 @@ def run_wizard(
     return wizard.generate_config(output_dir)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     if len(sys.argv) < 2:
         print("Usage: python wizard.py <genome.fasta> [background.fasta]")

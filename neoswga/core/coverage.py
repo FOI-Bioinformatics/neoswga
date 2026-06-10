@@ -22,6 +22,7 @@ def compute_per_prefix_coverage(
     seq_lengths: Sequence[int],
     extension: int = 3000,
     strand: str = "both",
+    circular: bool = False,
 ) -> Tuple[float, Dict[str, float]]:
     """Compute union-of-extension-windows coverage across prefixes.
 
@@ -47,6 +48,12 @@ def compute_per_prefix_coverage(
             the theoretical phi29 processivity upper bound (a different
             question — "could two primers connect in principle?").
         strand: 'both' / 'forward' / 'reverse'.
+        circular: If True, windows that run off either end of the
+            sequence wrap around to the other end. Default False matches
+            linear chromosomes, fragmented assemblies, and concatenated
+            multi-genome inputs. Set True for single closed-circular
+            bacterial chromosomes or plasmids (passes `fg_circular` /
+            `bg_circular` from params.json through to here).
 
     Returns:
         (aggregate_coverage, per_prefix_coverage_dict). aggregate is the
@@ -67,16 +74,18 @@ def compute_per_prefix_coverage(
             per_prefix[prefix] = 0.0
             continue
         occupied = np.zeros(length, dtype=bool)
-        for primer in primers:
-            try:
-                positions = cache.get_positions(prefix, primer, strand)
-            except Exception:
-                continue
-            for pos in positions:
-                start = max(0, int(pos) - extension)
-                end = min(length, int(pos) + extension)
-                if end > start:
-                    occupied[start:end] = True
+        # If the window diameter equals or exceeds the genome on a
+        # circular target, every position is covered by any single site.
+        if circular and 2 * extension >= length:
+            occupied[:] = True
+        else:
+            for primer in primers:
+                try:
+                    positions = cache.get_positions(prefix, primer, strand)
+                except Exception:
+                    continue
+                for pos in positions:
+                    _mark_window(occupied, int(pos), extension, length, circular)
         covered = int(occupied.sum())
         per_prefix[prefix] = covered / length if length else 0.0
         total_cov += covered
@@ -84,6 +93,42 @@ def compute_per_prefix_coverage(
 
     agg = total_cov / total_len if total_len else 0.0
     return agg, per_prefix
+
+
+def _mark_window(
+    occupied: "np.ndarray",
+    pos: int,
+    extension: int,
+    length: int,
+    circular: bool,
+) -> None:
+    """Mark ``occupied[pos-extension:pos+extension]`` as True.
+
+    On circular sequences the window wraps across the origin when it
+    runs past either end. On linear sequences the window is clipped.
+    Used by :func:`compute_per_prefix_coverage` and
+    :meth:`base_optimizer.BaseOptimizer._compute_coverage` to keep the
+    two coverage implementations in sync.
+    """
+    start = pos - extension
+    end = pos + extension
+    if circular:
+        if start < 0 and end > length:
+            # Window exceeds genome from both ends; everything is covered.
+            occupied[:] = True
+        elif start < 0:
+            occupied[0:end] = True
+            occupied[length + start : length] = True
+        elif end > length:
+            occupied[start:length] = True
+            occupied[0 : end - length] = True
+        else:
+            occupied[start:end] = True
+    else:
+        clipped_start = max(0, start)
+        clipped_end = min(length, end)
+        if clipped_end > clipped_start:
+            occupied[clipped_start:clipped_end] = True
 
 
 def polymerase_extension_reach(
@@ -130,9 +175,11 @@ def polymerase_extension_reach(
     try:
         if coverage_metric == "processivity":
             from .reaction_conditions import get_polymerase_processivity
+
             return int(get_polymerase_processivity(polymerase))
         # realistic (default)
         from .reaction_conditions import get_typical_amplicon_length
+
         return int(get_typical_amplicon_length(polymerase))
     except Exception:
         return default

@@ -20,23 +20,14 @@ Version: 3.0 - Phase 1.3
 import concurrent.futures
 import logging
 import os
-from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 
-from neoswga.core.thermodynamics import (
-    calculate_tm_with_salt,
-    calculate_free_energy,
-    gc_content
-)
-
-from neoswga.core.secondary_structure import (
-    check_homodimer,
-    check_heterodimer,
-    check_hairpins
-)
-
 from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.secondary_structure import check_hairpins, check_heterodimer, check_homodimer
+from neoswga.core.thermodynamics import calculate_free_energy, calculate_tm_with_salt, gc_content
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +47,8 @@ def _check_heterodimer_pair(args):
     try:
         conditions = ReactionConditions(**conditions_dict)
         result = check_heterodimer(seq1, seq2, conditions)
-        dg = result.get('energy', 0.0)
-        if dg == float('inf') or dg > 0:
+        dg = result.get("energy", 0.0)
+        if dg == float("inf") or dg > 0:
             dg = 0.0
         return (i, j, dg)
     except Exception as e:
@@ -73,6 +64,7 @@ class ThermodynamicCriteria:
     All criteria are temperature and condition-dependent.
     Note: SWGA uses short primers (8-15 bp) with lower Tm than standard PCR.
     """
+
     # Melting temperature constraints (adjusted for short SWGA primers)
     min_tm: float = 25.0  # Minimum Tm (C) - SWGA primers are short
     max_tm: float = 50.0  # Maximum Tm (C) - want primers well below reaction temp
@@ -80,7 +72,7 @@ class ThermodynamicCriteria:
 
     # Salt concentrations (for Tm calculation)
     na_conc: float = 50.0  # mM Na+
-    mg_conc: float = 0.0   # mM Mg2+
+    mg_conc: float = 0.0  # mM Mg2+
 
     # Dimer formation thresholds (free energy)
     max_homodimer_dg: float = -9.0  # kcal/mol (less negative = weaker binding)
@@ -95,12 +87,13 @@ class ThermodynamicCriteria:
 
     # Reaction conditions
     reaction_temp: float = 30.0  # C
-    polymerase: str = 'phi29'    # Polymerase type for temp validation
+    polymerase: str = "phi29"  # Polymerase type for temp validation
 
 
 @dataclass
 class PrimerThermodynamics:
     """Thermodynamic properties of a primer."""
+
     sequence: str
     tm: float  # Melting temperature (C)
     gc: float  # GC content (fraction)
@@ -116,6 +109,13 @@ class ThermodynamicFilter:
 
     Designed to reduce experimental failures by ~30% through early
     elimination of primers with poor thermodynamic characteristics.
+
+    NOTE: There is a second, unrelated ``ThermodynamicFilter`` in
+    ``neoswga.core.adaptive_filters`` that is a lightweight Tm-window filter.
+    THIS class takes a ``ThermodynamicCriteria`` and additionally screens
+    homodimer/heterodimer/hairpin structure; it is used by
+    ``multi_genome_pipeline``. Import by full module path to avoid confusing
+    the two. (Tech debt: the two should eventually be merged.)
     """
 
     def __init__(self, criteria: Optional[ThermodynamicCriteria] = None):
@@ -147,9 +147,7 @@ class ThermodynamicFilter:
 
         # Calculate Tm
         tm = calculate_tm_with_salt(
-            sequence,
-            na_conc=self.criteria.na_conc,
-            mg_conc=self.criteria.mg_conc
+            sequence, na_conc=self.criteria.na_conc, mg_conc=self.criteria.mg_conc
         )
 
         # Calculate GC content
@@ -172,16 +170,16 @@ class ThermodynamicFilter:
             temp=self.criteria.reaction_temp,
             na_conc=self.criteria.na_conc,
             mg_conc=self.criteria.mg_conc,
-            polymerase=self.criteria.polymerase
+            polymerase=self.criteria.polymerase,
         )
 
         # Check homodimer formation
         try:
             homodimer_result = check_homodimer(sequence, conditions)
             # Result is a dictionary with 'energy' key (kcal/mol)
-            homodimer_dg = homodimer_result.get('energy', 0.0)
+            homodimer_dg = homodimer_result.get("energy", 0.0)
             # Handle inf (no dimer)
-            if homodimer_dg == float('inf') or homodimer_dg > 0:
+            if homodimer_dg == float("inf") or homodimer_dg > 0:
                 homodimer_dg = 0.0
         except Exception as e:
             logger.warning(f"Homodimer check failed for {sequence}: {e}")
@@ -198,8 +196,8 @@ class ThermodynamicFilter:
             # Result is a list of hairpin dictionaries with 'energy' key
             if hairpin_results:
                 # Get the strongest (most negative) hairpin
-                hairpin_dg = min(h.get('energy', 0.0) for h in hairpin_results)
-                if hairpin_dg == float('inf') or hairpin_dg > 0:
+                hairpin_dg = min(h.get("energy", 0.0) for h in hairpin_results)
+                if hairpin_dg == float("inf") or hairpin_dg > 0:
                     hairpin_dg = 0.0
             else:
                 hairpin_dg = 0.0
@@ -221,12 +219,15 @@ class ThermodynamicFilter:
             homodimer_dg=homodimer_dg,
             hairpin_dg=hairpin_dg,
             passes_filters=passes,
-            failure_reasons=failure_reasons
+            failure_reasons=failure_reasons,
         )
 
-    def filter_candidates(self, candidates: List[str],
-                         check_heterodimers: bool = True,
-                         max_heterodimer_fraction: float = 0.3) -> Tuple[List[str], Dict]:
+    def filter_candidates(
+        self,
+        candidates: List[str],
+        check_heterodimers: bool = True,
+        max_heterodimer_fraction: float = 0.3,
+    ) -> Tuple[List[str], Dict]:
         """
         Filter list of primer candidates.
 
@@ -254,7 +255,7 @@ class ThermodynamicFilter:
             for a in analyses:
                 if not a.passes_filters:
                     for reason in a.failure_reasons:
-                        category = reason.split('(')[0].strip()
+                        category = reason.split("(")[0].strip()
                         failure_counts[category] = failure_counts.get(category, 0) + 1
 
             logger.info(f"  Failure breakdown:")
@@ -271,16 +272,16 @@ class ThermodynamicFilter:
                 temp=self.criteria.reaction_temp,
                 na_conc=self.criteria.na_conc,
                 mg_conc=self.criteria.mg_conc,
-                polymerase=self.criteria.polymerase
+                polymerase=self.criteria.polymerase,
             )
 
             # Calculate pairwise heterodimer potential
             problematic_pairs = set()
 
             conditions_dict = {
-                'temp': self.criteria.reaction_temp,
-                'na_conc': self.criteria.na_conc,
-                'mg_conc': self.criteria.mg_conc,
+                "temp": self.criteria.reaction_temp,
+                "na_conc": self.criteria.na_conc,
+                "mg_conc": self.criteria.mg_conc,
             }
 
             pairs = [
@@ -304,8 +305,8 @@ class ThermodynamicFilter:
                 for seq1, seq2, i, j, _ in pairs:
                     try:
                         dimer_result = check_heterodimer(seq1, seq2, conditions)
-                        dimer_dg = dimer_result.get('energy', 0.0)
-                        if dimer_dg == float('inf') or dimer_dg > 0:
+                        dimer_dg = dimer_result.get("energy", 0.0)
+                        if dimer_dg == float("inf") or dimer_dg > 0:
                             dimer_dg = 0.0
                     except Exception as e:
                         logger.warning(f"Heterodimer check failed for {seq1}/{seq2}: {e}")
@@ -342,20 +343,22 @@ class ThermodynamicFilter:
 
         # Compile statistics
         stats = {
-            'total_candidates': len(candidates),
-            'passed_individual': len([a for a in analyses if a.passes_filters]),
-            'final_passing': len(passing_seqs),
-            'heterodimer_issues': heterodimer_issues,
-            'mean_tm': np.mean([p.tm for p in passing]) if passing else 0.0,
-            'std_tm': np.std([p.tm for p in passing]) if passing else 0.0,
-            'mean_gc': np.mean([p.gc for p in passing]) if passing else 0.0,
-            'mean_homodimer_dg': np.mean([p.homodimer_dg for p in passing]) if passing else 0.0
+            "total_candidates": len(candidates),
+            "passed_individual": len([a for a in analyses if a.passes_filters]),
+            "final_passing": len(passing_seqs),
+            "heterodimer_issues": heterodimer_issues,
+            "mean_tm": np.mean([p.tm for p in passing]) if passing else 0.0,
+            "std_tm": np.std([p.tm for p in passing]) if passing else 0.0,
+            "mean_gc": np.mean([p.gc for p in passing]) if passing else 0.0,
+            "mean_homodimer_dg": np.mean([p.homodimer_dg for p in passing]) if passing else 0.0,
         }
 
         logger.info(f"\nThermodynamic filtering complete:")
         logger.info(f"  Input: {stats['total_candidates']} candidates")
-        if stats['total_candidates'] > 0:
-            logger.info(f"  Output: {stats['final_passing']} passing ({stats['final_passing']/stats['total_candidates']*100:.1f}%)")
+        if stats["total_candidates"] > 0:
+            logger.info(
+                f"  Output: {stats['final_passing']} passing ({stats['final_passing']/stats['total_candidates']*100:.1f}%)"
+            )
         else:
             logger.info(f"  Output: 0 passing (empty input)")
         if passing:
@@ -364,8 +367,9 @@ class ThermodynamicFilter:
 
         return passing_seqs, stats
 
-    def adjust_criteria_for_conditions(self, temperature: float, gc_content: float,
-                                       betaine_m: float = 0.0):
+    def adjust_criteria_for_conditions(
+        self, temperature: float, gc_content: float, betaine_m: float = 0.0
+    ):
         """
         Adjust filtering criteria based on reaction conditions.
 
@@ -382,7 +386,7 @@ class ThermodynamicFilter:
         # Adjust Tm range based on reaction temperature
         # SWGA primers anneal at reaction temp, so Tm should be slightly below to just above
         self.criteria.reaction_temp = temperature
-        self.criteria.min_tm = temperature - 5   # e.g., 25°C at 30°C, 37°C at 42°C
+        self.criteria.min_tm = temperature - 5  # e.g., 25°C at 30°C, 37°C at 42°C
         self.criteria.max_tm = temperature + 20  # e.g., 50°C at 30°C, 62°C at 42°C
 
         # Widen GC range with betaine
@@ -441,10 +445,7 @@ def calculate_adaptive_gc_range(genome_gc: float, tolerance: float = 0.15) -> Tu
     return (min_gc, max_gc)
 
 
-def calculate_adaptive_dimer_threshold(
-    base_threshold: float,
-    genome_gc: float
-) -> float:
+def calculate_adaptive_dimer_threshold(base_threshold: float, genome_gc: float) -> float:
     """
     Calculate genome-adaptive dimer threshold based on GC content.
 
@@ -492,9 +493,13 @@ def calculate_adaptive_dimer_threshold(
     return adjusted_threshold
 
 
-def create_filter_from_conditions(polymerase: str, temperature: float,
-                                  gc_content: float, betaine_m: float = 0.0,
-                                  na_conc: float = 50.0) -> ThermodynamicFilter:
+def create_filter_from_conditions(
+    polymerase: str,
+    temperature: float,
+    gc_content: float,
+    betaine_m: float = 0.0,
+    na_conc: float = 50.0,
+) -> ThermodynamicFilter:
     """
     Create thermodynamic filter optimized for specific conditions.
 
@@ -522,11 +527,11 @@ def create_filter_from_conditions(polymerase: str, temperature: float,
 
 def create_thermodynamic_filter_adaptive(
     genome_gc: float,
-    polymerase: str = 'phi29',
+    polymerase: str = "phi29",
     temperature: float = 30.0,
     betaine_m: float = 0.0,
     na_conc: float = 50.0,
-    gc_tolerance: float = 0.15
+    gc_tolerance: float = 0.15,
 ) -> ThermodynamicFilter:
     """
     Create thermodynamic filter with genome-adaptive thresholds.
@@ -565,10 +570,7 @@ def create_thermodynamic_filter_adaptive(
 
     # Calculate adaptive dimer thresholds
     base_dimer_threshold = -9.0  # Standard threshold
-    adaptive_dimer_threshold = calculate_adaptive_dimer_threshold(
-        base_dimer_threshold,
-        genome_gc
-    )
+    adaptive_dimer_threshold = calculate_adaptive_dimer_threshold(base_dimer_threshold, genome_gc)
 
     # Create criteria with adaptive values
     criteria = ThermodynamicCriteria(
@@ -577,7 +579,7 @@ def create_thermodynamic_filter_adaptive(
         min_gc=min_gc,
         max_gc=max_gc,
         max_homodimer_dg=adaptive_dimer_threshold,
-        max_heterodimer_dg=adaptive_dimer_threshold
+        max_heterodimer_dg=adaptive_dimer_threshold,
     )
 
     # Create filter
@@ -610,7 +612,7 @@ def create_thermodynamic_filter_adaptive(
     return filter_obj
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 
@@ -618,19 +620,16 @@ if __name__ == '__main__':
 
     # Example primers (some good, some bad)
     test_primers = [
-        'ATCGATCGATCG',  # Balanced GC
-        'GGGGGGGGGGGG',  # All G (too high GC, strong dimers)
-        'AAAAAAAAAAAA',  # All A (too low GC, low Tm)
-        'GCTAGCTAGCTA',  # Balanced, good
-        'ATATATATATAT',  # AT-rich, weak dimers
+        "ATCGATCGATCG",  # Balanced GC
+        "GGGGGGGGGGGG",  # All G (too high GC, strong dimers)
+        "AAAAAAAAAAAA",  # All A (too low GC, low Tm)
+        "GCTAGCTAGCTA",  # Balanced, good
+        "ATATATATATAT",  # AT-rich, weak dimers
     ]
 
     # Create filter for Phi29 at 30°C
     filter_obj = create_filter_from_conditions(
-        polymerase='phi29',
-        temperature=30.0,
-        gc_content=0.50,
-        betaine_m=0.5
+        polymerase="phi29", temperature=30.0, gc_content=0.50, betaine_m=0.5
     )
 
     # Filter candidates

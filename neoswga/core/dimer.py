@@ -1,11 +1,12 @@
-from neoswga.core import utility as _utility
-from neoswga.core import parameter
-import numpy as np
+import logging
+import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from functools import partial
-import multiprocessing
-import logging
 
+import numpy as np
+
+from neoswga.core import parameter
+from neoswga.core import utility as _utility
 from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,10 @@ def compatible_set(dimer_mat, selected_primers, primer_to_index_dict):
     """
     for i, primer in enumerate(selected_primers):
         for j in range(i + 1, len(selected_primers)):
-            if dimer_mat[primer_to_index_dict[primer]][primer_to_index_dict[selected_primers[j]]] == 1:
+            if (
+                dimer_mat[primer_to_index_dict[primer]][primer_to_index_dict[selected_primers[j]]]
+                == 1
+            ):
                 logger.debug(f"Dimer detected: {primer} and {selected_primers[j]}")
                 return False
     return True
@@ -63,10 +67,11 @@ def is_dimer(seq_1, seq_2, max_dimer_bp=3):
         heterodimer bool: True if the primers may form a heterodimer.
     """
     binding_len = _utility.longest_common_substring(seq_1, reverse_complement(seq_2))
-    return (binding_len > max_dimer_bp)
+    return binding_len > max_dimer_bp
 
 
-_DIMER_RC_TABLE = str.maketrans('ATGCatgc', 'TACGtacg')
+_DIMER_RC_TABLE = str.maketrans("ATGCatgc", "TACGtacg")
+
 
 def is_dimer_fast(seq_1, seq_2, max_dimer_bp=3):
     """
@@ -135,7 +140,8 @@ def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None
         a dimer).
     """
     from neoswga.core.thermodynamics import (
-        reverse_complement, calculate_free_energy,
+        calculate_free_energy,
+        reverse_complement,
     )
 
     seq_2_rc = reverse_complement(seq_2)
@@ -161,7 +167,7 @@ def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None
         return False
 
     # Extract the longest complementary region from seq_1
-    binding_seq = seq_1[best_start_1:best_start_1 + longest_run]
+    binding_seq = seq_1[best_start_1 : best_start_1 + longest_run]
 
     # Calculate free energy of the duplex at reaction temperature
     temperature = 37.0
@@ -203,9 +209,13 @@ def heterodimer_matrix(primer_list, max_dimer_bp=3):
 
     # Pairwise comparison, note this can be precomputed
     for i in range(n):
-        het_matrix[i, i] = is_dimer_fast(primer_list[i], primer_list[i], max_dimer_bp=parameter.max_self_dimer_bp)
+        het_matrix[i, i] = is_dimer_fast(
+            primer_list[i], primer_list[i], max_dimer_bp=parameter.max_self_dimer_bp
+        )
         for j in range(i + 1, n):  # Also check internal hairpin (binds with itself)
-            het_matrix[i, j] = is_dimer_fast(primer_list[i], primer_list[j], max_dimer_bp=max_dimer_bp)
+            het_matrix[i, j] = is_dimer_fast(
+                primer_list[i], primer_list[j], max_dimer_bp=max_dimer_bp
+            )
             het_matrix[j, i] = het_matrix[i, j]
     return het_matrix
 
@@ -320,7 +330,15 @@ def is_compatible_set(primer_set, max_dimer_bp=3):
 
 
 if __name__ == "__main__":
-    primer_set = ["ATCGACAAC", "CGAATCCG", "CGTTACGG", "CTACGACG", "GACGATCG", "GATCGACTC", "TCGACGAA"]
+    primer_set = [
+        "ATCGACAAC",
+        "CGAATCCG",
+        "CGTTACGG",
+        "CTACGACG",
+        "GACGATCG",
+        "GATCGACTC",
+        "TCGACGAA",
+    ]
 
     dimer_mat = heterodimer_matrix(primer_set)
     print(dimer_mat)

@@ -25,20 +25,22 @@ Version: 3.0 - Multi-Genome Support
 """
 
 import logging
-import numpy as np
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
 class GenomeRole(Enum):
     """Role of a genome in the SWGA experiment"""
-    TARGET = "target"           # Maximize binding
-    BACKGROUND = "background"   # Minimize but tolerate (host)
-    BLACKLIST = "blacklist"     # Strongly avoid (contaminants)
+
+    TARGET = "target"  # Maximize binding
+    BACKGROUND = "background"  # Minimize but tolerate (host)
+    BLACKLIST = "blacklist"  # Strongly avoid (contaminants)
 
 
 @dataclass
@@ -54,6 +56,7 @@ class GenomeEntry:
         gc_content: Pre-calculated GC content (optional)
         size: Genome size in bp (optional)
     """
+
     name: str
     fasta_path: Path
     role: GenomeRole
@@ -87,12 +90,14 @@ class GenomeSet:
 
     Manages target, background, and blacklist genomes with validation.
     """
+
     targets: List[GenomeEntry] = field(default_factory=list)
     backgrounds: List[GenomeEntry] = field(default_factory=list)
     blacklists: List[GenomeEntry] = field(default_factory=list)
 
-    def add_genome(self, name: str, fasta_path: str, role: str,
-                   penalty_weight: Optional[float] = None):
+    def add_genome(
+        self, name: str, fasta_path: str, role: str, penalty_weight: Optional[float] = None
+    ):
         """
         Add a genome to the set.
 
@@ -108,7 +113,7 @@ class GenomeSet:
             name=name,
             fasta_path=Path(fasta_path),
             role=role_enum,
-            penalty_weight=penalty_weight if penalty_weight is not None else 1.0
+            penalty_weight=penalty_weight if penalty_weight is not None else 1.0,
         )
 
         if role_enum == GenomeRole.TARGET:
@@ -151,9 +156,9 @@ class GenomeSet:
     def summary(self) -> str:
         """Get summary of genome set"""
         lines = []
-        lines.append("="*80)
+        lines.append("=" * 80)
         lines.append("MULTI-GENOME SWGA CONFIGURATION")
-        lines.append("="*80)
+        lines.append("=" * 80)
 
         lines.append(f"\nTarget Genomes ({len(self.targets)}):")
         for g in self.targets:
@@ -176,7 +181,7 @@ class GenomeSet:
                 lines.append(f"  • {g.name} (penalty: {g.penalty_weight}x)")
                 lines.append(f"    Path: {g.fasta_path}")
 
-        lines.append("="*80)
+        lines.append("=" * 80)
         return "\n".join(lines)
 
 
@@ -195,6 +200,7 @@ class MultiGenomeScore:
         passes: Whether primer meets all criteria
         details: Per-genome binding frequencies
     """
+
     primer: str
     target_frequency: float
     background_frequency: float
@@ -231,14 +237,16 @@ class MultiGenomeFilter:
     - min_enrichment: Minimum target/background ratio (e.g., 10x)
     """
 
-    def __init__(self,
-                 genome_set: GenomeSet,
-                 min_target_freq: float = 1e-5,
-                 max_background_freq: float = 1e-4,
-                 max_blacklist_freq: float = 1e-6,
-                 min_enrichment: float = 10.0,
-                 use_gini: bool = True,
-                 max_gini: float = 0.6):
+    def __init__(
+        self,
+        genome_set: GenomeSet,
+        min_target_freq: float = 1e-5,
+        max_background_freq: float = 1e-4,
+        max_blacklist_freq: float = 1e-6,
+        min_enrichment: float = 10.0,
+        use_gini: bool = True,
+        max_gini: float = 0.6,
+    ):
         """
         Initialize multi-genome filter.
 
@@ -274,8 +282,7 @@ class MultiGenomeFilter:
         logger.info(f"  Max blacklist freq: {max_blacklist_freq:.2e}")
         logger.info(f"  Min enrichment: {min_enrichment}x")
 
-    def load_genome_counts(self, genome_name: str, kmer_counts: Dict[str, int],
-                          genome_size: int):
+    def load_genome_counts(self, genome_name: str, kmer_counts: Dict[str, int], genome_size: int):
         """
         Load pre-computed k-mer counts for a genome.
 
@@ -287,8 +294,9 @@ class MultiGenomeFilter:
         self.kmer_counts[genome_name] = kmer_counts
         self.genome_sizes[genome_name] = genome_size
 
-        logger.info(f"Loaded counts for {genome_name}: {len(kmer_counts)} k-mers, "
-                   f"{genome_size:,} bp")
+        logger.info(
+            f"Loaded counts for {genome_name}: {len(kmer_counts)} k-mers, " f"{genome_size:,} bp"
+        )
 
     def _calculate_frequency(self, primer: str, genome_name: str) -> float:
         """
@@ -350,7 +358,7 @@ class MultiGenomeFilter:
         if background_freq > 0:
             enrichment = target_freq / background_freq
         else:
-            enrichment = float('inf') if target_freq > 0 else 0.0
+            enrichment = float("inf") if target_freq > 0 else 0.0
 
         # Calculate weighted penalty score
         penalty = 0.0
@@ -365,10 +373,10 @@ class MultiGenomeFilter:
 
         # Apply filters
         passes = (
-            target_freq >= self.min_target_freq and
-            background_freq <= self.max_background_freq and
-            blacklist_freq <= self.max_blacklist_freq and
-            enrichment >= self.min_enrichment
+            target_freq >= self.min_target_freq
+            and background_freq <= self.max_background_freq
+            and blacklist_freq <= self.max_blacklist_freq
+            and enrichment >= self.min_enrichment
         )
 
         return MultiGenomeScore(
@@ -379,11 +387,12 @@ class MultiGenomeFilter:
             enrichment_score=enrichment,
             penalty_score=penalty,
             passes=passes,
-            details=details
+            details=details,
         )
 
-    def filter_primers(self, candidates: List[str],
-                      verbose: bool = False) -> Tuple[List[str], List[MultiGenomeScore]]:
+    def filter_primers(
+        self, candidates: List[str], verbose: bool = False
+    ) -> Tuple[List[str], List[MultiGenomeScore]]:
         """
         Filter primer candidates across all genomes.
 
@@ -405,8 +414,10 @@ class MultiGenomeFilter:
                 passing.append(primer)
 
             if verbose and (i + 1) % 1000 == 0:
-                logger.info(f"Processed {i+1}/{len(candidates)} primers, "
-                           f"{len(passing)} passing ({len(passing)/(i+1)*100:.1f}%)")
+                logger.info(
+                    f"Processed {i+1}/{len(candidates)} primers, "
+                    f"{len(passing)} passing ({len(passing)/(i+1)*100:.1f}%)"
+                )
 
         logger.info(f"Multi-genome filtering complete:")
         logger.info(f"  Input: {len(candidates)} primers")
@@ -419,19 +430,26 @@ class MultiGenomeFilter:
             blacklist_freqs = [s.blacklist_frequency for s in scores if s.passes]
 
             if target_freqs:
-                logger.info(f"  Target frequency: {np.mean(target_freqs):.2e} ± "
-                           f"{np.std(target_freqs):.2e}")
+                logger.info(
+                    f"  Target frequency: {np.mean(target_freqs):.2e} ± "
+                    f"{np.std(target_freqs):.2e}"
+                )
             if background_freqs:
-                logger.info(f"  Background frequency: {np.mean(background_freqs):.2e} ± "
-                           f"{np.std(background_freqs):.2e}")
+                logger.info(
+                    f"  Background frequency: {np.mean(background_freqs):.2e} ± "
+                    f"{np.std(background_freqs):.2e}"
+                )
             if blacklist_freqs and any(f > 0 for f in blacklist_freqs):
-                logger.info(f"  Blacklist frequency: {np.mean(blacklist_freqs):.2e} ± "
-                           f"{np.std(blacklist_freqs):.2e}")
+                logger.info(
+                    f"  Blacklist frequency: {np.mean(blacklist_freqs):.2e} ± "
+                    f"{np.std(blacklist_freqs):.2e}"
+                )
 
         return passing, scores
 
-    def rank_primers(self, primers: List[str],
-                    top_n: Optional[int] = None) -> List[Tuple[str, MultiGenomeScore]]:
+    def rank_primers(
+        self, primers: List[str], top_n: Optional[int] = None
+    ) -> List[Tuple[str, MultiGenomeScore]]:
         """
         Rank primers by composite score.
 
@@ -477,9 +495,9 @@ class MultiGenomeFilter:
             Report string
         """
         lines = []
-        lines.append("="*80)
+        lines.append("=" * 80)
         lines.append("MULTI-GENOME SWGA REPORT")
-        lines.append("="*80)
+        lines.append("=" * 80)
 
         # Configuration
         lines.append("\nGenome Configuration:")
@@ -506,7 +524,7 @@ class MultiGenomeFilter:
 
         # Primer details
         lines.append(f"\nSelected Primers ({len(primers)}):")
-        lines.append("="*80)
+        lines.append("=" * 80)
 
         for i, primer in enumerate(primers, 1):
             score = self.score_primer(primer)
@@ -522,19 +540,19 @@ class MultiGenomeFilter:
             for genome_name, freq in score.details.items():
                 lines.append(f"    {genome_name:30s}: {freq:.2e}")
 
-        lines.append("\n" + "="*80)
+        lines.append("\n" + "=" * 80)
 
         report = "\n".join(lines)
 
         if output_file:
-            with open(output_file, 'w') as f:
+            with open(output_file, "w") as f:
                 f.write(report)
             logger.info(f"Report written to {output_file}")
 
         return report
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 
@@ -547,9 +565,7 @@ if __name__ == '__main__':
 
     # Add target: Borrelia burgdorferi (Lyme disease)
     genome_set.add_genome(
-        name="Borrelia_burgdorferi",
-        fasta_path="/path/to/borrelia.fasta",
-        role="target"
+        name="Borrelia_burgdorferi", fasta_path="/path/to/borrelia.fasta", role="target"
     )
 
     # Add background: Ixodes tick (host)
@@ -557,7 +573,7 @@ if __name__ == '__main__':
         name="Ixodes_scapularis",
         fasta_path="/path/to/tick.fasta",
         role="background",
-        penalty_weight=1.0  # Standard avoidance
+        penalty_weight=1.0,  # Standard avoidance
     )
 
     # Add blacklist: Rickettsia (co-existing pathogen)
@@ -565,7 +581,7 @@ if __name__ == '__main__':
         name="Rickettsia_rickettsii",
         fasta_path="/path/to/rickettsia.fasta",
         role="blacklist",
-        penalty_weight=5.0  # Strong avoidance
+        penalty_weight=5.0,  # Strong avoidance
     )
 
     print(genome_set.summary())
@@ -573,10 +589,10 @@ if __name__ == '__main__':
     # Create filter
     mfilter = MultiGenomeFilter(
         genome_set=genome_set,
-        min_target_freq=1e-5,      # Must bind Borrelia
-        max_background_freq=1e-4,   # Tolerate some tick binding
-        max_blacklist_freq=1e-6,    # Minimal Rickettsia binding
-        min_enrichment=10.0         # 10x more Borrelia than tick
+        min_target_freq=1e-5,  # Must bind Borrelia
+        max_background_freq=1e-4,  # Tolerate some tick binding
+        max_blacklist_freq=1e-6,  # Minimal Rickettsia binding
+        min_enrichment=10.0,  # 10x more Borrelia than tick
     )
 
     print("\nFilter configured successfully")

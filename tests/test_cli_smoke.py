@@ -61,10 +61,9 @@ class TestSubcommandHelp:
         "analyze-genome",
         "analyze-dimers",
         "analyze-stability",
-        "auto-pipeline",
+        "analyze-coverage",
         "multi-genome",
         "simulate",
-        "active-learn",
         "expand-primers",
         "predict-efficiency",
         "background-list",
@@ -108,9 +107,11 @@ class TestArgumentParsing:
 
     def test_optimize_accepts_all_methods(self):
         parser = create_parser()
+        # The optimizer zoo was trimmed to four registered methods plus the
+        # ensemble pseudo-method. Keep in sync with the registry
+        # (see tests/test_docs_consistency.py).
         methods = [
-            "hybrid", "greedy", "milp", "network",
-            "genetic", "dominating-set", "background-aware", "moea",
+            "hybrid", "dominating-set", "network", "background-aware", "ensemble",
         ]
         for method in methods:
             args = parser.parse_args([

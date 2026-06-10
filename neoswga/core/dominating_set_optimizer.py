@@ -12,11 +12,12 @@ This provides:
 3. Optimal coverage guarantees
 """
 
-import numpy as np
-import networkx as nx
-from typing import List, Dict, Set, Tuple, Optional
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
+
+import networkx as nx
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CoverageRegion:
     """A region of the genome that needs coverage"""
+
     chromosome: str
     start: int
     end: int
@@ -63,11 +65,16 @@ class BipartiteGraph:
         # Fast lookup for existing regions: (chromosome, start, end) -> CoverageRegion
         self._region_lookup: Dict[Tuple[str, int, int], CoverageRegion] = {}
 
-    def add_primer_coverage(self, primer: str, positions: np.ndarray,
-                           genome_id: str, genome_length: int,
-                           extension_reach: int = 0,
-                           forward_positions: np.ndarray = None,
-                           reverse_positions: np.ndarray = None):
+    def add_primer_coverage(
+        self,
+        primer: str,
+        positions: np.ndarray,
+        genome_id: str,
+        genome_length: int,
+        extension_reach: int = 0,
+        forward_positions: np.ndarray = None,
+        reverse_positions: np.ndarray = None,
+    ):
         """
         Add primer and its coverage regions.
 
@@ -96,8 +103,7 @@ class BipartiteGraph:
 
         covered_bins = set()
 
-        if extension_reach > 0 and (forward_positions is not None or
-                                     reverse_positions is not None):
+        if extension_reach > 0 and (forward_positions is not None or reverse_positions is not None):
             # Strand-direction-aware extension (realistic model)
             if forward_positions is not None:
                 for pos in forward_positions:
@@ -147,10 +153,7 @@ class BipartiteGraph:
                 region = existing
             else:
                 region = CoverageRegion(
-                    chromosome=genome_id,
-                    start=start,
-                    end=end,
-                    covered_by=set()
+                    chromosome=genome_id, start=start, end=end, covered_by=set()
                 )
                 self.regions.add(region)
                 self.region_to_primers[region] = set()
@@ -190,8 +193,14 @@ class DominatingSetOptimizer:
     Uses graph algorithms to find near-optimal primer sets.
     """
 
-    def __init__(self, cache, fg_prefixes: List[str], fg_seq_lengths: List[int],
-                 bin_size: int = 10000, extension_reach: int = 0):
+    def __init__(
+        self,
+        cache,
+        fg_prefixes: List[str],
+        fg_seq_lengths: List[int],
+        bin_size: int = 10000,
+        extension_reach: int = 0,
+    ):
         """
         Initialize optimizer.
 
@@ -210,10 +219,14 @@ class DominatingSetOptimizer:
         self.bin_size = bin_size
         self.extension_reach = extension_reach
 
-    def optimize_greedy(self, candidates: List[str], max_primers: int = 20,
-                       fixed_primers: Optional[List[str]] = None,
-                       min_coverage: Optional[float] = None,
-                       verbose: bool = True) -> Dict:
+    def optimize_greedy(
+        self,
+        candidates: List[str],
+        max_primers: int = 20,
+        fixed_primers: Optional[List[str]] = None,
+        min_coverage: Optional[float] = None,
+        verbose: bool = True,
+    ) -> Dict:
         """
         Greedy set cover algorithm.
 
@@ -250,12 +263,15 @@ class DominatingSetOptimizer:
         # Add fixed primers first
         for primer in fixed_primers:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                fw = self.cache.get_positions(prefix, primer, 'forward')
-                rv = self.cache.get_positions(prefix, primer, 'reverse')
-                both = self.cache.get_positions(prefix, primer, 'both')
+                fw = self.cache.get_positions(prefix, primer, "forward")
+                rv = self.cache.get_positions(prefix, primer, "reverse")
+                both = self.cache.get_positions(prefix, primer, "both")
                 if len(both) > 0:
                     graph.add_primer_coverage(
-                        primer, both, prefix, length,
+                        primer,
+                        both,
+                        prefix,
+                        length,
                         extension_reach=self.extension_reach,
                         forward_positions=fw if len(fw) > 0 else None,
                         reverse_positions=rv if len(rv) > 0 else None,
@@ -264,13 +280,16 @@ class DominatingSetOptimizer:
         # Add candidate primers
         for primer in candidates:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                fw = self.cache.get_positions(prefix, primer, 'forward')
-                rv = self.cache.get_positions(prefix, primer, 'reverse')
-                both = self.cache.get_positions(prefix, primer, 'both')
+                fw = self.cache.get_positions(prefix, primer, "forward")
+                rv = self.cache.get_positions(prefix, primer, "reverse")
+                both = self.cache.get_positions(prefix, primer, "both")
 
                 if len(both) > 0:
                     graph.add_primer_coverage(
-                        primer, both, prefix, length,
+                        primer,
+                        both,
+                        prefix,
+                        length,
                         extension_reach=self.extension_reach,
                         forward_positions=fw if len(fw) > 0 else None,
                         reverse_positions=rv if len(rv) > 0 else None,
@@ -329,9 +348,11 @@ class DominatingSetOptimizer:
                 current_coverage = len(covered_regions) / len(graph.regions)
                 if current_coverage >= min_coverage:
                     if verbose:
-                        logger.info(f"Coverage target {min_coverage:.1%} met "
-                                    f"({current_coverage:.1%}) with "
-                                    f"{len(selected) - n_fixed} new primers")
+                        logger.info(
+                            f"Coverage target {min_coverage:.1%} met "
+                            f"({current_coverage:.1%}) with "
+                            f"{len(selected) - n_fixed} new primers"
+                        )
                     break
 
         # Final statistics
@@ -342,32 +363,37 @@ class DominatingSetOptimizer:
         new_primers = [p for p in selected if p not in fixed_primers]
 
         result = {
-            'primers': list(selected),
-            'new_primers': new_primers,
-            'fixed_primers': fixed_primers,
-            'n_primers': len(selected),
-            'n_new': len(new_primers),
-            'n_fixed': n_fixed,
-            'coverage': coverage,
-            'covered_regions': len(covered_regions),
-            'total_regions': len(graph.regions),
-            'uncovered_regions': len(uncovered),
-            'graph': graph,
-            'coverage_target': min_coverage,
-            'target_met': min_coverage is not None and coverage >= min_coverage,
+            "primers": list(selected),
+            "new_primers": new_primers,
+            "fixed_primers": fixed_primers,
+            "n_primers": len(selected),
+            "n_new": len(new_primers),
+            "n_fixed": n_fixed,
+            "coverage": coverage,
+            "covered_regions": len(covered_regions),
+            "total_regions": len(graph.regions),
+            "uncovered_regions": len(uncovered),
+            "graph": graph,
+            "coverage_target": min_coverage,
+            "target_met": min_coverage is not None and coverage >= min_coverage,
         }
 
         if verbose:
             if n_fixed > 0:
-                logger.info(f"Selected {len(new_primers)} new primers + {n_fixed} fixed = {len(selected)} total")
+                logger.info(
+                    f"Selected {len(new_primers)} new primers + {n_fixed} fixed = {len(selected)} total"
+                )
             else:
                 logger.info(f"Selected {len(selected)} primers")
-            logger.info(f"Coverage: {coverage:.1%} ({len(covered_regions)}/{len(graph.regions)} regions)")
+            logger.info(
+                f"Coverage: {coverage:.1%} ({len(covered_regions)}/{len(graph.regions)} regions)"
+            )
 
         return result
 
-    def optimize_ilp(self, candidates: List[str], max_primers: int = 20,
-                    verbose: bool = True) -> Optional[Dict]:
+    def optimize_ilp(
+        self, candidates: List[str], max_primers: int = 20, verbose: bool = True
+    ) -> Optional[Dict]:
         """
         Integer Linear Programming for exact minimum dominating set.
 
@@ -382,7 +408,7 @@ class DominatingSetOptimizer:
             Dictionary with optimal solution, or None if infeasible
         """
         try:
-            from mip import Model, BINARY, minimize, xsum
+            from mip import BINARY, Model, minimize, xsum
         except ImportError:
             logger.error("python-mip required for ILP. Install: pip install mip")
             return None
@@ -396,7 +422,7 @@ class DominatingSetOptimizer:
         for primer in candidates:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
                 # PositionCache uses 'forward', 'reverse', 'both' for strand
-                positions = self.cache.get_positions(prefix, primer, 'both')
+                positions = self.cache.get_positions(prefix, primer, "both")
 
                 if len(positions) > 0:
                     graph.add_primer_coverage(primer, positions, prefix, length)
@@ -408,8 +434,7 @@ class DominatingSetOptimizer:
         model = Model(sense=minimize)
 
         # Decision variables: x[i] = 1 if primer i selected
-        x = {primer: model.add_var(var_type=BINARY, name=f"x_{primer}")
-             for primer in primers_list}
+        x = {primer: model.add_var(var_type=BINARY, name=f"x_{primer}") for primer in primers_list}
 
         # Objective: Minimize number of primers
         model.objective = xsum(x[primer] for primer in primers_list)
@@ -418,8 +443,7 @@ class DominatingSetOptimizer:
         for region in regions_list:
             covering_primers = graph.region_to_primers[region]
             if covering_primers:
-                model += xsum(x[primer] for primer in covering_primers
-                            if primer in x) >= 1
+                model += xsum(x[primer] for primer in covering_primers if primer in x) >= 1
 
         # Constraint: Select at most max_primers
         model += xsum(x[primer] for primer in primers_list) <= max_primers
@@ -441,13 +465,13 @@ class DominatingSetOptimizer:
             coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
 
             result = {
-                'primers': selected,
-                'n_primers': len(selected),
-                'coverage': coverage,
-                'covered_regions': len(covered_regions),
-                'total_regions': len(graph.regions),
-                'optimal': True,
-                'graph': graph
+                "primers": selected,
+                "n_primers": len(selected),
+                "coverage": coverage,
+                "covered_regions": len(covered_regions),
+                "total_regions": len(graph.regions),
+                "optimal": True,
+                "graph": graph,
             }
 
             if verbose:
@@ -477,7 +501,9 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
         - scores: List containing the coverage score
     """
     import os
+
     import pandas as pd
+
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
     from neoswga.core.position_cache import PositionCache
@@ -492,10 +518,12 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
     # Load candidates from step3 output
     step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
     if not os.path.exists(step3_path):
-        raise FileNotFoundError(f"Step 3 output not found: {step3_path}. Run 'neoswga score' first.")
+        raise FileNotFoundError(
+            f"Step 3 output not found: {step3_path}. Run 'neoswga score' first."
+        )
 
     step3_df = pd.read_csv(step3_path)
-    candidates = step3_df['primer'].tolist()
+    candidates = step3_df["primer"].tolist()
 
     if verbose:
         logger.info(f"Loaded {len(candidates)} candidate primers from step3_df.csv")
@@ -508,15 +536,27 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
     cache = PositionCache(fg_prefixes, candidates)
 
     # Get number of primers to select
-    num_primers = getattr(parameter, 'num_primers', 10)
-    target_set_size = getattr(parameter, 'target_set_size', num_primers)
+    num_primers = getattr(parameter, "num_primers", 10)
+    target_set_size = getattr(parameter, "target_set_size", num_primers)
+
+    # Per-primer reach for coverage. Use realistic phi29 reach (Phase 16,
+    # default 3 kb) so this entry's coverage matches the dominating-set
+    # adapter and base_optimizer rather than reporting bin-only coverage.
+    polymerase = getattr(parameter, "polymerase", "phi29")
+    try:
+        from neoswga.core.coverage import polymerase_extension_reach
+
+        extension_reach = polymerase_extension_reach(polymerase, coverage_metric="realistic")
+    except (ImportError, ValueError):
+        extension_reach = 3000
 
     # Create dominating set optimizer
     optimizer = DominatingSetOptimizer(
         cache=cache,
         fg_prefixes=fg_prefixes,
         fg_seq_lengths=fg_seq_lengths,
-        bin_size=10000  # 10 kb bins
+        bin_size=10000,  # 10 kb bins
+        extension_reach=extension_reach,
     )
 
     # Run greedy optimization (fast, within ln(n) of optimal)
@@ -525,29 +565,31 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
         logger.info("Algorithm: Greedy set cover (within ln(n) of optimal)")
 
     result = optimizer.optimize_greedy(
-        candidates=candidates,
-        max_primers=target_set_size,
-        verbose=verbose
+        candidates=candidates, max_primers=target_set_size, verbose=verbose
     )
 
-    primers = result['primers']
-    coverage = result['coverage']
+    primers = result["primers"]
+    coverage = result["coverage"]
 
     # Save results to CSV
     output_csv = os.path.join(parameter.data_dir, "step4_improved_df.csv")
-    results_df = pd.DataFrame({
-        'primer': primers,
-        'score': [coverage] * len(primers),
-        'set_index': [0] * len(primers),
-        'coverage': [coverage] * len(primers),
-        'regions_covered': [result['covered_regions']] * len(primers),
-        'total_regions': [result['total_regions']] * len(primers)
-    })
+    results_df = pd.DataFrame(
+        {
+            "primer": primers,
+            "score": [coverage] * len(primers),
+            "set_index": [0] * len(primers),
+            "coverage": [coverage] * len(primers),
+            "regions_covered": [result["covered_regions"]] * len(primers),
+            "total_regions": [result["total_regions"]] * len(primers),
+        }
+    )
     results_df.to_csv(output_csv, index=False)
 
     if verbose:
         logger.info(f"Results saved to {output_csv}")
-        logger.info(f"Coverage: {coverage:.1%} ({result['covered_regions']}/{result['total_regions']} regions)")
+        logger.info(
+            f"Coverage: {coverage:.1%} ({result['covered_regions']}/{result['total_regions']} regions)"
+        )
 
     # Return in standard format (list of primer sets, list of scores)
     return [primers], [coverage]

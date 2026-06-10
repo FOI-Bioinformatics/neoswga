@@ -11,18 +11,18 @@ MAJOR IMPROVEMENTS:
 This is the main entry point replacing the old greedy BFS approach.
 """
 
+import logging
 import os
 import time
-import logging
-from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 
-from .position_cache import PositionCache
-from .background_filter import BackgroundFilter, BackgroundFilterConfig
 from .adaptive_filters import AdaptiveFilterPipeline
+from .background_filter import BackgroundFilter, BackgroundFilterConfig
 from .network_optimizer import NetworkOptimizer
-from .milp_optimizer import MILPFallbackOptimizer
+from .position_cache import PositionCache
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PipelineConfig:
     """Configuration for improved pipeline"""
+
     # Filtering
     gc_tolerance: float = 0.15
     reaction_temp: float = 30.0
@@ -43,7 +44,9 @@ class PipelineConfig:
     max_bg_1mm_matches: int = 100
 
     # Optimization
-    optimization_method: str = 'hybrid'  # 'greedy', 'milp', or 'hybrid'
+    optimization_method: str = (
+        "hybrid"  # legacy field; ImprovedPipeline now always uses NetworkOptimizer
+    )
     num_primers: int = 10
     max_optimization_time: int = 300  # seconds
     max_extension: int = 70000  # Phi29 processivity
@@ -81,9 +84,14 @@ class ImprovedPipeline:
         self.config = config or PipelineConfig()
         self.stats = {}
 
-    def design_primers(self, fg_genome_path: str, fg_prefixes: List[str],
-                      bg_genome_path: Optional[str], bg_prefixes: Optional[List[str]],
-                      candidates: List[str]) -> Dict:
+    def design_primers(
+        self,
+        fg_genome_path: str,
+        fg_prefixes: List[str],
+        bg_genome_path: Optional[str],
+        bg_prefixes: Optional[List[str]],
+        candidates: List[str],
+    ) -> Dict:
         """
         Complete primer design pipeline.
 
@@ -119,9 +127,10 @@ class ImprovedPipeline:
             cache = PositionCache(fg_prefixes + (bg_prefixes or []), candidates)
         else:
             from .position_cache import StreamingPositionCache
+
             cache = StreamingPositionCache(fg_prefixes + (bg_prefixes or []), candidates)
 
-        timing['cache_build'] = time.time() - phase1_start
+        timing["cache_build"] = time.time() - phase1_start
         logger.info(f"Position cache built in {timing['cache_build']:.2f}s")
         logger.info("")
 
@@ -129,18 +138,16 @@ class ImprovedPipeline:
         phase2_start = time.time()
         if self.config.skip_adaptive_filter:
             logger.info("PHASE 2: Skipping adaptive filtering (candidates already filtered)")
-            timing['adaptive_filter'] = 0.0
+            timing["adaptive_filter"] = 0.0
         else:
             logger.info("PHASE 2: Adaptive filtering")
 
             adaptive_filter = AdaptiveFilterPipeline(
-                fg_genome_path,
-                reaction_temp=self.config.reaction_temp,
-                na_conc=self.config.na_conc
+                fg_genome_path, reaction_temp=self.config.reaction_temp, na_conc=self.config.na_conc
             )
 
             candidates = adaptive_filter.filter_primers(candidates, verbose=self.config.verbose)
-            timing['adaptive_filter'] = time.time() - phase2_start
+            timing["adaptive_filter"] = time.time() - phase2_start
             logger.info(f"After adaptive filtering: {len(candidates)} candidates")
             logger.info(f"Filtering completed in {timing['adaptive_filter']:.2f}s")
         logger.info("")
@@ -151,17 +158,18 @@ class ImprovedPipeline:
             phase3_start = time.time()
 
             # Load or build background filter
-            if self.config.background_bloom_path and os.path.exists(self.config.background_bloom_path):
+            if self.config.background_bloom_path and os.path.exists(
+                self.config.background_bloom_path
+            ):
                 logger.info("Loading pre-built background filter...")
                 bg_filter = BackgroundFilter.load(
-                    self.config.background_bloom_path,
-                    self.config.background_sampled_path or ""
+                    self.config.background_bloom_path, self.config.background_sampled_path or ""
                 )
             else:
                 logger.info("Building background filter (this may take 30-60 minutes)...")
                 bg_config = BackgroundFilterConfig(
                     max_exact_matches=self.config.max_bg_exact_matches,
-                    max_1mm_matches=self.config.max_bg_1mm_matches
+                    max_1mm_matches=self.config.max_bg_1mm_matches,
                 )
                 bg_filter = BackgroundFilter(config=bg_config)
                 bg_filter.build_from_genome(bg_genome_path)
@@ -171,11 +179,12 @@ class ImprovedPipeline:
                     os.makedirs(os.path.dirname(self.config.background_bloom_path), exist_ok=True)
                     bg_filter.save(
                         self.config.background_bloom_path,
-                        self.config.background_sampled_path or self.config.background_bloom_path + ".sampled"
+                        self.config.background_sampled_path
+                        or self.config.background_bloom_path + ".sampled",
                     )
 
             candidates = bg_filter.filter_primers(candidates)
-            timing['background_filter'] = time.time() - phase3_start
+            timing["background_filter"] = time.time() - phase3_start
             logger.info(f"After background filtering: {len(candidates)} candidates")
             logger.info(f"Background filtering completed in {timing['background_filter']:.2f}s")
             logger.info("")
@@ -188,82 +197,24 @@ class ImprovedPipeline:
         fg_seq_lengths = self._get_genome_lengths(fg_genome_path)
         bg_seq_lengths = self._get_genome_lengths(bg_genome_path) if bg_genome_path else [0]
 
-        evaluation_optimizer = None  # May be set by Phase 4 branch for reuse
+        evaluation_optimizer = NetworkOptimizer(
+            cache,
+            fg_prefixes,
+            bg_prefixes or [],
+            fg_seq_lengths,
+            bg_seq_lengths,
+            max_extension=self.config.max_extension,
+            uniformity_weight=self.config.uniformity_weight,
+            reaction_temp=self.config.reaction_temp,
+            tm_weight=self.config.tm_weight,
+            dimer_penalty=self.config.dimer_penalty,
+            max_dimer_bp=self.config.max_dimer_bp,
+        )
+        primers = evaluation_optimizer.optimize_greedy(
+            candidates, num_primers=self.config.num_primers
+        )
 
-        if self.config.optimization_method == 'hybrid':
-            optimizer = MILPFallbackOptimizer(
-                cache, fg_prefixes, bg_prefixes or [],
-                fg_seq_lengths, bg_seq_lengths
-            )
-            primers = optimizer.optimize(
-                candidates,
-                num_primers=self.config.num_primers,
-                max_time_seconds=self.config.max_optimization_time
-            )
-
-        elif self.config.optimization_method == 'milp':
-            from .milp_optimizer import MILPOptimizer
-            optimizer = MILPOptimizer(
-                cache, fg_prefixes, bg_prefixes or [],
-                fg_seq_lengths, bg_seq_lengths
-            )
-            primers = optimizer.optimize(
-                candidates,
-                num_primers=self.config.num_primers,
-                max_time_seconds=self.config.max_optimization_time
-            )
-
-        elif self.config.optimization_method == 'genetic':
-            from .genetic_algorithm import PrimerSetGA, GAConfig
-            from .reaction_conditions import ReactionConditions
-
-            # Configure GA
-            ga_config = GAConfig(
-                population_size=100,
-                generations=50,
-                mutation_rate=0.15,
-                crossover_rate=0.8,
-                min_set_size=max(4, self.config.num_primers - 2),
-                max_set_size=self.config.num_primers + 2
-            )
-
-            # Create reaction conditions
-            conditions = ReactionConditions(
-                temp=self.config.reaction_temp,
-                na_conc=self.config.na_conc
-            )
-
-            # Run genetic algorithm
-            ga = PrimerSetGA(
-                primer_pool=candidates,
-                fg_prefixes=fg_prefixes,
-                bg_prefixes=bg_prefixes or [],
-                fg_lengths=fg_seq_lengths,
-                bg_lengths=bg_seq_lengths,
-                conditions=conditions,
-                config=ga_config,
-                position_cache=cache
-            )
-            best_individual = ga.evolve(verbose=self.config.verbose)
-            primers = best_individual.primers
-
-        else:  # greedy/network
-            evaluation_optimizer = NetworkOptimizer(
-                cache, fg_prefixes, bg_prefixes or [],
-                fg_seq_lengths, bg_seq_lengths,
-                max_extension=self.config.max_extension,
-                uniformity_weight=self.config.uniformity_weight,
-                reaction_temp=self.config.reaction_temp,
-                tm_weight=self.config.tm_weight,
-                dimer_penalty=self.config.dimer_penalty,
-                max_dimer_bp=self.config.max_dimer_bp
-            )
-            primers = evaluation_optimizer.optimize_greedy(
-                candidates,
-                num_primers=self.config.num_primers
-            )
-
-        timing['optimization'] = time.time() - phase4_start
+        timing["optimization"] = time.time() - phase4_start
         logger.info(f"Optimization completed in {timing['optimization']:.2f}s")
         logger.info("")
 
@@ -272,15 +223,14 @@ class ImprovedPipeline:
         phase5_start = time.time()
 
         # Reuse optimizer from Phase 4 if available, otherwise create one
-        if evaluation_optimizer is None or not hasattr(evaluation_optimizer, 'score_primer_set'):
+        if evaluation_optimizer is None or not hasattr(evaluation_optimizer, "score_primer_set"):
             evaluation_optimizer = NetworkOptimizer(
-                cache, fg_prefixes, bg_prefixes or [],
-                fg_seq_lengths, bg_seq_lengths
+                cache, fg_prefixes, bg_prefixes or [], fg_seq_lengths, bg_seq_lengths
             )
         evaluation = evaluation_optimizer.score_primer_set(primers)
 
-        timing['evaluation'] = time.time() - phase5_start
-        timing['total'] = time.time() - start_time
+        timing["evaluation"] = time.time() - phase5_start
+        timing["total"] = time.time() - start_time
 
         # Summary
         logger.info("=" * 80)
@@ -302,15 +252,16 @@ class ImprovedPipeline:
         logger.info("=" * 80)
 
         return {
-            'primers': primers,
-            'evaluation': evaluation,
-            'timing': timing,
-            'config': self.config,
+            "primers": primers,
+            "evaluation": evaluation,
+            "timing": timing,
+            "config": self.config,
         }
 
     def _get_genome_lengths(self, fasta_path: str) -> List[int]:
         """Get lengths of all sequences in FASTA"""
         from Bio import SeqIO
+
         lengths = []
         for record in SeqIO.parse(fasta_path, "fasta"):
             lengths.append(len(record.seq))
@@ -325,7 +276,7 @@ def migrate_from_old_pipeline(old_params_json: str, output_json: str):
     """
     import json
 
-    with open(old_params_json, 'r') as f:
+    with open(old_params_json, "r") as f:
         old_params = json.load(f)
 
     # Map old parameters to new config
@@ -334,35 +285,39 @@ def migrate_from_old_pipeline(old_params_json: str, output_json: str):
         reaction_temp=30.0,
         na_conc=50.0,
         use_background_filter=True,
-        num_primers=old_params.get('max_sets', 10),
-        optimization_method='hybrid',  # Use best method automatically
+        num_primers=old_params.get("max_sets", 10),
+        optimization_method="hybrid",  # Use best method automatically
         max_optimization_time=300,
     )
 
     # Convert to dictionary
     config_dict = {
-        'fg_genomes': old_params['fg_genomes'],
-        'bg_genomes': old_params.get('bg_genomes', []),
-        'fg_prefixes': old_params['fg_prefixes'],
-        'bg_prefixes': old_params.get('bg_prefixes', []),
-        'data_dir': old_params['data_dir'],
-        'config': {
-            'gc_tolerance': new_config.gc_tolerance,
-            'reaction_temp': new_config.reaction_temp,
-            'num_primers': new_config.num_primers,
-            'optimization_method': new_config.optimization_method,
-        }
+        "fg_genomes": old_params["fg_genomes"],
+        "bg_genomes": old_params.get("bg_genomes", []),
+        "fg_prefixes": old_params["fg_prefixes"],
+        "bg_prefixes": old_params.get("bg_prefixes", []),
+        "data_dir": old_params["data_dir"],
+        "config": {
+            "gc_tolerance": new_config.gc_tolerance,
+            "reaction_temp": new_config.reaction_temp,
+            "num_primers": new_config.num_primers,
+            "optimization_method": new_config.optimization_method,
+        },
     }
 
-    with open(output_json, 'w') as f:
+    with open(output_json, "w") as f:
         json.dump(config_dict, f, indent=4)
 
     logger.info(f"Migrated parameters: {old_params_json} → {output_json}")
 
 
-def run_comparison(fg_genome: str, fg_prefixes: List[str],
-                  bg_genome: str, bg_prefixes: List[str],
-                  candidates: List[str]):
+def run_comparison(
+    fg_genome: str,
+    fg_prefixes: List[str],
+    bg_genome: str,
+    bg_prefixes: List[str],
+    candidates: List[str],
+):
     """
     Run old vs. new pipeline comparison.
 
@@ -375,15 +330,11 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
     # Run new pipeline
     logger.info("=== NEW PIPELINE ===")
     new_config = PipelineConfig(
-        use_background_filter=True,
-        optimization_method='hybrid',
-        verbose=False
+        use_background_filter=True, optimization_method="hybrid", verbose=False
     )
     new_pipeline = ImprovedPipeline(new_config)
     new_result = new_pipeline.design_primers(
-        fg_genome, fg_prefixes,
-        bg_genome, bg_prefixes,
-        candidates
+        fg_genome, fg_prefixes, bg_genome, bg_prefixes, candidates
     )
 
     # Simulate old pipeline (ratio-based)
@@ -392,6 +343,7 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
 
     # Simplified version of old algorithm
     from .position_cache import PositionCache
+
     cache = PositionCache(fg_prefixes + bg_prefixes, candidates)
 
     primer_ratios = []
@@ -408,8 +360,7 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
     fg_seq_lengths = new_pipeline._get_genome_lengths(fg_genome)
     bg_seq_lengths = new_pipeline._get_genome_lengths(bg_genome)
 
-    evaluator = NetworkOptimizer(cache, fg_prefixes, bg_prefixes,
-                                fg_seq_lengths, bg_seq_lengths)
+    evaluator = NetworkOptimizer(cache, fg_prefixes, bg_prefixes, fg_seq_lengths, bg_seq_lengths)
     old_evaluation = evaluator.score_primer_set(old_primers)
 
     logger.info(f"Selected primers: {old_primers}")
@@ -418,7 +369,7 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
 
     # Comparison
     logger.info("=== COMPARISON ===")
-    improvement = new_result['evaluation']['enrichment'] / old_evaluation['enrichment']
+    improvement = new_result["evaluation"]["enrichment"] / old_evaluation["enrichment"]
     logger.info(f"New pipeline enrichment: {new_result['evaluation']['enrichment']:.1f}x")
     logger.info(f"Old pipeline enrichment: {old_evaluation['enrichment']:.1f}x")
     logger.info(f"Improvement: {improvement:.2f}x better")
@@ -434,8 +385,7 @@ def run_comparison(fg_genome: str, fg_prefixes: List[str],
 if __name__ == "__main__":
     import sys
 
-    logging.basicConfig(level=logging.INFO,
-                       format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
     if len(sys.argv) > 1:
         command = sys.argv[1]
@@ -457,6 +407,7 @@ if __name__ == "__main__":
             # hook is for quick ad-hoc probing by developers.
             try:
                 import os
+
                 if not os.path.isfile(fg_genome):
                     print(f"  FAIL: genome file not found: {fg_genome}")
                     sys.exit(1)

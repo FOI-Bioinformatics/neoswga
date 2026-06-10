@@ -17,10 +17,11 @@ Usage:
     recommendations = analyzer.generate_recommendations()
 """
 
-import numpy as np
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CoverageAnalysis:
     """Detailed coverage analysis"""
+
     overall_coverage: float
     uniformity: float
     gaps: List[Dict]
@@ -41,6 +43,7 @@ class CoverageAnalysis:
 @dataclass
 class SpecificityAnalysis:
     """Specificity and enrichment analysis"""
+
     enrichment: float
     target_sites: int
     background_sites: int
@@ -52,6 +55,7 @@ class SpecificityAnalysis:
 @dataclass
 class PrimerContribution:
     """Individual primer contribution to overall performance"""
+
     primer: str
     target_sites: int
     background_sites: int
@@ -64,6 +68,7 @@ class PrimerContribution:
 @dataclass
 class ComprehensiveAnalysis:
     """Complete simulation analysis"""
+
     coverage: CoverageAnalysis
     specificity: SpecificityAnalysis
     primer_contributions: List[PrimerContribution]
@@ -77,8 +82,15 @@ class SimulationAnalyzer:
     Analyzes SWGA simulation results to identify strengths, weaknesses, and improvements.
     """
 
-    def __init__(self, result, fg_positions: Dict, bg_positions: Dict,
-                 fg_length: int, bg_length: int, bin_size: int = 10000):
+    def __init__(
+        self,
+        result,
+        fg_positions: Dict,
+        bg_positions: Dict,
+        fg_length: int,
+        bg_length: int,
+        bin_size: int = 10000,
+    ):
         """
         Initialize analyzer.
 
@@ -119,7 +131,9 @@ class SimulationAnalyzer:
         quality_score = self._calculate_quality_score(coverage, specificity)
 
         # Generate recommendations
-        recommendations = self._generate_recommendations(coverage, specificity, primer_contributions)
+        recommendations = self._generate_recommendations(
+            coverage, specificity, primer_contributions
+        )
 
         # Identify issues
         issues = self._identify_issues(coverage, specificity, primer_contributions)
@@ -130,7 +144,7 @@ class SimulationAnalyzer:
             primer_contributions=primer_contributions,
             quality_score=quality_score,
             recommendations=recommendations,
-            issues=issues
+            issues=issues,
         )
 
     def _analyze_coverage(self) -> CoverageAnalysis:
@@ -138,15 +152,16 @@ class SimulationAnalyzer:
         # Get all binding positions
         all_positions = []
         for primer, pos_data in self.fg_positions.items():
-            all_positions.extend(pos_data['+'])
-            all_positions.extend(pos_data['-'])
+            all_positions.extend(pos_data["+"])
+            all_positions.extend(pos_data["-"])
 
         all_positions = sorted(all_positions)
 
         # Calculate inter-site distances
         if len(all_positions) > 1:
-            distances = [all_positions[i+1] - all_positions[i]
-                        for i in range(len(all_positions)-1)]
+            distances = [
+                all_positions[i + 1] - all_positions[i] for i in range(len(all_positions) - 1)
+            ]
             mean_distance = np.mean(distances)
             max_distance = max(distances)
         else:
@@ -164,7 +179,7 @@ class SimulationAnalyzer:
 
         # Identify gaps
         gaps = self._identify_detailed_gaps(covered_bins, n_bins)
-        largest_gap = max(gaps, key=lambda g: g['length']) if gaps else None
+        largest_gap = max(gaps, key=lambda g: g["length"]) if gaps else None
 
         return CoverageAnalysis(
             overall_coverage=len(covered_bins) / n_bins if n_bins > 0 else 0,
@@ -174,16 +189,14 @@ class SimulationAnalyzer:
             mean_inter_site_distance=mean_distance,
             max_inter_site_distance=max_distance,
             bins_covered=len(covered_bins),
-            bins_total=n_bins
+            bins_total=n_bins,
         )
 
     def _analyze_specificity(self) -> SpecificityAnalysis:
         """Analyze specificity and enrichment"""
         # Count total sites
-        fg_sites = sum(len(pos['+']) + len(pos['-'])
-                      for pos in self.fg_positions.values())
-        bg_sites = sum(len(pos['+']) + len(pos['-'])
-                      for pos in self.bg_positions.values())
+        fg_sites = sum(len(pos["+"]) + len(pos["-"]) for pos in self.fg_positions.values())
+        bg_sites = sum(len(pos["+"]) + len(pos["-"]) for pos in self.bg_positions.values())
 
         # Calculate densities (sites per Mbp)
         fg_density = fg_sites / (self.fg_length / 1e6)
@@ -195,7 +208,7 @@ class SimulationAnalyzer:
             background_sites=bg_sites,
             specificity_score=self.result.specificity_score,
             target_density=fg_density,
-            background_density=bg_density
+            background_density=bg_density,
         )
 
     def _analyze_primer_contributions(self) -> List[PrimerContribution]:
@@ -207,11 +220,11 @@ class SimulationAnalyzer:
         # Get global covered bins
         all_covered_bins = set()
         for pos_data in self.fg_positions.values():
-            for pos in pos_data['+']:
+            for pos in pos_data["+"]:
                 bin_idx = int(pos) // self.bin_size
                 if 0 <= bin_idx < n_bins:
                     all_covered_bins.add(bin_idx)
-            for pos in pos_data['-']:
+            for pos in pos_data["-"]:
                 bin_idx = int(pos) // self.bin_size
                 if 0 <= bin_idx < n_bins:
                     all_covered_bins.add(bin_idx)
@@ -219,25 +232,25 @@ class SimulationAnalyzer:
         # Analyze each primer
         for primer in self.fg_positions.keys():
             fg_pos = self.fg_positions[primer]
-            bg_pos = self.bg_positions.get(primer, {'+': [], '-': []})
+            bg_pos = self.bg_positions.get(primer, {"+": [], "-": []})
 
             # Count sites
-            fg_sites = len(fg_pos['+']) + len(fg_pos['-'])
-            bg_sites = len(bg_pos['+']) + len(bg_pos['-'])
+            fg_sites = len(fg_pos["+"]) + len(fg_pos["-"])
+            bg_sites = len(bg_pos["+"]) + len(bg_pos["-"])
 
             # Calculate specificity
             if bg_sites > 0:
                 specificity = fg_sites / bg_sites
             else:
-                specificity = float('inf')
+                specificity = float("inf")
 
             # Bins covered by this primer
             primer_bins = set()
-            for pos in fg_pos['+']:
+            for pos in fg_pos["+"]:
                 bin_idx = int(pos) // self.bin_size
                 if 0 <= bin_idx < n_bins:
                     primer_bins.add(bin_idx)
-            for pos in fg_pos['-']:
+            for pos in fg_pos["-"]:
                 bin_idx = int(pos) // self.bin_size
                 if 0 <= bin_idx < n_bins:
                     primer_bins.add(bin_idx)
@@ -246,11 +259,11 @@ class SimulationAnalyzer:
             other_bins = set()
             for other_primer, other_pos in self.fg_positions.items():
                 if other_primer != primer:
-                    for pos in other_pos['+']:
+                    for pos in other_pos["+"]:
                         bin_idx = int(pos) // self.bin_size
                         if 0 <= bin_idx < n_bins:
                             other_bins.add(bin_idx)
-                    for pos in other_pos['-']:
+                    for pos in other_pos["-"]:
                         bin_idx = int(pos) // self.bin_size
                         if 0 <= bin_idx < n_bins:
                             other_bins.add(bin_idx)
@@ -262,15 +275,17 @@ class SimulationAnalyzer:
             spec_contribution = min(specificity / 100, 1.0)  # Normalize to 0-1
             contribution_score = 0.6 * coverage_contribution + 0.4 * spec_contribution
 
-            contributions.append(PrimerContribution(
-                primer=primer,
-                target_sites=fg_sites,
-                background_sites=bg_sites,
-                specificity=specificity,
-                bins_covered=len(primer_bins),
-                unique_bins=len(unique_bins),
-                contribution_score=contribution_score
-            ))
+            contributions.append(
+                PrimerContribution(
+                    primer=primer,
+                    target_sites=fg_sites,
+                    background_sites=bg_sites,
+                    specificity=specificity,
+                    bins_covered=len(primer_bins),
+                    unique_bins=len(unique_bins),
+                    contribution_score=contribution_score,
+                )
+            )
 
         # Sort by contribution score
         contributions.sort(key=lambda c: c.contribution_score, reverse=True)
@@ -286,35 +301,38 @@ class SimulationAnalyzer:
         gaps = []
 
         for i in range(len(sorted_bins) - 1):
-            gap_size = sorted_bins[i+1] - sorted_bins[i] - 1
+            gap_size = sorted_bins[i + 1] - sorted_bins[i] - 1
 
             if gap_size > 0:
                 start_pos = (sorted_bins[i] + 1) * self.bin_size
-                end_pos = sorted_bins[i+1] * self.bin_size
+                end_pos = sorted_bins[i + 1] * self.bin_size
                 gap_length = end_pos - start_pos
 
                 # Characterize gap severity
                 if gap_length > 100000:  # >100kb
-                    severity = 'critical'
+                    severity = "critical"
                 elif gap_length > 50000:  # >50kb
-                    severity = 'high'
+                    severity = "high"
                 elif gap_length > 20000:  # >20kb
-                    severity = 'medium'
+                    severity = "medium"
                 else:
-                    severity = 'low'
+                    severity = "low"
 
-                gaps.append({
-                    'start': start_pos,
-                    'end': end_pos,
-                    'length': gap_length,
-                    'bins': gap_size,
-                    'severity': severity
-                })
+                gaps.append(
+                    {
+                        "start": start_pos,
+                        "end": end_pos,
+                        "length": gap_length,
+                        "bins": gap_size,
+                        "severity": severity,
+                    }
+                )
 
         return gaps
 
-    def _calculate_quality_score(self, coverage: CoverageAnalysis,
-                                 specificity: SpecificityAnalysis) -> float:
+    def _calculate_quality_score(
+        self, coverage: CoverageAnalysis, specificity: SpecificityAnalysis
+    ) -> float:
         """Calculate overall quality score (0-1)"""
         # Coverage component
         coverage_score = coverage.overall_coverage
@@ -327,23 +345,24 @@ class SimulationAnalyzer:
 
         # Gap penalty
         gap_penalty = 0
-        if coverage.largest_gap and coverage.largest_gap['length'] > 100000:
+        if coverage.largest_gap and coverage.largest_gap["length"] > 100000:
             gap_penalty = 0.1
-        elif coverage.largest_gap and coverage.largest_gap['length'] > 50000:
+        elif coverage.largest_gap and coverage.largest_gap["length"] > 50000:
             gap_penalty = 0.05
 
         # Weighted average
         quality = (
-            0.35 * coverage_score +
-            0.25 * uniformity_score +
-            0.40 * spec_score
+            0.35 * coverage_score + 0.25 * uniformity_score + 0.40 * spec_score
         ) - gap_penalty
 
         return max(0.0, min(1.0, quality))
 
-    def _generate_recommendations(self, coverage: CoverageAnalysis,
-                                  specificity: SpecificityAnalysis,
-                                  primers: List[PrimerContribution]) -> List[str]:
+    def _generate_recommendations(
+        self,
+        coverage: CoverageAnalysis,
+        specificity: SpecificityAnalysis,
+        primers: List[PrimerContribution],
+    ) -> List[str]:
         """Generate actionable recommendations"""
         recommendations = []
 
@@ -354,9 +373,7 @@ class SimulationAnalyzer:
                 f"Consider adding {5-len(primers)} more primers to improve coverage."
             )
         elif coverage.overall_coverage > 0.7:
-            recommendations.append(
-                "Excellent coverage! Primer set is well-distributed."
-            )
+            recommendations.append("Excellent coverage! Primer set is well-distributed.")
 
         # Uniformity recommendations
         if coverage.uniformity < 0.5:
@@ -367,7 +384,7 @@ class SimulationAnalyzer:
             )
 
         # Gap recommendations
-        critical_gaps = [g for g in coverage.gaps if g['severity'] == 'critical']
+        critical_gaps = [g for g in coverage.gaps if g["severity"] == "critical"]
         if critical_gaps:
             recommendations.append(
                 f"Found {len(critical_gaps)} critical gaps (>100kb). "
@@ -398,9 +415,12 @@ class SimulationAnalyzer:
 
         return recommendations
 
-    def _identify_issues(self, coverage: CoverageAnalysis,
-                        specificity: SpecificityAnalysis,
-                        primers: List[PrimerContribution]) -> List[str]:
+    def _identify_issues(
+        self,
+        coverage: CoverageAnalysis,
+        specificity: SpecificityAnalysis,
+        primers: List[PrimerContribution],
+    ) -> List[str]:
         """Identify specific issues with primer set"""
         issues = []
 
@@ -408,7 +428,7 @@ class SimulationAnalyzer:
         if coverage.overall_coverage < 0.3:
             issues.append("CRITICAL: Very low coverage (<30%)")
 
-        if coverage.largest_gap and coverage.largest_gap['length'] > 100000:
+        if coverage.largest_gap and coverage.largest_gap["length"] > 100000:
             issues.append(
                 f"CRITICAL: Large gap detected at position {coverage.largest_gap['start']:,} "
                 f"({coverage.largest_gap['length']:,} bp)"
@@ -427,9 +447,7 @@ class SimulationAnalyzer:
         # Primer redundancy
         redundant = sum(1 for p in primers if p.unique_bins == 0)
         if redundant > 3:
-            issues.append(
-                f"WARNING: {redundant} primers are redundant (cover no unique bins)"
-            )
+            issues.append(f"WARNING: {redundant} primers are redundant (cover no unique bins)")
 
         return issues
 
@@ -449,8 +467,10 @@ def print_analysis_report(analysis: ComprehensiveAnalysis):
     print(f"Max inter-site distance: {analysis.coverage.max_inter_site_distance:,} bp")
     print(f"Number of gaps: {len(analysis.coverage.gaps)}")
     if analysis.coverage.largest_gap:
-        print(f"Largest gap: {analysis.coverage.largest_gap['length']:,} bp "
-              f"({analysis.coverage.largest_gap['severity']} severity)")
+        print(
+            f"Largest gap: {analysis.coverage.largest_gap['length']:,} bp "
+            f"({analysis.coverage.largest_gap['severity']} severity)"
+        )
 
     # Specificity section
     print("\n--- SPECIFICITY ANALYSIS ---")

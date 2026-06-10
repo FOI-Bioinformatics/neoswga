@@ -10,18 +10,20 @@ Design principles:
 - Immutable results: OptimizationResult is a frozen dataclass
 """
 
+import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Set, Tuple, Any
 from enum import Enum
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
 
 
 class OptimizationStatus(Enum):
     """Status of optimization run."""
+
     SUCCESS = "success"
     PARTIAL = "partial"  # Converged but below target
     NO_CONVERGENCE = "no_convergence"
@@ -35,6 +37,7 @@ class PrimerSetMetrics:
 
     Immutable to prevent accidental modification after optimization.
     """
+
     # Coverage metrics
     fg_coverage: float  # Fraction of foreground genome covered
     bg_coverage: float  # Fraction of background genome covered (lower is better)
@@ -65,25 +68,32 @@ class PrimerSetMetrics:
     # instead of a single aggregate. Empty dict in single-genome mode.
     per_target_coverage: Dict[str, float] = field(default_factory=dict)
 
+    # Per-primer extension reach (bp) used to compute fg_coverage. Recorded
+    # so the report can label "95% coverage at 3 kb reach" rather than
+    # leaving the granularity ambiguous. Defaults to the Phase 16 realistic
+    # per-primer reach for phi29.
+    extension_reach: int = 3000
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            'fg_coverage': self.fg_coverage,
-            'bg_coverage': self.bg_coverage,
-            'coverage_uniformity': self.coverage_uniformity,
-            'total_fg_sites': self.total_fg_sites,
-            'total_bg_sites': self.total_bg_sites,
-            'selectivity_ratio': self.selectivity_ratio,
-            'mean_tm': self.mean_tm,
-            'tm_range': list(self.tm_range),
-            'dimer_risk_score': self.dimer_risk_score,
-            'mean_gap': self.mean_gap,
-            'max_gap': self.max_gap,
-            'gap_gini': self.gap_gini,
-            'gap_entropy': self.gap_entropy,
-            'strand_alternation_score': self.strand_alternation_score,
-            'strand_coverage_ratio': self.strand_coverage_ratio,
-            'per_target_coverage': dict(self.per_target_coverage),
+            "fg_coverage": self.fg_coverage,
+            "bg_coverage": self.bg_coverage,
+            "coverage_uniformity": self.coverage_uniformity,
+            "total_fg_sites": self.total_fg_sites,
+            "total_bg_sites": self.total_bg_sites,
+            "selectivity_ratio": self.selectivity_ratio,
+            "mean_tm": self.mean_tm,
+            "tm_range": list(self.tm_range),
+            "dimer_risk_score": self.dimer_risk_score,
+            "mean_gap": self.mean_gap,
+            "max_gap": self.max_gap,
+            "gap_gini": self.gap_gini,
+            "gap_entropy": self.gap_entropy,
+            "strand_alternation_score": self.strand_alternation_score,
+            "strand_coverage_ratio": self.strand_coverage_ratio,
+            "per_target_coverage": dict(self.per_target_coverage),
+            "extension_reach": self.extension_reach,
         }
 
     # Application-profile weights for POST-HOC scoring (Phase 14C).
@@ -91,11 +101,41 @@ class PrimerSetMetrics:
     # clinical applications favour selectivity and dimer safety over raw
     # coverage, while metagenomics favours coverage above all.
     APPLICATION_WEIGHTS = {
-        "balanced":     {"coverage_w": 0.35, "selectivity_w": 0.30, "dimer_w": 0.15, "evenness_w": 0.10, "tm_w": 0.10},
-        "discovery":    {"coverage_w": 0.50, "selectivity_w": 0.15, "dimer_w": 0.10, "evenness_w": 0.15, "tm_w": 0.10},
-        "clinical":     {"coverage_w": 0.20, "selectivity_w": 0.45, "dimer_w": 0.20, "evenness_w": 0.10, "tm_w": 0.05},
-        "enrichment":   {"coverage_w": 0.35, "selectivity_w": 0.30, "dimer_w": 0.15, "evenness_w": 0.10, "tm_w": 0.10},
-        "metagenomics": {"coverage_w": 0.60, "selectivity_w": 0.10, "dimer_w": 0.10, "evenness_w": 0.15, "tm_w": 0.05},
+        "balanced": {
+            "coverage_w": 0.35,
+            "selectivity_w": 0.30,
+            "dimer_w": 0.15,
+            "evenness_w": 0.10,
+            "tm_w": 0.10,
+        },
+        "discovery": {
+            "coverage_w": 0.50,
+            "selectivity_w": 0.15,
+            "dimer_w": 0.10,
+            "evenness_w": 0.15,
+            "tm_w": 0.10,
+        },
+        "clinical": {
+            "coverage_w": 0.20,
+            "selectivity_w": 0.45,
+            "dimer_w": 0.20,
+            "evenness_w": 0.10,
+            "tm_w": 0.05,
+        },
+        "enrichment": {
+            "coverage_w": 0.35,
+            "selectivity_w": 0.30,
+            "dimer_w": 0.15,
+            "evenness_w": 0.10,
+            "tm_w": 0.10,
+        },
+        "metagenomics": {
+            "coverage_w": 0.60,
+            "selectivity_w": 0.10,
+            "dimer_w": 0.10,
+            "evenness_w": 0.15,
+            "tm_w": 0.05,
+        },
     }
 
     def normalized_score(
@@ -157,7 +197,7 @@ class PrimerSetMetrics:
         )
 
     @classmethod
-    def empty(cls) -> 'PrimerSetMetrics':
+    def empty(cls) -> "PrimerSetMetrics":
         """Create empty metrics for failed optimization."""
         return cls(
             fg_coverage=0.0,
@@ -169,8 +209,8 @@ class PrimerSetMetrics:
             mean_tm=0.0,
             tm_range=(0.0, 0.0),
             dimer_risk_score=1.0,
-            mean_gap=float('inf'),
-            max_gap=float('inf'),
+            mean_gap=float("inf"),
+            max_gap=float("inf"),
             gap_gini=1.0,
             gap_entropy=0.0,
             strand_alternation_score=0.0,
@@ -192,10 +232,10 @@ class PrimerSetMetrics:
 # Re-projected from APPLICATION_WEIGHTS so the post-hoc normalized_score
 # and the selection-time weighting push in the same direction per use case.
 OPTIMIZER_APPLICATION_WEIGHTS = {
-    "balanced":     {"tm_weight": 0.25, "uniformity_weight": 0.10, "dimer_penalty": 0.30},
-    "discovery":    {"tm_weight": 0.15, "uniformity_weight": 0.20, "dimer_penalty": 0.20},
-    "clinical":     {"tm_weight": 0.30, "uniformity_weight": 0.05, "dimer_penalty": 0.45},
-    "enrichment":   {"tm_weight": 0.25, "uniformity_weight": 0.10, "dimer_penalty": 0.30},
+    "balanced": {"tm_weight": 0.25, "uniformity_weight": 0.10, "dimer_penalty": 0.30},
+    "discovery": {"tm_weight": 0.15, "uniformity_weight": 0.20, "dimer_penalty": 0.20},
+    "clinical": {"tm_weight": 0.30, "uniformity_weight": 0.05, "dimer_penalty": 0.45},
+    "enrichment": {"tm_weight": 0.25, "uniformity_weight": 0.10, "dimer_penalty": 0.30},
     "metagenomics": {"tm_weight": 0.10, "uniformity_weight": 0.25, "dimer_penalty": 0.20},
 }
 
@@ -208,6 +248,7 @@ class OptimizationResult:
     Immutable to ensure results are not accidentally modified.
     Contains the selected primers, score, and detailed metrics.
     """
+
     primers: Tuple[str, ...]  # Selected primer sequences (tuple for immutability)
     score: float  # Overall optimization score
     status: OptimizationStatus
@@ -225,6 +266,13 @@ class OptimizationResult:
     # metrics when the Pareto front is present.
     pareto_front: Optional[Tuple[Tuple[str, ...], ...]] = None
     pareto_metrics: Optional[Tuple[Dict[str, Any], ...]] = None
+
+    # Per-method comparison rows when this result was produced by an ensemble
+    # run (method='ensemble'). Each row is a dict:
+    #   {method, normalized_score, score, n_primers, fg_coverage,
+    #    bg_coverage, status, selected}
+    # None for single-method runs.
+    ensemble_comparison: Optional[Tuple[Dict[str, Any], ...]] = None
 
     @property
     def num_primers(self) -> int:
@@ -252,19 +300,21 @@ class OptimizationResult:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         d = {
-            'primers': list(self.primers),
-            'score': self.score,
-            'status': self.status.value,
-            'metrics': self.metrics.to_dict(),
-            'iterations': self.iterations,
-            'optimizer_name': self.optimizer_name,
-            'num_primers': self.num_primers,
-            'message': self.message,
+            "primers": list(self.primers),
+            "score": self.score,
+            "status": self.status.value,
+            "metrics": self.metrics.to_dict(),
+            "iterations": self.iterations,
+            "optimizer_name": self.optimizer_name,
+            "num_primers": self.num_primers,
+            "message": self.message,
         }
         if self.pareto_front is not None:
-            d['pareto_front'] = [list(p) for p in self.pareto_front]
+            d["pareto_front"] = [list(p) for p in self.pareto_front]
             if self.pareto_metrics is not None:
-                d['pareto_metrics'] = list(self.pareto_metrics)
+                d["pareto_metrics"] = list(self.pareto_metrics)
+        if self.ensemble_comparison is not None:
+            d["ensemble_comparison"] = list(self.ensemble_comparison)
         return d
 
     def validate(
@@ -297,32 +347,36 @@ class OptimizationResult:
         if len(unique) != n:
             dup_counts = {p: primer_set.count(p) for p in unique}
             duplicates = [p for p, c in dup_counts.items() if c > 1]
-            issues.append({
-                "level": "error",
-                "code": "duplicate_primers",
-                "detail": f"{len(duplicates)} duplicate primer(s): {duplicates[:5]}",
-            })
+            issues.append(
+                {
+                    "level": "error",
+                    "code": "duplicate_primers",
+                    "detail": f"{len(duplicates)} duplicate primer(s): {duplicates[:5]}",
+                }
+            )
 
         # Set size check — warning unless the optimizer already flagged PARTIAL.
         if target_size is not None and n != target_size:
-            issues.append({
-                "level": ("warning" if self.status.value == "partial" else "error"),
-                "code": "set_size_mismatch",
-                "detail": f"Requested target_size={target_size}, got {n}",
-            })
+            issues.append(
+                {
+                    "level": ("warning" if self.status.value == "partial" else "error"),
+                    "code": "set_size_mismatch",
+                    "detail": f"Requested target_size={target_size}, got {n}",
+                }
+            )
 
         # Non-empty foreground coverage. ERROR status already carries 0.0
         # coverage implicitly, so skip that case.
         if self.status.value != "error":
             fg_cov = getattr(self.metrics, "fg_coverage", 0.0)
             if fg_cov < min_coverage:
-                issues.append({
-                    "level": ("warning" if self.status.value == "partial" else "error"),
-                    "code": "coverage_below_threshold",
-                    "detail": (
-                        f"fg_coverage={fg_cov:.3f} < min_coverage={min_coverage:.3f}"
-                    ),
-                })
+                issues.append(
+                    {
+                        "level": ("warning" if self.status.value == "partial" else "error"),
+                        "code": "coverage_below_threshold",
+                        "detail": (f"fg_coverage={fg_cov:.3f} < min_coverage={min_coverage:.3f}"),
+                    }
+                )
 
         # Per-target coverage (multi-genome mode). Optimizers that populate
         # `metrics.per_target_coverage` (Phase 11D) have their minimum
@@ -330,17 +384,18 @@ class OptimizationResult:
         # optimizer did not report per-target numbers yet.
         per_target = getattr(self.metrics, "per_target_coverage", None)
         if per_target and min_per_target_coverage > 0.0:
-            below = {k: v for k, v in per_target.items()
-                     if v < min_per_target_coverage}
+            below = {k: v for k, v in per_target.items() if v < min_per_target_coverage}
             if below:
-                issues.append({
-                    "level": "warning",
-                    "code": "per_target_coverage_below_threshold",
-                    "detail": (
-                        f"{len(below)} target(s) below "
-                        f"{min_per_target_coverage:.2f}: {below}"
-                    ),
-                })
+                issues.append(
+                    {
+                        "level": "warning",
+                        "code": "per_target_coverage_below_threshold",
+                        "detail": (
+                            f"{len(below)} target(s) below "
+                            f"{min_per_target_coverage:.2f}: {below}"
+                        ),
+                    }
+                )
 
         # Blacklist re-injection guard. Caller passes forbidden_primers when
         # a blacklist is configured; catches the case where expand-primers
@@ -348,11 +403,13 @@ class OptimizationResult:
         if forbidden_primers:
             hits = set(primer_set) & set(forbidden_primers)
             if hits:
-                issues.append({
-                    "level": "error",
-                    "code": "blacklist_primer_in_set",
-                    "detail": f"Primers in blacklist: {sorted(hits)[:5]}",
-                })
+                issues.append(
+                    {
+                        "level": "error",
+                        "code": "blacklist_primer_in_set",
+                        "detail": f"Primers in blacklist: {sorted(hits)[:5]}",
+                    }
+                )
 
         has_error = any(i["level"] == "error" for i in issues)
         return {
@@ -363,11 +420,11 @@ class OptimizationResult:
         }
 
     @classmethod
-    def failure(cls, optimizer_name: str, message: str) -> 'OptimizationResult':
+    def failure(cls, optimizer_name: str, message: str) -> "OptimizationResult":
         """Create a failure result."""
         return cls(
             primers=tuple(),
-            score=float('-inf'),
+            score=float("-inf"),
             status=OptimizationStatus.ERROR,
             metrics=PrimerSetMetrics.empty(),
             iterations=0,
@@ -383,6 +440,7 @@ class OptimizerConfig:
 
     Subclasses can extend with optimizer-specific parameters.
     """
+
     target_set_size: int = 6
     max_iterations: int = 100
     max_dimer_bp: int = 4
@@ -391,8 +449,18 @@ class OptimizerConfig:
     verbose: bool = True
 
     # Polymerase-specific extension reach (bp) for coverage computation.
-    # Default 70000 (Phi29). Set from POLYMERASE_CHARACTERISTICS.
-    extension_reach: int = 70000
+    # Default 3000 is the realistic per-primer reach in a dense SWGA design
+    # (phi29 ~3 kb, equiphi29 ~4 kb; see coverage.polymerase_extension_reach
+    # and reaction_conditions.get_typical_amplicon_length). Per Phase 16
+    # critical gap #2, this value controls the coverage objective that
+    # optimizers maximize; using processivity here inflates fg_coverage
+    # 5-20x over what the set can actually amplify.
+    extension_reach: int = 3000
+
+    # Whether the target sequence is closed-circular. Controls whether the
+    # coverage window around a binding site wraps past the sequence ends.
+    # Populated from params.json `fg_circular` via unified_optimizer.
+    fg_circular: bool = False
 
     # Convergence criteria
     convergence_threshold: float = 0.001
@@ -537,7 +605,7 @@ class BaseOptimizer(ABC):
         candidates: List[str],
         target_size: Optional[int] = None,
         fixed_primers: Optional[List[str]] = None,
-        **kwargs
+        **kwargs,
     ) -> OptimizationResult:
         """
         Find optimal primer set from candidates.
@@ -589,7 +657,7 @@ class BaseOptimizer(ABC):
             if primer not in seen:
                 seen.add(primer)
                 # Basic validation
-                if primer and all(c in 'ATCG' for c in primer.upper()):
+                if primer and all(c in "ATCG" for c in primer.upper()):
                     valid.append(primer)
                 else:
                     logger.warning(f"Skipping invalid primer: {primer}")
@@ -599,12 +667,7 @@ class BaseOptimizer(ABC):
 
         return valid
 
-    def get_primer_positions(
-        self,
-        primer: str,
-        prefix: str,
-        strand: str = 'both'
-    ) -> np.ndarray:
+    def get_primer_positions(self, primer: str, prefix: str, strand: str = "both") -> np.ndarray:
         """
         Get binding positions for a primer in a genome.
 
@@ -650,11 +713,11 @@ class BaseOptimizer(ABC):
 
         for primer in primers:
             for prefix in self.fg_prefixes:
-                positions = self.get_primer_positions(primer, prefix, 'both')
+                positions = self.get_primer_positions(primer, prefix, "both")
                 fg_positions.extend(positions.tolist())
 
             for prefix in self.bg_prefixes:
-                positions = self.get_primer_positions(primer, prefix, 'both')
+                positions = self.get_primer_positions(primer, prefix, "both")
                 bg_positions.extend(positions.tolist())
 
         fg_positions = sorted(set(fg_positions))
@@ -662,17 +725,22 @@ class BaseOptimizer(ABC):
 
         # Coverage
         fg_coverage = self._compute_coverage(fg_positions, self.fg_total_length)
-        bg_coverage = self._compute_coverage(bg_positions, self.bg_total_length) if self.bg_total_length > 0 else 0.0
+        bg_coverage = (
+            self._compute_coverage(bg_positions, self.bg_total_length)
+            if self.bg_total_length > 0
+            else 0.0
+        )
 
         # Gap statistics
         gaps = self._compute_gaps(fg_positions, self.fg_total_length)
-        mean_gap = np.mean(gaps) if gaps else float('inf')
-        max_gap = max(gaps) if gaps else float('inf')
+        mean_gap = np.mean(gaps) if gaps else float("inf")
+        max_gap = max(gaps) if gaps else float("inf")
         gap_gini = self._gini(gaps) if gaps else 1.0
 
         # Shannon entropy of gap distribution
         if len(gaps) >= 2:
             from scipy.stats import entropy as scipy_entropy
+
             counts, _ = np.histogram(gaps, bins=min(50, len(gaps)))
             counts = counts[counts > 0]
             probs = counts / counts.sum()
@@ -696,14 +764,14 @@ class BaseOptimizer(ABC):
         # Strand alternation metrics
         strand_alt_score = 0.0
         strand_cov_ratio = 0.0
-        if self.cache is not None and hasattr(self.cache, 'compute_strand_alternation_stats'):
+        if self.cache is not None and hasattr(self.cache, "compute_strand_alternation_stats"):
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
                 try:
                     strand_stats = self.cache.compute_strand_alternation_stats(
                         prefix, primers, length
                     )
-                    strand_alt_score = strand_stats['strand_alternation_score']
-                    strand_cov_ratio = strand_stats['strand_coverage_ratio']
+                    strand_alt_score = strand_stats["strand_alternation_score"]
+                    strand_cov_ratio = strand_stats["strand_coverage_ratio"]
                     break  # Use first fg genome stats
                 except Exception:
                     pass
@@ -724,36 +792,43 @@ class BaseOptimizer(ABC):
             gap_entropy=gap_entropy,
             strand_alternation_score=strand_alt_score,
             strand_coverage_ratio=strand_cov_ratio,
+            extension_reach=self.config.extension_reach,
         )
 
     def _compute_coverage(self, positions: List[int], total_length: int) -> float:
         """Compute coverage fraction from positions.
 
-        Uses ``config.extension_reach`` (polymerase processivity in bp) to
+        Uses ``config.extension_reach`` (per-primer reach in bp) to
         determine how far each binding site extends along the genome.
-        Phi29 extends in both directions from the primer binding site.
+        Each binding site marks ``[pos - reach, pos + reach]`` occupied
+        and coverage is the union across all positions.
+
+        When ``config.fg_circular`` is True, the window wraps past the
+        sequence ends instead of being clipped. Delegates the per-site
+        marking to :func:`coverage._mark_window` so this implementation
+        stays in sync with :func:`coverage.compute_per_prefix_coverage`.
         """
+        import numpy as np
+
+        from .coverage import _mark_window
+
         if not positions or total_length == 0:
             return 0.0
+
         extension_reach = self.config.extension_reach
+        circular = getattr(self.config, "fg_circular", False)
 
-        # Build intervals: each binding site covers [pos - reach, pos + reach]
-        intervals = []
-        for pos in sorted(positions):
-            start = max(0, pos - extension_reach)
-            end = min(total_length, pos + extension_reach)
-            intervals.append((start, end))
+        # Full coverage short-circuit: on a circular target, a single
+        # binding site whose window spans the whole sequence covers
+        # everything.
+        if circular and 2 * extension_reach >= total_length:
+            return 1.0
 
-        # Merge overlapping intervals
-        merged = [intervals[0]]
-        for start, end in intervals[1:]:
-            if start <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-            else:
-                merged.append((start, end))
+        occupied = np.zeros(total_length, dtype=bool)
+        for pos in positions:
+            _mark_window(occupied, int(pos), extension_reach, total_length, circular)
 
-        covered = sum(end - start for start, end in merged)
-        return min(1.0, covered / total_length)
+        return float(occupied.sum()) / total_length
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
         """Compute gaps between adjacent binding sites."""
@@ -762,7 +837,7 @@ class BaseOptimizer(ABC):
         positions = sorted(positions)
         gaps = []
         for i in range(1, len(positions)):
-            gaps.append(positions[i] - positions[i-1])
+            gaps.append(positions[i] - positions[i - 1])
         # Add wrap-around gap for circular genomes
         gaps.append(total_length - positions[-1] + positions[0])
         return gaps
@@ -785,8 +860,8 @@ class BaseOptimizer(ABC):
 
     def _estimate_tm(self, primer: str) -> float:
         """Estimate melting temperature using Wallace rule."""
-        gc = primer.upper().count('G') + primer.upper().count('C')
-        at = primer.upper().count('A') + primer.upper().count('T')
+        gc = primer.upper().count("G") + primer.upper().count("C")
+        at = primer.upper().count("A") + primer.upper().count("T")
         return 4 * gc + 2 * at
 
     def _estimate_dimer_risk(self, primers: List[str]) -> float:
@@ -802,6 +877,7 @@ class BaseOptimizer(ABC):
 
         try:
             from .dimer_validator import DimerValidator
+
             validator = DimerValidator(max_dimer_bp=self.config.max_dimer_bp)
             return validator.dimer_risk(primers)
         except ImportError:
@@ -827,8 +903,7 @@ class CompositeOptimizer(BaseOptimizer):
         config: Optional[OptimizerConfig] = None,
     ):
         super().__init__(
-            position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config
+            position_cache, fg_prefixes, fg_seq_lengths, bg_prefixes, bg_seq_lengths, config
         )
         self.optimizers = optimizers
 
@@ -846,21 +921,32 @@ class CompositeOptimizer(BaseOptimizer):
         candidates: List[str],
         target_size: Optional[int] = None,
         fixed_primers: Optional[List[str]] = None,
-        **kwargs
+        application: str = "balanced",
+        **kwargs,
     ) -> OptimizationResult:
-        """Run all sub-optimizers and return best result."""
+        """Run all sub-optimizers and return the best result.
+
+        Selection is by ``normalized_score`` (a [0,1] value comparable across
+        optimizer types), NOT raw ``score`` — raw scores are on
+        per-optimizer scales and are not comparable.
+        """
+        from dataclasses import replace as _dc_replace
+
         candidates = self._validate_candidates(candidates)
         target = target_size or self.config.target_set_size
 
         best_result = None
+        best_norm = -1.0
 
         for optimizer in self.optimizers:
             try:
                 result = optimizer.optimize(
                     candidates, target, fixed_primers=fixed_primers, **kwargs
                 )
-                if best_result is None or result.score > best_result.score:
+                norm = result.metrics.normalized_score(application=application)
+                if best_result is None or norm > best_norm:
                     best_result = result
+                    best_norm = norm
             except Exception as e:
                 logger.warning(f"Optimizer {optimizer.name} failed: {e}")
 

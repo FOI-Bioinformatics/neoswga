@@ -17,50 +17,50 @@ Usage:
 """
 
 import logging
-from typing import List, Optional, Dict, Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from neoswga.core.set_size_optimizer import SetSizeMetrics, FrontierResult
+    from neoswga.core.set_size_optimizer import FrontierResult, SetSizeMetrics
 
 logger = logging.getLogger(__name__)
 
 
 # Application zone definitions for visualization
 APPLICATION_ZONES = {
-    'discovery': {
-        'label': 'Discovery Zone',
-        'color': '#90EE90',  # Light green
-        'min_coverage': 0.85,
-        'min_ratio': 1.5,
-        'description': 'High coverage, lower specificity',
+    "discovery": {
+        "label": "Discovery Zone",
+        "color": "#90EE90",  # Light green
+        "min_coverage": 0.85,
+        "min_ratio": 1.5,
+        "description": "High coverage, lower specificity",
     },
-    'clinical': {
-        'label': 'Clinical Zone',
-        'color': '#FFB6C1',  # Light pink
-        'min_coverage': 0.60,
-        'min_ratio': 8.0,
-        'description': 'High specificity, moderate coverage',
+    "clinical": {
+        "label": "Clinical Zone",
+        "color": "#FFB6C1",  # Light pink
+        "min_coverage": 0.60,
+        "min_ratio": 8.0,
+        "description": "High specificity, moderate coverage",
     },
-    'enrichment': {
-        'label': 'Enrichment Zone',
-        'color': '#ADD8E6',  # Light blue
-        'min_coverage': 0.75,
-        'min_ratio': 4.0,
-        'description': 'Balanced coverage and specificity',
+    "enrichment": {
+        "label": "Enrichment Zone",
+        "color": "#ADD8E6",  # Light blue
+        "min_coverage": 0.75,
+        "min_ratio": 4.0,
+        "description": "Balanced coverage and specificity",
     },
-    'metagenomics': {
-        'label': 'Metagenomics Zone',
-        'color': '#FFFACD',  # Light yellow
-        'min_coverage': 0.90,
-        'min_ratio': 1.0,
-        'description': 'Maximum coverage, lowest specificity threshold',
+    "metagenomics": {
+        "label": "Metagenomics Zone",
+        "color": "#FFFACD",  # Light yellow
+        "min_coverage": 0.90,
+        "min_ratio": 1.0,
+        "description": "Maximum coverage, lowest specificity threshold",
     },
 }
 
 
 def plot_frontier(
-    frontier_result: 'FrontierResult',
-    application: str = 'enrichment',
+    frontier_result: "FrontierResult",
+    application: str = "enrichment",
     show_zones: bool = True,
     show_all_points: bool = True,
     figsize: tuple = (10, 8),
@@ -84,10 +84,12 @@ def plot_frontier(
         ImportError: If matplotlib is not available
     """
     try:
-        import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
+        import matplotlib.pyplot as plt
     except ImportError:
-        raise ImportError("matplotlib is required for plotting. Install with: pip install matplotlib")
+        raise ImportError(
+            "matplotlib is required for plotting. Install with: pip install matplotlib"
+        )
 
     fig, ax = plt.subplots(figsize=figsize)
 
@@ -96,8 +98,9 @@ def plot_frontier(
     selected = frontier_result.selected_point
 
     if not pareto:
-        ax.text(0.5, 0.5, 'No Pareto points available',
-                ha='center', va='center', transform=ax.transAxes)
+        ax.text(
+            0.5, 0.5, "No Pareto points available", ha="center", va="center", transform=ax.transAxes
+        )
         return fig
 
     # Extract data
@@ -108,10 +111,11 @@ def plot_frontier(
     # Plot application zones as background regions
     if show_zones:
         max_ratio = max(pareto_ratio) * 1.1 if pareto_ratio else 20
-        zone = APPLICATION_ZONES.get(application, APPLICATION_ZONES['enrichment'])
-        ax.axhspan(zone['min_ratio'], max_ratio, alpha=0.2, color=zone['color'],
-                   label=f"{zone['label']}")
-        ax.axvspan(zone['min_coverage'], 1.0, alpha=0.1, color=zone['color'])
+        zone = APPLICATION_ZONES.get(application, APPLICATION_ZONES["enrichment"])
+        ax.axhspan(
+            zone["min_ratio"], max_ratio, alpha=0.2, color=zone["color"], label=f"{zone['label']}"
+        )
+        ax.axvspan(zone["min_coverage"], 1.0, alpha=0.1, color=zone["color"])
 
     # Plot non-Pareto points (faded)
     if show_all_points and all_points:
@@ -119,43 +123,66 @@ def plot_frontier(
         if non_pareto:
             np_coverage = [p.fg_coverage for p in non_pareto]
             np_ratio = [p.fg_bg_ratio for p in non_pareto]
-            ax.scatter(np_coverage, np_ratio, c='gray', alpha=0.3, s=50,
-                       label='Non-optimal', marker='o')
+            ax.scatter(
+                np_coverage, np_ratio, c="gray", alpha=0.3, s=50, label="Non-optimal", marker="o"
+            )
 
     # Plot Pareto frontier line
-    sorted_pareto = sorted(zip(pareto_coverage, pareto_ratio, pareto_sizes),
-                           key=lambda x: x[0])
+    sorted_pareto = sorted(zip(pareto_coverage, pareto_ratio, pareto_sizes), key=lambda x: x[0])
     cov_sorted = [x[0] for x in sorted_pareto]
     ratio_sorted = [x[1] for x in sorted_pareto]
 
-    ax.plot(cov_sorted, ratio_sorted, 'b-', alpha=0.5, linewidth=2)
+    ax.plot(cov_sorted, ratio_sorted, "b-", alpha=0.5, linewidth=2)
 
     # Plot Pareto points with size labels
-    scatter = ax.scatter(pareto_coverage, pareto_ratio, c='blue', s=100,
-                         label='Pareto optimal', marker='o', edgecolors='darkblue',
-                         linewidths=1.5, zorder=5)
+    scatter = ax.scatter(
+        pareto_coverage,
+        pareto_ratio,
+        c="blue",
+        s=100,
+        label="Pareto optimal",
+        marker="o",
+        edgecolors="darkblue",
+        linewidths=1.5,
+        zorder=5,
+    )
 
     # Add size labels
     for cov, ratio, size in sorted_pareto:
-        ax.annotate(str(size), (cov, ratio),
-                    textcoords="offset points", xytext=(5, 5),
-                    fontsize=9, color='darkblue')
+        ax.annotate(
+            str(size),
+            (cov, ratio),
+            textcoords="offset points",
+            xytext=(5, 5),
+            fontsize=9,
+            color="darkblue",
+        )
 
     # Highlight selected point
     if selected:
-        ax.scatter([selected.fg_coverage], [selected.fg_bg_ratio],
-                   c='red', s=200, marker='*', label='Selected',
-                   edgecolors='darkred', linewidths=2, zorder=10)
+        ax.scatter(
+            [selected.fg_coverage],
+            [selected.fg_bg_ratio],
+            c="red",
+            s=200,
+            marker="*",
+            label="Selected",
+            edgecolors="darkred",
+            linewidths=2,
+            zorder=10,
+        )
 
     # Labels and title
-    ax.set_xlabel('Target Genome Coverage', fontsize=12)
-    ax.set_ylabel('Foreground/Background Ratio (fg/bg)', fontsize=12)
+    ax.set_xlabel("Target Genome Coverage", fontsize=12)
+    ax.set_ylabel("Foreground/Background Ratio (fg/bg)", fontsize=12)
 
     if title:
         ax.set_title(title, fontsize=14)
     else:
-        ax.set_title(f'Coverage vs Specificity Pareto Frontier\n({application.capitalize()} Application)',
-                     fontsize=14)
+        ax.set_title(
+            f"Coverage vs Specificity Pareto Frontier\n({application.capitalize()} Application)",
+            fontsize=14,
+        )
 
     # Set axis limits with some padding
     ax.set_xlim(0, 1.05)
@@ -163,7 +190,7 @@ def plot_frontier(
         ax.set_ylim(0, max(pareto_ratio) * 1.15)
 
     # Legend
-    ax.legend(loc='upper left')
+    ax.legend(loc="upper left")
 
     # Grid
     ax.grid(True, alpha=0.3)
@@ -171,17 +198,23 @@ def plot_frontier(
     # Add explanation text
     explanation = frontier_result.selection_explanation
     if explanation:
-        ax.text(0.02, 0.02, explanation,
-                transform=ax.transAxes, fontsize=9,
-                verticalalignment='bottom', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+        ax.text(
+            0.02,
+            0.02,
+            explanation,
+            transform=ax.transAxes,
+            fontsize=9,
+            verticalalignment="bottom",
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.8),
+        )
 
     plt.tight_layout()
     return fig
 
 
 def generate_frontier_report(
-    frontier_result: 'FrontierResult',
-    application: str = 'enrichment',
+    frontier_result: "FrontierResult",
+    application: str = "enrichment",
     include_all_points: bool = False,
 ) -> str:
     """
@@ -270,7 +303,7 @@ def generate_frontier_report(
             lines.append("")
 
     # Application zone context
-    zone = APPLICATION_ZONES.get(application, APPLICATION_ZONES['enrichment'])
+    zone = APPLICATION_ZONES.get(application, APPLICATION_ZONES["enrichment"])
     lines.append("Application Zone Thresholds:")
     lines.append(f"  Minimum coverage target: {zone['min_coverage']:.0%}")
     lines.append(f"  Minimum fg/bg ratio: {zone['min_ratio']:.1f}")
@@ -282,13 +315,20 @@ def generate_frontier_report(
     lines.append("-" * 40)
 
     if selected:
-        if selected.fg_coverage >= zone['min_coverage'] and selected.fg_bg_ratio >= zone['min_ratio']:
+        if (
+            selected.fg_coverage >= zone["min_coverage"]
+            and selected.fg_bg_ratio >= zone["min_ratio"]
+        ):
             lines.append("  The selected set meets all application requirements.")
-        elif selected.fg_coverage < zone['min_coverage']:
-            lines.append(f"  Warning: Coverage ({selected.fg_coverage:.1%}) is below target ({zone['min_coverage']:.0%}).")
+        elif selected.fg_coverage < zone["min_coverage"]:
+            lines.append(
+                f"  Warning: Coverage ({selected.fg_coverage:.1%}) is below target ({zone['min_coverage']:.0%})."
+            )
             lines.append("  Consider using more primers or different candidates.")
-        elif selected.fg_bg_ratio < zone['min_ratio']:
-            lines.append(f"  Warning: fg/bg ratio ({selected.fg_bg_ratio:.1f}) is below target ({zone['min_ratio']:.1f}).")
+        elif selected.fg_bg_ratio < zone["min_ratio"]:
+            lines.append(
+                f"  Warning: fg/bg ratio ({selected.fg_bg_ratio:.1f}) is below target ({zone['min_ratio']:.1f})."
+            )
             lines.append("  Consider using fewer, more selective primers.")
     else:
         lines.append("  No set was selected. Review the Pareto frontier manually.")
@@ -300,8 +340,8 @@ def generate_frontier_report(
 
 
 def generate_frontier_json(
-    frontier_result: 'FrontierResult',
-    application: str = 'enrichment',
+    frontier_result: "FrontierResult",
+    application: str = "enrichment",
 ) -> Dict[str, Any]:
     """
     Generate JSON-serializable representation of frontier analysis.
@@ -313,37 +353,37 @@ def generate_frontier_json(
     Returns:
         Dictionary suitable for JSON serialization
     """
-    zone = APPLICATION_ZONES.get(application, APPLICATION_ZONES['enrichment'])
+    zone = APPLICATION_ZONES.get(application, APPLICATION_ZONES["enrichment"])
 
     result = {
-        'application': application,
-        'zone_thresholds': {
-            'min_coverage': zone['min_coverage'],
-            'min_fg_bg_ratio': zone['min_ratio'],
+        "application": application,
+        "zone_thresholds": {
+            "min_coverage": zone["min_coverage"],
+            "min_fg_bg_ratio": zone["min_ratio"],
         },
-        'frontier': frontier_result.to_dict(),
-        'summary': {
-            'total_evaluated': len(frontier_result.all_points),
-            'pareto_optimal_count': len(frontier_result.pareto_points),
+        "frontier": frontier_result.to_dict(),
+        "summary": {
+            "total_evaluated": len(frontier_result.all_points),
+            "pareto_optimal_count": len(frontier_result.pareto_points),
         },
     }
 
     if frontier_result.selected_point:
         selected = frontier_result.selected_point
-        result['summary']['selected'] = {
-            'set_size': selected.set_size,
-            'fg_coverage': selected.fg_coverage,
-            'fg_bg_ratio': selected.fg_bg_ratio,
-            'meets_coverage_target': selected.fg_coverage >= zone['min_coverage'],
-            'meets_ratio_target': selected.fg_bg_ratio >= zone['min_ratio'],
+        result["summary"]["selected"] = {
+            "set_size": selected.set_size,
+            "fg_coverage": selected.fg_coverage,
+            "fg_bg_ratio": selected.fg_bg_ratio,
+            "meets_coverage_target": selected.fg_coverage >= zone["min_coverage"],
+            "meets_ratio_target": selected.fg_bg_ratio >= zone["min_ratio"],
         }
 
     return result
 
 
 def summarize_frontier_for_cli(
-    frontier_result: 'FrontierResult',
-    application: str = 'enrichment',
+    frontier_result: "FrontierResult",
+    application: str = "enrichment",
 ) -> str:
     """
     Generate a concise CLI-friendly summary of the frontier.
@@ -381,7 +421,9 @@ def summarize_frontier_for_cli(
     ]
 
     if selected:
-        lines.append(f"Selected for '{application}': {selected.set_size} primers "
-                     f"({selected.fg_coverage:.0%} coverage, {selected.fg_bg_ratio:.1f}x ratio)")
+        lines.append(
+            f"Selected for '{application}': {selected.set_size} primers "
+            f"({selected.fg_coverage:.0%} coverage, {selected.fg_bg_ratio:.1f}x ratio)"
+        )
 
     return "\n".join(lines)

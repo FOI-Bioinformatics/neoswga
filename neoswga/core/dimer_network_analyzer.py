@@ -30,18 +30,19 @@ Version: 3.2 - Tier 1 Improvements (Sprint 2)
 """
 
 import logging
-from typing import List, Dict, Tuple, Optional, Set
-from dataclasses import dataclass, field
 from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set, Tuple
+
 import numpy as np
 
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.secondary_structure import (
+    StructurePrediction,
+    calculate_dimer_matrix,
     check_heterodimer,
     check_homodimer,
-    calculate_dimer_matrix,
-    StructurePrediction
 )
-from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DimerInteraction:
     """A dimer interaction between two primers."""
+
     primer1: str
     primer2: str
     energy: float  # ΔG in kcal/mol
@@ -60,13 +62,16 @@ class DimerInteraction:
     def __str__(self):
         dimer_type = "Homodimer" if self.is_homodimer else "Heterodimer"
         status = "FORMS" if self.forms_dimer else "weak"
-        return (f"{dimer_type}: {self.primer1[:8]}... ↔ {self.primer2[:8]}... "
-                f"({status}, ΔG={self.energy:.1f}, severity={self.severity:.2f})")
+        return (
+            f"{dimer_type}: {self.primer1[:8]}... ↔ {self.primer2[:8]}... "
+            f"({status}, ΔG={self.energy:.1f}, severity={self.severity:.2f})"
+        )
 
 
 @dataclass
 class PrimerDimerProfile:
     """Dimer interaction profile for a single primer."""
+
     primer: str
     num_interactions: int  # Number of primers this interacts with (severity > 0.3)
     max_severity: float  # Worst interaction severity
@@ -77,16 +82,19 @@ class PrimerDimerProfile:
 
     def __str__(self):
         hub_status = "HUB PRIMER" if self.is_hub else "normal"
-        return (f"{self.primer} ({hub_status}):\n"
-                f"  Interactions: {self.num_interactions}, "
-                f"Max severity: {self.max_severity:.2f}, "
-                f"Mean severity: {self.mean_severity:.2f}\n"
-                f"  Problematic partners: {len(self.problematic_partners)}")
+        return (
+            f"{self.primer} ({hub_status}):\n"
+            f"  Interactions: {self.num_interactions}, "
+            f"Max severity: {self.max_severity:.2f}, "
+            f"Mean severity: {self.mean_severity:.2f}\n"
+            f"  Problematic partners: {len(self.problematic_partners)}"
+        )
 
 
 @dataclass
 class DimerNetworkMetrics:
     """Overall network-level dimer metrics for a primer set."""
+
     num_primers: int
     total_interactions: int  # Count of interactions with severity > 0.3
     num_hub_primers: int  # Count of hub primers
@@ -99,12 +107,14 @@ class DimerNetworkMetrics:
 
     def __str__(self):
         status = "PASS" if self.passes else f"FAIL ({self.failure_reason})"
-        return (f"Dimer Network ({self.num_primers} primers): {status}\n"
-                f"  Total interactions: {self.total_interactions}\n"
-                f"  Hub primers: {self.num_hub_primers}\n"
-                f"  Mean severity: {self.mean_severity:.3f}\n"
-                f"  Max severity: {self.max_severity:.3f}\n"
-                f"  Total ΔG: {self.total_binding_energy:.1f} kcal/mol")
+        return (
+            f"Dimer Network ({self.num_primers} primers): {status}\n"
+            f"  Total interactions: {self.total_interactions}\n"
+            f"  Hub primers: {self.num_hub_primers}\n"
+            f"  Mean severity: {self.mean_severity:.3f}\n"
+            f"  Max severity: {self.max_severity:.3f}\n"
+            f"  Total ΔG: {self.total_binding_energy:.1f} kcal/mol"
+        )
 
 
 class DimerNetworkAnalyzer:
@@ -129,12 +139,14 @@ class DimerNetworkAnalyzer:
     - Large sets: 50 primers → 1225 comparisons → ~10 seconds
     """
 
-    def __init__(self,
-                 conditions: Optional[ReactionConditions] = None,
-                 severity_threshold: float = 0.3,
-                 hub_threshold: int = 3,
-                 max_mean_severity: float = 0.2,
-                 max_hub_primers: int = 2):
+    def __init__(
+        self,
+        conditions: Optional[ReactionConditions] = None,
+        severity_threshold: float = 0.3,
+        hub_threshold: int = 3,
+        max_mean_severity: float = 0.2,
+        max_hub_primers: int = 2,
+    ):
         """
         Initialize dimer network analyzer.
 
@@ -151,11 +163,9 @@ class DimerNetworkAnalyzer:
         self.max_mean_severity = max_mean_severity
         self.max_hub_primers = max_hub_primers
 
-    def analyze_primer_set(self,
-                          primers: List[str],
-                          verbose: bool = False) -> Tuple[DimerNetworkMetrics,
-                                                          Dict[str, PrimerDimerProfile],
-                                                          np.ndarray]:
+    def analyze_primer_set(
+        self, primers: List[str], verbose: bool = False
+    ) -> Tuple[DimerNetworkMetrics, Dict[str, PrimerDimerProfile], np.ndarray]:
         """
         Comprehensive network analysis of primer set.
 
@@ -172,12 +182,13 @@ class DimerNetworkAnalyzer:
             empty_metrics = DimerNetworkMetrics(
                 num_primers=0,
                 total_interactions=0,
-                mean_degree=0.0,
-                max_degree=0,
-                num_hubs=0,
-                hub_percentage=0.0,
+                num_hub_primers=0,
                 mean_severity=0.0,
-                max_severity=0.0
+                max_severity=0.0,
+                severity_distribution={},
+                total_binding_energy=0.0,
+                passes=False,
+                failure_reason="Empty primer set",
             )
             return empty_metrics, {}, np.array([])
 
@@ -189,29 +200,23 @@ class DimerNetworkAnalyzer:
         # Analyze each primer's interaction profile
         primer_profiles = {}
         for i, primer in enumerate(primers):
-            profile = self._analyze_primer_profile(
-                primer, i, primers, dimer_matrix
-            )
+            profile = self._analyze_primer_profile(primer, i, primers, dimer_matrix)
             primer_profiles[primer] = profile
 
             if verbose and profile.is_hub:
                 logger.info(f"HUB PRIMER DETECTED: {profile}")
 
         # Calculate set-level metrics
-        network_metrics = self._calculate_network_metrics(
-            primers, dimer_matrix, primer_profiles
-        )
+        network_metrics = self._calculate_network_metrics(primers, dimer_matrix, primer_profiles)
 
         if verbose:
             logger.info(f"\nNetwork Metrics:\n{network_metrics}")
 
         return network_metrics, primer_profiles, dimer_matrix
 
-    def _analyze_primer_profile(self,
-                                primer: str,
-                                primer_idx: int,
-                                all_primers: List[str],
-                                dimer_matrix: np.ndarray) -> PrimerDimerProfile:
+    def _analyze_primer_profile(
+        self, primer: str, primer_idx: int, all_primers: List[str], dimer_matrix: np.ndarray
+    ) -> PrimerDimerProfile:
         """Analyze dimer interaction profile for a single primer."""
         n = len(all_primers)
 
@@ -239,7 +244,9 @@ class DimerNetworkAnalyzer:
 
         # Calculate total binding energy (all dimers with severity > 0)
         # Rough conversion: severity 1.0 ≈ -24 kcal/mol, severity 0 ≈ -9 kcal/mol
-        total_energy = sum(-9 - 15 * s for s in severities if s > 0 and severities.tolist().index(s) != primer_idx)
+        total_energy = sum(
+            -9 - 15 * s for s in severities if s > 0 and severities.tolist().index(s) != primer_idx
+        )
 
         # Determine if hub
         is_hub = num_interactions >= self.hub_threshold
@@ -251,13 +258,15 @@ class DimerNetworkAnalyzer:
             mean_severity=mean_severity,
             total_binding_energy=total_energy,
             problematic_partners=problematic,
-            is_hub=is_hub
+            is_hub=is_hub,
         )
 
-    def _calculate_network_metrics(self,
-                                   primers: List[str],
-                                   dimer_matrix: np.ndarray,
-                                   primer_profiles: Dict[str, PrimerDimerProfile]) -> DimerNetworkMetrics:
+    def _calculate_network_metrics(
+        self,
+        primers: List[str],
+        dimer_matrix: np.ndarray,
+        primer_profiles: Dict[str, PrimerDimerProfile],
+    ) -> DimerNetworkMetrics:
         """Calculate overall network-level metrics."""
         n = len(primers)
 
@@ -284,24 +293,24 @@ class DimerNetworkAnalyzer:
 
         # Severity distribution
         severity_bins = {
-            'none (0-0.1)': 0,
-            'weak (0.1-0.3)': 0,
-            'moderate (0.3-0.5)': 0,
-            'strong (0.5-0.7)': 0,
-            'severe (0.7-1.0)': 0
+            "none (0-0.1)": 0,
+            "weak (0.1-0.3)": 0,
+            "moderate (0.3-0.5)": 0,
+            "strong (0.5-0.7)": 0,
+            "severe (0.7-1.0)": 0,
         }
 
         for severity in off_diagonal:
             if severity < 0.1:
-                severity_bins['none (0-0.1)'] += 1
+                severity_bins["none (0-0.1)"] += 1
             elif severity < 0.3:
-                severity_bins['weak (0.1-0.3)'] += 1
+                severity_bins["weak (0.1-0.3)"] += 1
             elif severity < 0.5:
-                severity_bins['moderate (0.3-0.5)'] += 1
+                severity_bins["moderate (0.3-0.5)"] += 1
             elif severity < 0.7:
-                severity_bins['strong (0.5-0.7)'] += 1
+                severity_bins["strong (0.5-0.7)"] += 1
             else:
-                severity_bins['severe (0.7-1.0)'] += 1
+                severity_bins["severe (0.7-1.0)"] += 1
 
         # Total binding energy
         total_energy = sum(p.total_binding_energy for p in primer_profiles.values())
@@ -329,12 +338,12 @@ class DimerNetworkAnalyzer:
             severity_distribution=severity_bins,
             total_binding_energy=total_energy,
             passes=passes,
-            failure_reason=failure_reason
+            failure_reason=failure_reason,
         )
 
-    def identify_primers_to_replace(self,
-                                   primer_profiles: Dict[str, PrimerDimerProfile],
-                                   n: int = 3) -> List[str]:
+    def identify_primers_to_replace(
+        self, primer_profiles: Dict[str, PrimerDimerProfile], n: int = 3
+    ) -> List[str]:
         """
         Identify the n primers that should be replaced to improve network.
 
@@ -364,8 +373,7 @@ class DimerNetworkAnalyzer:
             mean_severity_score = profile.mean_severity * 30
 
             # Combined score
-            total_score = (hub_score + interaction_score +
-                          max_severity_score + mean_severity_score)
+            total_score = hub_score + interaction_score + max_severity_score + mean_severity_score
             scores[primer] = total_score
 
         # Sort by score (descending)
@@ -374,11 +382,13 @@ class DimerNetworkAnalyzer:
         # Return top n
         return [primer for primer, score in sorted_primers[:n]]
 
-    def suggest_replacements(self,
-                            current_set: List[str],
-                            candidate_pool: List[str],
-                            primers_to_replace: List[str],
-                            max_candidates: int = 10) -> Dict[str, List[Tuple[str, float]]]:
+    def suggest_replacements(
+        self,
+        current_set: List[str],
+        candidate_pool: List[str],
+        primers_to_replace: List[str],
+        max_candidates: int = 10,
+    ) -> Dict[str, List[Tuple[str, float]]]:
         """
         Suggest replacement primers from candidate pool.
 
@@ -396,8 +406,10 @@ class DimerNetworkAnalyzer:
             Dict mapping primer_to_replace -> [(candidate, mean_severity), ...]
             Sorted by mean_severity (ascending)
         """
-        logger.info(f"Finding replacements for {len(primers_to_replace)} primers "
-                   f"from pool of {len(candidate_pool)} candidates...")
+        logger.info(
+            f"Finding replacements for {len(primers_to_replace)} primers "
+            f"from pool of {len(candidate_pool)} candidates..."
+        )
 
         # Remove primers_to_replace from current set
         remaining_set = [p for p in current_set if p not in primers_to_replace]
@@ -421,7 +433,7 @@ class DimerNetworkAnalyzer:
 
                 for remaining_primer in remaining_set:
                     result = predictor.predict_heterodimer(candidate, remaining_primer)
-                    severities.append(result['severity'])
+                    severities.append(result["severity"])
 
                 mean_severity = np.mean(severities) if severities else 0.0
                 candidate_scores.append((candidate, mean_severity))
@@ -434,10 +446,9 @@ class DimerNetworkAnalyzer:
 
         return suggestions
 
-    def optimize_set_greedy(self,
-                           primers: List[str],
-                           candidate_pool: List[str],
-                           max_iterations: int = 5) -> Tuple[List[str], DimerNetworkMetrics]:
+    def optimize_set_greedy(
+        self, primers: List[str], candidate_pool: List[str], max_iterations: int = 5
+    ) -> Tuple[List[str], DimerNetworkMetrics]:
         """
         Greedy optimization of primer set to minimize dimer burden.
 
@@ -464,8 +475,10 @@ class DimerNetworkAnalyzer:
             # Analyze current set
             metrics, profiles, matrix = self.analyze_primer_set(current_set, verbose=False)
 
-            logger.info(f"Iteration {iteration + 1}: Mean severity = {metrics.mean_severity:.3f}, "
-                       f"Hubs = {metrics.num_hub_primers}")
+            logger.info(
+                f"Iteration {iteration + 1}: Mean severity = {metrics.mean_severity:.3f}, "
+                f"Hubs = {metrics.num_hub_primers}"
+            )
 
             # Check if passes
             if metrics.passes:
@@ -493,16 +506,17 @@ class DimerNetworkAnalyzer:
 
             best_replacement, replacement_severity = suggestions[worst_primer][0]
 
-            logger.info(f"  Best replacement: {best_replacement[:10]} "
-                       f"(mean severity {replacement_severity:.3f})")
+            logger.info(
+                f"  Best replacement: {best_replacement[:10]} "
+                f"(mean severity {replacement_severity:.3f})"
+            )
 
             # Strict-improvement guard: only commit the swap if the resulting
             # set's mean_severity actually drops. Without this, a "best
             # available" candidate that is still worse than the current worst
             # primer would be accepted and degrade the set. Phase 12B: swap
             # must be monotone non-worsening.
-            candidate_set = [best_replacement if p == worst_primer else p
-                             for p in current_set]
+            candidate_set = [best_replacement if p == worst_primer else p for p in current_set]
             cand_metrics, _, _ = self.analyze_primer_set(candidate_set, verbose=False)
             if cand_metrics.mean_severity > metrics.mean_severity + 1e-6:
                 logger.info(
@@ -515,13 +529,16 @@ class DimerNetworkAnalyzer:
         # Final analysis
         final_metrics, _, _ = self.analyze_primer_set(current_set, verbose=False)
 
-        logger.info(f"Optimization complete. Final mean severity: {final_metrics.mean_severity:.3f}")
+        logger.info(
+            f"Optimization complete. Final mean severity: {final_metrics.mean_severity:.3f}"
+        )
 
         return current_set, final_metrics
 
 
-def create_dimer_network_analyzer(stringency: str = 'moderate',
-                                  conditions: Optional[ReactionConditions] = None) -> DimerNetworkAnalyzer:
+def create_dimer_network_analyzer(
+    stringency: str = "moderate", conditions: Optional[ReactionConditions] = None
+) -> DimerNetworkAnalyzer:
     """
     Create dimer network analyzer with preset stringency levels.
 
@@ -532,23 +549,23 @@ def create_dimer_network_analyzer(stringency: str = 'moderate',
     Returns:
         Configured DimerNetworkAnalyzer
     """
-    if stringency == 'lenient':
+    if stringency == "lenient":
         # Allow more dimer interactions (faster, less filtering)
         return DimerNetworkAnalyzer(
             conditions=conditions,
             severity_threshold=0.4,
             hub_threshold=4,
             max_mean_severity=0.3,
-            max_hub_primers=3
+            max_hub_primers=3,
         )
-    elif stringency == 'strict':
+    elif stringency == "strict":
         # Very stringent (slower, more filtering)
         return DimerNetworkAnalyzer(
             conditions=conditions,
             severity_threshold=0.2,
             hub_threshold=2,
             max_mean_severity=0.15,
-            max_hub_primers=1
+            max_hub_primers=1,
         )
     else:  # moderate (default)
         return DimerNetworkAnalyzer(
@@ -556,14 +573,16 @@ def create_dimer_network_analyzer(stringency: str = 'moderate',
             severity_threshold=0.3,
             hub_threshold=3,
             max_mean_severity=0.2,
-            max_hub_primers=2
+            max_hub_primers=2,
         )
 
 
 # Utility function for quick filtering
-def filter_primer_set_by_dimer_network(primers: List[str],
-                                       stringency: str = 'moderate',
-                                       conditions: Optional[ReactionConditions] = None) -> Tuple[bool, DimerNetworkMetrics]:
+def filter_primer_set_by_dimer_network(
+    primers: List[str],
+    stringency: str = "moderate",
+    conditions: Optional[ReactionConditions] = None,
+) -> Tuple[bool, DimerNetworkMetrics]:
     """
     Quick utility to check if primer set passes dimer network quality.
 
@@ -602,9 +621,9 @@ if __name__ == "__main__":
     # Analyze
     metrics, profiles, matrix = analyzer.analyze_primer_set(primer_set, verbose=True)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Network Analysis Complete!")
-    print("="*60)
+    print("=" * 60)
     print(f"{metrics}\n")
 
     # Identify primers to replace
@@ -612,7 +631,9 @@ if __name__ == "__main__":
     print(f"Primers recommended for replacement:")
     for i, primer in enumerate(to_replace, 1):
         profile = profiles[primer]
-        print(f"  {i}. {primer} (interactions: {profile.num_interactions}, "
-              f"max severity: {profile.max_severity:.2f})")
+        print(
+            f"  {i}. {primer} (interactions: {profile.num_interactions}, "
+            f"max severity: {profile.max_severity:.2f})"
+        )
 
     print("\nDimer Network Analyzer ready for integration!")

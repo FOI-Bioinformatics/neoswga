@@ -14,15 +14,17 @@ Potential for GPU acceleration in:
 Falls back to NumPy if GPU unavailable.
 """
 
-import numpy as np
-from typing import List, Dict, Tuple, Optional
 import logging
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
 # Try to import CuPy for GPU acceleration
 try:
     import cupy as cp
+
     GPU_AVAILABLE = True
     logger.debug("GPU acceleration available (CuPy detected)")
 except ImportError:
@@ -30,8 +32,8 @@ except ImportError:
     GPU_AVAILABLE = False
     logger.debug("CuPy not available, using CPU (NumPy)")
 
-from neoswga.core import thermodynamics as thermo
 from neoswga.core import reaction_conditions as rc
+from neoswga.core import thermodynamics as thermo
 
 
 def is_gpu_available() -> bool:
@@ -46,19 +48,18 @@ def get_gpu_info() -> Dict:
     Returns:
         Dictionary with GPU information
     """
-    info = {
-        'available': GPU_AVAILABLE,
-        'backend': 'cupy' if GPU_AVAILABLE else 'numpy'
-    }
+    info = {"available": GPU_AVAILABLE, "backend": "cupy" if GPU_AVAILABLE else "numpy"}
 
     if GPU_AVAILABLE:
         try:
             device = cp.cuda.Device()
-            info['device_id'] = device.id
-            info['device_name'] = cp.cuda.runtime.getDeviceProperties(device.id)['name'].decode()
-            info['memory_total_gb'] = cp.cuda.runtime.getDeviceProperties(device.id)['totalGlobalMem'] / (1024**3)
+            info["device_id"] = device.id
+            info["device_name"] = cp.cuda.runtime.getDeviceProperties(device.id)["name"].decode()
+            info["memory_total_gb"] = cp.cuda.runtime.getDeviceProperties(device.id)[
+                "totalGlobalMem"
+            ] / (1024**3)
         except Exception as e:
-            info['device_error'] = str(e)
+            info["device_error"] = str(e)
 
     return info
 
@@ -67,8 +68,8 @@ def log_gpu_status():
     """Log GPU availability status (call from CLI at startup)."""
     if GPU_AVAILABLE:
         info = get_gpu_info()
-        device_name = info.get('device_name', 'Unknown')
-        memory_gb = info.get('memory_total_gb', 0)
+        device_name = info.get("device_name", "Unknown")
+        memory_gb = info.get("memory_total_gb", 0)
         logger.info(f"GPU acceleration enabled: {device_name} ({memory_gb:.1f} GB)")
     else:
         logger.debug("GPU acceleration not available (CuPy not installed)")
@@ -77,6 +78,7 @@ def log_gpu_status():
 # ========================================
 # GPU Kernels for Thermodynamics
 # ========================================
+
 
 class GPUThermodynamics:
     """
@@ -93,7 +95,7 @@ class GPUThermodynamics:
             conditions: Reaction conditions
         """
         self.conditions = conditions
-        self.device = 'gpu' if GPU_AVAILABLE else 'cpu'
+        self.device = "gpu" if GPU_AVAILABLE else "cpu"
 
         # Precompute common values on GPU
         self.temp_kelvin = cp.array(conditions.temp + 273.15)
@@ -161,9 +163,9 @@ class GPUThermodynamics:
         else:
             return np.array([thermo.calculate_free_energy(p, temperature) for p in primers])
 
-    def calculate_pairwise_binding_matrix(self,
-                                         primers: List[str],
-                                         targets: List[str]) -> np.ndarray:
+    def calculate_pairwise_binding_matrix(
+        self, primers: List[str], targets: List[str]
+    ) -> np.ndarray:
         """
         Calculate pairwise binding free energies (primers × targets).
 
@@ -210,7 +212,9 @@ class GPUThermodynamics:
 
             return matrix
 
-    def batch_binding_probability(self, primers: List[str], temperature: float = None) -> np.ndarray:
+    def batch_binding_probability(
+        self, primers: List[str], temperature: float = None
+    ) -> np.ndarray:
         """
         Calculate binding probabilities for batch of primers.
 
@@ -256,7 +260,7 @@ class GPUThermodynamics:
             gc_array = cp.zeros(len(primers))
 
             for i, primer in enumerate(primers):
-                gc_count = primer.count('G') + primer.count('C')
+                gc_count = primer.count("G") + primer.count("C")
                 gc_array[i] = gc_count / len(primer)
 
             return cp.asnumpy(gc_array)
@@ -267,6 +271,7 @@ class GPUThermodynamics:
 # ========================================
 # Efficient Position Database
 # ========================================
+
 
 class PositionDatabase:
     """
@@ -302,17 +307,18 @@ class PositionDatabase:
                 try:
                     # Open with memory mapping and large chunk cache
                     handle = h5py.File(
-                        fname, 'r',
+                        fname,
+                        "r",
                         rdcc_nbytes=100 * 1024 * 1024,  # 100MB chunk cache
-                        rdcc_nslots=10000  # Cache slots
+                        rdcc_nslots=10000,  # Cache slots
                     )
                     self.handles[(prefix, k)] = handle
                 except FileNotFoundError:
                     pass  # Skip missing files
 
-        print(f"Position database initialized:")
-        print(f"  Files: {len(self.handles)}")
-        print(f"  Cache size: {cache_size}")
+        logger.info(f"Position database initialized:")
+        logger.info(f"  Files: {len(self.handles)}")
+        logger.info(f"  Cache size: {cache_size}")
 
     def get_positions(self, primer: str, prefix: str) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -356,7 +362,9 @@ class PositionDatabase:
 
         return result
 
-    def batch_get_positions(self, primers: List[str], prefix: str) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    def batch_get_positions(
+        self, primers: List[str], prefix: str
+    ) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
         """
         Batch load positions for multiple primers.
 
@@ -423,16 +431,16 @@ class PositionDatabase:
             primers: List of primers to preload
             prefix: File prefix
         """
-        print(f"Preloading {len(primers)} primers into cache...")
+        logger.info(f"Preloading {len(primers)} primers into cache...")
         self.batch_get_positions(primers, prefix)
-        print(f"  Cache now contains {len(self.cache)} entries")
+        logger.info(f"  Cache now contains {len(self.cache)} entries")
 
     def get_cache_stats(self) -> Dict:
         """Get cache statistics."""
         return {
-            'size': len(self.cache),
-            'capacity': self.cache_size,
-            'utilization': len(self.cache) / self.cache_size
+            "size": len(self.cache),
+            "capacity": self.cache_size,
+            "utilization": len(self.cache) / self.cache_size,
         }
 
     def __del__(self):
@@ -444,6 +452,7 @@ class PositionDatabase:
 # ========================================
 # High-Level API
 # ========================================
+
 
 def create_gpu_calculator(conditions: rc.ReactionConditions) -> GPUThermodynamics:
     """

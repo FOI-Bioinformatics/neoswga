@@ -27,17 +27,18 @@ Version: 3.0
 
 import logging
 import time
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 from Bio import SeqIO
 
 # Import genome-adaptive QA components
 from neoswga.core.genome_analysis import (
-    calculate_genome_gc,
     analyze_genome_for_qa,
-    recommend_adaptive_qa
+    calculate_genome_gc,
+    recommend_adaptive_qa,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GenomeCharacteristics:
     """Analyzed characteristics of a genome"""
+
     length: int
     gc_content: float
     complexity: float  # 0-1, based on k-mer diversity
@@ -63,6 +65,7 @@ class GenomeCharacteristics:
 @dataclass
 class OptimizationResult:
     """Complete result from optimal oligo generation"""
+
     primers: List[str]
     method_used: str
     polymerase: str
@@ -96,9 +99,17 @@ class PolymeraseProfile:
     and processivity modeling for Phi29 and EquiPhi29.
     """
 
-    def __init__(self, name: str, optimal_temp: float, extension_rate: float,
-                 min_temp: float, max_temp: float, processivity: int,
-                 yield_multiplier: float, base_gc_tolerance: float):
+    def __init__(
+        self,
+        name: str,
+        optimal_temp: float,
+        extension_rate: float,
+        min_temp: float,
+        max_temp: float,
+        processivity: int,
+        yield_multiplier: float,
+        base_gc_tolerance: float,
+    ):
         """
         Initialize polymerase profile.
 
@@ -121,8 +132,9 @@ class PolymeraseProfile:
         self.yield_multiplier = yield_multiplier
         self.base_gc_tolerance = base_gc_tolerance
 
-    def get_recommended_kmer_range(self, temp: float = None,
-                                   gc_content: float = 0.5) -> Tuple[int, int]:
+    def get_recommended_kmer_range(
+        self, temp: float = None, gc_content: float = 0.5
+    ) -> Tuple[int, int]:
         """
         Get recommended k-mer range based on temperature and GC content.
 
@@ -212,8 +224,7 @@ class PolymeraseProfile:
         else:
             return 1.0
 
-    def get_optimal_kmer_length(self, temperature: float = None,
-                                gc_content: float = 0.5) -> int:
+    def get_optimal_kmer_length(self, temperature: float = None, gc_content: float = 0.5) -> int:
         """
         Get single optimal k-mer length for conditions.
 
@@ -274,26 +285,26 @@ class PolymeraseProfile:
 
 # Pre-defined polymerase profiles with complete parameters
 POLYMERASE_PROFILES = {
-    'phi29': PolymeraseProfile(
-        name='phi29',
+    "phi29": PolymeraseProfile(
+        name="phi29",
         optimal_temp=30.0,
         extension_rate=167.0,  # bp/s from literature
         min_temp=25.0,
         max_temp=40.0,
         processivity=70000,  # 70kb processivity
         yield_multiplier=1.0,  # Baseline
-        base_gc_tolerance=0.15  # +/-15% GC tolerance
+        base_gc_tolerance=0.15,  # +/-15% GC tolerance
     ),
-    'equiphi29': PolymeraseProfile(
-        name='equiphi29',
+    "equiphi29": PolymeraseProfile(
+        name="equiphi29",
         optimal_temp=42.0,
         extension_rate=200.0,  # bp/s (faster than Phi29)
         min_temp=35.0,
         max_temp=50.0,
         processivity=80000,  # 80kb processivity (better than Phi29)
         yield_multiplier=1.15,  # 15% better yield
-        base_gc_tolerance=0.20  # +/-20% GC tolerance (thermostable)
-    )
+        base_gc_tolerance=0.20,  # +/-20% GC tolerance (thermostable)
+    ),
 }
 
 
@@ -305,8 +316,12 @@ class OptimalOligoGenerator:
     and generates validated primer sets.
     """
 
-    def __init__(self, target_genome: str, background_genome: Optional[str] = None,
-                 output_dir: Optional[str] = None):
+    def __init__(
+        self,
+        target_genome: str,
+        background_genome: Optional[str] = None,
+        output_dir: Optional[str] = None,
+    ):
         """
         Initialize generator.
 
@@ -317,7 +332,7 @@ class OptimalOligoGenerator:
         """
         self.target_genome_path = Path(target_genome)
         self.background_genome_path = Path(background_genome) if background_genome else None
-        self.output_dir = Path(output_dir) if output_dir else Path('neoswga_results')
+        self.output_dir = Path(output_dir) if output_dir else Path("neoswga_results")
 
         # Ensure output directory exists
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -344,30 +359,30 @@ class OptimalOligoGenerator:
         """
         # Use comprehensive genome analysis
         qa_analysis = analyze_genome_for_qa(genome_path)
-        gc_content = qa_analysis['gc_content']
-        length = qa_analysis['genome_stats']['length']
+        gc_content = qa_analysis["gc_content"]
+        length = qa_analysis["genome_stats"]["length"]
 
         # Get adaptive QA recommendation
-        adaptive_rec = qa_analysis['adaptive_qa_recommendation']
+        adaptive_rec = qa_analysis["adaptive_qa_recommendation"]
 
         # Calculate complexity (k-mer diversity) - load sequence
-        records = list(SeqIO.parse(genome_path, 'fasta'))
-        sequence = ''.join(str(rec.seq).upper() for rec in records)
+        records = list(SeqIO.parse(genome_path, "fasta"))
+        sequence = "".join(str(rec.seq).upper() for rec in records)
         complexity = self._calculate_complexity(sequence)
 
         # Determine recommended k-mer range
         if gc_content < 0.35:
             # AT-rich: shorter primers, standard conditions
             kmer_range = (8, 12)
-            recommended_polymerase = 'phi29'
+            recommended_polymerase = "phi29"
         elif gc_content > 0.65:
             # GC-rich: longer primers, elevated temperature
             kmer_range = (10, 15)
-            recommended_polymerase = 'equiphi29'
+            recommended_polymerase = "equiphi29"
         else:
             # Balanced: either polymerase works
             kmer_range = (9, 13)
-            recommended_polymerase = 'equiphi29'  # Slight preference for better yield
+            recommended_polymerase = "equiphi29"  # Slight preference for better yield
 
         # Calculate difficulty score
         difficulty = self._calculate_difficulty(length, gc_content, complexity)
@@ -379,10 +394,10 @@ class OptimalOligoGenerator:
             recommended_kmer_range=kmer_range,
             recommended_polymerase=recommended_polymerase,
             difficulty_score=difficulty,
-            gc_class=adaptive_rec['gc_class'],
-            use_adaptive_qa=adaptive_rec['use_adaptive'],
-            adaptive_qa_reason=adaptive_rec['reason'],
-            expected_improvement=adaptive_rec['expected_improvement']
+            gc_class=adaptive_rec["gc_class"],
+            use_adaptive_qa=adaptive_rec["use_adaptive"],
+            adaptive_qa_reason=adaptive_rec["reason"],
+            expected_improvement=adaptive_rec["expected_improvement"],
         )
 
     def _calculate_complexity(self, sequence: str, k: int = 8) -> float:
@@ -400,19 +415,19 @@ class OptimalOligoGenerator:
         if len(sequence) > sample_size:
             # Sample evenly across genome
             step = len(sequence) // sample_size
-            sampled = ''.join(sequence[i] for i in range(0, len(sequence), step))
+            sampled = "".join(sequence[i] for i in range(0, len(sequence), step))
         else:
             sampled = sequence
 
         # Count unique k-mers
         kmers = set()
         for i in range(len(sampled) - k + 1):
-            kmer = sampled[i:i+k]
-            if 'N' not in kmer:  # Skip ambiguous bases
+            kmer = sampled[i : i + k]
+            if "N" not in kmer:  # Skip ambiguous bases
                 kmers.add(kmer)
 
         # Calculate diversity ratio
-        max_possible = 4 ** k
+        max_possible = 4**k
         observed = len(kmers)
         sample_positions = len(sampled) - k + 1
 
@@ -422,8 +437,7 @@ class OptimalOligoGenerator:
 
         return np.clip(complexity, 0.0, 1.0)
 
-    def _calculate_difficulty(self, length: int, gc_content: float,
-                            complexity: float) -> float:
+    def _calculate_difficulty(self, length: int, gc_content: float, complexity: float) -> float:
         """
         Calculate genome difficulty score.
 
@@ -446,19 +460,15 @@ class OptimalOligoGenerator:
         complexity_penalty = 1.0 - complexity
 
         # Weighted average
-        difficulty = (
-            0.40 * gc_extremity +
-            0.35 * complexity_penalty +
-            0.25 * size_penalty
-        )
+        difficulty = 0.40 * gc_extremity + 0.35 * complexity_penalty + 0.25 * size_penalty
 
         return np.clip(difficulty, 0.0, 1.0)
 
     def _log_characteristics(self):
         """Log genome characteristics for user"""
-        logger.info("="*60)
+        logger.info("=" * 60)
         logger.info("GENOME ANALYSIS")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         logger.info(f"\nTarget Genome:")
         logger.info(f"  Length: {self.target_chars.length:,} bp")
@@ -466,7 +476,9 @@ class OptimalOligoGenerator:
         logger.info(f"  GC Class: {self.target_chars.gc_class.replace('_', ' ').title()}")
         logger.info(f"  Complexity: {self.target_chars.complexity:.2f}")
         logger.info(f"  Difficulty: {self.target_chars.difficulty_score:.2f}")
-        logger.info(f"  Recommended k-mer range: {self.target_chars.recommended_kmer_range[0]}-{self.target_chars.recommended_kmer_range[1]}")
+        logger.info(
+            f"  Recommended k-mer range: {self.target_chars.recommended_kmer_range[0]}-{self.target_chars.recommended_kmer_range[1]}"
+        )
         logger.info(f"  Recommended polymerase: {self.target_chars.recommended_polymerase.upper()}")
 
         # Log adaptive QA recommendation
@@ -486,7 +498,7 @@ class OptimalOligoGenerator:
             logger.info(f"  GC Class: {self.background_chars.gc_class.replace('_', ' ').title()}")
             logger.info(f"  Complexity: {self.background_chars.complexity:.2f}")
 
-        logger.info("="*60)
+        logger.info("=" * 60)
 
     def select_optimization_method(self, num_candidates: int = None) -> str:
         """
@@ -496,16 +508,16 @@ class OptimalOligoGenerator:
             Method name: 'dominating-set', 'network', 'milp', or 'hybrid'
         """
         # Default to dominating-set (most reliable)
-        method = 'dominating-set'
+        method = "dominating-set"
 
         # For small candidate sets, MILP can find provably optimal solution
         if num_candidates and num_candidates < 500:
-            method = 'milp'
+            method = "milp"
             logger.info(f"Selected MILP method (optimal for <500 candidates)")
 
         # For high-difficulty genomes, use hybrid approach
         elif self.target_chars.difficulty_score > 0.7:
-            method = 'hybrid'
+            method = "hybrid"
             logger.info(f"Selected hybrid method (high difficulty genome)")
 
         # Standard case: dominating-set
@@ -537,9 +549,13 @@ class OptimalOligoGenerator:
 
         # Log reasoning
         if self.target_chars.gc_content > 0.65:
-            logger.info(f"  Reason: GC-rich genome ({self.target_chars.gc_content:.1%}) benefits from elevated temperature")
+            logger.info(
+                f"  Reason: GC-rich genome ({self.target_chars.gc_content:.1%}) benefits from elevated temperature"
+            )
         elif self.target_chars.gc_content < 0.35:
-            logger.info(f"  Reason: AT-rich genome ({self.target_chars.gc_content:.1%}) works well with standard conditions")
+            logger.info(
+                f"  Reason: AT-rich genome ({self.target_chars.gc_content:.1%}) works well with standard conditions"
+            )
         else:
             logger.info(f"  Reason: Balanced genome, EquiPhi29 provides 15% better yield")
 
@@ -570,32 +586,30 @@ class OptimalOligoGenerator:
 
         # Base conditions
         conditions = {
-            'polymerase': polymerase,
-            'temperature': profile.optimal_temp,
-            'duration': 3600,  # 1 hour default
-            'extension_rate': profile.extension_rate,
-            'extension_distance': profile.get_extension_distance(),
-            'betaine_m': betaine_m,
-            'dmso_percent': dmso_percent,
-            'gc_tolerance': profile.get_gc_tolerance(betaine_m),
-            'yield_multiplier': profile.get_yield_multiplier(),
+            "polymerase": polymerase,
+            "temperature": profile.optimal_temp,
+            "duration": 3600,  # 1 hour default
+            "extension_rate": profile.extension_rate,
+            "extension_distance": profile.get_extension_distance(),
+            "betaine_m": betaine_m,
+            "dmso_percent": dmso_percent,
+            "gc_tolerance": profile.get_gc_tolerance(betaine_m),
+            "yield_multiplier": profile.get_yield_multiplier(),
             # CRITICAL: Include genome GC for adaptive QA
-            'genome_gc': self.target_chars.gc_content,
-            'use_adaptive_qa': self.target_chars.use_adaptive_qa
+            "genome_gc": self.target_chars.gc_content,
+            "use_adaptive_qa": self.target_chars.use_adaptive_qa,
         }
 
         # Get optimal k-mer parameters
         kmer_range = profile.get_recommended_kmer_range(
-            profile.optimal_temp,
-            self.target_chars.gc_content
+            profile.optimal_temp, self.target_chars.gc_content
         )
         optimal_kmer = profile.get_optimal_kmer_length(
-            profile.optimal_temp,
-            self.target_chars.gc_content
+            profile.optimal_temp, self.target_chars.gc_content
         )
 
-        conditions['kmer_range'] = kmer_range
-        conditions['optimal_kmer'] = optimal_kmer
+        conditions["kmer_range"] = kmer_range
+        conditions["optimal_kmer"] = optimal_kmer
 
         # Log conditions
         logger.info(f"\nReaction Conditions:")
@@ -603,7 +617,7 @@ class OptimalOligoGenerator:
         logger.info(f"  K-mer range: {kmer_range[0]}-{kmer_range[1]} (optimal: {optimal_kmer})")
         logger.info(f"  GC tolerance: ±{conditions['gc_tolerance']*100:.1f}%")
         logger.info(f"  Genome GC: {conditions['genome_gc']:.1%}")
-        if conditions['use_adaptive_qa']:
+        if conditions["use_adaptive_qa"]:
             logger.info(f"  Adaptive QA: ENABLED")
 
         if betaine_m > 0:
@@ -613,10 +627,10 @@ class OptimalOligoGenerator:
 
         # SSB for genomes with secondary structure
         if self.target_chars.complexity < 0.6:
-            conditions['use_ssb'] = True
+            conditions["use_ssb"] = True
             logger.info(f"  SSB: Yes (low complexity genome)")
         else:
-            conditions['use_ssb'] = False
+            conditions["use_ssb"] = False
 
         return conditions
 
@@ -658,20 +672,27 @@ class OptimalOligoGenerator:
             count = int(count * count_multiplier)
 
             if count_multiplier < 1.0:
-                logger.info(f"  Reduced count by {(1-count_multiplier)*100:.0f}% due to {polymerase.upper()} better yield")
+                logger.info(
+                    f"  Reduced count by {(1-count_multiplier)*100:.0f}% due to {polymerase.upper()} better yield"
+                )
 
         # Clip to reasonable range
         count = int(np.clip(count, 8, 25))
 
         logger.info(f"Recommended primer count: {count}")
-        logger.info(f"  (Based on {length_mbp:.1f} Mbp genome, difficulty {self.target_chars.difficulty_score:.2f})")
+        logger.info(
+            f"  (Based on {length_mbp:.1f} Mbp genome, difficulty {self.target_chars.difficulty_score:.2f})"
+        )
 
         return count
 
-    def generate_optimal_set(self, polymerase: Optional[str] = None,
-                           num_primers: Optional[int] = None,
-                           method: Optional[str] = None,
-                           validate: bool = True) -> OptimizationResult:
+    def generate_optimal_set(
+        self,
+        polymerase: Optional[str] = None,
+        num_primers: Optional[int] = None,
+        method: Optional[str] = None,
+        validate: bool = True,
+    ) -> OptimizationResult:
         """
         Generate optimal primer set with full pipeline.
 
@@ -686,9 +707,9 @@ class OptimalOligoGenerator:
         """
         start_time = time.time()
 
-        logger.info("\n" + "="*60)
+        logger.info("\n" + "=" * 60)
         logger.info("OPTIMAL OLIGO GENERATION PIPELINE")
-        logger.info("="*60)
+        logger.info("=" * 60)
 
         # Step 1: Select polymerase
         polymerase = self.select_polymerase(polymerase)
@@ -751,12 +772,12 @@ class OptimalOligoGenerator:
             specificity=0.85,  # Placeholder
             enrichment=1000.0,  # Placeholder
             composite_score=0.72,  # Placeholder
-            recommendation='GOOD',  # Placeholder
+            recommendation="GOOD",  # Placeholder
             simulation_result=simulation_result,
             estimated_cost=len(primers) * 5.0,  # $5 per primer estimate
             protocol=protocol,
             runtime=runtime,
-            optimization_iterations=1
+            optimization_iterations=1,
         )
 
         # Log summary
@@ -768,10 +789,10 @@ class OptimalOligoGenerator:
         """Placeholder for actual optimization (Phase 2)"""
         logger.info("⚠ Using placeholder primers (actual optimization in Phase 2)")
         # Generate dummy primers
-        bases = ['A', 'T', 'G', 'C']
+        bases = ["A", "T", "G", "C"]
         primers = []
         for i in range(num_primers):
-            primer = ''.join(np.random.choice(bases) for _ in range(12))
+            primer = "".join(np.random.choice(bases) for _ in range(12))
             primers.append(primer)
         return primers
 
@@ -780,8 +801,7 @@ class OptimalOligoGenerator:
         logger.info("⚠ Simulation validation not yet integrated (Phase 2)")
         return None
 
-    def _generate_protocol(self, primers: List[str], polymerase: str,
-                          conditions: Dict) -> str:
+    def _generate_protocol(self, primers: List[str], polymerase: str, conditions: Dict) -> str:
         """Generate wet-lab protocol"""
         profile = POLYMERASE_PROFILES[polymerase]
 
@@ -801,11 +821,11 @@ Expected coverage: ~45%
 ## Additives
 """
 
-        if conditions.get('betaine_m', 0) > 0:
+        if conditions.get("betaine_m", 0) > 0:
             protocol += f"- Betaine: {conditions['betaine_m']} M\n"
-        if conditions.get('dmso_percent', 0) > 0:
+        if conditions.get("dmso_percent", 0) > 0:
             protocol += f"- DMSO: {conditions['dmso_percent']}%\n"
-        if conditions.get('use_ssb', False):
+        if conditions.get("use_ssb", False):
             protocol += f"- SSB: Yes (prevents re-annealing)\n"
 
         protocol += f"""
@@ -841,7 +861,7 @@ Generated by NeoSWGA Optimal Oligo Generator v3.0
         logger.info(f"{'='*60}\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 

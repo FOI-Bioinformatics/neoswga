@@ -1,28 +1,28 @@
-import warnings
 import argparse
-from neoswga.core import parameter
-from neoswga.core import utility
-from neoswga.core.kmer_counter import run_jellyfish, get_primer_list_from_kmers
-from neoswga.core import filter as filter_module
-from neoswga.core import string_search
-from neoswga.core import rf_preprocessing
-from neoswga.core.progress import progress_context
-import multiprocessing
 import json
-import sys
-import pandas as pd
-import pickle
-import numpy as np
-import os
 import logging
-from typing import List, Tuple, Optional
+import multiprocessing
+import os
+import pickle
+import sys
+import warnings
 from dataclasses import dataclass
+from typing import List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+
+from neoswga.core import filter as filter_module
+from neoswga.core import parameter, rf_preprocessing, string_search, utility
+from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
+from neoswga.core.progress import progress_context
 
 logger = logging.getLogger(__name__)
 
 
-def _filter_exclusion_genome(primers: List[str], excl_prefixes: List[str],
-                              threshold: int = 0) -> List[bool]:
+def _filter_exclusion_genome(
+    primers: List[str], excl_prefixes: List[str], threshold: int = 0
+) -> List[bool]:
     """Filter primers that bind to exclusion genome(s).
 
     Scans k-mer count files for the exclusion genome and rejects any primer
@@ -46,7 +46,7 @@ def _filter_exclusion_genome(primers: List[str], excl_prefixes: List[str],
             kmer_file = f"{prefix}_{k}mer_all.txt"
             if os.path.exists(kmer_file):
                 try:
-                    with open(kmer_file, 'r') as f:
+                    with open(kmer_file, "r") as f:
                         for line in f:
                             parts = line.strip().split()
                             if len(parts) >= 2 and parts[0] == primer:
@@ -58,9 +58,9 @@ def _filter_exclusion_genome(primers: List[str], excl_prefixes: List[str],
     return mask
 
 
-def _filter_blacklist_penalty(primers: List[str], bl_prefixes: List[str],
-                               bl_seq_lengths: List[int],
-                               max_bl_freq: float = 0.0) -> Tuple[List[bool], List[float]]:
+def _filter_blacklist_penalty(
+    primers: List[str], bl_prefixes: List[str], bl_seq_lengths: List[int], max_bl_freq: float = 0.0
+) -> Tuple[List[bool], List[float]]:
     """Filter primers by blacklist genome frequency.
 
     Reads k-mer count files for blacklist genomes and calculates per-primer
@@ -75,6 +75,13 @@ def _filter_blacklist_penalty(primers: List[str], bl_prefixes: List[str],
     Returns:
         Tuple of (boolean mask, list of bl_freq values).
     """
+    if len(bl_seq_lengths) != len(bl_prefixes):
+        raise ValueError(
+            f"bl_seq_lengths has {len(bl_seq_lengths)} entries but bl_prefixes "
+            f"has {len(bl_prefixes)}; each blacklist genome must have a known length. "
+            f"Check params.json and the blacklist preparation step."
+        )
+
     mask = []
     bl_freqs = []
     for primer in primers:
@@ -83,11 +90,11 @@ def _filter_blacklist_penalty(primers: List[str], bl_prefixes: List[str],
         total_length = 0
         for i, prefix in enumerate(bl_prefixes):
             kmer_file = f"{prefix}_{k}mer_all.txt"
-            seq_len = bl_seq_lengths[i] if i < len(bl_seq_lengths) else 1
+            seq_len = bl_seq_lengths[i]
             total_length += seq_len
             if os.path.exists(kmer_file):
                 try:
-                    with open(kmer_file, 'r') as f:
+                    with open(kmer_file, "r") as f:
                         for line in f:
                             parts = line.strip().split()
                             if len(parts) >= 2 and parts[0] == primer:
@@ -105,9 +112,11 @@ def _filter_blacklist_penalty(primers: List[str], bl_prefixes: List[str],
 # Step Prerequisite Validation
 # =============================================================================
 
+
 @dataclass
 class StepValidationResult:
     """Result of step prerequisite validation."""
+
     valid: bool
     missing_files: List[str]
     error_message: str
@@ -135,7 +144,9 @@ class StepPrerequisiteError(Exception):
         super().__init__(message)
 
 
-def validate_step1_prerequisites(data_dir: str, fg_genomes: List[str], bg_genomes: List[str]) -> StepValidationResult:
+def validate_step1_prerequisites(
+    data_dir: str, fg_genomes: List[str], bg_genomes: List[str]
+) -> StepValidationResult:
     """
     Validate prerequisites for Step 1 (k-mer counting).
 
@@ -161,7 +172,7 @@ def validate_step1_prerequisites(data_dir: str, fg_genomes: List[str], bg_genome
             valid=False,
             missing_files=missing,
             error_message="Genome files not found. Step 1 requires FASTA files for foreground and background genomes.",
-            remediation="Check paths in params.json (fasta_fore, fasta_back) or use --fasta-fore and --fasta-back CLI options."
+            remediation="Check paths in params.json (fasta_fore, fasta_back) or use --fasta-fore and --fasta-back CLI options.",
         )
 
     # Check data directory
@@ -173,14 +184,15 @@ def validate_step1_prerequisites(data_dir: str, fg_genomes: List[str], bg_genome
                 valid=False,
                 missing_files=[data_dir],
                 error_message=f"Cannot create data directory: {e}",
-                remediation="Check write permissions or specify a different --data-dir."
+                remediation="Check write permissions or specify a different --data-dir.",
             )
 
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
 
 
-def validate_step2_prerequisites(data_dir: str, fg_prefixes: List[str], bg_prefixes: List[str],
-                                  min_k: int = 6, max_k: int = 12) -> StepValidationResult:
+def validate_step2_prerequisites(
+    data_dir: str, fg_prefixes: List[str], bg_prefixes: List[str], min_k: int = 6, max_k: int = 12
+) -> StepValidationResult:
     """
     Validate prerequisites for Step 2 (filtering).
 
@@ -201,7 +213,7 @@ def validate_step2_prerequisites(data_dir: str, fg_prefixes: List[str], bg_prefi
             valid=False,
             missing_files=missing,
             error_message="K-mer count files not found. Step 2 requires output from Step 1.",
-            remediation="Run 'neoswga count-kmers -j params.json' (Step 1) first."
+            remediation="Run 'neoswga count-kmers -j params.json' (Step 1) first.",
         )
 
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
@@ -221,7 +233,7 @@ def validate_step3_prerequisites(data_dir: str) -> StepValidationResult:
             valid=False,
             missing_files=[step2_file],
             error_message="Step 2 output not found. Step 3 requires filtered primers from Step 2.",
-            remediation="Run 'neoswga filter -j params.json' (Step 2) first."
+            remediation="Run 'neoswga filter -j params.json' (Step 2) first.",
         )
 
     # Check file is not empty
@@ -232,14 +244,14 @@ def validate_step3_prerequisites(data_dir: str) -> StepValidationResult:
                 valid=False,
                 missing_files=[],
                 error_message="Step 2 output is empty (no primers passed filtering).",
-                remediation="Relax filtering parameters (--min-fg-freq, --max-bg-freq, --max-gini) and re-run Step 2."
+                remediation="Relax filtering parameters (--min-fg-freq, --max-bg-freq, --max-gini) and re-run Step 2.",
             )
     except Exception as e:
         return StepValidationResult(
             valid=False,
             missing_files=[step2_file],
             error_message=f"Cannot read Step 2 output: {e}",
-            remediation="Re-run 'neoswga filter -j params.json' (Step 2)."
+            remediation="Re-run 'neoswga filter -j params.json' (Step 2).",
         )
 
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
@@ -260,7 +272,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             valid=False,
             missing_files=[step3_file],
             error_message="Step 3 output not found. Step 4 requires scored primers from Step 3.",
-            remediation="Run 'neoswga score -j params.json' (Step 3) first."
+            remediation="Run 'neoswga score -j params.json' (Step 3) first.",
         )
 
     # Check file has primers
@@ -271,14 +283,14 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
                 valid=False,
                 missing_files=[],
                 error_message="Step 3 output is empty (no primers passed scoring threshold).",
-                remediation="Lower --min-amp-pred threshold and re-run Step 3."
+                remediation="Lower --min-amp-pred threshold and re-run Step 3.",
             )
     except Exception as e:
         return StepValidationResult(
             valid=False,
             missing_files=[step3_file],
             error_message=f"Cannot read Step 3 output: {e}",
-            remediation="Re-run 'neoswga score -j params.json' (Step 3)."
+            remediation="Re-run 'neoswga score -j params.json' (Step 3).",
         )
 
     # Check position files for each primer length present in step3_df.csv.
@@ -286,7 +298,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
     # scanning a fixed 6-12 range, so we detect missing files precisely.
     required_k_values = set()
     try:
-        for primer in df['primer']:
+        for primer in df["primer"]:
             required_k_values.add(len(str(primer)))
     except (KeyError, TypeError):
         # Fallback: if 'primer' column is the index, iterate the index
@@ -301,7 +313,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
                 missing_positions.append(pos_file)
 
     if missing_positions:
-        k_values_str = ', '.join(str(k) for k in sorted(required_k_values))
+        k_values_str = ", ".join(str(k) for k in sorted(required_k_values))
         return StepValidationResult(
             valid=False,
             missing_files=missing_positions,
@@ -309,7 +321,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
                 f"Position files not found for primer lengths ({k_values_str}bp). "
                 f"Step 4 requires binding positions from Step 2."
             ),
-            remediation="Position files are generated during Step 2. Re-run 'neoswga filter -j params.json'."
+            remediation="Position files are generated during Step 2. Re-run 'neoswga filter -j params.json'.",
         )
 
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
@@ -349,6 +361,7 @@ bg_seq_lengths = None
 fg_circular = None
 bg_circular = None
 
+
 def _initialize():
     """Lazy initialization - only parse args when actually needed"""
     global _initialized, params, fg_prefixes, bg_prefixes, fg_genomes, bg_genomes
@@ -362,9 +375,11 @@ def _initialize():
     class EmptyOptions:
         def __init__(self):
             # Get json_file from parameter module if it was set by CLI
-            self.json_file = getattr(parameter, 'json_file', None)
+            self.json_file = getattr(parameter, "json_file", None)
+
         def __getattr__(self, name):
             return None
+
     options = EmptyOptions()
     params = parameter.get_params(options)
 
@@ -405,7 +420,7 @@ def _apply_gc_adaptive_defaults():
     This enables automatic optimization for different genome types without
     requiring manual configuration.
     """
-    genome_gc = getattr(parameter, 'genome_gc', None)
+    genome_gc = getattr(parameter, "genome_gc", None)
     if genome_gc is None:
         return  # No genome GC specified, use explicit parameters
 
@@ -417,20 +432,26 @@ def _apply_gc_adaptive_defaults():
 
         # Apply polymerase if not explicitly set by user in params.json
         # Check _json_data (raw JSON) to distinguish user-set phi29 from default
-        user_set_polymerase = hasattr(parameter, '_json_data') and 'polymerase' in parameter._json_data
+        user_set_polymerase = (
+            hasattr(parameter, "_json_data") and "polymerase" in parameter._json_data
+        )
         if not user_set_polymerase:
-            if adaptive_params.recommended_polymerase != 'phi29':
-                logger.info(f"GC-adaptive: Using {adaptive_params.recommended_polymerase} "
-                           f"for {genome_gc:.1%} GC genome")
+            if adaptive_params.recommended_polymerase != "phi29":
+                logger.info(
+                    f"GC-adaptive: Using {adaptive_params.recommended_polymerase} "
+                    f"for {genome_gc:.1%} GC genome"
+                )
                 parameter.polymerase = adaptive_params.recommended_polymerase
         else:
-            current_polymerase = getattr(parameter, 'polymerase', 'phi29')
+            current_polymerase = getattr(parameter, "polymerase", "phi29")
             if current_polymerase != adaptive_params.recommended_polymerase:
-                logger.info(f"GC-adaptive: Keeping user-specified polymerase '{current_polymerase}' "
-                           f"(adaptive would recommend '{adaptive_params.recommended_polymerase}')")
+                logger.info(
+                    f"GC-adaptive: Keeping user-specified polymerase '{current_polymerase}' "
+                    f"(adaptive would recommend '{adaptive_params.recommended_polymerase}')"
+                )
 
         # Apply reaction temperature if not explicitly set
-        current_temp = getattr(parameter, 'reaction_temp', None)
+        current_temp = getattr(parameter, "reaction_temp", None)
         if current_temp is None:
             parameter.reaction_temp = adaptive_params.reaction_temp
             logger.info(f"GC-adaptive: Setting reaction temp to {adaptive_params.reaction_temp}C")
@@ -438,32 +459,37 @@ def _apply_gc_adaptive_defaults():
         # Apply k-mer range only if user did not explicitly set min_k/max_k
         # in their params.json. Check _json_data (raw JSON) since module
         # globals always have a default value.
-        user_set_min_k = 'min_k' in parameter._json_data
-        user_set_max_k = 'max_k' in parameter._json_data
+        user_set_min_k = "min_k" in parameter._json_data
+        user_set_max_k = "max_k" in parameter._json_data
         if not user_set_min_k and not user_set_max_k:
             parameter.min_k = adaptive_params.kmer_range[0]
             parameter.max_k = adaptive_params.kmer_range[1]
-            logger.info(f"GC-adaptive: Setting k-mer range to "
-                       f"{parameter.min_k}-{parameter.max_k}bp")
+            logger.info(
+                f"GC-adaptive: Setting k-mer range to " f"{parameter.min_k}-{parameter.max_k}bp"
+            )
         elif user_set_min_k or user_set_max_k:
-            logger.info(f"GC-adaptive: Preserving user-specified k-mer range "
-                       f"{parameter.min_k}-{parameter.max_k}bp")
+            logger.info(
+                f"GC-adaptive: Preserving user-specified k-mer range "
+                f"{parameter.min_k}-{parameter.max_k}bp"
+            )
 
         # Apply betaine if not explicitly set and recommended
-        current_betaine = getattr(parameter, 'betaine_m', 0.0)
+        current_betaine = getattr(parameter, "betaine_m", 0.0)
         if current_betaine == 0.0 and adaptive_params.betaine_concentration > 0:
             parameter.betaine_m = adaptive_params.betaine_concentration
             logger.info(f"GC-adaptive: Setting betaine to {adaptive_params.betaine_concentration}M")
 
         # Apply DMSO if not explicitly set and recommended
-        current_dmso = getattr(parameter, 'dmso_percent', 0.0)
+        current_dmso = getattr(parameter, "dmso_percent", 0.0)
         if current_dmso == 0.0 and adaptive_params.dmso_concentration > 0:
             parameter.dmso_percent = adaptive_params.dmso_concentration
             logger.info(f"GC-adaptive: Setting DMSO to {adaptive_params.dmso_concentration}%")
 
         # Log overall strategy
-        logger.info(f"GC-adaptive strategy: {adaptive_params.genome_class.value} genome, "
-                   f"confidence {adaptive_params.confidence:.0%}")
+        logger.info(
+            f"GC-adaptive strategy: {adaptive_params.genome_class.value} genome, "
+            f"confidence {adaptive_params.confidence:.0%}"
+        )
 
     except ImportError as e:
         logger.warning(f"Could not import GCAdaptiveStrategy: {e}")
@@ -481,12 +507,13 @@ def step1():
         if prefix_dir and not os.path.exists(prefix_dir):
             os.makedirs(prefix_dir)
 
-    min_k = getattr(parameter, 'min_k', 6)
-    max_k = getattr(parameter, 'max_k', 12)
+    min_k = getattr(parameter, "min_k", 6)
+    max_k = getattr(parameter, "max_k", 12)
 
     # Check genome library for pre-calculated k-mers
     try:
         from neoswga.core.genome_library import GenomeLibrary
+
         library = GenomeLibrary()
     except Exception as e:
         logger.debug(f"Ignored error loading genome library: {e}")
@@ -524,7 +551,9 @@ def step1():
             if library is not None:
                 lib_entry = library.get(os.path.splitext(genome_name)[0])
                 if lib_entry and library.has_kmers_for_range(lib_entry.name, min_k, max_k):
-                    logger.info(f"  Using pre-calculated k-mers from genome library for {genome_name}")
+                    logger.info(
+                        f"  Using pre-calculated k-mers from genome library for {genome_name}"
+                    )
                     lib_prefix = lib_entry.kmer_prefix
                     for k in range(min_k, max_k + 1):
                         src = f"{lib_prefix}_{k}mer_all.txt"
@@ -536,8 +565,8 @@ def step1():
                 run_jellyfish(bg_genomes[i], bg_prefix, min_k, max_k)
 
     # Count k-mers for exclusion genome(s) if configured
-    excl_genomes_val = getattr(parameter, 'excl_genomes', [])
-    excl_prefixes_val = getattr(parameter, 'excl_prefixes', [])
+    excl_genomes_val = getattr(parameter, "excl_genomes", [])
+    excl_prefixes_val = getattr(parameter, "excl_prefixes", [])
     if excl_genomes_val and excl_prefixes_val:
         logger.info("Running jellyfish for exclusion genome(s)...")
         for i, excl_prefix in enumerate(excl_prefixes_val):
@@ -547,8 +576,8 @@ def step1():
                     run_jellyfish(excl_genomes_val[i], excl_prefix, min_k, max_k)
 
     # Count k-mers for blacklist genome(s) if configured
-    bl_genomes_val = getattr(parameter, 'bl_genomes', [])
-    bl_prefixes_val = getattr(parameter, 'bl_prefixes', [])
+    bl_genomes_val = getattr(parameter, "bl_genomes", [])
+    bl_prefixes_val = getattr(parameter, "bl_prefixes", [])
     if bl_genomes_val and bl_prefixes_val:
         logger.info("Running jellyfish for blacklist genome(s)...")
         for i, bl_prefix in enumerate(bl_prefixes_val):
@@ -578,26 +607,28 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     # Validate prerequisites
     if validate_prerequisites:
-        min_k = getattr(parameter, 'min_k', 6)
-        max_k = getattr(parameter, 'max_k', 12)
+        min_k = getattr(parameter, "min_k", 6)
+        max_k = getattr(parameter, "max_k", 12)
         validation = validate_step2_prerequisites(
             parameter.data_dir, fg_prefixes, bg_prefixes, min_k, max_k
         )
         if not validation.valid:
             raise StepPrerequisiteError(2, validation)
     # Report adaptive GC filtering parameters
-    genome_gc = getattr(parameter, 'genome_gc', None)
-    gc_min = getattr(parameter, 'gc_min', 0.375)
-    gc_max = getattr(parameter, 'gc_max', 0.625)
+    genome_gc = getattr(parameter, "genome_gc", None)
+    gc_min = getattr(parameter, "gc_min", 0.375)
+    gc_max = getattr(parameter, "gc_max", 0.625)
     if genome_gc is not None:
-        logger.info(f"Adaptive GC filtering: genome GC={genome_gc:.1%}, primer range={gc_min:.1%}-{gc_max:.1%}")
+        logger.info(
+            f"Adaptive GC filtering: genome GC={genome_gc:.1%}, primer range={gc_min:.1%}-{gc_max:.1%}"
+        )
     else:
         logger.info(f"GC filtering: primer range={gc_min:.1%}-{gc_max:.1%} (default)")
 
     # Report Tm filtering parameters
-    tm_min = getattr(parameter, 'min_tm', 15)
-    tm_max = getattr(parameter, 'max_tm', 55)
-    reaction_temp = getattr(parameter, 'reaction_temp', 30)
+    tm_min = getattr(parameter, "min_tm", 15)
+    tm_max = getattr(parameter, "max_tm", 55)
+    reaction_temp = getattr(parameter, "reaction_temp", 30)
     logger.info(f"Tm filtering: {tm_min}C-{tm_max}C (reaction temp: {reaction_temp}C)")
 
     kwargs = {
@@ -608,14 +639,15 @@ def step2(all_primers=None, validate_prerequisites=True):
     }
     if all_primers is None:
         # Use stored min_k and max_k values from parameter module (with safe defaults)
-        min_k = getattr(parameter, 'min_k', 6)
-        max_k = getattr(parameter, 'max_k', 12)
+        min_k = getattr(parameter, "min_k", 6)
+        max_k = getattr(parameter, "max_k", 12)
         kmer_lengths = range(min_k, max_k + 1)
         with progress_context("Loading candidate k-mers"):
             all_primers = get_primer_list_from_kmers(
-                fg_prefixes, kmer_lengths=kmer_lengths,
-                min_tm=getattr(parameter, 'min_tm', None) or 15,
-                max_tm=getattr(parameter, 'max_tm', None) or 55,
+                fg_prefixes,
+                kmer_lengths=kmer_lengths,
+                min_tm=getattr(parameter, "min_tm", None) or 15,
+                max_tm=getattr(parameter, "max_tm", None) or 55,
                 gc_min=max(0.10, gc_min - 0.10),
                 gc_max=min(0.90, gc_max + 0.10),
             )
@@ -634,48 +666,56 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     # Apply sequence quality filters (Tm, homopolymer, GC clamp, self-dimer, etc.)
     pre_quality_count = len(filtered_rate_df)
-    quality_mask = filtered_rate_df['primer'].apply(filter_module.filter_extra)
+    quality_mask = filtered_rate_df["primer"].apply(filter_module.filter_extra)
     filtered_rate_df = filtered_rate_df[quality_mask].copy()
     quality_rejected = pre_quality_count - len(filtered_rate_df)
     if quality_rejected > 0:
-        logger.info(f"Filtered {quality_rejected} primers based on sequence quality "
-                     f"(Tm, homopolymer, GC clamp, self-dimer)")
+        logger.info(
+            f"Filtered {quality_rejected} primers based on sequence quality "
+            f"(Tm, homopolymer, GC clamp, self-dimer)"
+        )
 
     # Exclusion genome filtering (zero-tolerance by default)
-    excl_prefixes_val = getattr(parameter, 'excl_prefixes', [])
-    excl_threshold_val = getattr(parameter, 'excl_threshold', 0)
+    excl_prefixes_val = getattr(parameter, "excl_prefixes", [])
+    excl_threshold_val = getattr(parameter, "excl_threshold", 0)
     if excl_prefixes_val:
         logger.info(f"Applying exclusion genome filter (threshold={excl_threshold_val})")
         pre_excl_count = len(filtered_rate_df)
         excl_mask = _filter_exclusion_genome(
-            filtered_rate_df['primer'].tolist(), excl_prefixes_val, excl_threshold_val
+            filtered_rate_df["primer"].tolist(), excl_prefixes_val, excl_threshold_val
         )
         filtered_rate_df = filtered_rate_df[excl_mask]
-        logger.info(f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
-                     f"binding exclusion genome")
+        logger.info(
+            f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
+            f"binding exclusion genome"
+        )
 
     # Blacklist genome filtering (penalty-weighted)
-    bl_prefixes_val = getattr(parameter, 'bl_prefixes', [])
-    bl_seq_lengths_val = getattr(parameter, 'bl_seq_lengths', [])
-    max_bl_freq_val = getattr(parameter, 'max_bl_freq', 0.0)
+    bl_prefixes_val = getattr(parameter, "bl_prefixes", [])
+    bl_seq_lengths_val = getattr(parameter, "bl_seq_lengths", [])
+    max_bl_freq_val = getattr(parameter, "max_bl_freq", 0.0)
     if bl_prefixes_val:
         logger.info(f"Applying blacklist genome filter (max_bl_freq={max_bl_freq_val})")
         pre_bl_count = len(filtered_rate_df)
         bl_mask, bl_freqs = _filter_blacklist_penalty(
-            filtered_rate_df['primer'].tolist(), bl_prefixes_val,
-            bl_seq_lengths_val, max_bl_freq_val
+            filtered_rate_df["primer"].tolist(),
+            bl_prefixes_val,
+            bl_seq_lengths_val,
+            max_bl_freq_val,
         )
         filtered_rate_df = filtered_rate_df.copy()
-        filtered_rate_df['bl_freq'] = bl_freqs
+        filtered_rate_df["bl_freq"] = bl_freqs
         filtered_rate_df = filtered_rate_df[bl_mask]
-        logger.info(f"Excluded {pre_bl_count - len(filtered_rate_df)} primers "
-                     f"binding blacklist genome")
+        logger.info(
+            f"Excluded {pre_bl_count - len(filtered_rate_df)} primers " f"binding blacklist genome"
+        )
 
     # Create position files BEFORE Gini calculation (Gini needs these files to exist)
     # Check if position files exist for speedup. Require ALL foreground prefixes to
     # have a cached position file, otherwise at least one multi-target genome would
     # be scanned from scratch while the others skipped.
     import os
+
     k = parameter.min_k  # Use first k-mer size for check
     position_files_exist = all(
         os.path.exists(f"{prefix}_{k}mer_positions.h5") for prefix in fg_prefixes
@@ -695,15 +735,19 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     with progress_context("Computing Gini index"):
         gini_df = filter_module.get_gini(
-            fg_prefixes, fg_genomes, fg_seq_lengths, filtered_rate_df,
-            fg_circular, position_cache=fg_position_cache
+            fg_prefixes,
+            fg_genomes,
+            fg_seq_lengths,
+            filtered_rate_df,
+            fg_circular,
+            position_cache=fg_position_cache,
         )
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)
     gini_df = gini_df.copy()
     gini_df["ratio"] = gini_df["bg_count"] / gini_df["fg_count"].replace(0, np.nan)
-    gini_df["ratio"] = gini_df["ratio"].fillna(float('inf'))
+    gini_df["ratio"] = gini_df["ratio"].fillna(float("inf"))
     # Sort ascending: lowest bg/fg ratio = best selectivity (keep best primers)
     filtered_gini_df = gini_df.sort_values(by=["ratio"], ascending=True)[: parameter.max_primer]
 
@@ -728,6 +772,7 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     # Log thermodynamic cache performance
     from neoswga.core.thermodynamics import log_cache_stats
+
     log_cache_stats("Step 2")
 
     return filtered_gini_df
@@ -753,8 +798,8 @@ def step3(validate_prerequisites=True):
             raise StepPrerequisiteError(3, validation)
 
     # Adaptive k-mer sampling: scale sample rate by genome size
-    disable_sampling = getattr(parameter, 'disable_kmer_sampling', False)
-    explicit_rate = getattr(parameter, 'sample_rate', None)
+    disable_sampling = getattr(parameter, "disable_kmer_sampling", False)
+    explicit_rate = getattr(parameter, "sample_rate", None)
 
     if not disable_sampling:
         fg_total = sum(fg_seq_lengths) if fg_seq_lengths else 0
@@ -770,9 +815,11 @@ def step3(validate_prerequisites=True):
             sample_rate = 0.05  # Very large genomes: 5%
 
         if sample_rate < 1.0:
-            min_count = getattr(parameter, 'min_sample_count', 5)
+            min_count = getattr(parameter, "min_sample_count", 5)
             rf_preprocessing.enable_kmer_sampling(sample_rate=sample_rate, min_count=min_count)
-            logger.info(f"K-mer sampling: {sample_rate*100:.0f}% rate (genome {fg_total/1e6:.1f} Mbp)")
+            logger.info(
+                f"K-mer sampling: {sample_rate*100:.0f}% rate (genome {fg_total/1e6:.1f} Mbp)"
+            )
         else:
             rf_preprocessing.disable_kmer_sampling()
             logger.info("K-mer sampling disabled (small genome)")
@@ -785,7 +832,7 @@ def step3(validate_prerequisites=True):
     logger.info(f"Scoring {len(primer_list)} primers...")
     fg_scale = sum(fg_seq_lengths) / 6200 if fg_seq_lengths else 1.0
 
-    fast_score = getattr(parameter, 'fast_score', True)
+    fast_score = getattr(parameter, "fast_score", True)
 
     with progress_context("Computing random forest features"):
         if fast_score:
@@ -832,22 +879,22 @@ def step3(validate_prerequisites=True):
             f"(first 3: {list(missing[:3])}). These will have NaN metrics."
         )
 
-    joined_step3_df = step3_df.join(step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left").sort_values(
-        by="gini"
-    )
+    joined_step3_df = step3_df.join(
+        step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left"
+    ).sort_values(by="gini")
 
     joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
 
-    logger.info(f"Filtered {step2_df.shape[0] - joined_step3_df.shape[0]} primers based on efficacy")
+    logger.info(
+        f"Filtered {step2_df.shape[0] - joined_step3_df.shape[0]} primers based on efficacy"
+    )
 
     # Log thermodynamic cache performance
     from neoswga.core.thermodynamics import log_cache_stats
+
     log_cache_stats("Step 3")
 
     if parameter.verbose:
         logger.debug(f"Step 3 results:\n{joined_step3_df}")
 
     return joined_step3_df
-
-
-

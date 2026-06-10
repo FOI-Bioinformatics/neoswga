@@ -10,44 +10,46 @@ Generates a comprehensive multi-page HTML report with:
 - Recommendations
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape as html_escape
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-import json
+from typing import Any, Dict, List, Optional
 
 from neoswga.core.report.metrics import (
+    FilteringStats,
     PipelineMetrics,
     PrimerMetrics,
-    FilteringStats,
     collect_pipeline_metrics,
 )
 from neoswga.core.report.quality import (
-    QualityGrade,
-    QualityAssessment,
     GradeComponent,
+    QualityAssessment,
+    QualityGrade,
     calculate_quality_grade,
 )
 from neoswga.core.report.utils import (
+    VALIDATION_BANNER_CSS,
     escape_format_braces,
     get_grade_colors,
-    get_rating_class,
     get_progress_class,
-    get_version as _get_version,
+    get_rating_class,
+)
+from neoswga.core.report.utils import get_version as _get_version
+from neoswga.core.report.utils import (
     render_validation_banner,
-    VALIDATION_BANNER_CSS,
 )
 from neoswga.core.report.visualizations import (
     is_plotly_available,
-    render_filtering_funnel,
     render_component_radar,
-    render_tm_gc_distribution,
     render_coverage_specificity_scatter,
-    render_primer_heatmap,
-    render_dimer_network_heatmap,
     render_dimer_network_graph,
+    render_dimer_network_heatmap,
+    render_filtering_funnel,
+    render_primer_heatmap,
+    render_tm_gc_distribution,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GapInfo:
     """Information about a coverage gap."""
+
     start: int
     end: int
     length: int
@@ -70,6 +73,7 @@ class GapInfo:
 @dataclass
 class PrimerProfile:
     """Detailed profile for a single primer."""
+
     sequence: str
     length: int
     gc_content: float
@@ -92,6 +96,7 @@ class PrimerProfile:
 @dataclass
 class InteractionPair:
     """Primer-primer interaction data."""
+
     primer1: str
     primer2: str
     delta_g: float
@@ -101,6 +106,7 @@ class InteractionPair:
 @dataclass
 class TechnicalReportData:
     """All data needed for the technical report."""
+
     # Metadata
     generated_at: str
     version: str = field(default_factory=_get_version)
@@ -182,10 +188,7 @@ def _calculate_primer_profile(primer: PrimerMetrics, rank: int) -> PrimerProfile
     strand_score = 1.0 - strand_deviation
 
     contribution = (
-        0.4 * specificity_score +
-        0.3 * uniformity_score +
-        0.2 * amp_score +
-        0.1 * strand_score
+        0.4 * specificity_score + 0.3 * uniformity_score + 0.2 * amp_score + 0.1 * strand_score
     )
 
     # Estimate binding delta G from Tm (replaces hardcoded placeholder)
@@ -238,7 +241,7 @@ def _estimate_interactions(primers: List[PrimerMetrics]) -> List[InteractionPair
     early_terminate = False
 
     # Pre-compute reverse complements for efficiency
-    rc_table = str.maketrans('ATGC', 'TACG')
+    rc_table = str.maketrans("ATGC", "TACG")
 
     for i, p1 in enumerate(primers):
         if early_terminate:
@@ -248,7 +251,7 @@ def _estimate_interactions(primers: List[PrimerMetrics]) -> List[InteractionPair
         if not seq1:
             continue
 
-        for p2 in primers[i+1:]:
+        for p2 in primers[i + 1 :]:
             seq2 = p2.sequence
             if not seq2:
                 continue
@@ -261,7 +264,7 @@ def _estimate_interactions(primers: List[PrimerMetrics]) -> List[InteractionPair
             max_check = min(6, len(seq1), len(seq2_rc))
 
             for k in range(max_check):
-                if seq1[-(k+1):] == seq2_rc[:k+1]:
+                if seq1[-(k + 1) :] == seq2_rc[: k + 1]:
                     overlap = k + 1
 
             # Only record significant interactions (4+ bp overlap)
@@ -275,12 +278,14 @@ def _estimate_interactions(primers: List[PrimerMetrics]) -> List[InteractionPair
                 else:
                     risk = "low"
 
-                interactions.append(InteractionPair(
-                    primer1=seq1,
-                    primer2=seq2,
-                    delta_g=dg,
-                    risk_level=risk,
-                ))
+                interactions.append(
+                    InteractionPair(
+                        primer1=seq1,
+                        primer2=seq2,
+                        delta_g=dg,
+                        risk_level=risk,
+                    )
+                )
 
                 # Early termination if we have many high-risk interactions
                 high_risk_count = sum(1 for x in interactions if x.risk_level == "high")
@@ -328,8 +333,7 @@ def collect_technical_report_data(results_dir: str) -> TechnicalReportData:
 
     # Create primer profiles
     data.primer_profiles = [
-        _calculate_primer_profile(p, i + 1)
-        for i, p in enumerate(metrics.primers)
+        _calculate_primer_profile(p, i + 1) for i, p in enumerate(metrics.primers)
     ]
 
     # Estimate interactions
@@ -1312,21 +1316,21 @@ def _render_components_breakdown(quality: QualityAssessment) -> str:
 def _render_parameters(params: Dict) -> str:
     """Render parameters grid."""
     key_params = [
-        ('min_k', 'Min K-mer'),
-        ('max_k', 'Max K-mer'),
-        ('min_fg_freq', 'Min FG Freq'),
-        ('max_bg_freq', 'Max BG Freq'),
-        ('max_gini', 'Max Gini'),
-        ('min_tm', 'Min Tm'),
-        ('max_tm', 'Max Tm'),
-        ('polymerase', 'Polymerase'),
-        ('reaction_temp', 'Reaction Temp'),
-        ('optimization_method', 'Optimization'),
+        ("min_k", "Min K-mer"),
+        ("max_k", "Max K-mer"),
+        ("min_fg_freq", "Min FG Freq"),
+        ("max_bg_freq", "Max BG Freq"),
+        ("max_gini", "Max Gini"),
+        ("min_tm", "Min Tm"),
+        ("max_tm", "Max Tm"),
+        ("polymerase", "Polymerase"),
+        ("reaction_temp", "Reaction Temp"),
+        ("optimization_method", "Optimization"),
     ]
 
     html = ""
     for key, label in key_params:
-        value = params.get(key, 'N/A')
+        value = params.get(key, "N/A")
         if isinstance(value, float):
             if value < 0.01:
                 value_str = f"{value:.2e}"
@@ -1371,7 +1375,9 @@ def _render_specificity_table(primers: List[PrimerMetrics]) -> str:
     """Render per-primer specificity table."""
     html = ""
     for p in primers[:10]:  # Limit to top 10
-        spec_str = f"{p.specificity:.0f}x" if p.specificity < 10000 else f"{p.specificity/1000:.1f}kx"
+        spec_str = (
+            f"{p.specificity:.0f}x" if p.specificity < 10000 else f"{p.specificity/1000:.1f}kx"
+        )
         safe_sequence = html_escape(p.sequence)
         html += f"""
         <tr>
@@ -1540,8 +1546,8 @@ def _render_considerations(considerations: List[str]) -> str:
 
 def _render_protocol(params: Dict, quality: QualityAssessment) -> str:
     """Render suggested protocol."""
-    polymerase = escape_format_braces(html_escape(str(params.get('polymerase', 'phi29'))))
-    temp = params.get('reaction_temp', 30)
+    polymerase = escape_format_braces(html_escape(str(params.get("polymerase", "phi29"))))
+    temp = params.get("reaction_temp", 30)
 
     return f"""
     <div class="param-item">
@@ -1587,16 +1593,23 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     # Calculate derived values
     coverage_pct = metrics.coverage.overall_coverage * 100 if metrics.coverage else 0
     if metrics.coverage and metrics.coverage.from_optimizer:
-        coverage_source_note = (
-            "Coverage source: Measured from primer binding positions."
-        )
+        reach = metrics.coverage.extension_reach
+        if reach:
+            coverage_source_note = (
+                f"Coverage source: Measured from primer binding positions, "
+                f"interval coverage at {reach:,} bp per-primer reach."
+            )
+        else:
+            coverage_source_note = "Coverage source: Measured from primer binding positions."
     else:
         coverage_source_note = (
-            "Coverage source: Estimated from primer count (~30kb per primer)."
+            "Coverage source: Estimated from primer count "
+            "(~30 kb per primer; not a measured value). Run the optimizer "
+            "to obtain measured interval coverage."
         )
     total_sites = sum(p.fg_sites for p in metrics.primers)
     # Use 0 as default to indicate missing data, consistent with metrics.py
-    fg_size = metrics.parameters.get('fg_size', metrics.parameters.get('foreground_size', 0))
+    fg_size = metrics.parameters.get("fg_size", metrics.parameters.get("foreground_size", 0))
     sites_per_mb = (total_sites / fg_size) * 1_000_000 if fg_size > 0 else 0
 
     # Get component for coverage rating
@@ -1692,12 +1705,12 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     """
 
     # Escape target/background names to prevent XSS and format string injection
-    target_name = escape_format_braces(html_escape(
-        metrics.target_genome.name if metrics.target_genome else "Target"
-    ))
-    background_name = escape_format_braces(html_escape(
-        metrics.background_genome.name if metrics.background_genome else "Background"
-    ))
+    target_name = escape_format_braces(
+        html_escape(metrics.target_genome.name if metrics.target_genome else "Target")
+    )
+    background_name = escape_format_braces(
+        html_escape(metrics.background_genome.name if metrics.background_genome else "Background")
+    )
 
     # Generate interactive charts if requested and Plotly is available
     interactive_funnel = ""
@@ -1709,7 +1722,7 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
     if interactive and is_plotly_available():
         # Use 'cdn' for first chart, False for subsequent to avoid loading
         # Plotly.js multiple times
-        include_js = 'cdn'
+        include_js = "cdn"
 
         # Filtering funnel chart
         funnel_chart = render_filtering_funnel(
@@ -1729,10 +1742,10 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             height=400,
         )
         if coverage_chart:
-            interactive_coverage = f'''
+            interactive_coverage = f"""
             <h3>Coverage vs Specificity</h3>
             <div class="interactive-chart">{coverage_chart}</div>
-'''
+"""
             include_js = False
 
         # Tm/GC distribution
@@ -1753,10 +1766,10 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             height=400,
         )
         if heatmap_chart:
-            interactive_heatmap = f'''
+            interactive_heatmap = f"""
             <h3>Primer Metrics Overview</h3>
             <div class="interactive-chart">{heatmap_chart}</div>
-'''
+"""
             include_js = False
 
         # Dimer network heatmap
@@ -1768,12 +1781,12 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             show_values=True,
         )
         if dimer_heatmap_chart:
-            interactive_dimer_heatmap = f'''
+            interactive_dimer_heatmap = f"""
             <h3>Interaction Heatmap</h3>
             <p>Estimated delta G (kcal/mol) for heterodimer formation. More negative values
             indicate stronger binding and higher dimer formation risk.</p>
             <div class="interactive-chart">{dimer_heatmap_chart}</div>
-'''
+"""
     elif interactive:
         logger.debug("Interactive charts requested but Plotly not available")
 
@@ -1795,7 +1808,9 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         components_html=_render_components_breakdown(quality),
         # Pipeline
         target_size=_format_size(metrics.target_genome.size) if metrics.target_genome else "N/A",
-        background_size=_format_size(metrics.background_genome.size) if metrics.background_genome else "N/A",
+        background_size=(
+            _format_size(metrics.background_genome.size) if metrics.background_genome else "N/A"
+        ),
         parameters_html=_render_parameters(metrics.parameters),
         funnel_html=_render_funnel(data.filtering_stages),
         # Coverage
@@ -1844,7 +1859,7 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         interactive_dimer_heatmap=interactive_dimer_heatmap,
         # Validator warnings/errors surfaced inside section 1 (shared helper)
         validation_banner_html=render_validation_banner(
-            list(getattr(metrics, 'validation_issues', []) or [])
+            list(getattr(metrics, "validation_issues", []) or [])
         ),
         validation_banner_css=VALIDATION_BANNER_CSS,
     )
@@ -1887,7 +1902,7 @@ def generate_technical_report(
 
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(html, encoding='utf-8')
+            output_path.write_text(html, encoding="utf-8")
             logger.info(f"Technical report saved to: {output_path}")
         except (PermissionError, OSError) as e:
             logger.error(f"Failed to write report to {output_path}: {e}")

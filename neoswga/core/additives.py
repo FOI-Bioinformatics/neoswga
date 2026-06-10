@@ -33,14 +33,14 @@ References:
     - TMAC: Melchior & von Hippel (1973) PNAS 70:298-302
 """
 
-from dataclasses import dataclass
-from typing import Dict, Any, Optional, Tuple, List
 import math
-
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 # =============================================================================
 # Arrhenius-Based Tm Correction Calculator
 # =============================================================================
+
 
 class ArrheniusTmCorrector:
     """
@@ -89,15 +89,12 @@ class ArrheniusTmCorrector:
         """Lazy-load additive parameters."""
         if self._params is None:
             from neoswga.core.mechanistic_params import ADDITIVE_TM_PARAMS
+
             self._params = ADDITIVE_TM_PARAMS
         return self._params
 
     def calculate_correction(
-        self,
-        additive: str,
-        concentration: float,
-        gc_content: float = 0.5,
-        primer_length: int = 10
+        self, additive: str, concentration: float, gc_content: float = 0.5, primer_length: int = 10
     ) -> float:
         """
         Calculate Tm correction for an additive at the reaction temperature.
@@ -120,26 +117,22 @@ class ArrheniusTmCorrector:
         if additive_lower not in self.params:
             available = list(self.params.keys())
             raise ValueError(
-                f"Unknown additive '{additive}'. "
-                f"Available: {', '.join(available)}"
+                f"Unknown additive '{additive}'. " f"Available: {', '.join(available)}"
             )
 
         params = self.params[additive_lower]
 
         # Arrhenius temperature scaling factor
-        temp_factor = self._arrhenius_factor(
-            params['activation_energy'],
-            params['ref_temp']
-        )
+        temp_factor = self._arrhenius_factor(params["activation_energy"], params["ref_temp"])
 
         # Effective coefficient at this temperature
-        effective_coef = params['ref_coef'] * temp_factor
+        effective_coef = params["ref_coef"] * temp_factor
 
         # Base correction from concentration
         correction = effective_coef * concentration
 
         # GC-dependent adjustment if applicable
-        if params.get('gc_dependent', False):
+        if params.get("gc_dependent", False):
             gc_adjustment = self._gc_adjustment(
                 additive_lower, params, gc_content, concentration, primer_length
             )
@@ -158,9 +151,7 @@ class ArrheniusTmCorrector:
         Returns:
             Scaling factor (>1 at higher temps, <1 at lower temps)
         """
-        exponent = -activation_energy / self.R * (
-            1.0 / self.reaction_temp_k - 1.0 / ref_temp_k
-        )
+        exponent = -activation_energy / self.R * (1.0 / self.reaction_temp_k - 1.0 / ref_temp_k)
         return math.exp(exponent)
 
     def _gc_adjustment(
@@ -169,7 +160,7 @@ class ArrheniusTmCorrector:
         params: Dict[str, Any],
         gc_content: float,
         concentration: float,
-        primer_length: int
+        primer_length: int,
     ) -> float:
         """
         Calculate GC-dependent adjustment for an additive.
@@ -189,9 +180,9 @@ class ArrheniusTmCorrector:
         """
         gc_deviation = gc_content - 0.5
 
-        if additive in ('betaine', 'tmac'):
+        if additive in ("betaine", "tmac"):
             # GC equalization effect
-            eq_conc = params.get('gc_equalization_conc', 5.0)
+            eq_conc = params.get("gc_equalization_conc", 5.0)
             # Sigmoid equalization factor
             equalization = self._sigmoid(concentration, eq_conc / 3.0, 1.5)
 
@@ -201,15 +192,15 @@ class ArrheniusTmCorrector:
             # Correction moves Tm towards 50% GC
             return -scale * gc_deviation * equalization
 
-        elif additive == 'urea':
+        elif additive == "urea":
             # Preferential GC destabilization
-            gc_preference = params.get('gc_preference', 1.3)
+            gc_preference = params.get("gc_preference", 1.3)
 
             # Extra destabilization for GC-rich sequences
             if gc_content > 0.5:
                 extra_factor = (gc_preference - 1.0) * (gc_content - 0.5) * 2.0
                 # Return additional correction (already negative from base)
-                return params['ref_coef'] * concentration * extra_factor
+                return params["ref_coef"] * concentration * extra_factor
 
         return 0.0
 
@@ -219,10 +210,7 @@ class ArrheniusTmCorrector:
         return 1.0 / (1.0 + math.exp(-steepness * (x - midpoint)))
 
     def calculate_total_correction(
-        self,
-        additives: Dict[str, float],
-        gc_content: float = 0.5,
-        primer_length: int = 10
+        self, additives: Dict[str, float], gc_content: float = 0.5, primer_length: int = 10
     ) -> float:
         """
         Calculate total Tm correction from multiple additives.
@@ -259,7 +247,7 @@ class ArrheniusTmCorrector:
         params = self.params.get(additive.lower())
         if params is None:
             raise ValueError(f"Unknown additive: {additive}")
-        return params['activation_energy']
+        return params["activation_energy"]
 
     def compare_temperatures(
         self,
@@ -267,7 +255,7 @@ class ArrheniusTmCorrector:
         concentration: float,
         temp1_celsius: float,
         temp2_celsius: float,
-        gc_content: float = 0.5
+        gc_content: float = 0.5,
     ) -> Tuple[float, float, float]:
         """
         Compare Tm correction at two different temperatures.
@@ -319,6 +307,7 @@ class AdditiveConcentrations:
         urea_m: Urea concentration (0-2.0 M)
         tmac_m: TMAC concentration (0-0.1 M)
     """
+
     dmso_percent: float = 0.0
     betaine_m: float = 0.0
     trehalose_m: float = 0.0
@@ -332,23 +321,21 @@ class AdditiveConcentrations:
 
     def __post_init__(self):
         """Validate all concentrations are within valid ranges."""
-        self._validate_range('dmso_percent', self.dmso_percent, 0, 10)
-        self._validate_range('betaine_m', self.betaine_m, 0, 2.5)
-        self._validate_range('trehalose_m', self.trehalose_m, 0, 1.0)
-        self._validate_range('formamide_percent', self.formamide_percent, 0, 10)
-        self._validate_range('glycerol_percent', self.glycerol_percent, 0, 15)
-        self._validate_range('bsa_ug_ml', self.bsa_ug_ml, 0, 400)
-        self._validate_range('peg_percent', self.peg_percent, 0, 15)
-        self._validate_range('ethanol_percent', self.ethanol_percent, 0, 5)
-        self._validate_range('urea_m', self.urea_m, 0, 2.0)
-        self._validate_range('tmac_m', self.tmac_m, 0, 0.1)
+        self._validate_range("dmso_percent", self.dmso_percent, 0, 10)
+        self._validate_range("betaine_m", self.betaine_m, 0, 2.5)
+        self._validate_range("trehalose_m", self.trehalose_m, 0, 1.0)
+        self._validate_range("formamide_percent", self.formamide_percent, 0, 10)
+        self._validate_range("glycerol_percent", self.glycerol_percent, 0, 15)
+        self._validate_range("bsa_ug_ml", self.bsa_ug_ml, 0, 400)
+        self._validate_range("peg_percent", self.peg_percent, 0, 15)
+        self._validate_range("ethanol_percent", self.ethanol_percent, 0, 5)
+        self._validate_range("urea_m", self.urea_m, 0, 2.0)
+        self._validate_range("tmac_m", self.tmac_m, 0, 0.1)
 
     def _validate_range(self, name: str, value: float, min_val: float, max_val: float):
         """Validate a value is within range."""
         if value < min_val or value > max_val:
-            raise ValueError(
-                f"{name} = {value} is outside valid range [{min_val}, {max_val}]"
-            )
+            raise ValueError(f"{name} = {value} is outside valid range [{min_val}, {max_val}]")
 
     # =========================================================================
     # Tm Correction Calculations
@@ -358,7 +345,7 @@ class AdditiveConcentrations:
         self,
         gc_content: float = 0.5,
         primer_length: int = 10,
-        reaction_temp_celsius: Optional[float] = None
+        reaction_temp_celsius: Optional[float] = None,
     ) -> float:
         """
         Calculate total Tm correction from all additives.
@@ -413,10 +400,7 @@ class AdditiveConcentrations:
         return correction
 
     def _calculate_tm_correction_arrhenius(
-        self,
-        gc_content: float,
-        primer_length: int,
-        reaction_temp_celsius: float
+        self, gc_content: float, primer_length: int, reaction_temp_celsius: float
     ) -> float:
         """
         Calculate Tm correction using Arrhenius-based temperature dependence.
@@ -437,23 +421,21 @@ class AdditiveConcentrations:
         # Build additives dictionary
         additives_dict = {}
         if self.dmso_percent > 0:
-            additives_dict['dmso'] = self.dmso_percent
+            additives_dict["dmso"] = self.dmso_percent
         if self.betaine_m > 0:
-            additives_dict['betaine'] = self.betaine_m
+            additives_dict["betaine"] = self.betaine_m
         if self.trehalose_m > 0:
-            additives_dict['trehalose'] = self.trehalose_m
+            additives_dict["trehalose"] = self.trehalose_m
         if self.formamide_percent > 0:
-            additives_dict['formamide'] = self.formamide_percent
+            additives_dict["formamide"] = self.formamide_percent
         if self.ethanol_percent > 0:
-            additives_dict['ethanol'] = self.ethanol_percent
+            additives_dict["ethanol"] = self.ethanol_percent
         if self.urea_m > 0:
-            additives_dict['urea'] = self.urea_m
+            additives_dict["urea"] = self.urea_m
         if self.tmac_m > 0:
-            additives_dict['tmac'] = self.tmac_m
+            additives_dict["tmac"] = self.tmac_m
 
-        return corrector.calculate_total_correction(
-            additives_dict, gc_content, primer_length
-        )
+        return corrector.calculate_total_correction(additives_dict, gc_content, primer_length)
 
     def _dmso_correction(self) -> float:
         """
@@ -551,11 +533,7 @@ class AdditiveConcentrations:
         """
         return -0.5 * self.tmac_m
 
-    def _gc_normalization_correction(
-        self,
-        gc_content: float,
-        primer_length: int
-    ) -> float:
+    def _gc_normalization_correction(self, gc_content: float, primer_length: int) -> float:
         """
         Calculate GC-normalization effect from TMAC and betaine.
 
@@ -581,11 +559,12 @@ class AdditiveConcentrations:
         # Import sigmoid parameters from mechanistic model
         try:
             from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
-            params = MECHANISTIC_MODEL_PARAMS['tm']
-            betaine_midpoint = params['betaine_gc_midpoint']
-            betaine_steepness = params['betaine_gc_steepness']
-            tmac_midpoint = params['tmac_gc_midpoint']
-            tmac_steepness = params['tmac_gc_steepness']
+
+            params = MECHANISTIC_MODEL_PARAMS["tm"]
+            betaine_midpoint = params["betaine_gc_midpoint"]
+            betaine_steepness = params["betaine_gc_steepness"]
+            tmac_midpoint = params["tmac_gc_midpoint"]
+            tmac_steepness = params["tmac_gc_steepness"]
         except ImportError:
             # Fallback to default values if mechanistic_params not available
             betaine_midpoint = 1.5
@@ -598,14 +577,10 @@ class AdditiveConcentrations:
 
         # Sigmoid equalization factors (not linear!)
         # Sigmoid: 1 / (1 + exp(-steepness * (x - midpoint)))
-        betaine_factor = self._sigmoid(
-            self.betaine_m, betaine_midpoint, betaine_steepness
-        )
+        betaine_factor = self._sigmoid(self.betaine_m, betaine_midpoint, betaine_steepness)
 
         # TMAC has stronger effect per M, scale for practical 0-0.1M range
-        tmac_factor = self._sigmoid(
-            self.tmac_m * 10, tmac_midpoint, tmac_steepness
-        )
+        tmac_factor = self._sigmoid(self.tmac_m * 10, tmac_midpoint, tmac_steepness)
 
         # Combined equalization (multiplicative model)
         # Each additive independently contributes to GC equalization
@@ -639,7 +614,7 @@ class AdditiveConcentrations:
     # Primer Length Recommendations
     # =========================================================================
 
-    def max_supported_primer_length(self, polymerase: str = 'phi29') -> int:
+    def max_supported_primer_length(self, polymerase: str = "phi29") -> int:
         """
         Calculate maximum supported primer length with these additives.
 
@@ -669,7 +644,7 @@ class AdditiveConcentrations:
             base_max += 1
 
         # EquiPhi29 at higher temp can handle longer primers
-        if polymerase == 'equiphi29':
+        if polymerase == "equiphi29":
             base_max += 1
 
         # Apply caps based on additive support level
@@ -714,12 +689,12 @@ class AdditiveConcentrations:
     # =========================================================================
 
     @classmethod
-    def none(cls) -> 'AdditiveConcentrations':
+    def none(cls) -> "AdditiveConcentrations":
         """No additives (all zeros)."""
         return cls()
 
     @classmethod
-    def for_standard_phi29(cls) -> 'AdditiveConcentrations':
+    def for_standard_phi29(cls) -> "AdditiveConcentrations":
         """
         Standard phi29 conditions with no additives.
 
@@ -728,7 +703,7 @@ class AdditiveConcentrations:
         return cls()
 
     @classmethod
-    def for_enhanced_equiphi29(cls) -> 'AdditiveConcentrations':
+    def for_enhanced_equiphi29(cls) -> "AdditiveConcentrations":
         """
         Enhanced conditions for EquiPhi29 with longer primers.
 
@@ -743,7 +718,7 @@ class AdditiveConcentrations:
         )
 
     @classmethod
-    def for_high_gc(cls) -> 'AdditiveConcentrations':
+    def for_high_gc(cls) -> "AdditiveConcentrations":
         """
         High-GC genome conditions.
 
@@ -758,7 +733,7 @@ class AdditiveConcentrations:
         )
 
     @classmethod
-    def for_extreme_gc(cls) -> 'AdditiveConcentrations':
+    def for_extreme_gc(cls) -> "AdditiveConcentrations":
         """
         Extreme GC genome conditions (>70% or <30% GC).
 
@@ -775,7 +750,7 @@ class AdditiveConcentrations:
         )
 
     @classmethod
-    def for_long_primers(cls) -> 'AdditiveConcentrations':
+    def for_long_primers(cls) -> "AdditiveConcentrations":
         """
         Conditions for maximum primer length (16-18bp).
 
@@ -791,7 +766,7 @@ class AdditiveConcentrations:
         )
 
     @classmethod
-    def for_crude_samples(cls) -> 'AdditiveConcentrations':
+    def for_crude_samples(cls) -> "AdditiveConcentrations":
         """
         Conditions for crude or inhibitor-containing samples.
 
@@ -806,7 +781,7 @@ class AdditiveConcentrations:
         )
 
     @classmethod
-    def q_solution_equivalent(cls) -> 'AdditiveConcentrations':
+    def q_solution_equivalent(cls) -> "AdditiveConcentrations":
         """
         Qiagen Q-Solution equivalent conditions.
 
@@ -825,20 +800,20 @@ class AdditiveConcentrations:
     def to_dict(self) -> Dict[str, float]:
         """Convert to dictionary for JSON serialization."""
         return {
-            'dmso_percent': self.dmso_percent,
-            'betaine_m': self.betaine_m,
-            'trehalose_m': self.trehalose_m,
-            'formamide_percent': self.formamide_percent,
-            'glycerol_percent': self.glycerol_percent,
-            'bsa_ug_ml': self.bsa_ug_ml,
-            'peg_percent': self.peg_percent,
-            'ethanol_percent': self.ethanol_percent,
-            'urea_m': self.urea_m,
-            'tmac_m': self.tmac_m,
+            "dmso_percent": self.dmso_percent,
+            "betaine_m": self.betaine_m,
+            "trehalose_m": self.trehalose_m,
+            "formamide_percent": self.formamide_percent,
+            "glycerol_percent": self.glycerol_percent,
+            "bsa_ug_ml": self.bsa_ug_ml,
+            "peg_percent": self.peg_percent,
+            "ethanol_percent": self.ethanol_percent,
+            "urea_m": self.urea_m,
+            "tmac_m": self.tmac_m,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, float]) -> 'AdditiveConcentrations':
+    def from_dict(cls, data: Dict[str, float]) -> "AdditiveConcentrations":
         """Create from dictionary."""
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
@@ -875,10 +850,9 @@ class AdditiveConcentrations:
 # Additive Interaction Modeling
 # =============================================================================
 
+
 def estimate_combined_effect(
-    additives: AdditiveConcentrations,
-    gc_content: float,
-    primer_length: int
+    additives: AdditiveConcentrations, gc_content: float, primer_length: int
 ) -> Dict[str, Any]:
     """
     Estimate combined effects of additives on reaction.
@@ -912,10 +886,10 @@ def estimate_combined_effect(
         activity_factor *= 1.1  # Slight enhancement
 
     return {
-        'tm_correction': tm_correction,
-        'max_primer_length': max_length,
-        'gc_range': gc_range,
-        'polymerase_activity_factor': activity_factor,
-        'secondary_structure_reduction': min(1.0, additives.dmso_percent / 10.0),
-        'gc_normalization': min(1.0, additives.betaine_m / 2.0 + additives.tmac_m * 10),
+        "tm_correction": tm_correction,
+        "max_primer_length": max_length,
+        "gc_range": gc_range,
+        "polymerase_activity_factor": activity_factor,
+        "secondary_structure_reduction": min(1.0, additives.dmso_percent / 10.0),
+        "gc_normalization": min(1.0, additives.betaine_m / 2.0 + additives.tmac_m * 10),
     }

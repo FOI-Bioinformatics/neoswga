@@ -1,5 +1,9 @@
 """Shared fixtures for integration tests that exercise the full
 count-kmers / filter / score / optimize pipeline on example genomes.
+
+The plasmid-example pipeline outputs (k-mer files, step CSVs, position HDF5s)
+are generated once per session by the top-level ``_prime_plasmid_example``
+fixture in ``tests/conftest.py``; integration tests copy those into a tmpdir.
 """
 
 import pytest

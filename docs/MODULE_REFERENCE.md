@@ -197,21 +197,6 @@ def filter_by_secondary_structure(
     """Filter primers by secondary structure stability."""
 ```
 
-### thermo_background_filter.py
-
-Thermodynamic-aware background filtering.
-
-**Functions:**
-```python
-def filter_background_thermodynamic(
-    primers: List[str],
-    bg_genome: str,
-    conditions: ReactionConditions,
-    max_bg_binding_prob: float = 0.01
-) -> List[str]:
-    """Filter by thermodynamic binding probability to background."""
-```
-
 ### multi_genome_filter.py
 
 Filter primers across multiple target genomes.

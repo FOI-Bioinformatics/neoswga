@@ -22,12 +22,13 @@ Version: 3.0 - Genome I/O Enhancement
 """
 
 import gzip
-import zipfile
 import logging
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Union, Iterator
+import zipfile
 from dataclasses import dataclass
 from io import TextIOWrapper
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional, Tuple, Union
+
 from Bio import SeqIO
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GenomeStats:
     """Statistics for a loaded genome"""
+
     file_path: Path
     file_format: str  # "fasta", "fasta.gz", "fasta.zip"
     total_sequences: int
@@ -96,20 +98,20 @@ class GenomeLoader:
         name_lower = file_path.name.lower()
 
         # Check for compression
-        if name_lower.endswith('.gz'):
+        if name_lower.endswith(".gz"):
             return "fasta.gz"
-        elif name_lower.endswith('.zip'):
+        elif name_lower.endswith(".zip"):
             return "fasta.zip"
-        elif any(ext in name_lower for ext in ['.fasta', '.fa', '.fna']):
+        elif any(ext in name_lower for ext in [".fasta", ".fa", ".fna"]):
             return "fasta"
 
         # Check magic bytes if extension unclear
-        with open(file_path, 'rb') as f:
+        with open(file_path, "rb") as f:
             magic = f.read(2)
 
-        if magic == b'\x1f\x8b':  # Gzip magic bytes
+        if magic == b"\x1f\x8b":  # Gzip magic bytes
             return "fasta.gz"
-        elif magic == b'PK':  # Zip magic bytes
+        elif magic == b"PK":  # Zip magic bytes
             return "fasta.zip"
 
         # Default to plain FASTA
@@ -117,11 +119,11 @@ class GenomeLoader:
 
     def _open_plain(self, file_path: Path) -> TextIOWrapper:
         """Open plain text file"""
-        return open(file_path, 'r')
+        return open(file_path, "r")
 
     def _open_gzip(self, file_path: Path) -> TextIOWrapper:
         """Open gzip compressed file"""
-        return gzip.open(file_path, 'rt')
+        return gzip.open(file_path, "rt")
 
     def _open_zip(self, file_path: Path) -> TextIOWrapper:
         """
@@ -130,12 +132,13 @@ class GenomeLoader:
         For zip files, extracts the first .fasta/.fa/.fna file found.
         The ZipFile is stored on self._zip_file so it can be closed by the caller.
         """
-        self._zip_file = zipfile.ZipFile(file_path, 'r')
+        self._zip_file = zipfile.ZipFile(file_path, "r")
 
         # Find FASTA file in zip
         fasta_files = [
-            name for name in self._zip_file.namelist()
-            if name.lower().endswith(('.fasta', '.fa', '.fna'))
+            name
+            for name in self._zip_file.namelist()
+            if name.lower().endswith((".fasta", ".fa", ".fna"))
         ]
 
         if not fasta_files:
@@ -146,10 +149,9 @@ class GenomeLoader:
             logger.warning(f"Multiple FASTA files in zip, using: {fasta_files[0]}")
 
         # Return text wrapper for the FASTA file
-        return TextIOWrapper(self._zip_file.open(fasta_files[0], 'r'), encoding='utf-8')
+        return TextIOWrapper(self._zip_file.open(fasta_files[0], "r"), encoding="utf-8")
 
-    def load_genome(self, file_path: Union[str, Path],
-                   return_stats: bool = True) -> str:
+    def load_genome(self, file_path: Union[str, Path], return_stats: bool = True) -> str:
         """
         Load genome sequence from file (auto-detects compression).
 
@@ -186,11 +188,11 @@ class GenomeLoader:
                 seq_str = str(record.seq).upper()
                 sequences.append(seq_str)
                 sequence_lengths.append(len(seq_str))
-                total_n += seq_str.count('N')
+                total_n += seq_str.count("N")
 
         finally:
             file_handle.close()
-            if hasattr(self, '_zip_file') and self._zip_file:
+            if hasattr(self, "_zip_file") and self._zip_file:
                 self._zip_file.close()
                 self._zip_file = None
 
@@ -205,7 +207,7 @@ class GenomeLoader:
 
         # Calculate statistics if requested
         if return_stats:
-            gc_count = full_sequence.count('G') + full_sequence.count('C')
+            gc_count = full_sequence.count("G") + full_sequence.count("C")
             gc_content = gc_count / total_length if total_length > 0 else 0.0
 
             self.last_stats = GenomeStats(
@@ -219,7 +221,7 @@ class GenomeLoader:
                 sequence_lengths=sequence_lengths,
                 mean_length=sum(sequence_lengths) / len(sequence_lengths),
                 max_length=max(sequence_lengths),
-                min_length=min(sequence_lengths)
+                min_length=min(sequence_lengths),
             )
 
             logger.info(f"  GC content: {gc_content:.1%}")
@@ -262,13 +264,13 @@ class GenomeLoader:
                 yield str(record.seq).upper()
         finally:
             file_handle.close()
-            if hasattr(self, '_zip_file') and self._zip_file:
+            if hasattr(self, "_zip_file") and self._zip_file:
                 self._zip_file.close()
                 self._zip_file = None
 
-    def validate_genome(self, file_path: Union[str, Path],
-                       max_n_fraction: float = 0.10,
-                       min_length: int = 100000) -> Tuple[bool, List[str]]:
+    def validate_genome(
+        self, file_path: Union[str, Path], max_n_fraction: float = 0.10, min_length: int = 100000
+    ) -> Tuple[bool, List[str]]:
         """
         Validate genome file quality.
 
@@ -288,13 +290,15 @@ class GenomeLoader:
 
             # Check length
             if stats.total_length < min_length:
-                issues.append(f"Genome too short: {stats.total_length:,} bp "
-                            f"(minimum: {min_length:,} bp)")
+                issues.append(
+                    f"Genome too short: {stats.total_length:,} bp " f"(minimum: {min_length:,} bp)"
+                )
 
             # Check N content
             if stats.n_fraction > max_n_fraction:
-                issues.append(f"Too many N bases: {stats.n_fraction:.1%} "
-                            f"(maximum: {max_n_fraction:.1%})")
+                issues.append(
+                    f"Too many N bases: {stats.n_fraction:.1%} " f"(maximum: {max_n_fraction:.1%})"
+                )
 
             # Check for empty sequences
             if any(length == 0 for length in stats.sequence_lengths):
@@ -302,8 +306,7 @@ class GenomeLoader:
 
             # Warn about unusual GC
             if stats.gc_content < 0.15 or stats.gc_content > 0.85:
-                issues.append(f"Unusual GC content: {stats.gc_content:.1%} "
-                            f"(expected 15-85%)")
+                issues.append(f"Unusual GC content: {stats.gc_content:.1%} " f"(expected 15-85%)")
 
         except Exception as e:
             issues.append(f"Failed to load genome: {str(e)}")
@@ -425,13 +428,13 @@ class GenomeCache:
         logger.debug("Cache cleared")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 
-    print("="*80)
+    print("=" * 80)
     print("Genome I/O - Example Usage")
-    print("="*80)
+    print("=" * 80)
 
     # Create test files to demonstrate (in practice, use real genome files)
     from pathlib import Path
@@ -444,7 +447,7 @@ if __name__ == '__main__':
         print(f"\nFound {len(genomes)} test genomes\n")
 
         for genome_file in genomes:
-            print("-"*80)
+            print("-" * 80)
 
             # Load genome
             loader = GenomeLoader()
@@ -464,9 +467,9 @@ if __name__ == '__main__':
                     print(f"  - {issue}")
 
         # Demonstrate cache
-        print("\n" + "="*80)
+        print("\n" + "=" * 80)
         print("Testing genome cache...")
-        print("="*80)
+        print("=" * 80)
 
         cache = GenomeCache(max_cache_size=2)
 

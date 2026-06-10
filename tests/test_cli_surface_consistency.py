@@ -1,8 +1,15 @@
 """CLI surface-consistency smoke tests.
 
-These confirm that the --blacklist flag exists on every pipeline subcommand
-(for audit-trail parity) and that --kmer-range on `suggest` prints a
-structured recommendation.
+These confirm that the --blacklist flag exists on the pipeline subcommands
+where blacklist filtering is actually applied (and that --kmer-range on
+`suggest` prints a structured recommendation).
+
+Blacklist is a count/filter-stage concept: blacklist k-mers are counted at
+`count-kmers` and the frequency penalty is applied at `filter`. `score` and
+`optimize` consume the already-filtered candidate pool, so they do not surface
+a --blacklist flag (a flag there would be inert and misleading). The optimizer
+still cross-checks the candidate pool against any configured blacklist via the
+library-level guard in unified_optimizer.
 """
 
 import subprocess
@@ -18,13 +25,13 @@ def _run(args, timeout=30):
     )
 
 
-@pytest.mark.parametrize("cmd", ["count-kmers", "filter", "score", "optimize"])
+@pytest.mark.parametrize("cmd", ["count-kmers", "filter"])
 def test_blacklist_flag_present_on_pipeline_commands(cmd):
     result = _run([cmd, "--help"])
     assert result.returncode == 0, result.stderr
     assert "--blacklist" in result.stdout, (
-        f"'{cmd}' should accept --blacklist for CLI surface consistency; "
-        f"help text does not mention it."
+        f"'{cmd}' should accept --blacklist (blacklist is applied at this "
+        f"stage); help text does not mention it."
     )
 
 

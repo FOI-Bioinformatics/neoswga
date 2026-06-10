@@ -19,10 +19,11 @@ Version: 3.5 - Genome-Adaptive QA System
 """
 
 import logging
-import numpy as np
-from typing import List, Dict, Set, Tuple, Optional
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Primer:
     """Primer with binding sites and quality metrics."""
+
     sequence: str
     binding_sites: List[int]  # Genome positions
     quality_score: float  # 0-1, higher = better
@@ -44,6 +46,7 @@ class Primer:
 @dataclass
 class SelectionResult:
     """Result from minimal primer selection."""
+
     selected_primers: List[Primer]
     coverage: float  # Fraction of genome covered
     coverage_uniformity: float  # 0-1, higher = more uniform
@@ -62,8 +65,7 @@ class MinimalPrimerSelector:
     and coverage uniformity optimization.
     """
 
-    def __init__(self, genome_length: int, min_spacing: int = 1000,
-                 quality_weight: float = 0.3):
+    def __init__(self, genome_length: int, min_spacing: int = 1000, quality_weight: float = 0.3):
         """
         Initialize selector.
 
@@ -84,9 +86,9 @@ class MinimalPrimerSelector:
         logger.info(f"  Min spacing: {min_spacing:,} bp")
         logger.info(f"  Quality weight: {quality_weight:.2f}")
 
-    def select_minimal_set(self, primers: List[Primer],
-                          target_coverage: float = 0.70,
-                          max_primers: int = 20) -> SelectionResult:
+    def select_minimal_set(
+        self, primers: List[Primer], target_coverage: float = 0.70, max_primers: int = 20
+    ) -> SelectionResult:
         """
         Select minimal primer set using weighted greedy algorithm.
 
@@ -123,14 +125,13 @@ class MinimalPrimerSelector:
 
             # Check if target reached
             if current_coverage >= target_coverage:
-                logger.info(f"  Target coverage {target_coverage:.1%} reached at iteration {iteration}")
+                logger.info(
+                    f"  Target coverage {target_coverage:.1%} reached at iteration {iteration}"
+                )
                 break
 
             # Find best primer (coverage + quality weighted)
-            best_primer = self._select_best_primer(
-                remaining_primers,
-                covered_positions
-            )
+            best_primer = self._select_best_primer(remaining_primers, covered_positions)
 
             if best_primer is None:
                 logger.warning("  No more primers provide additional coverage")
@@ -159,8 +160,9 @@ class MinimalPrimerSelector:
 
         return result
 
-    def _select_best_primer(self, primers: List[Primer],
-                           covered_positions: Set[int]) -> Optional[Primer]:
+    def _select_best_primer(
+        self, primers: List[Primer], covered_positions: Set[int]
+    ) -> Optional[Primer]:
         """
         Select primer with best coverage/quality score.
 
@@ -189,9 +191,8 @@ class MinimalPrimerSelector:
 
             # Combined score (coverage + quality)
             score = (
-                (1 - self.quality_weight) * normalized_coverage +
-                self.quality_weight * primer.quality_score
-            )
+                1 - self.quality_weight
+            ) * normalized_coverage + self.quality_weight * primer.quality_score
 
             if score > best_score:
                 best_score = score
@@ -199,9 +200,9 @@ class MinimalPrimerSelector:
 
         return best_primer
 
-    def _calculate_metrics(self, selected: List[Primer],
-                          covered_positions: Set[int],
-                          iterations: int) -> SelectionResult:
+    def _calculate_metrics(
+        self, selected: List[Primer], covered_positions: Set[int], iterations: int
+    ) -> SelectionResult:
         """Calculate comprehensive metrics for selected primer set."""
 
         # Coverage
@@ -227,7 +228,7 @@ class MinimalPrimerSelector:
             covered_positions=covered_positions,
             gaps=gaps,
             mean_quality=mean_quality,
-            selection_iterations=iterations
+            selection_iterations=iterations,
         )
 
     def _calculate_coverage_uniformity(self, covered_positions: Set[int]) -> float:
@@ -278,8 +279,9 @@ class MinimalPrimerSelector:
 
         return uniformity
 
-    def _find_coverage_gaps(self, covered_positions: Set[int],
-                           min_gap_size: int = 10000) -> List[Tuple[int, int]]:
+    def _find_coverage_gaps(
+        self, covered_positions: Set[int], min_gap_size: int = 10000
+    ) -> List[Tuple[int, int]]:
         """
         Find large uncovered regions in genome.
 
@@ -339,8 +341,9 @@ class MinimalPrimerSelector:
 
         logger.info(f"{'='*60}\n")
 
-    def optimize_for_uniformity(self, primers: List[Primer],
-                               target_primers: int = 15) -> SelectionResult:
+    def optimize_for_uniformity(
+        self, primers: List[Primer], target_primers: int = 15
+    ) -> SelectionResult:
         """
         Select primers optimized for coverage uniformity.
 
@@ -370,12 +373,15 @@ class MinimalPrimerSelector:
 
             # Find primers with sites in this region
             region_primers = [
-                p for p in primers
+                p
+                for p in primers
                 if any(region_start <= site < region_end for site in p.binding_sites)
             ]
 
             if not region_primers:
-                logger.warning(f"  No primers for region {region_idx} ({region_start:,}-{region_end:,})")
+                logger.warning(
+                    f"  No primers for region {region_idx} ({region_start:,}-{region_end:,})"
+                )
                 continue
 
             # Select best quality primer in region
@@ -395,9 +401,9 @@ class MinimalPrimerSelector:
         return result
 
 
-def create_primers_from_sequences(sequences: List[str],
-                                  binding_sites_map: Dict[str, List[int]],
-                                  quality_scores: Dict[str, float]) -> List[Primer]:
+def create_primers_from_sequences(
+    sequences: List[str], binding_sites_map: Dict[str, List[int]], quality_scores: Dict[str, float]
+) -> List[Primer]:
     """
     Create Primer objects from sequences and binding data.
 
@@ -416,7 +422,7 @@ def create_primers_from_sequences(sequences: List[str],
         quality = quality_scores.get(seq, 0.5)  # Default 0.5
 
         # Calculate GC content
-        gc_count = seq.count('G') + seq.count('C')
+        gc_count = seq.count("G") + seq.count("C")
         gc_content = gc_count / len(seq) if len(seq) > 0 else 0.5
 
         primer = Primer(
@@ -424,7 +430,7 @@ def create_primers_from_sequences(sequences: List[str],
             binding_sites=sites,
             quality_score=quality,
             gc_content=gc_content,
-            primer_id=seq
+            primer_id=seq,
         )
 
         primers.append(primer)
@@ -432,7 +438,7 @@ def create_primers_from_sequences(sequences: List[str],
     return primers
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 
@@ -443,6 +449,7 @@ if __name__ == '__main__':
 
     # Simulate 50 primers with random binding sites
     import random
+
     random.seed(42)
 
     primers = []
@@ -455,35 +462,31 @@ if __name__ == '__main__':
         quality = random.uniform(0.5, 1.0)
 
         # Random sequence
-        bases = ['A', 'T', 'G', 'C']
-        seq = ''.join(random.choice(bases) for _ in range(12))
+        bases = ["A", "T", "G", "C"]
+        seq = "".join(random.choice(bases) for _ in range(12))
 
         primer = Primer(
             sequence=seq,
             binding_sites=sites,
             quality_score=quality,
             gc_content=random.uniform(0.3, 0.7),
-            primer_id=f"Primer_{i+1}"
+            primer_id=f"Primer_{i+1}",
         )
         primers.append(primer)
 
     # Create selector
     selector = MinimalPrimerSelector(
-        genome_length=genome_length,
-        min_spacing=1000,
-        quality_weight=0.3
+        genome_length=genome_length, min_spacing=1000, quality_weight=0.3
     )
 
     # Select minimal set
-    result = selector.select_minimal_set(
-        primers=primers,
-        target_coverage=0.60,
-        max_primers=15
-    )
+    result = selector.select_minimal_set(primers=primers, target_coverage=0.60, max_primers=15)
 
     print(f"\nSelected {len(result.selected_primers)} primers:")
     for primer in result.selected_primers[:10]:
-        print(f"  {primer.primer_id}: {len(primer.binding_sites)} sites, quality={primer.quality_score:.3f}")
+        print(
+            f"  {primer.primer_id}: {len(primer.binding_sites)} sites, quality={primer.quality_score:.3f}"
+        )
 
     print(f"\nCoverage: {result.coverage:.1%}")
     print(f"Uniformity: {result.coverage_uniformity:.2f}")
