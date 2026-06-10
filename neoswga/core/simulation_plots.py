@@ -46,6 +46,86 @@ def _require_matplotlib():
         )
 
 
+def plot_replication_summary(results: dict, output_file: str = "simulation_plots.png") -> None:
+    """Plot a summary of the agent-based replication simulation.
+
+    Consumes the dict returned by
+    ``replication_simulator.simulate_primer_set`` (keys ``mean_coverage``,
+    ``mean_amplification``, ``all_results`` = per-replicate ``SimulationResult``
+    objects). Produces a 2x2 PNG: per-replicate coverage, per-replicate
+    amplification, the mean coverage profile across the genome, and a metrics
+    text panel. Uses only real simulation data (no fabricated values).
+    """
+    _require_matplotlib()
+    all_results = list(results.get("all_results", []) or [])
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle("SWGA Replication Simulation Summary", fontsize=14, fontweight="bold")
+
+    # (0,0) per-replicate final coverage
+    covs = [getattr(r, "final_coverage_fraction", 0.0) for r in all_results]
+    if covs:
+        axes[0, 0].bar(range(1, len(covs) + 1), [c * 100 for c in covs], color="#2c7fb8")
+    axes[0, 0].set_title("Final coverage per replicate")
+    axes[0, 0].set_xlabel("Replicate")
+    axes[0, 0].set_ylabel("Coverage (%)")
+
+    # (0,1) per-replicate amplification fold
+    amps = [getattr(r, "amplification_fold", 0.0) for r in all_results]
+    if amps:
+        axes[0, 1].bar(range(1, len(amps) + 1), amps, color="#7fcdbb")
+    axes[0, 1].set_title("Amplification fold per replicate")
+    axes[0, 1].set_xlabel("Replicate")
+    axes[0, 1].set_ylabel("Fold")
+
+    # (1,0) mean coverage profile across the genome (binned)
+    arrays = [
+        np.asarray(getattr(r, "coverage", None), dtype=float)
+        for r in all_results
+        if getattr(r, "coverage", None) is not None
+    ]
+    if arrays:
+        mean_cov = np.mean(arrays, axis=0)
+        n_bins = min(200, len(mean_cov)) or 1
+        edges = np.linspace(0, len(mean_cov), n_bins + 1, dtype=int)
+        binned = [
+            mean_cov[edges[i] : edges[i + 1]].mean() if edges[i + 1] > edges[i] else 0.0
+            for i in range(n_bins)
+        ]
+        axes[1, 0].fill_between(range(n_bins), [b * 100 for b in binned], color="#41b6c4")
+    axes[1, 0].set_title("Mean coverage profile")
+    axes[1, 0].set_xlabel("Genome position (binned)")
+    axes[1, 0].set_ylabel("Covered (%)")
+
+    # (1,1) metrics text panel
+    axes[1, 1].axis("off")
+    lines = [
+        f"Replicates: {len(all_results)}",
+        f"Mean coverage: {results.get('mean_coverage', 0.0):.1%} "
+        f"+/- {results.get('std_coverage', 0.0):.1%}",
+        f"Mean amplification: {results.get('mean_amplification', 0.0):.1f}x "
+        f"+/- {results.get('std_amplification', 0.0):.1f}x",
+        f"Mean forks created: {results.get('mean_forks_created', 0.0):.0f}",
+        f"Mean fork travel: {results.get('mean_fork_travel', 0.0):,.0f} bp",
+        f"Mean displaced strands: {results.get('mean_displaced_strands', 0.0):.0f}",
+    ]
+    axes[1, 1].text(
+        0.02,
+        0.95,
+        "\n".join(lines),
+        va="top",
+        ha="left",
+        fontsize=12,
+        family="monospace",
+        transform=axes[1, 1].transAxes,
+    )
+
+    plt.tight_layout(rect=(0, 0, 1, 0.96))
+    fig.savefig(output_file, dpi=120)
+    plt.close(fig)
+    logger.info(f"Simulation plots saved to {output_file}")
+
+
 def generate_plots(result, simulator, analysis=None, output_file="simulation_plots.png"):
     """
     Generate comprehensive visualization of simulation results.

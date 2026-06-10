@@ -405,9 +405,19 @@ class SwgaSimulator:
         Returns:
             SimulationResult with stochastic kinetics validation
         """
-        logger.info("Running validation with stochastic kinetics...")
-        logger.warning("Stochastic simulation not yet implemented - using detailed mode")
-        return self.simulate_detailed(num_replicates=10)
+        logger.info("Running validation...")
+        logger.warning(
+            "Stochastic-kinetics validation is not implemented; falling back to "
+            "the detailed agent-based mode (10 replicates). The returned result "
+            "is labelled accordingly so downstream consumers do not mistake it "
+            "for stochastic validation."
+        )
+        result = self.simulate_detailed(num_replicates=10)
+        # Mark the mode honestly and lower confidence so callers/reports do not
+        # present agent-based output as stochastic-kinetics validation.
+        result.mode = "detailed (validation fallback)"
+        result.confidence = min(result.confidence, 0.7)
+        return result
 
     def _calculate_bin_coverage(
         self, positions_dict: Dict, genome_length: int
