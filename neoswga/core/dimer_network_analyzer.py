@@ -172,12 +172,13 @@ class DimerNetworkAnalyzer:
             empty_metrics = DimerNetworkMetrics(
                 num_primers=0,
                 total_interactions=0,
-                mean_degree=0.0,
-                max_degree=0,
-                num_hubs=0,
-                hub_percentage=0.0,
+                num_hub_primers=0,
                 mean_severity=0.0,
-                max_severity=0.0
+                max_severity=0.0,
+                severity_distribution={},
+                total_binding_energy=0.0,
+                passes=False,
+                failure_reason="Empty primer set",
             )
             return empty_metrics, {}, np.array([])
 

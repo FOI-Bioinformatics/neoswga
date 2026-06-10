@@ -304,11 +304,12 @@ class SwgaSimulator:
         logger.info(f"Running detailed agent-based simulation ({num_replicates} replicates)...")
         start_time = time.time()
 
-        from neoswga.core.replication_simulator import Phi29Simulator, ReactionConditions
+        from neoswga.core.replication_simulator import Phi29Simulator
+        from neoswga.core.reaction_conditions import ReactionConditions
 
         # Set up reaction conditions
         conditions = ReactionConditions(
-            temperature=self.conditions.get('temperature', 30),
+            temp=self.conditions.get('temperature', 30),
             polymerase=self.conditions.get('polymerase', 'phi29')
         )
 
@@ -319,11 +320,11 @@ class SwgaSimulator:
             sim = Phi29Simulator(
                 primers=self.primers,
                 primer_positions=self.fg_positions,
+                genome_length=self.fg_length,
                 genome_sequence=self.fg_genome,
-                genome_name='target',
                 conditions=conditions
             )
-            result = sim.run(duration=self.conditions.get('duration', 3600))
+            result = sim.run(verbose=False)
             fg_results.append(result)
 
         # Run background genome replicates
@@ -333,11 +334,11 @@ class SwgaSimulator:
             sim = Phi29Simulator(
                 primers=self.primers,
                 primer_positions=self.bg_positions,
+                genome_length=self.bg_length,
                 genome_sequence=self.bg_genome,
-                genome_name='background',
                 conditions=conditions
             )
-            result = sim.run(duration=self.conditions.get('duration', 3600))
+            result = sim.run(verbose=False)
             bg_results.append(result)
 
         # Aggregate statistics
@@ -353,10 +354,10 @@ class SwgaSimulator:
         enrichment = target_amplification / (background_amplification + 1e-10)
 
         # Calculate uniformity (from coverage array)
-        target_uniformity = 1.0 - self._calculate_gini(fg_results[0].coverage_array)
+        target_uniformity = 1.0 - self._calculate_gini(fg_results[0].coverage)
 
         # Identify gaps
-        gaps = self._identify_gaps(fg_results[0].coverage_array, self.fg_length)
+        gaps = self._identify_gaps(fg_results[0].coverage, self.fg_length)
 
         # Calculate composite score
         result = self._calculate_composite_score(
