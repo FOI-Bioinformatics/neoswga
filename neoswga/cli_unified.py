@@ -751,15 +751,23 @@ Run "neoswga <command> --help" for details on a specific command.
     opt_method_group = optimize_parser.add_argument_group('Method Selection')
     opt_method_group.add_argument('-m', '--optimization-method',
                              choices=['hybrid', 'dominating-set',
-                                     'network', 'background-aware'],
+                                     'network', 'background-aware', 'ensemble'],
                              default='hybrid',
                              help='Optimization method. '
                                   'Decision tree: '
                                   'hybrid (default, general use), '
                                   'dominating-set (speed-critical, large pools), '
                                   'background-aware (clinical, 10-20x bg reduction), '
-                                  'network (Tm-weighted, dimer-aware). '
+                                  'network (Tm-weighted, dimer-aware), '
+                                  'ensemble (run several and keep the best by '
+                                  'normalized score). '
                                   'Use --method-guide for detailed comparison.')
+    opt_method_group.add_argument('--ensemble-methods', nargs='+', default=None,
+                             metavar='METHOD',
+                             help='Methods to run when --optimization-method=ensemble '
+                                  '(default: hybrid dominating-set network background-aware). '
+                                  'The best result by application-weighted normalized score '
+                                  'is kept; a per-method comparison table is printed.')
     opt_method_group.add_argument('--scoring-weights',
                              dest='scoring_weights',
                              choices=['clinical', 'discovery', 'fast', 'balanced', 'enrichment'],
@@ -2228,6 +2236,7 @@ def run_step4(args):
             # profile. Both are consumed by unified_optimizer.run_optimization.
             min_per_target_coverage=getattr(args, 'min_per_target_coverage', 0.0),
             application=getattr(args, 'application', 'balanced'),
+            ensemble_methods=getattr(args, 'ensemble_methods', None),
         )
 
         if results:
@@ -2282,6 +2291,35 @@ def run_step4(args):
                         f"{pm.get('score', 0.0):>7.3f}"
                     )
                     logger.info(row)
+
+        # Ensemble per-method comparison table. Printed whenever an ensemble
+        # run populated OptimizationResult.ensemble_comparison, so the user
+        # sees which method won and by how much.
+        if results:
+            from neoswga.core import unified_optimizer as _uo
+            _last = getattr(_uo, '_LAST_RESULT', None)
+            _cmp = getattr(_last, 'ensemble_comparison', None) if _last is not None else None
+            if _cmp:
+                logger.info("")
+                logger.info("=" * 60)
+                logger.info("Ensemble comparison (best by normalized score)")
+                logger.info("=" * 60)
+                header = (
+                    f"{'method':>16}  {'norm_score':>10}  {'n':>3}  "
+                    f"{'fg_cov':>7}  {'bg_cov':>7}  {'status':>9}  sel"
+                )
+                logger.info(header)
+                logger.info("-" * len(header))
+                for row_d in _cmp:
+                    logger.info(
+                        f"{row_d.get('method', '?'):>16}  "
+                        f"{row_d.get('normalized_score', 0.0):>10.4f}  "
+                        f"{row_d.get('n_primers', 0):>3}  "
+                        f"{row_d.get('fg_coverage', 0.0):>7.3f}  "
+                        f"{row_d.get('bg_coverage', 0.0):>7.3f}  "
+                        f"{row_d.get('status', '?'):>9}  "
+                        f"{'*' if row_d.get('selected') else ''}"
+                    )
 
         # Show Pareto frontier analysis (optional)
         if show_frontier and results and cache is not None:

@@ -171,6 +171,117 @@ def _prefilter_by_background(cache, candidates, fg_prefixes, bg_prefixes,
     return filtered if filtered else candidates  # never return empty
 
 
+def _reseed(seed) -> None:
+    """Re-seed all RNGs so ensemble methods are mutually reproducible and
+    order-independent. No-op when seed is None."""
+    if seed is None:
+        return
+    import random
+    import numpy as np
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        from .rf_preprocessing import set_kmer_sampling_seed
+        set_kmer_sampling_seed(seed)
+    except Exception:
+        pass
+
+
+def _run_ensemble(
+    methods: List[str],
+    cache,
+    candidates: List[str],
+    fg_prefixes: List[str],
+    fg_seq_lengths: List[int],
+    bg_prefixes: Optional[List[str]],
+    bg_seq_lengths: Optional[List[int]],
+    target_size: int,
+    config,
+    conditions,
+    application: str = 'balanced',
+    seed=None,
+    verbose: bool = True,
+    **kwargs,
+) -> OptimizationResult:
+    """Run several optimizers on one shared cache; keep the best.
+
+    Methods are compared by ``normalized_score`` (a [0,1] value comparable
+    across optimizer types, weighted by ``application``) — NOT raw ``score``,
+    which is on per-optimizer scales. A per-method comparison table is attached
+    to the returned result as ``ensemble_comparison``. Per-method failures are
+    logged and skipped (graceful degradation); if every method fails the result
+    is an ERROR.
+
+    Building the PositionCache once (passed in as ``cache``) is the key speed
+    win over calling run_optimization N times.
+    """
+    from dataclasses import replace as _dc_replace
+
+    rows: List[Dict[str, Any]] = []
+    results: Dict[str, OptimizationResult] = {}
+
+    for m in methods:
+        _reseed(seed)  # order-independent reproducibility
+        try:
+            optimizer = OptimizerFactory.create(
+                name=m,
+                position_cache=cache,
+                fg_prefixes=fg_prefixes,
+                fg_seq_lengths=fg_seq_lengths,
+                bg_prefixes=bg_prefixes,
+                bg_seq_lengths=bg_seq_lengths,
+                config=config,
+                conditions=conditions,
+                **kwargs,
+            )
+            with progress_context(f"  ensemble: {optimizer.name}", disable=not verbose):
+                res = optimizer.optimize(candidates, target_size)
+        except Exception as e:
+            logger.warning(f"  ensemble method '{m}' failed: {e}")
+            rows.append({
+                "method": m, "normalized_score": 0.0, "score": float('-inf'),
+                "n_primers": 0, "fg_coverage": 0.0, "bg_coverage": 0.0,
+                "status": "error", "selected": False,
+            })
+            continue
+
+        norm = res.metrics.normalized_score(application=application)
+        results[m] = res
+        rows.append({
+            "method": m,
+            "normalized_score": round(float(norm), 4),
+            "score": float(res.score),
+            "n_primers": res.num_primers,
+            "fg_coverage": round(float(res.metrics.fg_coverage), 4),
+            "bg_coverage": round(float(res.metrics.bg_coverage), 4),
+            "status": res.status.value,
+            "selected": False,
+        })
+
+    if not results:
+        return OptimizationResult.failure(
+            "ensemble", f"All ensemble methods failed: {methods}"
+        )
+
+    # Pick the winner by normalized_score (application-weighted).
+    best_method = max(
+        results,
+        key=lambda m: results[m].metrics.normalized_score(application=application),
+    )
+    for row in rows:
+        row["selected"] = (row["method"] == best_method and row["status"] != "error")
+
+    if verbose:
+        logger.info(
+            f"Ensemble winner: '{best_method}' "
+            f"(normalized_score={results[best_method].metrics.normalized_score(application=application):.4f}, "
+            f"application='{application}')"
+        )
+
+    winner = results[best_method]
+    return _dc_replace(winner, ensemble_comparison=tuple(rows))
+
+
 def run_optimization(
     method: str = 'hybrid',
     candidates: Optional[List[str]] = None,
@@ -398,26 +509,53 @@ def run_optimization(
         except Exception as e:
             logger.debug(f"application weight lookup skipped: {e}")
 
-    # Create optimizer via factory
-    try:
-        optimizer = OptimizerFactory.create(
-            name=method,
-            position_cache=cache,
+    # Ensemble path: run several methods on the SAME position cache and keep
+    # the best by normalized_score. Falls through to the shared
+    # post-processing below so the winner gets per-target coverage, saturation
+    # checks, and the validation report like any single-method run.
+    if method in ('ensemble', 'auto', 'all'):
+        ensemble_methods = kwargs.pop('ensemble_methods', None) or \
+            ['hybrid', 'dominating-set', 'network', 'background-aware']
+        # `seed` is captured separately and passed explicitly; remove it from
+        # kwargs so it is not forwarded twice into _run_ensemble.
+        kwargs.pop('seed', None)
+        result = _run_ensemble(
+            methods=ensemble_methods,
+            cache=cache,
+            candidates=candidates,
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
+            target_size=target_size,
             config=config,
             conditions=conditions,
-            **kwargs
+            application=(_application or 'balanced'),
+            seed=seed,
+            verbose=verbose,
+            **kwargs,
         )
-    except Exception as e:
-        logger.error(f"Failed to create optimizer '{method}': {e}")
-        return OptimizationResult.failure(method, str(e))
+    else:
+        # Create optimizer via factory
+        try:
+            optimizer = OptimizerFactory.create(
+                name=method,
+                position_cache=cache,
+                fg_prefixes=fg_prefixes,
+                fg_seq_lengths=fg_seq_lengths,
+                bg_prefixes=bg_prefixes,
+                bg_seq_lengths=bg_seq_lengths,
+                config=config,
+                conditions=conditions,
+                **kwargs
+            )
+        except Exception as e:
+            logger.error(f"Failed to create optimizer '{method}': {e}")
+            return OptimizationResult.failure(method, str(e))
 
-    # Run optimization
-    with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
-        result = optimizer.optimize(candidates, target_size)
+        # Run optimization
+        with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
+            result = optimizer.optimize(candidates, target_size)
 
     # Phase 15A: populate per_target_coverage on the result so multi-
     # target runs surface "target A 95% / target B 40%" instead of one

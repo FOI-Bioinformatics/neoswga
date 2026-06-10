@@ -233,6 +233,13 @@ class OptimizationResult:
     pareto_front: Optional[Tuple[Tuple[str, ...], ...]] = None
     pareto_metrics: Optional[Tuple[Dict[str, Any], ...]] = None
 
+    # Per-method comparison rows when this result was produced by an ensemble
+    # run (method='ensemble'). Each row is a dict:
+    #   {method, normalized_score, score, n_primers, fg_coverage,
+    #    bg_coverage, status, selected}
+    # None for single-method runs.
+    ensemble_comparison: Optional[Tuple[Dict[str, Any], ...]] = None
+
     @property
     def num_primers(self) -> int:
         """Number of primers in the set."""
@@ -272,6 +279,8 @@ class OptimizationResult:
             d['pareto_front'] = [list(p) for p in self.pareto_front]
             if self.pareto_metrics is not None:
                 d['pareto_metrics'] = list(self.pareto_metrics)
+        if self.ensemble_comparison is not None:
+            d['ensemble_comparison'] = list(self.ensemble_comparison)
         return d
 
     def validate(
@@ -869,21 +878,32 @@ class CompositeOptimizer(BaseOptimizer):
         candidates: List[str],
         target_size: Optional[int] = None,
         fixed_primers: Optional[List[str]] = None,
+        application: str = 'balanced',
         **kwargs
     ) -> OptimizationResult:
-        """Run all sub-optimizers and return best result."""
+        """Run all sub-optimizers and return the best result.
+
+        Selection is by ``normalized_score`` (a [0,1] value comparable across
+        optimizer types), NOT raw ``score`` — raw scores are on
+        per-optimizer scales and are not comparable.
+        """
+        from dataclasses import replace as _dc_replace
+
         candidates = self._validate_candidates(candidates)
         target = target_size or self.config.target_set_size
 
         best_result = None
+        best_norm = -1.0
 
         for optimizer in self.optimizers:
             try:
                 result = optimizer.optimize(
                     candidates, target, fixed_primers=fixed_primers, **kwargs
                 )
-                if best_result is None or result.score > best_result.score:
+                norm = result.metrics.normalized_score(application=application)
+                if best_result is None or norm > best_norm:
                     best_result = result
+                    best_norm = norm
             except Exception as e:
                 logger.warning(f"Optimizer {optimizer.name} failed: {e}")
 
