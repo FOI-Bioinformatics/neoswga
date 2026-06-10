@@ -256,6 +256,7 @@ class GillespieSimulator:
         params: Optional[ReactionParameters] = None,
         conditions: Optional["ReactionConditions"] = None,
         template_gc: float = 0.5,
+        seed: Optional[int] = None,
     ):
         """
         Initialize simulator.
@@ -276,6 +277,10 @@ class GillespieSimulator:
         self.fg_network = fg_network
         self.bg_network = bg_network
         self.template_gc = template_gc
+        # Dedicated RNG so the Gillespie trajectory (and the validation
+        # enrichment / accuracy it produces) is reproducible when a seed is set,
+        # without disturbing the global numpy RNG state.
+        self._rng = np.random.default_rng(seed)
 
         # Create params from conditions if needed
         if params is not None:
@@ -355,11 +360,11 @@ class GillespieSimulator:
                 break
 
             # Time to next reaction (exponential distribution)
-            dt = np.random.exponential(1.0 / total_propensity)
+            dt = self._rng.exponential(1.0 / total_propensity)
             state.time += dt
 
             # Select which reaction occurs
-            rand = np.random.random() * total_propensity
+            rand = self._rng.random() * total_propensity
             cumsum = 0
             selected_reaction = None
 
@@ -527,6 +532,7 @@ def validate_network_predictions(
     bg_network,
     conditions: Optional["ReactionConditions"] = None,
     template_gc: float = 0.5,
+    seed: Optional[int] = None,
 ) -> Dict:
     """
     Validate network-based predictions with stochastic simulation.
@@ -559,7 +565,7 @@ def validate_network_predictions(
 
     # Stochastic simulation (8 hours typical SWGA protocol)
     simulator = GillespieSimulator(
-        primers, fg_network, bg_network, conditions=conditions, template_gc=template_gc
+        primers, fg_network, bg_network, conditions=conditions, template_gc=template_gc, seed=seed
     )
     history = simulator.simulate(max_time=28800.0, sample_interval=60.0)  # 8 hours
 

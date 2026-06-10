@@ -86,13 +86,17 @@ class MultiGenomePipelineResult:
     mean_enrichment: float
     min_enrichment: float  # Worst-case enrichment
 
-    # Coverage metrics
-    coverage: float
-    connectivity: float
-    predicted_amplification: float
+    # Coverage metrics. None = not computed by this pipeline. The multi-genome
+    # pipeline ranks candidates by k-mer frequency/enrichment and does not build
+    # a position cache, so genome coverage / amplification-network connectivity
+    # are not available here (run the position-based pipeline + optimize, or
+    # validate_with_simulation, for those). They are None rather than fabricated.
+    coverage: Optional[float]
+    connectivity: Optional[float]
+    predicted_amplification: Optional[float]
 
     # Optimization details
-    stage1_primer_count: int
+    stage1_primer_count: Optional[int]
     stage2_primer_count: int
     optimization_method: str
 
@@ -471,10 +475,11 @@ class MultiGenomePipeline:
             mean_blacklist_frequency=mean_bl_freq,
             mean_enrichment=mean_enrichment,
             min_enrichment=min_enrichment,
-            coverage=0.95,  # Placeholder - would need position analysis
-            connectivity=0.90,  # Placeholder
-            predicted_amplification=mean_enrichment * 100,
-            stage1_primer_count=0,  # Would need hybrid optimizer integration
+            # Not computed by the frequency-ranking multi-genome pipeline.
+            coverage=None,
+            connectivity=None,
+            predicted_amplification=None,
+            stage1_primer_count=None,
             stage2_primer_count=len(final_primers),
             optimization_method="multi_genome_ranking",
             total_candidates=total_candidates,

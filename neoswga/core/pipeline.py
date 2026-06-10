@@ -351,6 +351,9 @@ defaults = {
 
 # Module-level variables (will be initialized lazily)
 _initialized = False
+# Tracks the params.json used at the last _initialize() so a changed path
+# auto-triggers reset_pipeline_state() (prevents cross-run genome-config leak).
+_initialized_json_file = None
 params = None
 fg_prefixes = None
 bg_prefixes = None
@@ -366,9 +369,19 @@ def _initialize():
     """Lazy initialization - only parse args when actually needed"""
     global _initialized, params, fg_prefixes, bg_prefixes, fg_genomes, bg_genomes
     global fg_seq_lengths, bg_seq_lengths, fg_circular, bg_circular
+    global _initialized_json_file
+
+    # Auto-reset if the params file changed since the last initialization, so a
+    # second run in the same process does not inherit the first run's genome
+    # config. (Within a single run the steps share state intentionally.)
+    current_json = getattr(parameter, "json_file", None)
+    if _initialized and current_json != _initialized_json_file:
+        reset_pipeline_state()
 
     if _initialized:
         return
+
+    _initialized_json_file = current_json
 
     # Create empty options object that returns None for any attribute
     # (CLI arguments are handled by cli_unified.py)
@@ -410,6 +423,40 @@ def _initialize():
     _apply_gc_adaptive_defaults()
 
     _initialized = True
+
+
+def reset_pipeline_state():
+    """Clear cached pipeline globals so the next _initialize() re-reads params.
+
+    The pipeline caches per-run genome metadata (prefixes, lengths, circularity,
+    the initialization marker) and the filter module caches a ReactionConditions
+    singleton. Without resetting, a second run in the same process (a library
+    caller, a batch loop, or a CLI handler switching params.json) silently reuses
+    the FIRST run's genome config and additive Tm corrections. Call this whenever
+    parameter.json_file changes.
+    """
+    global _initialized, params, fg_prefixes, bg_prefixes, fg_genomes, bg_genomes
+    global fg_seq_lengths, bg_seq_lengths, fg_circular, bg_circular
+
+    _initialized = False
+    params = None
+    fg_prefixes = None
+    bg_prefixes = None
+    fg_genomes = None
+    bg_genomes = None
+    fg_seq_lengths = None
+    bg_seq_lengths = None
+    fg_circular = None
+    bg_circular = None
+
+    # Drop the cached reaction-conditions singleton so additive Tm corrections
+    # are recomputed for the new run's params.
+    try:
+        from neoswga.core.filter import reset_reaction_conditions
+
+        reset_reaction_conditions()
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"reset_reaction_conditions skipped: {e}")
 
 
 def _apply_gc_adaptive_defaults():
