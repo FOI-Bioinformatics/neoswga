@@ -13,7 +13,7 @@ Usage:
     neoswga count-kmers [options]
     neoswga filter [options]
     neoswga score [options]
-    neoswga optimize [options] [--optimization-method=hybrid|greedy|milp]
+    neoswga optimize [options] [--optimization-method=hybrid|dominating-set|network|background-aware|ensemble]
 
     # Utility commands
     neoswga build-filter <genome> <output_dir>
@@ -31,8 +31,8 @@ Examples:
     neoswga score -j params.json
     neoswga optimize -j params.json
 
-    # Control optimization method
-    neoswga optimize -j params.json --optimization-method=milp
+    # Control optimization method (hybrid|dominating-set|network|background-aware|ensemble)
+    neoswga optimize -j params.json --optimization-method=ensemble
     neoswga optimize -j params.json --use-background-filter --background-bloom-path filters/bg_bloom.pkl
 
     # Pre-build background filter (one-time, 30 min for human genome)
@@ -1992,78 +1992,43 @@ OPTIMIZATION METHOD SELECTION GUIDE
 ====================================
 
 Decision Tree:
-  Speed critical?           -> dominating-set
-  Need dimer-free?          -> clique (or coverage-then-dimerfree)
-  Clinical/diagnostic?      -> background-aware
-  GC-rich genome (>65%)?    -> equiphi29
-  Exact solution needed?    -> milp (pools <100)
-  Want coverage + no dimers -> coverage-then-dimerfree
-  Default                   -> hybrid
+  Speed critical / large pool?   -> dominating-set
+  Clinical / low background?     -> background-aware
+  Tm-balanced, dimer-aware?      -> network
+  Not sure / want the best?      -> ensemble (runs all, keeps the best)
+  Default                        -> hybrid
 
-Single-Stage Methods:
-+------------------+--------+-----------+-------------+------------------------+
-| Method           | Speed  | Coverage  | Specificity | Best For               |
-+------------------+--------+-----------+-------------+------------------------+
-| hybrid           | Medium | Excellent | Good        | General use (default)  |
-| dominating-set   | Fast   | Excellent | Fair        | Large pools, quick     |
-| background-aware | Slow   | Good      | Excellent   | Clinical, low bg       |
-| clique           | Var.   | Good      | Good        | Dimer-free guarantee   |
-| equiphi29        | Medium | Good      | Good        | GC-rich, 42-45C        |
-| normalized       | Medium | Varies    | Varies      | Configurable weights   |
-| network          | Medium | Good      | Good        | Tm-balanced sets       |
-| genetic          | Slow   | Good      | Good        | Multi-objective        |
-| moea             | Slow   | Good      | Good        | Pareto optimization    |
-| milp             | Var.   | Optimal   | Good        | Exact (small sets)     |
-| greedy           | Fast   | Fair      | Fair        | Simple baseline        |
-| tiling           | Fast   | Excellent | Fair        | Uniform spacing        |
-+------------------+--------+-----------+-------------+------------------------+
+Methods:
++------------------+--------+-----------+-------------+--------------------------+
+| Method           | Speed  | Coverage  | Specificity | Best For                 |
++------------------+--------+-----------+-------------+--------------------------+
+| hybrid           | Medium | Excellent | Good        | General use (default)    |
+| dominating-set   | Fast   | Excellent | Fair        | Large pools, quick       |
+| network          | Medium | Good      | Good        | Tm-balanced, dimer-aware |
+| background-aware | Slow   | Good      | Excellent   | Clinical, low background |
+| ensemble         | Slow   | Best-of   | Best-of     | Run all, keep best by    |
+|                  |        |           |             | normalized score         |
++------------------+--------+-----------+-------------+--------------------------+
 
-Pipeline Methods (serial cascades):
-+-------------------------+----------+--------------------------------------+
-| Method                  | Speed    | Description                          |
-+-------------------------+----------+--------------------------------------+
-| coverage-then-dimerfree | Moderate | DS -> Clique (coverage + dimer-free) |
-| dimerfree-scored        | Moderate | Clique -> Network (dimer-free +      |
-|                         |          | connectivity scoring)                |
-| bg-prefilter            | Moderate | Background pruning pre-filter alone  |
-| bg-prefilter-hybrid     | Moderate | BG pruning -> Hybrid (bg reduction   |
-|                         |          | + general optimization)              |
-+-------------------------+----------+--------------------------------------+
-
-Strategy Presets (for --optimization-method=normalized):
-+-------------+--------------------------------------------------+
-| Strategy    | Description                                      |
-+-------------+--------------------------------------------------+
-| clinical    | High specificity (40% background weight)         |
-| discovery   | Max coverage (40% coverage weight)               |
-| fast        | Quick screening (no background penalty)          |
-| balanced    | Equal weights across all objectives              |
-| enrichment  | Sequencing enrichment (balanced coverage/amp)    |
-+-------------+--------------------------------------------------+
+Application weighting (--application) tunes how the normalized score and the
+selection knobs trade coverage vs specificity:
+  balanced | discovery (max coverage) | clinical (max specificity) |
+  enrichment (sequencing) | metagenomics (capture diversity)
 
 Usage Examples:
   # Default (hybrid)
   neoswga optimize -j params.json
 
-  # Fast screening
+  # Fast screening on a large candidate pool
   neoswga optimize -j params.json --optimization-method=dominating-set
 
   # Clinical samples (low background)
-  neoswga optimize -j params.json --optimization-method=background-aware
+  neoswga optimize -j params.json --optimization-method=background-aware --application=clinical
 
-  # Guaranteed dimer-free sets (pools <200 primers)
-  neoswga optimize -j params.json --optimization-method=clique
-
-  # Coverage-first, then dimer-free filtering
-  neoswga optimize -j params.json --optimization-method=coverage-then-dimerfree
-
-  # Dimer-free with network connectivity scoring
-  neoswga optimize -j params.json --optimization-method=dimerfree-scored
-
-  # Strategy-based with clinical preset
-  neoswga optimize -j params.json --optimization-method=normalized --strategy=clinical
-
-For detailed documentation: docs/optimization_guide.md
+  # Run several methods and keep the best (prints a comparison table)
+  neoswga optimize -j params.json --optimization-method=ensemble
+  neoswga optimize -j params.json --optimization-method=ensemble \\
+      --ensemble-methods hybrid network background-aware
 """
     print(guide)
 

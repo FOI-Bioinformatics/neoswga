@@ -139,6 +139,7 @@ neoswga optimize -j params.json --optimization-method=hybrid           # default
 neoswga optimize -j params.json --optimization-method=dominating-set   # fast graph-based
 neoswga optimize -j params.json --optimization-method=background-aware # clinical, 10-20x bg reduction
 neoswga optimize -j params.json --optimization-method=network          # Tm-weighted, dimer-aware
+neoswga optimize -j params.json --optimization-method=ensemble         # run all, keep best
 ```
 
 **Optimization Method Comparison**:
@@ -149,6 +150,15 @@ neoswga optimize -j params.json --optimization-method=network          # Tm-weig
 | `dominating-set` | Fast | Large primer pools | Graph-based set cover, ln(n) approximation |
 | `background-aware` | Slow | Clinical applications | 10-20x background reduction, three-stage |
 | `network` | Medium | Tm-weighted selection | Dimer penalty aware |
+| `ensemble` | Slow | Best-of, unsure which | Runs several methods on one shared cache, keeps the best by application-weighted `normalized_score`, prints a per-method comparison table |
+
+**Ensemble** runs a configurable set of methods (default all four) and keeps
+the winner. It builds the `PositionCache` once and re-seeds before each method
+so results are reproducible and order-independent. Pick the subset with
+`--ensemble-methods hybrid network background-aware`. Selection is by
+`normalized_score` (a [0,1] value comparable across optimizers; raw `score` is
+NOT comparable), weighted by `--application`. The runner-up table is written to
+`step4_improved_df_summary.json` as `ensemble_comparison`.
 
 ### Utility Commands
 ```bash
@@ -216,6 +226,33 @@ neoswga analyze-genome --genome target.fna --output analysis/
 # Dimer network analysis
 neoswga analyze-dimers --primers SEQ1 SEQ2 --output dimers/ --visualize
 ```
+
+### Adding oligos to an existing set (in-silico + real BAM coverage)
+
+For iterative design: keep validated primers, exclude failed ones, and add new
+primers that fill coverage gaps. Gaps can come from in-silico binding positions
+and/or from real sequencing depth (a BAM mapped to the target genome). BAM
+support needs the `[bam]` extra (`pip install 'neoswga[bam]'`, brings pysam).
+
+```bash
+# Inspect gaps only (read-only): writes coverage_gaps.bed + .json
+neoswga analyze-coverage -j params.json --primers SEQ1 SEQ2 \
+    --bam reads.bam --min-depth 5 --min-gap-size 10000 -o cov/
+
+# Add primers, focusing the candidate pool on the merged gaps
+neoswga expand-primers -j params.json --fixed-primers SEQ1 SEQ2 \
+    --failed-primers SEQ3 --num-new 6 --bam reads.bam --min-depth 5 \
+    --optimization-method hybrid -o expanded/
+```
+
+- BAM contigs are matched to foreground prefixes by exact/basename/`chr`-prefix
+  then unique-length fallback; override with `--contig-alias FG=BAMCONTIG`.
+- A base counts as a gap when its mapped depth `< --min-depth`; runs shorter
+  than `--min-gap-size` bp are ignored. On circular targets (`fg_circular`) a
+  gap spanning the origin is merged into one.
+- Candidate selection is a HARD pre-filter (only primers binding inside a gap),
+  with fallback to the full pool if too few remain to reach `--num-new`.
+- Outputs: `merged_gaps.bed`, `expansion_result.json`, `expanded_primers.csv`.
 
 ## Key Parameters (params.json)
 

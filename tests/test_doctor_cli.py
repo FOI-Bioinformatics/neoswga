@@ -64,30 +64,27 @@ def test_doctor_fails_on_missing_params_file(tmp_path):
 
 
 def test_doctor_reports_at_least_three_additive_aware_optimizers():
-    """After Phase 7 plumbing, at minimum network / hybrid / genetic are
-    additive-aware. Guards against accidental regression of that work."""
+    """The trimmed registry keeps three additive-aware optimizers:
+    network / hybrid / background-aware. Guards against accidental regression."""
     r = _run(["doctor", "--json"])
     payload = json.loads(r.stdout)
     aware_names = {o["name"] for o in payload["optimizers"] if o["additive_aware"]}
-    # Must include the three known additive-aware optimizers
-    assert {"network", "hybrid", "genetic"}.issubset(aware_names), (
-        f"Expected network/hybrid/genetic to show as additive-aware; got {aware_names}"
+    assert {"network", "hybrid", "background-aware"}.issubset(aware_names), (
+        f"Expected network/hybrid/background-aware to show as additive-aware; "
+        f"got {aware_names}"
     )
 
 
 def test_doctor_aware_flag_uses_class_attribute_not_source_grep():
     """Phase 15D — the flag must be set on the optimizer class itself so it
-    survives refactors that rename self.conditions references. Verifies
-    ADDITIVE_AWARE attribute is True on the five known selection-aware
-    wrappers and False on the coverage-only ones."""
+    survives refactors that rename self.conditions references. After the
+    optimizer-zoo trim only four methods remain registered."""
     from neoswga.core.optimizer_factory import OptimizerRegistry
     from neoswga.core import unified_optimizer as _uo
     _uo._ensure_optimizers_registered()
 
-    expected_aware = {"network", "hybrid", "background-aware",
-                      "genetic", "equiphi29"}
-    expected_coverage_only = {"greedy", "dominating-set", "weighted-set-cover",
-                              "tiling", "clique"}
+    expected_aware = {"network", "hybrid", "background-aware"}
+    expected_coverage_only = {"dominating-set"}
 
     for name in expected_aware:
         cls = OptimizerRegistry.get(name)
@@ -109,11 +106,11 @@ def test_doctor_json_distinguishes_aware_vs_coverage_only():
     r = _run(["doctor", "--json"])
     payload = json.loads(r.stdout)
     by_name = {o["name"]: o["additive_aware"] for o in payload["optimizers"]}
-    for name in ("network", "hybrid", "background-aware", "genetic", "equiphi29"):
+    for name in ("network", "hybrid", "background-aware"):
         assert by_name.get(name) is True, (
             f"{name} should be additive-aware in doctor JSON; got {by_name.get(name)}"
         )
-    for name in ("greedy", "dominating-set", "tiling", "clique"):
-        assert by_name.get(name) is False, (
-            f"{name} should be coverage-only in doctor JSON; got {by_name.get(name)}"
-        )
+    assert by_name.get("dominating-set") is False, (
+        f"dominating-set should be coverage-only in doctor JSON; "
+        f"got {by_name.get('dominating-set')}"
+    )
