@@ -160,6 +160,7 @@ examples/**/*_all.txt
 examples/**/export/
 examples/**/params_backup.json
 examples/**/run_manifest.json
+examples/**/filter_stats.json
 examples/**/*technical_report.html
 examples/ecoli_environmental/ecoli_K12_MG1655.fasta
 

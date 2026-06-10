@@ -411,6 +411,8 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
 
         {validation_banner_html}
 
+        {ensemble_winner_html}
+
         <!-- Key Metrics -->
         <div class="metrics-grid">
             <div class="metric-card">
@@ -686,10 +688,25 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     elif interactive:
         logger.debug("Interactive charts requested but Plotly not available")
 
+    # Ensemble winner one-liner (when an ensemble run produced a comparison).
+    ensemble_winner_html = ""
+    _ens = getattr(summary.metrics, "ensemble_comparison", None) or []
+    _winner = next((r for r in _ens if r.get("selected")), None)
+    if _winner:
+        ensemble_winner_html = (
+            '<div style="background:#eef6ff;border-left:4px solid #2c7fb8;'
+            'padding:10px 14px;margin:12px 0;border-radius:4px">'
+            f"<strong>Ensemble:</strong> kept <code>{html_escape(str(_winner.get('method')))}</code> "
+            f"(best of {len(_ens)} methods, normalized score "
+            f"{float(_winner.get('normalized_score', 0.0)):.3f}). "
+            "See the technical report for the full per-method comparison.</div>"
+        )
+
     # Render template
     html = EXECUTIVE_SUMMARY_TEMPLATE.format(
         # Colors
         **colors,
+        ensemble_winner_html=ensemble_winner_html,
         # Header
         target_name=target_name,
         background_name=background_name,

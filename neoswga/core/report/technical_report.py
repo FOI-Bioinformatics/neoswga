@@ -320,16 +320,14 @@ def collect_technical_report_data(results_dir: str) -> TechnicalReportData:
         quality=quality,
     )
 
-    # Build filtering funnel if available
+    # Build filtering funnel from the REAL filter_stats.json when present.
+    # Never fabricate stage counts (the old primer_count*100 / *10 estimate);
+    # if the filter step did not record stats, the funnel is shown as
+    # "not recorded" by the renderer.
     if metrics.filtering:
         data.filtering_stages = metrics.filtering.as_funnel()
     else:
-        # Estimate from primer counts
-        data.filtering_stages = [
-            ("Initial candidates", metrics.primer_count * 100),  # Estimate
-            ("After filtering", metrics.primer_count * 10),
-            ("Final set", metrics.primer_count),
-        ]
+        data.filtering_stages = []
 
     # Create primer profiles
     data.primer_profiles = [
@@ -450,6 +448,19 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
             padding-bottom: 8px;
             border-bottom: 2px solid #e9ecef;
         }}
+
+        .badge {{
+            display: inline-block;
+            font-size: 0.55em;
+            font-weight: 700;
+            vertical-align: middle;
+            padding: 2px 7px;
+            border-radius: 4px;
+            margin-left: 8px;
+            letter-spacing: 0.5px;
+        }}
+        .badge.measured {{ background: #d4edda; color: #155724; }}
+        .badge.estimated {{ background: #fff3cd; color: #856404; }}
 
         .section h3 {{
             font-size: 1.1em;
@@ -1005,6 +1016,9 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
             {interactive_funnel}
         </div>
 
+        {ensemble_comparison_html}
+        {reaction_conditions_html}
+
         <!-- Section 3: Coverage Analysis -->
         <div class="section" id="coverage">
             <h2>3. Coverage Analysis</h2>
@@ -1057,6 +1071,10 @@ TECHNICAL_REPORT_TEMPLATE = """<!DOCTYPE html>
 
             {interactive_coverage}
         </div>
+
+        {per_target_coverage_html}
+        {coverage_gaps_html}
+        {strand_balance_html}
 
         <!-- Section 4: Specificity Analysis -->
         <div class="section" id="specificity">
@@ -1351,7 +1369,11 @@ def _render_parameters(params: Dict) -> str:
 def _render_funnel(stages: List[tuple]) -> str:
     """Render filtering funnel visualization."""
     if not stages:
-        return "<p>Filtering statistics not available.</p>"
+        return (
+            "<p><em>Filtering funnel not recorded for this run "
+            "(filter_stats.json absent). Re-run <code>neoswga filter</code> to "
+            "capture per-stage counts.)</em></p>"
+        )
 
     max_count = max(s[1] for s in stages) if stages else 1
     html = ""
@@ -1369,6 +1391,148 @@ def _render_funnel(stages: List[tuple]) -> str:
         </div>
         """
     return html
+
+
+def _render_ensemble_comparison(rows: List[Dict]) -> str:
+    """Render the per-method ensemble comparison table (measured)."""
+    if not rows:
+        return ""
+    body = ""
+    for r in rows:
+        sel = "&#9733;" if r.get("selected") else ""  # star for the winner
+        body += (
+            "<tr>"
+            f"<td>{html_escape(str(r.get('method', '?')))} {sel}</td>"
+            f"<td>{_safe_num(r.get('normalized_score')):.4f}</td>"
+            f"<td>{r.get('n_primers', 0)}</td>"
+            f"<td>{_safe_num(r.get('fg_coverage')) * 100:.1f}%</td>"
+            f"<td>{_safe_num(r.get('bg_coverage')) * 100:.1f}%</td>"
+            f"<td>{html_escape(str(r.get('status', '')))}</td>"
+            "</tr>"
+        )
+    return (
+        '<div class="section"><h2>Optimizer Method Comparison '
+        '<span class="badge measured">MEASURED</span></h2>'
+        "<p>Each method run on the same candidate pool; the winner (&#9733;) was "
+        "kept by application-weighted normalized score.</p>"
+        "<table><tr><th>Method</th><th>Norm. score</th><th>Primers</th>"
+        "<th>FG coverage</th><th>BG coverage</th><th>Status</th></tr>"
+        f"{body}</table></div>"
+    )
+
+
+def _render_coverage_gaps(gaps: Optional[Dict]) -> str:
+    """Render coverage gaps from analyze-coverage (in-silico +/- BAM)."""
+    if not gaps or not gaps.get("gaps"):
+        return ""
+    used_bam = gaps.get("used_bam", False)
+    src = "in-silico + real sequencing depth (BAM)" if used_bam else "in-silico"
+    rows = ""
+    for g in gaps["gaps"][:50]:
+        rows += (
+            "<tr>"
+            f"<td>{html_escape(str(g.get('chromosome', '')))}</td>"
+            f"<td>{int(g.get('start', 0)):,}</td>"
+            f"<td>{int(g.get('end', 0)):,}</td>"
+            f"<td>{int(g.get('size', 0)):,}</td>"
+            "</tr>"
+        )
+    more = ""
+    if len(gaps["gaps"]) > 50:
+        more = f"<p><em>... and {len(gaps['gaps']) - 50} more gaps.</em></p>"
+    return (
+        '<div class="section"><h2>Coverage Gaps '
+        '<span class="badge measured">MEASURED</span></h2>'
+        f"<p>{len(gaps['gaps'])} gap(s) below the coverage threshold "
+        f"(source: {src}; min_gap_size={int(gaps.get('min_gap_size', 0)):,} bp"
+        + (f", min_depth={gaps.get('min_depth')}" if used_bam else "")
+        + "). Add primers targeting these with "
+        "<code>neoswga expand-primers --bam</code>.</p>"
+        "<table><tr><th>Contig</th><th>Start</th><th>End</th><th>Size (bp)</th></tr>"
+        f"{rows}</table>{more}</div>"
+    )
+
+
+def _render_per_target_coverage(per_target: Dict[str, float]) -> str:
+    """Render per-target coverage for multi-genome runs (measured)."""
+    if not per_target or len(per_target) < 2:
+        return ""
+    rows = "".join(
+        f"<tr><td>{html_escape(str(k))}</td><td>{_safe_num(v) * 100:.1f}%</td></tr>"
+        for k, v in per_target.items()
+    )
+    return (
+        '<div class="section"><h2>Per-Target Coverage '
+        '<span class="badge measured">MEASURED</span></h2>'
+        "<table><tr><th>Target</th><th>Coverage</th></tr>"
+        f"{rows}</table></div>"
+    )
+
+
+def _render_strand_balance(uniformity) -> str:
+    """Render strand-interleaving metrics when measured by the optimizer."""
+    if uniformity is None or not getattr(uniformity, "from_optimizer", False):
+        return ""
+    alt = uniformity.strand_alternation_score
+    ratio = uniformity.strand_coverage_ratio
+    if alt is None and ratio is None:
+        return ""
+    rows = ""
+    if alt is not None:
+        rows += (
+            f"<tr><td>Strand alternation score</td><td>{alt:.2f}</td>"
+            "<td>fraction of adjacent sites that alternate strands "
+            "(higher = better exponential amplification)</td></tr>"
+        )
+    if ratio is not None:
+        rows += (
+            f"<tr><td>Strand coverage ratio</td><td>{ratio:.2f}</td>"
+            "<td>forward/reverse site balance (1.0 = balanced)</td></tr>"
+        )
+    return (
+        '<div class="section"><h2>Strand Balance '
+        '<span class="badge measured">MEASURED</span></h2>'
+        "<table><tr><th>Metric</th><th>Value</th><th>Meaning</th></tr>"
+        f"{rows}</table></div>"
+    )
+
+
+def _render_reaction_conditions(conditions: Dict) -> str:
+    """Render the reaction conditions / additives used."""
+    if not conditions:
+        return ""
+    rows = ""
+    labels = {
+        "polymerase": "Polymerase",
+        "reaction_temp": "Temperature (C)",
+        "na_conc": "Na+ (mM)",
+        "mg_conc": "Mg2+ (mM)",
+        "primer_conc": "Primer (M)",
+    }
+    for key, label in labels.items():
+        if key in conditions:
+            rows += f"<tr><td>{label}</td><td>{html_escape(str(conditions[key]))}</td></tr>"
+    for key, val in conditions.get("additives", {}).items():
+        rows += (
+            f"<tr><td>{html_escape(key.replace('_', ' '))}</td>"
+            f"<td>{html_escape(str(val))}</td></tr>"
+        )
+    if not rows:
+        return ""
+    return (
+        '<div class="section"><h2>Reaction Conditions &amp; Additives</h2>'
+        "<table><tr><th>Parameter</th><th>Value</th></tr>"
+        f"{rows}</table></div>"
+    )
+
+
+def _safe_num(value, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _render_specificity_table(primers: List[PrimerMetrics]) -> str:
@@ -1787,6 +1951,22 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             indicate stronger binding and higher dimer formation risk.</p>
             <div class="interactive-chart">{dimer_heatmap_chart}</div>
 """
+            include_js = False
+
+        # Dimer network graph (hub view) - previously imported but never wired.
+        dimer_graph_chart = render_dimer_network_graph(
+            metrics.primers,
+            include_plotlyjs=include_js,
+            height=500,
+            max_primers=15,
+        )
+        if dimer_graph_chart:
+            interactive_dimer_heatmap += f"""
+            <h3>Interaction Network</h3>
+            <p>Primers as nodes; edges mark strong dimer interactions. Hub primers
+            (many strong edges) are the best candidates to swap out.</p>
+            <div class="interactive-chart">{dimer_graph_chart}</div>
+"""
     elif interactive:
         logger.debug("Interactive charts requested but Plotly not available")
 
@@ -1812,6 +1992,15 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             _format_size(metrics.background_genome.size) if metrics.background_genome else "N/A"
         ),
         parameters_html=_render_parameters(metrics.parameters),
+        # New comprehensive sections (always rendered statically; empty string
+        # when the underlying data is absent for this run).
+        ensemble_comparison_html=_render_ensemble_comparison(metrics.ensemble_comparison),
+        reaction_conditions_html=_render_reaction_conditions(metrics.reaction_conditions),
+        per_target_coverage_html=_render_per_target_coverage(
+            metrics.coverage.per_target_coverage if metrics.coverage else {}
+        ),
+        coverage_gaps_html=_render_coverage_gaps(metrics.coverage_gaps),
+        strand_balance_html=_render_strand_balance(metrics.uniformity),
         funnel_html=_render_funnel(data.filtering_stages),
         # Coverage
         coverage_pct=coverage_pct,
