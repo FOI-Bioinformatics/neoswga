@@ -498,8 +498,16 @@ class SetupWizard:
         print("  1. hybrid (default) - Network + greedy combination")
         print("  2. dominating-set   - Fast graph-based (8x faster)")
         print("  3. background-aware - Clinical applications (10-20x bg reduction)")
-        method = input("Select (1/2/3) or press Enter for default: ").strip()
-        methods = {"1": "hybrid", "2": "dominating-set", "3": "background-aware"}
+        print("  4. network          - Tm-weighted, dimer-aware")
+        print("  5. ensemble         - Run all, keep the best (slower)")
+        method = input("Select (1-5) or press Enter for default: ").strip()
+        methods = {
+            "1": "hybrid",
+            "2": "dominating-set",
+            "3": "background-aware",
+            "4": "network",
+            "5": "ensemble",
+        }
         if method in methods:
             self.user_overrides["optimization_method"] = methods[method]
 

@@ -1036,9 +1036,9 @@ Run "neoswga <command> --help" for details on a specific command.
         "--seed",
         type=int,
         default=None,
-        help="Random seed for reproducible results. "
-        "Affects stochastic optimizers (genetic, moea). "
-        "Required for clinical/regulated workflows.",
+        help="Random seed for reproducible results. Affects the network "
+        "refinement, ensemble re-seeding, RF k-mer sampling, and any "
+        "background pre-filtering. Required for clinical/regulated workflows.",
     )
     opt_perf_group.add_argument(
         "-n",
@@ -1697,6 +1697,9 @@ Examples:
     )
     multi_genome_parser.add_argument("--output", "-o", required=True, help="Output directory")
     multi_genome_parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducible design."
+    )
+    multi_genome_parser.add_argument(
         "--num-primers", type=int, default=12, help="Number of primers to design (default: 12)"
     )
     multi_genome_parser.add_argument(
@@ -1788,8 +1791,14 @@ Examples:
     expand_parser.add_argument(
         "--optimization-method",
         default="hybrid",
-        choices=["hybrid", "dominating-set", "network", "background-aware"],
+        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
         help="Optimization method (default: hybrid)",
+    )
+    expand_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible expansion.",
     )
     expand_parser.add_argument(
         "--bam",
@@ -1888,6 +1897,9 @@ Examples:
         help="Output JSON with before/after set and per-swap " "deltas (default: stdout)",
     )
     swap_parser.add_argument("--quiet", "-q", action="store_true")
+    swap_parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducible swaps."
+    )
 
     # Contract set: remove redundant primers while keeping coverage above threshold
     contract_parser = subparsers.add_parser(
@@ -1905,6 +1917,9 @@ Examples:
         help="Minimum foreground coverage to keep (default: 0.70)",
     )
     contract_parser.add_argument("--output", "-o")
+    contract_parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducible contraction."
+    )
     contract_parser.add_argument("--quiet", "-q", action="store_true")
 
     # Rescore set under arbitrary conditions
@@ -2120,6 +2135,31 @@ def add_common_options(parser):
     )
 
 
+def _apply_seed(args):
+    """Seed all RNGs from --seed for the post-optimize set-producing commands.
+
+    The `optimize` step seeds inside unified_optimizer.run_optimization, but
+    expand-primers / swap-primer / contract-set / multi-genome run their
+    greedy/stochastic logic directly, so seed here for reproducibility.
+    """
+    seed = getattr(args, "seed", None)
+    if seed is None:
+        return
+    import random
+
+    import numpy as np
+
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        from neoswga.core.rf_preprocessing import set_kmer_sampling_seed
+
+        set_kmer_sampling_seed(seed)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"k-mer sampling seed skipped: {e}")
+    logger.info(f"Random seed set to {seed} for reproducibility")
+
+
 def _record_run_manifest(step: str, args, parameter, input_files=None):
     """Best-effort wrapper around run_manifest.write_manifest.
 
@@ -2134,7 +2174,9 @@ def _record_run_manifest(step: str, args, parameter, input_files=None):
             data_dir=getattr(parameter, "data_dir", None),
             params_path=getattr(args, "json_file", None),
             input_files=input_files,
-            seed=getattr(parameter, "seed", None),
+            # The CLI seed lives on args (--seed), not parameter; the previous
+            # getattr(parameter, "seed") recorded None even when --seed was set.
+            seed=getattr(args, "seed", None) or getattr(parameter, "seed", None),
         )
     except Exception as e:
         logger.debug(f"run_manifest write skipped: {e}")
@@ -4421,6 +4463,8 @@ def run_multi_genome(args):
     from neoswga.core.multi_genome_filter import GenomeSet
     from neoswga.core.multi_genome_pipeline import MultiGenomePipeline
 
+    _apply_seed(args)
+
     logger.info(f"Designing pan-genome primers for {len(args.genomes)} genomes")
 
     try:
@@ -4812,6 +4856,7 @@ def run_expand_primers(args):
     from neoswga.core.primer_expansion import PrimerExpander
 
     quiet = getattr(args, "quiet", False)
+    _apply_seed(args)
 
     if not quiet:
         logger.info("Primer Set Expansion")
@@ -4927,6 +4972,23 @@ def run_expand_primers(args):
                 sys.exit(1)
             if not quiet:
                 logger.info(f"BAM low-depth gaps: {len(bam_gaps_list)}")
+            # Actionable hint for the most common BAM failure: contig names in
+            # the BAM header (e.g. 'chr1') not matching the fg prefixes.
+            if not bam_gaps_list:
+                try:
+                    import pysam
+
+                    with pysam.AlignmentFile(args.bam, "rb") as _bam:
+                        _bam_contigs = list(_bam.references)
+                    logger.warning(
+                        "No BAM gaps produced. If this is unexpected, the BAM "
+                        "contig names may not match the foreground prefixes.\n"
+                        f"  BAM contigs: {_bam_contigs[:10]}\n"
+                        f"  fg prefixes: {[os.path.basename(p) for p in fg_prefixes]}\n"
+                        "  Map them with --contig-alias FG=BAMCONTIG (repeatable)."
+                    )
+                except Exception:
+                    pass
 
         target_gaps = expander.identify_gaps(
             fixed_primers,
@@ -4985,12 +5047,36 @@ def run_expand_primers(args):
                 logger.info(f"  {primer}")
             logger.info("")
             logger.info(f"Results saved to: {args.output}")
+            logger.info("")
+            logger.info("Next steps:")
+            logger.info(f"  neoswga interpret -d {args.output}    # assess the expanded set")
+            logger.info(f"  neoswga report -d {args.output} --level full   # full report")
+            logger.info(f"  neoswga export -d {args.output} -o order/      # order for synthesis")
 
+        _record_run_manifest(
+            "expand-primers",
+            args,
+            parameter,
+            input_files=[os.path.join(args.output, "expanded_primers.csv")],
+        )
+
+    except SystemExit:
+        raise
+    except (FileNotFoundError, KeyError) as e:
+        logger.error(f"Primer expansion failed: {e}")
+        logger.error("Check that 'neoswga score' has run and params.json is valid.")
+        sys.exit(1)
+    except RuntimeError as e:
+        logger.error(f"Primer expansion failed: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Primer expansion failed: {e}")
-        import traceback
+        if logger.level <= logging.DEBUG:
+            import traceback
 
-        traceback.print_exc()
+            traceback.print_exc()
+        else:
+            logger.error("Run with --verbose for the full traceback.")
         sys.exit(1)
 
 
@@ -5038,6 +5124,7 @@ def run_swap_primer(args):
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
     from neoswga.core.reaction_conditions import ReactionConditions
 
+    _apply_seed(args)
     validate_params_json_file(args.json_file)
     merge_args_to_parameter(args, parameter, ["json_file"])
     # Ensure parameter globals are populated from params.json
@@ -5153,6 +5240,7 @@ def run_contract_set(args):
     from neoswga.core import parameter
     from neoswga.core.position_cache import PositionCache
 
+    _apply_seed(args)
     validate_params_json_file(args.json_file)
     merge_args_to_parameter(args, parameter, ["json_file"])
     import neoswga.core.pipeline as pipeline_mod

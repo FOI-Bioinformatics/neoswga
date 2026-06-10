@@ -150,7 +150,7 @@ def run_workflow_selector():
         ("Analyze genome", "Check genome suitability for SWGA"),
         ("Analyze primer set", "Evaluate existing primer sequences"),
         ("Analyze dimers", "Visualize primer-dimer interaction network"),
-        ("Active learning", "Iterative optimization with experimental feedback"),
+        ("Add oligos from sequencing", "Fill coverage gaps using in-silico + real BAM depth"),
         ("Back to main menu", ""),
     ]
 
@@ -241,8 +241,16 @@ def run_workflow_selector():
                     print("  1. hybrid (default)")
                     print("  2. dominating-set (8x faster)")
                     print("  3. background-aware (clinical, 10-20x bg reduction)")
+                    print("  4. network (Tm-weighted, dimer-aware)")
+                    print("  5. ensemble (run all, keep the best)")
                     method = input("Select method [1]: ").strip()
-                    methods = {"1": "hybrid", "2": "dominating-set", "3": "background-aware"}
+                    methods = {
+                        "1": "hybrid",
+                        "2": "dominating-set",
+                        "3": "background-aware",
+                        "4": "network",
+                        "5": "ensemble",
+                    }
                     opt_method = methods.get(method, "hybrid")
                     cmd = [
                         "neoswga",
@@ -355,15 +363,23 @@ def run_workflow_selector():
                     print()
                     print("Creates network visualization of primer-dimer interactions")
 
-                elif adv_choice == 6:  # Active learning
-                    print("\nActive learning (experimental):")
+                elif adv_choice == 6:  # Add oligos from sequencing (BAM)
+                    print("\nIterative design: add oligos after sequencing")
                     print()
-                    print("  neoswga active-learn \\")
-                    print("    -j params.json \\")
-                    print("    --output active_learn/ \\")
-                    print("    --num-candidates 10")
+                    print("Round 1 produced a primer set; you synthesized it and")
+                    print("sequenced. Map the reads to the target, then:")
                     print()
-                    print("Iterative optimization with experimental feedback")
+                    print("  # 1. Inspect coverage gaps (in-silico + real BAM depth)")
+                    print("  neoswga analyze-coverage -j params.json \\")
+                    print("    --primers SEQ1 SEQ2 --bam reads.bam --min-depth 5 -o cov/")
+                    print()
+                    print("  # 2. Add primers that fill those gaps")
+                    print("  neoswga expand-primers -j params.json \\")
+                    print("    --fixed-primers SEQ1 SEQ2 --bam reads.bam \\")
+                    print("    --num-new 6 -o expanded/")
+                    print()
+                    print("Needs the [bam] extra: pip install 'neoswga[bam]'")
+                    print("If BAM contig names differ from the target, use --contig-alias.")
 
                 input("\nPress Enter to continue...")
 
