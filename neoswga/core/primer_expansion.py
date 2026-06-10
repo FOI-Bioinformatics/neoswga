@@ -36,7 +36,8 @@ Usage:
 
 import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple, Set
+from typing import Dict, List, Optional, Set, Tuple
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CoverageGap:
     """A region of the genome not covered by current primers."""
+
     chromosome: str
     start: int
     end: int
@@ -94,6 +96,7 @@ class ExpansionInput:
         failed_primers: Primers that failed and should be excluded
         coverage_gaps: Optional list of specific regions needing coverage
     """
+
     fixed_primers: List[str] = field(default_factory=list)
     failed_primers: List[str] = field(default_factory=list)
     coverage_gaps: List[CoverageGap] = field(default_factory=list)
@@ -115,6 +118,7 @@ class ExpansionResult:
         gaps_remaining: Number of significant gaps still present
         optimization_method: Method used for optimization
     """
+
     new_primers: List[str]
     combined_set: List[str]
     fixed_primers: List[str]
@@ -144,19 +148,19 @@ class ExpansionResult:
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
         return {
-            'new_primers': self.new_primers,
-            'combined_set': self.combined_set,
-            'fixed_primers': self.fixed_primers,
-            'n_new': self.n_new,
-            'n_fixed': self.n_fixed,
-            'n_total': self.n_total,
-            'coverage_before': self.coverage_before,
-            'coverage_after': self.coverage_after,
-            'gap_coverage': self.gap_coverage,
-            'predicted_improvement': self.predicted_improvement,
-            'gaps_remaining': self.gaps_remaining,
-            'optimization_method': self.optimization_method,
-            'message': self.message,
+            "new_primers": self.new_primers,
+            "combined_set": self.combined_set,
+            "fixed_primers": self.fixed_primers,
+            "n_new": self.n_new,
+            "n_fixed": self.n_fixed,
+            "n_total": self.n_total,
+            "coverage_before": self.coverage_before,
+            "coverage_after": self.coverage_after,
+            "gap_coverage": self.gap_coverage,
+            "predicted_improvement": self.predicted_improvement,
+            "gaps_remaining": self.gaps_remaining,
+            "optimization_method": self.optimization_method,
+            "message": self.message,
         }
 
     def __str__(self) -> str:
@@ -245,12 +249,7 @@ class PrimerExpander:
             # Entire genome is a gap
             gaps = []
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                gaps.append(CoverageGap(
-                    chromosome=prefix,
-                    start=0,
-                    end=length,
-                    size=length
-                ))
+                gaps.append(CoverageGap(chromosome=prefix, start=0, end=length, size=length))
             if extra_gaps and merge:
                 gaps = merge_gap_intervals(gaps + list(extra_gaps))
             return gaps
@@ -261,7 +260,7 @@ class PrimerExpander:
         for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
             positions = []
             for primer in primers:
-                pos = self.cache.get_positions(prefix, primer, 'both')
+                pos = self.cache.get_positions(prefix, primer, "both")
                 positions.extend(pos.tolist())
             all_positions[prefix] = sorted(set(positions))
 
@@ -273,42 +272,38 @@ class PrimerExpander:
 
             if not positions:
                 # Entire chromosome is a gap
-                gaps.append(CoverageGap(
-                    chromosome=prefix,
-                    start=0,
-                    end=length,
-                    size=length
-                ))
+                gaps.append(CoverageGap(chromosome=prefix, start=0, end=length, size=length))
                 continue
 
             # Check gap at start
             if positions[0] > min_gap_size:
-                gaps.append(CoverageGap(
-                    chromosome=prefix,
-                    start=0,
-                    end=positions[0],
-                    size=positions[0]
-                ))
+                gaps.append(
+                    CoverageGap(chromosome=prefix, start=0, end=positions[0], size=positions[0])
+                )
 
             # Check internal gaps
             for i in range(1, len(positions)):
-                gap_size = positions[i] - positions[i-1]
+                gap_size = positions[i] - positions[i - 1]
                 if gap_size > min_gap_size:
-                    gaps.append(CoverageGap(
-                        chromosome=prefix,
-                        start=positions[i-1],
-                        end=positions[i],
-                        size=gap_size
-                    ))
+                    gaps.append(
+                        CoverageGap(
+                            chromosome=prefix,
+                            start=positions[i - 1],
+                            end=positions[i],
+                            size=gap_size,
+                        )
+                    )
 
             # Check gap at end
             if length - positions[-1] > min_gap_size:
-                gaps.append(CoverageGap(
-                    chromosome=prefix,
-                    start=positions[-1],
-                    end=length,
-                    size=length - positions[-1]
-                ))
+                gaps.append(
+                    CoverageGap(
+                        chromosome=prefix,
+                        start=positions[-1],
+                        end=length,
+                        size=length - positions[-1],
+                    )
+                )
 
         # Merge in externally-derived gaps (e.g. BAM low-depth regions).
         if extra_gaps and merge:
@@ -331,7 +326,7 @@ class PrimerExpander:
 
         for primer in primers:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                positions = self.cache.get_positions(prefix, primer, 'both')
+                positions = self.cache.get_positions(prefix, primer, "both")
                 if len(positions) > 0:
                     graph.add_primer_coverage(primer, positions, prefix, length)
 
@@ -339,8 +334,7 @@ class PrimerExpander:
             return 0.0
 
         total_bins = sum(
-            (length + self.bin_size - 1) // self.bin_size
-            for length in self.fg_seq_lengths
+            (length + self.bin_size - 1) // self.bin_size for length in self.fg_seq_lengths
         )
 
         return len(graph.regions) / total_bins if total_bins > 0 else 0.0
@@ -351,7 +345,7 @@ class PrimerExpander:
         fixed_primers: List[str],
         failed_primers: Optional[List[str]] = None,
         target_new: int = 6,
-        optimization_method: str = 'hybrid',
+        optimization_method: str = "hybrid",
         verbose: bool = True,
         target_gaps: Optional[List[CoverageGap]] = None,
     ) -> ExpansionResult:
@@ -379,8 +373,7 @@ class PrimerExpander:
 
         # Filter candidates
         candidates_filtered = [
-            c for c in candidates
-            if c.upper() not in fixed_set and c.upper() not in failed_set
+            c for c in candidates if c.upper() not in fixed_set and c.upper() not in failed_set
         ]
 
         # Gap-restricted candidate pre-filter (hard filter + fallback). Keep
@@ -404,9 +397,9 @@ class PrimerExpander:
                     )
 
         if verbose:
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info("PRIMER SET EXPANSION")
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info(f"Fixed primers: {len(fixed_primers)}")
             logger.info(f"Failed primers (excluded): {len(failed_primers)}")
             logger.info(f"Candidate pool: {len(candidates_filtered)}")
@@ -429,23 +422,19 @@ class PrimerExpander:
                     logger.info(f"  {gap.chromosome}: {gap.start:,}-{gap.end:,} ({gap.size:,} bp)")
 
         # Select optimization method
-        if optimization_method in ('hybrid', 'two-stage'):
-            result = self._expand_hybrid(
-                candidates_filtered, fixed_primers, target_new, verbose
-            )
-        elif optimization_method in ('dominating-set', 'dominating_set', 'ds'):
+        if optimization_method in ("hybrid", "two-stage"):
+            result = self._expand_hybrid(candidates_filtered, fixed_primers, target_new, verbose)
+        elif optimization_method in ("dominating-set", "dominating_set", "ds"):
             result = self._expand_dominating_set(
                 candidates_filtered, fixed_primers, target_new, verbose
             )
         else:
             # Default to hybrid
             logger.warning(f"Unknown method '{optimization_method}', using hybrid")
-            result = self._expand_hybrid(
-                candidates_filtered, fixed_primers, target_new, verbose
-            )
+            result = self._expand_hybrid(candidates_filtered, fixed_primers, target_new, verbose)
 
         # Calculate coverage improvement
-        combined_set = list(fixed_set) + result['new_primers']
+        combined_set = list(fixed_set) + result["new_primers"]
         coverage_after = self._calculate_coverage(combined_set)
 
         # Count remaining gaps
@@ -458,19 +447,19 @@ class PrimerExpander:
         if coverage_before > 0:
             predicted_improvement = coverage_after / coverage_before
         else:
-            predicted_improvement = float('inf') if coverage_after > 0 else 1.0
+            predicted_improvement = float("inf") if coverage_after > 0 else 1.0
 
         if verbose:
-            logger.info("\n" + "="*60)
+            logger.info("\n" + "=" * 60)
             logger.info("EXPANSION COMPLETE")
-            logger.info("="*60)
+            logger.info("=" * 60)
             logger.info(f"New primers selected: {len(result['new_primers'])}")
             logger.info(f"Coverage: {coverage_before:.1%} -> {coverage_after:.1%}")
             logger.info(f"Improvement: {predicted_improvement:.2f}x")
             logger.info(f"Gaps remaining: {len(gaps_after)}")
 
         return ExpansionResult(
-            new_primers=result['new_primers'],
+            new_primers=result["new_primers"],
             combined_set=combined_set,
             fixed_primers=fixed_primers,
             coverage_before=coverage_before,
@@ -479,7 +468,7 @@ class PrimerExpander:
             predicted_improvement=predicted_improvement,
             gaps_remaining=len(gaps_after),
             optimization_method=optimization_method,
-            message=result.get('message', ''),
+            message=result.get("message", ""),
         )
 
     def _filter_candidates_to_gaps(
@@ -519,13 +508,13 @@ class PrimerExpander:
         for cand in candidates:
             hit = False
             for prefix, (starts, ends) in prepared.items():
-                positions = self.cache.get_positions(prefix, cand, 'both')
+                positions = self.cache.get_positions(prefix, cand, "both")
                 if len(positions) == 0:
                     continue
                 pos = np.asarray(positions, dtype=np.int64)
                 # For each position, the candidate interval is the one whose
                 # start is the largest <= pos; check pos < that interval's end.
-                idx = np.searchsorted(starts, pos, side='right') - 1
+                idx = np.searchsorted(starts, pos, side="right") - 1
                 valid = idx >= 0
                 if np.any(valid):
                     if np.any(pos[valid] < ends[idx[valid]]):
@@ -570,8 +559,8 @@ class PrimerExpander:
         new_primers = [p for p in result.primers if p not in fixed_set]
 
         return {
-            'new_primers': new_primers,
-            'message': f"Connectivity: {result.final_connectivity:.2f}",
+            "new_primers": new_primers,
+            "message": f"Connectivity: {result.final_connectivity:.2f}",
         }
 
     def _expand_dominating_set(
@@ -600,8 +589,8 @@ class PrimerExpander:
         )
 
         return {
-            'new_primers': result['new_primers'],
-            'message': f"Coverage: {result['coverage']:.1%}",
+            "new_primers": result["new_primers"],
+            "message": f"Coverage: {result['coverage']:.1%}",
         }
 
 
@@ -610,7 +599,7 @@ def expand_primers(
     fixed_primers: List[str],
     failed_primers: Optional[List[str]] = None,
     target_new: int = 6,
-    optimization_method: str = 'hybrid',
+    optimization_method: str = "hybrid",
     output_dir: Optional[str] = None,
     verbose: bool = True,
     bam_path: Optional[str] = None,
@@ -639,35 +628,37 @@ def expand_primers(
     Returns:
         ExpansionResult with new and combined primer sets
     """
-    import os
     import json
+    import os
+
     import pandas as pd
-    from neoswga.core.position_cache import PositionCache
+
     from neoswga.core import parameter
+    from neoswga.core.position_cache import PositionCache
 
     # Load parameters
     with open(params_path) as f:
         params = json.load(f)
 
     # Get prefixes and lengths
-    fg_prefixes = params.get('fg_prefixes', [])
-    bg_prefixes = params.get('bg_prefixes', [])
-    data_dir = params.get('data_dir', './')
+    fg_prefixes = params.get("fg_prefixes", [])
+    bg_prefixes = params.get("bg_prefixes", [])
+    data_dir = params.get("data_dir", "./")
 
     # Load genome lengths (from step2 or calculate)
     # This is a simplified version - in practice, get from genome files
-    fg_seq_lengths = params.get('fg_seq_lengths', [])
-    bg_seq_lengths = params.get('bg_seq_lengths', [])
+    fg_seq_lengths = params.get("fg_seq_lengths", [])
+    bg_seq_lengths = params.get("bg_seq_lengths", [])
 
     # Load candidates from step3
-    step3_path = os.path.join(data_dir, 'step3_df.csv')
+    step3_path = os.path.join(data_dir, "step3_df.csv")
     if not os.path.exists(step3_path):
         raise FileNotFoundError(
             f"Step 3 output not found: {step3_path}. Run 'neoswga score' first."
         )
 
     step3_df = pd.read_csv(step3_path)
-    candidates = step3_df['primer'].tolist()
+    candidates = step3_df["primer"].tolist()
 
     # Initialize position cache
     cache = PositionCache(fg_prefixes, candidates + fixed_primers)
@@ -683,21 +674,28 @@ def expand_primers(
 
     # Build target gaps: in-silico gaps from the fixed set, optionally merged
     # with low-depth regions from a mapped BAM.
-    fg_circular = bool(params.get('fg_circular', False))
+    fg_circular = bool(params.get("fg_circular", False))
     bam_derived_gaps = None
     if bam_path:
         from neoswga.core.bam_coverage import bam_gaps
+
         bam_derived_gaps = bam_gaps(
-            bam_path, fg_prefixes, fg_seq_lengths,
-            min_depth=min_depth, min_gap_size=min_gap_size,
-            circular=fg_circular, contig_aliases=contig_aliases,
+            bam_path,
+            fg_prefixes,
+            fg_seq_lengths,
+            min_depth=min_depth,
+            min_gap_size=min_gap_size,
+            circular=fg_circular,
+            contig_aliases=contig_aliases,
         )
         if verbose:
             logger.info(f"BAM low-depth gaps: {len(bam_derived_gaps)}")
 
     target_gaps = expander.identify_gaps(
-        fixed_primers, min_gap_size=min_gap_size,
-        extra_gaps=bam_derived_gaps, merge=True,
+        fixed_primers,
+        min_gap_size=min_gap_size,
+        extra_gaps=bam_derived_gaps,
+        merge=True,
     )
 
     # Run expansion (focus candidates on the gaps when we have any)
@@ -716,16 +714,18 @@ def expand_primers(
         os.makedirs(output_dir, exist_ok=True)
 
         # Save result as JSON
-        result_path = os.path.join(output_dir, 'expansion_result.json')
-        with open(result_path, 'w') as f:
+        result_path = os.path.join(output_dir, "expansion_result.json")
+        with open(result_path, "w") as f:
             json.dump(result.to_dict(), f, indent=2)
 
         # Save combined primers as CSV
-        primers_path = os.path.join(output_dir, 'expanded_primers.csv')
-        pd.DataFrame({
-            'primer': result.combined_set,
-            'type': ['fixed'] * result.n_fixed + ['new'] * result.n_new,
-        }).to_csv(primers_path, index=False)
+        primers_path = os.path.join(output_dir, "expanded_primers.csv")
+        pd.DataFrame(
+            {
+                "primer": result.combined_set,
+                "type": ["fixed"] * result.n_fixed + ["new"] * result.n_new,
+            }
+        ).to_csv(primers_path, index=False)
 
         if verbose:
             logger.info(f"\nResults saved to {output_dir}")

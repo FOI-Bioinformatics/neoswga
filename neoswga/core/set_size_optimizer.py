@@ -49,10 +49,10 @@ Usage:
     rec = recommend_set_size('clinical', 1_000_000, 12, effects, processivity=80000)
 """
 
-import math
 import logging
+import math
 from dataclasses import dataclass, field
-from typing import List, Tuple, Dict, Optional, Any, TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -60,8 +60,8 @@ import pandas as pd
 from neoswga.core.mechanistic_params import APPLICATION_PROFILES, get_application_profile
 
 if TYPE_CHECKING:
-    from neoswga.core.mechanistic_model import MechanisticEffects
     from neoswga.core.base_optimizer import BaseOptimizer
+    from neoswga.core.mechanistic_model import MechanisticEffects
     from neoswga.core.position_cache import PositionCache
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Data Classes
 # =============================================================================
+
 
 @dataclass
 class SetSizeMetrics:
@@ -82,12 +83,13 @@ class SetSizeMetrics:
 
     A good primer set has BOTH high coverage AND high fg/bg ratio.
     """
+
     set_size: int
-    fg_coverage: float          # Fraction of foreground genome covered [0, 1]
-    bg_coverage: float          # Fraction of background genome covered [0, 1]
-    fg_binding_sites: int       # Total foreground binding sites
-    bg_binding_sites: int       # Total background binding sites
-    fg_bg_ratio: float          # fg_sites / bg_sites (specificity metric)
+    fg_coverage: float  # Fraction of foreground genome covered [0, 1]
+    bg_coverage: float  # Fraction of background genome covered [0, 1]
+    fg_binding_sites: int  # Total foreground binding sites
+    bg_binding_sites: int  # Total background binding sites
+    fg_bg_ratio: float  # fg_sites / bg_sites (specificity metric)
 
     # Optional: the actual primers if available
     primers: Optional[Tuple[str, ...]] = None
@@ -102,7 +104,7 @@ class SetSizeMetrics:
             return True  # Unknown, assume optimal
         return self._is_pareto_optimal
 
-    def dominates(self, other: 'SetSizeMetrics') -> bool:
+    def dominates(self, other: "SetSizeMetrics") -> bool:
         """
         Check if this point Pareto-dominates another.
 
@@ -113,32 +115,30 @@ class SetSizeMetrics:
         We want to MAXIMIZE both coverage and fg_bg_ratio.
         """
         at_least_as_good = (
-            self.fg_coverage >= other.fg_coverage and
-            self.fg_bg_ratio >= other.fg_bg_ratio
+            self.fg_coverage >= other.fg_coverage and self.fg_bg_ratio >= other.fg_bg_ratio
         )
         strictly_better = (
-            self.fg_coverage > other.fg_coverage or
-            self.fg_bg_ratio > other.fg_bg_ratio
+            self.fg_coverage > other.fg_coverage or self.fg_bg_ratio > other.fg_bg_ratio
         )
         return at_least_as_good and strictly_better
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         result = {
-            'set_size': self.set_size,
-            'fg_coverage': self.fg_coverage,
-            'bg_coverage': self.bg_coverage,
-            'fg_binding_sites': self.fg_binding_sites,
-            'bg_binding_sites': self.bg_binding_sites,
-            'fg_bg_ratio': self.fg_bg_ratio,
-            'is_pareto_optimal': self.is_pareto_optimal,
+            "set_size": self.set_size,
+            "fg_coverage": self.fg_coverage,
+            "bg_coverage": self.bg_coverage,
+            "fg_binding_sites": self.fg_binding_sites,
+            "bg_binding_sites": self.bg_binding_sites,
+            "fg_bg_ratio": self.fg_bg_ratio,
+            "is_pareto_optimal": self.is_pareto_optimal,
         }
         if self.primers is not None:
-            result['primers'] = list(self.primers)
+            result["primers"] = list(self.primers)
         return result
 
     @classmethod
-    def empty(cls, set_size: int = 0) -> 'SetSizeMetrics':
+    def empty(cls, set_size: int = 0) -> "SetSizeMetrics":
         """Create empty metrics for failed optimization."""
         return cls(
             set_size=set_size,
@@ -157,6 +157,7 @@ class FrontierResult:
 
     Contains all evaluated points and identifies the Pareto-optimal subset.
     """
+
     all_points: List[SetSizeMetrics]
     pareto_points: List[SetSizeMetrics]
     selected_point: Optional[SetSizeMetrics] = None
@@ -165,16 +166,17 @@ class FrontierResult:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            'all_points': [p.to_dict() for p in self.all_points],
-            'pareto_points': [p.to_dict() for p in self.pareto_points],
-            'selected_point': self.selected_point.to_dict() if self.selected_point else None,
-            'selection_explanation': self.selection_explanation,
+            "all_points": [p.to_dict() for p in self.all_points],
+            "pareto_points": [p.to_dict() for p in self.pareto_points],
+            "selected_point": self.selected_point.to_dict() if self.selected_point else None,
+            "selection_explanation": self.selection_explanation,
         }
 
 
 # =============================================================================
 # Pareto Frontier Generation
 # =============================================================================
+
 
 def filter_pareto_optimal(points: List[SetSizeMetrics]) -> List[SetSizeMetrics]:
     """
@@ -236,14 +238,14 @@ class ParetoFrontierGenerator:
     def __init__(
         self,
         primer_pool: pd.DataFrame,
-        position_cache: Optional['PositionCache'] = None,
+        position_cache: Optional["PositionCache"] = None,
         fg_prefixes: Optional[List[str]] = None,
         bg_prefixes: Optional[List[str]] = None,
         fg_seq_lengths: Optional[List[int]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
-        optimizer: Optional['BaseOptimizer'] = None,
+        optimizer: Optional["BaseOptimizer"] = None,
         processivity: int = 70000,
-        mech_effects: Optional['MechanisticEffects'] = None,
+        mech_effects: Optional["MechanisticEffects"] = None,
     ):
         """
         Initialize the Pareto frontier generator.
@@ -297,10 +299,10 @@ class ParetoFrontierGenerator:
             raise ValueError("primer_pool cannot be empty")
 
         # Check for primer column (could be 'primer' or 'sequence' or index)
-        if 'primer' not in self.primer_pool.columns:
-            if 'sequence' in self.primer_pool.columns:
-                self.primer_pool = self.primer_pool.rename(columns={'sequence': 'primer'})
-            elif self.primer_pool.index.name == 'primer':
+        if "primer" not in self.primer_pool.columns:
+            if "sequence" in self.primer_pool.columns:
+                self.primer_pool = self.primer_pool.rename(columns={"sequence": "primer"})
+            elif self.primer_pool.index.name == "primer":
                 self.primer_pool = self.primer_pool.reset_index()
             else:
                 raise ValueError("primer_pool must have 'primer' or 'sequence' column")
@@ -366,9 +368,7 @@ class ParetoFrontierGenerator:
 
         # Combine coarse and refined points, preferring refined where available
         refined_sizes = {p.set_size for p in refined_points}
-        all_points = refined_points + [
-            p for p in coarse_points if p.set_size not in refined_sizes
-        ]
+        all_points = refined_points + [p for p in coarse_points if p.set_size not in refined_sizes]
         all_points = sorted(all_points, key=lambda p: p.set_size)
 
         # Filter to Pareto-optimal
@@ -403,13 +403,13 @@ class ParetoFrontierGenerator:
             with additives.
         """
         # Sort primers by fg/bg ratio (descending)
-        if 'fg_bg_ratio' in self.primer_pool.columns:
-            sorted_pool = self.primer_pool.sort_values('fg_bg_ratio', ascending=False)
-        elif 'fg_freq' in self.primer_pool.columns and 'bg_freq' in self.primer_pool.columns:
+        if "fg_bg_ratio" in self.primer_pool.columns:
+            sorted_pool = self.primer_pool.sort_values("fg_bg_ratio", ascending=False)
+        elif "fg_freq" in self.primer_pool.columns and "bg_freq" in self.primer_pool.columns:
             # Calculate ratio on the fly
             pool = self.primer_pool.copy()
-            pool['fg_bg_ratio'] = pool['fg_freq'] / (pool['bg_freq'] + 1e-10)
-            sorted_pool = pool.sort_values('fg_bg_ratio', ascending=False)
+            pool["fg_bg_ratio"] = pool["fg_freq"] / (pool["bg_freq"] + 1e-10)
+            sorted_pool = pool.sort_values("fg_bg_ratio", ascending=False)
         else:
             # No frequency data, just use order
             sorted_pool = self.primer_pool
@@ -420,22 +420,38 @@ class ParetoFrontierGenerator:
                 continue
 
             top_n = sorted_pool.head(size)
-            primers = tuple(top_n['primer'].tolist())
+            primers = tuple(top_n["primer"].tolist())
 
             # Estimate binding sites
-            if 'fg_freq' in top_n.columns:
+            if "fg_freq" in top_n.columns:
                 # Use frequency data if available
-                total_fg = top_n['fg_freq'].sum()
-                total_bg = top_n['bg_freq'].sum() if 'bg_freq' in top_n.columns else 1e-10
+                total_fg = top_n["fg_freq"].sum()
+                total_bg = top_n["bg_freq"].sum() if "bg_freq" in top_n.columns else 1e-10
                 # Convert frequency to approximate site count
-                fg_sites = int(total_fg * self.fg_total_length) if self.fg_total_length > 0 else int(total_fg * 1e6)
-                bg_sites = int(total_bg * self.bg_total_length) if self.bg_total_length > 0 else max(1, int(total_bg * 1e6))
+                fg_sites = (
+                    int(total_fg * self.fg_total_length)
+                    if self.fg_total_length > 0
+                    else int(total_fg * 1e6)
+                )
+                bg_sites = (
+                    int(total_bg * self.bg_total_length)
+                    if self.bg_total_length > 0
+                    else max(1, int(total_bg * 1e6))
+                )
             else:
                 # Use random sequence model
                 primer_length = len(primers[0]) if primers else 10
                 expected_sites_per_primer = (4 ** (-primer_length)) * 2  # Both strands
-                fg_sites = int(expected_sites_per_primer * self.fg_total_length * size) if self.fg_total_length > 0 else size * 100
-                bg_sites = int(expected_sites_per_primer * self.bg_total_length * size) if self.bg_total_length > 0 else size * 10
+                fg_sites = (
+                    int(expected_sites_per_primer * self.fg_total_length * size)
+                    if self.fg_total_length > 0
+                    else size * 100
+                )
+                bg_sites = (
+                    int(expected_sites_per_primer * self.bg_total_length * size)
+                    if self.bg_total_length > 0
+                    else size * 10
+                )
                 bg_sites = max(1, bg_sites)
 
             # Estimate coverage with effective binding rate
@@ -460,15 +476,17 @@ class ParetoFrontierGenerator:
 
             fg_bg_ratio = fg_sites / max(1, bg_sites)
 
-            points.append(SetSizeMetrics(
-                set_size=size,
-                fg_coverage=fg_coverage,
-                bg_coverage=bg_coverage,
-                fg_binding_sites=fg_sites,
-                bg_binding_sites=bg_sites,
-                fg_bg_ratio=fg_bg_ratio,
-                primers=primers,
-            ))
+            points.append(
+                SetSizeMetrics(
+                    set_size=size,
+                    fg_coverage=fg_coverage,
+                    bg_coverage=bg_coverage,
+                    fg_binding_sites=fg_sites,
+                    bg_binding_sites=bg_sites,
+                    fg_bg_ratio=fg_bg_ratio,
+                    primers=primers,
+                )
+            )
 
         return points
 
@@ -539,7 +557,7 @@ class ParetoFrontierGenerator:
         if self.optimizer is None:
             raise ValueError("No optimizer provided for full optimization")
 
-        candidates = self.primer_pool['primer'].tolist()
+        candidates = self.primer_pool["primer"].tolist()
 
         if verbose:
             logger.info(f"  Optimizing at size {size}...")
@@ -598,14 +616,14 @@ class ParetoFrontierGenerator:
         for primer in primers:
             for prefix in self.fg_prefixes:
                 try:
-                    pos = self.cache.get_positions(prefix, primer, 'both')
+                    pos = self.cache.get_positions(prefix, primer, "both")
                     fg_positions.update(pos.tolist())
                 except Exception as e:
                     logger.debug(f"Ignored error getting fg positions for {primer}: {e}")
 
             for prefix in self.bg_prefixes:
                 try:
-                    pos = self.cache.get_positions(prefix, primer, 'both')
+                    pos = self.cache.get_positions(prefix, primer, "both")
                     bg_positions.update(pos.tolist())
                 except Exception as e:
                     logger.debug(f"Ignored error getting bg positions for {primer}: {e}")
@@ -652,6 +670,7 @@ class ParetoFrontierGenerator:
 # Frontier Selection
 # =============================================================================
 
+
 def select_from_frontier(
     frontier: List[SetSizeMetrics],
     application: str,
@@ -681,19 +700,23 @@ def select_from_frontier(
         profile = get_application_profile(application)
     except ValueError:
         logger.warning(f"Unknown application '{application}', using 'enrichment'")
-        application = 'enrichment'
+        application = "enrichment"
         profile = get_application_profile(application)
 
     # Use overrides if provided, otherwise profile defaults
     ratio_constraint = min_fg_bg_ratio
     if ratio_constraint is None:
-        ratio_constraint = profile.get('default_min_fg_bg_ratio', profile.get('min_specificity', 0.5) * 10)
+        ratio_constraint = profile.get(
+            "default_min_fg_bg_ratio", profile.get("min_specificity", 0.5) * 10
+        )
 
     coverage_target = target_coverage
     if coverage_target is None:
-        coverage_target = profile.get('default_target_coverage', profile.get('target_coverage', 0.8))
+        coverage_target = profile.get(
+            "default_target_coverage", profile.get("target_coverage", 0.8)
+        )
 
-    priority = profile.get('priority', 'balanced')
+    priority = profile.get("priority", "balanced")
 
     # Filter to points meeting hard constraints
     valid = [p for p in frontier if p.fg_bg_ratio >= ratio_constraint]
@@ -708,7 +731,7 @@ def select_from_frontier(
         return best, explanation
 
     # Select based on priority
-    if priority == 'coverage':
+    if priority == "coverage":
         # Pick point with highest coverage among valid
         # But also consider coverage target
         meeting_target = [p for p in valid if p.fg_coverage >= coverage_target]
@@ -728,7 +751,7 @@ def select_from_frontier(
                 f"fg/bg ratio {selected.fg_bg_ratio:.1f}"
             )
 
-    elif priority == 'specificity':
+    elif priority == "specificity":
         # Pick point with highest fg/bg ratio among valid
         selected = max(valid, key=lambda p: p.fg_bg_ratio)
         explanation = (
@@ -761,12 +784,13 @@ def select_from_frontier(
 # High-Level API (Backward Compatible)
 # =============================================================================
 
+
 def estimate_optimal_set_size(
     genome_length: int,
     primer_length: int,
     target_coverage: float,
     processivity: int,
-    mech_effects: 'MechanisticEffects'
+    mech_effects: "MechanisticEffects",
 ) -> int:
     """
     Estimate optimal set size from first principles.
@@ -810,8 +834,7 @@ def estimate_optimal_set_size(
     # Each primer contributes coverage proportional to:
     # sites * effective_processivity * binding_rate / genome_length
     coverage_per_primer = (
-        expected_sites * effective_proc * mech_effects.effective_binding_rate
-        / genome_length
+        expected_sites * effective_proc * mech_effects.effective_binding_rate / genome_length
     )
 
     if coverage_per_primer <= 0:
@@ -839,7 +862,7 @@ def recommend_set_size(
     application: str,
     genome_length: int,
     primer_length: int,
-    mech_effects: 'MechanisticEffects',
+    mech_effects: "MechanisticEffects",
     processivity: int = 70000,
     min_fg_bg_ratio: Optional[float] = None,
     target_coverage: Optional[float] = None,
@@ -909,18 +932,18 @@ def recommend_set_size(
         profile = get_application_profile(application)
     except ValueError:
         logger.warning(f"Unknown application '{application}', using 'enrichment'")
-        application = 'enrichment'
+        application = "enrichment"
         profile = get_application_profile(application)
 
     # Get target coverage (use override or profile default)
     cov_target = target_coverage
     if cov_target is None:
-        cov_target = profile.get('default_target_coverage', profile.get('target_coverage', 0.8))
+        cov_target = profile.get("default_target_coverage", profile.get("target_coverage", 0.8))
 
     # Get fg/bg ratio constraint (use override or profile default)
     ratio_constraint = min_fg_bg_ratio
     if ratio_constraint is None:
-        ratio_constraint = profile.get('default_min_fg_bg_ratio', 5.0)
+        ratio_constraint = profile.get("default_min_fg_bg_ratio", 5.0)
 
     # Get base estimate from first principles
     base_estimate = estimate_optimal_set_size(
@@ -932,21 +955,21 @@ def recommend_set_size(
     )
 
     # Adjust based on application priority
-    priority = profile.get('priority', 'balanced')
+    priority = profile.get("priority", "balanced")
 
-    if priority == 'specificity':
+    if priority == "specificity":
         # High specificity applications may benefit from fewer, more selective primers
         # This is based on the insight that smaller sets can have better fg/bg ratios
         # when primers are carefully selected
         adjusted = max(4, int(base_estimate * 0.85))
-    elif priority == 'coverage':
+    elif priority == "coverage":
         # Coverage priority may need more primers to ensure all regions are covered
         adjusted = min(20, int(base_estimate * 1.1))
     else:  # balanced
         adjusted = base_estimate
 
     # Constrain to typical range for this application
-    min_size, max_size = profile['typical_size']
+    min_size, max_size = profile["typical_size"]
     recommended = max(min_size, min(max_size, adjusted))
 
     # Calculate effective processivity and additive adjustment
@@ -967,29 +990,25 @@ def recommend_set_size(
         additive_adjustment = 0.0
 
     return {
-        'recommended_size': recommended,
-        'size_range': profile['typical_size'],
-        'target_coverage': cov_target,
-        'min_fg_bg_ratio': ratio_constraint,
-        'priority': priority,
-        'rationale': profile['description'],
-        'base_estimate': base_estimate,
-        'application': application,
-        'effective_processivity': effective_processivity,
-        'additive_adjustment': additive_adjustment,
-        'processivity_factor': mech_effects.processivity_factor,
-        'effective_binding_rate': mech_effects.effective_binding_rate,
+        "recommended_size": recommended,
+        "size_range": profile["typical_size"],
+        "target_coverage": cov_target,
+        "min_fg_bg_ratio": ratio_constraint,
+        "priority": priority,
+        "rationale": profile["description"],
+        "base_estimate": base_estimate,
+        "application": application,
+        "effective_processivity": effective_processivity,
+        "additive_adjustment": additive_adjustment,
+        "processivity_factor": mech_effects.processivity_factor,
+        "effective_binding_rate": mech_effects.effective_binding_rate,
         # Legacy field for backward compatibility
-        'min_specificity': profile.get('min_specificity', ratio_constraint / 10),
+        "min_specificity": profile.get("min_specificity", ratio_constraint / 10),
     }
 
 
 def find_optimal_size_by_elbow(
-    optimizer,
-    candidates: List[str],
-    min_size: int = 4,
-    max_size: int = 15,
-    verbose: bool = True
+    optimizer, candidates: List[str], min_size: int = 4, max_size: int = 15, verbose: bool = True
 ) -> Tuple[int, List[Dict[str, Any]]]:
     """
     Find optimal set size using elbow method on coverage curve.
@@ -1025,24 +1044,26 @@ def find_optimal_size_by_elbow(
         score = optimizer.score_primer_set(primers)
 
         result = {
-            'size': size,
-            'primers': primers,
-            'coverage': score.get('target_coverage', score.get('enrichment', 0)),
-            'enrichment': score.get('enrichment', 0),
-            'score': score,
+            "size": size,
+            "primers": primers,
+            "coverage": score.get("target_coverage", score.get("enrichment", 0)),
+            "enrichment": score.get("enrichment", 0),
+            "score": score,
         }
         results.append(result)
 
         if verbose:
-            logger.info(f"  Size {size}: coverage={result['coverage']:.1%}, "
-                       f"enrichment={result['enrichment']:.1f}x")
+            logger.info(
+                f"  Size {size}: coverage={result['coverage']:.1%}, "
+                f"enrichment={result['enrichment']:.1f}x"
+            )
 
     # Find elbow using curvature analysis
     if len(results) < 3:
-        return results[len(results) // 2]['size'], results
+        return results[len(results) // 2]["size"], results
 
-    sizes = np.array([r['size'] for r in results])
-    coverages = np.array([r['coverage'] for r in results])
+    sizes = np.array([r["size"] for r in results])
+    coverages = np.array([r["coverage"] for r in results])
 
     # Normalize to [0, 1] range
     size_range = sizes.max() - sizes.min()
@@ -1050,7 +1071,7 @@ def find_optimal_size_by_elbow(
 
     if size_range == 0 or coverage_range < 1e-10:
         # No variation, return middle
-        return results[len(results) // 2]['size'], results
+        return results[len(results) // 2]["size"], results
 
     sizes_norm = (sizes - sizes.min()) / size_range
     coverages_norm = (coverages - coverages.min()) / coverage_range
@@ -1072,7 +1093,7 @@ def find_optimal_size_by_elbow(
     else:
         elbow_idx = len(results) // 2
 
-    optimal_size = results[elbow_idx]['size']
+    optimal_size = results[elbow_idx]["size"]
 
     if verbose:
         logger.info(f"Elbow detected at size {optimal_size}")
@@ -1084,8 +1105,8 @@ def get_size_recommendation_summary(
     application: str,
     genome_length: int,
     primer_length: int,
-    mech_effects: 'MechanisticEffects',
-    processivity: int = 70000
+    mech_effects: "MechanisticEffects",
+    processivity: int = 70000,
 ) -> str:
     """
     Get a human-readable summary of set size recommendation.
@@ -1139,7 +1160,7 @@ def get_size_recommendation_summary(
     return "\n".join(lines)
 
 
-def create_baseline_effects() -> 'MechanisticEffects':
+def create_baseline_effects() -> "MechanisticEffects":
     """
     Create baseline MechanisticEffects for quick estimates.
 
@@ -1167,10 +1188,7 @@ def create_baseline_effects() -> 'MechanisticEffects':
 
 
 def quick_size_estimate(
-    application: str,
-    genome_length: int,
-    primer_length: int = 10,
-    processivity: int = 70000
+    application: str, genome_length: int, primer_length: int = 10, processivity: int = 70000
 ) -> int:
     """
     Quick set size estimate without full mechanistic model.
@@ -1201,4 +1219,4 @@ def quick_size_estimate(
         mech_effects=effects,
         processivity=processivity,
     )
-    return rec['recommended_size']
+    return rec["recommended_size"]

@@ -14,18 +14,19 @@ Engineers 95+ sophisticated features across multiple categories:
 Total: 120+ features for random forest and deep learning models.
 """
 
+import gzip
+import warnings
+from collections import Counter
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import List, Dict, Tuple, Optional
-from collections import Counter
-import warnings
-from scipy.stats import entropy, skew, kurtosis
 from scipy.signal import find_peaks
-import gzip
+from scipy.stats import entropy, kurtosis, skew
 
-from neoswga.core import thermodynamics as thermo
 from neoswga.core import reaction_conditions as rc
 from neoswga.core import secondary_structure as ss
+from neoswga.core import thermodynamics as thermo
 
 
 class AdvancedFeatureEngineer:
@@ -35,10 +36,12 @@ class AdvancedFeatureEngineer:
     Generates 120+ features per primer for ML models.
     """
 
-    def __init__(self,
-                 genome_sequence: str,
-                 conditions: rc.ReactionConditions,
-                 primer_positions: Optional[Dict] = None):
+    def __init__(
+        self,
+        genome_sequence: str,
+        conditions: rc.ReactionConditions,
+        primer_positions: Optional[Dict] = None,
+    ):
         """
         Initialize feature engineer.
 
@@ -104,13 +107,13 @@ class AdvancedFeatureEngineer:
             # Category 8: Context and interactions (10 features)
             features.update(self._context_features(primer))
 
-            features['primer'] = primer
+            features["primer"] = primer
             features_list.append(features)
 
         df = pd.DataFrame(features_list)
 
         # Reorder columns: primer first, then features
-        cols = ['primer'] + [c for c in df.columns if c != 'primer']
+        cols = ["primer"] + [c for c in df.columns if c != "primer"]
         return df[cols]
 
     # ========================================
@@ -122,10 +125,10 @@ class AdvancedFeatureEngineer:
         n = len(primer)
 
         # Individual base counts and frequencies
-        a_count = primer.count('A')
-        t_count = primer.count('T')
-        g_count = primer.count('G')
-        c_count = primer.count('C')
+        a_count = primer.count("A")
+        t_count = primer.count("T")
+        g_count = primer.count("G")
+        c_count = primer.count("C")
 
         gc_count = g_count + c_count
         at_count = a_count + t_count
@@ -139,43 +142,48 @@ class AdvancedFeatureEngineer:
         weak = at_count  # 2 H-bonds
 
         # Longest homopolymer runs
-        longest_a = self._longest_run(primer, 'A')
-        longest_t = self._longest_run(primer, 'T')
-        longest_g = self._longest_run(primer, 'G')
-        longest_c = self._longest_run(primer, 'C')
+        longest_a = self._longest_run(primer, "A")
+        longest_t = self._longest_run(primer, "T")
+        longest_g = self._longest_run(primer, "G")
+        longest_c = self._longest_run(primer, "C")
         longest_any = max(longest_a, longest_t, longest_g, longest_c)
 
         # GC content in windows
-        gc_5prime = (primer[:5].count('G') + primer[:5].count('C')) / 5 if n >= 5 else 0
-        gc_3prime = (primer[-5:].count('G') + primer[-5:].count('C')) / 5 if n >= 5 else 0
-        gc_middle = (primer[n//4:3*n//4].count('G') + primer[n//4:3*n//4].count('C')) / (n//2) if n >= 8 else 0
+        gc_5prime = (primer[:5].count("G") + primer[:5].count("C")) / 5 if n >= 5 else 0
+        gc_3prime = (primer[-5:].count("G") + primer[-5:].count("C")) / 5 if n >= 5 else 0
+        gc_middle = (
+            (primer[n // 4 : 3 * n // 4].count("G") + primer[n // 4 : 3 * n // 4].count("C"))
+            / (n // 2)
+            if n >= 8
+            else 0
+        )
 
         # GC skew
         gc_skew = (g_count - c_count) / (g_count + c_count) if (g_count + c_count) > 0 else 0
         at_skew = (a_count - t_count) / (a_count + t_count) if (a_count + t_count) > 0 else 0
 
         return {
-            'length': n,
-            'a_count': a_count,
-            't_count': t_count,
-            'g_count': g_count,
-            'c_count': c_count,
-            'gc_content': gc_count / n,
-            'at_content': at_count / n,
-            'purine_content': purine / n,
-            'pyrimidine_content': pyrimidine / n,
-            'strong_bonds_content': strong / n,
-            'weak_bonds_content': weak / n,
-            'longest_homopolymer': longest_any,
-            'longest_a_run': longest_a,
-            'longest_g_run': longest_g,
-            'gc_content_5prime': gc_5prime,
-            'gc_content_3prime': gc_3prime,
-            'gc_content_middle': gc_middle,
-            'gc_skew': gc_skew,
-            'at_skew': at_skew,
-            'gc_clamp': self._count_gc_clamp(primer),
-            'purine_pyrimidine_ratio': purine / pyrimidine if pyrimidine > 0 else np.inf
+            "length": n,
+            "a_count": a_count,
+            "t_count": t_count,
+            "g_count": g_count,
+            "c_count": c_count,
+            "gc_content": gc_count / n,
+            "at_content": at_count / n,
+            "purine_content": purine / n,
+            "pyrimidine_content": pyrimidine / n,
+            "strong_bonds_content": strong / n,
+            "weak_bonds_content": weak / n,
+            "longest_homopolymer": longest_any,
+            "longest_a_run": longest_a,
+            "longest_g_run": longest_g,
+            "gc_content_5prime": gc_5prime,
+            "gc_content_3prime": gc_3prime,
+            "gc_content_middle": gc_middle,
+            "gc_skew": gc_skew,
+            "at_skew": at_skew,
+            "gc_clamp": self._count_gc_clamp(primer),
+            "purine_pyrimidine_ratio": purine / pyrimidine if pyrimidine > 0 else np.inf,
         }
 
     def _longest_run(self, seq: str, base: str) -> int:
@@ -193,8 +201,8 @@ class AdvancedFeatureEngineer:
     def _count_gc_clamp(self, primer: str) -> int:
         """Count G/C bases in last 5 positions."""
         if len(primer) < 5:
-            return sum(1 for b in primer if b in 'GC')
-        return sum(1 for b in primer[-5:] if b in 'GC')
+            return sum(1 for b in primer if b in "GC")
+        return sum(1 for b in primer[-5:] if b in "GC")
 
     # ========================================
     # Category 2: Thermodynamic Features
@@ -203,7 +211,9 @@ class AdvancedFeatureEngineer:
     def _thermodynamic_features(self, primer: str) -> Dict:
         """Thermodynamic stability and binding features."""
         # Basic thermodynamics
-        tm_base = thermo.calculate_tm_with_salt(primer, self.conditions.na_conc, self.conditions.mg_conc)
+        tm_base = thermo.calculate_tm_with_salt(
+            primer, self.conditions.na_conc, self.conditions.mg_conc
+        )
         tm_effective = self.conditions.calculate_effective_tm(primer)
         dg_37 = thermo.calculate_free_energy(primer, 37.0)
         dg_reaction = thermo.calculate_free_energy(primer, self.conditions.temp)
@@ -228,21 +238,21 @@ class AdvancedFeatureEngineer:
         in_polymerase_range = 1 if polymerase_range[0] <= tm_effective <= polymerase_range[1] else 0
 
         return {
-            'tm_base': tm_base,
-            'tm_effective': tm_effective,
-            'tm_margin': tm_margin,
-            'dg_37c': dg_37,
-            'dg_reaction_temp': dg_reaction,
-            'enthalpy': enthalpy,
-            'entropy': entropy,
-            'binding_prob_reaction': prob_reaction,
-            'binding_prob_room': prob_room,
-            'binding_prob_cold': prob_cold,
-            'tm_sensitivity': tm_sensitivity,
-            'in_polymerase_range': in_polymerase_range,
-            'enthalpy_per_bp': enthalpy / len(primer),
-            'entropy_per_bp': entropy / len(primer),
-            'dg_per_bp': dg_reaction / len(primer)
+            "tm_base": tm_base,
+            "tm_effective": tm_effective,
+            "tm_margin": tm_margin,
+            "dg_37c": dg_37,
+            "dg_reaction_temp": dg_reaction,
+            "enthalpy": enthalpy,
+            "entropy": entropy,
+            "binding_prob_reaction": prob_reaction,
+            "binding_prob_room": prob_room,
+            "binding_prob_cold": prob_cold,
+            "tm_sensitivity": tm_sensitivity,
+            "in_polymerase_range": in_polymerase_range,
+            "enthalpy_per_bp": enthalpy / len(primer),
+            "entropy_per_bp": entropy / len(primer),
+            "dg_per_bp": dg_reaction / len(primer),
         }
 
     # ========================================
@@ -255,9 +265,9 @@ class AdvancedFeatureEngineer:
         hairpins = ss.check_hairpins(primer, self.conditions)
 
         if hairpins:
-            max_hairpin_dg = min(h['energy'] for h in hairpins)
-            max_hairpin_tm = max(h['tm'] for h in hairpins)
-            max_hairpin_stem = max(h['stem_length'] for h in hairpins)
+            max_hairpin_dg = min(h["energy"] for h in hairpins)
+            max_hairpin_tm = max(h["tm"] for h in hairpins)
+            max_hairpin_stem = max(h["stem_length"] for h in hairpins)
             num_hairpins = len(hairpins)
             hairpin_stable = 1 if max_hairpin_tm > self.conditions.temp + 5 else 0
         else:
@@ -279,18 +289,18 @@ class AdvancedFeatureEngineer:
         terminal_5prime_gc = thermo.gc_content(terminal_5prime)
 
         return {
-            'num_hairpins': num_hairpins,
-            'max_hairpin_dg': max_hairpin_dg,
-            'max_hairpin_tm': max_hairpin_tm,
-            'max_hairpin_stem_length': max_hairpin_stem,
-            'hairpin_stable': hairpin_stable,
-            'self_dimer_severity': self_dimer['severity'],
-            'self_dimer_dg': self_dimer['energy'],
-            'self_dimer_tm': self_dimer['tm'],
-            'terminal_3prime_gc': terminal_3prime_gc,
-            'terminal_5prime_gc': terminal_5prime_gc,
-            'terminal_gc_asymmetry': abs(terminal_3prime_gc - terminal_5prime_gc),
-            'palindrome_score': self._palindrome_score(primer)
+            "num_hairpins": num_hairpins,
+            "max_hairpin_dg": max_hairpin_dg,
+            "max_hairpin_tm": max_hairpin_tm,
+            "max_hairpin_stem_length": max_hairpin_stem,
+            "hairpin_stable": hairpin_stable,
+            "self_dimer_severity": self_dimer["severity"],
+            "self_dimer_dg": self_dimer["energy"],
+            "self_dimer_tm": self_dimer["tm"],
+            "terminal_3prime_gc": terminal_3prime_gc,
+            "terminal_5prime_gc": terminal_5prime_gc,
+            "terminal_gc_asymmetry": abs(terminal_3prime_gc - terminal_5prime_gc),
+            "palindrome_score": self._palindrome_score(primer),
         }
 
     def _palindrome_score(self, primer: str) -> float:
@@ -305,10 +315,10 @@ class AdvancedFeatureEngineer:
 
     def _positional_features(self, primer: str) -> Dict:
         """Positional and spatial binding features."""
-        positions = self.primer_positions.get(primer, {'forward': [], 'reverse': []})
+        positions = self.primer_positions.get(primer, {"forward": [], "reverse": []})
 
-        fwd_pos = positions.get('forward', [])
-        rev_pos = positions.get('reverse', [])
+        fwd_pos = positions.get("forward", [])
+        rev_pos = positions.get("reverse", [])
 
         total_sites = len(fwd_pos) + len(rev_pos)
 
@@ -353,24 +363,24 @@ class AdvancedFeatureEngineer:
         coverage_fraction = self._estimate_coverage(fwd_pos + rev_pos, max_gap=3000)
 
         return {
-            'total_binding_sites': total_sites,
-            'binding_frequency': binding_freq,
-            'strand_bias': strand_bias,
-            'mean_forward_gap': mean_fwd_gap,
-            'std_forward_gap': std_fwd_gap,
-            'min_forward_gap': min_fwd_gap,
-            'max_forward_gap': max_fwd_gap,
-            'median_forward_gap': median_fwd_gap,
-            'gini_index': gini_fwd,
-            'clustering_coefficient': clustering_fwd,
-            'mean_nearest_opposite_distance': nearest_opposite,
-            'positional_entropy': position_entropy,
-            'coverage_fraction': coverage_fraction,
-            'sites_per_100kb': (total_sites / self.genome_length) * 100000,
-            'forward_site_count': len(fwd_pos),
-            'reverse_site_count': len(rev_pos),
-            'gap_cv': std_fwd_gap / mean_fwd_gap if mean_fwd_gap > 0 else 0,
-            'gap_skewness': self._safe_skew(fwd_gaps) if len(fwd_pos) > 2 else 0
+            "total_binding_sites": total_sites,
+            "binding_frequency": binding_freq,
+            "strand_bias": strand_bias,
+            "mean_forward_gap": mean_fwd_gap,
+            "std_forward_gap": std_fwd_gap,
+            "min_forward_gap": min_fwd_gap,
+            "max_forward_gap": max_fwd_gap,
+            "median_forward_gap": median_fwd_gap,
+            "gini_index": gini_fwd,
+            "clustering_coefficient": clustering_fwd,
+            "mean_nearest_opposite_distance": nearest_opposite,
+            "positional_entropy": position_entropy,
+            "coverage_fraction": coverage_fraction,
+            "sites_per_100kb": (total_sites / self.genome_length) * 100000,
+            "forward_site_count": len(fwd_pos),
+            "reverse_site_count": len(rev_pos),
+            "gap_cv": std_fwd_gap / mean_fwd_gap if mean_fwd_gap > 0 else 0,
+            "gap_skewness": self._safe_skew(fwd_gaps) if len(fwd_pos) > 2 else 0,
         }
 
     @staticmethod
@@ -384,13 +394,24 @@ class AdvancedFeatureEngineer:
     def _empty_positional_features(self) -> Dict:
         """Return zero-filled positional features."""
         return {
-            'total_binding_sites': 0, 'binding_frequency': 0, 'strand_bias': 0,
-            'mean_forward_gap': 0, 'std_forward_gap': 0, 'min_forward_gap': 0,
-            'max_forward_gap': 0, 'median_forward_gap': 0, 'gini_index': 0,
-            'clustering_coefficient': 0, 'mean_nearest_opposite_distance': 0,
-            'positional_entropy': 0, 'coverage_fraction': 0, 'sites_per_100kb': 0,
-            'forward_site_count': 0, 'reverse_site_count': 0, 'gap_cv': 0,
-            'gap_skewness': 0
+            "total_binding_sites": 0,
+            "binding_frequency": 0,
+            "strand_bias": 0,
+            "mean_forward_gap": 0,
+            "std_forward_gap": 0,
+            "min_forward_gap": 0,
+            "max_forward_gap": 0,
+            "median_forward_gap": 0,
+            "gini_index": 0,
+            "clustering_coefficient": 0,
+            "mean_nearest_opposite_distance": 0,
+            "positional_entropy": 0,
+            "coverage_fraction": 0,
+            "sites_per_100kb": 0,
+            "forward_site_count": 0,
+            "reverse_site_count": 0,
+            "gap_cv": 0,
+            "gap_skewness": 0,
         }
 
     def _calculate_gini(self, gaps: np.ndarray) -> float:
@@ -400,7 +421,7 @@ class AdvancedFeatureEngineer:
         sorted_gaps = np.sort(gaps)
         n = len(gaps)
         index = np.arange(1, n + 1)
-        return ((np.sum((2 * index - n - 1) * sorted_gaps)) / (n * np.sum(sorted_gaps)))
+        return (np.sum((2 * index - n - 1) * sorted_gaps)) / (n * np.sum(sorted_gaps))
 
     def _calculate_clustering(self, gaps: np.ndarray, mean_gap: float) -> float:
         """Calculate clustering coefficient (fraction of small gaps)."""
@@ -472,22 +493,22 @@ class AdvancedFeatureEngineer:
         genome_similarity = self._genome_similarity(primer)
 
         return {
-            'shannon_entropy': shannon_ent,
-            'linguistic_complexity': ling_complex,
-            'compressibility': compressibility,
-            'dinucleotide_diversity': dinuc_diversity,
-            'tandem_repeat_count': tandem_repeats,
-            'dinucleotide_repeat_count': dinuc_repeats,
-            'genome_similarity': genome_similarity,
-            'normalized_entropy': shannon_ent / np.log2(4),  # Normalized to [0,1]
-            'complexity_score': (shannon_ent + ling_complex) / 2,
-            'uniqueness_score': 1 - genome_similarity
+            "shannon_entropy": shannon_ent,
+            "linguistic_complexity": ling_complex,
+            "compressibility": compressibility,
+            "dinucleotide_diversity": dinuc_diversity,
+            "tandem_repeat_count": tandem_repeats,
+            "dinucleotide_repeat_count": dinuc_repeats,
+            "genome_similarity": genome_similarity,
+            "normalized_entropy": shannon_ent / np.log2(4),  # Normalized to [0,1]
+            "complexity_score": (shannon_ent + ling_complex) / 2,
+            "uniqueness_score": 1 - genome_similarity,
         }
 
     def _shannon_entropy(self, seq: str) -> float:
         """Calculate Shannon entropy of sequence."""
         counts = Counter(seq)
-        probs = np.array([counts[b] / len(seq) for b in 'ATGC'])
+        probs = np.array([counts[b] / len(seq) for b in "ATGC"])
         return -np.sum(probs * np.log2(probs + 1e-10))
 
     def _linguistic_complexity(self, seq: str) -> float:
@@ -510,7 +531,7 @@ class AdvancedFeatureEngineer:
         """Calculate diversity of dinucleotides (0-1)."""
         if len(seq) < 2:
             return 0.0
-        dinucs = [seq[i:i+2] for i in range(len(seq) - 1)]
+        dinucs = [seq[i : i + 2] for i in range(len(seq) - 1)]
         return len(set(dinucs)) / 16  # 16 possible dinucleotides
 
     def _count_tandem_repeats(self, seq: str) -> int:
@@ -528,10 +549,10 @@ class AdvancedFeatureEngineer:
 
         max_repeat = 0
         for i in range(len(seq) - 3):
-            dinuc = seq[i:i+2]
+            dinuc = seq[i : i + 2]
             repeat_len = 2
             pos = i + 2
-            while pos + 1 < len(seq) and seq[pos:pos+2] == dinuc:
+            while pos + 1 < len(seq) and seq[pos : pos + 2] == dinuc:
                 repeat_len += 2
                 pos += 2
             max_repeat = max(max_repeat, repeat_len)
@@ -544,8 +565,12 @@ class AdvancedFeatureEngineer:
         primer_dinucs = self._calculate_dinucleotide_frequencies(primer)
 
         # Euclidean distance
-        dist = np.sqrt(sum((primer_dinucs.get(dn, 0) - self.genome_dinuc_freqs.get(dn, 0))**2
-                          for dn in set(primer_dinucs.keys()) | set(self.genome_dinuc_freqs.keys())))
+        dist = np.sqrt(
+            sum(
+                (primer_dinucs.get(dn, 0) - self.genome_dinuc_freqs.get(dn, 0)) ** 2
+                for dn in set(primer_dinucs.keys()) | set(self.genome_dinuc_freqs.keys())
+            )
+        )
 
         # Normalize to [0, 1] (0 = very different, 1 = very similar)
         return np.exp(-dist)
@@ -555,7 +580,7 @@ class AdvancedFeatureEngineer:
         if len(seq) < 2:
             return {}
 
-        dinucs = [seq[i:i+2] for i in range(len(seq) - 1)]
+        dinucs = [seq[i : i + 2] for i in range(len(seq) - 1)]
         counts = Counter(dinucs)
         total = sum(counts.values())
 
@@ -580,16 +605,16 @@ class AdvancedFeatureEngineer:
         features = {}
 
         # 2-mers
-        for kmer in ['AA', 'TT', 'GG', 'CC', 'AT', 'TA', 'GC', 'CG']:
-            features[f'freq_2mer_{kmer}'] = twoer_freqs.get(kmer, 0)
+        for kmer in ["AA", "TT", "GG", "CC", "AT", "TA", "GC", "CG"]:
+            features[f"freq_2mer_{kmer}"] = twoer_freqs.get(kmer, 0)
 
         # 3-mers (select important ones)
-        for kmer in ['AAA', 'TTT', 'GGG', 'CCC', 'ATC', 'TAG', 'GCA', 'CGT']:
-            features[f'freq_3mer_{kmer}'] = threemer_freqs.get(kmer, 0)
+        for kmer in ["AAA", "TTT", "GGG", "CCC", "ATC", "TAG", "GCA", "CGT"]:
+            features[f"freq_3mer_{kmer}"] = threemer_freqs.get(kmer, 0)
 
         # 4-mers (select important ones)
-        for kmer in ['AAAA', 'TTTT', 'ATCG', 'CGAT']:
-            features[f'freq_4mer_{kmer}'] = fourmer_freqs.get(kmer, 0)
+        for kmer in ["AAAA", "TTTT", "ATCG", "CGAT"]:
+            features[f"freq_4mer_{kmer}"] = fourmer_freqs.get(kmer, 0)
 
         return features
 
@@ -598,7 +623,7 @@ class AdvancedFeatureEngineer:
         if len(seq) < k:
             return {}
 
-        kmers = [seq[i:i+k] for i in range(len(seq) - k + 1)]
+        kmers = [seq[i : i + k] for i in range(len(seq) - k + 1)]
         counts = Counter(kmers)
         total = sum(counts.values())
 
@@ -619,7 +644,7 @@ class AdvancedFeatureEngineer:
 
         dg_values = []
         for pos in sample_positions:
-            target = self.genome[pos:pos+k]
+            target = self.genome[pos : pos + k]
             if len(target) == k:
                 try:
                     dg = thermo.calculate_free_energy(primer + target, self.conditions.temp)
@@ -641,15 +666,15 @@ class AdvancedFeatureEngineer:
 
         features = {}
         for i, (low, high) in enumerate(zip(bins[:-1], bins[1:])):
-            features[f'binding_hist_{low}to{high}'] = hist_norm[i]
+            features[f"binding_hist_{low}to{high}"] = hist_norm[i]
 
         # Statistical features
-        features['binding_mean_dg'] = np.mean(dg_array)
-        features['binding_std_dg'] = np.std(dg_array)
-        features['binding_min_dg'] = np.min(dg_array)
-        features['binding_median_dg'] = np.median(dg_array)
-        features['binding_strong_fraction'] = np.sum(dg_array < -10) / len(dg_array)
-        features['binding_weak_fraction'] = np.sum(dg_array > -5) / len(dg_array)
+        features["binding_mean_dg"] = np.mean(dg_array)
+        features["binding_std_dg"] = np.std(dg_array)
+        features["binding_min_dg"] = np.min(dg_array)
+        features["binding_median_dg"] = np.median(dg_array)
+        features["binding_strong_fraction"] = np.sum(dg_array < -10) / len(dg_array)
+        features["binding_weak_fraction"] = np.sum(dg_array > -5) / len(dg_array)
 
         return features
 
@@ -658,11 +683,17 @@ class AdvancedFeatureEngineer:
         features = {}
         bins = [-20, -15, -12, -10, -8, -6, -4, -2, 0, 2]
         for i in range(len(bins) - 1):
-            features[f'binding_hist_{bins[i]}to{bins[i+1]}'] = 0
-        features.update({
-            'binding_mean_dg': 0, 'binding_std_dg': 0, 'binding_min_dg': 0,
-            'binding_median_dg': 0, 'binding_strong_fraction': 0, 'binding_weak_fraction': 0
-        })
+            features[f"binding_hist_{bins[i]}to{bins[i+1]}"] = 0
+        features.update(
+            {
+                "binding_mean_dg": 0,
+                "binding_std_dg": 0,
+                "binding_min_dg": 0,
+                "binding_median_dg": 0,
+                "binding_strong_fraction": 0,
+                "binding_weak_fraction": 0,
+            }
+        )
         return features
 
     # ========================================
@@ -672,11 +703,11 @@ class AdvancedFeatureEngineer:
     def _context_features(self, primer: str) -> Dict:
         """Contextual and interaction features."""
         # Flanking GC content (if positions known)
-        positions = self.primer_positions.get(primer, {'forward': [], 'reverse': []})
+        positions = self.primer_positions.get(primer, {"forward": [], "reverse": []})
 
-        if positions.get('forward'):
+        if positions.get("forward"):
             # Sample first position
-            pos = positions['forward'][0]
+            pos = positions["forward"][0]
             flanking_gc = self._flanking_gc_content(pos, window=50)
         else:
             flanking_gc = self.genome_gc
@@ -692,16 +723,16 @@ class AdvancedFeatureEngineer:
         tm_deviation = self.conditions.calculate_effective_tm(primer) - genome_sample_tm
 
         return {
-            'flanking_gc_content': flanking_gc,
-            'gc_deviation_from_genome': gc_deviation,
-            'length_ratio': length_ratio,
-            'tm_deviation_from_genome': tm_deviation,
-            'gc_content_rank': self._gc_content_rank(primer),
-            'tm_rank': self._tm_rank(primer),
-            'complexity_rank': self._complexity_rank(primer),
-            'binding_strength_rank': self._binding_strength_rank(primer),
-            'overall_quality_score': self._overall_quality_score(primer),
-            'interaction_risk_score': self._interaction_risk_score(primer)
+            "flanking_gc_content": flanking_gc,
+            "gc_deviation_from_genome": gc_deviation,
+            "length_ratio": length_ratio,
+            "tm_deviation_from_genome": tm_deviation,
+            "gc_content_rank": self._gc_content_rank(primer),
+            "tm_rank": self._tm_rank(primer),
+            "complexity_rank": self._complexity_rank(primer),
+            "binding_strength_rank": self._binding_strength_rank(primer),
+            "overall_quality_score": self._overall_quality_score(primer),
+            "interaction_risk_score": self._interaction_risk_score(primer),
         }
 
     def _flanking_gc_content(self, position: int, window: int = 50) -> float:
@@ -717,8 +748,8 @@ class AdvancedFeatureEngineer:
         tms = []
         for _ in range(n_samples):
             pos = np.random.randint(0, self.genome_length - k + 1)
-            kmer = self.genome[pos:pos+k]
-            if len(kmer) == k and 'N' not in kmer:
+            kmer = self.genome[pos : pos + k]
+            if len(kmer) == k and "N" not in kmer:
                 tm = self.conditions.calculate_effective_tm(kmer)
                 tms.append(tm)
 
@@ -736,7 +767,7 @@ class AdvancedFeatureEngineer:
         midpoint = np.mean(tm_range)
 
         # Gaussian around midpoint
-        return np.exp(-((tm - midpoint) / 10)**2)
+        return np.exp(-(((tm - midpoint) / 10) ** 2))
 
     def _complexity_rank(self, primer: str) -> float:
         """Rank sequence complexity (0=low, 1=high)."""
@@ -754,23 +785,27 @@ class AdvancedFeatureEngineer:
         tm_score = self._tm_rank(primer)
         complexity_score = self._complexity_rank(primer)
 
-        return (gc_score * 0.3 + tm_score * 0.4 + complexity_score * 0.3)
+        return gc_score * 0.3 + tm_score * 0.4 + complexity_score * 0.3
 
     def _interaction_risk_score(self, primer: str) -> float:
         """Risk of unwanted interactions."""
         self_dimer = ss.check_homodimer(primer, self.conditions)
         hairpins = ss.check_hairpins(primer, self.conditions)
 
-        dimer_risk = self_dimer['severity']
-        hairpin_risk = 1 if hairpins and max(h['tm'] for h in hairpins) > self.conditions.temp + 5 else 0
+        dimer_risk = self_dimer["severity"]
+        hairpin_risk = (
+            1 if hairpins and max(h["tm"] for h in hairpins) > self.conditions.temp + 5 else 0
+        )
 
-        return (dimer_risk * 0.6 + hairpin_risk * 0.4)
+        return dimer_risk * 0.6 + hairpin_risk * 0.4
 
 
-def engineer_features_for_primers(primers: List[str],
-                                  genome_sequence: str,
-                                  conditions: rc.ReactionConditions,
-                                  primer_positions: Optional[Dict] = None) -> pd.DataFrame:
+def engineer_features_for_primers(
+    primers: List[str],
+    genome_sequence: str,
+    conditions: rc.ReactionConditions,
+    primer_positions: Optional[Dict] = None,
+) -> pd.DataFrame:
     """
     High-level function to engineer features for primer list.
 
@@ -800,7 +835,8 @@ if __name__ == "__main__":
     print("  7. Binding landscape (15 features)")
     print("  8. Context/interactions (10 features)")
     print("\nExample usage:")
-    print("""
+    print(
+        """
     from neoswga.core import advanced_features, reaction_conditions
 
     conditions = reaction_conditions.get_enhanced_conditions()
@@ -814,4 +850,5 @@ if __name__ == "__main__":
 
     print(f"Features shape: {features_df.shape}")
     # (2, 121) - 2 primers × 121 features (120 + primer sequence)
-    """)
+    """
+    )

@@ -28,6 +28,7 @@ def _require_pysam():
     """Import pysam or raise an actionable error."""
     try:
         import pysam  # noqa: F401
+
         return pysam
     except ImportError as e:  # pragma: no cover - exercised via monkeypatch
         raise RuntimeError(
@@ -105,7 +106,9 @@ def match_contigs(
             mapping[prefix] = same_len[0]
             logger.info(
                 "Matched fg prefix '%s' to BAM contig '%s' by length (%d bp)",
-                prefix, same_len[0], length,
+                prefix,
+                same_len[0],
+                length,
             )
             continue
 
@@ -113,7 +116,9 @@ def match_contigs(
             "Could not match foreground prefix '%s' (%d bp) to any BAM contig "
             "(%s). It will be skipped for BAM-gap detection; pass "
             "--contig-alias to map it explicitly.",
-            prefix, length, ", ".join(bam_refs) or "<none>",
+            prefix,
+            length,
+            ", ".join(bam_refs) or "<none>",
         )
 
     return mapping
@@ -129,9 +134,7 @@ def compute_bam_depth(bam_path: str, contig: str, length: int) -> np.ndarray:
     depth = np.zeros(length, dtype=np.int32)
     with pysam.AlignmentFile(bam_path, "rb") as bam:
         # count_coverage returns 4 arrays (A,C,G,T) of length (stop-start).
-        cov = bam.count_coverage(
-            contig, start=0, stop=length, quality_threshold=0
-        )
+        cov = bam.count_coverage(contig, start=0, stop=length, quality_threshold=0)
         per_base = np.asarray(cov, dtype=np.int64).sum(axis=0)
         n = min(len(per_base), length)
         depth[:n] = per_base[:n].astype(np.int32)
@@ -186,8 +189,7 @@ def find_low_depth_gaps(
             ]
             if wrap[2] >= min_gap_size:
                 gaps.append(
-                    CoverageGap(chromosome=prefix, start=wrap[0],
-                                end=wrap[1], size=wrap[2])
+                    CoverageGap(chromosome=prefix, start=wrap[0], end=wrap[1], size=wrap[2])
                 )
             gaps.sort(key=lambda g: g.size, reverse=True)
             return gaps
@@ -221,13 +223,9 @@ def bam_gaps(
         bam_refs = list(bam.references)
         bam_ref_lengths = list(bam.lengths)
 
-    mapping = match_contigs(
-        bam_refs, bam_ref_lengths, fg_prefixes, fg_seq_lengths, contig_aliases
-    )
+    mapping = match_contigs(bam_refs, bam_ref_lengths, fg_prefixes, fg_seq_lengths, contig_aliases)
     if not mapping:
-        logger.warning(
-            "No foreground contigs matched the BAM header; no BAM gaps produced."
-        )
+        logger.warning("No foreground contigs matched the BAM header; no BAM gaps produced.")
         return []
 
     all_gaps: List[CoverageGap] = []
@@ -235,12 +233,13 @@ def bam_gaps(
     for prefix, contig in mapping.items():
         length = length_by_prefix[prefix]
         depth = compute_bam_depth(bam_path, contig, length)
-        gaps = find_low_depth_gaps(
-            depth, prefix, min_depth, min_gap_size, circular=circular
-        )
+        gaps = find_low_depth_gaps(depth, prefix, min_depth, min_gap_size, circular=circular)
         logger.info(
             "BAM contig '%s' -> %d low-depth gap(s) (min_depth=%d, min_gap_size=%d)",
-            contig, len(gaps), min_depth, min_gap_size,
+            contig,
+            len(gaps),
+            min_depth,
+            min_gap_size,
         )
         all_gaps.extend(gaps)
 

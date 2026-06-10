@@ -18,25 +18,27 @@ Enables prediction of:
 
 import logging
 import math
-import numpy as np
-from typing import List, Dict, Tuple, Optional, Set, TYPE_CHECKING
-from dataclasses import dataclass, field
-from enum import Enum
 import random
 import warnings
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
-from neoswga.core import thermodynamics as thermo
 from neoswga.core import reaction_conditions as rc
-from neoswga.core.mechanistic_params import get_polymerase_params, MECHANISTIC_MODEL_PARAMS
+from neoswga.core import thermodynamics as thermo
+from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS, get_polymerase_params
 
 if TYPE_CHECKING:
-    from neoswga.core.mechanistic_model import MechanisticModel, MechanisticEffects
+    from neoswga.core.mechanistic_model import MechanisticEffects, MechanisticModel
 
 
 class ForkState(Enum):
     """States of replication fork."""
+
     ACTIVE = "active"
     PAUSED = "paused"
     TERMINATED = "terminated"
@@ -47,6 +49,7 @@ class ForkState(Enum):
 @dataclass
 class ReplicationFork:
     """Represents an active replication fork."""
+
     fork_id: int
     primer: str
     start_position: int
@@ -82,6 +85,7 @@ class DisplacedStrand:
         is_available: Whether this strand can be used as template
         copy_number: How many copies of this strand exist
     """
+
     strand_id: int
     start_pos: int
     end_pos: int
@@ -135,9 +139,10 @@ class SimulationConfig:
         - displaced_strand_binding_boost: ssDNA binds primers more efficiently
         - max_amplification_fold: Resource limit on total amplification
     """
+
     duration: float = 28800.0  # seconds (default 8 hours, typical SWGA)
     time_step: float = 1.0  # seconds
-    polymerase_type: str = 'phi29'  # 'phi29' or 'equiphi29'
+    polymerase_type: str = "phi29"  # 'phi29' or 'equiphi29'
     primer_binding_rate: float = 1e-3  # per second per site
     extension_rate: float = 150.0  # bp/sec (median of 100-170 range)
     extension_rate_gc_penalty: float = 0.5  # Slowdown in high-GC
@@ -187,6 +192,7 @@ class SimulationResult:
     Includes both coverage metrics (fraction of genome covered) and
     amplification metrics (total DNA synthesized / hyperbranching).
     """
+
     coverage: np.ndarray  # Coverage array (bool per position)
     final_coverage_fraction: float
     num_forks_created: int
@@ -200,7 +206,7 @@ class SimulationResult:
     total_bases_synthesized: int = 0  # Total bases synthesized
     num_displaced_strands: int = 0  # Number of displaced strand templates
     amplification_over_time: List[Tuple[float, float]] = field(default_factory=list)  # (time, fold)
-    displaced_strand_history: List['DisplacedStrand'] = field(default_factory=list)
+    displaced_strand_history: List["DisplacedStrand"] = field(default_factory=list)
 
     # Copy number per region (for bias analysis)
     copy_number_array: Optional[np.ndarray] = None  # Copies per position
@@ -231,14 +237,18 @@ class Phi29Simulator:
         a hard limit, giving more realistic fork length distributions.
     """
 
-    def __init__(self,
-                 primers: List[str],
-                 primer_positions: Dict[str, Dict[str, List[int]]],  # primer -> {'forward': [...], 'reverse': [...]}
-                 genome_length: int,
-                 genome_sequence: str,
-                 conditions: rc.ReactionConditions,
-                 config: Optional[SimulationConfig] = None,
-                 mechanistic_model: Optional['MechanisticModel'] = None):
+    def __init__(
+        self,
+        primers: List[str],
+        primer_positions: Dict[
+            str, Dict[str, List[int]]
+        ],  # primer -> {'forward': [...], 'reverse': [...]}
+        genome_length: int,
+        genome_sequence: str,
+        conditions: rc.ReactionConditions,
+        config: Optional[SimulationConfig] = None,
+        mechanistic_model: Optional["MechanisticModel"] = None,
+    ):
         """
         Initialize simulator.
 
@@ -265,27 +275,27 @@ class Phi29Simulator:
 
         # Initialize mechanistic model if requested
         self.mechanistic_model = mechanistic_model
-        self.primer_effects: Dict[str, 'MechanisticEffects'] = {}
+        self.primer_effects: Dict[str, "MechanisticEffects"] = {}
 
         if self.config.use_mechanistic_model:
             self._initialize_mechanistic_model()
 
         # Get base polymerase parameters
         poly_params = get_polymerase_params(conditions.polymerase)
-        base_extension_rate = poly_params['extension_rate']
-        base_processivity = poly_params['processivity']
-        optimal_temp = poly_params['optimal_temp']
+        base_extension_rate = poly_params["extension_rate"]
+        base_processivity = poly_params["processivity"]
+        optimal_temp = poly_params["optimal_temp"]
 
         # Apply mechanistic effects to base parameters
         if self.config.use_mechanistic_model and self.mechanistic_model is not None:
             # Get enzyme activity from model (primer-independent)
             enzyme_params = self.mechanistic_model.get_enzyme_parameters()
-            speed_factor = enzyme_params['speed_factor']
-            processivity_factor = enzyme_params['processivity_factor']
+            speed_factor = enzyme_params["speed_factor"]
+            processivity_factor = enzyme_params["processivity_factor"]
 
             # Apply temperature effects if enabled
             if self.config.use_temperature_effects:
-                temp_coef = MECHANISTIC_MODEL_PARAMS['enzyme']['temp_activity_coef']
+                temp_coef = MECHANISTIC_MODEL_PARAMS["enzyme"]["temp_activity_coef"]
                 temp_dev = abs(conditions.temp - optimal_temp)
                 temp_penalty = 1.0 - min(0.5, temp_coef * temp_dev)
                 speed_factor *= temp_penalty
@@ -304,12 +314,12 @@ class Phi29Simulator:
             self._processivity_factor = 1.0
 
         # Warn about low-processivity polymerases
-        if conditions.polymerase in ('bst', 'klenow'):
+        if conditions.polymerase in ("bst", "klenow"):
             warnings.warn(
                 f"{conditions.polymerase} has low processivity ({base_processivity:,} bp) "
                 f"and is not well-suited for whole-genome amplification. "
                 f"Consider phi29 (70kb) or equiphi29 (80kb) for SWGA.",
-                UserWarning
+                UserWarning,
             )
 
         # State
@@ -338,22 +348,28 @@ class Phi29Simulator:
         logger.info(f"  Polymerase: {conditions.polymerase}")
         logger.info(f"  Extension rate: {self.config.extension_rate:.0f} bp/s")
         logger.info(f"  Processivity: {self.config.processivity_limit:,} bp")
-        logger.info(f"  Duration: {self.config.duration:.0f} s ({self.config.duration/3600:.1f} hours)")
+        logger.info(
+            f"  Duration: {self.config.duration:.0f} s ({self.config.duration/3600:.1f} hours)"
+        )
         if self.config.use_mechanistic_model:
-            logger.info(f"  Mechanistic model: enabled (speed={self._speed_factor:.2f}, proc={self._processivity_factor:.2f})")
+            logger.info(
+                f"  Mechanistic model: enabled (speed={self._speed_factor:.2f}, proc={self._processivity_factor:.2f})"
+            )
         if self.config.probabilistic_processivity:
             logger.info(f"  Processivity mode: probabilistic (geometric distribution)")
         if self.config.enable_strand_displacement:
             logger.info(f"  Strand displacement: enabled (hyperbranching)")
             logger.info(f"    Displacement probability: {self.config.displacement_probability:.0%}")
-            logger.info(f"    ssDNA binding boost: {self.config.displaced_strand_binding_boost:.1f}x")
+            logger.info(
+                f"    ssDNA binding boost: {self.config.displaced_strand_binding_boost:.1f}x"
+            )
             logger.info(f"    Max amplification: {self.config.max_amplification_fold:.0e}x")
 
     def _calculate_template_gc(self) -> float:
         """Calculate overall GC content of template."""
         if not self.genome_sequence:
             return 0.5
-        gc = self.genome_sequence.count('G') + self.genome_sequence.count('C')
+        gc = self.genome_sequence.count("G") + self.genome_sequence.count("C")
         return gc / len(self.genome_sequence)
 
     def _initialize_mechanistic_model(self) -> None:
@@ -361,12 +377,13 @@ class Phi29Simulator:
         if self.mechanistic_model is None:
             try:
                 from neoswga.core.mechanistic_model import MechanisticModel
+
                 self.mechanistic_model = MechanisticModel(self.conditions)
             except ImportError:
                 warnings.warn(
                     "Could not import MechanisticModel. "
                     "Falling back to non-mechanistic simulation.",
-                    UserWarning
+                    UserWarning,
                 )
                 self.config.use_mechanistic_model = False
                 return
@@ -426,9 +443,11 @@ class Phi29Simulator:
 
                 if verbose and int(self.current_time) % 300 == 0:
                     active_forks = sum(1 for f in self.forks if f.state == ForkState.ACTIVE)
-                    msg = (f"  t={self.current_time/60:.1f}min: "
-                           f"Coverage={coverage_frac:.1%}, "
-                           f"Active forks={active_forks}")
+                    msg = (
+                        f"  t={self.current_time/60:.1f}min: "
+                        f"Coverage={coverage_frac:.1%}, "
+                        f"Active forks={active_forks}"
+                    )
                     if self.config.enable_strand_displacement:
                         msg += f", Amplification={amplification:.1f}x"
                         msg += f", Displaced strands={len(self.displaced_strands)}"
@@ -446,7 +465,9 @@ class Phi29Simulator:
             active = sum(1 for f in self.forks if f.state == ForkState.ACTIVE)
             if active == 0 and self.current_time > 60:
                 if verbose:
-                    logger.info(f"  No active forks at t={self.current_time/60:.1f}min, terminating early")
+                    logger.info(
+                        f"  No active forks at t={self.current_time/60:.1f}min, terminating early"
+                    )
                 break
 
         final_coverage = self.coverage.sum() / self.genome_length
@@ -467,7 +488,9 @@ class Phi29Simulator:
 
         # Calculate statistics
         terminated_forks = [f for f in self.forks if f.state != ForkState.ACTIVE]
-        mean_travel = np.mean([f.bases_synthesized for f in terminated_forks]) if terminated_forks else 0
+        mean_travel = (
+            np.mean([f.bases_synthesized for f in terminated_forks]) if terminated_forks else 0
+        )
 
         return SimulationResult(
             coverage=self.coverage,
@@ -490,24 +513,24 @@ class Phi29Simulator:
         """Create initial primer bindings."""
         # For each primer binding site, stochastically initiate
         for primer in self.primers:
-            positions = self.primer_positions.get(primer, {'forward': [], 'reverse': []})
+            positions = self.primer_positions.get(primer, {"forward": [], "reverse": []})
 
             # Forward strand
-            for pos in positions.get('forward', []):
+            for pos in positions.get("forward", []):
                 # Binding probability based on Tm and mechanistic effects
                 tm = self.conditions.calculate_effective_tm(primer)
                 binding_prob = self._calculate_binding_probability(tm, primer)
 
                 if random.random() < binding_prob * 0.1:  # Scale down for initial binding
-                    self._create_fork(primer, pos, 'forward', 'top')
+                    self._create_fork(primer, pos, "forward", "top")
 
             # Reverse strand
-            for pos in positions.get('reverse', []):
+            for pos in positions.get("reverse", []):
                 tm = self.conditions.calculate_effective_tm(primer)
                 binding_prob = self._calculate_binding_probability(tm, primer)
 
                 if random.random() < binding_prob * 0.1:
-                    self._create_fork(primer, pos, 'reverse', 'bottom')
+                    self._create_fork(primer, pos, "reverse", "bottom")
 
     def _calculate_binding_probability(self, tm: float, primer: Optional[str] = None) -> float:
         """
@@ -525,9 +548,11 @@ class Phi29Simulator:
         base_prob = 1 / (1 + np.exp(-delta / 5))  # Sharper transition
 
         # Apply mechanistic effects if available
-        if (self.config.use_mechanistic_model and
-                primer is not None and
-                primer in self.primer_effects):
+        if (
+            self.config.use_mechanistic_model
+            and primer is not None
+            and primer in self.primer_effects
+        ):
             effects = self.primer_effects[primer]
             # Modify by kon_factor and accessibility_factor
             base_prob *= effects.kon_factor * effects.accessibility_factor
@@ -547,7 +572,7 @@ class Phi29Simulator:
             direction=direction,
             strand=strand,
             speed=speed,
-            birth_time=self.current_time
+            birth_time=self.current_time,
         )
 
         self.forks.append(fork)
@@ -574,7 +599,7 @@ class Phi29Simulator:
             local_gc = 0.5
         else:
             local_seq = self.genome_sequence[start:end]
-            local_gc = (local_seq.count('G') + local_seq.count('C')) / len(local_seq)
+            local_gc = (local_seq.count("G") + local_seq.count("C")) / len(local_seq)
 
         # Slowdown in high GC (empirical: ~50% slower in 70% GC)
         gc_factor = 1 - self.config.extension_rate_gc_penalty * max(0, local_gc - 0.5)
@@ -596,7 +621,7 @@ class Phi29Simulator:
             distance = int(fork.speed * self.config.time_step)
 
             # Update position
-            if fork.direction == 'forward':
+            if fork.direction == "forward":
                 new_position = fork.current_position + distance
             else:  # reverse
                 new_position = fork.current_position - distance
@@ -621,9 +646,7 @@ class Phi29Simulator:
                             coll_start = min(collision.start_position, collision.current_position)
                             coll_end = max(collision.start_position, collision.current_position)
                             self._create_displaced_strand(
-                                coll_start, coll_end,
-                                collision.strand,
-                                collision.template_id
+                                coll_start, coll_end, collision.strand, collision.template_id
                             )
                     else:
                         # Traditional collision - both terminate
@@ -643,7 +666,7 @@ class Phi29Simulator:
             # (extending through previously replicated region)
             if self._check_displacement_opportunity(fork, start, end):
                 # Create a displaced strand for the region being overwritten
-                opposite_strand = 'bottom' if fork.strand == 'top' else 'top'
+                opposite_strand = "bottom" if fork.strand == "top" else "top"
                 self._create_displaced_strand(start, end, opposite_strand, fork.template_id)
 
             # Update coverage and copy number
@@ -698,7 +721,9 @@ class Phi29Simulator:
             # Deterministic hard limit
             return fork.bases_synthesized >= self.config.processivity_limit
 
-    def _check_collisions(self, fork: ReplicationFork, new_position: int) -> Optional[ReplicationFork]:
+    def _check_collisions(
+        self, fork: ReplicationFork, new_position: int
+    ) -> Optional[ReplicationFork]:
         """
         Check if fork will collide with another fork.
 
@@ -721,10 +746,10 @@ class Phi29Simulator:
 
             if distance < self.config.fork_collision_distance:
                 # Check if moving toward each other
-                if fork.direction == 'forward' and other_fork.direction == 'reverse':
+                if fork.direction == "forward" and other_fork.direction == "reverse":
                     if fork.current_position < other_fork.current_position:
                         return other_fork
-                elif fork.direction == 'reverse' and other_fork.direction == 'forward':
+                elif fork.direction == "reverse" and other_fork.direction == "forward":
                     if fork.current_position > other_fork.current_position:
                         return other_fork
 
@@ -752,10 +777,7 @@ class Phi29Simulator:
     # =========================================================================
 
     def _check_displacement_opportunity(
-        self,
-        fork: ReplicationFork,
-        start_pos: int,
-        end_pos: int
+        self, fork: ReplicationFork, start_pos: int, end_pos: int
     ) -> bool:
         """
         Check if extending through a region creates a displacement event.
@@ -784,11 +806,7 @@ class Phi29Simulator:
         return False
 
     def _create_displaced_strand(
-        self,
-        start_pos: int,
-        end_pos: int,
-        strand: str,
-        parent_template_id: int = 0
+        self, start_pos: int, end_pos: int, strand: str, parent_template_id: int = 0
     ) -> Optional[DisplacedStrand]:
         """
         Create a new displaced strand that can serve as template.
@@ -838,7 +856,8 @@ class Phi29Simulator:
             List of available displaced strands at this position
         """
         return [
-            ds for ds in self.displaced_strands
+            ds
+            for ds in self.displaced_strands
             if ds.is_available and ds.contains_position(position)
         ]
 
@@ -887,7 +906,7 @@ class Phi29Simulator:
 
         # Random primer
         primer = random.choice(self.primers)
-        positions = self.primer_positions.get(primer, {'forward': [], 'reverse': []})
+        positions = self.primer_positions.get(primer, {"forward": [], "reverse": []})
 
         # Calculate binding probability
         tm = self.conditions.calculate_effective_tm(primer)
@@ -895,15 +914,13 @@ class Phi29Simulator:
 
         # Apply mechanistic kon_factor to binding rate if available
         effective_binding_rate = self.config.primer_binding_rate
-        if (self.config.use_mechanistic_model and
-                primer in self.primer_effects):
+        if self.config.use_mechanistic_model and primer in self.primer_effects:
             effective_binding_rate *= self.primer_effects[primer].kon_factor
 
         # Try binding to original template
-        all_positions = (
-            [(p, 'forward', 'top') for p in positions.get('forward', [])] +
-            [(p, 'reverse', 'bottom') for p in positions.get('reverse', [])]
-        )
+        all_positions = [(p, "forward", "top") for p in positions.get("forward", [])] + [
+            (p, "reverse", "bottom") for p in positions.get("reverse", [])
+        ]
 
         if all_positions:
             pos, direction, strand = random.choice(all_positions)
@@ -928,25 +945,29 @@ class Phi29Simulator:
                     pos = random.randint(ds.start_pos, ds.end_pos - len(primer))
 
                     # Enhanced binding to single-stranded DNA
-                    ssdna_binding_prob = base_binding_prob * self.config.displaced_strand_binding_boost
+                    ssdna_binding_prob = (
+                        base_binding_prob * self.config.displaced_strand_binding_boost
+                    )
                     ssdna_binding_prob = min(1.0, ssdna_binding_prob)
 
                     if random.random() < ssdna_binding_prob * effective_binding_rate:
                         # Determine direction based on strand
                         # On displaced top strand, new synthesis goes reverse (5'->3' on complement)
                         # On displaced bottom strand, new synthesis goes forward
-                        if ds.strand == 'top':
-                            direction = 'reverse'
-                            new_strand = 'bottom'
+                        if ds.strand == "top":
+                            direction = "reverse"
+                            new_strand = "bottom"
                         else:
-                            direction = 'forward'
-                            new_strand = 'top'
+                            direction = "forward"
+                            new_strand = "top"
 
                         # Create fork on the displaced strand
                         fork = self._create_fork(primer, pos, direction, new_strand)
                         if fork is not None:
                             # Mark as on a displaced template
-                            self.forks[-1].template_id = ds.strand_id + 1  # +1 to distinguish from original
+                            self.forks[-1].template_id = (
+                                ds.strand_id + 1
+                            )  # +1 to distinguish from original
 
     def _attempt_displaced_strand_binding(self):
         """
@@ -968,7 +989,7 @@ class Phi29Simulator:
 
         # Try each primer on displaced strands
         for primer in self.primers:
-            positions = self.primer_positions.get(primer, {'forward': [], 'reverse': []})
+            positions = self.primer_positions.get(primer, {"forward": [], "reverse": []})
 
             tm = self.conditions.calculate_effective_tm(primer)
             binding_prob = self._calculate_binding_probability(tm, primer)
@@ -976,29 +997,31 @@ class Phi29Simulator:
             binding_prob = min(1.0, binding_prob)
 
             effective_rate = self.config.primer_binding_rate * 0.1  # Lower rate for displaced
-            if (self.config.use_mechanistic_model and primer in self.primer_effects):
+            if self.config.use_mechanistic_model and primer in self.primer_effects:
                 effective_rate *= self.primer_effects[primer].kon_factor
 
             for ds in available:
                 # Check if primer can bind to this displaced strand
                 # (simplified: check if primer positions overlap with strand)
-                for pos in positions.get('forward', []) + positions.get('reverse', []):
+                for pos in positions.get("forward", []) + positions.get("reverse", []):
                     if ds.contains_position(pos):
                         if random.random() < binding_prob * effective_rate:
-                            direction = 'forward' if ds.strand == 'bottom' else 'reverse'
-                            new_strand = 'top' if ds.strand == 'bottom' else 'bottom'
+                            direction = "forward" if ds.strand == "bottom" else "reverse"
+                            new_strand = "top" if ds.strand == "bottom" else "bottom"
                             self._create_fork(primer, pos, direction, new_strand)
                             return  # One binding per call
 
 
-def simulate_primer_set(primers: List[str],
-                       primer_positions: Dict,
-                       genome_length: int,
-                       genome_sequence: str,
-                       conditions: Optional[rc.ReactionConditions] = None,
-                       n_replicates: int = 5,
-                       config: Optional[SimulationConfig] = None,
-                       mechanistic_model: Optional['MechanisticModel'] = None) -> Dict:
+def simulate_primer_set(
+    primers: List[str],
+    primer_positions: Dict,
+    genome_length: int,
+    genome_sequence: str,
+    conditions: Optional[rc.ReactionConditions] = None,
+    n_replicates: int = 5,
+    config: Optional[SimulationConfig] = None,
+    mechanistic_model: Optional["MechanisticModel"] = None,
+) -> Dict:
     """
     Simulate primer set performance with multiple replicates.
 
@@ -1025,6 +1048,7 @@ def simulate_primer_set(primers: List[str],
     if mechanistic_model is None and config.use_mechanistic_model:
         try:
             from neoswga.core.mechanistic_model import MechanisticModel
+
             mechanistic_model = MechanisticModel(conditions)
         except ImportError:
             pass
@@ -1039,10 +1063,13 @@ def simulate_primer_set(primers: List[str],
         logger.info(f"{'='*60}")
 
         simulator = Phi29Simulator(
-            primers, primer_positions, genome_length,
-            genome_sequence, conditions,
+            primers,
+            primer_positions,
+            genome_length,
+            genome_sequence,
+            conditions,
             config=config,
-            mechanistic_model=mechanistic_model
+            mechanistic_model=mechanistic_model,
         )
 
         result = simulator.run(verbose=False)
@@ -1063,19 +1090,21 @@ def simulate_primer_set(primers: List[str],
     if config.enable_strand_displacement:
         print(f"Amplification: {np.mean(amplifications):.1f}x +/- {np.std(amplifications):.1f}x")
         print(f"Mean displaced strands: {np.mean([r.num_displaced_strands for r in results]):.0f}")
-        print(f"Mean bases synthesized: {np.mean([r.total_bases_synthesized for r in results]):,.0f}")
+        print(
+            f"Mean bases synthesized: {np.mean([r.total_bases_synthesized for r in results]):,.0f}"
+        )
 
     return {
-        'mean_coverage': np.mean(coverages),
-        'std_coverage': np.std(coverages),
-        'mean_forks_created': np.mean([r.num_forks_created for r in results]),
-        'mean_fork_travel': np.mean([r.mean_fork_travel for r in results]),
+        "mean_coverage": np.mean(coverages),
+        "std_coverage": np.std(coverages),
+        "mean_forks_created": np.mean([r.num_forks_created for r in results]),
+        "mean_fork_travel": np.mean([r.mean_fork_travel for r in results]),
         # Hyperbranching metrics
-        'mean_amplification': np.mean(amplifications),
-        'std_amplification': np.std(amplifications),
-        'mean_displaced_strands': np.mean([r.num_displaced_strands for r in results]),
-        'mean_bases_synthesized': np.mean([r.total_bases_synthesized for r in results]),
-        'all_results': results
+        "mean_amplification": np.mean(amplifications),
+        "std_amplification": np.std(amplifications),
+        "mean_displaced_strands": np.mean([r.num_displaced_strands for r in results]),
+        "mean_bases_synthesized": np.mean([r.total_bases_synthesized for r in results]),
+        "all_results": results,
     }
 
 
@@ -1094,7 +1123,8 @@ if __name__ == "__main__":
     print("  - Compare primer set performance")
     print("  - Identify amplification bias")
     print("\nExample usage:")
-    print("""
+    print(
+        """
     from neoswga.core import replication_simulator, reaction_conditions
 
     # Set up
@@ -1115,4 +1145,5 @@ if __name__ == "__main__":
     )
 
     print(f"Mean coverage: {result['mean_coverage']:.1%}")
-    """)
+    """
+    )

@@ -31,12 +31,8 @@ Usage:
 """
 
 from neoswga.core.report.executive_summary import (
-    generate_executive_summary,
     ExecutiveSummary,
-)
-from neoswga.core.report.technical_report import (
-    generate_technical_report,
-    TechnicalReportData,
+    generate_executive_summary,
 )
 from neoswga.core.report.metrics import (
     PipelineMetrics,
@@ -47,38 +43,42 @@ from neoswga.core.report.quality import (
     QualityGrade,
     calculate_quality_grade,
 )
+from neoswga.core.report.technical_report import (
+    TechnicalReportData,
+    generate_technical_report,
+)
 from neoswga.core.report.visualizations import (
     is_plotly_available,
-    render_filtering_funnel,
     render_component_radar,
-    render_tm_gc_distribution,
     render_coverage_specificity_scatter,
-    render_primer_heatmap,
-    render_dimer_network_heatmap,
     render_dimer_network_graph,
+    render_dimer_network_heatmap,
+    render_filtering_funnel,
+    render_primer_heatmap,
+    render_tm_gc_distribution,
 )
 
 __all__ = [
     # Executive summary
-    'generate_executive_summary',
-    'ExecutiveSummary',
+    "generate_executive_summary",
+    "ExecutiveSummary",
     # Technical report
-    'generate_technical_report',
-    'TechnicalReportData',
+    "generate_technical_report",
+    "TechnicalReportData",
     # Metrics
-    'PipelineMetrics',
-    'PrimerMetrics',
-    'collect_pipeline_metrics',
+    "PipelineMetrics",
+    "PrimerMetrics",
+    "collect_pipeline_metrics",
     # Quality
-    'QualityGrade',
-    'calculate_quality_grade',
+    "QualityGrade",
+    "calculate_quality_grade",
     # Visualizations
-    'is_plotly_available',
-    'render_filtering_funnel',
-    'render_component_radar',
-    'render_tm_gc_distribution',
-    'render_coverage_specificity_scatter',
-    'render_primer_heatmap',
-    'render_dimer_network_heatmap',
-    'render_dimer_network_graph',
+    "is_plotly_available",
+    "render_filtering_funnel",
+    "render_component_radar",
+    "render_tm_gc_distribution",
+    "render_coverage_specificity_scatter",
+    "render_primer_heatmap",
+    "render_dimer_network_heatmap",
+    "render_dimer_network_graph",
 ]

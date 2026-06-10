@@ -13,47 +13,42 @@ Integration Points:
 """
 
 import logging
-
-import pandas as pd
-import numpy as np
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-from neoswga.core.three_prime_stability import (
-    ThreePrimeStabilityAnalyzer,
-    create_three_prime_analyzer
-)
-from neoswga.core.strand_bias_analyzer import (
-    StrandBiasAnalyzer,
-    create_strand_bias_analyzer
-)
 from neoswga.core.dimer_network_analyzer import (
     DimerNetworkAnalyzer,
     create_dimer_network_analyzer,
-    filter_primer_set_by_dimer_network
+    filter_primer_set_by_dimer_network,
 )
-from neoswga.core.integrated_quality_scorer import (
-    IntegratedQualityScorer,
-    create_quality_scorer
-)
-from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer, create_quality_scorer
 from neoswga.core.io_utils import primer_column
+from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.strand_bias_analyzer import StrandBiasAnalyzer, create_strand_bias_analyzer
+from neoswga.core.three_prime_stability import (
+    ThreePrimeStabilityAnalyzer,
+    create_three_prime_analyzer,
+)
 
 
 @dataclass
 class QAFilterConfig:
     """Configuration for QA filtering."""
+
     enable_three_prime: bool = True
     enable_strand_bias: bool = True
     enable_dimer_network: bool = True
     enable_integrated_scorer: bool = True
 
-    three_prime_stringency: str = 'moderate'
-    strand_bias_stringency: str = 'moderate'
-    dimer_stringency: str = 'moderate'
+    three_prime_stringency: str = "moderate"
+    strand_bias_stringency: str = "moderate"
+    dimer_stringency: str = "moderate"
 
     qa_weight: float = 0.3  # Weight for QA score in combined scoring
     rf_weight: float = 0.7  # Weight for RF score in combined scoring
@@ -64,6 +59,7 @@ class QAFilterConfig:
 @dataclass
 class QAFilterResult:
     """Results from QA filtering."""
+
     primers_in: int
     primers_out: int
     primers_filtered: int
@@ -76,7 +72,7 @@ def apply_post_step2_qa_filter(
     step2_df: pd.DataFrame,
     config: Optional[QAFilterConfig] = None,
     conditions: Optional[ReactionConditions] = None,
-    verbose: bool = True
+    verbose: bool = True,
 ) -> QAFilterResult:
     """
     Apply QA filtering to primers after Step 2.
@@ -112,9 +108,9 @@ def apply_post_step2_qa_filter(
     df = step2_df.copy()
     # Resolve the primer-sequence column once ('primer' canonical, 'seq' legacy).
     seq_col = primer_column(df)
-    df['qa_pass'] = True
-    df['qa_score'] = 1.0
-    df['filter_reason'] = ''
+    df["qa_pass"] = True
+    df["qa_score"] = 1.0
+    df["filter_reason"] = ""
 
     if verbose:
         logger.info(f"\n{'='*80}")
@@ -124,44 +120,43 @@ def apply_post_step2_qa_filter(
 
     # 1. 3' Stability Filter
     if config.enable_three_prime:
-        analyzer = create_three_prime_analyzer(
-            config.three_prime_stringency,
-            conditions
-        )
+        analyzer = create_three_prime_analyzer(config.three_prime_stringency, conditions)
 
         if verbose:
             logger.info(f"\n[1/3] 3' Stability Analysis ({config.three_prime_stringency})...")
 
         # Vectorized approach: analyze only primers that pass, in batch
-        passing_mask = df['qa_pass']
+        passing_mask = df["qa_pass"]
         if passing_mask.any():
             # Analyze all passing primers at once
             passing_primers = df.loc[passing_mask, seq_col].tolist()
 
             # Batch analyze (still sequential, but avoids iterrows overhead)
-            stability_results = {primer: analyzer.analyze_primer(primer) for primer in passing_primers}
+            stability_results = {
+                primer: analyzer.analyze_primer(primer) for primer in passing_primers
+            }
 
             # Apply results using vectorized operations
             def apply_stability(row):
-                if not row['qa_pass']:
-                    return row['qa_pass'], row['qa_score'], row['filter_reason']
+                if not row["qa_pass"]:
+                    return row["qa_pass"], row["qa_score"], row["filter_reason"]
                 stability = stability_results.get(row[seq_col])
                 if stability and not stability.passes:
-                    return False, row['qa_score'], '3prime_stability'
+                    return False, row["qa_score"], "3prime_stability"
                 elif stability:
-                    return True, row['qa_score'] * stability.stability_score, row['filter_reason']
-                return row['qa_pass'], row['qa_score'], row['filter_reason']
+                    return True, row["qa_score"] * stability.stability_score, row["filter_reason"]
+                return row["qa_pass"], row["qa_score"], row["filter_reason"]
 
-            results = df.apply(apply_stability, axis=1, result_type='expand')
-            df['qa_pass'] = results[0]
-            df['qa_score'] = results[1]
-            df['filter_reason'] = results[2]
+            results = df.apply(apply_stability, axis=1, result_type="expand")
+            df["qa_pass"] = results[0]
+            df["qa_score"] = results[1]
+            df["filter_reason"] = results[2]
 
-            failed_3p = len(passing_primers) - df['qa_pass'].sum()
+            failed_3p = len(passing_primers) - df["qa_pass"].sum()
         else:
             failed_3p = 0
 
-        filter_reasons['3prime_stability'] = failed_3p
+        filter_reasons["3prime_stability"] = failed_3p
         if verbose:
             logger.info(f"   Filtered: {failed_3p} primers with poor 3' stability")
             logger.info(f"   Remaining: {df['qa_pass'].sum()}")
@@ -172,13 +167,10 @@ def apply_post_step2_qa_filter(
             logger.info(f"\n[2/3] Dimer Network Analysis ({config.dimer_stringency})...")
 
         # Only analyze primers that passed previous filters
-        passing_primers = df[df['qa_pass']][seq_col].tolist()
+        passing_primers = df[df["qa_pass"]][seq_col].tolist()
 
         if len(passing_primers) > 0:
-            analyzer = create_dimer_network_analyzer(
-                config.dimer_stringency,
-                conditions
-            )
+            analyzer = create_dimer_network_analyzer(config.dimer_stringency, conditions)
 
             # Analyze network
             metrics, profiles, matrix = analyzer.analyze_primer_set(passing_primers)
@@ -188,19 +180,19 @@ def apply_post_step2_qa_filter(
             for profile in profiles:
                 if profile.degree > config.max_hub_degree:
                     # Find this primer in df and mark as failed
-                    mask = (df[seq_col] == profile.primer) & df['qa_pass']
-                    df.loc[mask, 'qa_pass'] = False
-                    df.loc[mask, 'filter_reason'] = 'dimer_hub'
+                    mask = (df[seq_col] == profile.primer) & df["qa_pass"]
+                    df.loc[mask, "qa_pass"] = False
+                    df.loc[mask, "filter_reason"] = "dimer_hub"
                     failed_dimer += 1
                 else:
                     # Update score based on dimer tendency
-                    mask = (df[seq_col] == profile.primer) & df['qa_pass']
+                    mask = (df[seq_col] == profile.primer) & df["qa_pass"]
                     if mask.any():
                         # Lower score for primers with more interactions
                         dimer_score = max(0.0, 1.0 - profile.degree / 10.0)
-                        df.loc[mask, 'qa_score'] *= dimer_score
+                        df.loc[mask, "qa_score"] *= dimer_score
 
-            filter_reasons['dimer_hub'] = failed_dimer
+            filter_reasons["dimer_hub"] = failed_dimer
             if verbose:
                 logger.info(f"   Network size: {metrics.num_primers} primers")
                 logger.info(f"   Hub primers filtered: {failed_dimer}")
@@ -214,10 +206,10 @@ def apply_post_step2_qa_filter(
         if verbose:
             logger.info(f"\n[3/3] Integrated Quality Scoring...")
 
-        scorer = create_quality_scorer('moderate', conditions)
+        scorer = create_quality_scorer("moderate", conditions)
 
         # Batch scoring: pre-compute all scores for passing primers
-        passing_mask = df['qa_pass']
+        passing_mask = df["qa_pass"]
         if passing_mask.any():
             passing_primers = df.loc[passing_mask, seq_col].tolist()
 
@@ -231,17 +223,17 @@ def apply_post_step2_qa_filter(
                     quality_scores[primer] = 1.0  # Default score on error
 
             # Vectorized update using map (much faster than iterrows)
-            df.loc[passing_mask, 'qa_score'] *= df.loc[passing_mask, seq_col].map(quality_scores)
+            df.loc[passing_mask, "qa_score"] *= df.loc[passing_mask, seq_col].map(quality_scores)
 
         if verbose:
-            mean_score = df[df['qa_pass']]['qa_score'].mean()
+            mean_score = df[df["qa_pass"]]["qa_score"].mean()
             logger.info(f"   Mean QA score: {mean_score:.3f}")
 
     # Final results
-    filtered_df = df[df['qa_pass']].copy()
+    filtered_df = df[df["qa_pass"]].copy()
     primers_out = len(filtered_df)
     primers_filtered = primers_in - primers_out
-    mean_qa_score = filtered_df['qa_score'].mean() if primers_out > 0 else 0.0
+    mean_qa_score = filtered_df["qa_score"].mean() if primers_out > 0 else 0.0
 
     if verbose:
         logger.info(f"\n{'='*80}")
@@ -261,7 +253,7 @@ def apply_post_step2_qa_filter(
         primers_filtered=primers_filtered,
         filter_reasons=filter_reasons,
         mean_qa_score=mean_qa_score,
-        filtered_df=filtered_df
+        filtered_df=filtered_df,
     )
 
 
@@ -270,7 +262,7 @@ def combine_rf_qa_scores(
     qa_scores: Dict[str, float],
     rf_weight: float = 0.7,
     qa_weight: float = 0.3,
-    verbose: bool = True
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
     Combine Random Forest and QA scores for Step 3.
@@ -305,38 +297,36 @@ def combine_rf_qa_scores(
     seq_col = primer_column(df)
 
     # Add QA scores
-    df['qa_score'] = df[seq_col].map(qa_scores).fillna(0.5)
+    df["qa_score"] = df[seq_col].map(qa_scores).fillna(0.5)
 
     # Normalize RF scores to 0-1 range
-    rf_min = df['score'].min()
-    rf_max = df['score'].max()
+    rf_min = df["score"].min()
+    rf_max = df["score"].max()
     if rf_max > rf_min:
-        df['rf_score_norm'] = (df['score'] - rf_min) / (rf_max - rf_min)
+        df["rf_score_norm"] = (df["score"] - rf_min) / (rf_max - rf_min)
     else:
-        df['rf_score_norm'] = 1.0
+        df["rf_score_norm"] = 1.0
 
     # Compute composite score
-    df['composite_score'] = (
-        rf_weight * df['rf_score_norm'] +
-        qa_weight * df['qa_score']
-    )
+    df["composite_score"] = rf_weight * df["rf_score_norm"] + qa_weight * df["qa_score"]
 
     if verbose:
         logger.info(f"\nScore statistics:")
         logger.info(f"  RF scores: {df['score'].min():.2f} - {df['score'].max():.2f}")
         logger.info(f"  QA scores: {df['qa_score'].min():.3f} - {df['qa_score'].max():.3f}")
-        logger.info(f"  Composite: {df['composite_score'].min():.3f} - {df['composite_score'].max():.3f}")
+        logger.info(
+            f"  Composite: {df['composite_score'].min():.3f} - {df['composite_score'].max():.3f}"
+        )
 
         # Show correlation
-        correlation = df['rf_score_norm'].corr(df['qa_score'])
+        correlation = df["rf_score_norm"].corr(df["qa_score"])
         logger.info(f"\nRF-QA correlation: {correlation:.3f}")
 
     return df
 
 
 def create_qa_aware_optimizer(
-    config: Optional[QAFilterConfig] = None,
-    conditions: Optional[ReactionConditions] = None
+    config: Optional[QAFilterConfig] = None, conditions: Optional[ReactionConditions] = None
 ):
     """
     Create an optimizer wrapper that uses QA-aware primer selection.
@@ -377,15 +367,10 @@ class QAAwareOptimizer:
     def __init__(self, config: QAFilterConfig, conditions: ReactionConditions):
         self.config = config
         self.conditions = conditions
-        self.dimer_analyzer = create_dimer_network_analyzer(
-            config.dimer_stringency,
-            conditions
-        )
+        self.dimer_analyzer = create_dimer_network_analyzer(config.dimer_stringency, conditions)
 
     def prefilter_candidates(
-        self,
-        candidates: List[str],
-        verbose: bool = True
+        self, candidates: List[str], verbose: bool = True
     ) -> Tuple[List[str], Dict]:
         """
         Pre-filter candidates before optimization.
@@ -401,7 +386,7 @@ class QAAwareOptimizer:
         if not candidates:
             if verbose:
                 logger.info("\nWarning: Empty candidate list provided to prefilter")
-            return [], {'original_count': 0, 'filtered_count': 0, 'hub_count': 0}
+            return [], {"original_count": 0, "filtered_count": 0, "hub_count": 0}
 
         if verbose:
             logger.info(f"\n{'='*80}")
@@ -436,18 +421,16 @@ class QAAwareOptimizer:
                     logger.info(f"    {primer}: {degree} interactions")
 
         metadata = {
-            'original_count': len(candidates),
-            'filtered_count': len(filtered),
-            'hub_count': len(hub_primers),
-            'network_metrics': metrics
+            "original_count": len(candidates),
+            "filtered_count": len(filtered),
+            "hub_count": len(hub_primers),
+            "network_metrics": metrics,
         }
 
         return filtered, metadata
 
     def rank_by_quality(
-        self,
-        candidates: List[str],
-        verbose: bool = True
+        self, candidates: List[str], verbose: bool = True
     ) -> List[Tuple[str, float]]:
         """
         Rank candidates by quality score.
@@ -465,7 +448,7 @@ class QAAwareOptimizer:
                 logger.info("\nWarning: Empty candidate list provided to rank_by_quality")
             return []
 
-        scorer = create_quality_scorer('moderate', self.conditions)
+        scorer = create_quality_scorer("moderate", self.conditions)
 
         scores = []
         for primer in candidates:
@@ -486,11 +469,7 @@ class QAAwareOptimizer:
         return scores
 
 
-def save_qa_report(
-    result: QAFilterResult,
-    output_path: Path,
-    verbose: bool = True
-):
+def save_qa_report(result: QAFilterResult, output_path: Path, verbose: bool = True):
     """
     Save QA filtering report to file.
 
@@ -515,19 +494,15 @@ def save_qa_report(
         pct = 100 * count / result.primers_in if result.primers_in > 0 else 0
         report_lines.append(f"  {reason}: {count} ({pct:.1f}%)")
 
-    report_lines.extend([
-        "",
-        "Top 10 primers by QA score:",
-        ""
-    ])
+    report_lines.extend(["", "Top 10 primers by QA score:", ""])
 
-    top_primers = result.filtered_df.nlargest(10, 'qa_score')
+    top_primers = result.filtered_df.nlargest(10, "qa_score")
     seq_col = primer_column(top_primers)
     for idx, row in top_primers.iterrows():
         report_lines.append(f"  {row[seq_col]}: {row['qa_score']:.3f}")
 
     output_path = Path(output_path)
-    output_path.write_text('\n'.join(report_lines))
+    output_path.write_text("\n".join(report_lines))
 
     if verbose:
         logger.info(f"\nQA report saved to: {output_path}")

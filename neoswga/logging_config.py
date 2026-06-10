@@ -5,11 +5,10 @@ Provides consistent logging across all modules with configurable levels and form
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
-import os
-
 
 # Default log format
 DEFAULT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -18,12 +17,12 @@ SIMPLE_FORMAT = "%(levelname)s: %(message)s"
 
 # Color codes for terminal output
 COLORS = {
-    'DEBUG': '\033[36m',     # Cyan
-    'INFO': '\033[32m',      # Green
-    'WARNING': '\033[33m',   # Yellow
-    'ERROR': '\033[31m',     # Red
-    'CRITICAL': '\033[35m',  # Magenta
-    'RESET': '\033[0m'       # Reset
+    "DEBUG": "\033[36m",  # Cyan
+    "INFO": "\033[32m",  # Green
+    "WARNING": "\033[33m",  # Yellow
+    "ERROR": "\033[31m",  # Red
+    "CRITICAL": "\033[35m",  # Magenta
+    "RESET": "\033[0m",  # Reset
 }
 
 
@@ -44,7 +43,7 @@ def setup_logging(
     level: str = "INFO",
     log_file: Optional[str] = None,
     format_style: str = "default",
-    module_levels: Optional[dict] = None
+    module_levels: Optional[dict] = None,
 ):
     """
     Setup logging configuration for NeoSWGA.
@@ -133,9 +132,9 @@ def configure_from_env():
         $ export NeoSWGA_LOG_FILE=neoswga.log
         $ python -m neoswga ...
     """
-    level = os.environ.get('NeoSWGA_LOG_LEVEL', 'INFO')
-    log_file = os.environ.get('NeoSWGA_LOG_FILE', None)
-    format_style = os.environ.get('NeoSWGA_LOG_FORMAT', 'default')
+    level = os.environ.get("NeoSWGA_LOG_LEVEL", "INFO")
+    log_file = os.environ.get("NeoSWGA_LOG_FILE", None)
+    format_style = os.environ.get("NeoSWGA_LOG_FORMAT", "default")
 
     setup_logging(level=level, log_file=log_file, format_style=format_style)
 
@@ -182,8 +181,9 @@ class ProgressLogger:
         ...     progress.update(1)
     """
 
-    def __init__(self, logger: logging.Logger, total: int, step: int = 10,
-                 message: str = "Progress"):
+    def __init__(
+        self, logger: logging.Logger, total: int, step: int = 10, message: str = "Progress"
+    ):
         """
         Initialize progress logger.
 
@@ -223,11 +223,11 @@ def init_default_logging():
         return
 
     # Try to load from environment
-    if any(k.startswith('NeoSWGA_LOG_') for k in os.environ):
+    if any(k.startswith("NeoSWGA_LOG_") for k in os.environ):
         configure_from_env()
     else:
         # Use defaults
-        setup_logging(level='INFO', format_style='default')
+        setup_logging(level="INFO", format_style="default")
 
 
 # Auto-initialize on import
@@ -241,7 +241,7 @@ if __name__ == "__main__":
 
     # Default setup
     print("\n1. Default logging (INFO level):")
-    setup_logging(level='INFO')
+    setup_logging(level="INFO")
     logger = get_logger(__name__)
     logger.debug("This won't be shown")
     logger.info("This will be shown")
@@ -250,26 +250,23 @@ if __name__ == "__main__":
 
     # Debug level
     print("\n2. Debug logging:")
-    setup_logging(level='DEBUG')
+    setup_logging(level="DEBUG")
     logger.debug("Now debug messages are shown")
 
     # With file output
     print("\n3. Logging to file:")
-    setup_logging(level='INFO', log_file='/tmp/neoswga_test.log')
+    setup_logging(level="INFO", log_file="/tmp/neoswga_test.log")
     logger.info("This goes to both console and file")
     print("Check /tmp/neoswga_test.log")
 
     # Module-specific levels
     print("\n4. Module-specific levels:")
     setup_logging(
-        level='INFO',
-        module_levels={
-            'neoswga.thermodynamics': 'DEBUG',
-            'neoswga.genetic_algorithm': 'WARNING'
-        }
+        level="INFO",
+        module_levels={"neoswga.thermodynamics": "DEBUG", "neoswga.genetic_algorithm": "WARNING"},
     )
     logger.info("Root logger at INFO")
-    thermo_logger = get_logger('neoswga.thermodynamics')
+    thermo_logger = get_logger("neoswga.thermodynamics")
     thermo_logger.debug("Thermodynamics at DEBUG")
 
     # Progress logging
@@ -281,9 +278,9 @@ if __name__ == "__main__":
 
     # Temporary log level
     print("\n6. Temporary log level:")
-    setup_logging(level='INFO')
+    setup_logging(level="INFO")
     logger.debug("This won't be shown")
-    with temporary_log_level('DEBUG'):
+    with temporary_log_level("DEBUG"):
         logger.debug("This will be shown temporarily")
     logger.debug("This won't be shown again")
 

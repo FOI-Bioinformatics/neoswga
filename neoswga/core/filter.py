@@ -4,19 +4,17 @@ Primer filtering module for NeoSWGA.
 Implements sequence-based filtering rules to select high-quality primer candidates.
 """
 
+import logging
+import multiprocessing
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import multiprocessing
 
-from neoswga.core import parameter
-from neoswga.core import primer_attributes
-from neoswga.core import dimer
+from neoswga.core import dimer, parameter, primer_attributes
 from neoswga.core.reaction_conditions import ReactionConditions
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +32,17 @@ def _get_reaction_conditions() -> ReactionConditions:
     global _reaction_conditions
     if _reaction_conditions is None:
         _reaction_conditions = ReactionConditions(
-            temp=getattr(parameter, 'reaction_temp', 30.0),
-            polymerase=getattr(parameter, 'polymerase', 'phi29'),
-            dmso_percent=getattr(parameter, 'dmso_percent', 0.0),
-            betaine_m=getattr(parameter, 'betaine_m', 0.0),
-            trehalose_m=getattr(parameter, 'trehalose_m', 0.0),
-            formamide_percent=getattr(parameter, 'formamide_percent', 0.0),
-            ethanol_percent=getattr(parameter, 'ethanol_percent', 0.0),
-            urea_m=getattr(parameter, 'urea_m', 0.0),
-            tmac_m=getattr(parameter, 'tmac_m', 0.0),
-            na_conc=getattr(parameter, 'na_conc', 50.0),
-            mg_conc=getattr(parameter, 'mg_conc', 0.0),
+            temp=getattr(parameter, "reaction_temp", 30.0),
+            polymerase=getattr(parameter, "polymerase", "phi29"),
+            dmso_percent=getattr(parameter, "dmso_percent", 0.0),
+            betaine_m=getattr(parameter, "betaine_m", 0.0),
+            trehalose_m=getattr(parameter, "trehalose_m", 0.0),
+            formamide_percent=getattr(parameter, "formamide_percent", 0.0),
+            ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
+            urea_m=getattr(parameter, "urea_m", 0.0),
+            tmac_m=getattr(parameter, "tmac_m", 0.0),
+            na_conc=getattr(parameter, "na_conc", 50.0),
+            mg_conc=getattr(parameter, "mg_conc", 0.0),
         )
     return _reaction_conditions
 
@@ -53,6 +51,7 @@ def reset_reaction_conditions():
     """Reset cached reaction conditions (for testing or parameter changes)."""
     global _reaction_conditions
     _reaction_conditions = None
+
 
 # =============================================================================
 # Filtering Constants
@@ -63,12 +62,18 @@ MAX_HOMOPOLYMER_RUN = 5
 
 # Rule 4: Dinucleotide repeat patterns to reject (10bp = 5 repeats of dinucleotide)
 DINUCLEOTIDE_REPEAT_PATTERNS = (
-    'ATATATATAT', 'TATATATATA',  # AT repeats
-    'AGAGAGAGAG', 'GAGAGAGAGA',  # AG repeats
-    'ACACACACAC', 'CACACACACA',  # AC repeats
-    'TCTCTCTCTC', 'CTCTCTCTCT',  # TC repeats
-    'GTGTGTGTGT', 'TGTGTGTGTG',  # GT repeats
-    'CGCGCGCGCG', 'GCGCGCGCGC',  # CG repeats
+    "ATATATATAT",
+    "TATATATATA",  # AT repeats
+    "AGAGAGAGAG",
+    "GAGAGAGAGA",  # AG repeats
+    "ACACACACAC",
+    "CACACACACA",  # AC repeats
+    "TCTCTCTCTC",
+    "CTCTCTCTCT",  # TC repeats
+    "GTGTGTGTGT",
+    "TGTGTGTGTG",  # GT repeats
+    "CGCGCGCGCG",
+    "GCGCGCGCGC",  # CG repeats
 )
 
 # Rule 4: Minimum primer length to check for dinucleotide repeats
@@ -84,11 +89,12 @@ MAX_GC_IN_LAST_5_BASES = 3
 MAX_GC_AT_3PRIME_END = 2  # Max 2 of 3 bases can be G/C
 
 # Homopolymer patterns (generated from MAX_HOMOPOLYMER_RUN)
-HOMOPOLYMER_PATTERNS = tuple(base * MAX_HOMOPOLYMER_RUN for base in 'ACGT')
+HOMOPOLYMER_PATTERNS = tuple(base * MAX_HOMOPOLYMER_RUN for base in "ACGT")
 
 
-def _scale_freq_threshold(base_threshold: float, primer_length: int,
-                          reference_k: int = 10) -> float:
+def _scale_freq_threshold(
+    base_threshold: float, primer_length: int, reference_k: int = 10
+) -> float:
     """
     Scale a frequency threshold inversely with primer length.
 
@@ -108,7 +114,7 @@ def _scale_freq_threshold(base_threshold: float, primer_length: int,
     if primer_length <= reference_k:
         return base_threshold
     length_diff = reference_k - primer_length
-    scale_factor = 4.0 ** length_diff  # e.g. 4^(-5) = 1/1024 for 15bp
+    scale_factor = 4.0**length_diff  # e.g. 4^(-5) = 1/1024 for 15bp
     return base_threshold * scale_factor
 
 
@@ -139,17 +145,18 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
     bloom = BackgroundBloomFilter.load(bloom_path)
 
     # Optional: load sampled index for count estimation
-    sampled_path = getattr(parameter, 'sampled_index_path', None)
+    sampled_path = getattr(parameter, "sampled_index_path", None)
     sampled_index = None
     if sampled_path:
         from neoswga.core.background_filter import SampledGenomeIndex
+
         try:
             sampled_index = SampledGenomeIndex.load(sampled_path)
             logger.info(f"Using sampled index for count estimation: {sampled_path}")
         except Exception as e:
             logger.warning(f"Failed to load sampled index: {e}")
 
-    max_bg_matches = getattr(parameter, 'bloom_max_bg_matches', 10)
+    max_bg_matches = getattr(parameter, "bloom_max_bg_matches", 10)
     primer_to_count = {}
 
     total = len(primer_list)
@@ -170,15 +177,17 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
             # Definitely not in background (no false negatives in Bloom filter)
             primer_to_count[primer] = 0
 
-    logger.info(f"Bloom filter results: {bloom_hits}/{total} primers found in background "
-                f"({100*bloom_hits/total:.1f}%)")
+    logger.info(
+        f"Bloom filter results: {bloom_hits}/{total} primers found in background "
+        f"({100*bloom_hits/total:.1f}%)"
+    )
 
     return primer_to_count
 
 
 def _count_gc(sequence: str) -> int:
     """Count G and C bases in a sequence."""
-    return sum(1 for base in sequence if base in 'GC')
+    return sum(1 for base in sequence if base in "GC")
 
 
 def _has_homopolymer_run(primer: str) -> bool:
@@ -201,7 +210,8 @@ def _has_dinucleotide_repeats(primer: str, nucleotide_counts: Counter[str]) -> b
 
     # Find nucleotides with high counts (potential repeat participants)
     high_count_nucleotides = {
-        nucleo for nucleo, count in nucleotide_counts.items()
+        nucleo
+        for nucleo, count in nucleotide_counts.items()
         if count >= MIN_NUCLEOTIDE_COUNT_FOR_REPEAT
     }
 
@@ -238,10 +248,12 @@ def filter_extra(primer: str) -> bool:
     # Use effective Tm that accounts for additives (DMSO, betaine, etc.)
     conditions = _get_reaction_conditions()
     primer_tm = conditions.calculate_effective_tm(primer)
-    tm_min = getattr(parameter, 'min_tm', None) or 15
-    tm_max = getattr(parameter, 'max_tm', None) or 55
+    tm_min = getattr(parameter, "min_tm", None) or 15
+    tm_max = getattr(parameter, "max_tm", None) or 55
     if not (tm_min <= primer_tm <= tm_max):
-        logger.debug(f"Tm filter: {primer} effective Tm={primer_tm:.1f} outside [{tm_min}, {tm_max}]")
+        logger.debug(
+            f"Tm filter: {primer} effective Tm={primer_tm:.1f} outside [{tm_min}, {tm_max}]"
+        )
         return False
 
     # Rule 5: Check for homopolymer runs
@@ -251,7 +263,7 @@ def filter_extra(primer: str) -> bool:
 
     # Calculate nucleotide counts (used for multiple rules)
     nucleotide_counts = Counter(primer)
-    gc_count = nucleotide_counts.get('G', 0) + nucleotide_counts.get('C', 0)
+    gc_count = nucleotide_counts.get("G", 0) + nucleotide_counts.get("C", 0)
 
     # Rule 2: GC content filtering
     gc_content = gc_count / len(primer)
@@ -263,7 +275,7 @@ def filter_extra(primer: str) -> bool:
     # Adaptive based on genome GC content to avoid eliminating valid primers
     # for AT-rich (e.g. Plasmodium ~25% GC) or GC-rich (e.g. Mycobacterium ~65% GC) targets
     gc_in_last_5 = _count_gc(primer[-5:])
-    genome_gc = getattr(parameter, 'genome_gc', None)
+    genome_gc = getattr(parameter, "genome_gc", None)
     if genome_gc is not None and genome_gc < 0.30:
         # AT-rich genome: allow 0 GC in last 5, reject >3
         gc_clamp_min = 0
@@ -277,8 +289,10 @@ def filter_extra(primer: str) -> bool:
         gc_clamp_min = 1
         gc_clamp_max = MAX_GC_IN_LAST_5_BASES
     if gc_in_last_5 > gc_clamp_max or gc_in_last_5 < gc_clamp_min:
-        logger.debug(f"GC clamp filter: {primer} GC_last5={gc_in_last_5} "
-                     f"(allowed {gc_clamp_min}-{gc_clamp_max})")
+        logger.debug(
+            f"GC clamp filter: {primer} GC_last5={gc_in_last_5} "
+            f"(allowed {gc_clamp_min}-{gc_clamp_max})"
+        )
         return False
 
     # Rule 1: 3' end cannot have all 3 bases as G/C
@@ -305,7 +319,7 @@ def get_all_rates(
     fg_prefixes: List[str],
     bg_prefixes: List[str],
     fg_total_length: int,
-    bg_total_length: int
+    bg_total_length: int,
 ) -> pd.DataFrame:
     """
     Computes the foreground and background binding site frequencies normalized by their respective genome lengths.
@@ -325,8 +339,10 @@ def get_all_rates(
 
     # Check if Bloom filter should be used for background filtering
     # Auto-enable if bg_bloom is specified in params (common user config)
-    bloom_path = getattr(parameter, 'bloom_filter_path', None) or getattr(parameter, 'bg_bloom', None)
-    use_bloom = getattr(parameter, 'use_bloom_filter', bloom_path is not None)
+    bloom_path = getattr(parameter, "bloom_filter_path", None) or getattr(
+        parameter, "bg_bloom", None
+    )
+    use_bloom = getattr(parameter, "use_bloom_filter", bloom_path is not None)
 
     if use_bloom and bloom_path:
         primer_to_bg_count = get_bg_rates_via_bloom(primer_list, bloom_path)
@@ -355,19 +371,17 @@ def get_all_rates(
             )
         scaled_min_fg, scaled_max_bg = _threshold_cache[primer_len]
         fg_count = primer_to_fg_count.get(primer, None)
-        fg_bool = (fg_count is None or fg_count / fg_total_length > scaled_min_fg)
+        fg_bool = fg_count is None or fg_count / fg_total_length > scaled_min_fg
         bg_count = primer_to_bg_count.get(primer, None)
-        bg_bool = (bg_count is None or bg_count / bg_total_length < scaled_max_bg)
+        bg_bool = bg_count is None or bg_count / bg_total_length < scaled_max_bg
         results.append([primer, fg_count, bg_count, fg_bool, bg_bool])
 
-    df = pd.DataFrame(results, columns=['primer', 'fg_count', 'bg_count', 'fg_bool', 'bg_bool'])
+    df = pd.DataFrame(results, columns=["primer", "fg_count", "bg_count", "fg_bool", "bg_bool"])
 
     return df
 
 
-def get_rates_for_one_species(
-    primer_list: List[str], fname_prefixes: List[str]
-) -> Dict[str, int]:
+def get_rates_for_one_species(primer_list: List[str], fname_prefixes: List[str]) -> Dict[str, int]:
     """
     Computes the binding site frequencies for all ppsth prefixes in fname_prefixes.
 
@@ -414,7 +428,7 @@ def _get_rate_for_one_file(task: Tuple[List[str], str, int]) -> Dict[str, int]:
     primer_to_count = {}
     found = 0
     target = len(primer_set)
-    with open(fname_prefix + '_' + str(k) + 'mer_all.txt', 'r') as f_in:
+    with open(fname_prefix + "_" + str(k) + "mer_all.txt", "r") as f_in:
         for line in f_in:
             parts = line.split()
             if parts[0] in primer_set:
@@ -450,13 +464,20 @@ def get_gini(
         df: Input dataframe with new column 'gini' for the computed Gini indices.
 
     """
-    df['gini'] = primer_attributes.get_gini_from_txt(df['primer'].values, fg_prefixes, fg_genomes, fg_seq_lengths, circular, position_cache=position_cache)
+    df["gini"] = primer_attributes.get_gini_from_txt(
+        df["primer"].values,
+        fg_prefixes,
+        fg_genomes,
+        fg_seq_lengths,
+        circular,
+        position_cache=position_cache,
+    )
 
-    if len(df['gini']) == 0:
-        df['gini_bool'] = []
+    if len(df["gini"]) == 0:
+        df["gini_bool"] = []
         return df
 
     # Vectorized boolean operation (10-50x faster than apply with lambda)
-    df['gini_bool'] = df['gini'].notna() & (df['gini'] < parameter.max_gini)
+    df["gini_bool"] = df["gini"].notna() & (df["gini"] < parameter.max_gini)
 
-    return df[df['gini_bool']]
+    return df[df["gini_bool"]]

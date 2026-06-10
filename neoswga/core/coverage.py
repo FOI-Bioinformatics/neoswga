@@ -118,10 +118,10 @@ def _mark_window(
             occupied[:] = True
         elif start < 0:
             occupied[0:end] = True
-            occupied[length + start:length] = True
+            occupied[length + start : length] = True
         elif end > length:
             occupied[start:length] = True
-            occupied[0:end - length] = True
+            occupied[0 : end - length] = True
         else:
             occupied[start:end] = True
     else:
@@ -175,9 +175,11 @@ def polymerase_extension_reach(
     try:
         if coverage_metric == "processivity":
             from .reaction_conditions import get_polymerase_processivity
+
             return int(get_polymerase_processivity(polymerase))
         # realistic (default)
         from .reaction_conditions import get_typical_amplicon_length
+
         return int(get_typical_amplicon_length(polymerase))
     except Exception:
         return default

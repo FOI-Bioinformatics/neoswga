@@ -23,27 +23,28 @@ Date: November 2025
 Version: 3.0 - Multi-Genome Support
 """
 
+import json
 import logging
 import time
-import json
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
 from Bio import SeqIO
 
+from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
+from neoswga.core.genome_io import GenomeCache, GenomeLoader
+from neoswga.core.hybrid_optimizer import HybridOptimizer
+from neoswga.core.kmer_counter import MultiGenomeKmerCounter
 from neoswga.core.multi_genome_filter import (
-    MultiGenomeFilter,
-    GenomeSet,
     GenomeEntry,
     GenomeRole,
-    MultiGenomeScore
+    GenomeSet,
+    MultiGenomeFilter,
+    MultiGenomeScore,
 )
-from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.thermodynamic_filter import create_filter_from_conditions
-from neoswga.core.hybrid_optimizer import HybridOptimizer
-from neoswga.core.genome_io import GenomeLoader, GenomeCache
-from neoswga.core.kmer_counter import MultiGenomeKmerCounter
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ class MultiGenomePipelineResult:
 
     Extends single-genome result with multi-genome metrics.
     """
+
     # Selected primers
     primers: List[str]
     primer_count: int
@@ -125,13 +127,15 @@ class MultiGenomePipeline:
     7. Generate comprehensive protocol
     """
 
-    def __init__(self,
-                 genome_set: GenomeSet,
-                 output_dir: str = "multi_genome_results",
-                 kmer_range: Optional[Tuple[int, int]] = None,
-                 preferred_polymerase: Optional[str] = None,
-                 primer_count: int = 12,
-                 validate_with_simulation: bool = False):
+    def __init__(
+        self,
+        genome_set: GenomeSet,
+        output_dir: str = "multi_genome_results",
+        kmer_range: Optional[Tuple[int, int]] = None,
+        preferred_polymerase: Optional[str] = None,
+        primer_count: int = 12,
+        validate_with_simulation: bool = False,
+    ):
         """
         Initialize multi-genome pipeline.
 
@@ -178,13 +182,15 @@ class MultiGenomePipeline:
         # Use cached loader
         sequence, stats = self.genome_cache.get(fasta_path)
 
-        logger.info(f"  Loaded: {stats.total_sequences} sequences, {stats.total_length:,} bp, {stats.gc_content:.1%} GC")
+        logger.info(
+            f"  Loaded: {stats.total_sequences} sequences, {stats.total_length:,} bp, {stats.gc_content:.1%} GC"
+        )
 
         return sequence
 
     def _calculate_gc(self, sequence: str) -> float:
         """Calculate GC content"""
-        gc_count = sequence.count('G') + sequence.count('C')
+        gc_count = sequence.count("G") + sequence.count("C")
         return gc_count / len(sequence) if len(sequence) > 0 else 0.5
 
     def _generate_kmers(self, sequence: str, k: int) -> Dict[str, int]:
@@ -201,10 +207,10 @@ class MultiGenomePipeline:
         counts = {}
 
         for i in range(len(sequence) - k + 1):
-            kmer = sequence[i:i+k]
+            kmer = sequence[i : i + k]
 
             # Only canonical DNA
-            if all(base in 'ACGT' for base in kmer):
+            if all(base in "ACGT" for base in kmer):
                 counts[kmer] = counts.get(kmer, 0) + 1
 
         return counts
@@ -255,8 +261,8 @@ class MultiGenomePipeline:
         for k in range(kmer_range[0], kmer_range[1] + 1):
             for seq in sequences:
                 for i in range(len(seq) - k + 1):
-                    kmer = seq[i:i+k]
-                    if all(base in 'ACGT' for base in kmer):
+                    kmer = seq[i : i + k]
+                    if all(base in "ACGT" for base in kmer):
                         all_kmers.add(kmer)
 
         candidates = list(all_kmers)
@@ -283,7 +289,9 @@ class MultiGenomePipeline:
                 min_tm = 25.0  # Standard range for longer primers
                 max_tm = 50.0
 
-            logger.info(f"  K-mer length ~{mean_length:.1f} bp, using Tm range: {min_tm}-{max_tm}°C")
+            logger.info(
+                f"  K-mer length ~{mean_length:.1f} bp, using Tm range: {min_tm}-{max_tm}°C"
+            )
         else:
             min_tm, max_tm = 25.0, 50.0
 
@@ -291,17 +299,16 @@ class MultiGenomePipeline:
         from neoswga.core.thermodynamic_filter import ThermodynamicCriteria, ThermodynamicFilter
 
         criteria = ThermodynamicCriteria(
-            min_tm=min_tm,
-            max_tm=max_tm,
-            max_homodimer_dg=-9.0,
-            max_heterodimer_dg=-9.0
+            min_tm=min_tm, max_tm=max_tm, max_homodimer_dg=-9.0, max_heterodimer_dg=-9.0
         )
 
         # Create filter with custom criteria
         # Note: We don't call adjust_criteria_for_conditions() because it would override our custom Tm range
         thermo_filter = ThermodynamicFilter(criteria)
 
-        logger.info(f"  Custom Tm range preserved: {thermo_filter.criteria.min_tm}-{thermo_filter.criteria.max_tm}°C")
+        logger.info(
+            f"  Custom Tm range preserved: {thermo_filter.criteria.min_tm}-{thermo_filter.criteria.max_tm}°C"
+        )
 
         filtered, stats = thermo_filter.filter_candidates(candidates)
 
@@ -325,10 +332,10 @@ class MultiGenomePipeline:
         # Create filter with genome-appropriate thresholds
         mg_filter = MultiGenomeFilter(
             genome_set=self.genome_set,
-            min_target_freq=1e-5,       # Must bind target
-            max_background_freq=1e-4,    # Tolerate some background
-            max_blacklist_freq=1e-6,     # Minimize blacklist (10x stricter)
-            min_enrichment=10.0          # 10x enrichment minimum
+            min_target_freq=1e-5,  # Must bind target
+            max_background_freq=1e-4,  # Tolerate some background
+            max_blacklist_freq=1e-6,  # Minimize blacklist (10x stricter)
+            min_enrichment=10.0,  # 10x enrichment minimum
         )
 
         # Add genomes to k-mer counter and count candidates efficiently
@@ -340,7 +347,9 @@ class MultiGenomePipeline:
                 self.kmer_counter.add_genome(genome.name, sequence)
 
         # Count all candidates across all genomes efficiently
-        logger.info(f"  Counting {len(candidates)} candidates across {len(self.genome_set.get_all_genomes())} genomes...")
+        logger.info(
+            f"  Counting {len(candidates)} candidates across {len(self.genome_set.get_all_genomes())} genomes..."
+        )
         all_counts = self.kmer_counter.count_candidates_all_genomes(candidates)
 
         # Load counts into filter
@@ -348,7 +357,7 @@ class MultiGenomePipeline:
             mg_filter.load_genome_counts(
                 genome_name=genome.name,
                 kmer_counts=all_counts[genome.name],
-                genome_size=self.kmer_counter.genome_lengths[genome.name]
+                genome_size=self.kmer_counter.genome_lengths[genome.name],
             )
 
         # Filter primers
@@ -371,9 +380,9 @@ class MultiGenomePipeline:
         start_time = time.time()
 
         if verbose:
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info("MULTI-GENOME SWGA PIPELINE")
-            logger.info("="*80)
+            logger.info("=" * 80)
             logger.info(self.genome_set.summary())
 
         # Step 1: Load and analyze target genomes
@@ -414,8 +423,10 @@ class MultiGenomePipeline:
         multi_genome_filtered_count = len(mg_filtered)
 
         if len(mg_filtered) < self.primer_count:
-            logger.warning(f"Only {len(mg_filtered)} primers passed filters, "
-                          f"less than requested {self.primer_count}")
+            logger.warning(
+                f"Only {len(mg_filtered)} primers passed filters, "
+                f"less than requested {self.primer_count}"
+            )
 
         # Step 6: Select final primers (rank by composite score)
         logger.info("\nStep 6: Selecting final primers...")
@@ -470,7 +481,7 @@ class MultiGenomePipeline:
             thermodynamic_filtered=thermodynamic_filtered_count,
             multi_genome_filtered=multi_genome_filtered_count,
             total_runtime=total_runtime,
-            protocol=protocol
+            protocol=protocol,
         )
 
         logger.info(f"\n{'='*80}")
@@ -486,8 +497,16 @@ class MultiGenomePipeline:
         """Generate experimental protocol"""
 
         target_names = ", ".join([g.name for g in self.genome_set.targets])
-        bg_names = ", ".join([g.name for g in self.genome_set.backgrounds]) if self.genome_set.backgrounds else "None"
-        bl_names = ", ".join([g.name for g in self.genome_set.blacklists]) if self.genome_set.blacklists else "None"
+        bg_names = (
+            ", ".join([g.name for g in self.genome_set.backgrounds])
+            if self.genome_set.backgrounds
+            else "None"
+        )
+        bl_names = (
+            ", ".join([g.name for g in self.genome_set.blacklists])
+            if self.genome_set.blacklists
+            else "None"
+        )
 
         protocol = f"""
 {'='*80}
@@ -558,7 +577,7 @@ Generated by NeoSWGA Multi-Genome Pipeline
 
         # Save primers (FASTA format)
         primers_fasta = self.output_dir / "primers.fasta"
-        with open(primers_fasta, 'w') as f:
+        with open(primers_fasta, "w") as f:
             for i, primer in enumerate(result.primers, 1):
                 f.write(f">Primer_{i}\n{primer}\n")
 
@@ -566,28 +585,28 @@ Generated by NeoSWGA Multi-Genome Pipeline
 
         # Save results (JSON)
         results_json = self.output_dir / "results.json"
-        with open(results_json, 'w') as f:
+        with open(results_json, "w") as f:
             # Convert dataclass to dict, handling tuples properly
             result_dict = asdict(result)
             # Convert tuple to list for JSON serialization
-            if 'kmer_range' in result_dict and isinstance(result_dict['kmer_range'], (tuple, list)):
-                result_dict['kmer_range'] = list(result_dict['kmer_range'])
+            if "kmer_range" in result_dict and isinstance(result_dict["kmer_range"], (tuple, list)):
+                result_dict["kmer_range"] = list(result_dict["kmer_range"])
             json.dump(result_dict, f, indent=2)
 
         logger.info(f"Saved results: {results_json}")
 
         # Save protocol
         protocol_file = self.output_dir / "protocol.txt"
-        with open(protocol_file, 'w') as f:
+        with open(protocol_file, "w") as f:
             f.write(result.protocol)
 
         logger.info(f"Saved protocol: {protocol_file}")
 
         # Save summary
         summary_file = self.output_dir / "summary.txt"
-        with open(summary_file, 'w') as f:
+        with open(summary_file, "w") as f:
             f.write(f"Multi-Genome SWGA Summary\n")
-            f.write(f"="*80 + "\n\n")
+            f.write(f"=" * 80 + "\n\n")
             f.write(f"Targets: {', '.join(result.target_genome_names)}\n")
             f.write(f"Backgrounds: {', '.join(result.background_genome_names)}\n")
             f.write(f"Blacklists: {', '.join(result.blacklist_genome_names)}\n\n")
@@ -600,13 +619,13 @@ Generated by NeoSWGA Multi-Genome Pipeline
         logger.info(f"Saved summary: {summary_file}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example usage
     logging.basicConfig(level=logging.INFO)
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("Multi-Genome SWGA Pipeline - Example")
-    print("="*80)
+    print("=" * 80)
     print("\nDetect Borrelia in tick while avoiding tick DNA and Rickettsia\n")
 
     # Create genome set
@@ -616,7 +635,7 @@ if __name__ == '__main__':
     genome_set.add_genome(
         name="Borrelia_burgdorferi",
         fasta_path="/Users/andreassjodin/Code/swga-dev/test/borrelia.fasta",
-        role="target"
+        role="target",
     )
 
     # Background: Ixodes tick (host)
@@ -624,7 +643,7 @@ if __name__ == '__main__':
         name="Ixodes_scapularis",
         fasta_path="/Users/andreassjodin/Code/swga-dev/test/tick.fasta",
         role="background",
-        penalty_weight=1.0
+        penalty_weight=1.0,
     )
 
     # Blacklist: Rickettsia (avoid completely)
@@ -632,14 +651,12 @@ if __name__ == '__main__':
         name="Rickettsia",
         fasta_path="/Users/andreassjodin/Code/swga-dev/test/rickettsia.fasta",
         role="blacklist",
-        penalty_weight=5.0
+        penalty_weight=5.0,
     )
 
     # Run pipeline
     pipeline = MultiGenomePipeline(
-        genome_set=genome_set,
-        output_dir="borrelia_results",
-        primer_count=12
+        genome_set=genome_set, output_dir="borrelia_results", primer_count=12
     )
 
     result = pipeline.run()

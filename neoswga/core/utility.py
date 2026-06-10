@@ -1,29 +1,31 @@
+import math
 import multiprocessing
-import pickle
 import os
+import pickle
+import random
 import warnings
+from collections import Counter
+
 import numpy as np
 import pandas as pd
-from collections import Counter
-import random
-import math
 
 cpus = int(multiprocessing.cpu_count())
-min_fg_freq=float(1/100000)
+min_fg_freq = float(1 / 100000)
 # Canonical default; keep in sync with parameter.PipelineParameters.max_bg_freq
 # and CLAUDE.md (5e-6). See wizard.py for the params.json starting value.
-max_bg_freq=5e-6
-min_tm=15
-max_tm=45
-max_gini=0.6
-max_primer=500
+max_bg_freq = 5e-6
+min_tm = 15
+max_tm = 45
+max_gini = 0.6
+max_primer = 500
 min_amp_pred = 5
 max_dimer_bp = 3
 max_self_dimer_bp = 4
 mismatch_penalty = 4
-data_dir=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data/project')
+data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data/project")
 
-char_to_int_dict = {'A':0, 'G':1, 'T':2, 'C':3}
+char_to_int_dict = {"A": 0, "G": 1, "T": 2, "C": 3}
+
 
 def create_pool(func, input_list, cpus, initializer=None, initargs=()):
     """Calculate the results of func applied to each value in input_list using a multiprocessing pool.
@@ -46,7 +48,9 @@ def create_pool(func, input_list, cpus, initializer=None, initargs=()):
     return results
 
 
-def create_pool_with_progress(func, input_list, cpus, desc="Processing", initializer=None, initargs=()):
+def create_pool_with_progress(
+    func, input_list, cpus, desc="Processing", initializer=None, initargs=()
+):
     """Calculate results with tqdm progress bar.
 
     Args:
@@ -62,12 +66,16 @@ def create_pool_with_progress(func, input_list, cpus, desc="Processing", initial
     """
     try:
         from tqdm import tqdm
-        with multiprocessing.Pool(processes=cpus, initializer=initializer, initargs=initargs) as pool:
+
+        with multiprocessing.Pool(
+            processes=cpus, initializer=initializer, initargs=initargs
+        ) as pool:
             results = list(tqdm(pool.imap(func, input_list), total=len(input_list), desc=desc))
         return results
     except ImportError:
         # Fall back to standard pool if tqdm not available
         return create_pool(func, input_list, cpus, initializer, initargs)
+
 
 def flatten(l):
     """Flattens a multidimensional array.
@@ -81,15 +89,16 @@ def flatten(l):
 
     return [item for sublist in l for item in sublist]
 
+
 def mergeArrays(arr1, arr2):
     """Merges two sorted arrays, maintaining sorted order.
 
-        Args:
-            arr1: First array in sorted order.
-            arr2: Second array in sorted order.
+    Args:
+        arr1: First array in sorted order.
+        arr2: Second array in sorted order.
 
-        Returns:
-            arr3: The merged array in sorted order.
+    Returns:
+        arr3: The merged array in sorted order.
     """
     n1 = len(arr1)
     n2 = len(arr2)
@@ -111,26 +120,28 @@ def mergeArrays(arr1, arr2):
 
     # Store remaining elements of first array
     while i < n1:
-        arr3.append(arr1[i]);
+        arr3.append(arr1[i])
         i = i + 1
 
     # Store remaining elements of second array
     while j < n2:
-        arr3.append(arr2[j]);
+        arr3.append(arr2[j])
         j = j + 1
     return arr3
+
 
 def softmax(x):
     """Compute softmax values for each sets of scores in x.
 
-        Args:
-            x: Input value for softmax.
+    Args:
+        x: Input value for softmax.
 
-        Returns:
-            s: Value of softmax function of x.
+    Returns:
+        s: Value of softmax function of x.
     """
     e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum()
+
 
 def sigmoid(x):
     """Compute the standard logistic sigmoid, mapping a real number to (0, 1).
@@ -143,6 +154,7 @@ def sigmoid(x):
     """
     return 1 / (1 + math.exp(-x))
 
+
 def output_to_df(df, sheet_name, xls_path):
     """Output a pandas dataframe to an Excel spreadsheet.
 
@@ -153,9 +165,9 @@ def output_to_df(df, sheet_name, xls_path):
         sheet_name: The sheet name of the excel file.
         xls_path: The path to the excel file.
     """
-    with pd.ExcelWriter(xls_path, engine='openpyxl', mode='a',
-                        if_sheet_exists='replace') as writer:
+    with pd.ExcelWriter(xls_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
         df.to_excel(writer, sheet_name=sheet_name)
+
 
 def get_seq_length(genome):
     """
@@ -168,6 +180,7 @@ def get_seq_length(genome):
         l: Total length of characters in the fasta file.
     """
     return sum(1 for _ in read_fasta_file(genome))
+
 
 def get_all_seq_lengths(fname_genomes=None, cpus=8):
     """
@@ -187,6 +200,7 @@ def get_all_seq_lengths(fname_genomes=None, cpus=8):
         seq_lengths.append(get_seq_length(fname_genome))
     return seq_lengths
 
+
 def longest_char_repeat(s, char):
     """Find the longest consecutive run of a given character in a string.
 
@@ -205,10 +219,10 @@ def longest_char_repeat(s, char):
     else:
         count = 0
 
-    for i,c in enumerate(s):
+    for i, c in enumerate(s):
         if i == 0:
             continue
-        if c == char and s[i-1] == char:
+        if c == char and s[i - 1] == char:
             count += 1
         elif c == char:
             count = 1
@@ -216,7 +230,10 @@ def longest_char_repeat(s, char):
             max_count = count
     return max(count, max_count)
 
-_COMPLEMENT_TABLE = str.maketrans('ATGCatgc', 'TACGtacg')
+
+_COMPLEMENT_TABLE = str.maketrans("ATGCatgc", "TACGtacg")
+
+
 def complement(text):
     """Return the Watson-Crick complement of a DNA sequence (A<->T, G<->C).
 
@@ -229,6 +246,7 @@ def complement(text):
         Complementary sequence with the same length and case as the input.
     """
     return text.translate(_COMPLEMENT_TABLE)
+
 
 def get_num_mismatches(x, y):
     """Count positional mismatches between two equal-length sequences.
@@ -245,6 +263,7 @@ def get_num_mismatches(x, y):
         if x[i] != y[i]:
             num_mismatches += 1
     return num_mismatches
+
 
 def longest_common_substring(s1, s2):
     """Return the length of the longest common substring.
@@ -267,6 +286,7 @@ def longest_common_substring(s1, s2):
         prev = curr
     return longest
 
+
 def read_fasta_file(fname):
     """
     Read FASTA file character by character (supports .fasta, .fasta.gz).
@@ -281,6 +301,7 @@ def read_fasta_file(fname):
         for ch in sequence:
             yield ch
 
+
 def reverse(seq):
     """Reverse a string.
 
@@ -294,6 +315,7 @@ def reverse(seq):
         The input string in reversed order.
     """
     return seq[::-1]
+
 
 def reverse_complement(seq):
     """
@@ -310,7 +332,9 @@ def reverse_complement(seq):
     """
     # Use the robust implementation from thermodynamics
     from neoswga.core.thermodynamics import reverse_complement as thermo_rc
+
     return thermo_rc(seq)
+
 
 def intersection(lst1, lst2):
     """Return elements from ``lst1`` that also appear in ``lst2``.
@@ -327,6 +351,7 @@ def intersection(lst1, lst2):
     """
     set2 = set(lst2)
     return [value for value in lst1 if value in set2]
+
 
 def gini_exact(array):
     """Calculate the Gini coefficient of a numpy array. Based on bottom equation from
@@ -354,7 +379,8 @@ def gini_exact(array):
     # Number of array elements:
     n = array.shape[0]
     # Gini coefficient:
-    return ((np.sum((2 * index - n - 1) * array)) / (n * np.sum(array)))
+    return (np.sum((2 * index - n - 1) * array)) / (n * np.sum(array))
+
 
 def most_frequent(list):
     """Return the mode (most frequent element) of a list.
@@ -373,7 +399,7 @@ def most_frequent(list):
 
     high_freq_primers = []
 
-    for k,v in occurence_count.items():
+    for k, v in occurence_count.items():
         if v == occurence_count[high_freq_primer]:
             high_freq_primers.append(k)
 

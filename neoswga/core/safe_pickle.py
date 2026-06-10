@@ -13,44 +13,44 @@ Usage:
 """
 
 import io
-import pickle
 import logging
+import pickle
 
 logger = logging.getLogger(__name__)
 
 
 # Allowlists per context: (module, class_name) tuples
 _ALLOWED_CLASSES = {
-    'sklearn_model': {
-        ('sklearn.ensemble._forest', 'RandomForestClassifier'),
-        ('sklearn.ensemble._forest', 'RandomForestRegressor'),
-        ('sklearn.ensemble.forest', 'RandomForestClassifier'),
-        ('sklearn.ensemble.forest', 'RandomForestRegressor'),
-        ('sklearn.tree._tree', 'Tree'),
-        ('sklearn.tree.tree', 'DecisionTreeClassifier'),
-        ('sklearn.tree._classes', 'DecisionTreeClassifier'),
-        ('sklearn.tree._classes', 'DecisionTreeRegressor'),
-        ('numpy', 'ndarray'),
-        ('numpy', 'dtype'),
-        ('numpy.core.multiarray', 'scalar'),
-        ('numpy.core.multiarray', '_reconstruct'),
-        ('numpy._core.multiarray', 'scalar'),
-        ('numpy._core.multiarray', '_reconstruct'),
-        ('numpy', 'int64'),
-        ('numpy', 'float64'),
-        ('builtins', 'slice'),
-        ('collections', 'defaultdict'),
+    "sklearn_model": {
+        ("sklearn.ensemble._forest", "RandomForestClassifier"),
+        ("sklearn.ensemble._forest", "RandomForestRegressor"),
+        ("sklearn.ensemble.forest", "RandomForestClassifier"),
+        ("sklearn.ensemble.forest", "RandomForestRegressor"),
+        ("sklearn.tree._tree", "Tree"),
+        ("sklearn.tree.tree", "DecisionTreeClassifier"),
+        ("sklearn.tree._classes", "DecisionTreeClassifier"),
+        ("sklearn.tree._classes", "DecisionTreeRegressor"),
+        ("numpy", "ndarray"),
+        ("numpy", "dtype"),
+        ("numpy.core.multiarray", "scalar"),
+        ("numpy.core.multiarray", "_reconstruct"),
+        ("numpy._core.multiarray", "scalar"),
+        ("numpy._core.multiarray", "_reconstruct"),
+        ("numpy", "int64"),
+        ("numpy", "float64"),
+        ("builtins", "slice"),
+        ("collections", "defaultdict"),
     },
-    'bloom_filter': {
-        ('pybloom_live', 'ScalableBloomFilter'),
-        ('pybloom_live', 'BloomFilter'),
-        ('pybloom_live.pybloom', 'ScalableBloomFilter'),
-        ('pybloom_live.pybloom', 'BloomFilter'),
-        ('collections', 'defaultdict'),
-        ('builtins', 'set'),
-        ('numpy', 'ndarray'),
-        ('numpy', 'dtype'),
-        ('numpy.core.multiarray', '_reconstruct'),
+    "bloom_filter": {
+        ("pybloom_live", "ScalableBloomFilter"),
+        ("pybloom_live", "BloomFilter"),
+        ("pybloom_live.pybloom", "ScalableBloomFilter"),
+        ("pybloom_live.pybloom", "BloomFilter"),
+        ("collections", "defaultdict"),
+        ("builtins", "set"),
+        ("numpy", "ndarray"),
+        ("numpy", "dtype"),
+        ("numpy.core.multiarray", "_reconstruct"),
     },
 }
 
@@ -66,15 +66,26 @@ class RestrictedUnpickler(pickle.Unpickler):
         if (module, name) in self._allowed:
             return super().find_class(module, name)
         # Allow standard builtins needed by pickle protocol
-        if module == 'builtins' and name in ('dict', 'list', 'tuple', 'set',
-                                              'frozenset', 'int', 'float',
-                                              'str', 'bytes', 'bool', 'None',
-                                              'complex', 'type'):
+        if module == "builtins" and name in (
+            "dict",
+            "list",
+            "tuple",
+            "set",
+            "frozenset",
+            "int",
+            "float",
+            "str",
+            "bytes",
+            "bool",
+            "None",
+            "complex",
+            "type",
+        ):
             return super().find_class(module, name)
         # Allow copy_reg/_reconstructor (used by many objects)
-        if module == 'copy_reg' and name == '_reconstructor':
+        if module == "copy_reg" and name == "_reconstructor":
             return super().find_class(module, name)
-        if module == 'copyreg' and name == '_reconstructor':
+        if module == "copyreg" and name == "_reconstructor":
             return super().find_class(module, name)
         raise pickle.UnpicklingError(
             f"Blocked unpickling of {module}.{name}. "
@@ -82,7 +93,7 @@ class RestrictedUnpickler(pickle.Unpickler):
         )
 
 
-def safe_load(path, context='sklearn_model'):
+def safe_load(path, context="sklearn_model"):
     """Load a pickle file with restricted class allowlist.
 
     Args:
@@ -100,10 +111,9 @@ def safe_load(path, context='sklearn_model'):
     """
     if context not in _ALLOWED_CLASSES:
         raise ValueError(
-            f"Unknown context '{context}'. "
-            f"Available: {list(_ALLOWED_CLASSES.keys())}"
+            f"Unknown context '{context}'. " f"Available: {list(_ALLOWED_CLASSES.keys())}"
         )
 
     allowed = _ALLOWED_CLASSES[context]
-    with open(path, 'rb') as f:
+    with open(path, "rb") as f:
         return RestrictedUnpickler(f, allowed).load()

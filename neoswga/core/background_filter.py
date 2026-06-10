@@ -5,13 +5,14 @@ For massive genomes (human 3 Gbp, tick 2.1 Gbp), exact counting is infeasible.
 Use Bloom filters and sampling for fast negative selection.
 """
 
-import numpy as np
+import logging
 import os
 import pickle
-from typing import List, Set, Tuple, Optional, Dict
-from dataclasses import dataclass
-import logging
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
+
+import numpy as np
 
 try:
     from pybloom_live import BloomFilter
@@ -25,6 +26,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BackgroundFilterConfig:
     """Configuration for background filtering"""
+
     max_exact_matches: int = 10  # Max perfect matches in background
     max_1mm_matches: int = 100  # Max 1-mismatch matches
     bloom_fp_rate: float = 0.01  # Bloom filter false positive rate
@@ -68,8 +70,14 @@ class BackgroundBloomFilter:
             self.bloom.add(kmer)
             self.kmer_count += 1
 
-    def add_genome(self, fasta_path: str, include_mismatches: bool = False,
-                    min_k: int = 6, max_k: int = 12, chunk_size: int = 1000000):
+    def add_genome(
+        self,
+        fasta_path: str,
+        include_mismatches: bool = False,
+        min_k: int = 6,
+        max_k: int = 12,
+        chunk_size: int = 1000000,
+    ):
         """
         Add all k-mers from genome to Bloom filter.
 
@@ -90,8 +98,10 @@ class BackgroundBloomFilter:
         logger.info(f"  K-mer range: {min_k}-{max_k}bp")
 
         from Bio import SeqIO
+
         try:
             from tqdm import tqdm
+
             use_tqdm = True
         except ImportError:
             use_tqdm = False
@@ -104,7 +114,7 @@ class BackgroundBloomFilter:
         logger.info(f"  Total genome length: {total_length:,} bp")
 
         # Precompile the valid bases set for faster lookup
-        valid_bases = set('ATCG')
+        valid_bases = set("ATCG")
 
         # Second pass: add k-mers
         processed = 0
@@ -125,12 +135,13 @@ class BackgroundBloomFilter:
                 desc = f"    {k}bp k-mers"
                 iterator = range(n_positions)
                 if use_tqdm:
-                    iterator = tqdm(iterator, desc=desc, unit=" pos",
-                                    mininterval=1.0, disable=False)
+                    iterator = tqdm(
+                        iterator, desc=desc, unit=" pos", mininterval=1.0, disable=False
+                    )
 
                 batch_kmers = []
                 for i in iterator:
-                    kmer = seq[i:i+k]
+                    kmer = seq[i : i + k]
 
                     # Fast validity check using set membership
                     if all(b in valid_bases for b in kmer):
@@ -154,7 +165,7 @@ class BackgroundBloomFilter:
                     logger.warning("  Adding 1-mismatch variants (slow)...")
                     # Only process a sample for mismatches
                     for i in range(0, n_positions, 100):  # Every 100th position
-                        kmer = seq[i:i+k]
+                        kmer = seq[i : i + k]
                         if all(b in valid_bases for b in kmer):
                             for variant in self._generate_1mm_variants(kmer):
                                 self.bloom.add(variant)
@@ -181,6 +192,7 @@ class BackgroundBloomFilter:
 
         try:
             from tqdm import tqdm
+
             use_tqdm = True
         except ImportError:
             use_tqdm = False
@@ -195,11 +207,12 @@ class BackgroundBloomFilter:
             n_lines = sum(1 for _ in open(fpath))
             logger.info(f"  Loading {k}bp k-mers: {n_lines:,} entries")
 
-            with open(fpath, 'r') as f:
+            with open(fpath, "r") as f:
                 iterator = f
                 if use_tqdm:
-                    iterator = tqdm(f, total=n_lines, desc=f"    {k}bp",
-                                    unit=" kmers", mininterval=1.0)
+                    iterator = tqdm(
+                        f, total=n_lines, desc=f"    {k}bp", unit=" kmers", mininterval=1.0
+                    )
 
                 batch = []
                 for line in iterator:
@@ -254,17 +267,17 @@ class BackgroundBloomFilter:
 
     def _is_valid_kmer(self, kmer: str) -> bool:
         """Check if k-mer contains only ATCG"""
-        return all(base in 'ATCG' for base in kmer)
+        return all(base in "ATCG" for base in kmer)
 
     def _generate_1mm_variants(self, seq: str) -> Set[str]:
         """Generate all 1-mismatch variants of sequence"""
         variants = set()
-        bases = ['A', 'T', 'C', 'G']
+        bases = ["A", "T", "C", "G"]
 
         for i in range(len(seq)):
             for base in bases:
                 if base != seq[i]:
-                    variant = seq[:i] + base + seq[i+1:]
+                    variant = seq[:i] + base + seq[i + 1 :]
                     variants.add(variant)
 
         return variants
@@ -272,30 +285,35 @@ class BackgroundBloomFilter:
     def save(self, path: str):
         """Save Bloom filter to disk"""
         logger.info(f"Saving Bloom filter to {path}")
-        with open(path, 'wb') as f:
-            pickle.dump({
-                'bloom': self.bloom,
-                'kmer_count': self.kmer_count,
-                'genome_size': self.genome_size
-            }, f)
+        with open(path, "wb") as f:
+            pickle.dump(
+                {
+                    "bloom": self.bloom,
+                    "kmer_count": self.kmer_count,
+                    "genome_size": self.genome_size,
+                },
+                f,
+            )
 
     @classmethod
-    def load(cls, path: str) -> 'BackgroundBloomFilter':
+    def load(cls, path: str) -> "BackgroundBloomFilter":
         """Load Bloom filter from disk"""
         logger.info(f"Loading Bloom filter from {path}")
         from neoswga.core.safe_pickle import safe_load
-        data = safe_load(path, context='bloom_filter')
+
+        data = safe_load(path, context="bloom_filter")
 
         instance = cls.__new__(cls)
-        instance.bloom = data['bloom']
-        instance.kmer_count = data['kmer_count']
-        instance.genome_size = data['genome_size']
+        instance.bloom = data["bloom"]
+        instance.kmer_count = data["kmer_count"]
+        instance.genome_size = data["genome_size"]
 
         return instance
 
     def memory_usage_mb(self) -> float:
         """Estimate memory usage in MB"""
         import sys
+
         return sys.getsizeof(pickle.dumps(self.bloom)) / 1e6
 
 
@@ -337,20 +355,24 @@ class SampledGenomeIndex:
         logger.info(f"Building sampled index (rate=1/{self.sample_rate}): {fasta_path}")
 
         from Bio import SeqIO
+
         try:
             from tqdm import tqdm
+
             use_tqdm = True
         except ImportError:
             use_tqdm = False
 
-        valid_bases = set('ATCG')
+        valid_bases = set("ATCG")
 
         for record in SeqIO.parse(fasta_path, "fasta"):
             seq = str(record.seq).upper()
             seq_len = len(seq)
             self.genome_size += seq_len
 
-            logger.info(f"  Processing {record.id}: {seq_len:,} bp (sampling every {self.sample_rate}th position)")
+            logger.info(
+                f"  Processing {record.id}: {seq_len:,} bp (sampling every {self.sample_rate}th position)"
+            )
 
             # Sample positions for each k-mer length
             for k in range(min_k, max_k + 1):
@@ -360,11 +382,12 @@ class SampledGenomeIndex:
                 positions = range(0, seq_len - k + 1, self.sample_rate)
 
                 if use_tqdm:
-                    positions = tqdm(positions, desc=desc, total=n_sampled,
-                                     unit=" pos", mininterval=1.0)
+                    positions = tqdm(
+                        positions, desc=desc, total=n_sampled, unit=" pos", mininterval=1.0
+                    )
 
                 for i in positions:
-                    kmer = seq[i:i+k]
+                    kmer = seq[i : i + k]
                     if all(b in valid_bases for b in kmer):
                         self.kmers[kmer] += 1
 
@@ -381,26 +404,30 @@ class SampledGenomeIndex:
         return sampled_count * self.sample_rate
 
     def _is_valid_kmer(self, kmer: str) -> bool:
-        return all(base in 'ATCG' for base in kmer)
+        return all(base in "ATCG" for base in kmer)
 
     def save(self, path: str):
         """Save index to disk"""
-        with open(path, 'wb') as f:
-            pickle.dump({
-                'kmers': dict(self.kmers),
-                'sample_rate': self.sample_rate,
-                'genome_size': self.genome_size
-            }, f)
+        with open(path, "wb") as f:
+            pickle.dump(
+                {
+                    "kmers": dict(self.kmers),
+                    "sample_rate": self.sample_rate,
+                    "genome_size": self.genome_size,
+                },
+                f,
+            )
 
     @classmethod
-    def load(cls, path: str) -> 'SampledGenomeIndex':
+    def load(cls, path: str) -> "SampledGenomeIndex":
         """Load index from disk"""
         from neoswga.core.safe_pickle import safe_load
-        data = safe_load(path, context='bloom_filter')
 
-        instance = cls(sample_rate=data['sample_rate'])
-        instance.kmers = defaultdict(int, data['kmers'])
-        instance.genome_size = data['genome_size']
+        data = safe_load(path, context="bloom_filter")
+
+        instance = cls(sample_rate=data["sample_rate"])
+        instance.kmers = defaultdict(int, data["kmers"])
+        instance.genome_size = data["genome_size"]
         return instance
 
 
@@ -411,9 +438,12 @@ class BackgroundFilter:
     Combines Bloom filter (fast rejection) + sampled index (count estimation).
     """
 
-    def __init__(self, bloom_filter: Optional[BackgroundBloomFilter] = None,
-                 sampled_index: Optional[SampledGenomeIndex] = None,
-                 config: Optional[BackgroundFilterConfig] = None):
+    def __init__(
+        self,
+        bloom_filter: Optional[BackgroundBloomFilter] = None,
+        sampled_index: Optional[SampledGenomeIndex] = None,
+        config: Optional[BackgroundFilterConfig] = None,
+    ):
         """
         Initialize filter.
 
@@ -437,16 +467,13 @@ class BackgroundFilter:
         # Build Bloom filter
         logger.info("Building Bloom filter...")
         self.bloom = BackgroundBloomFilter(
-            capacity=genome_size,
-            error_rate=self.config.bloom_fp_rate
+            capacity=genome_size, error_rate=self.config.bloom_fp_rate
         )
         self.bloom.add_genome(fasta_path, include_mismatches=True)
 
         # Build sampled index
         logger.info("Building sampled index...")
-        self.sampled_index = SampledGenomeIndex(
-            sample_rate=self.config.sample_rate
-        )
+        self.sampled_index = SampledGenomeIndex(sample_rate=self.config.sample_rate)
         self.sampled_index.add_genome(fasta_path)
 
     def filter_primers(self, candidates: List[str]) -> List[str]:
@@ -460,12 +487,7 @@ class BackgroundFilter:
             raise ValueError("Bloom filter not initialized. Call build_from_genome() first.")
 
         passed = []
-        stats = {
-            'total': len(candidates),
-            'bloom_rejected': 0,
-            'count_rejected': 0,
-            'passed': 0
-        }
+        stats = {"total": len(candidates), "bloom_rejected": 0, "count_rejected": 0, "passed": 0}
 
         for primer in candidates:
             # Fast rejection via Bloom filter
@@ -475,24 +497,26 @@ class BackgroundFilter:
                 if self.sampled_index:
                     estimated_count = self.sampled_index.estimate_count(primer)
                     if estimated_count > self.config.max_exact_matches:
-                        stats['count_rejected'] += 1
+                        stats["count_rejected"] += 1
                         continue
                 else:
-                    stats['bloom_rejected'] += 1
+                    stats["bloom_rejected"] += 1
                     continue
 
             # Check 1-mismatch matches
             if self.config.max_1mm_matches > 0:
                 mm_matches = self._count_mismatch_matches(primer)
                 if mm_matches > self.config.max_1mm_matches:
-                    stats['count_rejected'] += 1
+                    stats["count_rejected"] += 1
                     continue
 
             passed.append(primer)
-            stats['passed'] += 1
+            stats["passed"] += 1
 
-        logger.info(f"Background filtering: {stats['total']} → {stats['passed']} "
-                   f"({100*stats['passed']/stats['total']:.1f}% passed)")
+        logger.info(
+            f"Background filtering: {stats['total']} → {stats['passed']} "
+            f"({100*stats['passed']/stats['total']:.1f}% passed)"
+        )
         logger.info(f"  Bloom rejected: {stats['bloom_rejected']}")
         logger.info(f"  Count rejected: {stats['count_rejected']}")
 
@@ -508,6 +532,7 @@ class BackgroundFilter:
     def _estimate_genome_size(self, fasta_path: str) -> int:
         """Quick estimate of genome size"""
         from Bio import SeqIO
+
         total = 0
         for record in SeqIO.parse(fasta_path, "fasta"):
             total += len(record.seq)
@@ -521,8 +546,9 @@ class BackgroundFilter:
             self.sampled_index.save(index_path)
 
     @classmethod
-    def load(cls, bloom_path: str, index_path: str,
-             config: Optional[BackgroundFilterConfig] = None) -> 'BackgroundFilter':
+    def load(
+        cls, bloom_path: str, index_path: str, config: Optional[BackgroundFilterConfig] = None
+    ) -> "BackgroundFilter":
         """Load pre-built filter"""
         bloom = BackgroundBloomFilter.load(bloom_path) if os.path.exists(bloom_path) else None
         index = SampledGenomeIndex.load(index_path) if os.path.exists(index_path) else None
@@ -543,8 +569,8 @@ def build_human_genome_filter(human_fasta: str, output_dir: str):
     filter = BackgroundFilter()
     filter.build_from_genome(human_fasta)
 
-    bloom_path = os.path.join(output_dir, 'human_bloom.pkl')
-    index_path = os.path.join(output_dir, 'human_sampled.pkl')
+    bloom_path = os.path.join(output_dir, "human_bloom.pkl")
+    index_path = os.path.join(output_dir, "human_sampled.pkl")
 
     filter.save(bloom_path, index_path)
 
@@ -553,9 +579,13 @@ def build_human_genome_filter(human_fasta: str, output_dir: str):
     logger.info(f"  Sampled index: {index_path}")
 
 
-def build_background_filter(genome_fasta: str, output_dir: str,
-                            capacity: int = None, error_rate: float = 0.01,
-                            verbose: bool = True):
+def build_background_filter(
+    genome_fasta: str,
+    output_dir: str,
+    capacity: int = None,
+    error_rate: float = 0.01,
+    verbose: bool = True,
+):
     """
     Build and save background genome filter (CLI entry point).
 
@@ -580,6 +610,7 @@ def build_background_filter(genome_fasta: str, output_dir: str,
     # Auto-detect capacity from genome size if not specified
     if capacity is None:
         from Bio import SeqIO
+
         total_size = 0
         for record in SeqIO.parse(genome_fasta, "fasta"):
             total_size += len(record.seq)
@@ -604,8 +635,8 @@ def build_background_filter(genome_fasta: str, output_dir: str,
     sampled_index.add_genome(genome_fasta)
 
     # Save filter files
-    bloom_path = os.path.join(output_dir, 'bg_bloom.pkl')
-    sampled_path = os.path.join(output_dir, 'bg_sampled.pkl')
+    bloom_path = os.path.join(output_dir, "bg_bloom.pkl")
+    sampled_path = os.path.join(output_dir, "bg_sampled.pkl")
 
     bloom.save(bloom_path)
     sampled_index.save(sampled_path)
@@ -640,7 +671,7 @@ if __name__ == "__main__":
 
             filter = BackgroundFilter.load(bloom_path, index_path)
 
-            test_primers = ['ATCGATCG', 'GCGCGCGC', 'AAAAAAAA', 'TTTTTTTT']
+            test_primers = ["ATCGATCG", "GCGCGCGC", "AAAAAAAA", "TTTTTTTT"]
             passed = filter.filter_primers(test_primers)
 
             print(f"Test primers: {test_primers}")

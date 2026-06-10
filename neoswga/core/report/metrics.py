@@ -9,9 +9,9 @@ import csv
 import json
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ def _get_version() -> str:
     """Get NeoSWGA version from package metadata."""
     try:
         from neoswga import __version__
+
         return __version__
     except ImportError:
         return "unknown"
@@ -50,13 +51,13 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     """
     import math
 
-    if value is None or value == '':
+    if value is None or value == "":
         return default
 
     # Check for string representations of invalid values
     if isinstance(value, str):
         value_lower = value.lower().strip()
-        if value_lower in ('nan', 'inf', '-inf', 'infinity', '-infinity', 'none', 'null'):
+        if value_lower in ("nan", "inf", "-inf", "infinity", "-infinity", "none", "null"):
             return default
 
     try:
@@ -81,7 +82,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
     Returns:
         Int value or default
     """
-    if value is None or value == '':
+    if value is None or value == "":
         return default
     try:
         # Handle float strings like "123.0"
@@ -94,6 +95,7 @@ def _safe_int(value: Any, default: int = 0) -> int:
 @dataclass
 class GenomeInfo:
     """Information about a genome."""
+
     name: str
     size: int
     gc_content: float
@@ -109,6 +111,7 @@ class GenomeInfo:
 @dataclass
 class PrimerMetrics:
     """Metrics for a single primer."""
+
     sequence: str
     length: int
     gc_content: float
@@ -128,24 +131,24 @@ class PrimerMetrics:
     quality_rank: int = 0
 
     @classmethod
-    def from_row(cls, row: Dict[str, str]) -> 'PrimerMetrics':
+    def from_row(cls, row: Dict[str, str]) -> "PrimerMetrics":
         """
         Create PrimerMetrics from a CSV row.
 
         Uses safe conversions to handle malformed or missing data gracefully.
         """
-        seq = str(row.get('primer', row.get('sequence', '')))
+        seq = str(row.get("primer", row.get("sequence", "")))
 
         # Calculate GC content if not provided
-        gc = _safe_float(row.get('gc', row.get('gc_content', 0)))
+        gc = _safe_float(row.get("gc", row.get("gc_content", 0)))
         if gc == 0 and seq:
             # Use uppercase for case-insensitive GC counting
             seq_upper = seq.upper()
-            gc = (seq_upper.count('G') + seq_upper.count('C')) / len(seq) if len(seq) > 0 else 0
+            gc = (seq_upper.count("G") + seq_upper.count("C")) / len(seq) if len(seq) > 0 else 0
 
         # Calculate specificity with safe division
-        fg_freq = _safe_float(row.get('fg_freq', 0))
-        bg_freq = _safe_float(row.get('bg_freq', 0))
+        fg_freq = _safe_float(row.get("fg_freq", 0))
+        bg_freq = _safe_float(row.get("bg_freq", 0))
         # Use max to avoid division by zero; 1e-10 represents "essentially no background"
         specificity = fg_freq / max(bg_freq, 1e-10)
 
@@ -153,27 +156,28 @@ class PrimerMetrics:
             sequence=seq,
             length=len(seq),
             gc_content=gc,
-            tm=_safe_float(row.get('tm', row.get('Tm', 0))),
+            tm=_safe_float(row.get("tm", row.get("Tm", 0))),
             fg_freq=fg_freq,
             bg_freq=bg_freq,
-            fg_sites=_safe_int(row.get('fg_count', row.get('fg_sites', 0))),
-            bg_sites=_safe_int(row.get('bg_count', row.get('bg_sites', 0))),
-            gini=_safe_float(row.get('gini', row.get('gini_index', 0))),
+            fg_sites=_safe_int(row.get("fg_count", row.get("fg_sites", 0))),
+            bg_sites=_safe_int(row.get("bg_count", row.get("bg_sites", 0))),
+            gini=_safe_float(row.get("gini", row.get("gini_index", 0))),
             specificity=specificity,
             amp_pred=_normalize_amp_pred(
-                _safe_float(row.get('amp_pred', row.get('on.target.pred', 0)))
+                _safe_float(row.get("amp_pred", row.get("on.target.pred", 0)))
             ),
-            dimer_score=_safe_float(row.get('dimer_score', row.get('dimer_risk_score', 0))),
-            hairpin_dg=_safe_float(row.get('hairpin_dg', 0)),
-            self_dimer_dg=_safe_float(row.get('self_dimer_dg', 0)),
-            three_prime_stability=_safe_float(row.get('three_prime_stability', 0)),
-            strand_ratio=_safe_float(row.get('strand_ratio'), default=1.0),
+            dimer_score=_safe_float(row.get("dimer_score", row.get("dimer_risk_score", 0))),
+            hairpin_dg=_safe_float(row.get("hairpin_dg", 0)),
+            self_dimer_dg=_safe_float(row.get("self_dimer_dg", 0)),
+            three_prime_stability=_safe_float(row.get("three_prime_stability", 0)),
+            strand_ratio=_safe_float(row.get("strand_ratio"), default=1.0),
         )
 
 
 @dataclass
 class FilteringStats:
     """Statistics from the filtering step."""
+
     total_kmers: int = 0
     after_frequency: int = 0
     after_background: int = 0
@@ -198,15 +202,16 @@ class FilteringStats:
 @dataclass
 class CoverageMetrics:
     """Coverage analysis metrics."""
+
     overall_coverage: float = 0.0
     covered_bases: int = 0
     total_bases: int = 0
     n_gaps: int = 0
     largest_gap: int = 0
     critical_gaps: int = 0  # >100kb
-    high_gaps: int = 0      # 50-100kb
-    medium_gaps: int = 0    # 20-50kb
-    low_gaps: int = 0       # <20kb
+    high_gaps: int = 0  # 50-100kb
+    medium_gaps: int = 0  # 20-50kb
+    low_gaps: int = 0  # <20kb
     gap_locations: List[Dict] = field(default_factory=list)
     mean_gap: float = 0.0
     max_gap: float = 0.0
@@ -222,6 +227,7 @@ class CoverageMetrics:
 @dataclass
 class SpecificityMetrics:
     """Specificity analysis metrics."""
+
     enrichment_ratio: float = 0.0
     target_sites: int = 0
     background_sites: int = 0
@@ -232,6 +238,7 @@ class SpecificityMetrics:
 @dataclass
 class ThermodynamicMetrics:
     """Thermodynamic analysis metrics."""
+
     mean_tm: float = 0.0
     min_tm: float = 0.0
     max_tm: float = 0.0
@@ -245,6 +252,7 @@ class ThermodynamicMetrics:
 @dataclass
 class UniformityMetrics:
     """Binding uniformity metrics."""
+
     mean_gini: float = 0.0
     max_gini: float = 0.0
     mean_sites_per_bin: float = 0.0
@@ -258,6 +266,7 @@ class UniformityMetrics:
 @dataclass
 class PipelineMetrics:
     """Complete metrics from a pipeline run."""
+
     # Metadata
     results_dir: str = ""
     generated_at: str = ""
@@ -309,7 +318,7 @@ def _load_csv(filepath: Path) -> List[Dict[str, str]]:
         return []
 
     try:
-        with open(filepath, newline='', encoding='utf-8') as f:
+        with open(filepath, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             return list(reader)
     except (csv.Error, UnicodeDecodeError, PermissionError, OSError) as e:
@@ -329,16 +338,16 @@ def _load_params(results_dir: Path) -> Dict[str, Any]:
     Returns:
         Dictionary of parameters, empty dict on error
     """
-    params_file = results_dir / 'params.json'
+    params_file = results_dir / "params.json"
     if not params_file.exists():
         # Try parent directory
-        params_file = results_dir.parent / 'params.json'
+        params_file = results_dir.parent / "params.json"
 
     if not params_file.exists():
         return {}
 
     try:
-        with open(params_file, encoding='utf-8') as f:
+        with open(params_file, encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, UnicodeDecodeError, PermissionError, OSError) as e:
         logger.warning(f"Failed to load params file {params_file}: {e}")
@@ -347,11 +356,11 @@ def _load_params(results_dir: Path) -> Dict[str, Any]:
 
 def _load_optimizer_summary(results_path: Path) -> Optional[Dict]:
     """Load step4 summary JSON if available."""
-    summary_file = results_path / 'step4_improved_df_summary.json'
+    summary_file = results_path / "step4_improved_df_summary.json"
     if not summary_file.exists():
         return None
     try:
-        with open(summary_file, encoding='utf-8') as f:
+        with open(summary_file, encoding="utf-8") as f:
             return json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load optimizer summary: {e}")
@@ -367,39 +376,41 @@ def _load_validation_report(results_path: Path) -> tuple:
         or unreadable files yield ([], True) so downstream report code can
         treat the absence as "no issues to surface".
     """
-    report_file = results_path / 'step4_improved_df_validation.json'
+    report_file = results_path / "step4_improved_df_validation.json"
     if not report_file.exists():
         return [], True
     try:
-        with open(report_file, encoding='utf-8') as f:
+        with open(report_file, encoding="utf-8") as f:
             data = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Failed to load validation report: {e}")
         return [], True
-    issues = data.get('issues', []) if isinstance(data, dict) else []
-    ok = bool(data.get('ok', True)) if isinstance(data, dict) else True
+    issues = data.get("issues", []) if isinstance(data, dict) else []
+    ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
     # Normalise: ensure each issue has level/code/detail strings.
     normalised = []
     for it in issues:
         if not isinstance(it, dict):
             continue
-        normalised.append({
-            'level': str(it.get('level', 'warning')),
-            'code': str(it.get('code', 'unknown')),
-            'detail': str(it.get('detail', '')),
-        })
+        normalised.append(
+            {
+                "level": str(it.get("level", "warning")),
+                "code": str(it.get("code", "unknown")),
+                "detail": str(it.get("detail", "")),
+            }
+        )
     return normalised, ok
 
 
 def _extract_genome_info(params: Dict, prefix: str) -> Optional[GenomeInfo]:
     """Extract genome info from params or file metadata."""
-    genome_file = params.get(f'{prefix}_genome', params.get(f'{prefix}', ''))
+    genome_file = params.get(f"{prefix}_genome", params.get(f"{prefix}", ""))
     if not genome_file:
         return None
 
     # Try to get size and GC from params
-    size = params.get(f'{prefix}_size', 0)
-    gc = params.get(f'{prefix}_gc', 0)
+    size = params.get(f"{prefix}_size", 0)
+    gc = params.get(f"{prefix}_gc", 0)
 
     name = Path(genome_file).stem if genome_file else prefix
 
@@ -423,7 +434,7 @@ def _calculate_coverage_metrics(
     # and genome size using a simplified model.
 
     # Get genome size
-    fg_size = params.get('fg_size', params.get('foreground_size', 0))
+    fg_size = params.get("fg_size", params.get("foreground_size", 0))
     if fg_size > 0:
         coverage.total_bases = fg_size
 
@@ -454,8 +465,8 @@ def _calculate_specificity_metrics(
     bg_sites = sum(p.bg_sites for p in primers)
 
     # Calculate densities
-    fg_size = params.get('fg_size', params.get('foreground_size', 1))
-    bg_size = params.get('bg_size', params.get('background_size', 1))
+    fg_size = params.get("fg_size", params.get("foreground_size", 1))
+    bg_size = params.get("bg_size", params.get("background_size", 1))
 
     target_density = (target_sites / fg_size) * 1_000_000 if fg_size > 0 else 0
     bg_density = (bg_sites / bg_size) * 1_000_000 if bg_size > 0 else 0
@@ -501,8 +512,8 @@ def _calculate_thermodynamic_metrics(
         min_tm=min(tms),
         max_tm=max(tms),
         tm_range=max(tms) - min(tms),
-        reaction_temp=_safe_float(params.get('reaction_temp', 30.0), default=30.0),
-        polymerase=str(params.get('polymerase', 'phi29')),
+        reaction_temp=_safe_float(params.get("reaction_temp", 30.0), default=30.0),
+        polymerase=str(params.get("polymerase", "phi29")),
         max_heterodimer_dg=worst_dimer_dg,
         dimer_risk_level=risk_level,
     )
@@ -574,12 +585,12 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     metrics.parameters = _load_params(results_path)
 
     # Extract genome info
-    metrics.target_genome = _extract_genome_info(metrics.parameters, 'fg')
-    metrics.background_genome = _extract_genome_info(metrics.parameters, 'bg')
+    metrics.target_genome = _extract_genome_info(metrics.parameters, "fg")
+    metrics.background_genome = _extract_genome_info(metrics.parameters, "bg")
 
     # Load primer data (prefer step4, fall back to step3, then step2)
     primer_rows = []
-    for step_file in ['step4_improved_df.csv', 'step3_df.csv', 'step2_df.csv']:
+    for step_file in ["step4_improved_df.csv", "step3_df.csv", "step2_df.csv"]:
         filepath = results_path / step_file
         if filepath.exists():
             primer_rows = _load_csv(filepath)
@@ -591,56 +602,52 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     metrics.primer_count = len(metrics.primers)
 
     # Calculate derived metrics
-    metrics.coverage = _calculate_coverage_metrics(
-        metrics.primers, metrics.parameters
-    )
-    metrics.specificity = _calculate_specificity_metrics(
-        metrics.primers, metrics.parameters
-    )
-    metrics.thermodynamics = _calculate_thermodynamic_metrics(
-        metrics.primers, metrics.parameters
-    )
+    metrics.coverage = _calculate_coverage_metrics(metrics.primers, metrics.parameters)
+    metrics.specificity = _calculate_specificity_metrics(metrics.primers, metrics.parameters)
+    metrics.thermodynamics = _calculate_thermodynamic_metrics(metrics.primers, metrics.parameters)
     metrics.uniformity = _calculate_uniformity_metrics(metrics.primers)
 
     # Load optimizer summary for real metrics
     optimizer_summary = _load_optimizer_summary(results_path)
-    if optimizer_summary and 'metrics' in optimizer_summary:
-        opt_metrics = optimizer_summary['metrics']
+    if optimizer_summary and "metrics" in optimizer_summary:
+        opt_metrics = optimizer_summary["metrics"]
         # Override estimated coverage with real optimizer data
-        if 'fg_coverage' in opt_metrics:
-            metrics.coverage.overall_coverage = opt_metrics['fg_coverage']
+        if "fg_coverage" in opt_metrics:
+            metrics.coverage.overall_coverage = opt_metrics["fg_coverage"]
             metrics.coverage.from_optimizer = True
-            metrics.coverage.extension_reach = opt_metrics.get('extension_reach')
+            metrics.coverage.extension_reach = opt_metrics.get("extension_reach")
             if metrics.coverage.total_bases > 0:
                 metrics.coverage.covered_bases = int(
-                    opt_metrics['fg_coverage'] * metrics.coverage.total_bases
+                    opt_metrics["fg_coverage"] * metrics.coverage.total_bases
                 )
         # Add gap metrics
-        metrics.coverage.mean_gap = opt_metrics.get('mean_gap', 0.0)
-        metrics.coverage.max_gap = opt_metrics.get('max_gap', 0.0)
-        metrics.coverage.gap_gini = opt_metrics.get('gap_gini', 0.0)
-        metrics.coverage.gap_entropy = opt_metrics.get('gap_entropy', 0.0)
+        metrics.coverage.mean_gap = opt_metrics.get("mean_gap", 0.0)
+        metrics.coverage.max_gap = opt_metrics.get("max_gap", 0.0)
+        metrics.coverage.gap_gini = opt_metrics.get("gap_gini", 0.0)
+        metrics.coverage.gap_entropy = opt_metrics.get("gap_entropy", 0.0)
         logger.info("Using real optimizer metrics for coverage data")
 
     # Load validator report so the HTML can surface warnings
     # (per_target_coverage_below_threshold, blacklist_primer_in_set,
     # set_size_mismatch, duplicate_primers, ...) that the optimizer
     # writes to JSON.
-    metrics.validation_issues, metrics.validation_ok = _load_validation_report(
-        results_path
-    )
+    metrics.validation_issues, metrics.validation_ok = _load_validation_report(results_path)
 
     # Try to load filtering stats if available
-    filter_stats_file = results_path / 'filter_stats.json'
+    filter_stats_file = results_path / "filter_stats.json"
     if filter_stats_file.exists():
         try:
-            with open(filter_stats_file, encoding='utf-8') as f:
+            with open(filter_stats_file, encoding="utf-8") as f:
                 stats = json.load(f)
                 # Only use fields that FilteringStats accepts
                 valid_fields = {
-                    'total_kmers', 'after_frequency', 'after_background',
-                    'after_gini', 'after_thermodynamic', 'after_complexity',
-                    'final_candidates'
+                    "total_kmers",
+                    "after_frequency",
+                    "after_background",
+                    "after_gini",
+                    "after_thermodynamic",
+                    "after_complexity",
+                    "final_candidates",
                 }
                 filtered_stats = {k: v for k, v in stats.items() if k in valid_fields}
                 metrics.filtering = FilteringStats(**filtered_stats)

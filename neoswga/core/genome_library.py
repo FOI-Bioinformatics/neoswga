@@ -57,35 +57,35 @@ class GenomeLibraryEntry:
     def to_dict(self) -> dict:
         """Serialize to dictionary."""
         return {
-            'name': self.name,
-            'species': self.species,
-            'fasta_path': self.fasta_path,
-            'genome_size': self.genome_size,
-            'gc_content': self.gc_content,
-            'role': self.role,
-            'kmer_dir': self.kmer_dir,
-            'kmer_prefix': self.kmer_prefix,
-            'computed_k_ranges': [list(r) for r in self.computed_k_ranges],
-            'bloom_path': self.bloom_path,
-            'created_date': self.created_date,
+            "name": self.name,
+            "species": self.species,
+            "fasta_path": self.fasta_path,
+            "genome_size": self.genome_size,
+            "gc_content": self.gc_content,
+            "role": self.role,
+            "kmer_dir": self.kmer_dir,
+            "kmer_prefix": self.kmer_prefix,
+            "computed_k_ranges": [list(r) for r in self.computed_k_ranges],
+            "bloom_path": self.bloom_path,
+            "created_date": self.created_date,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'GenomeLibraryEntry':
+    def from_dict(cls, data: dict) -> "GenomeLibraryEntry":
         """Deserialize from dictionary."""
-        ranges = [tuple(r) for r in data.get('computed_k_ranges', [])]
+        ranges = [tuple(r) for r in data.get("computed_k_ranges", [])]
         return cls(
-            name=data['name'],
-            species=data.get('species', ''),
-            fasta_path=data['fasta_path'],
-            genome_size=data.get('genome_size', 0),
-            gc_content=data.get('gc_content', 0.0),
-            role=data.get('role', 'bg'),
-            kmer_dir=data.get('kmer_dir', ''),
-            kmer_prefix=data.get('kmer_prefix', ''),
+            name=data["name"],
+            species=data.get("species", ""),
+            fasta_path=data["fasta_path"],
+            genome_size=data.get("genome_size", 0),
+            gc_content=data.get("gc_content", 0.0),
+            role=data.get("role", "bg"),
+            kmer_dir=data.get("kmer_dir", ""),
+            kmer_prefix=data.get("kmer_prefix", ""),
             computed_k_ranges=ranges,
-            bloom_path=data.get('bloom_path'),
-            created_date=data.get('created_date', ''),
+            bloom_path=data.get("bloom_path"),
+            created_date=data.get("created_date", ""),
         )
 
 
@@ -104,13 +104,13 @@ class GenomeLibrary:
                 ~/.neoswga/genomes/.
         """
         if library_dir is None:
-            library_dir = str(Path.home() / '.neoswga' / 'genomes')
+            library_dir = str(Path.home() / ".neoswga" / "genomes")
         self.library_dir = library_dir
         os.makedirs(self.library_dir, exist_ok=True)
 
     def _metadata_path(self, name: str) -> str:
         """Path to metadata JSON for a genome entry."""
-        return os.path.join(self.library_dir, name, 'metadata.json')
+        return os.path.join(self.library_dir, name, "metadata.json")
 
     def _load_entry(self, name: str) -> Optional[GenomeLibraryEntry]:
         """Load a single entry from its metadata file."""
@@ -130,17 +130,17 @@ class GenomeLibrary:
         entry_dir = os.path.join(self.library_dir, entry.name)
         os.makedirs(entry_dir, exist_ok=True)
         meta_path = self._metadata_path(entry.name)
-        with open(meta_path, 'w') as f:
+        with open(meta_path, "w") as f:
             json.dump(entry.to_dict(), f, indent=2)
 
     def add(
         self,
         name: str,
         fasta_path: str,
-        role: str = 'bg',
-        species: str = '',
+        role: str = "bg",
+        species: str = "",
         k_ranges: Optional[List[Tuple[int, int]]] = None,
-        build_bloom: str = 'auto',
+        build_bloom: str = "auto",
     ) -> GenomeLibraryEntry:
         """Add a genome to the library and pre-calculate k-mer data.
 
@@ -168,16 +168,14 @@ class GenomeLibrary:
         os.makedirs(entry_dir, exist_ok=True)
 
         # Symlink FASTA into library directory
-        link_path = os.path.join(entry_dir, 'genome.fna')
+        link_path = os.path.join(entry_dir, "genome.fna")
         if os.path.exists(link_path) or os.path.islink(link_path):
             os.remove(link_path)
         os.symlink(fasta_path, link_path)
 
         # Calculate genome stats
         genome_size, gc_content = self._calculate_genome_stats(fasta_path)
-        logger.info(
-            f"Genome '{name}': {genome_size:,} bp, GC={gc_content:.1%}"
-        )
+        logger.info(f"Genome '{name}': {genome_size:,} bp, GC={gc_content:.1%}")
 
         # K-mer prefix
         kmer_prefix = os.path.join(entry_dir, name)
@@ -185,9 +183,7 @@ class GenomeLibrary:
         # Run Jellyfish for each k-range
         computed_ranges: List[Tuple[int, int]] = []
         for min_k, max_k in k_ranges:
-            logger.info(
-                f"Computing k-mers for {name} (k={min_k}-{max_k})..."
-            )
+            logger.info(f"Computing k-mers for {name} (k={min_k}-{max_k})...")
             try:
                 from neoswga.core.kmer_counter import run_jellyfish
 
@@ -198,12 +194,9 @@ class GenomeLibrary:
 
         # Optional Bloom filter
         bloom_path: Optional[str] = None
-        should_bloom = (
-            build_bloom == 'yes'
-            or (build_bloom == 'auto' and genome_size > 50_000_000)
-        )
+        should_bloom = build_bloom == "yes" or (build_bloom == "auto" and genome_size > 50_000_000)
         if should_bloom:
-            bloom_path = os.path.join(entry_dir, 'bloom.pkl')
+            bloom_path = os.path.join(entry_dir, "bloom.pkl")
             logger.info(f"Building Bloom filter for {name}...")
             try:
                 from neoswga.core.background_filter import (
@@ -310,9 +303,7 @@ class GenomeLibrary:
                 return False
         return True
 
-    def _calculate_genome_stats(
-        self, fasta_path: str
-    ) -> Tuple[int, float]:
+    def _calculate_genome_stats(self, fasta_path: str) -> Tuple[int, float]:
         """Calculate genome size and GC content from FASTA.
 
         Args:
@@ -327,7 +318,7 @@ class GenomeLibrary:
             loader = GenomeLoader()
             sequence = loader.load_genome(fasta_path, return_stats=False)
             seq_upper = sequence.upper()
-            gc_count = seq_upper.count('G') + seq_upper.count('C')
+            gc_count = seq_upper.count("G") + seq_upper.count("C")
             total = len(seq_upper)
             gc = gc_count / total if total > 0 else 0.0
             return total, gc

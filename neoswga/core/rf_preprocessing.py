@@ -33,34 +33,38 @@ Pre-trained model (random_forest_filter.p):
     RestrictedUnpickler to limit code execution risk.
 """
 
-from neoswga.core import utility as _utility
-import pandas as pd
-from functools import partial
-from neoswga.core import parameter
-import numpy as np
-import pickle
 import hashlib
-from neoswga.core.melting_temp import temp as _melting_temp
+import logging
 import os
+import pickle
 import sys
+import warnings
 from bisect import bisect_right
-from neoswga.core.kmer_counter import get_kmer_to_count_dict
+from functools import partial
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 import sklearn
 import sklearn.ensemble
-import warnings
-import logging
-from typing import Dict, List, Optional, Tuple
+
+from neoswga.core import parameter
+from neoswga.core import utility as _utility
+from neoswga.core.kmer_counter import get_kmer_to_count_dict
+from neoswga.core.melting_temp import temp as _melting_temp
 
 # =============================================================================
 # Secure Model Loading
 # =============================================================================
+
 
 # Known SHA-256 hashes of trusted model files.
 # Maintained in neoswga/core/models/checksums.json so retraining or adding
 # per-polymerase models does not require touching this file.
 def _load_trusted_model_hashes() -> Dict[str, str]:
     import json
-    path = os.path.join(os.path.dirname(__file__), 'models', 'checksums.json')
+
+    path = os.path.join(os.path.dirname(__file__), "models", "checksums.json")
     try:
         with open(path) as f:
             data = json.load(f)
@@ -70,7 +74,7 @@ def _load_trusted_model_hashes() -> Dict[str, str]:
             f"Model integrity verification will be skipped."
         )
         return {}
-    return {k: v for k, v in data.items() if not k.startswith('_')}
+    return {k: v for k, v in data.items() if not k.startswith("_")}
 
 
 _TRUSTED_MODEL_HASHES = _load_trusted_model_hashes()
@@ -81,6 +85,7 @@ _VERIFY_MODEL_HASHES = True
 
 class ModelIntegrityError(Exception):
     """Raised when model file hash verification fails."""
+
     pass
 
 
@@ -132,16 +137,15 @@ def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
                 f"To update the hash after retraining, edit "
                 f"neoswga/core/models/checksums.json"
             )
-        logging.getLogger(__name__).debug(
-            f"Model hash verified: {model_name}"
-        )
+        logging.getLogger(__name__).debug(f"Model hash verified: {model_name}")
     elif verify_hash:
         logging.getLogger(__name__).warning(
             f"No trusted hash for model: {model_name}. Loading without verification."
         )
 
     from neoswga.core.safe_pickle import safe_load
-    return safe_load(model_path, context='sklearn_model')
+
+    return safe_load(model_path, context="sklearn_model")
 
 
 # Module-level k-mer cache for performance
@@ -153,8 +157,13 @@ _worker_fnames: List[str] = []
 _worker_k: int = 0
 
 
-def _init_kmer_worker(fnames: List[str], k: int, sampling_enabled: bool = False,
-                      sample_rate: float = 0.1, min_count_threshold: int = 5) -> None:
+def _init_kmer_worker(
+    fnames: List[str],
+    k: int,
+    sampling_enabled: bool = False,
+    sample_rate: float = 0.1,
+    min_count_threshold: int = 5,
+) -> None:
     """
     Worker initializer to preload k-mer files and set sampling parameters.
 
@@ -194,27 +203,29 @@ def _init_kmer_worker(fnames: List[str], k: int, sampling_enabled: bool = False,
                 _kmer_cache[cache_key] = {}
                 logger.warning(f"K-mer file not found: {fpath}")
 
+
 # Fix for sklearn >= 1.0 compatibility with models pickled on older versions
 # Several internal modules were renamed with underscore prefix in sklearn 1.0
 def _fix_sklearn_module_aliases():
     """Add module aliases for sklearn modules renamed in version 1.0+."""
     module_mappings = [
-        ('sklearn.ensemble.forest', 'sklearn.ensemble._forest'),
-        ('sklearn.ensemble.weight_boosting', 'sklearn.ensemble._weight_boosting'),
-        ('sklearn.tree.tree', 'sklearn.tree._classes'),
-        ('sklearn.neighbors.typedefs', 'sklearn.neighbors._typedefs'),
-        ('sklearn.utils.weight_vector', 'sklearn.utils._weight_vector'),
+        ("sklearn.ensemble.forest", "sklearn.ensemble._forest"),
+        ("sklearn.ensemble.weight_boosting", "sklearn.ensemble._weight_boosting"),
+        ("sklearn.tree.tree", "sklearn.tree._classes"),
+        ("sklearn.neighbors.typedefs", "sklearn.neighbors._typedefs"),
+        ("sklearn.utils.weight_vector", "sklearn.utils._weight_vector"),
     ]
     for old_name, new_name in module_mappings:
         try:
             # Import the new module location
-            parts = new_name.split('.')
+            parts = new_name.split(".")
             mod = __import__(new_name)
             for part in parts[1:]:
                 mod = getattr(mod, part)
             sys.modules[old_name] = mod
         except (ImportError, AttributeError):
             pass  # Module not available or already exists
+
 
 _fix_sklearn_module_aliases()
 
@@ -224,7 +235,34 @@ from neoswga.core import thermodynamics as thermo
 logger = logging.getLogger(__name__)
 
 # Names of the features not including the thermodynamic features
-base_features = ['molarity', 'sequence.length', 'number.of.A', 'proportion.of.A', 'number.of.T', 'proportion.of.T', 'number.of.G', 'proportion.of.G', 'number.of.C', 'proportion.of.C', 'GC.content', 'melting_tm', 'GC.clamp', 'longest.A.repeat', 'longest.T.repeat', 'longest.G.repeat', 'longest.C.repeat', 'AA repeat', 'CC repeat', 'TT repeat', 'GG repeat', '3.end.first.base', '3.end.second.base', '3.end.third.base', '3.end.fourth.base', '3.end.fifth.base']
+base_features = [
+    "molarity",
+    "sequence.length",
+    "number.of.A",
+    "proportion.of.A",
+    "number.of.T",
+    "proportion.of.T",
+    "number.of.G",
+    "proportion.of.G",
+    "number.of.C",
+    "proportion.of.C",
+    "GC.content",
+    "melting_tm",
+    "GC.clamp",
+    "longest.A.repeat",
+    "longest.T.repeat",
+    "longest.G.repeat",
+    "longest.C.repeat",
+    "AA repeat",
+    "CC repeat",
+    "TT repeat",
+    "GG repeat",
+    "3.end.first.base",
+    "3.end.second.base",
+    "3.end.third.base",
+    "3.end.fourth.base",
+    "3.end.fifth.base",
+]
 
 # =============================================================================
 # Thermodynamic Delta-G Histogram Bins
@@ -238,22 +276,46 @@ base_features = ['molarity', 'sequence.length', 'number.of.A', 'proportion.of.A'
 # Finer resolution (0.5 kcal/mol steps) in the -6 to +3 range captures
 # the critical transition zone where binding strength varies significantly.
 DELTA_G_HISTOGRAM_BINS = [
-    -20, -18, -16, -14, -12, -10,  # Coarse bins for strong binding
-    -9, -8, -7, -6,                 # Moderate binding
-    -5.5, -5, -4.5, -4, -3.5, -3,  # Fine resolution transition zone
-    -2.5, -2, -1.5, -1, -0.5,      # Weak binding
-    0, 0.5, 1, 1.5, 2, 2.5, 3      # Unfavorable binding
+    -20,
+    -18,
+    -16,
+    -14,
+    -12,
+    -10,  # Coarse bins for strong binding
+    -9,
+    -8,
+    -7,
+    -6,  # Moderate binding
+    -5.5,
+    -5,
+    -4.5,
+    -4,
+    -3.5,
+    -3,  # Fine resolution transition zone
+    -2.5,
+    -2,
+    -1.5,
+    -1,
+    -0.5,  # Weak binding
+    0,
+    0.5,
+    1,
+    1.5,
+    2,
+    2.5,
+    3,  # Unfavorable binding
 ]
 
 # Backward-compatible alias
 bins = DELTA_G_HISTOGRAM_BINS
 histogram_upper_bound = DELTA_G_HISTOGRAM_BINS[-1]  # +3 kcal/mol
-histogram_lower_bound = DELTA_G_HISTOGRAM_BINS[0]   # -20 kcal/mol
+histogram_lower_bound = DELTA_G_HISTOGRAM_BINS[0]  # -20 kcal/mol
 features = list(base_features)
-delta_g_on_features = ['on_target_' + str(bin) for bin in bins[1:]]
+delta_g_on_features = ["on_target_" + str(bin) for bin in bins[1:]]
 
 # List of all features in the regression
 regression_features = features + delta_g_on_features
+
 
 def get_features(primer, target=None, molarity=2.5):
     """
@@ -268,48 +330,51 @@ def get_features(primer, target=None, molarity=2.5):
         result: A list of all the base feature values, the primer sequence, and whether it is in the on-target genome.
     """
     feature_dict = {}
-    feature_dict['molarity'] = molarity
-    feature_dict['sequence.length'] = len(primer)
+    feature_dict["molarity"] = molarity
+    feature_dict["sequence.length"] = len(primer)
 
-    feature_dict['number.of.A'] = primer.count('A')
-    feature_dict['number.of.G'] = primer.count('G')
-    feature_dict['number.of.T'] = primer.count('T')
-    feature_dict['number.of.C'] = primer.count('C')
+    feature_dict["number.of.A"] = primer.count("A")
+    feature_dict["number.of.G"] = primer.count("G")
+    feature_dict["number.of.T"] = primer.count("T")
+    feature_dict["number.of.C"] = primer.count("C")
 
-    feature_dict['proportion.of.A'] = feature_dict['number.of.A']/feature_dict['sequence.length']
-    feature_dict['proportion.of.G'] = feature_dict['number.of.G'] / feature_dict['sequence.length']
-    feature_dict['proportion.of.T'] = feature_dict['number.of.T'] / feature_dict['sequence.length']
-    feature_dict['proportion.of.C'] = feature_dict['number.of.C'] / feature_dict['sequence.length']
+    feature_dict["proportion.of.A"] = feature_dict["number.of.A"] / feature_dict["sequence.length"]
+    feature_dict["proportion.of.G"] = feature_dict["number.of.G"] / feature_dict["sequence.length"]
+    feature_dict["proportion.of.T"] = feature_dict["number.of.T"] / feature_dict["sequence.length"]
+    feature_dict["proportion.of.C"] = feature_dict["number.of.C"] / feature_dict["sequence.length"]
 
-    feature_dict['GC.content'] = (feature_dict['number.of.G'] + feature_dict['number.of.C'])/ feature_dict['sequence.length']
+    feature_dict["GC.content"] = (
+        feature_dict["number.of.G"] + feature_dict["number.of.C"]
+    ) / feature_dict["sequence.length"]
 
-    feature_dict['longest.A.repeat'] =  _utility.longest_char_repeat(primer,'A')
-    feature_dict['longest.G.repeat'] =  _utility.longest_char_repeat(primer, 'G')
-    feature_dict['longest.T.repeat'] =  _utility.longest_char_repeat(primer, 'T')
-    feature_dict['longest.C.repeat'] =  _utility.longest_char_repeat(primer, 'C')
+    feature_dict["longest.A.repeat"] = _utility.longest_char_repeat(primer, "A")
+    feature_dict["longest.G.repeat"] = _utility.longest_char_repeat(primer, "G")
+    feature_dict["longest.T.repeat"] = _utility.longest_char_repeat(primer, "T")
+    feature_dict["longest.C.repeat"] = _utility.longest_char_repeat(primer, "C")
 
-    feature_dict['AA repeat'] = primer.count('AA')
-    feature_dict['GG repeat'] = primer.count('GG')
-    feature_dict['CC repeat'] = primer.count('CC')
-    feature_dict['TT repeat'] = primer.count('TT')
+    feature_dict["AA repeat"] = primer.count("AA")
+    feature_dict["GG repeat"] = primer.count("GG")
+    feature_dict["CC repeat"] = primer.count("CC")
+    feature_dict["TT repeat"] = primer.count("TT")
 
-    feature_dict['target'] = target
+    feature_dict["target"] = target
 
-    feature_dict['melting_tm'] = _melting_temp(primer)
+    feature_dict["melting_tm"] = _melting_temp(primer)
     # GC clamp: count G and C in the last 5 bases (3' end)
     last_five_end = primer[-5:]  # Fixed: was primer[:-5] which excluded last 5
-    feature_dict['GC.clamp'] = last_five_end.count('C') + last_five_end.count('G')
+    feature_dict["GC.clamp"] = last_five_end.count("C") + last_five_end.count("G")
 
-    feature_dict['3.end.first.base'] =  _utility.char_to_int_dict[primer[-1]]
-    feature_dict['3.end.second.base'] =  _utility.char_to_int_dict[primer[-2]]
-    feature_dict['3.end.third.base'] =  _utility.char_to_int_dict[primer[-3]]
-    feature_dict['3.end.fourth.base'] =  _utility.char_to_int_dict[primer[-4]]
-    feature_dict['3.end.fifth.base'] =  _utility.char_to_int_dict[primer[-5]]
+    feature_dict["3.end.first.base"] = _utility.char_to_int_dict[primer[-1]]
+    feature_dict["3.end.second.base"] = _utility.char_to_int_dict[primer[-2]]
+    feature_dict["3.end.third.base"] = _utility.char_to_int_dict[primer[-3]]
+    feature_dict["3.end.fourth.base"] = _utility.char_to_int_dict[primer[-4]]
+    feature_dict["3.end.fifth.base"] = _utility.char_to_int_dict[primer[-5]]
 
     result = [primer, target]
     for feature in base_features:
         result.append(feature_dict[feature])
     return result
+
 
 def create_base_feature_matrix(primer_list, molarity):
     """
@@ -323,14 +388,17 @@ def create_base_feature_matrix(primer_list, molarity):
         df: The pandas dataframe including the features for the base regression features, the sequence of the primer,
         and whether it exists in the target genome (where the last two features are dropped in regression).
     """
-    get_features_partial = partial(get_features, molarity = molarity)
-    results =  _utility.create_pool(get_features_partial, primer_list, parameter.cpus)
-    f = ['sequence','target']
+    get_features_partial = partial(get_features, molarity=molarity)
+    results = _utility.create_pool(get_features_partial, primer_list, parameter.cpus)
+    f = ["sequence", "target"]
     f.extend(base_features)
     df = pd.DataFrame(results, columns=f)
     return df
 
-def get_all_predicted_delta_G_for_all_files_transformed(primer_list, target, fnames, f_out_name=None):
+
+def get_all_predicted_delta_G_for_all_files_transformed(
+    primer_list, target, fnames, f_out_name=None
+):
     """
     Gets all the predicted thermodynamic values for all the candidate primers (primer_list) in all the genome files.
 
@@ -357,7 +425,7 @@ def get_all_predicted_delta_G_for_all_files_transformed(primer_list, target, fna
 
     # Determine k from primer list (assumes uniform length in batch)
     # Use iloc[0] for pandas Series compatibility
-    first_primer = primer_list.iloc[0] if hasattr(primer_list, 'iloc') else primer_list[0]
+    first_primer = primer_list.iloc[0] if hasattr(primer_list, "iloc") else primer_list[0]
     k = len(first_primer)
 
     seq_initialized_f = partial(get_all_predicted_delta_G_per_primer_transformed, fnames=fnames)
@@ -368,14 +436,16 @@ def get_all_predicted_delta_G_for_all_files_transformed(primer_list, target, fna
     sampling_msg = ""
     if _sampling_enabled:
         sampling_msg = f" (sampling {_sample_rate*100:.0f}%)"
-    logger.info(f"Scoring {len(primer_list)} primers ({k}bp) using {parameter.cpus} workers{sampling_msg}...")
+    logger.info(
+        f"Scoring {len(primer_list)} primers ({k}bp) using {parameter.cpus} workers{sampling_msg}..."
+    )
     arr_transformed = _utility.create_pool_with_progress(
         seq_initialized_f,
         primer_list,
         parameter.cpus,
         desc=f"Scoring {k}bp primers",
         initializer=_init_kmer_worker,
-        initargs=(fnames, k, _sampling_enabled, _sample_rate, _min_count_threshold)
+        initargs=(fnames, k, _sampling_enabled, _sample_rate, _min_count_threshold),
     )
 
     if target:
@@ -390,6 +460,7 @@ def get_all_predicted_delta_G_for_all_files_transformed(primer_list, target, fna
             pickle.dump(df, fh)
 
     return df
+
 
 def get_cached_kmer_dict(fname_prefix: str, k: int) -> Dict[str, int]:
     """
@@ -447,6 +518,7 @@ _min_count_threshold: int = 5  # Always include k-mers with count >= threshold
 # without disturbing the global `random` state. Seeded via
 # set_kmer_sampling_seed(); unseeded by default (preserves prior behaviour).
 import random as _random
+
 _RNG = _random.Random()
 
 
@@ -518,6 +590,7 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
         between the primer and all possible kmers in the genome files.
     """
     import random
+
     k = len(primer)
 
     # Pre-compute primer transformations once (instead of per k-mer)
@@ -540,10 +613,7 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
             scale_factor = 1.0 / _sample_rate
 
         # Pre-compute all k-mer complements before inner loop
-        kmer_complements = {
-            kmer_i: _utility.complement(kmer_i)
-            for kmer_i in kmer_dict
-        }
+        kmer_complements = {kmer_i: _utility.complement(kmer_i) for kmer_i in kmer_dict}
 
         # Process k-mers (with optional sampling)
         for kmer_i, count in kmer_dict.items():
@@ -592,8 +662,15 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
 
     return all_delta_G_vals.tolist()
 
-def create_augmented_df(fg_fnames, primer_list=None, feature_matrix=None,
-                        delta_G_matrix=None, molarity=None, skip_delta_g=False):
+
+def create_augmented_df(
+    fg_fnames,
+    primer_list=None,
+    feature_matrix=None,
+    delta_G_matrix=None,
+    molarity=None,
+    skip_delta_g=False,
+):
     """
     Creates the feature matrix including the thermodynamic features.
 
@@ -619,19 +696,20 @@ def create_augmented_df(fg_fnames, primer_list=None, feature_matrix=None,
         # Fast mode: create zero delta-G matrix (same columns, all zeros)
         logger.info("Fast scoring: skipping delta-G computation")
         n_primers = len(feature_matrix)
-        delta_G_matrix = pd.DataFrame(
-            0.0, index=range(n_primers), columns=delta_g_on_features
-        )
+        delta_G_matrix = pd.DataFrame(0.0, index=range(n_primers), columns=delta_g_on_features)
     elif delta_G_matrix is None:
         logger.debug("delta G matrix was none, computing thermodynamic features")
         if primer_list is None:
-            primer_list = feature_matrix['sequence']
+            primer_list = feature_matrix["sequence"]
 
-        delta_G_matrix = get_all_predicted_delta_G_for_all_files_transformed(primer_list, True, fg_fnames)
+        delta_G_matrix = get_all_predicted_delta_G_for_all_files_transformed(
+            primer_list, True, fg_fnames
+        )
         logger.debug("Done computing foreground delta G features")
 
     df = pd.concat([feature_matrix, delta_G_matrix], axis=1)
     return df
+
 
 def scale_delta_Gs(df_pred, on_scale=4000):
     """
@@ -647,8 +725,9 @@ def scale_delta_Gs(df_pred, on_scale=4000):
         df_pred: The rescaled dataframe.
 
     """
-    df_pred[delta_g_on_features] = df_pred[delta_g_on_features]/(on_scale)
+    df_pred[delta_g_on_features] = df_pred[delta_g_on_features] / (on_scale)
     return df_pred
+
 
 def _heuristic_primer_score(row):
     """
@@ -668,7 +747,7 @@ def _heuristic_primer_score(row):
     score = 10.0  # baseline
 
     # Melting temperature contribution (optimal range 25-45C)
-    tm = row.get('melting_tm', 30.0)
+    tm = row.get("melting_tm", 30.0)
     if 30 <= tm <= 42:
         score += 2.0  # optimal range
     elif 25 <= tm < 30 or 42 < tm <= 50:
@@ -677,7 +756,7 @@ def _heuristic_primer_score(row):
         score -= 2.0  # suboptimal
 
     # GC content contribution (optimal 40-60%)
-    gc = row.get('GC.content', 0.5)
+    gc = row.get("GC.content", 0.5)
     if 0.4 <= gc <= 0.6:
         score += 2.0
     elif 0.3 <= gc < 0.4 or 0.6 < gc <= 0.7:
@@ -686,12 +765,12 @@ def _heuristic_primer_score(row):
         score -= 1.0
 
     # 3' end stability (G or C at 3' end)
-    end_base = row.get('3.end.first.base', 0)
+    end_base = row.get("3.end.first.base", 0)
     if end_base in [2, 3]:  # G or C (encoded as 2 or 3)
         score += 1.0
 
     # GC clamp contribution
-    gc_clamp = row.get('GC.clamp', 0)
+    gc_clamp = row.get("GC.clamp", 0)
     if 1 <= gc_clamp <= 3:
         score += 1.0
     elif gc_clamp > 4:
@@ -699,10 +778,10 @@ def _heuristic_primer_score(row):
 
     # Repeat penalty (long homopolymers are bad)
     max_repeat = max(
-        row.get('longest.A.repeat', 0),
-        row.get('longest.T.repeat', 0),
-        row.get('longest.G.repeat', 0),
-        row.get('longest.C.repeat', 0)
+        row.get("longest.A.repeat", 0),
+        row.get("longest.T.repeat", 0),
+        row.get("longest.G.repeat", 0),
+        row.get("longest.C.repeat", 0),
     )
     if max_repeat >= 4:
         score -= 2.0
@@ -739,7 +818,7 @@ def predict_new_primers(df):
         output_df: The predicted amplification scores.
 
     """
-    warnings.filterwarnings('ignore')
+    warnings.filterwarnings("ignore")
 
     X_test = df[regression_features].copy()
     nan_cols = X_test.columns[X_test.isna().any()].tolist()
@@ -757,8 +836,8 @@ def predict_new_primers(df):
             X_test = X_test.drop(columns=still_nan)
 
     # Use __file__ to find model relative to this module
-    model_dir = os.path.join(os.path.dirname(__file__), 'models')
-    model_path = os.path.join(model_dir, 'random_forest_filter.p')
+    model_dir = os.path.join(os.path.dirname(__file__), "models")
+    model_path = os.path.join(model_dir, "random_forest_filter.p")
 
     try:
         # SECURE: Use load_model_safely with hash verification
@@ -775,21 +854,26 @@ def predict_new_primers(df):
         # Fallback to heuristic scoring when model fails to load
         # This can happen with sklearn version incompatibility
         logger.warning(f"Random forest model loading failed: {e}")
-        logger.warning("Using heuristic-based scoring as fallback. "
-                      "To use ML scoring, retrain model with current sklearn version.")
+        logger.warning(
+            "Using heuristic-based scoring as fallback. "
+            "To use ML scoring, retrain model with current sklearn version."
+        )
         # Apply heuristic scoring to each row
         y_pred = df.apply(_heuristic_primer_score, axis=1).values
 
-    output_df = pd.DataFrame(y_pred, columns=['on.target.pred'])
+    output_df = pd.DataFrame(y_pred, columns=["on.target.pred"])
     output_df = pd.concat([output_df, df], axis=1)
     return output_df
+
 
 # ============================================================
 # Enhanced Feature Engineering Support (120+ features)
 # ============================================================
 
-def predict_with_enhanced_features(primer_list, fg_genome_sequence, conditions=None,
-                                   primer_positions=None, model_path=None):
+
+def predict_with_enhanced_features(
+    primer_list, fg_genome_sequence, conditions=None, primer_positions=None, model_path=None
+):
     """
     Predict primer scores using enhanced 120+ feature model.
 
@@ -824,8 +908,8 @@ def predict_with_enhanced_features(primer_list, fg_genome_sequence, conditions=N
 
     # Load enhanced model
     if model_path is None:
-        model_dir = os.path.join(os.path.dirname(__file__), 'models')
-        model_path = os.path.join(model_dir, 'enhanced_rf_model.pkl')
+        model_dir = os.path.join(os.path.dirname(__file__), "models")
+        model_path = os.path.join(model_dir, "enhanced_rf_model.pkl")
 
     if not os.path.exists(model_path):
         logger.warning(f"Enhanced model not found at {model_path}")
@@ -840,8 +924,8 @@ def predict_with_enhanced_features(primer_list, fg_genome_sequence, conditions=N
         logger.warning(f"Failed to load enhanced model: {e}")
         return None
 
-    model = model_data['model']
-    feature_names = model_data['feature_names']
+    model = model_data["model"]
+    feature_names = model_data["feature_names"]
     logger.info(f"Loaded enhanced model with {len(feature_names)} features")
 
     # Prepare features for prediction
@@ -864,13 +948,13 @@ def predict_with_enhanced_features(primer_list, fg_genome_sequence, conditions=N
 
     # Build output DataFrame
     output_df = features_df.copy()
-    output_df['enhanced_prediction'] = predictions
+    output_df["enhanced_prediction"] = predictions
 
     # Convert log predictions back to linear scale if needed
-    if 'log_enrichment' in str(model_data.get('metadata', {}).get('target_variable', '')):
-        output_df['predicted_enrichment'] = 10 ** predictions
+    if "log_enrichment" in str(model_data.get("metadata", {}).get("target_variable", "")):
+        output_df["predicted_enrichment"] = 10**predictions
     else:
-        output_df['predicted_enrichment'] = predictions
+        output_df["predicted_enrichment"] = predictions
 
     logger.info(f"Enhanced prediction complete")
     logger.info(f"Prediction range: [{predictions.min():.3f}, {predictions.max():.3f}]")
@@ -878,9 +962,15 @@ def predict_with_enhanced_features(primer_list, fg_genome_sequence, conditions=N
     return output_df
 
 
-def predict_new_primers_enhanced(df=None, primer_list=None, fg_genome_sequence=None,
-                                 conditions=None, primer_positions=None,
-                                 use_enhanced=True, model_path=None):
+def predict_new_primers_enhanced(
+    df=None,
+    primer_list=None,
+    fg_genome_sequence=None,
+    conditions=None,
+    primer_positions=None,
+    use_enhanced=True,
+    model_path=None,
+):
     """
     Unified prediction function supporting both standard and enhanced models.
 
@@ -903,8 +993,7 @@ def predict_new_primers_enhanced(df=None, primer_list=None, fg_genome_sequence=N
             raise ValueError("fg_genome_sequence required for enhanced mode")
 
         result = predict_with_enhanced_features(
-            primer_list, fg_genome_sequence, conditions,
-            primer_positions, model_path
+            primer_list, fg_genome_sequence, conditions, primer_positions, model_path
         )
 
         if result is not None:
@@ -930,8 +1019,8 @@ def is_enhanced_model_available(model_path=None):
         True if enhanced model exists
     """
     if model_path is None:
-        model_dir = os.path.join(os.path.dirname(__file__), 'models')
-        model_path = os.path.join(model_dir, 'enhanced_rf_model.pkl')
+        model_dir = os.path.join(os.path.dirname(__file__), "models")
+        model_path = os.path.join(model_dir, "enhanced_rf_model.pkl")
     return os.path.exists(model_path)
 
 
@@ -946,8 +1035,8 @@ def get_enhanced_model_info(model_path=None):
         Dict with model info or None if not available
     """
     if model_path is None:
-        model_dir = os.path.join(os.path.dirname(__file__), 'models')
-        model_path = os.path.join(model_dir, 'enhanced_rf_model.pkl')
+        model_dir = os.path.join(os.path.dirname(__file__), "models")
+        model_path = os.path.join(model_dir, "enhanced_rf_model.pkl")
 
     if not os.path.exists(model_path):
         return None
@@ -960,15 +1049,15 @@ def get_enhanced_model_info(model_path=None):
         return None
 
     return {
-        'n_features': len(model_data.get('feature_names', [])),
-        'metrics': model_data.get('metrics', {}),
-        'metadata': model_data.get('metadata', {}),
-        'version': model_data.get('version', 'unknown')
+        "n_features": len(model_data.get("feature_names", [])),
+        "metrics": model_data.get("metrics", {}),
+        "metadata": model_data.get("metadata", {}),
+        "version": model_data.get("version", "unknown"),
     }
 
 
 if __name__ == "__main__":
-    pd.set_option('display.max_columns', 500)
+    pd.set_option("display.max_columns", 500)
 
     # Check enhanced model status
     if is_enhanced_model_available():
@@ -981,6 +1070,6 @@ if __name__ == "__main__":
         print("Run: python scripts/train_enhanced_rf.py --help")
 
     # Standard mode example
-    myco_prefixes = [parameter.data_dir + 'kmer_files/myco']
+    myco_prefixes = [parameter.data_dir + "kmer_files/myco"]
     print("\nStandard feature example:")
-    print(create_augmented_df(myco_prefixes, ['ACAACC','TACGTCA'], molarity=2.5))
+    print(create_augmented_df(myco_prefixes, ["ACAACC", "TACGTCA"], molarity=2.5))

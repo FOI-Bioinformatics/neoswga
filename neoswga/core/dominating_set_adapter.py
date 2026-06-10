@@ -21,18 +21,22 @@ Use when:
 - Background filtering can be done separately
 """
 
-from dataclasses import dataclass
-from typing import List, Dict, Optional, Set
 import logging
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set
+
 import numpy as np
 
 from .base_optimizer import (
-    BaseOptimizer, OptimizationResult, OptimizationStatus,
-    PrimerSetMetrics, OptimizerConfig
+    BaseOptimizer,
+    OptimizationResult,
+    OptimizationStatus,
+    OptimizerConfig,
+    PrimerSetMetrics,
 )
-from .optimizer_factory import OptimizerFactory
 from .dominating_set_optimizer import DominatingSetOptimizer
 from .exceptions import NoCandidatesError
+from .optimizer_factory import OptimizerFactory
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +44,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class DominatingSetConfig(OptimizerConfig):
     """Configuration for dominating set optimizer."""
+
     bin_size: int = 10000  # Size of genome bins
     use_ilp: bool = False  # Use ILP for exact solution
     ilp_timeout: int = 300  # ILP solver timeout in seconds
 
 
-@OptimizerFactory.register('dominating-set', aliases=['ds', 'set-cover'])
+@OptimizerFactory.register("dominating-set", aliases=["ds", "set-cover"])
 class DominatingSetAdapter(BaseOptimizer):
     """
     Dominating set optimizer implementing BaseOptimizer interface.
@@ -77,14 +82,20 @@ class DominatingSetAdapter(BaseOptimizer):
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[DominatingSetConfig] = None,
         conditions=None,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(
-            position_cache, fg_prefixes, fg_seq_lengths,
-            bg_prefixes, bg_seq_lengths, config or DominatingSetConfig(),
+            position_cache,
+            fg_prefixes,
+            fg_seq_lengths,
+            bg_prefixes,
+            bg_seq_lengths,
+            config or DominatingSetConfig(),
             conditions=conditions,
         )
-        self.ds_config = config if isinstance(config, DominatingSetConfig) else DominatingSetConfig()
+        self.ds_config = (
+            config if isinstance(config, DominatingSetConfig) else DominatingSetConfig()
+        )
 
         # Delegate to the original DominatingSetOptimizer
         self._optimizer = DominatingSetOptimizer(
@@ -111,10 +122,7 @@ class DominatingSetAdapter(BaseOptimizer):
         return False  # This optimizer focuses on foreground coverage only
 
     def optimize(
-        self,
-        candidates: List[str],
-        target_size: Optional[int] = None,
-        **kwargs
+        self, candidates: List[str], target_size: Optional[int] = None, **kwargs
     ) -> OptimizationResult:
         """
         Find optimal primer set using greedy set cover.
@@ -142,19 +150,18 @@ class DominatingSetAdapter(BaseOptimizer):
         )
 
         # Compute metrics
-        metrics = self.compute_metrics(result['primers'])
+        metrics = self.compute_metrics(result["primers"])
 
         status = OptimizationStatus.SUCCESS
-        if result['coverage'] < 0.95:
+        if result["coverage"] < 0.95:
             status = OptimizationStatus.PARTIAL
 
         return OptimizationResult(
-            primers=tuple(result['primers']),
-            score=result['coverage'],
+            primers=tuple(result["primers"]),
+            score=result["coverage"],
             status=status,
             metrics=metrics,
-            iterations=result.get('iterations', len(result['primers'])),
+            iterations=result.get("iterations", len(result["primers"])),
             optimizer_name=self.name,
             message=f"Coverage: {result['coverage']:.1%} ({result['covered_regions']}/{result['total_regions']} regions)",
         )
-

@@ -11,10 +11,10 @@ Usage:
 """
 
 import base64
+import logging
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from datetime import datetime
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +396,7 @@ def generate_html_report(result, output_file: str, analysis=None):
     logger.info("Generating HTML report...")
 
     # Prepare data
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # Recommendation styling
     rec_class = result.recommendation.lower()
@@ -408,11 +408,17 @@ def generate_html_report(result, output_file: str, analysis=None):
     # Gaps HTML
     if result.target_gaps:
         gaps_html = "<h3>Largest Gaps</h3><ul>"
-        for i, gap in enumerate(sorted(result.target_gaps, key=lambda g: g['length'], reverse=True)[:5], 1):
-            gaps_html += f"<li>Gap {i}: {gap['start']:,} - {gap['end']:,} bp ({gap['length']:,} bp)</li>"
+        for i, gap in enumerate(
+            sorted(result.target_gaps, key=lambda g: g["length"], reverse=True)[:5], 1
+        ):
+            gaps_html += (
+                f"<li>Gap {i}: {gap['start']:,} - {gap['end']:,} bp ({gap['length']:,} bp)</li>"
+            )
         gaps_html += "</ul>"
     else:
-        gaps_html = '<div class="alert success">No significant gaps detected - excellent coverage!</div>'
+        gaps_html = (
+            '<div class="alert success">No significant gaps detected - excellent coverage!</div>'
+        )
 
     # Specificity alert
     if result.enrichment < 10:
@@ -426,11 +432,13 @@ def generate_html_report(result, output_file: str, analysis=None):
 
     # Details HTML
     details_html = ""
-    if hasattr(result, 'details') and result.details:
+    if hasattr(result, "details") and result.details:
         details_html = "<h3>Additional Details</h3><ul>"
         for key, value in result.details.items():
             if isinstance(value, (int, float)):
-                details_html += f"<li><strong>{key.replace('_', ' ').title()}:</strong> {value}</li>"
+                details_html += (
+                    f"<li><strong>{key.replace('_', ' ').title()}:</strong> {value}</li>"
+                )
         details_html += "</ul>"
 
     # Recommendations HTML
@@ -438,15 +446,15 @@ def generate_html_report(result, output_file: str, analysis=None):
     if analysis and analysis.recommendations:
         recommendations_html = '<div class="section"><h2>Recommendations</h2>'
         for rec in analysis.recommendations:
-            if 'excellent' in rec.lower() or 'good' in rec.lower():
-                alert_class = 'success'
-            elif 'low' in rec.lower() or 'poor' in rec.lower():
-                alert_class = 'critical'
+            if "excellent" in rec.lower() or "good" in rec.lower():
+                alert_class = "success"
+            elif "low" in rec.lower() or "poor" in rec.lower():
+                alert_class = "critical"
             else:
-                alert_class = 'info'
+                alert_class = "info"
 
             recommendations_html += f'<div class="alert {alert_class}">{rec}</div>'
-        recommendations_html += '</div>'
+        recommendations_html += "</div>"
 
     # Fill template
     html = HTML_TEMPLATE.format(
@@ -471,16 +479,16 @@ def generate_html_report(result, output_file: str, analysis=None):
         specificity_alert=specificity_alert,
         n_primers="N/A",  # Will be filled from context
         details_html=details_html,
-        recommendations_html=recommendations_html
+        recommendations_html=recommendations_html,
     )
 
     # Write file
-    with open(output_file, 'w') as f:
+    with open(output_file, "w") as f:
         f.write(html)
 
     logger.info(f"HTML report saved to: {output_file}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("This module is meant to be imported, not run directly")
     print("Usage: from neoswga.core.simulation_report import generate_html_report")

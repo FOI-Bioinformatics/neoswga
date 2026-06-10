@@ -23,7 +23,8 @@ After:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Set, Tuple, Optional, Any, FrozenSet
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+
 import numpy as np
 from sortedcontainers import SortedSet
 
@@ -38,6 +39,7 @@ class GenomeInfo:
         seq_lengths: Sequence lengths for each file
         circular: Whether genome is circular
     """
+
     prefixes: Tuple[str, ...]
     seq_lengths: Tuple[int, ...]
     circular: bool = True
@@ -61,17 +63,10 @@ class GenomeInfo:
 
     @classmethod
     def from_lists(
-        cls,
-        prefixes: List[str],
-        seq_lengths: List[int],
-        circular: bool = True
-    ) -> 'GenomeInfo':
+        cls, prefixes: List[str], seq_lengths: List[int], circular: bool = True
+    ) -> "GenomeInfo":
         """Create from lists (converts to tuples)."""
-        return cls(
-            prefixes=tuple(prefixes),
-            seq_lengths=tuple(seq_lengths),
-            circular=circular
-        )
+        return cls(prefixes=tuple(prefixes), seq_lengths=tuple(seq_lengths), circular=circular)
 
 
 @dataclass
@@ -82,44 +77,31 @@ class PositionData:
     Stores binding positions for forward and reverse strands across
     all genome sequences. Updated incrementally as primers are added.
     """
+
     # List of (forward_positions, reverse_positions) per genome sequence
     positions: List[Tuple[SortedSet, SortedSet]]
 
     @classmethod
-    def empty(cls, num_sequences: int) -> 'PositionData':
+    def empty(cls, num_sequences: int) -> "PositionData":
         """Create empty position data for given number of sequences."""
-        return cls(
-            positions=[(SortedSet([]), SortedSet([])) for _ in range(num_sequences)]
-        )
+        return cls(positions=[(SortedSet([]), SortedSet([])) for _ in range(num_sequences)])
 
     @classmethod
-    def from_numpy(
-        cls,
-        position_arrays: List[Tuple[np.ndarray, np.ndarray]]
-    ) -> 'PositionData':
+    def from_numpy(cls, position_arrays: List[Tuple[np.ndarray, np.ndarray]]) -> "PositionData":
         """Create from numpy arrays."""
         return cls(
             positions=[
-                (SortedSet(fwd.tolist()), SortedSet(rev.tolist()))
-                for fwd, rev in position_arrays
+                (SortedSet(fwd.tolist()), SortedSet(rev.tolist())) for fwd, rev in position_arrays
             ]
         )
 
-    def copy(self) -> 'PositionData':
+    def copy(self) -> "PositionData":
         """Create a deep copy."""
         return PositionData(
-            positions=[
-                (SortedSet(fwd), SortedSet(rev))
-                for fwd, rev in self.positions
-            ]
+            positions=[(SortedSet(fwd), SortedSet(rev)) for fwd, rev in self.positions]
         )
 
-    def add_positions(
-        self,
-        seq_idx: int,
-        forward: np.ndarray,
-        reverse: np.ndarray
-    ) -> None:
+    def add_positions(self, seq_idx: int, forward: np.ndarray, reverse: np.ndarray) -> None:
         """Add positions for a specific sequence."""
         if seq_idx >= len(self.positions):
             raise IndexError(f"seq_idx {seq_idx} out of range")
@@ -128,10 +110,7 @@ class PositionData:
 
     def total_sites(self) -> int:
         """Total number of binding sites across all sequences."""
-        return sum(
-            len(fwd) + len(rev)
-            for fwd, rev in self.positions
-        )
+        return sum(len(fwd) + len(rev) for fwd, rev in self.positions)
 
 
 @dataclass
@@ -150,13 +129,14 @@ class DimerConstraints:
         primer_to_index: Mapping from primer sequence to matrix index
         max_dimer_bp: Maximum allowed complementary base pairs
     """
+
     matrix: np.ndarray
     primer_to_index: Dict[str, int]
     max_dimer_bp: int = 4
 
     def __post_init__(self):
         """Make matrix read-only after construction to prevent accidental mutation."""
-        if self.matrix is not None and hasattr(self.matrix, 'flags'):
+        if self.matrix is not None and hasattr(self.matrix, "flags"):
             self.matrix.flags.writeable = False
 
     def are_compatible(self, primers: List[str], new_primer: str) -> bool:
@@ -186,12 +166,13 @@ class SearchState:
 
     Represents one of the "top sets" being tracked during search.
     """
+
     primers: List[str]
     score: float
     fg_positions: PositionData
     bg_positions: PositionData
 
-    def copy(self) -> 'SearchState':
+    def copy(self) -> "SearchState":
         """Create a deep copy of this state."""
         return SearchState(
             primers=list(self.primers),
@@ -205,8 +186,8 @@ class SearchState:
         primer: str,
         fg_new_positions: List[Tuple[np.ndarray, np.ndarray]],
         bg_new_positions: List[Tuple[np.ndarray, np.ndarray]],
-        new_score: float
-    ) -> 'SearchState':
+        new_score: float,
+    ) -> "SearchState":
         """Create new state with additional primer."""
         new_state = self.copy()
         new_state.primers.append(primer)
@@ -233,11 +214,12 @@ class BFSConfig:
 
     All parameters that control the search behavior.
     """
+
     max_sets: int = 10
     iterations: int = 10
-    selection_method: str = 'deterministic'
+    selection_method: str = "deterministic"
     drop_indices: Tuple[int, ...] = (4,)
-    normalize_metric: str = 'deterministic'
+    normalize_metric: str = "deterministic"
     verbose: bool = True
 
     def __post_init__(self):
@@ -245,7 +227,7 @@ class BFSConfig:
             raise ValueError(f"max_sets must be >= 1, got {self.max_sets}")
         if self.iterations < 1:
             raise ValueError(f"iterations must be >= 1, got {self.iterations}")
-        if self.selection_method not in ('deterministic', 'softmax', 'normalized'):
+        if self.selection_method not in ("deterministic", "softmax", "normalized"):
             raise ValueError(f"Unknown selection_method: {self.selection_method}")
 
 
@@ -268,6 +250,7 @@ class BFSSearchContext:
 
         result = bfs_search(ctx)
     """
+
     # Required parameters
     primer_pool: List[str]
     fg_genome: GenomeInfo
@@ -307,7 +290,8 @@ class BFSSearchContext:
         """Get primers that can be added to current set."""
         current_set_frozen = frozenset(current_set)
         return [
-            p for p in self.primer_pool
+            p
+            for p in self.primer_pool
             if p not in self.banned_primers
             and p not in current_set_frozen
             and self.dimer_constraints.are_compatible(current_set, p)
@@ -323,10 +307,7 @@ class BFSSearchContext:
         key = ",".join(sorted(primers))
         self.score_cache[key] = score
 
-    def initialize_states(
-        self,
-        initial_sets: Optional[List[List[str]]] = None
-    ) -> None:
+    def initialize_states(self, initial_sets: Optional[List[List[str]]] = None) -> None:
         """
         Initialize search states.
 
@@ -337,10 +318,10 @@ class BFSSearchContext:
         if initial_sets:
             # Build states from initial sets
             self.top_states = []
-            for primers in initial_sets[:self.config.max_sets]:
+            for primers in initial_sets[: self.config.max_sets]:
                 state = SearchState(
                     primers=list(primers),
-                    score=float('-inf'),
+                    score=float("-inf"),
                     fg_positions=PositionData.empty(self.fg_genome.num_sequences),
                     bg_positions=PositionData.empty(
                         self.bg_genome.num_sequences if self.bg_genome else 0
@@ -352,7 +333,7 @@ class BFSSearchContext:
             self.top_states = [
                 SearchState(
                     primers=[],
-                    score=float('-inf'),
+                    score=float("-inf"),
                     fg_positions=PositionData.empty(self.fg_genome.num_sequences),
                     bg_positions=PositionData.empty(
                         self.bg_genome.num_sequences if self.bg_genome else 0
@@ -367,6 +348,7 @@ class SearchResult:
     """
     Result from a single search iteration or complete search.
     """
+
     states: List[SearchState]
     best_score: float
     iterations_completed: int
@@ -389,12 +371,12 @@ class SearchResult:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            'best_primers': self.best_primers,
-            'best_score': self.best_score,
-            'iterations': self.iterations_completed,
-            'converged': self.converged,
-            'message': self.message,
-            'num_states': len(self.states),
+            "best_primers": self.best_primers,
+            "best_score": self.best_score,
+            "iterations": self.iterations_completed,
+            "converged": self.converged,
+            "message": self.message,
+            "num_states": len(self.states),
         }
 
 
@@ -405,6 +387,7 @@ class EvaluationContext:
 
     Used by the evaluate() function to score primer sets.
     """
+
     fg_genome: GenomeInfo
     bg_genome: Optional[GenomeInfo] = None
 

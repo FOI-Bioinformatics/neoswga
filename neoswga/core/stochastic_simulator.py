@@ -19,19 +19,20 @@ Mechanistic model integration:
     - processivity_step: Modified by processivity_factor
 """
 
-import math
-import numpy as np
 import logging
-import warnings
-from typing import List, Dict, Tuple, Optional, TYPE_CHECKING
-from dataclasses import dataclass, field
-from collections import defaultdict
+import math
 import time
+import warnings
+from collections import defaultdict
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
-from neoswga.core.mechanistic_params import get_polymerase_params, MECHANISTIC_MODEL_PARAMS
+import numpy as np
+
+from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS, get_polymerase_params
 
 if TYPE_CHECKING:
-    from neoswga.core.mechanistic_model import MechanisticModel, MechanisticEffects
+    from neoswga.core.mechanistic_model import MechanisticEffects, MechanisticModel
     from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ReactionState:
     """Current state of amplification reaction"""
+
     time: float = 0.0  # seconds
 
     # Molecule counts
@@ -86,6 +88,7 @@ class ReactionParameters:
         - extension_rate: multiplied by speed_factor
         - processivity_step: adjusted by processivity_factor
     """
+
     # Binding kinetics
     k_on: float = 1e6  # M^-1 s^-1 (primer binding)
     k_off: float = 1e-2  # s^-1 (dissociation)
@@ -127,15 +130,15 @@ class ReactionParameters:
         Mean run length = 100 / -ln(0.99857) = ~70,000 bp
         """
         steps = distance / 100  # 100 bp per step
-        return self.processivity_step ** steps
+        return self.processivity_step**steps
 
     @classmethod
     def from_conditions(
         cls,
-        conditions: 'ReactionConditions',
+        conditions: "ReactionConditions",
         template_gc: float = 0.5,
         use_mechanistic_model: bool = True,
-    ) -> 'ReactionParameters':
+    ) -> "ReactionParameters":
         """
         Create ReactionParameters from ReactionConditions with mechanistic model.
 
@@ -150,18 +153,18 @@ class ReactionParameters:
         """
         # Get base polymerase parameters
         poly_params = get_polymerase_params(conditions.polymerase)
-        base_extension_rate = poly_params['extension_rate']
-        base_processivity = poly_params['processivity']
-        base_processivity_step = poly_params['processivity_step']
-        optimal_temp = poly_params['optimal_temp']
+        base_extension_rate = poly_params["extension_rate"]
+        base_processivity = poly_params["processivity"]
+        base_processivity_step = poly_params["processivity_step"]
+        optimal_temp = poly_params["optimal_temp"]
 
         # Warn about low-processivity polymerases
-        if conditions.polymerase in ('bst', 'klenow'):
+        if conditions.polymerase in ("bst", "klenow"):
             warnings.warn(
                 f"{conditions.polymerase} has low processivity ({base_processivity:,} bp) "
                 f"and is not well-suited for whole-genome amplification. "
                 f"Consider phi29 (70kb) or equiphi29 (80kb) for SWGA.",
-                UserWarning
+                UserWarning,
             )
 
         # Start with base parameters
@@ -184,11 +187,11 @@ class ReactionParameters:
 
             # Get enzyme parameters (primer-independent)
             enzyme_params = model.get_enzyme_parameters()
-            speed_factor = enzyme_params['speed_factor']
-            processivity_factor = enzyme_params['processivity_factor']
+            speed_factor = enzyme_params["speed_factor"]
+            processivity_factor = enzyme_params["processivity_factor"]
 
             # Apply temperature deviation penalty
-            temp_coef = MECHANISTIC_MODEL_PARAMS['enzyme']['temp_activity_coef']
+            temp_coef = MECHANISTIC_MODEL_PARAMS["enzyme"]["temp_activity_coef"]
             temp_dev = abs(conditions.temp - optimal_temp)
             temp_penalty = 1.0 - min(0.5, temp_coef * temp_dev)
             speed_factor *= temp_penalty
@@ -204,7 +207,7 @@ class ReactionParameters:
 
             # Get kinetics parameters from model (use a representative primer)
             # We use a balanced 10-mer as reference
-            ref_primer = 'ATCGATCGAT'
+            ref_primer = "ATCGATCGAT"
             effects = model.calculate_effects(ref_primer, template_gc)
 
             # Modify kon and koff
@@ -221,7 +224,7 @@ class ReactionParameters:
             warnings.warn(
                 "Could not import MechanisticModel. "
                 "Using base parameters without mechanistic corrections.",
-                UserWarning
+                UserWarning,
             )
 
         return params
@@ -245,10 +248,15 @@ class GillespieSimulator:
         - processivity_step: Continuation probability
     """
 
-    def __init__(self, primers: List[str], fg_network, bg_network,
-                 params: Optional[ReactionParameters] = None,
-                 conditions: Optional['ReactionConditions'] = None,
-                 template_gc: float = 0.5):
+    def __init__(
+        self,
+        primers: List[str],
+        fg_network,
+        bg_network,
+        params: Optional[ReactionParameters] = None,
+        conditions: Optional["ReactionConditions"] = None,
+        template_gc: float = 0.5,
+    ):
         """
         Initialize simulator.
 
@@ -273,9 +281,7 @@ class GillespieSimulator:
         if params is not None:
             self.params = params
         elif conditions is not None:
-            self.params = ReactionParameters.from_conditions(
-                conditions, template_gc=template_gc
-            )
+            self.params = ReactionParameters.from_conditions(conditions, template_gc=template_gc)
         else:
             self.params = ReactionParameters()
 
@@ -301,9 +307,13 @@ class GillespieSimulator:
         extensions = defaultdict(list)
 
         for site1, site2, data in network.graph.edges(data=True):
-            site1_idx = self.fg_sites.index(site1) if site1 in self.fg_sites else self.bg_sites.index(site1)
-            site2_idx = self.fg_sites.index(site2) if site2 in self.fg_sites else self.bg_sites.index(site2)
-            distance = data.get('distance', 0)
+            site1_idx = (
+                self.fg_sites.index(site1) if site1 in self.fg_sites else self.bg_sites.index(site1)
+            )
+            site2_idx = (
+                self.fg_sites.index(site2) if site2 in self.fg_sites else self.bg_sites.index(site2)
+            )
+            distance = data.get("distance", 0)
 
             extensions[site1_idx].append((site2_idx, distance))
 
@@ -368,9 +378,11 @@ class GillespieSimulator:
                 next_sample += sample_interval
 
                 if iteration % 1000 == 0:
-                    logger.debug(f"Time: {state.time/60:.1f} min, "
-                               f"FG products: {state.fg_products}, "
-                               f"BG products: {state.bg_products}")
+                    logger.debug(
+                        f"Time: {state.time/60:.1f} min, "
+                        f"FG products: {state.fg_products}, "
+                        f"BG products: {state.bg_products}"
+                    )
 
         logger.info(f"Simulation complete: {iteration} reactions in {state.time/60:.1f} min")
 
@@ -391,14 +403,16 @@ class GillespieSimulator:
             templates_available = state.fg_molecules + state.fg_products
             if templates_available > 0:
                 propensity = self.params.k_on * state.primer_conc * templates_available
-                reactions.append(('fg_bind', propensity, i))
+                reactions.append(("fg_bind", propensity, i))
 
         # 2. Primer binding to background sites
         for i, site in enumerate(self.bg_sites):
             templates_available = state.bg_molecules + state.bg_products
             if templates_available > 0:
-                propensity = self.params.k_on * state.primer_conc * templates_available * 0.1  # Lower affinity
-                reactions.append(('bg_bind', propensity, i))
+                propensity = (
+                    self.params.k_on * state.primer_conc * templates_available * 0.1
+                )  # Lower affinity
+                reactions.append(("bg_bind", propensity, i))
 
         # 3. Extension from bound primers (target)
         for site_idx, count in state.fg_bound.items():
@@ -409,27 +423,29 @@ class GillespieSimulator:
                         # Extension rate depends on polymerase availability
                         propensity = self.params.polymerase_binding * self.params.polymerase * count
                         propensity *= self.params.extension_probability(distance)
-                        reactions.append(('fg_extend', propensity, site_idx, target_site, distance))
+                        reactions.append(("fg_extend", propensity, site_idx, target_site, distance))
 
         # 4. Extension from bound primers (background)
         for site_idx, count in state.bg_bound.items():
             if count > 0 and site_idx in self.bg_extensions:
                 for target_site, distance in self.bg_extensions[site_idx]:
                     if distance <= self.params.max_extension:
-                        propensity = self.params.polymerase_binding * self.params.polymerase * count * 0.5
+                        propensity = (
+                            self.params.polymerase_binding * self.params.polymerase * count * 0.5
+                        )
                         propensity *= self.params.extension_probability(distance)
-                        reactions.append(('bg_extend', propensity, site_idx, target_site, distance))
+                        reactions.append(("bg_extend", propensity, site_idx, target_site, distance))
 
         # 5. Primer dissociation
         for site_idx, count in state.fg_bound.items():
             if count > 0:
                 propensity = self.params.k_off * count
-                reactions.append(('fg_unbind', propensity, site_idx))
+                reactions.append(("fg_unbind", propensity, site_idx))
 
         for site_idx, count in state.bg_bound.items():
             if count > 0:
                 propensity = self.params.k_off * count
-                reactions.append(('bg_unbind', propensity, site_idx))
+                reactions.append(("bg_unbind", propensity, site_idx))
 
         return reactions
 
@@ -437,15 +453,15 @@ class GillespieSimulator:
         """Execute selected reaction, update state"""
         reaction_type = reaction[0]
 
-        if reaction_type == 'fg_bind':
+        if reaction_type == "fg_bind":
             site_idx = reaction[1]
             state.fg_bound[site_idx] += 1
 
-        elif reaction_type == 'bg_bind':
+        elif reaction_type == "bg_bind":
             site_idx = reaction[1]
             state.bg_bound[site_idx] += 1
 
-        elif reaction_type == 'fg_extend':
+        elif reaction_type == "fg_extend":
             site_idx, target_site, distance = reaction[1:]
 
             # Consume resources
@@ -463,7 +479,7 @@ class GillespieSimulator:
                 # Enhanced binding to products
                 state.fg_bound[target_site] += 1  # Immediate rebinding
 
-        elif reaction_type == 'bg_extend':
+        elif reaction_type == "bg_extend":
             site_idx, target_site, distance = reaction[1:]
 
             dNTPs_needed = distance * self.params.dNTP_per_nt
@@ -472,11 +488,11 @@ class GillespieSimulator:
                 state.bg_products += 1
                 state.bg_bound[site_idx] -= 1
 
-        elif reaction_type == 'fg_unbind':
+        elif reaction_type == "fg_unbind":
             site_idx = reaction[1]
             state.fg_bound[site_idx] = max(0, state.fg_bound[site_idx] - 1)
 
-        elif reaction_type == 'bg_unbind':
+        elif reaction_type == "bg_unbind":
             site_idx = reaction[1]
             state.bg_bound[site_idx] = max(0, state.bg_bound[site_idx] - 1)
 
@@ -490,18 +506,18 @@ class GillespieSimulator:
         bg_fold = total_bg / state.bg_molecules if state.bg_molecules > 0 else 0
 
         return {
-            'time': state.time,
-            'fg_molecules': state.fg_molecules,
-            'fg_products': state.fg_products,
-            'total_fg': total_fg,
-            'bg_molecules': state.bg_molecules,
-            'bg_products': state.bg_products,
-            'total_bg': total_bg,
-            'enrichment': enrichment,
-            'fg_amplification': fg_fold,
-            'bg_amplification': bg_fold,
-            'dNTP': state.dNTP,
-            'primer_conc': state.primer_conc,
+            "time": state.time,
+            "fg_molecules": state.fg_molecules,
+            "fg_products": state.fg_products,
+            "total_fg": total_fg,
+            "bg_molecules": state.bg_molecules,
+            "bg_products": state.bg_products,
+            "total_bg": total_bg,
+            "enrichment": enrichment,
+            "fg_amplification": fg_fold,
+            "bg_amplification": bg_fold,
+            "dNTP": state.dNTP,
+            "primer_conc": state.primer_conc,
         }
 
 
@@ -509,7 +525,7 @@ def validate_network_predictions(
     primers: List[str],
     fg_network,
     bg_network,
-    conditions: Optional['ReactionConditions'] = None,
+    conditions: Optional["ReactionConditions"] = None,
     template_gc: float = 0.5,
 ) -> Dict:
     """
@@ -543,41 +559,41 @@ def validate_network_predictions(
 
     # Stochastic simulation (8 hours typical SWGA protocol)
     simulator = GillespieSimulator(
-        primers, fg_network, bg_network,
-        conditions=conditions,
-        template_gc=template_gc
+        primers, fg_network, bg_network, conditions=conditions, template_gc=template_gc
     )
     history = simulator.simulate(max_time=28800.0, sample_interval=60.0)  # 8 hours
 
     final_state = history[-1]
-    simulated_enrichment = final_state['enrichment']
-    simulated_fg_fold = final_state['fg_amplification']
-    simulated_bg_fold = final_state['bg_amplification']
+    simulated_enrichment = final_state["enrichment"]
+    simulated_fg_fold = final_state["fg_amplification"]
+    simulated_bg_fold = final_state["bg_amplification"]
 
     logger.info(f"Simulation result: {simulated_enrichment:.0f}x enrichment")
 
     # Compare
-    prediction_error = abs(predicted_enrichment - simulated_enrichment) / max(simulated_enrichment, 1e-10)
+    prediction_error = abs(predicted_enrichment - simulated_enrichment) / max(
+        simulated_enrichment, 1e-10
+    )
 
     return {
-        'predicted': {
-            'enrichment': predicted_enrichment,
-            'fg_amplification': predicted_fg_fold,
-            'bg_amplification': predicted_bg_fold,
-            'fg_largest_component': fg_largest,
-            'bg_avg_component': bg_avg,
+        "predicted": {
+            "enrichment": predicted_enrichment,
+            "fg_amplification": predicted_fg_fold,
+            "bg_amplification": predicted_bg_fold,
+            "fg_largest_component": fg_largest,
+            "bg_avg_component": bg_avg,
         },
-        'simulated': {
-            'enrichment': simulated_enrichment,
-            'fg_amplification': simulated_fg_fold,
-            'bg_amplification': simulated_bg_fold,
+        "simulated": {
+            "enrichment": simulated_enrichment,
+            "fg_amplification": simulated_fg_fold,
+            "bg_amplification": simulated_bg_fold,
         },
-        'validation': {
-            'prediction_error': prediction_error,
-            'prediction_accurate': prediction_error < 0.5,  # Within 50%
+        "validation": {
+            "prediction_error": prediction_error,
+            "prediction_accurate": prediction_error < 0.5,  # Within 50%
         },
-        'history': history,
-        'mechanistic_model_used': conditions is not None,
+        "history": history,
+        "mechanistic_model_used": conditions is not None,
     }
 
 
@@ -595,40 +611,40 @@ def plot_simulation_results(history: List[Dict], output_path: Optional[str] = No
         logger.warning("matplotlib not available, skipping plot")
         return
 
-    times = [h['time'] / 3600 for h in history]  # Hours
-    fg_amp = [h['fg_amplification'] for h in history]
-    bg_amp = [h['bg_amplification'] for h in history]
-    enrichment = [h['enrichment'] for h in history]
+    times = [h["time"] / 3600 for h in history]  # Hours
+    fg_amp = [h["fg_amplification"] for h in history]
+    bg_amp = [h["bg_amplification"] for h in history]
+    enrichment = [h["enrichment"] for h in history]
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
     # Target amplification
-    axes[0, 0].semilogy(times, fg_amp, 'b-', linewidth=2)
-    axes[0, 0].set_xlabel('Time (hours)')
-    axes[0, 0].set_ylabel('Target amplification (fold)')
-    axes[0, 0].set_title('Target Genome Amplification')
+    axes[0, 0].semilogy(times, fg_amp, "b-", linewidth=2)
+    axes[0, 0].set_xlabel("Time (hours)")
+    axes[0, 0].set_ylabel("Target amplification (fold)")
+    axes[0, 0].set_title("Target Genome Amplification")
     axes[0, 0].grid(True, alpha=0.3)
 
     # Background amplification
-    axes[0, 1].semilogy(times, bg_amp, 'r-', linewidth=2)
-    axes[0, 1].set_xlabel('Time (hours)')
-    axes[0, 1].set_ylabel('Background amplification (fold)')
-    axes[0, 1].set_title('Background Genome Amplification')
+    axes[0, 1].semilogy(times, bg_amp, "r-", linewidth=2)
+    axes[0, 1].set_xlabel("Time (hours)")
+    axes[0, 1].set_ylabel("Background amplification (fold)")
+    axes[0, 1].set_title("Background Genome Amplification")
     axes[0, 1].grid(True, alpha=0.3)
 
     # Enrichment over time
-    axes[1, 0].semilogy(times, enrichment, 'g-', linewidth=2)
-    axes[1, 0].set_xlabel('Time (hours)')
-    axes[1, 0].set_ylabel('Enrichment (target/background)')
-    axes[1, 0].set_title('Enrichment Over Time')
+    axes[1, 0].semilogy(times, enrichment, "g-", linewidth=2)
+    axes[1, 0].set_xlabel("Time (hours)")
+    axes[1, 0].set_ylabel("Enrichment (target/background)")
+    axes[1, 0].set_title("Enrichment Over Time")
     axes[1, 0].grid(True, alpha=0.3)
 
     # Resource depletion
-    dNTP = [h['dNTP'] * 1e6 for h in history]  # µM
-    axes[1, 1].plot(times, dNTP, 'purple', linewidth=2)
-    axes[1, 1].set_xlabel('Time (hours)')
-    axes[1, 1].set_ylabel('dNTP concentration (µM)')
-    axes[1, 1].set_title('Resource Depletion')
+    dNTP = [h["dNTP"] * 1e6 for h in history]  # µM
+    axes[1, 1].plot(times, dNTP, "purple", linewidth=2)
+    axes[1, 1].set_xlabel("Time (hours)")
+    axes[1, 1].set_ylabel("dNTP concentration (µM)")
+    axes[1, 1].set_title("Resource Depletion")
     axes[1, 1].grid(True, alpha=0.3)
 
     plt.tight_layout()
@@ -642,6 +658,7 @@ def plot_simulation_results(history: List[Dict], output_path: Optional[str] = No
 
 if __name__ == "__main__":
     import sys
+
     logging.basicConfig(level=logging.INFO)
 
     print("Stochastic SWGA Simulator")

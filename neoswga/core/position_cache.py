@@ -7,13 +7,14 @@ provides 1000x speedup over repeated disk access.
 Memory usage: ~4 MB for 500 primers × 1000 sites × 8 bytes
 """
 
-import numpy as np
-import h5py
-import os
-from typing import Dict, List, Tuple, Optional, Set
-from dataclasses import dataclass
-from collections import defaultdict
 import logging
+import os
+from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Set, Tuple
+
+import h5py
+import numpy as np
 
 from neoswga.core.thermodynamics import reverse_complement
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BindingSite:
     """Single primer binding site"""
+
     position: int
     strand: str  # 'forward' or 'reverse'
     primer: str
@@ -64,7 +66,9 @@ class PositionCache:
     def _load_all_positions(self) -> None:
         """Single-pass load of all position data"""
 
-        logger.info(f"Loading positions for {len(self.primers)} primers from {len(self.fname_prefixes)} genomes...")
+        logger.info(
+            f"Loading positions for {len(self.primers)} primers from {len(self.fname_prefixes)} genomes..."
+        )
 
         # Group primers by length for efficient HDF5 access
         primers_by_length = defaultdict(list)
@@ -84,12 +88,12 @@ class PositionCache:
                     logger.warning(f"HDF5 file not found: {hdf5_path}")
                     continue
 
-                with h5py.File(hdf5_path, 'r') as db:
+                with h5py.File(hdf5_path, "r") as db:
                     for primer in primer_list:
                         # Forward strand
                         if primer in db:
                             positions = np.array(db[primer], dtype=np.int32)
-                            key = (fname_prefix, primer, 'forward')
+                            key = (fname_prefix, primer, "forward")
                             self.cache[key] = positions
                             total_loaded += 1
 
@@ -97,13 +101,13 @@ class PositionCache:
                         rc = rc_map[primer]
                         if rc in db:
                             positions = np.array(db[rc], dtype=np.int32)
-                            key = (fname_prefix, primer, 'reverse')
+                            key = (fname_prefix, primer, "reverse")
                             self.cache[key] = positions
                             total_loaded += 1
 
         logger.info(f"Loaded {total_loaded} position arrays into memory")
 
-    def get_positions(self, fname_prefix: str, primer: str, strand: str = 'both') -> np.ndarray:
+    def get_positions(self, fname_prefix: str, primer: str, strand: str = "both") -> np.ndarray:
         """
         Get positions for a primer. O(1) lookup.
 
@@ -115,20 +119,22 @@ class PositionCache:
         Returns:
             Array of positions (empty if not found)
         """
-        if strand == 'both':
-            key = (fname_prefix, primer, 'both')
+        if strand == "both":
+            key = (fname_prefix, primer, "both")
             cached = self.cache.get(key)
             if cached is not None:
                 return cached
-            fw = self.cache.get((fname_prefix, primer, 'forward'), np.array([], dtype=np.int32))
-            rv = self.cache.get((fname_prefix, primer, 'reverse'), np.array([], dtype=np.int32))
+            fw = self.cache.get((fname_prefix, primer, "forward"), np.array([], dtype=np.int32))
+            rv = self.cache.get((fname_prefix, primer, "reverse"), np.array([], dtype=np.int32))
             combined = np.concatenate([fw, rv])
             self.cache[key] = combined
             return combined
         else:
             return self.cache.get((fname_prefix, primer, strand), np.array([], dtype=np.int32))
 
-    def get_all_positions(self, fname_prefix: str, primers: List[str]) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+    def get_all_positions(
+        self, fname_prefix: str, primers: List[str]
+    ) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
         """
         Get positions for multiple primers (batched).
 
@@ -137,13 +143,14 @@ class PositionCache:
         """
         result = {}
         for primer in primers:
-            fw = self.get_positions(fname_prefix, primer, 'forward')
-            rv = self.get_positions(fname_prefix, primer, 'reverse')
+            fw = self.get_positions(fname_prefix, primer, "forward")
+            rv = self.get_positions(fname_prefix, primer, "reverse")
             result[primer] = (fw, rv)
         return result
 
-    def compute_coverage_vectorized(self, fname_prefix: str, primers: List[str],
-                                   genome_length: int) -> np.ndarray:
+    def compute_coverage_vectorized(
+        self, fname_prefix: str, primers: List[str], genome_length: int
+    ) -> np.ndarray:
         """
         Compute coverage array for primer set (vectorized, fast).
 
@@ -158,7 +165,7 @@ class PositionCache:
         coverage = np.zeros(genome_length, dtype=bool)
 
         for primer in primers:
-            positions = self.get_positions(fname_prefix, primer, 'both')
+            positions = self.get_positions(fname_prefix, primer, "both")
             if len(positions) > 0:
                 # Clip positions to genome bounds
                 valid_positions = positions[positions < genome_length]
@@ -173,8 +180,9 @@ class PositionCache:
     # `coverage.compute_per_prefix_coverage` with an explicit `extension`
     # kwarg from `coverage.polymerase_extension_reach`.
 
-    def compute_statistics(self, fname_prefix: str, primers: List[str],
-                          genome_length: int) -> Dict[str, float]:
+    def compute_statistics(
+        self, fname_prefix: str, primers: List[str], genome_length: int
+    ) -> Dict[str, float]:
         """
         Compute coverage statistics efficiently.
 
@@ -187,17 +195,18 @@ class PositionCache:
         gap_sizes = self._find_gap_sizes(coverage)
 
         return {
-            'coverage_fraction': np.sum(coverage) / genome_length,
-            'num_covered_bases': int(np.sum(coverage)),
-            'num_gaps': len(gap_sizes),
-            'mean_gap_size': np.mean(gap_sizes) if len(gap_sizes) > 0 else 0,
-            'max_gap_size': np.max(gap_sizes) if len(gap_sizes) > 0 else 0,
-            'gap_gini': self._gini_coefficient(gap_sizes) if len(gap_sizes) > 1 else 0,
-            'gap_entropy': self.compute_gap_entropy(fname_prefix, primers, genome_length),
+            "coverage_fraction": np.sum(coverage) / genome_length,
+            "num_covered_bases": int(np.sum(coverage)),
+            "num_gaps": len(gap_sizes),
+            "mean_gap_size": np.mean(gap_sizes) if len(gap_sizes) > 0 else 0,
+            "max_gap_size": np.max(gap_sizes) if len(gap_sizes) > 0 else 0,
+            "gap_gini": self._gini_coefficient(gap_sizes) if len(gap_sizes) > 1 else 0,
+            "gap_entropy": self.compute_gap_entropy(fname_prefix, primers, genome_length),
         }
 
-    def compute_gap_entropy(self, fname_prefix: str, primers: List[str],
-                           genome_length: int, num_bins: int = 50) -> float:
+    def compute_gap_entropy(
+        self, fname_prefix: str, primers: List[str], genome_length: int, num_bins: int = 50
+    ) -> float:
         """Compute Shannon entropy of gap size distribution.
 
         Entropy measures the information content of the gap distribution.
@@ -255,7 +264,9 @@ class PositionCache:
         n = len(sorted_values)
         cumsum = np.cumsum(sorted_values)
 
-        return (2.0 * np.sum((np.arange(1, n+1)) * sorted_values)) / (n * cumsum[-1]) - (n + 1) / n
+        return (2.0 * np.sum((np.arange(1, n + 1)) * sorted_values)) / (n * cumsum[-1]) - (
+            n + 1
+        ) / n
 
     def compute_strand_alternation_stats(
         self,
@@ -296,23 +307,23 @@ class PositionCache:
         total_rev = 0
 
         for primer in primers:
-            fwd_pos = self.get_positions(fname_prefix, primer, 'forward')
-            rev_pos = self.get_positions(fname_prefix, primer, 'reverse')
+            fwd_pos = self.get_positions(fname_prefix, primer, "forward")
+            rev_pos = self.get_positions(fname_prefix, primer, "reverse")
             total_fwd += len(fwd_pos)
             total_rev += len(rev_pos)
 
             for pos in fwd_pos:
-                sites.append((int(pos), 'forward'))
+                sites.append((int(pos), "forward"))
             for pos in rev_pos:
-                sites.append((int(pos), 'reverse'))
+                sites.append((int(pos), "reverse"))
 
         if len(sites) < 2:
             return {
-                'strand_alternation_gap_mean': float(genome_length),
-                'strand_alternation_gap_max': float(genome_length),
-                'strand_alternation_score': 0.0,
-                'strand_coverage_ratio': 0.0,
-                'longest_same_strand_run': len(sites),
+                "strand_alternation_gap_mean": float(genome_length),
+                "strand_alternation_gap_max": float(genome_length),
+                "strand_alternation_score": 0.0,
+                "strand_coverage_ratio": 0.0,
+                "longest_same_strand_run": len(sites),
             }
 
         # Sort by position
@@ -351,11 +362,11 @@ class PositionCache:
             max_gap = float(genome_length)
 
         return {
-            'strand_alternation_gap_mean': mean_gap,
-            'strand_alternation_gap_max': max_gap,
-            'strand_alternation_score': alternation_score,
-            'strand_coverage_ratio': strand_ratio,
-            'longest_same_strand_run': longest_run,
+            "strand_alternation_gap_mean": mean_gap,
+            "strand_alternation_gap_max": max_gap,
+            "strand_alternation_score": alternation_score,
+            "strand_coverage_ratio": strand_ratio,
+            "longest_same_strand_run": longest_run,
         }
 
     def _report_statistics(self) -> None:
@@ -395,7 +406,7 @@ class StreamingPositionCache:
                 path = f"{prefix}_{k}mer_positions.h5"
                 if os.path.exists(path):
                     # Open with driver for memory mapping
-                    self.file_handles[path] = h5py.File(path, 'r', rdcc_nbytes=1024**2)
+                    self.file_handles[path] = h5py.File(path, "r", rdcc_nbytes=1024**2)
 
         # Preload small subset if provided
         if primers and len(primers) < 100:
@@ -416,16 +427,16 @@ class StreamingPositionCache:
                 db = self.file_handles[path]
 
                 if primer in db:
-                    self.preloaded[(fname_prefix, primer, 'forward')] = np.array(db[primer])
+                    self.preloaded[(fname_prefix, primer, "forward")] = np.array(db[primer])
 
-    def get_positions(self, fname_prefix: str, primer: str, strand: str = 'both') -> np.ndarray:
+    def get_positions(self, fname_prefix: str, primer: str, strand: str = "both") -> np.ndarray:
         """
         Get positions (lazy loading from memory-mapped HDF5).
 
         Slower than PositionCache but uses less memory.
         """
         # Check preloaded cache
-        if strand != 'both':
+        if strand != "both":
             key = (fname_prefix, primer, strand)
             if key in self.preloaded:
                 return self.preloaded[key]
@@ -439,12 +450,12 @@ class StreamingPositionCache:
 
         db = self.file_handles[path]
 
-        if strand == 'both':
+        if strand == "both":
             fw = np.array(db[primer]) if primer in db else np.array([])
             rc = reverse_complement(primer)
             rv = np.array(db[rc]) if rc in db else np.array([])
             return np.concatenate([fw, rv])
-        elif strand == 'forward':
+        elif strand == "forward":
             return np.array(db[primer]) if primer in db else np.array([])
         else:  # reverse
             rc = reverse_complement(primer)
@@ -456,14 +467,16 @@ class StreamingPositionCache:
             fh.close()
         self.file_handles.clear()
 
-    def __enter__(self) -> 'StreamingPositionCache':
+    def __enter__(self) -> "StreamingPositionCache":
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
 
 
-def benchmark_cache_vs_hdf5(fname_prefixes: List[str], primers: List[str], iterations: int = 1000) -> None:
+def benchmark_cache_vs_hdf5(
+    fname_prefixes: List[str], primers: List[str], iterations: int = 1000
+) -> None:
     """
     Benchmark cache performance vs. direct HDF5 access.
 
@@ -494,14 +507,16 @@ def benchmark_cache_vs_hdf5(fname_prefixes: List[str], primers: List[str], itera
         primer = np.random.choice(primers)
         k = len(primer)
         path = f"{fname_prefixes[0]}_{k}mer_positions.h5"
-        with h5py.File(path, 'r') as db:
+        with h5py.File(path, "r") as db:
             if primer in db:
                 positions = np.array(db[primer])
     hdf5_time = time.time() - start
     print(f"HDF5 access time: {hdf5_time:.4f}s ({iterations/hdf5_time:.0f} queries/sec)")
 
     print(f"\nSpeedup: {hdf5_time/cache_time:.1f}×")
-    print(f"Amortization: Cache pays for itself after {cache_build_time/((hdf5_time-cache_time)/iterations):.0f} queries")
+    print(
+        f"Amortization: Cache pays for itself after {cache_build_time/((hdf5_time-cache_time)/iterations):.0f} queries"
+    )
 
 
 if __name__ == "__main__":
@@ -513,7 +528,7 @@ if __name__ == "__main__":
     # Test with example data
     if len(sys.argv) > 1:
         fname_prefixes = [sys.argv[1]]
-        test_primers = ['ATCGATCG', 'GCTAGCTA', 'TTAATTAA']
+        test_primers = ["ATCGATCG", "GCTAGCTA", "TTAATTAA"]
 
         print("Testing PositionCache...")
         cache = PositionCache(fname_prefixes, test_primers)

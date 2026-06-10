@@ -33,17 +33,18 @@ Version: 3.2 - Tier 1 Improvements (Sprint 2)
 """
 
 import logging
-from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 
-from neoswga.core.thermodynamics import (
-    calculate_tm_with_salt,
-    calculate_free_energy,
-    reverse_complement
-)
-from neoswga.core.secondary_structure import check_hairpins, StructurePrediction
 from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.secondary_structure import StructurePrediction, check_hairpins
+from neoswga.core.thermodynamics import (
+    calculate_free_energy,
+    calculate_tm_with_salt,
+    reverse_complement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ThreePrimeStability:
     """3' terminal stability metrics for a primer."""
+
     primer: str
     terminal_tm: float  # Tm of last 5 bases (°C)
     terminal_gc: float  # GC content of last 5 bases (0-1)
@@ -69,10 +71,12 @@ class ThreePrimeStability:
 
     def __str__(self):
         status = "PASS" if self.passes else f"FAIL ({self.failure_reason})"
-        return (f"{self.primer}: {status}\n"
-                f"  Terminal Tm: {self.terminal_tm:.1f}°C, "
-                f"GC clamp: {self.gc_clamp}/3\n"
-                f"  Stability score: {self.stability_score:.2f}")
+        return (
+            f"{self.primer}: {status}\n"
+            f"  Terminal Tm: {self.terminal_tm:.1f}°C, "
+            f"GC clamp: {self.gc_clamp}/3\n"
+            f"  Stability score: {self.stability_score:.2f}"
+        )
 
 
 class ThreePrimeStabilityAnalyzer:
@@ -109,13 +113,15 @@ class ThreePrimeStabilityAnalyzer:
     - 15-20% improvement in extension efficiency
     """
 
-    def __init__(self,
-                 conditions: Optional[ReactionConditions] = None,
-                 min_terminal_tm: float = 15.0,
-                 min_gc_clamp: int = 1,
-                 max_gc_clamp: int = 3,
-                 avoid_terminal_a: bool = True,
-                 min_stability_score: float = 0.5):
+    def __init__(
+        self,
+        conditions: Optional[ReactionConditions] = None,
+        min_terminal_tm: float = 15.0,
+        min_gc_clamp: int = 1,
+        max_gc_clamp: int = 3,
+        avoid_terminal_a: bool = True,
+        min_stability_score: float = 0.5,
+    ):
         """
         Initialize 3' stability analyzer.
 
@@ -152,10 +158,10 @@ class ThreePrimeStabilityAnalyzer:
         # Calculate terminal Tm using Wallace's rule (simpler for short sequences)
         # For sequences <14 bp: Tm = 2(A+T) + 4(G+C)
         # This is more reliable for 5bp terminal regions
-        a_count = terminal_5bp.count('A')
-        t_count = terminal_5bp.count('T')
-        g_count = terminal_5bp.count('G')
-        c_count = terminal_5bp.count('C')
+        a_count = terminal_5bp.count("A")
+        t_count = terminal_5bp.count("T")
+        g_count = terminal_5bp.count("G")
+        c_count = terminal_5bp.count("C")
 
         terminal_tm = 2 * (a_count + t_count) + 4 * (g_count + c_count)
 
@@ -176,15 +182,14 @@ class ThreePrimeStabilityAnalyzer:
         # The solution: Never apply salt correction to terminal Tm calculations.
 
         # Calculate terminal GC content
-        terminal_gc = sum(1 for b in terminal_5bp if b in 'GC') / len(terminal_5bp)
+        terminal_gc = sum(1 for b in terminal_5bp if b in "GC") / len(terminal_5bp)
 
         # Count GC clamp (last 3 bases)
-        gc_clamp = sum(1 for b in terminal_3bp if b in 'GC')
+        gc_clamp = sum(1 for b in terminal_3bp if b in "GC")
 
         # Calculate binding energy of terminal region
         terminal_energy = calculate_free_energy(
-            terminal_5bp,
-            temperature=self.conditions.temp if self.conditions else 30.0
+            terminal_5bp, temperature=self.conditions.temp if self.conditions else 30.0
         )
 
         # Check for hairpins involving 3' end
@@ -208,7 +213,7 @@ class ThreePrimeStabilityAnalyzer:
         elif gc_clamp > self.max_gc_clamp:
             passes = False
             failure_reason = f"GC clamp {gc_clamp} > {self.max_gc_clamp} (too strong)"
-        elif self.avoid_terminal_a and terminal_base == 'A':
+        elif self.avoid_terminal_a and terminal_base == "A":
             passes = False
             failure_reason = "Terminal A (weakest base for extension)"
         elif has_terminal_hairpin:
@@ -228,7 +233,7 @@ class ThreePrimeStabilityAnalyzer:
             terminal_base=terminal_base,
             stability_score=stability_score,
             passes=passes,
-            failure_reason=failure_reason
+            failure_reason=failure_reason,
         )
 
     def _check_terminal_hairpin(self, primer: str) -> bool:
@@ -250,13 +255,13 @@ class ThreePrimeStabilityAnalyzer:
         primer_len = len(primer)
 
         for hairpin in hairpins:
-            if not hairpin['stable']:
+            if not hairpin["stable"]:
                 continue  # Only consider stable hairpins
 
             # Hairpin position is start of stem
-            hairpin_start = hairpin['position']
-            stem_len = hairpin['stem_length']
-            loop_size = hairpin['loop_size']
+            hairpin_start = hairpin["position"]
+            stem_len = hairpin["stem_length"]
+            loop_size = hairpin["loop_size"]
 
             # Calculate hairpin end (3' side of stem)
             hairpin_end = hairpin_start + stem_len + loop_size + stem_len
@@ -269,12 +274,14 @@ class ThreePrimeStabilityAnalyzer:
 
         return False
 
-    def _calculate_stability_score(self,
-                                   terminal_tm: float,
-                                   gc_clamp: int,
-                                   terminal_base: str,
-                                   has_hairpin: bool,
-                                   terminal_energy: float) -> float:
+    def _calculate_stability_score(
+        self,
+        terminal_tm: float,
+        gc_clamp: int,
+        terminal_base: str,
+        has_hairpin: bool,
+        terminal_energy: float,
+    ) -> float:
         """
         Calculate overall 3' stability score (0-1).
 
@@ -310,7 +317,7 @@ class ThreePrimeStabilityAnalyzer:
         gc_score = gc_clamp_scores.get(gc_clamp, 0.5)
 
         # Terminal base score
-        terminal_base_scores = {'G': 1.0, 'C': 0.95, 'T': 0.7, 'A': 0.5}
+        terminal_base_scores = {"G": 1.0, "C": 0.95, "T": 0.7, "A": 0.5}
         base_score = terminal_base_scores.get(terminal_base, 0.6)
 
         # Energy score (more negative = better, but not too negative)
@@ -325,12 +332,7 @@ class ThreePrimeStabilityAnalyzer:
             energy_score = 0.5
 
         # Combine scores (weighted)
-        base_total = (
-            tm_score * 0.35 +
-            gc_score * 0.25 +
-            base_score * 0.20 +
-            energy_score * 0.20
-        )
+        base_total = tm_score * 0.35 + gc_score * 0.25 + base_score * 0.20 + energy_score * 0.20
 
         # Hairpin penalty
         if has_hairpin:
@@ -356,16 +358,16 @@ class ThreePrimeStabilityAnalyzer:
                 passing.append(primer)
 
         if len(primers) > 0:
-            logger.info(f"3' stability filter: {len(passing)}/{len(primers)} passed "
-                       f"({100*len(passing)/len(primers):.1f}%)")
+            logger.info(
+                f"3' stability filter: {len(passing)}/{len(primers)} passed "
+                f"({100*len(passing)/len(primers):.1f}%)"
+            )
         else:
             logger.info("3' stability filter: no primers to filter")
 
         return passing
 
-    def get_worst_primers(self,
-                         primers: List[str],
-                         n: int = 5) -> List[ThreePrimeStability]:
+    def get_worst_primers(self, primers: List[str], n: int = 5) -> List[ThreePrimeStability]:
         """
         Get primers with worst 3' stability.
 
@@ -383,9 +385,11 @@ class ThreePrimeStabilityAnalyzer:
         return sorted_analyses[:n]
 
 
-def create_three_prime_analyzer(stringency: str = 'moderate',
-                                conditions: Optional[ReactionConditions] = None,
-                                swga_mode: bool = True) -> ThreePrimeStabilityAnalyzer:
+def create_three_prime_analyzer(
+    stringency: str = "moderate",
+    conditions: Optional[ReactionConditions] = None,
+    swga_mode: bool = True,
+) -> ThreePrimeStabilityAnalyzer:
     """
     Create 3' stability analyzer with preset stringency levels.
 
@@ -418,79 +422,79 @@ def create_three_prime_analyzer(stringency: str = 'moderate',
         # SWGA-calibrated thresholds for short primers (8-12bp)
         # Uses uncorrected Wallace Tm (no salt correction)
         # Typical Tm range: 10-24°C for 5bp terminal regions
-        if stringency == 'lenient':
+        if stringency == "lenient":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=10.0,  # Accept most well-designed SWGA primers
-                min_gc_clamp=0,        # No GC clamp requirement
+                min_gc_clamp=0,  # No GC clamp requirement
                 max_gc_clamp=3,
                 avoid_terminal_a=False,
-                min_stability_score=0.4
+                min_stability_score=0.4,
             )
-        elif stringency == 'moderate':
+        elif stringency == "moderate":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=14.0,  # Balanced for SWGA primers
-                min_gc_clamp=1,        # At least 1 G/C in last 3 bases
+                min_gc_clamp=1,  # At least 1 G/C in last 3 bases
                 max_gc_clamp=3,
                 avoid_terminal_a=True,  # Avoid weak terminal A
-                min_stability_score=0.5
+                min_stability_score=0.5,
             )
-        elif stringency == 'strict':
+        elif stringency == "strict":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=18.0,  # High-quality SWGA primers only
-                min_gc_clamp=2,        # Strong GC clamp required
-                max_gc_clamp=2,        # Not too strong (avoid self-complementarity)
+                min_gc_clamp=2,  # Strong GC clamp required
+                max_gc_clamp=2,  # Not too strong (avoid self-complementarity)
                 avoid_terminal_a=True,
-                min_stability_score=0.6
+                min_stability_score=0.6,
             )
         else:
             raise ValueError(
-                f"Invalid stringency '{stringency}'. "
-                "Must be 'lenient', 'moderate', or 'strict'."
+                f"Invalid stringency '{stringency}'. " "Must be 'lenient', 'moderate', or 'strict'."
             )
     else:
         # Standard PCR-calibrated thresholds for longer primers (18-30bp)
         # Uses salt-corrected Tm values (higher than SWGA)
-        if stringency == 'lenient':
+        if stringency == "lenient":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=30.0,  # Standard PCR threshold
                 min_gc_clamp=0,
                 max_gc_clamp=3,
                 avoid_terminal_a=False,
-                min_stability_score=0.4
+                min_stability_score=0.4,
             )
-        elif stringency == 'moderate':
+        elif stringency == "moderate":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=35.0,  # Standard PCR threshold
                 min_gc_clamp=1,
                 max_gc_clamp=3,
                 avoid_terminal_a=True,
-                min_stability_score=0.5
+                min_stability_score=0.5,
             )
-        elif stringency == 'strict':
+        elif stringency == "strict":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=40.0,  # Standard PCR threshold
                 min_gc_clamp=2,
                 max_gc_clamp=2,
                 avoid_terminal_a=True,
-                min_stability_score=0.6
+                min_stability_score=0.6,
             )
         else:
             raise ValueError(
-                f"Invalid stringency '{stringency}'. "
-                "Must be 'lenient', 'moderate', or 'strict'."
+                f"Invalid stringency '{stringency}'. " "Must be 'lenient', 'moderate', or 'strict'."
             )
 
 
 # Utility function for quick filtering
-def filter_primers_by_three_prime_stability(primers: List[str],
-                                           stringency: str = 'moderate',
-                                           conditions: Optional[ReactionConditions] = None) -> List[str]:
+def filter_primers_by_three_prime_stability(
+    primers: List[str],
+    stringency: str = "moderate",
+    conditions: Optional[ReactionConditions] = None,
+) -> List[str]:
     """
     Quick utility to filter primers by 3' stability.
 
@@ -519,6 +523,7 @@ def filter_primers_by_three_prime_stability(primers: List[str],
 # Solution: Scale terminal Tm by genome GC deviation from balanced (50%)
 # ============================================================================
 
+
 def calculate_gc_deviation(genome_gc: float) -> float:
     """
     Calculate how far genome GC deviates from balanced composition.
@@ -544,9 +549,7 @@ def calculate_gc_deviation(genome_gc: float) -> float:
 
 
 def calculate_adaptive_terminal_tm(
-    base_threshold: float,
-    genome_gc: float,
-    stringency: str
+    base_threshold: float, genome_gc: float, stringency: str
 ) -> float:
     """
     Calculate genome-adaptive terminal Tm threshold.
@@ -599,11 +602,11 @@ def calculate_adaptive_terminal_tm(
 
     # Floor values to prevent unreasonably low thresholds
     # These ensure minimum primer quality even for extreme AT-rich genomes
-    if stringency == 'lenient':
+    if stringency == "lenient":
         adjusted_tm = max(6.0, adjusted_tm)
-    elif stringency == 'moderate':
+    elif stringency == "moderate":
         adjusted_tm = max(8.0, adjusted_tm)
-    elif stringency == 'strict':
+    elif stringency == "strict":
         adjusted_tm = max(12.0, adjusted_tm)
 
     logger.debug(
@@ -617,9 +620,9 @@ def calculate_adaptive_terminal_tm(
 
 def create_three_prime_analyzer_adaptive(
     genome_gc: float,
-    stringency: str = 'moderate',
+    stringency: str = "moderate",
     conditions: Optional[ReactionConditions] = None,
-    swga_mode: bool = True
+    swga_mode: bool = True,
 ) -> ThreePrimeStabilityAnalyzer:
     """
     Create ThreePrimeStabilityAnalyzer with genome-adaptive thresholds.
@@ -661,25 +664,18 @@ def create_three_prime_analyzer_adaptive(
     """
     if swga_mode:
         # Get base thresholds
-        base_thresholds = {
-            'lenient': 10.0,
-            'moderate': 14.0,
-            'strict': 18.0
-        }
+        base_thresholds = {"lenient": 10.0, "moderate": 14.0, "strict": 18.0}
 
         if stringency not in base_thresholds:
             raise ValueError(
-                f"Invalid stringency '{stringency}'. "
-                "Must be 'lenient', 'moderate', or 'strict'."
+                f"Invalid stringency '{stringency}'. " "Must be 'lenient', 'moderate', or 'strict'."
             )
 
         base_tm = base_thresholds[stringency]
 
         # Calculate adaptive terminal Tm
         adaptive_tm = calculate_adaptive_terminal_tm(
-            base_threshold=base_tm,
-            genome_gc=genome_gc,
-            stringency=stringency
+            base_threshold=base_tm, genome_gc=genome_gc, stringency=stringency
         )
 
         # Log adaptive behavior
@@ -691,23 +687,23 @@ def create_three_prime_analyzer_adaptive(
 
         # Create analyzer with adaptive threshold
         # Other parameters remain standard for now
-        if stringency == 'lenient':
+        if stringency == "lenient":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=adaptive_tm,  # ADAPTIVE
                 min_gc_clamp=0,
                 max_gc_clamp=3,
                 avoid_terminal_a=False,
-                min_stability_score=0.4
+                min_stability_score=0.4,
             )
-        elif stringency == 'moderate':
+        elif stringency == "moderate":
             return ThreePrimeStabilityAnalyzer(
                 conditions=conditions,
                 min_terminal_tm=adaptive_tm,  # ADAPTIVE
                 min_gc_clamp=1,
                 max_gc_clamp=3,
                 avoid_terminal_a=True,
-                min_stability_score=0.5
+                min_stability_score=0.5,
             )
         else:  # strict
             return ThreePrimeStabilityAnalyzer(
@@ -716,7 +712,7 @@ def create_three_prime_analyzer_adaptive(
                 min_gc_clamp=2,
                 max_gc_clamp=2,
                 avoid_terminal_a=True,
-                min_stability_score=0.6
+                min_stability_score=0.6,
             )
     else:
         # For standard PCR mode, use non-adaptive thresholds
@@ -753,7 +749,7 @@ if __name__ == "__main__":
         print()
 
     # Test filtering
-    print("="*60)
+    print("=" * 60)
     passing = analyzer.filter_primers(test_primers)
     print(f"\nPassing primers: {len(passing)}/{len(test_primers)}")
     for primer in passing:

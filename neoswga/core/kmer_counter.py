@@ -8,13 +8,13 @@ Jellyfish is a required dependency - the module will raise an error if not avail
 import concurrent.futures
 import logging
 import os
-import subprocess
-import tempfile
 import shutil
+import subprocess
 import sys
-from typing import Dict, List, Optional
+import tempfile
 from collections import defaultdict
 from pathlib import Path
+from typing import Dict, List, Optional
 
 from neoswga.core.thermodynamics import reverse_complement
 
@@ -53,7 +53,7 @@ def _adaptive_hash_size(genome_path: str) -> int:
 
 def check_jellyfish_available() -> bool:
     """Check if jellyfish is available in PATH."""
-    return shutil.which('jellyfish') is not None
+    return shutil.which("jellyfish") is not None
 
 
 def get_jellyfish_version() -> Optional[str]:
@@ -66,8 +66,7 @@ def get_jellyfish_version() -> Optional[str]:
         return None
     try:
         result = subprocess.run(
-            ['jellyfish', '--version'],
-            capture_output=True, text=True, timeout=10
+            ["jellyfish", "--version"], capture_output=True, text=True, timeout=10
         )
         # Output is typically "jellyfish 2.3.1" or just "2.3.1"
         text = result.stdout.strip() or result.stderr.strip()
@@ -89,8 +88,8 @@ def require_jellyfish():
     version = get_jellyfish_version()
     if version:
         logger.info(f"Jellyfish version: {version}")
-        major = version.split('.')[0]
-        if major == '1':
+        major = version.split(".")[0]
+        if major == "1":
             raise RuntimeError(
                 f"Jellyfish version {version} detected. NeoSWGA requires "
                 f"Jellyfish 2.x (1.x has an incompatible CLI). "
@@ -135,7 +134,7 @@ class MultiGenomeKmerCounter:
             os.makedirs(self.output_dir, exist_ok=True)
             return self.output_dir
         if self._temp_dir is None:
-            self._temp_dir = tempfile.mkdtemp(prefix='neoswga_kmer_')
+            self._temp_dir = tempfile.mkdtemp(prefix="neoswga_kmer_")
         return self._temp_dir
 
     def add_genome(self, name: str, fasta_path: str):
@@ -155,7 +154,7 @@ class MultiGenomeKmerCounter:
         length = 0
         with open(fasta_path) as f:
             for line in f:
-                if not line.startswith('>'):
+                if not line.startswith(">"):
                     length += len(line.strip())
         self.genome_lengths[name] = length
 
@@ -190,19 +189,24 @@ class MultiGenomeKmerCounter:
         if not os.path.exists(txt_file):
             # Run jellyfish count
             count_cmd = [
-                'jellyfish', 'count',
-                '-m', str(k),
-                '-s', str(_adaptive_hash_size(fasta_path)),
-                '-t', str(self.cpus),
-                '-C',  # Canonical k-mers (both strands)
+                "jellyfish",
+                "count",
+                "-m",
+                str(k),
+                "-s",
+                str(_adaptive_hash_size(fasta_path)),
+                "-t",
+                str(self.cpus),
+                "-C",  # Canonical k-mers (both strands)
                 fasta_path,
-                '-o', jf_file
+                "-o",
+                jf_file,
             ]
             subprocess.run(count_cmd, check=True, capture_output=True)
 
             # Dump to text
-            dump_cmd = ['jellyfish', 'dump', '-c', jf_file]
-            with open(txt_file, 'w') as f:
+            dump_cmd = ["jellyfish", "dump", "-c", jf_file]
+            with open(txt_file, "w") as f:
                 subprocess.run(dump_cmd, check=True, stdout=f)
 
             # Clean up .jf file
@@ -295,9 +299,9 @@ def count_kmers_in_sequence(sequence: str, k: int) -> Dict[str, int]:
     counts = defaultdict(int)
 
     for i in range(len(sequence) - k + 1):
-        kmer = sequence[i:i+k]
+        kmer = sequence[i : i + k]
         # Only count canonical DNA k-mers
-        if all(base in 'ACGT' for base in kmer):
+        if all(base in "ACGT" for base in kmer):
             counts[kmer] += 1
 
     return dict(counts)
@@ -310,8 +314,9 @@ def count_kmers_in_sequence(sequence: str, k: int) -> Dict[str, int]:
 _JELLYFISH_TIMEOUT = 3600  # 1 hour per k-value
 
 
-def _run_jellyfish_for_k(output_prefix: str, genome_fname: str,
-                         k: int, cpus: int, hash_size: int) -> None:
+def _run_jellyfish_for_k(
+    output_prefix: str, genome_fname: str, k: int, cpus: int, hash_size: int
+) -> None:
     """Run Jellyfish count + dump for a single k-value.
 
     Args:
@@ -330,25 +335,32 @@ def _run_jellyfish_for_k(output_prefix: str, genome_fname: str,
 
     if not os.path.exists(txt_file):
         count_cmd = [
-            'jellyfish', 'count',
-            '-m', str(k),
-            '-s', str(hash_size),
-            '-t', str(cpus),
-            '-C',  # Canonical k-mers (count both strands together)
+            "jellyfish",
+            "count",
+            "-m",
+            str(k),
+            "-s",
+            str(hash_size),
+            "-t",
+            str(cpus),
+            "-C",  # Canonical k-mers (count both strands together)
             genome_fname,
-            '-o', jf_file,
+            "-o",
+            jf_file,
         ]
         logger.debug(f"Running: {' '.join(count_cmd)}")
         try:
             result = subprocess.run(
-                count_cmd, check=True,
-                capture_output=True, text=True,
+                count_cmd,
+                check=True,
+                capture_output=True,
+                text=True,
                 timeout=_JELLYFISH_TIMEOUT,
             )
             if result.stderr:
                 logger.debug(f"jellyfish count stderr: {result.stderr.strip()}")
         except subprocess.CalledProcessError as e:
-            stderr_msg = (e.stderr or '').strip()
+            stderr_msg = (e.stderr or "").strip()
             raise RuntimeError(
                 f"jellyfish count failed for k={k}: {stderr_msg}\n"
                 f"Command: {' '.join(count_cmd)}"
@@ -359,13 +371,16 @@ def _run_jellyfish_for_k(output_prefix: str, genome_fname: str,
                 os.remove(jf_file)
             raise
 
-        dump_cmd = ['jellyfish', 'dump', '-c', jf_file]
+        dump_cmd = ["jellyfish", "dump", "-c", jf_file]
         logger.debug(f"Running: {' '.join(dump_cmd)}")
         try:
-            with open(txt_file, 'w') as f_out:
+            with open(txt_file, "w") as f_out:
                 subprocess.run(
-                    dump_cmd, check=True, stdout=f_out,
-                    stderr=subprocess.PIPE, text=True,
+                    dump_cmd,
+                    check=True,
+                    stdout=f_out,
+                    stderr=subprocess.PIPE,
+                    text=True,
                     timeout=_JELLYFISH_TIMEOUT,
                 )
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -378,8 +393,9 @@ def _run_jellyfish_for_k(output_prefix: str, genome_fname: str,
         os.remove(jf_file)
 
 
-def run_jellyfish(genome_fname: str, output_prefix: str,
-                  min_k: int = 6, max_k: int = 12, cpus: int = 4) -> None:
+def run_jellyfish(
+    genome_fname: str, output_prefix: str, min_k: int = 6, max_k: int = 12, cpus: int = 4
+) -> None:
     """
     Run jellyfish to count k-mers and generate output files.
 
@@ -430,10 +446,9 @@ def run_jellyfish(genome_fname: str, output_prefix: str,
             _print_k_progress(k, min_k, max_k)
 
     if errors:
-        failed_ks = ', '.join(str(k) for k, _ in errors)
+        failed_ks = ", ".join(str(k) for k, _ in errors)
         raise RuntimeError(
-            f"Jellyfish failed for k-mer lengths: {failed_ks}. "
-            f"First error: {errors[0][1]}"
+            f"Jellyfish failed for k-mer lengths: {failed_ks}. " f"First error: {errors[0][1]}"
         )
 
     # Validate output files
@@ -447,9 +462,7 @@ def run_jellyfish(genome_fname: str, output_prefix: str,
             empty.append(txt_file)
 
     if missing:
-        raise RuntimeError(
-            f"Jellyfish output files missing after counting: {missing}"
-        )
+        raise RuntimeError(f"Jellyfish output files missing after counting: {missing}")
     if empty:
         logger.warning(
             f"Empty k-mer files (genome may be shorter than k): "
@@ -469,7 +482,7 @@ def get_kmer_to_count_dict(f_in_name: str) -> Dict[str, int]:
     """
     kmer_to_count = {}
 
-    with open(f_in_name, 'r') as f_in:
+    with open(f_in_name, "r") as f_in:
         for line in f_in:
             parts = line.strip().split()
             if len(parts) >= 2:
@@ -484,18 +497,20 @@ def _gc_content(seq: str) -> float:
     """Fast GC fraction for a DNA sequence (no validation)."""
     gc = 0
     for c in seq:
-        if c == 'G' or c == 'C' or c == 'g' or c == 'c':
+        if c == "G" or c == "C" or c == "g" or c == "c":
             gc += 1
     return gc / len(seq) if seq else 0.0
 
 
-def get_primer_list_from_kmers(prefixes: List[str],
-                                kmer_lengths: Optional[range] = None,
-                                min_tm: float = 15.0,
-                                max_tm: float = 55.0,
-                                wide_tm_margin: float = 15.0,
-                                gc_min: float = 0.10,
-                                gc_max: float = 0.90) -> List[str]:
+def get_primer_list_from_kmers(
+    prefixes: List[str],
+    kmer_lengths: Optional[range] = None,
+    min_tm: float = 15.0,
+    max_tm: float = 55.0,
+    wide_tm_margin: float = 15.0,
+    gc_min: float = 0.10,
+    gc_max: float = 0.90,
+) -> List[str]:
     """
     Get all k-mers from jellyfish output files, filtered by GC content and Tm.
 
@@ -536,7 +551,7 @@ def get_primer_list_from_kmers(prefixes: List[str],
                 logger.warning(f"K-mer file not found: {fpath}")
                 continue
 
-            with open(fpath, 'r') as f_in:
+            with open(fpath, "r") as f_in:
                 for line in f_in:
                     parts = line.strip().split()
                     if parts:
@@ -556,6 +571,8 @@ def get_primer_list_from_kmers(prefixes: List[str],
                             logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
 
     if gc_rejected > 0:
-        logger.info(f"GC pre-filter removed {gc_rejected} k-mers outside {gc_min:.0%}-{gc_max:.0%} range")
+        logger.info(
+            f"GC pre-filter removed {gc_rejected} k-mers outside {gc_min:.0%}-{gc_max:.0%} range"
+        )
 
     return primer_list

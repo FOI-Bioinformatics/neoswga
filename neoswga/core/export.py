@@ -18,10 +18,10 @@ Usage:
 import csv
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import List, Dict, Optional, Any
-from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ class ModificationProfile(Enum):
 
     Reference: Wang et al. (2017) BioTechniques 63:21-26
     """
+
     NONE = "none"
     STANDARD = "standard"
     LOW_INPUT = "low-input"
@@ -53,12 +54,13 @@ class PrimerModifications:
         Standard: ATCGATCGAT*C*G (2 PTO bonds at 3' end)
         Low-input: /5SpC18/ATCGATCGAT*C*G (C18 spacer + PTO)
     """
+
     pto_bonds: int = 2
     five_prime_block: Optional[str] = None  # 'c18', 'c3', or None
     profile: ModificationProfile = ModificationProfile.STANDARD
 
     @classmethod
-    def from_profile(cls, profile: str) -> 'PrimerModifications':
+    def from_profile(cls, profile: str) -> "PrimerModifications":
         """Create modification config from profile name.
 
         Args:
@@ -71,20 +73,12 @@ class PrimerModifications:
             ValueError: If profile name is unknown
         """
         profiles = {
-            'none': cls(
-                pto_bonds=0,
-                five_prime_block=None,
-                profile=ModificationProfile.NONE
+            "none": cls(pto_bonds=0, five_prime_block=None, profile=ModificationProfile.NONE),
+            "standard": cls(
+                pto_bonds=2, five_prime_block=None, profile=ModificationProfile.STANDARD
             ),
-            'standard': cls(
-                pto_bonds=2,
-                five_prime_block=None,
-                profile=ModificationProfile.STANDARD
-            ),
-            'low-input': cls(
-                pto_bonds=2,
-                five_prime_block='c18',
-                profile=ModificationProfile.LOW_INPUT
+            "low-input": cls(
+                pto_bonds=2, five_prime_block="c18", profile=ModificationProfile.LOW_INPUT
             ),
         }
         if profile not in profiles:
@@ -98,23 +92,20 @@ class PrimerModifications:
 def calculate_gc(seq: str) -> float:
     """Calculate GC content as fraction."""
     seq = seq.upper()
-    gc_count = seq.count('G') + seq.count('C')
+    gc_count = seq.count("G") + seq.count("C")
     return gc_count / len(seq) if len(seq) > 0 else 0.0
 
 
 def calculate_simple_tm(seq: str) -> float:
     """Calculate Tm using Wallace rule (for short primers)."""
     seq = seq.upper()
-    at_count = seq.count('A') + seq.count('T')
-    gc_count = seq.count('G') + seq.count('C')
+    at_count = seq.count("A") + seq.count("T")
+    gc_count = seq.count("G") + seq.count("C")
     return 2 * at_count + 4 * gc_count
 
 
 def export_to_fasta(
-    primers: List[str],
-    output_path: str,
-    prefix: str = "SWGA",
-    include_metadata: bool = False
+    primers: List[str], output_path: str, prefix: str = "SWGA", include_metadata: bool = False
 ) -> None:
     """
     Export primers to FASTA format.
@@ -125,7 +116,7 @@ def export_to_fasta(
         prefix: Prefix for sequence names (default: SWGA)
         include_metadata: Include Tm and GC in header
     """
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         for i, primer in enumerate(primers, 1):
             header = f">{prefix}_{i:03d}"
 
@@ -157,15 +148,13 @@ def export_to_bed(
         genome_name: Chromosome or contig name for BED output.
         output_path: Path for output file.
     """
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         for primer in primers:
             sites = positions.get(primer, [])
             for pos, strand in sites:
-                strand_char = '+' if strand == 'forward' else '-'
+                strand_char = "+" if strand == "forward" else "-"
                 end = pos + len(primer)
-                f.write(
-                    f"{genome_name}\t{pos}\t{end}\t{primer}\t0\t{strand_char}\n"
-                )
+                f.write(f"{genome_name}\t{pos}\t{end}\t{primer}\t0\t{strand_char}\n")
 
     total_sites = sum(len(positions.get(p, [])) for p in primers)
     logger.info(f"Exported {total_sites} binding sites to {output_path}")
@@ -182,12 +171,13 @@ def export_gaps_to_bed(gaps, output_path: str) -> None:
         gaps: iterable of CoverageGap (chromosome/start/end/size).
         output_path: path for the BED file.
     """
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         for g in gaps:
             # Wrap gaps (end > contig length) are written as-is; IGV clips them.
             f.write(f"{g.chromosome}\t{g.start}\t{g.end}\tgap_{g.size}\t0\t.\n")
-    logger.info(f"Exported {len(list(gaps)) if hasattr(gaps, '__len__') else '?'} "
-                f"gaps to {output_path}")
+    logger.info(
+        f"Exported {len(list(gaps)) if hasattr(gaps, '__len__') else '?'} " f"gaps to {output_path}"
+    )
 
 
 def export_to_bedgraph(
@@ -222,7 +212,7 @@ def export_to_bedgraph(
             if 0 <= window_idx < num_windows:
                 counts[window_idx] += 1
 
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         for i in range(num_windows):
             if counts[i] > 0:
                 start = i * window_size
@@ -289,9 +279,7 @@ VENDOR_MODIFICATION_SYNTAX: Dict[str, Dict[str, Any]] = {
 
 
 def apply_modifications(
-    sequence: str,
-    modifications: PrimerModifications,
-    vendor: str = "generic"
+    sequence: str, modifications: PrimerModifications, vendor: str = "generic"
 ) -> str:
     """Apply chemical modifications to primer sequence using vendor syntax.
 
@@ -320,9 +308,7 @@ def apply_modifications(
         return sequence
 
     vendor = vendor.lower()
-    syntax = VENDOR_MODIFICATION_SYNTAX.get(
-        vendor, VENDOR_MODIFICATION_SYNTAX["generic"]
-    )
+    syntax = VENDOR_MODIFICATION_SYNTAX.get(vendor, VENDOR_MODIFICATION_SYNTAX["generic"])
 
     # Warn if vendor doesn't support modifications
     if not syntax.get("supports_mods", True):
@@ -342,8 +328,8 @@ def apply_modifications(
         n = modifications.pto_bonds
         if len(result) > n:
             # Split into prefix and the last n+1 nucleotides
-            prefix = result[:-n-1]
-            suffix = result[-n-1:]
+            prefix = result[: -n - 1]
+            suffix = result[-n - 1 :]
             # Insert PTO between each of the last n+1 nucleotides
             modified_suffix = pto.join(suffix)
             result = prefix + modified_suffix
@@ -352,11 +338,11 @@ def apply_modifications(
             result = pto.join(result)
 
     # Apply 5' blocking group
-    if modifications.five_prime_block == 'c18':
+    if modifications.five_prime_block == "c18":
         prefix = syntax.get("c18_prefix", "[C18]-")
         if prefix:  # Only add if vendor supports it
             result = prefix + result
-    elif modifications.five_prime_block == 'c3':
+    elif modifications.five_prime_block == "c3":
         prefix = syntax.get("c3_prefix", "[C3]-")
         if prefix:
             result = prefix + result
@@ -370,7 +356,7 @@ def export_to_vendor_csv(
     vendor: str = "generic",
     project_name: str = "SWGA",
     scale: Optional[str] = None,
-    purification: Optional[str] = None
+    purification: Optional[str] = None,
 ) -> None:
     """
     Export primers in vendor-specific CSV format.
@@ -401,7 +387,7 @@ def export_to_vendor_csv(
             if col in columns:
                 defaults[col] = purification
 
-    with open(output_path, 'w', newline='') as f:
+    with open(output_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=columns)
         writer.writeheader()
 
@@ -546,9 +532,7 @@ def generate_protocol(
     for i, primer in enumerate(primers, 1):
         tm = calculate_simple_tm(primer)
         gc = calculate_gc(primer)
-        table_rows.append(
-            f"| {i} | {primer} | {len(primer)} | {tm:.1f}C | {gc:.1%} |"
-        )
+        table_rows.append(f"| {i} | {primer} | {len(primer)} | {tm:.1f}C | {gc:.1%} |")
     primer_table = "\n".join(table_rows)
 
     # Build additives section
@@ -574,11 +558,7 @@ def generate_protocol(
     )
 
 
-def export_protocol(
-    primers: List[str],
-    output_path: str,
-    **kwargs
-) -> None:
+def export_protocol(primers: List[str], output_path: str, **kwargs) -> None:
     """
     Export protocol to markdown file.
 
@@ -589,7 +569,7 @@ def export_protocol(
     """
     protocol = generate_protocol(primers, **kwargs)
 
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         f.write(protocol)
 
     logger.info(f"Exported protocol to {output_path}")
@@ -598,6 +578,7 @@ def export_protocol(
 @dataclass
 class ExportSummary:
     """Summary of exported primer set."""
+
     num_primers: int
     mean_length: float
     mean_gc: float
@@ -661,14 +642,12 @@ class PrimerExporter:
         self.dmso_percent = dmso_percent
         self.trehalose_m = trehalose_m
         self.mg_conc = mg_conc
-        self.modifications = modifications or PrimerModifications.from_profile('standard')
+        self.modifications = modifications or PrimerModifications.from_profile("standard")
 
     @classmethod
     def from_results_dir(
-        cls,
-        results_dir: str,
-        params_file: Optional[str] = None
-    ) -> 'PrimerExporter':
+        cls, results_dir: str, params_file: Optional[str] = None
+    ) -> "PrimerExporter":
         """
         Create exporter from pipeline results directory.
 
@@ -689,10 +668,10 @@ class PrimerExporter:
             raise FileNotFoundError(f"Step 4 results not found: {step4_file}")
 
         primers = []
-        with open(step4_file, 'r') as f:
+        with open(step4_file, "r") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                primer = row.get('primer', row.get('sequence', ''))
+                primer = row.get("primer", row.get("sequence", ""))
                 if primer and primer not in primers:
                     primers.append(primer)
 
@@ -703,14 +682,14 @@ class PrimerExporter:
         kwargs = {}
         params_path = params_file or (results_path / "params.json")
         if Path(params_path).exists():
-            with open(params_path, 'r') as f:
+            with open(params_path, "r") as f:
                 params = json.load(f)
-                kwargs['polymerase'] = params.get('polymerase', 'phi29')
-                kwargs['temperature'] = params.get('reaction_temp', 30.0)
-                kwargs['betaine_m'] = params.get('betaine_m', 0.0)
-                kwargs['dmso_percent'] = params.get('dmso_percent', 0.0)
-                kwargs['trehalose_m'] = params.get('trehalose_m', 0.0)
-                kwargs['mg_conc'] = params.get('mg_conc', 2.5)
+                kwargs["polymerase"] = params.get("polymerase", "phi29")
+                kwargs["temperature"] = params.get("reaction_temp", 30.0)
+                kwargs["betaine_m"] = params.get("betaine_m", 0.0)
+                kwargs["dmso_percent"] = params.get("dmso_percent", 0.0)
+                kwargs["trehalose_m"] = params.get("trehalose_m", 0.0)
+                kwargs["mg_conc"] = params.get("mg_conc", 2.5)
 
         return cls(primers, **kwargs)
 
@@ -718,14 +697,11 @@ class PrimerExporter:
         """Export primers to FASTA format."""
         export_to_fasta(self.primers, output_path, **kwargs)
 
-    def export_vendor_csv(
-        self, output_path: str, vendor: str = "idt", **kwargs
-    ) -> None:
+    def export_vendor_csv(self, output_path: str, vendor: str = "idt", **kwargs) -> None:
         """Export primers in vendor-specific CSV format with modifications applied."""
         # Apply modifications to primers
         modified_primers = [
-            apply_modifications(p, self.modifications, vendor)
-            for p in self.primers
+            apply_modifications(p, self.modifications, vendor) for p in self.primers
         ]
         export_to_vendor_csv(modified_primers, output_path, vendor=vendor, **kwargs)
 
@@ -733,12 +709,12 @@ class PrimerExporter:
         """Export wet-lab protocol."""
         # Use instance conditions as defaults
         protocol_kwargs = {
-            'polymerase': self.polymerase,
-            'temperature': self.temperature,
-            'betaine_m': self.betaine_m,
-            'dmso_percent': self.dmso_percent,
-            'trehalose_m': self.trehalose_m,
-            'mg_conc': self.mg_conc,
+            "polymerase": self.polymerase,
+            "temperature": self.temperature,
+            "betaine_m": self.betaine_m,
+            "dmso_percent": self.dmso_percent,
+            "trehalose_m": self.trehalose_m,
+            "mg_conc": self.mg_conc,
         }
         protocol_kwargs.update(kwargs)
         export_protocol(self.primers, output_path, **protocol_kwargs)
@@ -762,15 +738,11 @@ class PrimerExporter:
     ) -> None:
         """Export primer binding density in BedGraph format."""
         export_to_bedgraph(
-            self.primers, positions, genome_name,
-            genome_length, output_path, window_size
+            self.primers, positions, genome_name, genome_length, output_path, window_size
         )
 
     def export_all(
-        self,
-        output_dir: str,
-        project_name: str = "SWGA",
-        vendors: Optional[List[str]] = None
+        self, output_dir: str, project_name: str = "SWGA", vendors: Optional[List[str]] = None
     ) -> Dict[str, str]:
         """
         Export all formats to a directory.
@@ -793,17 +765,13 @@ class PrimerExporter:
 
         # FASTA
         fasta_path = output_path / f"{project_name}_primers.fasta"
-        self.export_fasta(
-            str(fasta_path), prefix=project_name, include_metadata=True
-        )
+        self.export_fasta(str(fasta_path), prefix=project_name, include_metadata=True)
         outputs["fasta"] = str(fasta_path)
 
         # Vendor CSVs
         for vendor in vendors:
             csv_path = output_path / f"{project_name}_order_{vendor}.csv"
-            self.export_vendor_csv(
-                str(csv_path), vendor=vendor, project_name=project_name
-            )
+            self.export_vendor_csv(str(csv_path), vendor=vendor, project_name=project_name)
             outputs[f"csv_{vendor}"] = str(csv_path)
 
         # Protocol
@@ -813,17 +781,16 @@ class PrimerExporter:
 
         # BED and BedGraph (require position data — skip if unavailable)
         try:
-            if hasattr(self, '_positions') and self._positions:
+            if hasattr(self, "_positions") and self._positions:
                 bed_path = output_path / f"{project_name}_primers.bed"
-                genome_name = getattr(self, '_genome_name', 'genome')
+                genome_name = getattr(self, "_genome_name", "genome")
                 self.export_bed(str(bed_path), self._positions, genome_name)
                 outputs["bed"] = str(bed_path)
 
                 bedgraph_path = output_path / f"{project_name}_coverage.bedgraph"
-                genome_length = getattr(self, '_genome_length', 0)
+                genome_length = getattr(self, "_genome_length", 0)
                 self.export_bedgraph(
-                    str(bedgraph_path), self._positions, genome_name,
-                    genome_length
+                    str(bedgraph_path), self._positions, genome_name, genome_length
                 )
                 outputs["bedgraph"] = str(bedgraph_path)
         except Exception as e:
@@ -882,6 +849,6 @@ class PrimerExporter:
         print("  MODIFICATIONS")
         print(f"  Profile: {summary['modification_profile']}")
         print(f"  3' PTO bonds: {summary['pto_bonds']}")
-        block = summary['five_prime_block'] or 'none'
+        block = summary["five_prime_block"] or "none"
         print(f"  5' blocking: {block}")
         print("=" * 50 + "\n")

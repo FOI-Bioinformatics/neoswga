@@ -26,9 +26,10 @@ Version: 3.1 - Tier 1 Improvements
 """
 
 import logging
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StrandBindingSite:
     """A binding site for a primer on the genome."""
+
     position: int
     strand: str  # '+' (forward) or '-' (reverse)
     sequence: str  # The actual binding sequence
@@ -48,6 +50,7 @@ class StrandBindingSite:
 @dataclass
 class PrimerStrandBias:
     """Strand bias metrics for a single primer."""
+
     primer: str
     forward_count: int
     reverse_count: int
@@ -66,22 +69,25 @@ class PrimerStrandBias:
     def dominant_strand(self) -> str:
         """Return the dominant binding strand."""
         if self.forward_count > self.reverse_count:
-            return '+'
+            return "+"
         elif self.reverse_count > self.forward_count:
-            return '-'
+            return "-"
         else:
-            return 'balanced'
+            return "balanced"
 
     def __str__(self):
         status = "PASS" if self.passes else f"FAIL ({self.failure_reason})"
-        return (f"{self.primer}: {status}\\n"
-                f"  Forward: {self.forward_count}, Reverse: {self.reverse_count}\\n"
-                f"  Ratio: {self.bias_ratio:.2f}, Score: {self.bias_score:.3f}")
+        return (
+            f"{self.primer}: {status}\\n"
+            f"  Forward: {self.forward_count}, Reverse: {self.reverse_count}\\n"
+            f"  Ratio: {self.bias_ratio:.2f}, Score: {self.bias_score:.3f}"
+        )
 
 
 @dataclass
 class SetStrandBias:
     """Strand bias metrics for a primer set."""
+
     primers: List[str]
     total_forward: int
     total_reverse: int
@@ -93,10 +99,12 @@ class SetStrandBias:
 
     def __str__(self):
         status = "PASS" if self.passes else f"FAIL ({self.failure_reason})"
-        return (f"Primer Set ({len(self.primers)} primers): {status}\\n"
-                f"  Total Forward: {self.total_forward}, Reverse: {self.total_reverse}\\n"
-                f"  Mean bias score: {self.mean_bias_score:.3f}\\n"
-                f"  Biased primers: {self.num_biased_primers}/{len(self.primers)}")
+        return (
+            f"Primer Set ({len(self.primers)} primers): {status}\\n"
+            f"  Total Forward: {self.total_forward}, Reverse: {self.total_reverse}\\n"
+            f"  Mean bias score: {self.mean_bias_score:.3f}\\n"
+            f"  Biased primers: {self.num_biased_primers}/{len(self.primers)}"
+        )
 
 
 class StrandBiasAnalyzer:
@@ -125,10 +133,12 @@ class StrandBiasAnalyzer:
     - Improves experimental success rate by 15-25%
     """
 
-    def __init__(self,
-                 max_bias_ratio: float = 4.0,
-                 max_bias_score: float = 0.7,
-                 max_biased_primers_fraction: float = 0.3):
+    def __init__(
+        self,
+        max_bias_ratio: float = 4.0,
+        max_bias_score: float = 0.7,
+        max_biased_primers_fraction: float = 0.3,
+    ):
         """
         Initialize strand bias analyzer.
 
@@ -141,9 +151,9 @@ class StrandBiasAnalyzer:
         self.max_score = max_bias_score
         self.max_biased_fraction = max_biased_primers_fraction
 
-    def analyze_primer(self,
-                      primer: str,
-                      binding_sites: List[StrandBindingSite]) -> PrimerStrandBias:
+    def analyze_primer(
+        self, primer: str, binding_sites: List[StrandBindingSite]
+    ) -> PrimerStrandBias:
         """
         Analyze strand bias for a single primer.
 
@@ -154,8 +164,8 @@ class StrandBiasAnalyzer:
         Returns:
             PrimerStrandBias object with metrics
         """
-        forward_count = sum(1 for site in binding_sites if site.strand == '+')
-        reverse_count = sum(1 for site in binding_sites if site.strand == '-')
+        forward_count = sum(1 for site in binding_sites if site.strand == "+")
+        reverse_count = sum(1 for site in binding_sites if site.strand == "-")
         total = len(binding_sites)
 
         # Handle edge cases
@@ -168,12 +178,12 @@ class StrandBiasAnalyzer:
                 bias_ratio=1.0,
                 bias_score=0.0,
                 passes=False,
-                failure_reason="No binding sites found"
+                failure_reason="No binding sites found",
             )
 
         if reverse_count == 0:
             # All forward - maximum bias
-            bias_ratio = float('inf')
+            bias_ratio = float("inf")
             bias_score = 1.0
         elif forward_count == 0:
             # All reverse - maximum bias
@@ -212,11 +222,10 @@ class StrandBiasAnalyzer:
             bias_ratio=bias_ratio,
             bias_score=bias_score,
             passes=passes,
-            failure_reason=failure_reason
+            failure_reason=failure_reason,
         )
 
-    def analyze_primer_set(self,
-                          primer_biases: List[PrimerStrandBias]) -> SetStrandBias:
+    def analyze_primer_set(self, primer_biases: List[PrimerStrandBias]) -> SetStrandBias:
         """
         Analyze strand bias for a primer set.
 
@@ -235,7 +244,7 @@ class StrandBiasAnalyzer:
                 max_bias_score=0.0,
                 num_biased_primers=0,
                 passes=False,
-                failure_reason="Empty primer set"
+                failure_reason="Empty primer set",
             )
 
         primers = [pb.primer for pb in primer_biases]
@@ -255,8 +264,10 @@ class StrandBiasAnalyzer:
 
         if biased_fraction > self.max_biased_fraction:
             passes = False
-            failure_reason = (f"{biased_primers}/{len(primer_biases)} primers biased "
-                            f"({biased_fraction:.1%} > {self.max_biased_fraction:.1%})")
+            failure_reason = (
+                f"{biased_primers}/{len(primer_biases)} primers biased "
+                f"({biased_fraction:.1%} > {self.max_biased_fraction:.1%})"
+            )
         elif mean_score > self.max_score:
             passes = False
             failure_reason = f"Mean bias score {mean_score:.3f} > {self.max_score}"
@@ -269,11 +280,10 @@ class StrandBiasAnalyzer:
             max_bias_score=max_score,
             num_biased_primers=biased_primers,
             passes=passes,
-            failure_reason=failure_reason
+            failure_reason=failure_reason,
         )
 
-    def filter_primers_by_strand_bias(self,
-                                     primer_biases: List[PrimerStrandBias]) -> List[str]:
+    def filter_primers_by_strand_bias(self, primer_biases: List[PrimerStrandBias]) -> List[str]:
         """
         Filter primers to only those with acceptable strand bias.
 
@@ -285,9 +295,9 @@ class StrandBiasAnalyzer:
         """
         return [pb.primer for pb in primer_biases if pb.passes]
 
-    def get_most_biased_primers(self,
-                               primer_biases: List[PrimerStrandBias],
-                               n: int = 5) -> List[PrimerStrandBias]:
+    def get_most_biased_primers(
+        self, primer_biases: List[PrimerStrandBias], n: int = 5
+    ) -> List[PrimerStrandBias]:
         """
         Get the n primers with worst strand bias.
 
@@ -303,7 +313,7 @@ class StrandBiasAnalyzer:
         return sorted(primer_biases, key=lambda x: x.bias_score, reverse=True)[:n]
 
 
-def create_strand_bias_analyzer(stringency: str = 'moderate') -> StrandBiasAnalyzer:
+def create_strand_bias_analyzer(stringency: str = "moderate") -> StrandBiasAnalyzer:
     """
     Create strand bias analyzer with preset stringency levels.
 
@@ -313,32 +323,28 @@ def create_strand_bias_analyzer(stringency: str = 'moderate') -> StrandBiasAnaly
     Returns:
         Configured StrandBiasAnalyzer
     """
-    if stringency == 'lenient':
+    if stringency == "lenient":
         # Allow more strand bias (faster, less filtering)
         return StrandBiasAnalyzer(
-            max_bias_ratio=6.0,
-            max_bias_score=0.85,
-            max_biased_primers_fraction=0.4
+            max_bias_ratio=6.0, max_bias_score=0.85, max_biased_primers_fraction=0.4
         )
-    elif stringency == 'strict':
+    elif stringency == "strict":
         # Very stringent (slower, more filtering)
         return StrandBiasAnalyzer(
-            max_bias_ratio=2.5,
-            max_bias_score=0.5,
-            max_biased_primers_fraction=0.15
+            max_bias_ratio=2.5, max_bias_score=0.5, max_biased_primers_fraction=0.15
         )
     else:  # moderate (default)
         return StrandBiasAnalyzer(
-            max_bias_ratio=4.0,
-            max_bias_score=0.7,
-            max_biased_primers_fraction=0.3
+            max_bias_ratio=4.0, max_bias_score=0.7, max_biased_primers_fraction=0.3
         )
 
 
 # Utility function for quick filtering
-def filter_primers_by_strand_bias(primers: List[str],
-                                  binding_sites_dict: Dict[str, List[StrandBindingSite]],
-                                  stringency: str = 'moderate') -> List[str]:
+def filter_primers_by_strand_bias(
+    primers: List[str],
+    binding_sites_dict: Dict[str, List[StrandBindingSite]],
+    stringency: str = "moderate",
+) -> List[str]:
     """
     Quick utility to filter primers by strand bias.
 
@@ -372,10 +378,10 @@ if __name__ == "__main__":
 
     # Example: Balanced primer
     balanced_sites = [
-        StrandBindingSite(100, '+', 'ACGTACGT'),
-        StrandBindingSite(200, '-', 'ACGTACGT'),
-        StrandBindingSite(300, '+', 'ACGTACGT'),
-        StrandBindingSite(400, '-', 'ACGTACGT'),
+        StrandBindingSite(100, "+", "ACGTACGT"),
+        StrandBindingSite(200, "-", "ACGTACGT"),
+        StrandBindingSite(300, "+", "ACGTACGT"),
+        StrandBindingSite(400, "-", "ACGTACGT"),
     ]
     balanced_bias = analyzer.analyze_primer("ACGTACGT", balanced_sites)
     print("1. Balanced primer:")
@@ -384,12 +390,12 @@ if __name__ == "__main__":
 
     # Example: Forward-biased primer
     forward_biased_sites = [
-        StrandBindingSite(100, '+', 'GCTAGCTA'),
-        StrandBindingSite(200, '+', 'GCTAGCTA'),
-        StrandBindingSite(300, '+', 'GCTAGCTA'),
-        StrandBindingSite(400, '+', 'GCTAGCTA'),
-        StrandBindingSite(500, '+', 'GCTAGCTA'),
-        StrandBindingSite(600, '-', 'GCTAGCTA'),
+        StrandBindingSite(100, "+", "GCTAGCTA"),
+        StrandBindingSite(200, "+", "GCTAGCTA"),
+        StrandBindingSite(300, "+", "GCTAGCTA"),
+        StrandBindingSite(400, "+", "GCTAGCTA"),
+        StrandBindingSite(500, "+", "GCTAGCTA"),
+        StrandBindingSite(600, "-", "GCTAGCTA"),
     ]
     forward_bias = analyzer.analyze_primer("GCTAGCTA", forward_biased_sites)
     print("2. Forward-biased primer (5:1 ratio):")

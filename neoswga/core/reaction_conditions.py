@@ -37,11 +37,12 @@ References:
 - Notomi et al. (2000) Nucleic Acids Res 28:e63 (Bst polymerase)
 """
 
+from typing import Dict, Optional, Tuple
+
 import numpy as np
-from typing import Dict, Tuple, Optional
+
 from neoswga.core import thermodynamics as thermo
 from neoswga.core.additives import AdditiveConcentrations
-
 
 # ========================================
 # Polymerase Characteristics Database
@@ -90,11 +91,11 @@ from neoswga.core.additives import AdditiveConcentrations
 # ---------------------------------------------------------------------------
 
 POLYMERASE_CHARACTERISTICS = {
-    'phi29': {
-        'name': 'Phi29 DNA Polymerase',
-        'temp_range': (30.0, 40.0),
-        'optimal_temp': 30.0,
-        'processivity': 70000,  # ~70kb, Blanco et al. (1989) JBC 264:8935
+    "phi29": {
+        "name": "Phi29 DNA Polymerase",
+        "temp_range": (30.0, 40.0),
+        "optimal_temp": 30.0,
+        "processivity": 70000,  # ~70kb, Blanco et al. (1989) JBC 264:8935
         # typical_amplicon_length = effective per-primer reach in a dense
         # SWGA design. Clarke et al. (2017) filter their M. tuberculosis
         # candidate sets to mean inter-primer spacing <5 kb; Dwivedi-Yu
@@ -106,60 +107,60 @@ POLYMERASE_CHARACTERISTICS = {
         # (Dean 2002 / Picher 2016 report ~10 kb mean gel bands for
         # unselective phi29 MDA); it is the coverage-scoring reach per
         # primer site in a selective multi-primer reaction.
-        'typical_amplicon_length': 3000,   # bp, +/- 1 kb uncertainty
-        'strand_displacement': True,
-        'exonuclease': '3to5',  # Proofreading
-        'error_rate': 1e-6,     # Very high fidelity
-        'requires_primer': True,
-        'description': 'High-fidelity, high-processivity polymerase for MDA/SWGA'
+        "typical_amplicon_length": 3000,  # bp, +/- 1 kb uncertainty
+        "strand_displacement": True,
+        "exonuclease": "3to5",  # Proofreading
+        "error_rate": 1e-6,  # Very high fidelity
+        "requires_primer": True,
+        "description": "High-fidelity, high-processivity polymerase for MDA/SWGA",
     },
-    'equiphi29': {
-        'name': 'EquiPhi29 DNA Polymerase',
-        'temp_range': (42.0, 45.0),
-        'optimal_temp': 42.0,
-        'processivity': 80000,  # ~80kb at elevated temp (NEB data)
+    "equiphi29": {
+        "name": "EquiPhi29 DNA Polymerase",
+        "temp_range": (42.0, 45.0),
+        "optimal_temp": 42.0,
+        "processivity": 80000,  # ~80kb at elevated temp (NEB data)
         # Slightly longer effective reach than phi29 due to reduced
         # secondary-structure interference at 42-45 C; SWGA designs using
         # equiphi29 can tolerate slightly sparser primer spacing before
         # extension is truncated. Still bounded by primer density, not
         # processivity.
-        'typical_amplicon_length': 4000,   # bp, +/- 1 kb uncertainty
-        'strand_displacement': True,
-        'exonuclease': '3to5',
-        'error_rate': 1e-6,
-        'requires_primer': True,
-        'description': 'Thermostable phi29 variant for higher specificity'
+        "typical_amplicon_length": 4000,  # bp, +/- 1 kb uncertainty
+        "strand_displacement": True,
+        "exonuclease": "3to5",
+        "error_rate": 1e-6,
+        "requires_primer": True,
+        "description": "Thermostable phi29 variant for higher specificity",
     },
-    'bst': {
-        'name': 'Bst 2.0/3.0 DNA Polymerase',
-        'temp_range': (60.0, 65.0),
-        'optimal_temp': 63.0,
-        'processivity': 2000,   # ~1-2kb, Notomi et al. (2000) NAR 28:e63
+    "bst": {
+        "name": "Bst 2.0/3.0 DNA Polymerase",
+        "temp_range": (60.0, 65.0),
+        "optimal_temp": 63.0,
+        "processivity": 2000,  # ~1-2kb, Notomi et al. (2000) NAR 28:e63
         # Already processivity-limited; LAMP-context reaction times
         # (30-60 min) shrink realised per-primer reach further.
-        'typical_amplicon_length': 1000,   # bp, +/- 0.5 kb uncertainty
-        'strand_displacement': True,
-        'exonuclease': 'none',  # Large fragment lacks exo
-        'error_rate': 1e-4,     # Lower fidelity
-        'requires_primer': True,
-        'description': 'LAMP-compatible, high-temperature isothermal amplification'
+        "typical_amplicon_length": 1000,  # bp, +/- 0.5 kb uncertainty
+        "strand_displacement": True,
+        "exonuclease": "none",  # Large fragment lacks exo
+        "error_rate": 1e-4,  # Lower fidelity
+        "requires_primer": True,
+        "description": "LAMP-compatible, high-temperature isothermal amplification",
     },
-    'klenow': {
-        'name': 'Klenow Fragment (exo-)',
-        'temp_range': (25.0, 40.0),
-        'optimal_temp': 37.0,
-        'processivity': 10000,  # ~10kb, Bambara et al. (1978) JBC 253:413
+    "klenow": {
+        "name": "Klenow Fragment (exo-)",
+        "temp_range": (25.0, 40.0),
+        "optimal_temp": 37.0,
+        "processivity": 10000,  # ~10kb, Bambara et al. (1978) JBC 253:413
         # Despite 10 kb processivity, lower extension rate (50 nt/s vs
         # phi29's 150) and moderate strand-displacement activity produce
         # ~1-2 kb effective per-primer reach in SWGA-style multi-primer
         # reactions.
-        'typical_amplicon_length': 1500,   # bp, +/- 0.5 kb uncertainty
-        'strand_displacement': True,  # Moderate
-        'exonuclease': 'none',  # exo- variant
-        'error_rate': 1e-4,
-        'requires_primer': True,
-        'description': 'Budget-friendly alternative with moderate processivity'
-    }
+        "typical_amplicon_length": 1500,  # bp, +/- 0.5 kb uncertainty
+        "strand_displacement": True,  # Moderate
+        "exonuclease": "none",  # exo- variant
+        "error_rate": 1e-4,
+        "requires_primer": True,
+        "description": "Budget-friendly alternative with moderate processivity",
+    },
 }
 
 
@@ -188,7 +189,7 @@ def get_polymerase_processivity(polymerase: str) -> int:
     poly = polymerase.lower()
     if poly not in POLYMERASE_CHARACTERISTICS:
         raise ValueError(f"Unknown polymerase: {polymerase}")
-    return POLYMERASE_CHARACTERISTICS[poly]['processivity']
+    return POLYMERASE_CHARACTERISTICS[poly]["processivity"]
 
 
 def get_typical_amplicon_length(polymerase: str) -> int:
@@ -240,8 +241,8 @@ def get_typical_amplicon_length(polymerase: str) -> int:
     # (defensive — every entry in POLYMERASE_CHARACTERISTICS should carry it
     # after Phase 16 critical gap #2).
     return POLYMERASE_CHARACTERISTICS[poly].get(
-        'typical_amplicon_length',
-        POLYMERASE_CHARACTERISTICS[poly]['processivity'],
+        "typical_amplicon_length",
+        POLYMERASE_CHARACTERISTICS[poly]["processivity"],
     )
 
 
@@ -252,10 +253,7 @@ def list_polymerases() -> Dict[str, str]:
     Returns:
         Dictionary mapping polymerase name to description
     """
-    return {
-        name: info['description']
-        for name, info in POLYMERASE_CHARACTERISTICS.items()
-    }
+    return {name: info["description"] for name, info in POLYMERASE_CHARACTERISTICS.items()}
 
 
 class ReactionConditions:
@@ -280,22 +278,24 @@ class ReactionConditions:
         polymerase: Polymerase type ('phi29', 'equiphi29', 'bst', 'klenow')
     """
 
-    def __init__(self,
-                 temp: float = 30.0,
-                 dmso_percent: float = 0.0,
-                 betaine_m: float = 0.0,
-                 trehalose_m: float = 0.0,
-                 formamide_percent: float = 0.0,
-                 glycerol_percent: float = 0.0,
-                 bsa_ug_ml: float = 0.0,
-                 peg_percent: float = 0.0,
-                 ethanol_percent: float = 0.0,
-                 urea_m: float = 0.0,
-                 tmac_m: float = 0.0,
-                 na_conc: float = 50.0,
-                 mg_conc: float = 0.0,
-                 ssb: bool = False,
-                 polymerase: str = 'phi29'):
+    def __init__(
+        self,
+        temp: float = 30.0,
+        dmso_percent: float = 0.0,
+        betaine_m: float = 0.0,
+        trehalose_m: float = 0.0,
+        formamide_percent: float = 0.0,
+        glycerol_percent: float = 0.0,
+        bsa_ug_ml: float = 0.0,
+        peg_percent: float = 0.0,
+        ethanol_percent: float = 0.0,
+        urea_m: float = 0.0,
+        tmac_m: float = 0.0,
+        na_conc: float = 50.0,
+        mg_conc: float = 0.0,
+        ssb: bool = False,
+        polymerase: str = "phi29",
+    ):
         """
         Initialize reaction conditions.
 
@@ -339,10 +339,10 @@ class ReactionConditions:
         """Validate reaction condition parameters."""
         # Temperature range depends on polymerase
         polymerase_temp_ranges = {
-            'phi29': (20, 40),
-            'equiphi29': (30, 50),
-            'bst': (50, 72),
-            'klenow': (25, 40)
+            "phi29": (20, 40),
+            "equiphi29": (30, 50),
+            "bst": (50, 72),
+            "klenow": (25, 40),
         }
 
         if self.polymerase not in polymerase_temp_ranges:
@@ -389,9 +389,9 @@ class ReactionConditions:
         if self.formamide_percent < 0 or self.formamide_percent > 10:
             raise ValueError(f"Formamide {self.formamide_percent}% outside valid range (0-10%)")
 
-    def calculate_tm_correction(self, gc_content: float = 0.5,
-                                 primer_length: int = 10,
-                                 use_arrhenius: bool = True) -> float:
+    def calculate_tm_correction(
+        self, gc_content: float = 0.5, primer_length: int = 10, use_arrhenius: bool = True
+    ) -> float:
         """
         Calculate total Tm correction from all additives.
 
@@ -425,8 +425,7 @@ class ReactionConditions:
         if use_arrhenius:
             # Use Arrhenius-based temperature-dependent corrections
             return self.additives.calculate_tm_correction(
-                gc_content, primer_length,
-                reaction_temp_celsius=self.temp
+                gc_content, primer_length, reaction_temp_celsius=self.temp
             )
 
         # Legacy fixed-coefficient calculation (for backward compatibility)
@@ -459,8 +458,7 @@ class ReactionConditions:
 
         return correction
 
-    def _calculate_gc_normalization(self, gc_content: float,
-                                     primer_length: int = 10) -> float:
+    def _calculate_gc_normalization(self, gc_content: float, primer_length: int = 10) -> float:
         """
         Calculate the GC-normalization effect of TMAC and betaine.
 
@@ -527,8 +525,13 @@ class ReactionConditions:
 
         return gc_correction
 
-    def adjust_tm(self, tm_base: float, gc_content: float = 0.5,
-                  primer_length: int = 10, use_arrhenius: bool = True) -> float:
+    def adjust_tm(
+        self,
+        tm_base: float,
+        gc_content: float = 0.5,
+        primer_length: int = 10,
+        use_arrhenius: bool = True,
+    ) -> float:
         """
         Apply all corrections to base Tm.
 
@@ -565,9 +568,7 @@ class ReactionConditions:
             Effective Tm in degrees Celsius
         """
         # Calculate base Tm with salt
-        tm_base = thermo.calculate_tm_with_salt(
-            seq, self.na_conc, self.mg_conc, primer_conc
-        )
+        tm_base = thermo.calculate_tm_with_salt(seq, self.na_conc, self.mg_conc, primer_conc)
 
         # Calculate GC content for GC-dependent corrections
         gc = thermo.gc_content(seq)
@@ -587,7 +588,7 @@ class ReactionConditions:
         Returns:
             (min_temp, max_temp) in degrees Celsius
         """
-        return POLYMERASE_CHARACTERISTICS[self.polymerase]['temp_range']
+        return POLYMERASE_CHARACTERISTICS[self.polymerase]["temp_range"]
 
     def get_processivity(self) -> int:
         """
@@ -602,7 +603,7 @@ class ReactionConditions:
             bst: Notomi et al. (2000) NAR 28:e63 - ~1-2kb
             klenow: Bambara et al. (1978) JBC 253:413 - ~10kb
         """
-        return POLYMERASE_CHARACTERISTICS[self.polymerase]['processivity']
+        return POLYMERASE_CHARACTERISTICS[self.polymerase]["processivity"]
 
     def get_strand_displacement(self) -> bool:
         """
@@ -613,7 +614,7 @@ class ReactionConditions:
         Returns:
             True if polymerase has strand displacement activity
         """
-        return POLYMERASE_CHARACTERISTICS[self.polymerase]['strand_displacement']
+        return POLYMERASE_CHARACTERISTICS[self.polymerase]["strand_displacement"]
 
     def get_exonuclease_activity(self) -> str:
         """
@@ -622,7 +623,7 @@ class ReactionConditions:
         Returns:
             Exonuclease activity: 'none', '3to5', '5to3', or 'both'
         """
-        return POLYMERASE_CHARACTERISTICS[self.polymerase]['exonuclease']
+        return POLYMERASE_CHARACTERISTICS[self.polymerase]["exonuclease"]
 
     def get_fidelity(self) -> float:
         """
@@ -631,7 +632,7 @@ class ReactionConditions:
         Returns:
             Error rate per nucleotide incorporated
         """
-        return POLYMERASE_CHARACTERISTICS[self.polymerase]['error_rate']
+        return POLYMERASE_CHARACTERISTICS[self.polymerase]["error_rate"]
 
     def effective_annealing_temp(self) -> float:
         """
@@ -711,7 +712,7 @@ class ReactionConditions:
             base_max += 1
 
         # EquiPhi29 at higher temp can handle longer primers
-        if self.polymerase == 'equiphi29' and self.temp >= 42:
+        if self.polymerase == "equiphi29" and self.temp >= 42:
             base_max += 1
 
         # GC-aware adjustment
@@ -818,7 +819,7 @@ class ReactionConditions:
             return False, "Primer cannot be empty"
 
         # Calculate GC content
-        gc = (primer.upper().count('G') + primer.upper().count('C')) / primer_length
+        gc = (primer.upper().count("G") + primer.upper().count("C")) / primer_length
 
         # Get safe max for this GC content
         safe_max = self.max_safe_primer_length(primer_gc=gc)
@@ -841,7 +842,10 @@ class ReactionConditions:
                     f"Add betaine >= 1.0M and/or DMSO >= 5% for longer primers."
                 )
 
-        return True, f"{primer_length}bp primer is within safe range (max {safe_max}bp for {gc:.0%} GC)"
+        return (
+            True,
+            f"{primer_length}bp primer is within safe range (max {safe_max}bp for {gc:.0%} GC)",
+        )
 
     def gc_content_range(self) -> Tuple[float, float]:
         """
@@ -917,17 +921,14 @@ class ReactionConditions:
             improvement *= 1.0 + 0.1 * self.betaine_m  # Up to 25% at 2.5M
 
         # EquiPhi29 gives better yield
-        if self.polymerase == 'equiphi29':
+        if self.polymerase == "equiphi29":
             improvement *= 1.15
 
         return improvement
 
     def __repr__(self) -> str:
         """String representation of reaction conditions."""
-        parts = [
-            f"Temp={self.temp}C",
-            f"Polymerase={self.polymerase}"
-        ]
+        parts = [f"Temp={self.temp}C", f"Polymerase={self.polymerase}"]
 
         if self.dmso_percent > 0:
             parts.append(f"DMSO={self.dmso_percent}%")
@@ -961,25 +962,25 @@ class ReactionConditions:
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
         return {
-            'temp': self.temp,
-            'dmso_percent': self.dmso_percent,
-            'betaine_m': self.betaine_m,
-            'trehalose_m': self.trehalose_m,
-            'formamide_percent': self.formamide_percent,
-            'glycerol_percent': self.glycerol_percent,
-            'bsa_ug_ml': self.bsa_ug_ml,
-            'peg_percent': self.peg_percent,
-            'ethanol_percent': self.ethanol_percent,
-            'urea_m': self.urea_m,
-            'tmac_m': self.tmac_m,
-            'na_conc': self.na_conc,
-            'mg_conc': self.mg_conc,
-            'ssb': self.ssb,
-            'polymerase': self.polymerase
+            "temp": self.temp,
+            "dmso_percent": self.dmso_percent,
+            "betaine_m": self.betaine_m,
+            "trehalose_m": self.trehalose_m,
+            "formamide_percent": self.formamide_percent,
+            "glycerol_percent": self.glycerol_percent,
+            "bsa_ug_ml": self.bsa_ug_ml,
+            "peg_percent": self.peg_percent,
+            "ethanol_percent": self.ethanol_percent,
+            "urea_m": self.urea_m,
+            "tmac_m": self.tmac_m,
+            "na_conc": self.na_conc,
+            "mg_conc": self.mg_conc,
+            "ssb": self.ssb,
+            "polymerase": self.polymerase,
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'ReactionConditions':
+    def from_dict(cls, data: Dict) -> "ReactionConditions":
         """Create from dictionary."""
         return cls(**data)
 
@@ -1014,11 +1015,11 @@ class ReactionConditions:
         cls,
         additives: AdditiveConcentrations,
         temp: float = 30.0,
-        polymerase: str = 'phi29',
+        polymerase: str = "phi29",
         na_conc: float = 50.0,
         mg_conc: float = 0.0,
-        ssb: bool = False
-    ) -> 'ReactionConditions':
+        ssb: bool = False,
+    ) -> "ReactionConditions":
         """
         Create ReactionConditions from AdditiveConcentrations.
 
@@ -1065,6 +1066,7 @@ class ReactionConditions:
 # Preset Conditions
 # ========================================
 
+
 def get_standard_conditions() -> ReactionConditions:
     """Standard phi29 SWGA conditions (original swga2).
 
@@ -1072,7 +1074,7 @@ def get_standard_conditions() -> ReactionConditions:
     """
     return ReactionConditions(
         temp=30.0,
-        polymerase='phi29',
+        polymerase="phi29",
         na_conc=50.0,
         mg_conc=2.5,  # Optimal for phi29 activity
     )
@@ -1085,7 +1087,7 @@ def get_equiphi_conditions() -> ReactionConditions:
     """
     return ReactionConditions(
         temp=42.0,
-        polymerase='equiphi29',
+        polymerase="equiphi29",
         na_conc=50.0,
         mg_conc=2.5,  # Optimal for equiphi29 activity
     )
@@ -1102,7 +1104,7 @@ def get_enhanced_conditions() -> ReactionConditions:
         temp=42.0,
         dmso_percent=5.0,
         betaine_m=1.0,
-        polymerase='equiphi29',
+        polymerase="equiphi29",
         na_conc=50.0,
         mg_conc=2.5,  # Optimal for polymerase activity
     )
@@ -1115,11 +1117,7 @@ def get_high_gc_conditions() -> ReactionConditions:
     Uses high betaine to equalize AT/GC stability.
     """
     return ReactionConditions(
-        temp=42.0,
-        dmso_percent=5.0,
-        betaine_m=2.0,
-        polymerase='equiphi29',
-        na_conc=50.0
+        temp=42.0, dmso_percent=5.0, betaine_m=2.0, polymerase="equiphi29", na_conc=50.0
     )
 
 
@@ -1130,12 +1128,7 @@ def get_low_temp_conditions() -> ReactionConditions:
     For sensitive samples or thermolabile templates.
     """
     return ReactionConditions(
-        temp=30.0,
-        dmso_percent=3.0,
-        betaine_m=1.0,
-        ssb=True,
-        polymerase='phi29',
-        na_conc=50.0
+        temp=30.0, dmso_percent=3.0, betaine_m=1.0, ssb=True, polymerase="phi29", na_conc=50.0
     )
 
 
@@ -1154,8 +1147,8 @@ def get_q_solution_equivalent() -> ReactionConditions:
         betaine_m=1.5,
         glycerol_percent=10.0,
         bsa_ug_ml=200.0,
-        polymerase='equiphi29',
-        na_conc=50.0
+        polymerase="equiphi29",
+        na_conc=50.0,
     )
 
 
@@ -1174,8 +1167,8 @@ def get_gc_melt_conditions() -> ReactionConditions:
         betaine_m=2.0,
         trehalose_m=0.5,
         mg_conc=1.5,
-        polymerase='equiphi29',
-        na_conc=50.0
+        polymerase="equiphi29",
+        na_conc=50.0,
     )
 
 
@@ -1194,8 +1187,8 @@ def get_crude_sample_conditions() -> ReactionConditions:
         glycerol_percent=10.0,
         bsa_ug_ml=400.0,
         peg_percent=5.0,
-        polymerase='phi29',
-        na_conc=50.0
+        polymerase="phi29",
+        na_conc=50.0,
     )
 
 
@@ -1216,9 +1209,9 @@ def get_bst_conditions() -> ReactionConditions:
     return ReactionConditions(
         temp=63.0,
         betaine_m=0.8,  # Moderate betaine for high-temp stability
-        mg_conc=8.0,    # Bst requires higher Mg2+ (typically 6-10mM)
-        polymerase='bst',
-        na_conc=50.0
+        mg_conc=8.0,  # Bst requires higher Mg2+ (typically 6-10mM)
+        polymerase="bst",
+        na_conc=50.0,
     )
 
 
@@ -1240,9 +1233,9 @@ def get_klenow_conditions() -> ReactionConditions:
         temp=37.0,
         betaine_m=1.0,
         dmso_percent=5.0,
-        mg_conc=10.0,   # Klenow requires higher Mg2+ (typically 10mM)
-        polymerase='klenow',
-        na_conc=50.0
+        mg_conc=10.0,  # Klenow requires higher Mg2+ (typically 10mM)
+        polymerase="klenow",
+        na_conc=50.0,
     )
 
 
@@ -1262,10 +1255,10 @@ def get_extreme_gc_conditions() -> ReactionConditions:
         temp=42.0,
         dmso_percent=5.0,
         betaine_m=2.0,
-        urea_m=0.5,     # Moderate urea for denaturation
-        tmac_m=0.05,    # Low TMAC for AT/GC equalization
-        polymerase='equiphi29',
-        na_conc=50.0
+        urea_m=0.5,  # Moderate urea for denaturation
+        tmac_m=0.05,  # Low TMAC for AT/GC equalization
+        polymerase="equiphi29",
+        na_conc=50.0,
     )
 
 
@@ -1273,9 +1266,10 @@ def get_extreme_gc_conditions() -> ReactionConditions:
 # Condition Optimization
 # ========================================
 
-def optimize_conditions_for_primers(primers: list,
-                                   target_tm_range: Tuple[float, float] = (30, 45),
-                                   polymerase: str = 'phi29') -> ReactionConditions:
+
+def optimize_conditions_for_primers(
+    primers: list, target_tm_range: Tuple[float, float] = (30, 45), polymerase: str = "phi29"
+) -> ReactionConditions:
     """
     Optimize reaction conditions to bring primer Tm into target range.
 
@@ -1312,7 +1306,7 @@ def optimize_conditions_for_primers(primers: list,
         conditions.dmso_percent = abs(tm_shift_needed) / 0.6
     elif tm_shift_needed > 5:
         # Need higher Tm: use EquiPhi29 at higher temp
-        conditions.polymerase = 'equiphi29'
+        conditions.polymerase = "equiphi29"
         conditions.temp = 42.0
 
     return conditions
@@ -1331,7 +1325,7 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
     """
     # Calculate genome properties
     genome_length = len(genome_seq)
-    gc_content = (genome_seq.count('G') + genome_seq.count('C')) / genome_length
+    gc_content = (genome_seq.count("G") + genome_seq.count("C")) / genome_length
 
     # Recommend conditions based on GC content
     if gc_content < 0.30:
@@ -1341,8 +1335,8 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
             dmso_percent=3.0,
             betaine_m=0.8,
             mg_conc=2.5,  # Extra Mg2+ for AT-rich
-            polymerase='phi29',
-            na_conc=50.0
+            polymerase="phi29",
+            na_conc=50.0,
         )
         optimal_k = 10
         rationale = "AT-rich genome: moderate additives + extra Mg2+ for stability"
@@ -1375,7 +1369,7 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
             if target_k >= 15:
                 conditions.betaine_m = max(2.0, conditions.betaine_m)
                 conditions.dmso_percent = max(7.0, conditions.dmso_percent)
-                conditions.polymerase = 'equiphi29'
+                conditions.polymerase = "equiphi29"
                 conditions.temp = 42.0
             elif target_k >= 13:
                 conditions.betaine_m = max(1.5, conditions.betaine_m)
@@ -1383,19 +1377,19 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
 
     # Prepare recommendations
     return {
-        'optimal_k': optimal_k,
-        'genome_gc': gc_content,
-        'genome_length': genome_length,
-        'temperature': conditions.temp,
-        'polymerase': conditions.polymerase,
-        'dmso_percent': conditions.dmso_percent,
-        'betaine_m': conditions.betaine_m,
-        'mg_conc': conditions.optimize_mg_concentration(gc_content),
-        'na_conc': conditions.na_conc,
-        'ssb': conditions.ssb,
-        'max_primer_length': conditions.max_primer_length(),
-        'rationale': rationale,
-        'conditions': conditions
+        "optimal_k": optimal_k,
+        "genome_gc": gc_content,
+        "genome_length": genome_length,
+        "temperature": conditions.temp,
+        "polymerase": conditions.polymerase,
+        "dmso_percent": conditions.dmso_percent,
+        "betaine_m": conditions.betaine_m,
+        "mg_conc": conditions.optimize_mg_concentration(gc_content),
+        "na_conc": conditions.na_conc,
+        "ssb": conditions.ssb,
+        "max_primer_length": conditions.max_primer_length(),
+        "rationale": rationale,
+        "conditions": conditions,
     }
 
 

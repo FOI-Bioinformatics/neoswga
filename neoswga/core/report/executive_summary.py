@@ -21,21 +21,23 @@ from neoswga.core.report.metrics import (
     collect_pipeline_metrics,
 )
 from neoswga.core.report.quality import (
-    QualityGrade,
     QualityAssessment,
+    QualityGrade,
     calculate_quality_grade,
     format_grade_display,
 )
 from neoswga.core.report.utils import (
+    ENRICHMENT_EXCELLENT_THRESHOLD,
+    GRADE_DESCRIPTIONS,
+    VALIDATION_BANNER_CSS,
     escape_format_braces,
     get_grade_colors,
-    get_rating_class,
     get_progress_class,
-    get_version as _get_version,
+    get_rating_class,
+)
+from neoswga.core.report.utils import get_version as _get_version
+from neoswga.core.report.utils import (
     render_validation_banner,
-    GRADE_DESCRIPTIONS,
-    ENRICHMENT_EXCELLENT_THRESHOLD,
-    VALIDATION_BANNER_CSS,
 )
 from neoswga.core.report.visualizations import (
     is_plotly_available,
@@ -48,6 +50,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExecutiveSummary:
     """Data for executive summary report."""
+
     metrics: PipelineMetrics
     quality: QualityAssessment
     generated_at: str
@@ -534,10 +537,7 @@ def _format_considerations(considerations: List[str]) -> str:
     </div>"""
 
 
-def _get_component_by_name(
-    components: list,
-    name: str
-) -> Optional[dict]:
+def _get_component_by_name(components: list, name: str) -> Optional[dict]:
     """Get a component by name."""
     for c in components:
         if c.name == name:
@@ -611,10 +611,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     # Format primer rows (limit to 20 for readability)
     MAX_PRIMERS_IN_TABLE = 20
     displayed_primers = metrics.primers[:MAX_PRIMERS_IN_TABLE]
-    primer_rows = "\n".join(
-        _format_primer_row(i + 1, p)
-        for i, p in enumerate(displayed_primers)
-    )
+    primer_rows = "\n".join(_format_primer_row(i + 1, p) for i, p in enumerate(displayed_primers))
 
     # Add truncation notice if needed
     if len(metrics.primers) > MAX_PRIMERS_IN_TABLE:
@@ -626,24 +623,20 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         </tr>"""
 
     # Target/background names (escaped to prevent XSS and format string injection)
-    target_name = escape_format_braces(html_escape(
-        metrics.target_genome.name if metrics.target_genome
-        else "Target Genome"
-    ))
-    background_name = escape_format_braces(html_escape(
-        metrics.background_genome.name if metrics.background_genome
-        else "Background Genome"
-    ))
+    target_name = escape_format_braces(
+        html_escape(metrics.target_genome.name if metrics.target_genome else "Target Genome")
+    )
+    background_name = escape_format_braces(
+        html_escape(
+            metrics.background_genome.name if metrics.background_genome else "Background Genome"
+        )
+    )
 
     # Coverage source badge
-    from_optimizer = (
-        metrics.coverage is not None and metrics.coverage.from_optimizer
-    )
+    from_optimizer = metrics.coverage is not None and metrics.coverage.from_optimizer
     if from_optimizer:
         reach = metrics.coverage.extension_reach if metrics.coverage else None
-        coverage_badge_label = (
-            f"Measured ({reach:,} bp reach)" if reach else "Measured"
-        )
+        coverage_badge_label = f"Measured ({reach:,} bp reach)" if reach else "Measured"
         coverage_badge_class = "badge-measured"
     else:
         coverage_badge_label = "Estimated (30 kb/primer)"
@@ -651,11 +644,11 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
 
     # Gap analysis section
     gap_analysis_html = ""
-    if (metrics.coverage is not None and metrics.coverage.mean_gap > 0):
+    if metrics.coverage is not None and metrics.coverage.mean_gap > 0:
         mean_gap_kb = metrics.coverage.mean_gap / 1000
         max_gap_kb = metrics.coverage.max_gap / 1000
         gap_gini = metrics.coverage.gap_gini
-        gap_analysis_html = f'''
+        gap_analysis_html = f"""
         <div class="gap-analysis">
             <h3>Gap Analysis</h3>
             <div class="gap-metrics">
@@ -672,7 +665,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
                     <span class="gap-value">{gap_gini:.3f}</span>
                 </div>
             </div>
-        </div>'''
+        </div>"""
 
     # Generate interactive charts if requested and Plotly is available
     interactive_charts = ""
@@ -680,16 +673,16 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         # Render component radar chart
         radar_html = render_component_radar(
             quality.components,
-            include_plotlyjs='cdn',
+            include_plotlyjs="cdn",
             height=350,
         )
         if radar_html:
-            interactive_charts = f'''
+            interactive_charts = f"""
         <div class="section">
             <h2>Quality Analysis</h2>
             {radar_html}
         </div>
-'''
+"""
     elif interactive:
         logger.debug("Interactive charts requested but Plotly not available")
 
@@ -709,12 +702,8 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         # Coverage
         coverage_pct=coverage_pct,
         coverage_rating=coverage_comp.rating if coverage_comp else "N/A",
-        coverage_rating_class=get_rating_class(
-            coverage_comp.rating if coverage_comp else ""
-        ),
-        coverage_progress_class=get_progress_class(
-            coverage_comp.rating if coverage_comp else ""
-        ),
+        coverage_rating_class=get_rating_class(coverage_comp.rating if coverage_comp else ""),
+        coverage_progress_class=get_progress_class(coverage_comp.rating if coverage_comp else ""),
         coverage_badge_label=coverage_badge_label,
         coverage_badge_class=coverage_badge_class,
         # Gap analysis
@@ -733,9 +722,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         uniformity=uniformity,
         uniformity_bar_pct=uniformity_bar,
         uniformity_rating=uniformity_comp.rating if uniformity_comp else "N/A",
-        uniformity_rating_class=get_rating_class(
-            uniformity_comp.rating if uniformity_comp else ""
-        ),
+        uniformity_rating_class=get_rating_class(uniformity_comp.rating if uniformity_comp else ""),
         uniformity_progress_class=get_progress_class(
             uniformity_comp.rating if uniformity_comp else ""
         ),
@@ -743,12 +730,8 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         dimer_risk_label=dimer_label,
         dimer_bar_pct=dimer_bar,
         dimer_rating=dimer_comp.rating if dimer_comp else "N/A",
-        dimer_rating_class=get_rating_class(
-            dimer_comp.rating if dimer_comp else ""
-        ),
-        dimer_progress_class=get_progress_class(
-            dimer_comp.rating if dimer_comp else ""
-        ),
+        dimer_rating_class=get_rating_class(dimer_comp.rating if dimer_comp else ""),
+        dimer_progress_class=get_progress_class(dimer_comp.rating if dimer_comp else ""),
         # Primers
         primer_count=metrics.primer_count,
         primer_rows=primer_rows,
@@ -760,7 +743,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         interactive_charts=interactive_charts,
         # Validator warnings/errors surfaced above metrics (shared helper)
         validation_banner_html=render_validation_banner(
-            list(getattr(metrics, 'validation_issues', []) or [])
+            list(getattr(metrics, "validation_issues", []) or [])
         ),
         validation_banner_css=VALIDATION_BANNER_CSS,
     )
@@ -809,7 +792,7 @@ def generate_executive_summary(
 
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(html, encoding='utf-8')
+            output_path.write_text(html, encoding="utf-8")
             logger.info(f"Report saved to: {output_path}")
         except (PermissionError, OSError) as e:
             logger.error(f"Failed to write report to {output_path}: {e}")

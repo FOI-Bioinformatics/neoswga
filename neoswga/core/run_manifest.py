@@ -71,6 +71,7 @@ def _jellyfish_version() -> Optional[str]:
 def _neoswga_version() -> str:
     try:
         from neoswga import __version__
+
         return __version__
     except Exception:
         return "unknown"

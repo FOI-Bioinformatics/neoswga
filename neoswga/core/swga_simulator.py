@@ -26,14 +26,15 @@ Usage:
     print(f"Recommendation: {result['recommendation']}")
 """
 
-import numpy as np
-import h5py
-import time
 import logging
-from typing import List, Dict, Optional, Tuple
+import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import h5py
+import numpy as np
 from Bio import SeqIO
-from dataclasses import dataclass, asdict
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SimulationResult:
     """Results from SWGA simulation"""
+
     mode: str  # 'fast', 'detailed', or 'validation'
     runtime: float  # seconds
 
@@ -82,15 +84,17 @@ class SwgaSimulator:
     network analysis, agent-based replication, or stochastic kinetics.
     """
 
-    def __init__(self,
-                 primers: List[str],
-                 fg_genome: str,
-                 bg_genome: str,
-                 fg_positions_h5: str,
-                 bg_positions_h5: str,
-                 reaction_conditions: Optional[Dict] = None,
-                 bin_size: int = 10000,
-                 max_extension: int = 70000):
+    def __init__(
+        self,
+        primers: List[str],
+        fg_genome: str,
+        bg_genome: str,
+        fg_positions_h5: str,
+        bg_positions_h5: str,
+        reaction_conditions: Optional[Dict] = None,
+        bin_size: int = 10000,
+        max_extension: int = 70000,
+    ):
         """
         Initialize simulator.
 
@@ -114,9 +118,9 @@ class SwgaSimulator:
 
         # Reaction conditions
         self.conditions = reaction_conditions or {
-            'temperature': 30,
-            'polymerase': 'phi29',
-            'duration': 3600
+            "temperature": 30,
+            "polymerase": "phi29",
+            "duration": 3600,
         }
 
         # Load genomes
@@ -151,21 +155,21 @@ class SwgaSimulator:
         """
         filename = Path(genome_path).name
         # Remove extension
-        name = filename.split('.')[0].split('_')[0].lower()
+        name = filename.split(".")[0].split("_")[0].lower()
 
         # Special cases
-        if 'grch' in filename.lower() or 'human' in filename.lower():
-            return 'human'
+        if "grch" in filename.lower() or "human" in filename.lower():
+            return "human"
 
         return name
 
     def _load_genome(self, fasta_path: str) -> Tuple[str, int, float]:
         """Load genome sequence and calculate stats"""
-        records = list(SeqIO.parse(fasta_path, 'fasta'))
-        sequence = ''.join(str(rec.seq).upper() for rec in records)
+        records = list(SeqIO.parse(fasta_path, "fasta"))
+        sequence = "".join(str(rec.seq).upper() for rec in records)
         length = len(sequence)
 
-        gc_count = sequence.count('G') + sequence.count('C')
+        gc_count = sequence.count("G") + sequence.count("C")
         gc_content = gc_count / length if length > 0 else 0
 
         return sequence, length, gc_content
@@ -181,7 +185,7 @@ class SwgaSimulator:
         """
         positions = {}
 
-        with h5py.File(h5_path, 'r') as f:
+        with h5py.File(h5_path, "r") as f:
             # Get genome group
             if genome_name is None:
                 genome_name = list(f.keys())[0]
@@ -195,22 +199,22 @@ class SwgaSimulator:
             for primer in primers:
                 if primer in genome_group:
                     # Load forward strand positions
-                    pos_fwd = np.array(genome_group[primer]['+'])
-                    pos_rev = np.array(genome_group[primer]['-'])
+                    pos_fwd = np.array(genome_group[primer]["+"])
+                    pos_rev = np.array(genome_group[primer]["-"])
 
                     positions[primer] = {
-                        '+': pos_fwd,
-                        '-': pos_rev,
-                        'forward': pos_fwd,
-                        'reverse': pos_rev
+                        "+": pos_fwd,
+                        "-": pos_rev,
+                        "forward": pos_fwd,
+                        "reverse": pos_rev,
                     }
                 else:
                     # Primer not found
                     positions[primer] = {
-                        '+': np.array([]),
-                        '-': np.array([]),
-                        'forward': np.array([]),
-                        'reverse': np.array([])
+                        "+": np.array([]),
+                        "-": np.array([]),
+                        "forward": np.array([]),
+                        "reverse": np.array([]),
                     }
 
         return positions
@@ -240,8 +244,8 @@ class SwgaSimulator:
         )
 
         # Count total binding sites for amplification estimate
-        fg_total_sites = sum(len(pos['+']) + len(pos['-']) for pos in self.fg_positions.values())
-        bg_total_sites = sum(len(pos['+']) + len(pos['-']) for pos in self.bg_positions.values())
+        fg_total_sites = sum(len(pos["+"]) + len(pos["-"]) for pos in self.fg_positions.values())
+        bg_total_sites = sum(len(pos["+"]) + len(pos["-"]) for pos in self.bg_positions.values())
 
         # Estimate amplification based on sites and coverage
         # Higher coverage + more sites = better amplification
@@ -260,13 +264,13 @@ class SwgaSimulator:
             target_coverage=fg_coverage,
             target_uniformity=fg_uniformity,
             enrichment=enrichment,
-            mode='fast'
+            mode="fast",
         )
 
         runtime = time.time() - start_time
 
         return SimulationResult(
-            mode='fast',
+            mode="fast",
             runtime=runtime,
             target_coverage=fg_coverage,
             target_uniformity=fg_uniformity,
@@ -275,17 +279,17 @@ class SwgaSimulator:
             background_coverage=bg_coverage,
             background_amplification=background_amplification,
             enrichment=enrichment,
-            specificity_score=result['specificity_score'],
-            composite_score=result['composite_score'],
-            recommendation=result['recommendation'],
+            specificity_score=result["specificity_score"],
+            composite_score=result["composite_score"],
+            recommendation=result["recommendation"],
             confidence=0.8,  # Good confidence for coverage-based approach
             primer_contributions={},
             details={
-                'target_sites': fg_total_sites,
-                'background_sites': bg_total_sites,
-                'target_bins_covered': len(fg_covered_bins),
-                'background_bins_covered': len(bg_covered_bins)
-            }
+                "target_sites": fg_total_sites,
+                "background_sites": bg_total_sites,
+                "target_bins_covered": len(fg_covered_bins),
+                "background_bins_covered": len(bg_covered_bins),
+            },
         )
 
     def simulate_detailed(self, num_replicates: int = 5) -> SimulationResult:
@@ -304,13 +308,13 @@ class SwgaSimulator:
         logger.info(f"Running detailed agent-based simulation ({num_replicates} replicates)...")
         start_time = time.time()
 
-        from neoswga.core.replication_simulator import Phi29Simulator
         from neoswga.core.reaction_conditions import ReactionConditions
+        from neoswga.core.replication_simulator import Phi29Simulator
 
         # Set up reaction conditions
         conditions = ReactionConditions(
-            temp=self.conditions.get('temperature', 30),
-            polymerase=self.conditions.get('polymerase', 'phi29')
+            temp=self.conditions.get("temperature", 30),
+            polymerase=self.conditions.get("polymerase", "phi29"),
         )
 
         # Run target genome replicates
@@ -322,7 +326,7 @@ class SwgaSimulator:
                 primer_positions=self.fg_positions,
                 genome_length=self.fg_length,
                 genome_sequence=self.fg_genome,
-                conditions=conditions
+                conditions=conditions,
             )
             result = sim.run(verbose=False)
             fg_results.append(result)
@@ -336,7 +340,7 @@ class SwgaSimulator:
                 primer_positions=self.bg_positions,
                 genome_length=self.bg_length,
                 genome_sequence=self.bg_genome,
-                conditions=conditions
+                conditions=conditions,
             )
             result = sim.run(verbose=False)
             bg_results.append(result)
@@ -364,13 +368,13 @@ class SwgaSimulator:
             target_coverage=target_coverage,
             target_uniformity=target_uniformity,
             enrichment=enrichment,
-            mode='detailed'
+            mode="detailed",
         )
 
         runtime = time.time() - start_time
 
         return SimulationResult(
-            mode='detailed',
+            mode="detailed",
             runtime=runtime,
             target_coverage=target_coverage,
             target_uniformity=target_uniformity,
@@ -379,16 +383,16 @@ class SwgaSimulator:
             background_coverage=background_coverage,
             background_amplification=background_amplification,
             enrichment=enrichment,
-            specificity_score=result['specificity_score'],
-            composite_score=result['composite_score'],
-            recommendation=result['recommendation'],
+            specificity_score=result["specificity_score"],
+            composite_score=result["composite_score"],
+            recommendation=result["recommendation"],
             confidence=0.9,  # High confidence for detailed mode
             primer_contributions={},
             details={
-                'fg_results': fg_results,
-                'bg_results': bg_results,
-                'target_coverage_std': target_coverage_std
-            }
+                "fg_results": fg_results,
+                "bg_results": bg_results,
+                "target_coverage_std": target_coverage_std,
+            },
         )
 
     def simulate_validation(self) -> SimulationResult:
@@ -405,7 +409,9 @@ class SwgaSimulator:
         logger.warning("Stochastic simulation not yet implemented - using detailed mode")
         return self.simulate_detailed(num_replicates=10)
 
-    def _calculate_bin_coverage(self, positions_dict: Dict, genome_length: int) -> Tuple[float, set]:
+    def _calculate_bin_coverage(
+        self, positions_dict: Dict, genome_length: int
+    ) -> Tuple[float, set]:
         """
         Calculate bin coverage for a genome.
 
@@ -417,7 +423,7 @@ class SwgaSimulator:
 
         # Mark bins as covered based on primer binding positions
         for primer, pos_data in positions_dict.items():
-            for strand in ['+', '-']:
+            for strand in ["+", "-"]:
                 positions = pos_data.get(strand, np.array([]))
                 for pos in positions:
                     bin_idx = int(pos) // self.bin_size
@@ -439,7 +445,7 @@ class SwgaSimulator:
 
         # Calculate gaps between covered bins
         sorted_bins = sorted(covered_bins)
-        gaps = [sorted_bins[i+1] - sorted_bins[i] for i in range(len(sorted_bins)-1)]
+        gaps = [sorted_bins[i + 1] - sorted_bins[i] for i in range(len(sorted_bins) - 1)]
 
         if len(gaps) == 0:
             return 1.0
@@ -466,16 +472,18 @@ class SwgaSimulator:
         min_gap_size = 5
 
         for i in range(len(sorted_bins) - 1):
-            gap_size = sorted_bins[i+1] - sorted_bins[i] - 1
+            gap_size = sorted_bins[i + 1] - sorted_bins[i] - 1
             if gap_size >= min_gap_size:
                 start_pos = (sorted_bins[i] + 1) * self.bin_size
-                end_pos = sorted_bins[i+1] * self.bin_size
-                gaps.append({
-                    'start': start_pos,
-                    'end': end_pos,
-                    'length': end_pos - start_pos,
-                    'mean_coverage': 0.0  # No coverage in gaps
-                })
+                end_pos = sorted_bins[i + 1] * self.bin_size
+                gaps.append(
+                    {
+                        "start": start_pos,
+                        "end": end_pos,
+                        "length": end_pos - start_pos,
+                        "mean_coverage": 0.0,  # No coverage in gaps
+                    }
+                )
 
         return gaps
 
@@ -490,7 +498,7 @@ class SwgaSimulator:
 
         for i in range(n_bins):
             start = i * self.bin_size
-            end = min((i+1) * self.bin_size, len(coverage_array))
+            end = min((i + 1) * self.bin_size, len(coverage_array))
             bin_coverage.append(coverage_array[start:end].mean())
 
         # Calculate Gini
@@ -501,8 +509,9 @@ class SwgaSimulator:
 
         return gini
 
-    def _identify_gaps(self, coverage_array: np.ndarray, genome_length: int,
-                      threshold_percentile: float = 25) -> List[Dict]:
+    def _identify_gaps(
+        self, coverage_array: np.ndarray, genome_length: int, threshold_percentile: float = 25
+    ) -> List[Dict]:
         """Identify under-covered regions"""
         if len(coverage_array) == 0:
             return []
@@ -520,29 +529,32 @@ class SwgaSimulator:
                 gap_start = i
                 in_gap = True
             elif cov >= threshold and in_gap:
-                gaps.append({
-                    'start': gap_start,
-                    'end': i,
-                    'length': i - gap_start,
-                    'mean_coverage': coverage_array[gap_start:i].mean()
-                })
+                gaps.append(
+                    {
+                        "start": gap_start,
+                        "end": i,
+                        "length": i - gap_start,
+                        "mean_coverage": coverage_array[gap_start:i].mean(),
+                    }
+                )
                 in_gap = False
 
         # Close final gap if needed
         if in_gap:
-            gaps.append({
-                'start': gap_start,
-                'end': len(coverage_array),
-                'length': len(coverage_array) - gap_start,
-                'mean_coverage': coverage_array[gap_start:].mean()
-            })
+            gaps.append(
+                {
+                    "start": gap_start,
+                    "end": len(coverage_array),
+                    "length": len(coverage_array) - gap_start,
+                    "mean_coverage": coverage_array[gap_start:].mean(),
+                }
+            )
 
         return gaps
 
-    def _calculate_composite_score(self, target_coverage: float,
-                                   target_uniformity: float,
-                                   enrichment: float,
-                                   mode: str) -> Dict:
+    def _calculate_composite_score(
+        self, target_coverage: float, target_uniformity: float, enrichment: float, mode: str
+    ) -> Dict:
         """
         Calculate composite quality score.
 
@@ -568,9 +580,9 @@ class SwgaSimulator:
 
         # Composite score (weighted average)
         composite = (
-            0.40 * coverage_score +      # Coverage most important
-            0.25 * uniformity_score +    # Uniformity important for sequencing
-            0.35 * specificity_score     # Specificity critical for mixed samples
+            0.40 * coverage_score  # Coverage most important
+            + 0.25 * uniformity_score  # Uniformity important for sequencing
+            + 0.35 * specificity_score  # Specificity critical for mixed samples
         )
 
         # Recommendation thresholds
@@ -584,11 +596,11 @@ class SwgaSimulator:
             recommendation = "POOR"
 
         return {
-            'coverage_score': coverage_score,
-            'uniformity_score': uniformity_score,
-            'specificity_score': specificity_score,
-            'composite_score': composite,
-            'recommendation': recommendation
+            "coverage_score": coverage_score,
+            "uniformity_score": uniformity_score,
+            "specificity_score": specificity_score,
+            "composite_score": composite,
+            "recommendation": recommendation,
         }
 
     def generate_report(self, result: SimulationResult, output_path: Optional[str] = None):
@@ -634,10 +646,12 @@ class SwgaSimulator:
 
         if result.target_gaps:
             report.append("LARGEST GAPS (Under-covered regions):")
-            sorted_gaps = sorted(result.target_gaps, key=lambda g: g['length'], reverse=True)
+            sorted_gaps = sorted(result.target_gaps, key=lambda g: g["length"], reverse=True)
             for i, gap in enumerate(sorted_gaps[:5], 1):
-                report.append(f"  {i}. Position {gap['start']:,}-{gap['end']:,} "
-                            f"({gap['length']:,} bp, coverage={gap['mean_coverage']:.2f})")
+                report.append(
+                    f"  {i}. Position {gap['start']:,}-{gap['end']:,} "
+                    f"({gap['length']:,} bp, coverage={gap['mean_coverage']:.2f})"
+                )
             report.append("")
 
         report.append("=" * 80)
@@ -645,7 +659,7 @@ class SwgaSimulator:
         report_text = "\n".join(report)
 
         if output_path:
-            with open(output_path, 'w') as f:
+            with open(output_path, "w") as f:
                 f.write(report_text)
             logger.info(f"Report saved to: {output_path}")
         else:

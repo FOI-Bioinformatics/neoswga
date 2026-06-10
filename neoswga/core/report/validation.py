@@ -15,14 +15,16 @@ from neoswga.core.report.metrics import PipelineMetrics
 
 class ValidationLevel(Enum):
     """Severity level for validation issues."""
-    ERROR = "error"      # Blocks report generation
+
+    ERROR = "error"  # Blocks report generation
     WARNING = "warning"  # Should be noted but doesn't block
-    INFO = "info"        # Informational message
+    INFO = "info"  # Informational message
 
 
 @dataclass
 class ValidationIssue:
     """A single validation issue."""
+
     level: ValidationLevel
     message: str
     field: str = ""
@@ -97,27 +99,18 @@ def validate_results_directory(path: str) -> ValidationResult:
 
     # Check directory exists
     if not results_path.exists():
-        result.add_error(
-            f"Results directory not found: {path}",
-            "results_dir"
-        )
+        result.add_error(f"Results directory not found: {path}", "results_dir")
         return result
 
     if not results_path.is_dir():
-        result.add_error(
-            f"Path is not a directory: {path}",
-            "results_dir"
-        )
+        result.add_error(f"Path is not a directory: {path}", "results_dir")
         return result
 
     # Check required files
     required_files = ["step4_improved_df.csv"]
     for fname in required_files:
         if not (results_path / fname).exists():
-            result.add_error(
-                f"Required file missing: {fname}",
-                fname
-            )
+            result.add_error(f"Required file missing: {fname}", fname)
 
     # Check optional files
     optional_files = [
@@ -133,10 +126,7 @@ def validate_results_directory(path: str) -> ValidationResult:
             parent_file = results_path.parent / fname
             if fname == "params.json" and parent_file.exists():
                 continue  # params.json in parent is OK
-            result.add_warning(
-                f"Optional file missing: {fname} - {note}",
-                fname
-            )
+            result.add_warning(f"Optional file missing: {fname} - {note}", fname)
 
     return result
 
@@ -161,59 +151,43 @@ def validate_metrics(metrics: PipelineMetrics) -> ValidationResult:
 
     # Check primers
     if not metrics.primers:
-        result.add_error(
-            "No primers found in results",
-            "primers"
-        )
+        result.add_error("No primers found in results", "primers")
     elif len(metrics.primers) < 3:
         result.add_warning(
-            f"Only {len(metrics.primers)} primer(s) found - SWGA typically needs 6+",
-            "primers"
+            f"Only {len(metrics.primers)} primer(s) found - SWGA typically needs 6+", "primers"
         )
 
     # Check genome sizes
     if metrics.target_genome is None or metrics.target_genome.size == 0:
         result.add_warning(
-            "Target genome size unknown - coverage estimate unavailable",
-            "target_genome"
+            "Target genome size unknown - coverage estimate unavailable", "target_genome"
         )
 
     if metrics.background_genome is None or metrics.background_genome.size == 0:
         result.add_warning(
-            "Background genome size unknown - specificity calculation affected",
-            "background_genome"
+            "Background genome size unknown - specificity calculation affected", "background_genome"
         )
 
     # Check thermodynamics
     if metrics.thermodynamics is None:
-        result.add_warning(
-            "Thermodynamic data missing - Tm metrics unavailable",
-            "thermodynamics"
-        )
+        result.add_warning("Thermodynamic data missing - Tm metrics unavailable", "thermodynamics")
     elif metrics.primers:
         tms = [p.tm for p in metrics.primers if p.tm > 0]
         if not tms:
-            result.add_warning(
-                "No Tm values found for primers",
-                "thermodynamics"
-            )
+            result.add_warning("No Tm values found for primers", "thermodynamics")
 
     # Check for potentially problematic values
     if metrics.primers:
         # Check for missing GC content
         missing_gc = sum(1 for p in metrics.primers if p.gc_content == 0)
         if missing_gc > 0:
-            result.add_info(
-                f"{missing_gc} primer(s) have GC content = 0",
-                "primers"
-            )
+            result.add_info(f"{missing_gc} primer(s) have GC content = 0", "primers")
 
         # Check for very high dimer scores (very negative)
         worst_dimer = min((p.dimer_score for p in metrics.primers), default=0)
         if worst_dimer < -8.0:
             result.add_warning(
-                f"High dimer risk detected (dG = {worst_dimer:.1f} kcal/mol)",
-                "dimer_risk"
+                f"High dimer risk detected (dG = {worst_dimer:.1f} kcal/mol)", "dimer_risk"
             )
 
     # Check coverage data source
@@ -221,13 +195,10 @@ def validate_metrics(metrics: PipelineMetrics) -> ValidationResult:
         result.add_warning(
             "Coverage is estimated (no optimizer summary found). "
             "Run optimization step to generate accurate coverage data.",
-            "coverage"
+            "coverage",
         )
     elif metrics.coverage and metrics.coverage.from_optimizer:
-        result.add_info(
-            "Using measured coverage from optimizer output",
-            "coverage"
-        )
+        result.add_info("Using measured coverage from optimizer output", "coverage")
 
     return result
 

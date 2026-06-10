@@ -32,15 +32,16 @@ Usage:
 
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+import os
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any
-import os
+from typing import Any, Dict, List, Optional
 
 # fcntl is Unix-only; provide fallback for Windows
 try:
     import fcntl
+
     HAS_FCNTL = True
 except ImportError:
     HAS_FCNTL = False
@@ -49,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 
 # Forbidden characters in file paths (shell metacharacters, null bytes)
-FORBIDDEN_PATH_CHARS = frozenset(';&|`$\x00')
+FORBIDDEN_PATH_CHARS = frozenset(";&|`$\x00")
 
 
 def _validate_log_path(path: str) -> str:
@@ -66,14 +67,14 @@ def _validate_log_path(path: str) -> str:
         ValueError: If path is invalid or suspicious
     """
     # Security checks BEFORE normalization (normpath resolves '..')
-    if '..' in path:
+    if ".." in path:
         raise ValueError("Invalid log path: directory traversal not allowed")
 
     if FORBIDDEN_PATH_CHARS.intersection(path):
         raise ValueError("Invalid log path: contains suspicious characters")
 
     # Ensure it's a JSON file
-    if not path.rstrip().lower().endswith('.json'):
+    if not path.rstrip().lower().endswith(".json"):
         raise ValueError("Invalid log path: must be a .json file")
 
     # Now safe to normalize
@@ -108,6 +109,7 @@ class ExperimentalOutcome:
         notes: Additional notes
         experiment_id: Unique identifier
     """
+
     primer_set: List[str]
     predicted_enrichment: float
     predicted_coverage: float
@@ -148,7 +150,7 @@ class ExperimentalOutcome:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ExperimentalOutcome':
+    def from_dict(cls, data: Dict[str, Any]) -> "ExperimentalOutcome":
         """Create from dictionary."""
         return cls(**data)
 
@@ -167,6 +169,7 @@ class CalibrationReport:
         underestimate_rate: Fraction of underestimates
         recommendation_accuracy: Fraction of correct recommendations
     """
+
     n_experiments: int
     mae_enrichment: float
     mae_coverage: float
@@ -179,14 +182,14 @@ class CalibrationReport:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
-            'n_experiments': self.n_experiments,
-            'mae_enrichment': self.mae_enrichment,
-            'mae_coverage': self.mae_coverage,
-            'correlation': self.correlation,
-            'overestimate_rate': self.overestimate_rate,
-            'underestimate_rate': self.underestimate_rate,
-            'recommendation_accuracy': self.recommendation_accuracy,
-            'details': self.details,
+            "n_experiments": self.n_experiments,
+            "mae_enrichment": self.mae_enrichment,
+            "mae_coverage": self.mae_coverage,
+            "correlation": self.correlation,
+            "overestimate_rate": self.overestimate_rate,
+            "underestimate_rate": self.underestimate_rate,
+            "recommendation_accuracy": self.recommendation_accuracy,
+            "details": self.details,
         }
 
     def __str__(self) -> str:
@@ -221,9 +224,9 @@ class ExperimentalTracker:
             ValueError: If log_path is invalid
         """
         if log_path is None:
-            log_dir = Path.home() / '.neoswga'
+            log_dir = Path.home() / ".neoswga"
             log_dir.mkdir(exist_ok=True)
-            log_path = str(log_dir / 'experiment_log.json')
+            log_path = str(log_dir / "experiment_log.json")
 
         # Validate and sanitize path
         self.log_path = _validate_log_path(log_path)
@@ -242,7 +245,7 @@ class ExperimentalTracker:
                         data = json.load(f)
                         self.experiments = [
                             ExperimentalOutcome.from_dict(exp)
-                            for exp in data.get('experiments', [])
+                            for exp in data.get("experiments", [])
                         ]
                     finally:
                         if HAS_FCNTL:
@@ -263,15 +266,15 @@ class ExperimentalTracker:
         """
         try:
             data = {
-                'version': '1.0',
-                'updated': datetime.now().isoformat(),
-                'experiments': [exp.to_dict() for exp in self.experiments],
+                "version": "1.0",
+                "updated": datetime.now().isoformat(),
+                "experiments": [exp.to_dict() for exp in self.experiments],
             }
 
             if HAS_FCNTL:
                 # Unix: Use 'a+' mode to avoid truncation before lock
                 # This prevents race condition where 'w' truncates before lock
-                with open(self.log_path, 'a+') as f:
+                with open(self.log_path, "a+") as f:
                     # Acquire exclusive lock for writing
                     fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                     try:
@@ -284,7 +287,7 @@ class ExperimentalTracker:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
             else:
                 # Windows: No file locking available, use simple write
-                with open(self.log_path, 'w') as f:
+                with open(self.log_path, "w") as f:
                     json.dump(data, f, indent=2)
 
         except Exception as e:
@@ -293,7 +296,7 @@ class ExperimentalTracker:
     def record_prediction(
         self,
         primer_set: List[str],
-        prediction: 'EfficiencyPrediction',
+        prediction: "EfficiencyPrediction",
         notes: str = "",
     ) -> str:
         """
@@ -463,9 +466,9 @@ class ExperimentalTracker:
             underestimate_rate=underestimates / n if n > 0 else 0.0,
             recommendation_accuracy=correct_recommendations / n if n > 0 else 0.0,
             details={
-                'enrichment_errors': enrichment_errors,
-                'coverage_errors': coverage_errors,
-            }
+                "enrichment_errors": enrichment_errors,
+                "coverage_errors": coverage_errors,
+            },
         )
 
     def list_experiments(self, limit: int = 10) -> List[Dict]:
@@ -479,19 +482,17 @@ class ExperimentalTracker:
             List of experiment summaries
         """
         results = []
-        for exp in sorted(
-            self.experiments,
-            key=lambda e: e.experiment_date,
-            reverse=True
-        )[:limit]:
-            results.append({
-                'id': exp.experiment_id,
-                'date': exp.experiment_date,
-                'n_primers': len(exp.primer_set),
-                'predicted_enrichment': exp.predicted_enrichment,
-                'actual_enrichment': exp.actual_enrichment,
-                'has_outcome': exp.has_outcome,
-            })
+        for exp in sorted(self.experiments, key=lambda e: e.experiment_date, reverse=True)[:limit]:
+            results.append(
+                {
+                    "id": exp.experiment_id,
+                    "date": exp.experiment_date,
+                    "n_primers": len(exp.primer_set),
+                    "predicted_enrichment": exp.predicted_enrichment,
+                    "actual_enrichment": exp.actual_enrichment,
+                    "has_outcome": exp.has_outcome,
+                }
+            )
         return results
 
     def clear(self) -> None:
