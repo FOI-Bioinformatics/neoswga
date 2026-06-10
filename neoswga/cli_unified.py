@@ -513,6 +513,7 @@ COMMAND_GROUPS = [
     ]),
     ('Analysis', [
         'analyze-set', 'analyze-genome', 'analyze-dimers', 'analyze-stability',
+        'analyze-coverage',
     ]),
     ('Advanced', [
         'multi-genome', 'simulate', 'optimize-conditions',
@@ -1320,12 +1321,54 @@ Examples:
     expand_parser.add_argument('--num-new', type=int, default=6,
                                help='Number of new primers to add (default: 6)')
     expand_parser.add_argument('--optimization-method', default='hybrid',
-                               choices=['hybrid', 'dominating-set'],
+                               choices=['hybrid', 'dominating-set', 'network',
+                                        'background-aware'],
                                help='Optimization method (default: hybrid)')
+    expand_parser.add_argument('--bam',
+                               help='Mapped BAM of real sequencing reads against the '
+                                    'target genome. Low-depth regions are merged with '
+                                    'in-silico coverage gaps and the candidate pool is '
+                                    'focused on primers that bind inside the gaps. '
+                                    "Requires the [bam] extra (pip install 'neoswga[bam]').")
+    expand_parser.add_argument('--min-depth', type=int, default=5,
+                               help='Sequencing depth below which a base counts as a '
+                                    'BAM coverage gap (default: 5).')
+    expand_parser.add_argument('--min-gap-size', type=int, default=10000,
+                               help='Minimum gap length to act on, bp (default: 10000).')
+    expand_parser.add_argument('--contig-alias', action='append', default=None,
+                               metavar='FG=BAMCONTIG',
+                               help='Map a foreground prefix/basename to a BAM contig '
+                                    'name when they differ. Repeatable.')
     expand_parser.add_argument('--output', '-o', required=True,
                                help='Output directory for expanded primer set')
     expand_parser.add_argument('--quiet', '-q', action='store_true',
                                help='Suppress progress output')
+
+    # Analyze coverage - read-only inspection of in-silico + BAM gaps
+    cov_parser = subparsers.add_parser('analyze-coverage',
+        help='Report coverage gaps for a primer set, from in-silico binding '
+             'sites and (optionally) real sequencing depth (BAM). Read-only.')
+    cov_parser.add_argument('-j', '--json-file', required=True,
+                            help='Parameters JSON file')
+    cov_parser.add_argument('--primers', nargs='+',
+                            help='Current primer set (the primers to assess).')
+    cov_parser.add_argument('--primers-file',
+                            help='File with current primers (one per line).')
+    cov_parser.add_argument('--bam',
+                            help='Mapped BAM of real reads vs the target genome. '
+                                 "Requires the [bam] extra.")
+    cov_parser.add_argument('--min-depth', type=int, default=5,
+                            help='Depth below which a base is a BAM gap (default: 5).')
+    cov_parser.add_argument('--min-gap-size', type=int, default=10000,
+                            help='Minimum gap length to report, bp (default: 10000).')
+    cov_parser.add_argument('--contig-alias', action='append', default=None,
+                            metavar='FG=BAMCONTIG',
+                            help='Map a foreground prefix/basename to a BAM contig. '
+                                 'Repeatable.')
+    cov_parser.add_argument('--output', '-o', required=True,
+                            help='Output directory for gap BED/JSON.')
+    cov_parser.add_argument('--quiet', '-q', action='store_true',
+                            help='Suppress progress output')
 
     # Swap primer: replace worst performers with better candidates
     swap_parser = subparsers.add_parser('swap-primer',
@@ -4014,6 +4057,90 @@ def run_simulate(args):
 
 
 
+def run_analyze_coverage(args):
+    """Read-only coverage-gap report from in-silico binding sites + optional BAM.
+
+    Computes in-silico gaps for the given primer set, optionally merges low
+    sequencing-depth regions from a mapped BAM, and writes the merged gaps as
+    BED + JSON (plus an in-silico binding-density BedGraph). No optimizer runs.
+    """
+    from neoswga.core import parameter
+    from neoswga.core import pipeline as core_pipeline
+    from neoswga.core.primer_expansion import PrimerExpander
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.export import export_gaps_to_bed
+    import json as json_module
+
+    quiet = getattr(args, 'quiet', False)
+
+    primers = collect_primers_from_args(
+        getattr(args, 'primers', None), getattr(args, 'primers_file', None),
+        name='primer', allow_empty=True,
+    )
+
+    validate_params_json_file(args.json_file)
+    merge_args_to_parameter(args, parameter, ['json_file'])
+    core_pipeline._initialize()
+
+    fg_prefixes = core_pipeline.fg_prefixes
+    fg_seq_lengths = core_pipeline.fg_seq_lengths
+    bg_prefixes = core_pipeline.bg_prefixes
+    bg_seq_lengths = core_pipeline.bg_seq_lengths
+
+    cache = PositionCache(fg_prefixes, list(set(primers)) or ['A' * 8])
+    expander = PrimerExpander(
+        position_cache=cache,
+        fg_prefixes=fg_prefixes,
+        fg_seq_lengths=fg_seq_lengths,
+        bg_prefixes=bg_prefixes,
+        bg_seq_lengths=bg_seq_lengths,
+    )
+
+    bam_gaps_list = None
+    if getattr(args, 'bam', None):
+        from neoswga.core.bam_coverage import bam_gaps
+        aliases = {}
+        for item in (getattr(args, 'contig_alias', None) or []):
+            if '=' in item:
+                k, v = item.split('=', 1)
+                aliases[k] = v
+        fg_circular = bool(getattr(parameter, 'fg_circular', False))
+        try:
+            bam_gaps_list = bam_gaps(
+                args.bam, fg_prefixes, fg_seq_lengths,
+                min_depth=args.min_depth, min_gap_size=args.min_gap_size,
+                circular=fg_circular, contig_aliases=aliases or None,
+            )
+        except RuntimeError as e:
+            logger.error(str(e))
+            sys.exit(1)
+        if not quiet:
+            logger.info(f"BAM low-depth gaps: {len(bam_gaps_list)}")
+
+    gaps = expander.identify_gaps(
+        primers, min_gap_size=args.min_gap_size,
+        extra_gaps=bam_gaps_list, merge=True,
+    )
+
+    os.makedirs(args.output, exist_ok=True)
+    export_gaps_to_bed(gaps, os.path.join(args.output, 'coverage_gaps.bed'))
+    with open(os.path.join(args.output, 'coverage_gaps.json'), 'w') as f:
+        json_module.dump(
+            {'n_gaps': len(gaps),
+             'min_depth': args.min_depth,
+             'min_gap_size': args.min_gap_size,
+             'used_bam': bool(getattr(args, 'bam', None)),
+             'gaps': [{'chromosome': g.chromosome, 'start': g.start,
+                       'end': g.end, 'size': g.size} for g in gaps]},
+            f, indent=2,
+        )
+
+    if not quiet:
+        logger.info(f"Found {len(gaps)} coverage gap(s); wrote BED + JSON to {args.output}")
+        for g in gaps[:10]:
+            logger.info(f"  {g.chromosome}: {g.start:,}-{g.end:,} ({g.size:,} bp)")
+
+
 def run_expand_primers(args):
     """
     Expand existing primer set with additional primers.
@@ -4109,7 +4236,46 @@ def run_expand_primers(args):
             bg_seq_lengths=bg_seq_lengths,
         )
 
-        # Run expansion
+        # Build target gaps: in-silico gaps from the fixed set, optionally
+        # merged with low sequencing-depth regions from a mapped BAM.
+        bam_gaps_list = None
+        if getattr(args, 'bam', None):
+            try:
+                from neoswga.core.bam_coverage import bam_gaps
+            except Exception as e:
+                logger.error(str(e))
+                sys.exit(1)
+            aliases = {}
+            for item in (getattr(args, 'contig_alias', None) or []):
+                if '=' in item:
+                    k, v = item.split('=', 1)
+                    aliases[k] = v
+            fg_circular = bool(getattr(parameter, 'fg_circular', False))
+            try:
+                bam_gaps_list = bam_gaps(
+                    args.bam, fg_prefixes, fg_seq_lengths,
+                    min_depth=args.min_depth, min_gap_size=args.min_gap_size,
+                    circular=fg_circular, contig_aliases=aliases or None,
+                )
+            except RuntimeError as e:  # pysam missing
+                logger.error(str(e))
+                sys.exit(1)
+            if not quiet:
+                logger.info(f"BAM low-depth gaps: {len(bam_gaps_list)}")
+
+        target_gaps = expander.identify_gaps(
+            fixed_primers, min_gap_size=args.min_gap_size,
+            extra_gaps=bam_gaps_list, merge=True,
+        )
+
+        os.makedirs(args.output, exist_ok=True)
+        if target_gaps:
+            from neoswga.core.export import export_gaps_to_bed
+            export_gaps_to_bed(
+                target_gaps, os.path.join(args.output, 'merged_gaps.bed')
+            )
+
+        # Run expansion (focus candidates on the gaps when we have any)
         result = expander.expand(
             candidates=candidates,
             fixed_primers=fixed_primers,
@@ -4117,6 +4283,7 @@ def run_expand_primers(args):
             target_new=args.num_new,
             optimization_method=args.optimization_method,
             verbose=not quiet,
+            target_gaps=target_gaps or None,
         )
 
         # Save results
@@ -5107,6 +5274,7 @@ def main():
         'analyze-genome': run_analyze_genome,
         'analyze-dimers': run_analyze_dimers,
         'analyze-stability': run_analyze_stability,
+        'analyze-coverage': run_analyze_coverage,
         'design-oligos': run_design_oligos,
 
         # Category 3: Orphaned pipeline features (now exposed!)

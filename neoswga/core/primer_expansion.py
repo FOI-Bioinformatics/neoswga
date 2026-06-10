@@ -55,6 +55,35 @@ class CoverageGap:
             self.size = self.end - self.start
 
 
+def merge_gap_intervals(gaps: List["CoverageGap"]) -> List["CoverageGap"]:
+    """Union overlapping/adjacent gap intervals per chromosome.
+
+    Used to combine in-silico gaps (from binding positions) with real
+    sequencing-depth gaps (from a BAM) into one non-overlapping set. Gaps are
+    grouped by ``chromosome``; within each group, intervals are sorted by start
+    and merged when they overlap or touch. Returns the merged gaps sorted
+    largest-first.
+    """
+    by_chrom: dict = {}
+    for g in gaps:
+        by_chrom.setdefault(g.chromosome, []).append((g.start, g.end))
+
+    merged: List[CoverageGap] = []
+    for chrom, intervals in by_chrom.items():
+        intervals.sort()
+        cur_start, cur_end = intervals[0]
+        for s, e in intervals[1:]:
+            if s <= cur_end:  # overlap or touch
+                cur_end = max(cur_end, e)
+            else:
+                merged.append(CoverageGap(chrom, cur_start, cur_end, cur_end - cur_start))
+                cur_start, cur_end = s, e
+        merged.append(CoverageGap(chrom, cur_start, cur_end, cur_end - cur_start))
+
+    merged.sort(key=lambda g: g.size, reverse=True)
+    return merged
+
+
 @dataclass
 class ExpansionInput:
     """
@@ -192,6 +221,8 @@ class PrimerExpander:
         self,
         primers: List[str],
         min_gap_size: int = 10000,
+        extra_gaps: Optional[List[CoverageGap]] = None,
+        merge: bool = True,
     ) -> List[CoverageGap]:
         """
         Identify coverage gaps in a primer set.
@@ -199,6 +230,13 @@ class PrimerExpander:
         Args:
             primers: Current primer sequences
             min_gap_size: Minimum gap size to report (bp)
+            extra_gaps: Optional externally-derived gaps (e.g. low-depth
+                regions from a mapped BAM, via ``bam_coverage.bam_gaps``) in
+                the SAME coordinate space (chromosome == fg prefix). When
+                provided and ``merge`` is True they are unioned with the
+                in-silico gaps.
+            merge: If True (default), union ``extra_gaps`` with the in-silico
+                gaps via :func:`merge_gap_intervals`.
 
         Returns:
             List of CoverageGap objects sorted by size (largest first)
@@ -213,6 +251,8 @@ class PrimerExpander:
                     end=length,
                     size=length
                 ))
+            if extra_gaps and merge:
+                gaps = merge_gap_intervals(gaps + list(extra_gaps))
             return gaps
 
         # Collect all binding positions
@@ -270,6 +310,11 @@ class PrimerExpander:
                     size=length - positions[-1]
                 ))
 
+        # Merge in externally-derived gaps (e.g. BAM low-depth regions).
+        if extra_gaps and merge:
+            gaps = merge_gap_intervals(gaps + list(extra_gaps))
+            gaps = [g for g in gaps if g.size >= min_gap_size]
+
         # Sort by size (largest first)
         gaps.sort(key=lambda g: g.size, reverse=True)
 
@@ -308,6 +353,7 @@ class PrimerExpander:
         target_new: int = 6,
         optimization_method: str = 'hybrid',
         verbose: bool = True,
+        target_gaps: Optional[List[CoverageGap]] = None,
     ) -> ExpansionResult:
         """
         Expand primer set with additional primers.
@@ -319,6 +365,10 @@ class PrimerExpander:
             target_new: Number of new primers to select
             optimization_method: 'hybrid', 'dominating-set', or 'network'
             verbose: Print progress
+            target_gaps: Optional list of gaps (in-silico and/or BAM-derived)
+                to focus on. When provided, the candidate pool is HARD-filtered
+                to primers with at least one binding site inside a gap, with a
+                fallback to the full pool if too few remain to fill ``target_new``.
 
         Returns:
             ExpansionResult with new and combined primer sets
@@ -332,6 +382,26 @@ class PrimerExpander:
             c for c in candidates
             if c.upper() not in fixed_set and c.upper() not in failed_set
         ]
+
+        # Gap-restricted candidate pre-filter (hard filter + fallback). Keep
+        # only candidates whose binding sites fall inside a target gap; if that
+        # leaves fewer than target_new, fall back to the full filtered pool.
+        if target_gaps:
+            in_gap = self._filter_candidates_to_gaps(candidates_filtered, target_gaps)
+            if len(in_gap) >= target_new:
+                if verbose:
+                    logger.info(
+                        f"Gap-restricted pool: {len(in_gap)}/{len(candidates_filtered)} "
+                        f"candidates bind inside {len(target_gaps)} target gap(s)"
+                    )
+                candidates_filtered = in_gap
+            else:
+                if verbose:
+                    logger.warning(
+                        f"Only {len(in_gap)} candidates bind inside target gaps "
+                        f"(< target_new={target_new}); using full pool of "
+                        f"{len(candidates_filtered)}"
+                    )
 
         if verbose:
             logger.info("="*60)
@@ -412,6 +482,59 @@ class PrimerExpander:
             message=result.get('message', ''),
         )
 
+    def _filter_candidates_to_gaps(
+        self,
+        candidates: List[str],
+        target_gaps: List[CoverageGap],
+    ) -> List[str]:
+        """Keep candidates with >=1 binding site inside any target gap.
+
+        Gaps are grouped by chromosome (== fg prefix). For each candidate, its
+        binding positions on that prefix are tested against the gap intervals
+        with a vectorized ``np.searchsorted``. A gap whose ``end`` exceeds the
+        genome length (a circular wrap gap) is split into ``[start, length)``
+        and ``[0, end-length)`` before testing.
+        """
+        # Build per-prefix sorted interval bounds, expanding wrap gaps.
+        length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        bounds_by_prefix: dict = {}
+        for g in target_gaps:
+            length = length_by_prefix.get(g.chromosome)
+            intervals = bounds_by_prefix.setdefault(g.chromosome, [])
+            if length is not None and g.end > length:
+                intervals.append((g.start, length))
+                intervals.append((0, g.end - length))
+            else:
+                intervals.append((g.start, g.end))
+
+        # Pre-sort starts/ends per prefix for searchsorted.
+        prepared = {}
+        for prefix, intervals in bounds_by_prefix.items():
+            intervals.sort()
+            starts = np.array([s for s, _ in intervals], dtype=np.int64)
+            ends = np.array([e for _, e in intervals], dtype=np.int64)
+            prepared[prefix] = (starts, ends)
+
+        kept = []
+        for cand in candidates:
+            hit = False
+            for prefix, (starts, ends) in prepared.items():
+                positions = self.cache.get_positions(prefix, cand, 'both')
+                if len(positions) == 0:
+                    continue
+                pos = np.asarray(positions, dtype=np.int64)
+                # For each position, the candidate interval is the one whose
+                # start is the largest <= pos; check pos < that interval's end.
+                idx = np.searchsorted(starts, pos, side='right') - 1
+                valid = idx >= 0
+                if np.any(valid):
+                    if np.any(pos[valid] < ends[idx[valid]]):
+                        hit = True
+                        break
+            if hit:
+                kept.append(cand)
+        return kept
+
     def _expand_hybrid(
         self,
         candidates: List[str],
@@ -490,6 +613,10 @@ def expand_primers(
     optimization_method: str = 'hybrid',
     output_dir: Optional[str] = None,
     verbose: bool = True,
+    bam_path: Optional[str] = None,
+    min_depth: int = 5,
+    min_gap_size: int = 10000,
+    contig_aliases: Optional[Dict[str, str]] = None,
 ) -> ExpansionResult:
     """
     Convenience function to expand primer set using params.json.
@@ -502,6 +629,12 @@ def expand_primers(
         optimization_method: Optimization method to use
         output_dir: Directory to save results (optional)
         verbose: Print progress
+        bam_path: Optional mapped BAM. When given, low-depth regions are
+            computed and merged with the in-silico gaps; the candidate pool is
+            then focused on primers that bind inside those gaps.
+        min_depth: Depth below which a base counts as a BAM gap (default 5).
+        min_gap_size: Minimum gap length to act on (bp, default 10000).
+        contig_aliases: Optional {fg_prefix_or_basename: bam_contig} overrides.
 
     Returns:
         ExpansionResult with new and combined primer sets
@@ -548,7 +681,26 @@ def expand_primers(
         bg_seq_lengths=bg_seq_lengths,
     )
 
-    # Run expansion
+    # Build target gaps: in-silico gaps from the fixed set, optionally merged
+    # with low-depth regions from a mapped BAM.
+    fg_circular = bool(params.get('fg_circular', False))
+    bam_derived_gaps = None
+    if bam_path:
+        from neoswga.core.bam_coverage import bam_gaps
+        bam_derived_gaps = bam_gaps(
+            bam_path, fg_prefixes, fg_seq_lengths,
+            min_depth=min_depth, min_gap_size=min_gap_size,
+            circular=fg_circular, contig_aliases=contig_aliases,
+        )
+        if verbose:
+            logger.info(f"BAM low-depth gaps: {len(bam_derived_gaps)}")
+
+    target_gaps = expander.identify_gaps(
+        fixed_primers, min_gap_size=min_gap_size,
+        extra_gaps=bam_derived_gaps, merge=True,
+    )
+
+    # Run expansion (focus candidates on the gaps when we have any)
     result = expander.expand(
         candidates=candidates,
         fixed_primers=fixed_primers,
@@ -556,6 +708,7 @@ def expand_primers(
         target_new=target_new,
         optimization_method=optimization_method,
         verbose=verbose,
+        target_gaps=target_gaps or None,
     )
 
     # Save results if output_dir specified

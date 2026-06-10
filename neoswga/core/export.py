@@ -171,6 +171,25 @@ def export_to_bed(
     logger.info(f"Exported {total_sites} binding sites to {output_path}")
 
 
+def export_gaps_to_bed(gaps, output_path: str) -> None:
+    """Export coverage gaps in BED format for genome-browser inspection.
+
+    Each gap becomes a BED feature ``chrom start end gap_<size> 0 .`` so the
+    merged in-silico + BAM gap set can be loaded in IGV alongside the primer
+    binding sites.
+
+    Args:
+        gaps: iterable of CoverageGap (chromosome/start/end/size).
+        output_path: path for the BED file.
+    """
+    with open(output_path, 'w') as f:
+        for g in gaps:
+            # Wrap gaps (end > contig length) are written as-is; IGV clips them.
+            f.write(f"{g.chromosome}\t{g.start}\t{g.end}\tgap_{g.size}\t0\t.\n")
+    logger.info(f"Exported {len(list(gaps)) if hasattr(gaps, '__len__') else '?'} "
+                f"gaps to {output_path}")
+
+
 def export_to_bedgraph(
     primers: List[str],
     positions: Dict[str, List[tuple]],
