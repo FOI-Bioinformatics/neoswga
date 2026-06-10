@@ -443,6 +443,28 @@ _sampling_enabled: bool = True
 _sample_rate: float = 0.1  # Sample 10% of k-mers by default
 _min_count_threshold: int = 5  # Always include k-mers with count >= threshold
 
+# Dedicated RNG for k-mer sampling so a caller can make scoring reproducible
+# without disturbing the global `random` state. Seeded via
+# set_kmer_sampling_seed(); unseeded by default (preserves prior behaviour).
+import random as _random
+_RNG = _random.Random()
+
+
+def set_kmer_sampling_seed(seed) -> None:
+    """Seed the k-mer sampling RNG for reproducible scoring.
+
+    K-mer sampling (enabled by default) probabilistically skips low-count
+    k-mers when building delta-G features. Without a seed this makes the
+    `score`/step3 output non-deterministic. Pass a seed here (the optimizer
+    and the score CLI both call this) to make a run reproducible.
+
+    Args:
+        seed: Any value accepted by random.Random.seed (int, etc.), or None
+            to reseed from system entropy.
+    """
+    global _RNG
+    _RNG = _random.Random(seed)
+
 
 def enable_kmer_sampling(sample_rate: float = 0.1, min_count: int = 5) -> None:
     """
@@ -529,8 +551,9 @@ def get_all_predicted_delta_G_per_primer_transformed(primer, fnames=None, penalt
             if _sampling_enabled:
                 # Always include high-count k-mers (they contribute most to binding)
                 if count < _min_count_threshold:
-                    # Sample low-count k-mers probabilistically
-                    if random.random() > _sample_rate:
+                    # Sample low-count k-mers probabilistically (seedable RNG
+                    # so `score` output is reproducible when a seed is set).
+                    if _RNG.random() > _sample_rate:
                         continue
 
             # Forward strand binding

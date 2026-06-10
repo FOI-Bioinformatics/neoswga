@@ -317,6 +317,13 @@ def run_optimization(
         import numpy as np
         random.seed(seed)
         np.random.seed(seed)
+        # Also seed the RF k-mer sampling RNG so any re-scoring during
+        # optimization is reproducible (k-mer sampling is on by default).
+        try:
+            from .rf_preprocessing import set_kmer_sampling_seed
+            set_kmer_sampling_seed(seed)
+        except Exception as e:
+            logger.debug(f"Could not seed k-mer sampling RNG: {e}")
         if verbose:
             logger.info(f"Random seed set to {seed} for reproducibility")
 

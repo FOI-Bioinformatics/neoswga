@@ -728,6 +728,11 @@ Run "neoswga <command> --help" for details on a specific command.
                              help='Deprecated alias for the current default behavior '
                                   '(thermodynamic histogram features are skipped). '
                                   'Accepted for backwards compatibility.')
+    score_parser.add_argument('--seed', type=int, default=None,
+                             help='Random seed for reproducible scoring. K-mer '
+                                  'sampling (on by default) is otherwise '
+                                  'non-deterministic; set this for repeatable '
+                                  'step3 output.')
 
     # Enhanced feature engineering options
     score_parser.add_argument('--use-enhanced-features', action='store_true',
@@ -1845,6 +1850,13 @@ def run_step3(args):
 
         # GPU acceleration (with auto-detection)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
+
+        # Reproducible scoring: seed the k-mer sampling RNG if requested.
+        if getattr(args, 'seed', None) is not None:
+            from neoswga.core.rf_preprocessing import set_kmer_sampling_seed
+            set_kmer_sampling_seed(args.seed)
+            if not args.quiet:
+                logger.info(f"K-mer sampling seeded with {args.seed} for reproducible scoring")
 
         # QA integration (boolean flag)
         if hasattr(args, 'enable_qa') and args.enable_qa:

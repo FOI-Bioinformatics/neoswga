@@ -40,6 +40,7 @@ from neoswga.core.integrated_quality_scorer import (
     create_quality_scorer
 )
 from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.io_utils import primer_column
 
 
 @dataclass
@@ -109,6 +110,8 @@ def apply_post_step2_qa_filter(
 
     # Work on a copy
     df = step2_df.copy()
+    # Resolve the primer-sequence column once ('primer' canonical, 'seq' legacy).
+    seq_col = primer_column(df)
     df['qa_pass'] = True
     df['qa_score'] = 1.0
     df['filter_reason'] = ''
@@ -133,7 +136,7 @@ def apply_post_step2_qa_filter(
         passing_mask = df['qa_pass']
         if passing_mask.any():
             # Analyze all passing primers at once
-            passing_primers = df.loc[passing_mask, 'seq'].tolist()
+            passing_primers = df.loc[passing_mask, seq_col].tolist()
 
             # Batch analyze (still sequential, but avoids iterrows overhead)
             stability_results = {primer: analyzer.analyze_primer(primer) for primer in passing_primers}
@@ -142,7 +145,7 @@ def apply_post_step2_qa_filter(
             def apply_stability(row):
                 if not row['qa_pass']:
                     return row['qa_pass'], row['qa_score'], row['filter_reason']
-                stability = stability_results.get(row['seq'])
+                stability = stability_results.get(row[seq_col])
                 if stability and not stability.passes:
                     return False, row['qa_score'], '3prime_stability'
                 elif stability:
@@ -169,7 +172,7 @@ def apply_post_step2_qa_filter(
             logger.info(f"\n[2/3] Dimer Network Analysis ({config.dimer_stringency})...")
 
         # Only analyze primers that passed previous filters
-        passing_primers = df[df['qa_pass']]['seq'].tolist()
+        passing_primers = df[df['qa_pass']][seq_col].tolist()
 
         if len(passing_primers) > 0:
             analyzer = create_dimer_network_analyzer(
@@ -185,13 +188,13 @@ def apply_post_step2_qa_filter(
             for profile in profiles:
                 if profile.degree > config.max_hub_degree:
                     # Find this primer in df and mark as failed
-                    mask = (df['seq'] == profile.primer) & df['qa_pass']
+                    mask = (df[seq_col] == profile.primer) & df['qa_pass']
                     df.loc[mask, 'qa_pass'] = False
                     df.loc[mask, 'filter_reason'] = 'dimer_hub'
                     failed_dimer += 1
                 else:
                     # Update score based on dimer tendency
-                    mask = (df['seq'] == profile.primer) & df['qa_pass']
+                    mask = (df[seq_col] == profile.primer) & df['qa_pass']
                     if mask.any():
                         # Lower score for primers with more interactions
                         dimer_score = max(0.0, 1.0 - profile.degree / 10.0)
@@ -216,7 +219,7 @@ def apply_post_step2_qa_filter(
         # Batch scoring: pre-compute all scores for passing primers
         passing_mask = df['qa_pass']
         if passing_mask.any():
-            passing_primers = df.loc[passing_mask, 'seq'].tolist()
+            passing_primers = df.loc[passing_mask, seq_col].tolist()
 
             # Batch score all primers
             quality_scores = {}
@@ -228,7 +231,7 @@ def apply_post_step2_qa_filter(
                     quality_scores[primer] = 1.0  # Default score on error
 
             # Vectorized update using map (much faster than iterrows)
-            df.loc[passing_mask, 'qa_score'] *= df.loc[passing_mask, 'seq'].map(quality_scores)
+            df.loc[passing_mask, 'qa_score'] *= df.loc[passing_mask, seq_col].map(quality_scores)
 
         if verbose:
             mean_score = df[df['qa_pass']]['qa_score'].mean()
@@ -299,9 +302,10 @@ def combine_rf_qa_scores(
         logger.info(f"QA weight: {qa_weight:.2f}")
 
     df = step3_df.copy()
+    seq_col = primer_column(df)
 
     # Add QA scores
-    df['qa_score'] = df['seq'].map(qa_scores).fillna(0.5)
+    df['qa_score'] = df[seq_col].map(qa_scores).fillna(0.5)
 
     # Normalize RF scores to 0-1 range
     rf_min = df['score'].min()
@@ -518,8 +522,9 @@ def save_qa_report(
     ])
 
     top_primers = result.filtered_df.nlargest(10, 'qa_score')
+    seq_col = primer_column(top_primers)
     for idx, row in top_primers.iterrows():
-        report_lines.append(f"  {row['seq']}: {row['qa_score']:.3f}")
+        report_lines.append(f"  {row[seq_col]}: {row['qa_score']:.3f}")
 
     output_path = Path(output_path)
     output_path.write_text('\n'.join(report_lines))

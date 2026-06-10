@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NeoSWGA Technical Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                         'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #1a1a1a;
+            background: #f8f9fa;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            color: white;
+            padding: 30px 40px;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .header .subtitle {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .header .meta {
+            display: flex;
+            gap: 24px;
+            margin-top: 16px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        /* Table of Contents */
+        .toc {
+            background: #f8f9fa;
+            padding: 24px 40px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .toc h2 {
+            font-size: 1.1em;
+            color: #495057;
+            margin-bottom: 12px;
+        }
+
+        .toc ul {
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 24px;
+        }
+
+        .toc a {
+            color: #2c5282;
+            text-decoration: none;
+            font-size: 0.9em;
+        }
+
+        .toc a:hover {
+            text-decoration: underline;
+        }
+
+        /* Sections */
+        .section {
+            padding: 32px 40px;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .section:last-child {
+            border-bottom: none;
+        }
+
+        .section h2 {
+            font-size: 1.4em;
+            color: #1a365d;
+            margin-bottom: 20px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .section h3 {
+            font-size: 1.1em;
+            color: #2d3748;
+            margin: 24px 0 12px 0;
+        }
+
+        .section p {
+            color: #4a5568;
+            margin-bottom: 16px;
+        }
+
+        /* Validator warnings banner — shared CSS from report.utils */
+        
+        .validation-banner {
+            padding: 14px 30px;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 0.9em;
+        }
+
+        .validation-banner.level-error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+
+        .validation-banner.level-warning {
+            background: #fff3cd;
+            color: #856404;
+            border-left: 4px solid #ffc107;
+        }
+
+        .validation-banner h3 {
+            font-size: 0.95em;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .validation-banner ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .validation-banner li {
+            margin-bottom: 3px;
+            line-height: 1.5;
+        }
+
+        .validation-banner .code {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+
+        /* Technical-report-specific override: section-1 card layout
+           needs different padding / radius than the exec-summary banner
+           that sits above the metrics grid. */
+        .validation-banner {
+            padding: 14px 18px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 0.95em;
+            border-bottom: none;
+        }
+
+        .validation-banner h3 {
+            font-size: 1em;
+            margin-bottom: 8px;
+        }
+
+        .validation-banner ul {
+            padding-left: 22px;
+        }
+
+        .validation-banner li {
+            margin-bottom: 4px;
+        }
+
+        /* Grade Summary */
+        .grade-summary {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+            padding: 24px;
+            background: #721c24;
+            border-radius: 8px;
+            margin-bottom: 24px;
+        }
+
+        .grade-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: #fff;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5em;
+            font-weight: 700;
+        }
+
+        .grade-details h3 {
+            margin: 0 0 4px 0;
+            color: #822727;
+        }
+
+        .grade-details p {
+            margin: 0;
+            color: #4a5568;
+        }
+
+        /* Info boxes */
+        .info-box {
+            background: #f8f9fa;
+            border-radius: 6px;
+            padding: 16px 20px;
+            margin: 16px 0;
+        }
+
+        .info-box.parameters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .param-item {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .param-label {
+            color: #718096;
+            font-size: 0.9em;
+        }
+
+        .param-value {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        /* Pipeline Flow */
+        .pipeline-flow {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            margin: 20px 0;
+        }
+
+        .pipeline-step {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            background: #f8f9fa;
+            border-left: 4px solid #2c5282;
+            margin-left: 20px;
+            position: relative;
+        }
+
+        .pipeline-step::before {
+            content: '';
+            position: absolute;
+            left: -22px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 12px;
+            height: 12px;
+            background: #2c5282;
+            border-radius: 50%;
+        }
+
+        .pipeline-step::after {
+            content: '';
+            position: absolute;
+            left: -16px;
+            top: 50%;
+            height: calc(100% + 24px);
+            width: 2px;
+            background: #cbd5e0;
+        }
+
+        .pipeline-step:last-child::after {
+            display: none;
+        }
+
+        .step-name {
+            flex: 1;
+            font-weight: 500;
+        }
+
+        .step-value {
+            color: #2c5282;
+            font-weight: 600;
+        }
+
+        .step-change {
+            font-size: 0.85em;
+            color: #718096;
+            margin-left: 8px;
+        }
+
+        /* Filtering Funnel */
+        .funnel {
+            margin: 24px 0;
+        }
+
+        .funnel-stage {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .funnel-bar {
+            height: 32px;
+            background: linear-gradient(90deg, #2c5282, #4299e1);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            color: white;
+            font-size: 0.85em;
+            font-weight: 500;
+            min-width: 60px;
+        }
+
+        .funnel-label {
+            margin-left: 12px;
+            color: #4a5568;
+            font-size: 0.9em;
+        }
+
+        .funnel-pct {
+            margin-left: auto;
+            color: #718096;
+            font-size: 0.85em;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 16px 0;
+            font-size: 0.9em;
+        }
+
+        th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #2d3748;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e9ecef;
+            color: #4a5568;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .sequence {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: 0.95em;
+            letter-spacing: 0.5px;
+        }
+
+        /* Metrics Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin: 20px 0;
+        }
+
+        .metric-box {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .metric-box .value {
+            font-size: 1.8em;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .metric-box .label {
+            font-size: 0.85em;
+            color: #718096;
+            margin-top: 4px;
+        }
+
+        .metric-box .rating {
+            font-size: 0.8em;
+            padding: 2px 8px;
+            border-radius: 10px;
+            display: inline-block;
+            margin-top: 8px;
+        }
+
+        .rating-excellent { background: #c6f6d5; color: #22543d; }
+        .rating-good { background: #bee3f8; color: #2a4365; }
+        .rating-acceptable { background: #fefcbf; color: #744210; }
+        .rating-poor { background: #fed7d7; color: #822727; }
+
+        /* Progress bars */
+        .progress-container {
+            height: 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 0.3s;
+        }
+
+        .progress-excellent { background: #48bb78; }
+        .progress-good { background: #4299e1; }
+        .progress-acceptable { background: #ecc94b; }
+        .progress-poor { background: #f56565; }
+
+        /* Component breakdown */
+        .component-row {
+            display: flex;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+
+        .component-name {
+            width: 140px;
+            font-weight: 500;
+            color: #2d3748;
+        }
+
+        .component-bar-container {
+            flex: 1;
+            margin: 0 16px;
+        }
+
+        .component-bar {
+            height: 24px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .component-bar-fill {
+            height: 100%;
+            display: flex;
+            align-items: center;
+            padding: 0 8px;
+            color: white;
+            font-size: 0.8em;
+            font-weight: 500;
+        }
+
+        .component-score {
+            width: 60px;
+            text-align: right;
+            font-weight: 600;
+        }
+
+        .component-weight {
+            width: 50px;
+            text-align: right;
+            color: #718096;
+            font-size: 0.85em;
+        }
+
+        /* Primer cards */
+        .primer-card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 16px 0;
+        }
+
+        .primer-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .primer-card-header h4 {
+            font-family: monospace;
+            font-size: 1.1em;
+            color: #2d3748;
+        }
+
+        .primer-card-header .rank {
+            background: #2c5282;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+        }
+
+        .primer-card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+        }
+
+        .primer-stat {
+            text-align: center;
+        }
+
+        .primer-stat .value {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .primer-stat .label {
+            font-size: 0.8em;
+            color: #718096;
+        }
+
+        /* Interaction matrix */
+        .interaction-warning {
+            background: #fffaf0;
+            border-left: 4px solid #ed8936;
+            padding: 12px 16px;
+            margin: 16px 0;
+            border-radius: 0 6px 6px 0;
+        }
+
+        .interaction-warning.low {
+            background: #f0fff4;
+            border-color: #48bb78;
+        }
+
+        /* Recommendations */
+        .recommendation-box {
+            padding: 20px;
+            border-radius: 8px;
+            margin: 16px 0;
+        }
+
+        .recommendation-box.proceed {
+            background: #f0fff4;
+            border: 1px solid #9ae6b4;
+        }
+
+        .recommendation-box.caution {
+            background: #fffaf0;
+            border: 1px solid #fbd38d;
+        }
+
+        .recommendation-box.warning {
+            background: #fff5f5;
+            border: 1px solid #feb2b2;
+        }
+
+        .recommendation-box h4 {
+            margin-bottom: 8px;
+            color: #2d3748;
+        }
+
+        .recommendation-list {
+            margin: 12px 0 0 20px;
+        }
+
+        .recommendation-list li {
+            margin-bottom: 8px;
+            color: #4a5568;
+        }
+
+        /* Footer */
+        .footer {
+            background: #f8f9fa;
+            padding: 20px 40px;
+            text-align: center;
+            font-size: 0.85em;
+            color: #718096;
+        }
+
+        /* Print styles */
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .container {
+                box-shadow: none;
+            }
+
+            .section {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>NeoSWGA Technical Report</h1>
+            <div class="subtitle">Target vs Background</div>
+            <div class="meta">
+                <span>Generated: 2026-04-29 14:01:53</span>
+                <span>NeoSWGA v3.6.0</span>
+                <span>Primers: 20</span>
+            </div>
+        </div>
+
+        <!-- Table of Contents -->
+        <div class="toc">
+            <h2>Contents</h2>
+            <ul>
+                <li><a href="#summary">1. Executive Summary</a></li>
+                <li><a href="#pipeline">2. Pipeline Execution</a></li>
+                <li><a href="#coverage">3. Coverage Analysis</a></li>
+                <li><a href="#specificity">4. Specificity Analysis</a></li>
+                <li><a href="#thermodynamics">5. Thermodynamics</a></li>
+                <li><a href="#primers">6. Primer Profiles</a></li>
+                <li><a href="#interactions">7. Interactions</a></li>
+                <li><a href="#recommendations">8. Recommendations</a></li>
+            </ul>
+        </div>
+
+        <!-- Section 1: Executive Summary -->
+        <div class="section" id="summary">
+            <h2>1. Executive Summary</h2>
+
+            
+
+            <div class="grade-summary">
+                <div class="grade-circle">F</div>
+                <div class="grade-details">
+                    <h3>DO NOT PROCEED</h3>
+                    <p>This primer set has critical quality issues and is not suitable for SWGA. Review parameters and genome suitability.</p>
+                </div>
+            </div>
+
+            <div class="metrics-grid">
+                
+        <div class="metric-box">
+            <div class="value">25.0%</div>
+            <div class="label">Coverage</div>
+            <div class="progress-container">
+                <div class="progress-fill progress-poor" style="width: 13%"></div>
+            </div>
+            <div class="rating rating-critical">Critical</div>
+        </div>
+        
+        <div class="metric-box">
+            <div class="value">0x</div>
+            <div class="label">Specificity</div>
+            <div class="progress-container">
+                <div class="progress-fill progress-poor" style="width: 0%"></div>
+            </div>
+            <div class="rating rating-critical">Critical</div>
+        </div>
+        
+        <div class="metric-box">
+            <div class="value">1.00</div>
+            <div class="label">Uniformity</div>
+            <div class="progress-container">
+                <div class="progress-fill progress-excellent" style="width: 100%"></div>
+            </div>
+            <div class="rating rating-excellent">Excellent</div>
+        </div>
+        
+        <div class="metric-box">
+            <div class="value">0.0C</div>
+            <div class="label">Thermodynamics</div>
+            <div class="progress-container">
+                <div class="progress-fill progress-excellent" style="width: 100%"></div>
+            </div>
+            <div class="rating rating-excellent">Excellent</div>
+        </div>
+        
+        <div class="metric-box">
+            <div class="value">0.01</div>
+            <div class="label">Dimer Risk</div>
+            <div class="progress-container">
+                <div class="progress-fill progress-excellent" style="width: 100%"></div>
+            </div>
+            <div class="rating rating-excellent">Excellent</div>
+        </div>
+        
+            </div>
+
+            <h3>Quality Score Breakdown</h3>
+            <div class="info-box">
+                
+        <div class="component-row">
+            <div class="component-name">Coverage</div>
+            <div class="component-bar-container">
+                <div class="component-bar">
+                    <div class="component-bar-fill" style="width: 13%; background: #f56565;">
+                        Critical
+                    </div>
+                </div>
+            </div>
+            <div class="component-score">0.13</div>
+            <div class="component-weight">35%</div>
+        </div>
+        
+        <div class="component-row">
+            <div class="component-name">Specificity</div>
+            <div class="component-bar-container">
+                <div class="component-bar">
+                    <div class="component-bar-fill" style="width: 0%; background: #f56565;">
+                        Critical
+                    </div>
+                </div>
+            </div>
+            <div class="component-score">0.00</div>
+            <div class="component-weight">30%</div>
+        </div>
+        
+        <div class="component-row">
+            <div class="component-name">Uniformity</div>
+            <div class="component-bar-container">
+                <div class="component-bar">
+                    <div class="component-bar-fill" style="width: 100%; background: #48bb78;">
+                        Excellent
+                    </div>
+                </div>
+            </div>
+            <div class="component-score">1.00</div>
+            <div class="component-weight">20%</div>
+        </div>
+        
+        <div class="component-row">
+            <div class="component-name">Thermodynamics</div>
+            <div class="component-bar-container">
+                <div class="component-bar">
+                    <div class="component-bar-fill" style="width: 100%; background: #48bb78;">
+                        Excellent
+                    </div>
+                </div>
+            </div>
+            <div class="component-score">1.00</div>
+            <div class="component-weight">10%</div>
+        </div>
+        
+        <div class="component-row">
+            <div class="component-name">Dimer Risk</div>
+            <div class="component-bar-container">
+                <div class="component-bar">
+                    <div class="component-bar-fill" style="width: 100%; background: #48bb78;">
+                        Excellent
+                    </div>
+                </div>
+            </div>
+            <div class="component-score">1.00</div>
+            <div class="component-weight">5%</div>
+        </div>
+        
+            </div>
+        </div>
+
+        <!-- Section 2: Pipeline Execution -->
+        <div class="section" id="pipeline">
+            <h2>2. Pipeline Execution Summary</h2>
+
+            <h3>Input Files</h3>
+            <div class="info-box parameters">
+                <div class="param-item">
+                    <span class="param-label">Target Genome</span>
+                    <span class="param-value">Target</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Target Size</span>
+                    <span class="param-value">N/A</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Background Genome</span>
+                    <span class="param-value">Background</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Background Size</span>
+                    <span class="param-value">N/A</span>
+                </div>
+            </div>
+
+            <h3>Parameters</h3>
+            <div class="info-box parameters">
+                
+        <div class="param-item">
+            <span class="param-label">Min K-mer</span>
+            <span class="param-value">17</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Max K-mer</span>
+            <span class="param-value">17</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Min FG Freq</span>
+            <span class="param-value">0.01</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Max BG Freq</span>
+            <span class="param-value">5.00e-06</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Max Gini</span>
+            <span class="param-value">0.60</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Min Tm</span>
+            <span class="param-value">40</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Max Tm</span>
+            <span class="param-value">65</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Polymerase</span>
+            <span class="param-value">equiphi29</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Reaction Temp</span>
+            <span class="param-value">43.00</span>
+        </div>
+        
+        <div class="param-item">
+            <span class="param-label">Optimization</span>
+            <span class="param-value">N/A</span>
+        </div>
+        
+            </div>
+
+            <h3>Filtering Funnel</h3>
+            <p>The pipeline progressively filters candidates through multiple stages:</p>
+            <div class="funnel">
+                
+        <div class="funnel-stage">
+            <div class="funnel-bar" style="width: 100.0%">2,000</div>
+            <span class="funnel-label">Initial candidates</span>
+            <span class="funnel-pct">100.0%</span>
+        </div>
+        
+        <div class="funnel-stage">
+            <div class="funnel-bar" style="width: 10.0%">200</div>
+            <span class="funnel-label">After filtering</span>
+            <span class="funnel-pct">10.0%</span>
+        </div>
+        
+        <div class="funnel-stage">
+            <div class="funnel-bar" style="width: 5%">20</div>
+            <span class="funnel-label">Final set</span>
+            <span class="funnel-pct">1.0%</span>
+        </div>
+        
+            </div>
+            
+        </div>
+
+        <!-- Section 3: Coverage Analysis -->
+        <div class="section" id="coverage">
+            <h2>3. Coverage Analysis</h2>
+
+            <p>Coverage source: Measured from primer binding positions, interval coverage at 3,000 bp per-primer reach.</p>
+
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <div class="value">25.0%</div>
+                    <div class="label">Overall Coverage</div>
+                    <div class="progress-container">
+                        <div class="progress-fill progress-poor" style="width: 25%"></div>
+                    </div>
+                </div>
+                <div class="metric-box">
+                    <div class="value">0</div>
+                    <div class="label">Binding Sites</div>
+                </div>
+                <div class="metric-box">
+                    <div class="value">0</div>
+                    <div class="label">Sites per Mbp</div>
+                </div>
+                <div class="metric-box">
+                    <div class="value">N/A</div>
+                    <div class="label">Mean Spacing</div>
+                </div>
+            </div>
+
+            <h3>Binding Uniformity</h3>
+            <p>The Gini coefficient measures how evenly primers bind across the genome.
+            A value of 0 indicates perfectly uniform binding, while 1 indicates all binding
+            concentrated in one location.</p>
+
+            <div class="info-box">
+                <div class="param-item">
+                    <span class="param-label">Gini Coefficient</span>
+                    <span class="param-value">0.000</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Uniformity Score</span>
+                    <span class="param-value">100.0%</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Assessment</span>
+                    <span class="param-value">Excellent - highly uniform binding</span>
+                </div>
+            </div>
+
+            
+    <h3>Gap Analysis</h3>
+    <p>Gap statistics measured from primer binding positions across the target genome.</p>
+    <div class="info-box">
+        <div class="param-item">
+            <span class="param-label">Mean Gap</span>
+            <span class="param-value">12.0 kb</span>
+        </div>
+        <div class="param-item">
+            <span class="param-label">Max Gap</span>
+            <span class="param-value">144.7 kb</span>
+        </div>
+        <div class="param-item">
+            <span class="param-label">Gap Gini</span>
+            <span class="param-value">0.71 (lower is more uniform)</span>
+        </div>
+        <div class="param-item">
+            <span class="param-label">Gap Entropy</span>
+            <span class="param-value">3.04 bits</span>
+        </div>
+    </div>
+    
+
+            
+        </div>
+
+        <!-- Section 4: Specificity Analysis -->
+        <div class="section" id="specificity">
+            <h2>4. Specificity Analysis</h2>
+
+            <p>Specificity measures how selectively primers bind to target DNA versus
+            background DNA.</p>
+
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <div class="value">0x</div>
+                    <div class="label">Enrichment Ratio</div>
+                    <div class="rating rating-critical">Critical</div>
+                </div>
+                <div class="metric-box">
+                    <div class="value">0</div>
+                    <div class="label">Target Sites/Mbp</div>
+                </div>
+                <div class="metric-box">
+                    <div class="value">0.0</div>
+                    <div class="label">Background Sites/Mbp</div>
+                </div>
+                <div class="metric-box">
+                    <div class="value">0</div>
+                    <div class="label">Background Sites</div>
+                </div>
+            </div>
+
+            <h3>Interpretation</h3>
+            <p>The enrichment ratio of 0x is moderate. Consider using background-aware optimization for improved specificity.</p>
+
+            <h3>Per-Primer Specificity</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Primer</th>
+                        <th>Target Sites</th>
+                        <th>Background Sites</th>
+                        <th>Specificity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+        <tr>
+            <td class="sequence">CGTGCAGCTTTCCCTTC</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">TGTTCCCCTCACCCTAA</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCCGCCACCGATTGTAA</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">ATACGTCAGTGGGAGAG</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">TGCGAATGCTGACATAA</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">AAAGTCAACTGCTCTAC</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCGTTTACGCCGCATCC</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">CTTCCTCCAGTTTATCA</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCCAGATGCGGCGTGAA</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GTAAGTGACTGGGGTGA</td>
+            <td>0</td>
+            <td>0</td>
+            <td>0x</td>
+        </tr>
+        
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 5: Thermodynamics -->
+        <div class="section" id="thermodynamics">
+            <h2>5. Thermodynamic Analysis</h2>
+
+            <h3>Melting Temperature Profile</h3>
+            <div class="info-box parameters">
+                <div class="param-item">
+                    <span class="param-label">Reaction Temperature</span>
+                    <span class="param-value">30.0C</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Polymerase</span>
+                    <span class="param-value">phi29</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Mean Tm</span>
+                    <span class="param-value">0.0C</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Tm Range</span>
+                    <span class="param-value">0.0 - 0.0C</span>
+                </div>
+            </div>
+
+            <h3>Secondary Structure Risk</h3>
+            <p>Analysis of hairpin and self-dimer formation potential at reaction temperature.</p>
+
+            <div class="info-box">
+                <div class="param-item">
+                    <span class="param-label">Max Self-Dimer dG</span>
+                    <span class="param-value">0.0 kcal/mol</span>
+                </div>
+                <div class="param-item">
+                    <span class="param-label">Assessment</span>
+                    <span class="param-value">Low risk - no significant secondary structures</span>
+                </div>
+            </div>
+
+            <h3>Primer Tm Distribution</h3>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>Primer</th>
+                        <th>Length</th>
+                        <th>GC%</th>
+                        <th>Tm (C)</th>
+                        <th>dTm from Reaction</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+        <tr>
+            <td class="sequence">CGTGCAGCTTTCCCTTC</td>
+            <td>17</td>
+            <td>59%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">TGTTCCCCTCACCCTAA</td>
+            <td>17</td>
+            <td>53%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCCGCCACCGATTGTAA</td>
+            <td>17</td>
+            <td>59%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">ATACGTCAGTGGGAGAG</td>
+            <td>17</td>
+            <td>53%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">TGCGAATGCTGACATAA</td>
+            <td>17</td>
+            <td>41%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">AAAGTCAACTGCTCTAC</td>
+            <td>17</td>
+            <td>41%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCGTTTACGCCGCATCC</td>
+            <td>17</td>
+            <td>65%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">CTTCCTCCAGTTTATCA</td>
+            <td>17</td>
+            <td>41%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCCAGATGCGGCGTGAA</td>
+            <td>17</td>
+            <td>65%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GTAAGTGACTGGGGTGA</td>
+            <td>17</td>
+            <td>53%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">TTATCCGGCCTACAAAA</td>
+            <td>17</td>
+            <td>41%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">CGGATGCGGCGTAAACG</td>
+            <td>17</td>
+            <td>65%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">ATGCGCTACGCTTATCA</td>
+            <td>17</td>
+            <td>47%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCGTGAACGCCTTATCC</td>
+            <td>17</td>
+            <td>59%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GATGCGGGTTCTCTTCA</td>
+            <td>17</td>
+            <td>53%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">CAGCGGGCTTGTAATGG</td>
+            <td>17</td>
+            <td>59%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">TAGCCCGGTAGCATGAA</td>
+            <td>17</td>
+            <td>53%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GCGCCTTATCCGGCCTA</td>
+            <td>17</td>
+            <td>65%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">ATCAGCCAGTCCACATC</td>
+            <td>17</td>
+            <td>53%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">CTGCTGCTCGACGAACC</td>
+            <td>17</td>
+            <td>65%</td>
+            <td>0.0</td>
+            <td>+30.0C</td>
+        </tr>
+        
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 6: Primer Profiles -->
+        <div class="section" id="primers">
+            <h2>6. Detailed Primer Profiles</h2>
+
+            <p>Comprehensive analysis of each primer in the set.</p>
+
+            
+
+            
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>CGTGCAGCTTTCCCTTC</h4>
+                <span class="rank">#1</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">59%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>TGTTCCCCTCACCCTAA</h4>
+                <span class="rank">#2</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">53%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>GCCGCCACCGATTGTAA</h4>
+                <span class="rank">#3</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">59%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>ATACGTCAGTGGGAGAG</h4>
+                <span class="rank">#4</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">53%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>TGCGAATGCTGACATAA</h4>
+                <span class="rank">#5</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">41%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>AAAGTCAACTGCTCTAC</h4>
+                <span class="rank">#6</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">41%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>GCGTTTACGCCGCATCC</h4>
+                <span class="rank">#7</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">65%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>CTTCCTCCAGTTTATCA</h4>
+                <span class="rank">#8</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">41%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>GCCAGATGCGGCGTGAA</h4>
+                <span class="rank">#9</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">65%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="primer-card">
+            <div class="primer-card-header">
+                <h4>GTAAGTGACTGGGGTGA</h4>
+                <span class="rank">#10</span>
+            </div>
+            <div class="primer-card-grid">
+                <div class="primer-stat">
+                    <div class="value">17</div>
+                    <div class="label">Length (bp)</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">53%</div>
+                    <div class="label">GC Content</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.0C</div>
+                    <div class="label">Tm</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0x</div>
+                    <div class="label">Specificity</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.00</div>
+                    <div class="label">Gini</div>
+                </div>
+                <div class="primer-stat">
+                    <div class="value">0.40</div>
+                    <div class="label">Contribution</div>
+                </div>
+            </div>
+        </div>
+        
+        </div>
+
+        <!-- Section 7: Interactions -->
+        <div class="section" id="interactions">
+            <h2>7. Primer-Primer Interactions</h2>
+
+            <p>Analysis of potential primer-dimer formation between primers in the set.</p>
+
+            
+        <div class="interaction-warning low">
+            <strong>Acceptable:</strong> Only low to moderate interactions detected.
+            These are unlikely to significantly impact amplification.
+        </div>
+        
+
+            
+
+            <h3>Top Interactions</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Primer 1</th>
+                        <th>Primer 2</th>
+                        <th>dG (kcal/mol)</th>
+                        <th>Risk Level</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    
+        <tr>
+            <td class="sequence">GCCAGATGCGGCGTGAA</td>
+            <td class="sequence">GATGCGGGTTCTCTTCA</td>
+            <td>-6.0</td>
+            <td style="color: #b7791f; font-weight: 600;">MODERATE</td>
+        </tr>
+        
+        <tr>
+            <td class="sequence">GATGCGGGTTCTCTTCA</td>
+            <td class="sequence">TAGCCCGGTAGCATGAA</td>
+            <td>-6.0</td>
+            <td style="color: #b7791f; font-weight: 600;">MODERATE</td>
+        </tr>
+        
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Section 8: Recommendations -->
+        <div class="section" id="recommendations">
+            <h2>8. Recommendations</h2>
+
+            
+    <div class="recommendation-box warning">
+        <h4>DO NOT PROCEED</h4>
+        <p>This primer set has critical quality issues and is not suitable for SWGA. Review parameters and genome suitability.</p>
+    </div>
+    
+
+            
+    <h3>Considerations</h3>
+    <ul class="recommendation-list">
+        <li>Coverage (25.0%) is below target. Consider adding more primers or adjusting parameters.</li>
+<li>Enrichment (0x) could be improved. Consider background-aware optimization.</li>
+    </ul>
+    
+
+            <h3>Suggested Experimental Protocol</h3>
+            <div class="info-box">
+                
+    <div class="param-item">
+        <span class="param-label">Primer Concentration</span>
+        <span class="param-value">2.5 uM each</span>
+    </div>
+    <div class="param-item">
+        <span class="param-label">Reaction Temperature</span>
+        <span class="param-value">43.0C</span>
+    </div>
+    <div class="param-item">
+        <span class="param-label">Reaction Time</span>
+        <span class="param-value">8-16 hours</span>
+    </div>
+    <div class="param-item">
+        <span class="param-label">Polymerase</span>
+        <span class="param-value">equiphi29</span>
+    </div>
+    <div class="param-item">
+        <span class="param-label">dNTP Concentration</span>
+        <span class="param-value">1 mM each</span>
+    </div>
+    
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <p><strong>NeoSWGA Technical Report</strong></p>
+            <p>Generated with NeoSWGA v3.6.0</p>
+            <p>2026-04-29 14:01:53</p>
+        </div>
+    </div>
+</body>
+</html>

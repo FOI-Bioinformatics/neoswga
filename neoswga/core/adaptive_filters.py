@@ -90,6 +90,13 @@ class ThermodynamicFilter:
 
     Key insight: SWGA uses isothermal amplification (30°C), NOT PCR.
     Different rules apply!
+
+    NOTE: There is a second, unrelated ``ThermodynamicFilter`` in
+    ``neoswga.core.thermodynamic_filter`` that operates on a
+    ``ThermodynamicCriteria`` object and adds homodimer/heterodimer/hairpin
+    checks. THIS class is the lightweight Tm-window filter used by
+    ``improved_pipeline.AdaptiveFilterPipeline``. Import by full module path to
+    avoid confusing the two. (Tech debt: the two should eventually be merged.)
     """
 
     def __init__(self, reaction_temp: float = 30.0, na_conc: float = 50.0,

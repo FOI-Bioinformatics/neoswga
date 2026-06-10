@@ -10,7 +10,9 @@ import math
 
 cpus = int(multiprocessing.cpu_count())
 min_fg_freq=float(1/100000)
-max_bg_freq=float(1/150000)
+# Canonical default; keep in sync with parameter.PipelineParameters.max_bg_freq
+# and CLAUDE.md (5e-6). See wizard.py for the params.json starting value.
+max_bg_freq=5e-6
 min_tm=15
 max_tm=45
 max_gini=0.6

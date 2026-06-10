@@ -564,7 +564,7 @@ class SetupWizard:
 
             # Filtering thresholds
             'min_fg_freq': 1e-5,
-            'max_bg_freq': 5e-5,
+            'max_bg_freq': 5e-6,
             'max_gini': 0.6,
             'max_primer': 500,
 

@@ -428,12 +428,9 @@ neoswga validate --quick              # Quick validation
 ```
 
 **Integration tests** (`tests/integration/`):
-- `phi29_baseline/`, `phi29_ga/`: Phi29 polymerase tests
-- `equiphi29_baseline/`, `equiphi29_long/`: EquiPhi29 tests
-
-**Validation tests** (`validation_tests/`):
-- `test_gc_filter_fix.py`: Adaptive GC filter validation
-- `test_complexity_filter.py`: Sequence complexity filtering
+- `phi29_baseline/`, `phi29_with_bg/`: Phi29 polymerase scenarios (no background / with background)
+- `equiphi29_baseline/`: EquiPhi29 scenario
+- End-to-end tests: `test_pipeline_e2e.py`, `test_integration.py`, `test_optimizer_method_coverage.py`, etc.
 
 ## Development Tasks
 
@@ -544,7 +541,6 @@ tests/
 examples/
   plasmid_example/         # Self-contained example (pcDNA vs pLTR plasmids)
 scripts/                   # Development utilities
-validation_tests/          # Validation test suite
 docs/                      # Documentation
   archive/                 # Historical documents
   validation/              # Validation reports

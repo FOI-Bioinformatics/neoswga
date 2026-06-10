@@ -116,6 +116,13 @@ class ThermodynamicFilter:
 
     Designed to reduce experimental failures by ~30% through early
     elimination of primers with poor thermodynamic characteristics.
+
+    NOTE: There is a second, unrelated ``ThermodynamicFilter`` in
+    ``neoswga.core.adaptive_filters`` that is a lightweight Tm-window filter.
+    THIS class takes a ``ThermodynamicCriteria`` and additionally screens
+    homodimer/heterodimer/hairpin structure; it is used by
+    ``multi_genome_pipeline``. Import by full module path to avoid confusing
+    the two. (Tech debt: the two should eventually be merged.)
     """
 
     def __init__(self, criteria: Optional[ThermodynamicCriteria] = None):
