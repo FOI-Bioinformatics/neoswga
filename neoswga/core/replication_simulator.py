@@ -1123,8 +1123,7 @@ if __name__ == "__main__":
     print("  - Compare primer set performance")
     print("  - Identify amplification bias")
     print("\nExample usage:")
-    print(
-        """
+    print("""
     from neoswga.core import replication_simulator, reaction_conditions
 
     # Set up
@@ -1145,5 +1144,4 @@ if __name__ == "__main__":
     )
 
     print(f"Mean coverage: {result['mean_coverage']:.1%}")
-    """
-    )
+    """)

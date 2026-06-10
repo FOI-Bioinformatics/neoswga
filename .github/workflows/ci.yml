@@ -18,7 +18,11 @@ jobs:
           python-version: "3.11"
 
       - name: Install linting tools
-        run: pip install "black>=22.0.0" "isort>=5.10.0" "ruff>=0.5.0" "mypy>=1.0"
+        # Pin black/isort to exact versions: their formatting output changes
+        # between releases, so an unpinned range makes `--check` nondeterministic
+        # (a newer black on the runner can demand reformatting the repo cannot
+        # reproduce locally). Bump deliberately, reformatting in the same commit.
+        run: pip install "black==26.5.1" "isort==8.0.1" "ruff>=0.5.0" "mypy>=1.0"
 
       - name: Check formatting with black
         run: black --check neoswga/

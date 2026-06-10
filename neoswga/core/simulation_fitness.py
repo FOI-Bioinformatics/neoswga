@@ -312,8 +312,7 @@ if __name__ == "__main__":
     print("Simulation-Based Fitness Evaluator - Example Usage\n")
     print("This module integrates SWGA simulation for ground-truth fitness evaluation.")
     print("\nExample:")
-    print(
-        """
+    print("""
     from neoswga.core.simulation_fitness import SimulationBasedEvaluator
 
     evaluator = SimulationBasedEvaluator(
@@ -334,5 +333,4 @@ if __name__ == "__main__":
         ('network', network_primers),
         ('dominating_set', domset_primers)
     ])
-    """
-    )
+    """)

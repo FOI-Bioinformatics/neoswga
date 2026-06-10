@@ -440,8 +440,7 @@ if __name__ == "__main__":
     print("  - Connected components predict covered regions")
     print("  - Betweenness centrality identifies critical primers")
     print("\nExample usage:")
-    print(
-        """
+    print("""
     from neoswga.core import amplicon_network
 
     # Build network
@@ -468,5 +467,4 @@ if __name__ == "__main__":
     print("Most critical primers:")
     for primer, centrality in critical[:5]:
         print(f"  {primer}: {centrality:.4f}")
-    """
-    )
+    """)

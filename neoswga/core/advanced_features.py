@@ -835,8 +835,7 @@ if __name__ == "__main__":
     print("  7. Binding landscape (15 features)")
     print("  8. Context/interactions (10 features)")
     print("\nExample usage:")
-    print(
-        """
+    print("""
     from neoswga.core import advanced_features, reaction_conditions
 
     conditions = reaction_conditions.get_enhanced_conditions()
@@ -850,5 +849,4 @@ if __name__ == "__main__":
 
     print(f"Features shape: {features_df.shape}")
     # (2, 121) - 2 primers × 121 features (120 + primer sequence)
-    """
-    )
+    """)

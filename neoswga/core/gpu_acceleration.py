@@ -535,8 +535,7 @@ if __name__ == "__main__":
         print("  Install: pip install cupy-cuda11x")
 
     print("\nExample usage:")
-    print(
-        """
+    print("""
     from neoswga.core import gpu_acceleration, reaction_conditions
 
     conditions = reaction_conditions.get_enhanced_conditions()
@@ -563,5 +562,4 @@ if __name__ == "__main__":
 
     # Preload for speed
     db.preload_primers(primers, 'target_kmers')
-    """
-    )
+    """)

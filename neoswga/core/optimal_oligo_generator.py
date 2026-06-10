@@ -868,8 +868,7 @@ if __name__ == "__main__":
     print("NeoSWGA Optimal Oligo Generator - Example Usage\n")
     print("This module is designed to be imported and used programmatically.")
     print("\nExample:")
-    print(
-        """
+    print("""
     from neoswga.core.optimal_oligo_generator import OptimalOligoGenerator
 
     generator = OptimalOligoGenerator(
@@ -880,5 +879,4 @@ if __name__ == "__main__":
     result = generator.generate_optimal_set(polymerase='equiphi29')
     print(f"Generated {len(result.primers)} primers")
     print(result.protocol)
-    """
-    )
+    """)
