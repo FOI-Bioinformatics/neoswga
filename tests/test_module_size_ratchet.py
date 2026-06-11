@@ -19,7 +19,7 @@ _PKG_ROOT = Path(__file__).resolve().parent.parent / "neoswga"
 # A module NOT listed here must stay under DEFAULT_BUDGET.
 _BUDGETS = {
     # Being split into neoswga/cli/ submodules; budget ratchets down per slice.
-    "cli_unified.py": 5300,
+    "cli_unified.py": 4300,
     "core/report/technical_report.py": 2200,
 }
 
