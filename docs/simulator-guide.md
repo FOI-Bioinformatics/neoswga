@@ -93,10 +93,13 @@ sim = SwgaSimulator(
 # Run simulation
 result = sim.simulate_fast()
 
-# Analyze
-analyzer = SimulationAnalyzer(result, sim.fg_positions, sim.bg_positions,
-                              sim.fg_length, sim.bg_length)
-analysis = analyzer.analyze()
+# Analyze (convenience: sim.analyze(result) builds the SimulationAnalyzer for you)
+analysis = sim.analyze(result)
+
+# ...or construct the analyzer explicitly for full control:
+# analyzer = SimulationAnalyzer(result, sim.fg_positions, sim.bg_positions,
+#                               sim.fg_length, sim.bg_length)
+# analysis = analyzer.analyze()
 
 # Generate outputs
 print_analysis_report(analysis)
