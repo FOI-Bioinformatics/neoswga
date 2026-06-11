@@ -13,6 +13,7 @@ from neoswga.cli._common import (
     check_jellyfish_available,
     collect_primers_from_args,
     merge_args_to_parameter,
+    params_command,
     setup_gpu_acceleration,
     validate_params_json_file,
 )
@@ -135,9 +136,9 @@ def run_step1(args):
         sys.exit(1)
 
 
+@params_command(merge=None)
 def run_step2(args):
     """Run step 2: Candidate filtering with reaction conditions"""
-    validate_params_json_file(args.json_file)
     import time as _time
 
     _t0 = _time.time()
@@ -349,9 +350,9 @@ def run_step2(args):
     logger.info(f"Step 2 complete in {_elapsed:.1f}s")
 
 
+@params_command(merge=None)
 def run_step3(args):
     """Run step 3: Random forest scoring"""
-    validate_params_json_file(args.json_file)
     import time as _time
 
     _t0 = _time.time()
@@ -505,9 +506,9 @@ Usage Examples:
     print(guide)
 
 
+@params_command(merge=None)
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
-    validate_params_json_file(args.json_file)
     import time as _time
 
     _t0 = _time.time()

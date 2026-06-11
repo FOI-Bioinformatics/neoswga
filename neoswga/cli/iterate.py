@@ -14,6 +14,7 @@ from neoswga.cli._common import (
     _record_run_manifest,
     collect_primers_from_args,
     merge_args_to_parameter,
+    params_command,
     validate_params_json_file,
 )
 
@@ -297,19 +298,16 @@ def _load_candidate_pool(candidates_file, data_dir):
     return [c.upper().strip() for c in candidates if c.strip()]
 
 
+@params_command(seed=True)
 def run_swap_primer(args):
     """Swap under-performing primers in a set with better candidates."""
     import json as _json
 
+    # Ensure parameter globals are populated from params.json
+    import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
     from neoswga.core.reaction_conditions import ReactionConditions
-
-    _apply_seed(args)
-    validate_params_json_file(args.json_file)
-    merge_args_to_parameter(args, parameter, ["json_file"])
-    # Ensure parameter globals are populated from params.json
-    import neoswga.core.pipeline as pipeline_mod
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
@@ -414,17 +412,14 @@ def run_swap_primer(args):
         print(output_json)
 
 
+@params_command(seed=True)
 def run_contract_set(args):
     """Greedy leave-one-out contraction that keeps coverage above threshold."""
     import json as _json
 
+    import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
     from neoswga.core.position_cache import PositionCache
-
-    _apply_seed(args)
-    validate_params_json_file(args.json_file)
-    merge_args_to_parameter(args, parameter, ["json_file"])
-    import neoswga.core.pipeline as pipeline_mod
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
@@ -620,17 +615,15 @@ def run_contract_set(args):
         print(output_json)
 
 
+@params_command()
 def run_rescore_set(args):
     """Rescore an existing primer set under arbitrary reaction conditions."""
     import json as _json
 
+    import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
     from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
     from neoswga.core.reaction_conditions import ReactionConditions
-
-    validate_params_json_file(args.json_file)
-    merge_args_to_parameter(args, parameter, ["json_file"])
-    import neoswga.core.pipeline as pipeline_mod
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
