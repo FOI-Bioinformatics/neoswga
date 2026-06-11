@@ -219,6 +219,35 @@ class SwgaSimulator:
 
         return positions
 
+    def analyze(self, result: Optional[SimulationResult] = None):
+        """Run the comprehensive simulation analysis for this primer set.
+
+        Builds a :class:`~neoswga.core.simulation_analysis.SimulationAnalyzer`
+        from this simulator's loaded positions and genome lengths and returns a
+        ``ComprehensiveAnalysis`` (coverage uniformity, gap characterization,
+        per-primer contribution, quality score, and recommendations).
+
+        Args:
+            result: An existing SimulationResult to analyze. If None, a fast
+                coverage-based simulation is run first.
+
+        Returns:
+            ComprehensiveAnalysis from simulation_analysis.
+        """
+        from neoswga.core.simulation_analysis import SimulationAnalyzer
+
+        if result is None:
+            result = self.simulate_fast()
+        analyzer = SimulationAnalyzer(
+            result=result,
+            fg_positions=self.fg_positions,
+            bg_positions=self.bg_positions,
+            fg_length=self.fg_length,
+            bg_length=self.bg_length,
+            bin_size=self.bin_size,
+        )
+        return analyzer.analyze()
+
     def simulate_fast(self) -> SimulationResult:
         """
         Fast coverage-based simulation (~1 second).
