@@ -12,8 +12,9 @@ NeoSWGA is a command-line tool for designing primer sets for selective whole-gen
 - **Background filtering**: Bloom filter for large background genomes (human 3 Gbp)
 - **Host-free mode**: Design primers without a background genome (`--no-background`)
 - **Position cache**: 1000x faster position lookups
-- **Multiple optimizers**: `hybrid`, `dominating-set`, `network`, `background-aware`, plus `ensemble` (run several and keep the best by normalized score)
+- **Multiple optimizers**: `hybrid`, `dominating-set`, `network`, `background-aware`, plus `ensemble` (run several and keep the best by normalized score; `--ensemble-combine union` re-optimizes over the pooled primers to beat any single method)
 - **Iterative design from real data**: add oligos to a validated set using in-silico and real sequencing-depth (BAM) coverage gaps (`analyze-coverage`, `expand-primers --bam`; needs the `[bam]` extra)
+- **Comprehensive reports**: the technical report surfaces every in-silico result (ensemble comparison, per-target coverage, strand balance, coverage gaps, reaction conditions), each value badged MEASURED or ESTIMATED
 - **Export formats**: FASTA, vendor CSV, BED, and BedGraph for genome browser visualization
 
 ## Installation

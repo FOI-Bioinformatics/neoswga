@@ -118,8 +118,10 @@ count-kmers            filter                 score                  optimize
 
 **File outputs** (in `data_dir`):
 - `step2_df.csv`: Filtered primers with fg_freq, bg_freq, gini, Tm
+- `filter_stats.json`: Real per-stage filtering funnel counts (rendered in reports)
 - `step3_df.csv`: Primers with amplification prediction scores
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
+- `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, selectivity, ensemble_comparison, per_target_coverage, strand metrics)
 - `*_positions.h5`: HDF5 files with primer binding positions
 
 ## CLI Commands
@@ -139,6 +141,7 @@ neoswga optimize -j params.json --optimization-method=dominating-set   # fast gr
 neoswga optimize -j params.json --optimization-method=background-aware # clinical, 10-20x bg reduction
 neoswga optimize -j params.json --optimization-method=network          # Tm-weighted, dimer-aware
 neoswga optimize -j params.json --optimization-method=ensemble         # run all, keep best
+neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combine=union  # re-optimize over pooled primers
 ```
 
 **Optimization Method Comparison**:
@@ -158,6 +161,15 @@ so results are reproducible and order-independent. Pick the subset with
 `normalized_score` (a [0,1] value comparable across optimizers; raw `score` is
 NOT comparable), weighted by `--application`. The runner-up table is written to
 `step4_improved_df_summary.json` as `ensemble_comparison`.
+`--ensemble-combine union` additionally re-optimizes over the pooled primers
+from all methods (can beat any single method; guarded to never worsen).
+
+**Coverage reach (important):** optimizers SELECT for coverage at the realistic
+per-primer reach (`coverage.polymerase_extension_reach('realistic')`, ~3 kb for
+phi29) — the same reach the result is scored on — while amplification-network
+CONNECTIVITY uses single-molecule processivity (~70 kb). Hybrid/background-aware
+thread the realistic `coverage_reach` into Stage-1 set-cover so selection and
+the reported `fg_coverage` agree (and ensemble comparisons are fair).
 
 ### Utility Commands
 ```bash
@@ -191,6 +203,14 @@ neoswga report -d results/ --interactive          # With interactive Plotly char
 neoswga report -d results/ --level full --interactive  # Full report with charts
 neoswga report -d results/ --check                # Validate only, don't generate
 
+# The full technical report surfaces every in-silico result read from the
+# authoritative step4_improved_df_summary.json (preferred over CSV estimates):
+# the ensemble per-method comparison, per-target coverage, strand balance,
+# coverage gaps (in-silico +/- BAM depth), and reaction conditions. Every value
+# is badged MEASURED or ESTIMATED. The filtering funnel uses the real
+# filter_stats.json the filter step writes (no fabricated counts).
+# --interactive adds Plotly charts on top of the static sections.
+
 # Validate mechanistic model against expected behavior
 neoswga validate-model               # Run all validation tests
 neoswga validate-model --output-json  # Output results as JSON
@@ -204,7 +224,8 @@ neoswga optimize -j params.json --auto-size --application clinical
 # Applications: discovery (high coverage), clinical (high specificity),
 #              enrichment (balanced), metagenomics (capture diversity)
 
-# Use mechanistic model for primer weighting
+# Use mechanistic model for primer weighting (a non-default --mechanistic-weight
+# implies --use-mechanistic-model)
 neoswga optimize -j params.json --use-mechanistic-model --mechanistic-weight 0.3
 ```
 

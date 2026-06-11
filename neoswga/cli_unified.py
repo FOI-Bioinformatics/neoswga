@@ -2658,6 +2658,10 @@ Usage Examples:
   neoswga optimize -j params.json --optimization-method=ensemble
   neoswga optimize -j params.json --optimization-method=ensemble \\
       --ensemble-methods hybrid network background-aware
+
+  # Pool the methods' primers and re-optimize over them (never worsens the best)
+  neoswga optimize -j params.json --optimization-method=ensemble \\
+      --ensemble-combine=union
 """
     print(guide)
 
