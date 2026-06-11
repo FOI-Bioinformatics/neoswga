@@ -45,7 +45,12 @@ def test_cli_dispatch_does_not_hardcode_processivity_map():
     """
     from pathlib import Path
 
-    cli_src = (Path(__file__).resolve().parents[1] / "neoswga" / "cli_unified.py").read_text()
+    # The optimize/auto-size dispatch was extracted from cli_unified.py into the
+    # neoswga/cli/ package; scan the whole CLI surface so this guard survives
+    # the ongoing god-file split.
+    cli_dir = Path(__file__).resolve().parents[1] / "neoswga"
+    cli_sources = [cli_dir / "cli_unified.py", *(cli_dir / "cli").glob("*.py")]
+    cli_src = "\n".join(p.read_text() for p in cli_sources if p.exists())
 
     assert "processivity_map = {'phi29': 70000" not in cli_src, (
         "Hardcoded processivity_map at 70000 bp under-counts required primers "
