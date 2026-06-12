@@ -35,7 +35,7 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 - `rf_preprocessing.py`: Random forest feature engineering
 - `primer_attributes.py`: Tm calculation, self-complementarity
 - `integrated_quality_scorer.py`: Multi-criteria quality scoring
-- Pre-trained model: `neoswga/core/models/random_forest_filter.p`
+- Pre-trained model: `neoswga/core/models/random_forest_filter.skops` (skops format)
 
 **Optimization (optimize command)** — four methods, dispatched via `unified_optimizer`:
 - `hybrid_optimizer.py`: Two-stage hybrid (default, general use)
@@ -498,7 +498,12 @@ neoswga count-kmers -j params.json --min-k 15 --max-k 18
 
 **Retrain random forest model** (for sklearn updates):
 ```bash
-python scripts/retrain_rf_model.py --output neoswga/core/models/random_forest_filter.p
+python scripts/retrain_rf_model.py --output neoswga/core/models/random_forest_filter.skops
+```
+
+**Convert a legacy pickle model to skops** (one-time migration helper):
+```bash
+python scripts/convert_model_to_skops.py
 ```
 
 **Run pipeline on test data**:
@@ -536,7 +541,7 @@ with h5py.File('positions.h5', 'r') as f:
 
 1. **Large background genomes**: Use `neoswga build-filter` to pre-build a Bloom filter for human genome.
 
-2. **sklearn compatibility**: Random forest model may need retraining after sklearn updates.
+2. **sklearn compatibility**: The RF model ships in skops format (version-tolerant, no arbitrary-code deserialization), so minor sklearn upgrades no longer require retraining. A major sklearn upgrade may still warrant re-validating the model.
 
 3. **Memory usage**: The filter command loads all background k-mers into memory. Use Bloom filter for large backgrounds.
 
@@ -589,7 +594,7 @@ neoswga/
     utility.py, parameter.py, validation.py, genome_io.py
 
     models/                # ML models
-      random_forest_filter.p
+      random_forest_filter.skops
       checksums.json       # SHA-256 allowlist
 tests/
   integration/             # Integration test scenarios

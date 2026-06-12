@@ -7,7 +7,9 @@ include pyproject.toml
 
 # Include Python source, model files, and schema
 recursive-include neoswga *.py
+recursive-include neoswga/core/models *.skops
 recursive-include neoswga/core/models *.p
+recursive-include neoswga/core/models *.json
 recursive-include neoswga/core/schema *.json
 
 # Exclude compiled files

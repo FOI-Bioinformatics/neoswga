@@ -7,25 +7,26 @@ Tests for:
 - Secure subprocess usage
 """
 
-import pytest
+import hashlib
 import os
 import tempfile
-import hashlib
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from neoswga.core.kmer_counter import run_jellyfish
 from neoswga.core.rf_preprocessing import (
-    load_model_safely,
+    _TRUSTED_MODEL_HASHES,
     ModelIntegrityError,
     _compute_file_hash,
-    _TRUSTED_MODEL_HASHES,
+    load_model_safely,
 )
-
 
 # =============================================================================
 # Command Injection Prevention Tests
 # =============================================================================
+
 
 class TestCommandInjectionPrevention:
     """Tests verifying command injection vulnerabilities are fixed."""
@@ -34,7 +35,7 @@ class TestCommandInjectionPrevention:
         """Test that run_jellyfish checks if genome file exists."""
         nonexistent = str(tmp_path / "nonexistent.fa")
 
-        with patch('neoswga.core.kmer_counter.require_jellyfish'):
+        with patch("neoswga.core.kmer_counter.require_jellyfish"):
             with pytest.raises(FileNotFoundError) as exc_info:
                 run_jellyfish(nonexistent, str(tmp_path / "output"))
 
@@ -43,6 +44,7 @@ class TestCommandInjectionPrevention:
     def test_run_jellyfish_uses_subprocess_not_os_system(self):
         """Verify run_jellyfish uses subprocess.run, not os.system."""
         import inspect
+
         from neoswga.core import kmer_counter
 
         source = inspect.getsource(kmer_counter)
@@ -57,10 +59,12 @@ class TestCommandInjectionPrevention:
         malicious_path = "/tmp/safe.fa; echo PWNED > /tmp/pwned.txt"
 
         # Mock subprocess.run to capture what would be executed
-        with patch('neoswga.core.kmer_counter.subprocess.run') as mock_run, \
-             patch('neoswga.core.kmer_counter.require_jellyfish'), \
-             patch('neoswga.core.kmer_counter._adaptive_hash_size', return_value='100M'), \
-             patch('os.path.exists', return_value=True):
+        with (
+            patch("neoswga.core.kmer_counter.subprocess.run") as mock_run,
+            patch("neoswga.core.kmer_counter.require_jellyfish"),
+            patch("neoswga.core.kmer_counter._adaptive_hash_size", return_value="100M"),
+            patch("os.path.exists", return_value=True),
+        ):
             mock_run.return_value = MagicMock(returncode=0)
 
             try:
@@ -92,6 +96,7 @@ class TestCommandInjectionPrevention:
 # Model Hash Verification Tests
 # =============================================================================
 
+
 class TestModelHashVerification:
     """Tests for secure model loading with hash verification."""
 
@@ -114,12 +119,12 @@ class TestModelHashVerification:
     def test_load_model_safely_hash_mismatch(self, tmp_path):
         """Test that load_model_safely raises ModelIntegrityError on hash mismatch."""
         # Create a fake model file
-        fake_model = tmp_path / "random_forest_filter.p"
+        fake_model = tmp_path / "random_forest_filter.skops"
         fake_model.write_bytes(b"fake model content")
 
         # Temporarily add a hash for this file
         original_hashes = _TRUSTED_MODEL_HASHES.copy()
-        _TRUSTED_MODEL_HASHES['random_forest_filter.p'] = 'wrong_hash'
+        _TRUSTED_MODEL_HASHES["random_forest_filter.skops"] = "wrong_hash"
 
         try:
             with pytest.raises(ModelIntegrityError) as exc_info:
@@ -138,7 +143,7 @@ class TestModelHashVerification:
         # Create a legitimate pickle file
         test_model = tmp_path / "test_model.pkl"
         test_data = {"model": "test", "value": 42}
-        with open(test_model, 'wb') as f:
+        with open(test_model, "wb") as f:
             pickle.dump(test_data, f)
 
         # Load without verification
@@ -148,12 +153,12 @@ class TestModelHashVerification:
 
     def test_load_model_safely_unknown_model_warning(self, tmp_path, caplog):
         """Test warning when loading unknown model file."""
-        import pickle
         import logging
+        import pickle
 
         # Create a pickle file with unknown name
         unknown_model = tmp_path / "unknown_model.pkl"
-        with open(unknown_model, 'wb') as f:
+        with open(unknown_model, "wb") as f:
             pickle.dump({"test": True}, f)
 
         with caplog.at_level(logging.WARNING):
@@ -165,14 +170,18 @@ class TestModelHashVerification:
         """Test that the actual trusted model loads with verification."""
         model_path = os.path.join(
             os.path.dirname(__file__),
-            '..', 'neoswga', 'core', 'models', 'random_forest_filter.p'
+            "..",
+            "neoswga",
+            "core",
+            "models",
+            "random_forest_filter.skops",
         )
 
         if os.path.exists(model_path):
             model = load_model_safely(model_path, verify_hash=True)
             assert model is not None
             # Verify it's actually a model
-            assert hasattr(model, 'predict')
+            assert hasattr(model, "predict")
 
     def test_model_integrity_error_is_exception(self):
         """Test that ModelIntegrityError is a proper exception."""
@@ -189,12 +198,14 @@ class TestModelHashVerification:
 # Subprocess Security Tests
 # =============================================================================
 
+
 class TestSubprocessSecurity:
     """Tests for secure subprocess usage patterns."""
 
     def test_kmer_counter_uses_secure_subprocess(self):
         """Verify kmer_counter uses subprocess.run with list args."""
         import inspect
+
         from neoswga.core import kmer_counter
 
         source = inspect.getsource(kmer_counter)
@@ -209,6 +220,7 @@ class TestSubprocessSecurity:
     def test_no_shell_true_in_codebase(self):
         """Verify no subprocess calls use shell=True."""
         import inspect
+
         from neoswga.core import kmer_counter
 
         source = inspect.getsource(kmer_counter)
@@ -219,6 +231,7 @@ class TestSubprocessSecurity:
 # Path Traversal Prevention Tests
 # =============================================================================
 
+
 class TestPathTraversalPrevention:
     """Tests for path traversal vulnerability prevention."""
 
@@ -227,10 +240,10 @@ class TestPathTraversalPrevention:
         # Attempt path traversal - should fail at file existence check
         traversal_attempt = str(tmp_path / ".." / ".." / "etc" / "passwd")
 
-        with patch('neoswga.core.kmer_counter.require_jellyfish'):
+        with patch("neoswga.core.kmer_counter.require_jellyfish"):
             with pytest.raises(FileNotFoundError):
                 run_jellyfish(traversal_attempt, str(tmp_path / "output"))
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
