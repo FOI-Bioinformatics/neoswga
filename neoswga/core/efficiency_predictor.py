@@ -369,13 +369,19 @@ class EfficiencyPredictor:
         """
         try:
             import os
-            import pickle
 
-            from neoswga.core.rf_preprocessing import compute_primer_features
+            from neoswga.core.rf_preprocessing import (
+                compute_primer_features,
+                load_model_safely,
+            )
 
-            # Load the random forest model from package directory only
+            # Load the random forest model from package directory only. Prefer
+            # the version-tolerant skops model; fall back to a legacy pickle.
             package_dir = os.path.dirname(os.path.abspath(__file__))
-            model_path = os.path.join(package_dir, "models", "random_forest_filter.p")
+            model_dir = os.path.join(package_dir, "models")
+            model_path = os.path.join(model_dir, "random_forest_filter.skops")
+            if not os.path.exists(model_path):
+                model_path = os.path.join(model_dir, "random_forest_filter.p")
 
             # Security: Verify model path is within package directory
             model_path = os.path.abspath(model_path)
@@ -388,9 +394,9 @@ class EfficiencyPredictor:
                     logger.warning("RF model not found, using estimate")
                 return 0.6, 50.0  # Default estimate
 
-            from neoswga.core.safe_pickle import safe_load
-
-            model = safe_load(model_path, context="sklearn_model")
+            # load_model_safely verifies the SHA-256 then loads via skops
+            # (no arbitrary code) for .skops, or the guarded pickle for .pkl/.p.
+            model = load_model_safely(model_path)
 
             # Get predictions for each primer
             scores = []

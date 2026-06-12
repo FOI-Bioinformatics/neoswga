@@ -4,25 +4,24 @@ Verifies that the pre-trained RF model loads correctly, that feature vectors
 match the expected schema, and that predictions remain stable across updates.
 """
 
-import os
 import hashlib
+import os
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from neoswga.core.rf_preprocessing import (
-    _compute_file_hash,
     _TRUSTED_MODEL_HASHES,
+    ModelIntegrityError,
+    _compute_file_hash,
     base_features,
     bins,
     delta_g_on_features,
     get_features,
     load_model_safely,
-    ModelIntegrityError,
     regression_features,
 )
-
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -34,15 +33,15 @@ _MODEL_DIR = os.path.join(
     "core",
     "models",
 )
-_MODEL_PATH = os.path.join(_MODEL_DIR, "random_forest_filter.p")
+_MODEL_PATH = os.path.join(_MODEL_DIR, "random_forest_filter.skops")
 
 # Test primers spanning a range of compositions.
 TEST_PRIMERS = [
-    "ATCGATCG",   # balanced 8-mer
-    "GCGCGCGC",   # 100% GC 8-mer
-    "AAAATTTT",   # 0% GC 8-mer
+    "ATCGATCG",  # balanced 8-mer
+    "GCGCGCGC",  # 100% GC 8-mer
+    "AAAATTTT",  # 0% GC 8-mer
     "ATCGATCGATCG",  # balanced 12-mer
-    "GCTAGCTAGC",    # moderate GC 10-mer
+    "GCTAGCTAGC",  # moderate GC 10-mer
 ]
 
 # Expected number of base features (non-thermodynamic).
@@ -65,9 +64,7 @@ class TestModelLoading:
 
     def test_model_file_exists(self):
         """The pre-trained model file must be present in the package."""
-        assert os.path.isfile(_MODEL_PATH), (
-            f"Model file not found at {_MODEL_PATH}"
-        )
+        assert os.path.isfile(_MODEL_PATH), f"Model file not found at {_MODEL_PATH}"
 
     def test_model_loads_successfully(self):
         """The model must load without errors via the secure loader."""
@@ -78,18 +75,16 @@ class TestModelLoading:
     def test_model_hash_verification_passes(self):
         """The model file hash must match the trusted hash constant."""
         model_name = os.path.basename(_MODEL_PATH)
-        assert model_name in _TRUSTED_MODEL_HASHES, (
-            f"No trusted hash registered for {model_name}"
-        )
+        assert model_name in _TRUSTED_MODEL_HASHES, f"No trusted hash registered for {model_name}"
         actual_hash = _compute_file_hash(_MODEL_PATH)
         expected_hash = _TRUSTED_MODEL_HASHES[model_name]
-        assert actual_hash == expected_hash, (
-            f"Hash mismatch.\nExpected: {expected_hash}\nActual:   {actual_hash}"
-        )
+        assert (
+            actual_hash == expected_hash
+        ), f"Hash mismatch.\nExpected: {expected_hash}\nActual:   {actual_hash}"
 
     def test_tampered_model_raises_integrity_error(self, tmp_path):
         """A model with an incorrect hash must raise ModelIntegrityError."""
-        fake_model = tmp_path / "random_forest_filter.p"
+        fake_model = tmp_path / "random_forest_filter.skops"
         fake_model.write_bytes(b"not-a-real-model")
         with pytest.raises(ModelIntegrityError):
             load_model_safely(str(fake_model), verify_hash=True)
@@ -104,9 +99,9 @@ class TestModelLoading:
         from sklearn.ensemble import RandomForestRegressor
 
         model = load_model_safely(_MODEL_PATH)
-        assert isinstance(model, RandomForestRegressor), (
-            f"Expected RandomForestRegressor, got {type(model).__name__}"
-        )
+        assert isinstance(
+            model, RandomForestRegressor
+        ), f"Expected RandomForestRegressor, got {type(model).__name__}"
 
 
 # =========================================================================
@@ -134,9 +129,9 @@ class TestFeatureEngineering:
         # get_features returns [primer, target, feat1, feat2, ...]
         result = get_features("ATCGATCG", target=True)
         expected_length = 2 + EXPECTED_BASE_FEATURE_COUNT
-        assert len(result) == expected_length, (
-            f"Expected {expected_length} elements, got {len(result)}"
-        )
+        assert (
+            len(result) == expected_length
+        ), f"Expected {expected_length} elements, got {len(result)}"
 
     def test_get_features_primer_identity(self):
         """The first element of the feature vector must be the primer string."""
@@ -169,18 +164,62 @@ class TestFeatureEngineering:
         """
         # The canonical list from the retraining script.
         retrain_base = [
-            "molarity", "sequence.length", "number.of.A", "proportion.of.A",
-            "number.of.T", "proportion.of.T", "number.of.G", "proportion.of.G",
-            "number.of.C", "proportion.of.C", "GC.content", "melting_tm",
-            "GC.clamp", "longest.A.repeat", "longest.T.repeat",
-            "longest.G.repeat", "longest.C.repeat", "AA repeat", "CC repeat",
-            "TT repeat", "GG repeat", "3.end.first.base", "3.end.second.base",
-            "3.end.third.base", "3.end.fourth.base", "3.end.fifth.base",
+            "molarity",
+            "sequence.length",
+            "number.of.A",
+            "proportion.of.A",
+            "number.of.T",
+            "proportion.of.T",
+            "number.of.G",
+            "proportion.of.G",
+            "number.of.C",
+            "proportion.of.C",
+            "GC.content",
+            "melting_tm",
+            "GC.clamp",
+            "longest.A.repeat",
+            "longest.T.repeat",
+            "longest.G.repeat",
+            "longest.C.repeat",
+            "AA repeat",
+            "CC repeat",
+            "TT repeat",
+            "GG repeat",
+            "3.end.first.base",
+            "3.end.second.base",
+            "3.end.third.base",
+            "3.end.fourth.base",
+            "3.end.fifth.base",
         ]
         retrain_bins = [
-            -20, -18, -16, -14, -12, -10, -9, -8, -7, -6,
-            -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5,
-            0, 0.5, 1, 1.5, 2, 2.5, 3,
+            -20,
+            -18,
+            -16,
+            -14,
+            -12,
+            -10,
+            -9,
+            -8,
+            -7,
+            -6,
+            -5.5,
+            -5,
+            -4.5,
+            -4,
+            -3.5,
+            -3,
+            -2.5,
+            -2,
+            -1.5,
+            -1,
+            -0.5,
+            0,
+            0.5,
+            1,
+            1.5,
+            2,
+            2.5,
+            3,
         ]
         retrain_delta_g = ["on_target_" + str(b) for b in retrain_bins[1:]]
         retrain_all = retrain_base + retrain_delta_g
@@ -196,9 +235,9 @@ class TestFeatureEngineering:
             result = get_features(primer, target=True)
             numeric_values = result[2:]  # skip primer string and target bool
             for i, val in enumerate(numeric_values):
-                assert not (isinstance(val, float) and np.isnan(val)), (
-                    f"NaN at index {i} for primer {primer}"
-                )
+                assert not (
+                    isinstance(val, float) and np.isnan(val)
+                ), f"NaN at index {i} for primer {primer}"
 
 
 # =========================================================================
@@ -239,16 +278,13 @@ class TestPredictionRegression:
     def test_predictions_are_finite(self, predictions):
         """All predictions must be finite numbers."""
         for primer, score in predictions.items():
-            assert np.isfinite(score), (
-                f"Non-finite score {score} for primer {primer}"
-            )
+            assert np.isfinite(score), f"Non-finite score {score} for primer {primer}"
 
     def test_predictions_in_expected_range(self, predictions):
         """Scores should fall within the training target range [0, 20]."""
         for primer, score in predictions.items():
             assert -5.0 <= score <= 25.0, (
-                f"Score {score:.4f} for primer {primer} is outside "
-                "the plausible range [-5, 25]"
+                f"Score {score:.4f} for primer {primer} is outside " "the plausible range [-5, 25]"
             )
 
     def test_gc_rich_differs_from_at_rich(self, predictions):
@@ -271,9 +307,9 @@ class TestPredictionRegression:
         at_only = predictions["AAAATTTT"]
         # The balanced primer should not be the most extreme score
         all_scores = [balanced, gc_only, at_only]
-        assert balanced != max(all_scores) or balanced != min(all_scores), (
-            "Balanced primer scored at the extreme end, which is unexpected."
-        )
+        assert balanced != max(all_scores) or balanced != min(
+            all_scores
+        ), "Balanced primer scored at the extreme end, which is unexpected."
 
     def test_prediction_reproducibility(self, model):
         """Repeated predictions on the same input must be identical.

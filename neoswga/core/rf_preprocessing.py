@@ -15,7 +15,11 @@ Performance optimizations (v3.0):
 - Thermodynamic caching: LRU cache in thermodynamics.py for 10-100x speedup
 - Vectorized binning: numpy operations instead of per-kmer digitize
 
-Pre-trained model (random_forest_filter.p):
+Pre-trained model (random_forest_filter.skops):
+  - Format: skops (sklearn's version-tolerant, code-execution-free archive).
+    Replaces the legacy pickle so the model is not bound to the exact sklearn
+    version it was trained with and loads without arbitrary-code risk. Loaded
+    via skops.io.load(), which trusts only safe-by-default types.
   - Type: sklearn RandomForestRegressor (100 trees, max_depth=15)
   - Purpose: Predicts amplification efficacy for primer candidates
   - Features (53): 26 base features (length, base counts/proportions, GC, Tm,
@@ -28,9 +32,12 @@ Pre-trained model (random_forest_filter.p):
     amplification outcomes. Retrain with: python scripts/retrain_rf_model.py
   - Limitations: Training data composition is not fully documented. Model
     performance may vary for genome types or primer lengths not represented
-    in the training set. sklearn version changes may require retraining.
-  - Security: Model integrity verified via SHA-256 hash. Deserialization uses
-    RestrictedUnpickler to limit code execution risk.
+    in the training set. The skops format tolerates minor sklearn version
+    drift; a major sklearn upgrade may still warrant re-validating the model.
+  - Security: Model integrity verified via SHA-256 hash, then loaded with
+    skops.io.load() (no arbitrary code execution; rejects untrusted types).
+    The legacy-pickle path (RestrictedUnpickler) remains only for optional
+    user-supplied .pkl models.
 """
 
 import hashlib
@@ -143,6 +150,19 @@ def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
             f"No trusted hash for model: {model_name}. Loading without verification."
         )
 
+    # Version-tolerant, code-execution-free path for the bundled model.
+    # skops reconstructs the estimator from a structured archive instead of
+    # unpickling, so it is not bound to the exact sklearn version that trained
+    # it (no InconsistentVersionWarning) and cannot execute arbitrary code:
+    # skops.io.load() trusts only safe-by-default types and raises on anything
+    # else (a tampered file with custom types is rejected).
+    if model_path.endswith(".skops"):
+        from skops.io import load as _skops_load
+
+        return _skops_load(model_path)
+
+    # Legacy pickle path (e.g. user-supplied enhanced_rf_model.pkl), guarded by
+    # the RestrictedUnpickler.
     from neoswga.core.safe_pickle import safe_load
 
     return safe_load(model_path, context="sklearn_model")
@@ -835,9 +855,12 @@ def predict_new_primers(df):
             logger.warning(f"Dropping {len(still_nan)} all-NaN columns: {still_nan}")
             X_test = X_test.drop(columns=still_nan)
 
-    # Use __file__ to find model relative to this module
+    # Use __file__ to find model relative to this module. Prefer the
+    # version-tolerant skops model; fall back to a legacy pickle if present.
     model_dir = os.path.join(os.path.dirname(__file__), "models")
-    model_path = os.path.join(model_dir, "random_forest_filter.p")
+    model_path = os.path.join(model_dir, "random_forest_filter.skops")
+    if not os.path.exists(model_path):
+        model_path = os.path.join(model_dir, "random_forest_filter.p")
 
     try:
         # SECURE: Use load_model_safely with hash verification

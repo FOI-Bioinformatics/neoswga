@@ -1,4 +1,4 @@
 {
-  "_comment": "SHA-256 hashes of bundled model files. Add an entry per model after retraining; rf_preprocessing.load_model_safely() rejects unknown hashes unless verify_hash=False is passed explicitly.",
-  "random_forest_filter.p": "34ff084c7d2f6ded5d72811f0616bd0758b3d8965fac7d40d2ae62b747c0ba1b"
+  "_comment": "SHA-256 hashes of bundled model files. Add an entry per model after retraining; rf_preprocessing.load_model_safely() rejects unknown hashes unless verify_hash=False is passed explicitly. The bundled RF model ships in skops format (version-tolerant, no arbitrary-code deserialization); regenerate with scripts/convert_model_to_skops.py or scripts/retrain_rf_model.py.",
+  "random_forest_filter.skops": "87202f5f68c394dd566165ea24a500ab5327f21a68b4a6c7dba47de2a6b168f7"
 }

@@ -10,12 +10,12 @@ Usage:
     python test_installation.py --verbose
 """
 
-import sys
-import os
 import logging
+import os
+import sys
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -59,9 +59,9 @@ class InstallationTester:
 
     def test_package_structure(self):
         """Test basic package structure"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 1: PACKAGE STRUCTURE")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         tests = [
             ("neoswga", "Main package", False),
@@ -79,9 +79,9 @@ class InstallationTester:
 
     def test_core_modules(self):
         """Test core functionality modules"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 2: CORE FUNCTIONALITY MODULES")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         tests = [
             ("neoswga.core.optimize", "Original greedy optimizer"),
@@ -98,9 +98,9 @@ class InstallationTester:
 
     def test_advanced_modules(self):
         """Test advanced features"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 3: ADVANCED MODULES")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         tests = [
             ("neoswga.core.thermodynamics", "Thermodynamics"),
@@ -115,17 +115,20 @@ class InstallationTester:
 
     def test_optional_modules(self):
         """Test optional modules (may not be installed)"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 4: OPTIONAL MODULES")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         # MILP optimizer (requires mip package)
         try:
             import mip
+
             mip_available = True
         except ImportError:
             mip_available = False
-            logger.warning("⊘ mip package not installed (install with pip install -e \".[improved]\")")
+            logger.warning(
+                '⊘ mip package not installed (install with pip install -e ".[improved]")'
+            )
 
         if mip_available:
             self.test_import("neoswga.core.milp_optimizer", "MILP optimizer")
@@ -133,28 +136,32 @@ class InstallationTester:
         # GPU acceleration (requires cupy)
         try:
             import cupy
+
             cupy_available = True
         except ImportError:
             cupy_available = False
-            logger.warning("⊘ cupy not installed (install with pip install -e \".[gpu]\")")
+            logger.warning('⊘ cupy not installed (install with pip install -e ".[gpu]")')
 
         if cupy_available:
             self.test_import("neoswga.core.gpu_acceleration", "GPU acceleration")
 
     def test_model_files(self):
         """Test that model files are accessible"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 5: MODEL FILES")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         try:
-            import neoswga.core.rf_preprocessing as rf
             import os
+
+            import neoswga.core.rf_preprocessing as rf
 
             # Get model directory
             module_dir = os.path.dirname(rf.__file__)
-            model_dir = os.path.join(module_dir, 'models')
-            model_path = os.path.join(model_dir, 'random_forest_filter.p')
+            model_dir = os.path.join(module_dir, "models")
+            model_path = os.path.join(model_dir, "random_forest_filter.skops")
+            if not os.path.exists(model_path):
+                model_path = os.path.join(model_dir, "random_forest_filter.p")
 
             if os.path.exists(model_path):
                 size_mb = os.path.getsize(model_path) / (1024 * 1024)
@@ -172,21 +179,18 @@ class InstallationTester:
 
     def test_cli_entry_point(self):
         """Test that CLI entry point is installed"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 6: CLI ENTRY POINT")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         import subprocess
 
         try:
             result = subprocess.run(
-                ['neoswga', '--help'],
-                capture_output=True,
-                text=True,
-                timeout=5
+                ["neoswga", "--help"], capture_output=True, text=True, timeout=5
             )
 
-            if result.returncode == 0 and 'neoswga' in result.stdout.lower():
+            if result.returncode == 0 and "neoswga" in result.stdout.lower():
                 logger.info("✓ CLI entry point 'neoswga' installed and working")
                 self.tests_passed += 1
             else:
@@ -207,12 +211,13 @@ class InstallationTester:
 
     def test_version(self):
         """Test package version"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 7: PACKAGE VERSION")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         try:
             import neoswga
+
             version = neoswga.__version__
             logger.info(f"✓ NeoSWGA version: {version}")
             self.tests_passed += 1
@@ -230,15 +235,16 @@ class InstallationTester:
 
     def test_basic_functionality(self):
         """Test basic functionality"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("TEST 8: BASIC FUNCTIONALITY")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         try:
             # Test thermodynamics
             from neoswga.core import thermodynamics as thermo
+
             # Use a function that exists in the module
-            gc = thermo.gc_content('ATCGATCGATCG')
+            gc = thermo.gc_content("ATCGATCGATCG")
             if 0 <= gc <= 1:
                 logger.info(f"✓ Thermodynamics: GC content calculation works (GC={gc:.2f})")
                 self.tests_passed += 1
@@ -249,21 +255,29 @@ class InstallationTester:
 
             # Test adaptive GC filter
             from neoswga.core.adaptive_filters import AdaptiveGCFilter
+
             gc_filter = AdaptiveGCFilter(genome_gc=0.50, tolerance=0.15)
             if 0.35 <= gc_filter.gc_min <= 0.36 and 0.64 <= gc_filter.gc_max <= 0.66:
-                logger.info(f"✓ Adaptive GC filter: Range calculation works ({gc_filter.gc_min:.2f}-{gc_filter.gc_max:.2f})")
+                logger.info(
+                    f"✓ Adaptive GC filter: Range calculation works ({gc_filter.gc_min:.2f}-{gc_filter.gc_max:.2f})"
+                )
                 self.tests_passed += 1
             else:
-                logger.error(f"✗ Adaptive GC filter: Unexpected range: {gc_filter.gc_min}-{gc_filter.gc_max}")
+                logger.error(
+                    f"✗ Adaptive GC filter: Unexpected range: {gc_filter.gc_min}-{gc_filter.gc_max}"
+                )
                 self.errors.append("Adaptive GC filter calculation error")
                 self.tests_failed += 1
 
             # Test complexity calculation (if available)
             try:
                 from neoswga.core.filter import calculate_sequence_complexity
-                complexity = calculate_sequence_complexity('ATCGATCGATCG', k=4)
+
+                complexity = calculate_sequence_complexity("ATCGATCGATCG", k=4)
                 if 0 <= complexity <= 1:
-                    logger.info(f"✓ Complexity filter: Calculation works (complexity={complexity:.2f})")
+                    logger.info(
+                        f"✓ Complexity filter: Calculation works (complexity={complexity:.2f})"
+                    )
                     self.tests_passed += 1
                 else:
                     logger.error(f"✗ Complexity filter: Unexpected value: {complexity}")
@@ -276,15 +290,16 @@ class InstallationTester:
         except Exception as e:
             logger.error(f"✗ Basic functionality test failed: {e}")
             import traceback
+
             traceback.print_exc()
             self.errors.append(f"Basic functionality error: {e}")
             self.tests_failed += 1
 
     def print_summary(self):
         """Print test summary"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("INSTALLATION TEST SUMMARY")
-        logger.info("="*70)
+        logger.info("=" * 70)
 
         total_tests = self.tests_passed + self.tests_failed
         logger.info(f"\nTotal tests: {total_tests}")
@@ -292,18 +307,18 @@ class InstallationTester:
         logger.info(f"Failed: {self.tests_failed}")
 
         if self.tests_failed == 0:
-            logger.info("\n" + "="*70)
+            logger.info("\n" + "=" * 70)
             logger.info("SUCCESS: All installation tests passed! ✓")
-            logger.info("="*70)
+            logger.info("=" * 70)
             logger.info("\nNeoSWGA is properly installed and ready to use.")
             logger.info("\nTry running:")
             logger.info("  neoswga --help")
             logger.info("  neoswga validate --quick")
             return True
         else:
-            logger.error("\n" + "="*70)
+            logger.error("\n" + "=" * 70)
             logger.error("FAILURE: Some installation tests failed ✗")
-            logger.error("="*70)
+            logger.error("=" * 70)
             logger.error("\nErrors encountered:")
             for i, error in enumerate(self.errors, 1):
                 logger.error(f"  {i}. {error}")
@@ -315,9 +330,9 @@ class InstallationTester:
 
     def run_all_tests(self):
         """Run all installation tests"""
-        logger.info("\n" + "="*70)
+        logger.info("\n" + "=" * 70)
         logger.info("NEOSWGA INSTALLATION TEST SUITE")
-        logger.info("="*70)
+        logger.info("=" * 70)
         logger.info("\nTesting installation of NeoSWGA package...")
 
         self.test_package_structure()
@@ -336,11 +351,8 @@ def main():
     """Main entry point"""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description='Test NeoSWGA installation'
-    )
-    parser.add_argument('--verbose', '-v', action='store_true',
-                       help='Verbose output')
+    parser = argparse.ArgumentParser(description="Test NeoSWGA installation")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
 
@@ -350,5 +362,5 @@ def main():
     sys.exit(0 if success else 1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

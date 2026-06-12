@@ -41,7 +41,8 @@ dependencies = [
     "numpy>=1.24,<3",
     "pandas>=1.5,<3",
     "scipy>=1.10,<2",
-    "scikit-learn>=1.7,<1.9",
+    "scikit-learn>=1.7,<2",
+    "skops>=0.11,<1",
     "h5py>=3.0,<4",
     "networkx>=2.8,<4",
     "biopython>=1.80,<2",
@@ -120,13 +121,13 @@ Repository = "https://github.com/FOI-Bioinformatics/neoswga"
 neoswga = "neoswga.cli_unified:main"
 
 [tool.setuptools]
-packages = ["neoswga", "neoswga.core", "neoswga.core.report", "neoswga.core.schema"]
+packages = ["neoswga", "neoswga.cli", "neoswga.core", "neoswga.core.report", "neoswga.core.schema"]
 package-dir = {"" = "."}
 include-package-data = true
 
 [tool.setuptools.package-data]
 neoswga = ["*.md"]
-"neoswga.core" = ["*.md", "models/*.p", "models/*.json"]
+"neoswga.core" = ["*.md", "models/*.skops", "models/*.p", "models/*.json"]
 "neoswga.core.schema" = ["*.json"]
 
 [tool.black]

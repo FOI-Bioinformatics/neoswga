@@ -8,7 +8,7 @@ retained; the CLI entry point has been removed.
 DO NOT delete this module in favor of ``thermodynamics.py``. The two are
 not interchangeable: ``temp()`` here deliberately reproduces a bug in the
 original ``melt`` package (see comment on ``fgc`` below) so its output
-stays consistent with the bundled ``random_forest_filter.p`` RF model,
+stays consistent with the bundled ``random_forest_filter.skops`` RF model,
 which was trained against the buggy values. Callers that need correct
 nearest-neighbor Tm should use ``thermodynamics.calculate_tm_basic`` or
 ``calculate_tm_with_salt``. This shim can be retired once the RF model

@@ -28,50 +28,97 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 
-
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Feature names matching rf_preprocessing.py
 BASE_FEATURES = [
-    'molarity', 'sequence.length', 'number.of.A', 'proportion.of.A',
-    'number.of.T', 'proportion.of.T', 'number.of.G', 'proportion.of.G',
-    'number.of.C', 'proportion.of.C', 'GC.content', 'melting_tm',
-    'GC.clamp', 'longest.A.repeat', 'longest.T.repeat', 'longest.G.repeat',
-    'longest.C.repeat', 'AA repeat', 'CC repeat', 'TT repeat', 'GG repeat',
-    '3.end.first.base', '3.end.second.base', '3.end.third.base',
-    '3.end.fourth.base', '3.end.fifth.base'
+    "molarity",
+    "sequence.length",
+    "number.of.A",
+    "proportion.of.A",
+    "number.of.T",
+    "proportion.of.T",
+    "number.of.G",
+    "proportion.of.G",
+    "number.of.C",
+    "proportion.of.C",
+    "GC.content",
+    "melting_tm",
+    "GC.clamp",
+    "longest.A.repeat",
+    "longest.T.repeat",
+    "longest.G.repeat",
+    "longest.C.repeat",
+    "AA repeat",
+    "CC repeat",
+    "TT repeat",
+    "GG repeat",
+    "3.end.first.base",
+    "3.end.second.base",
+    "3.end.third.base",
+    "3.end.fourth.base",
+    "3.end.fifth.base",
 ]
 
 # Thermodynamic histogram bins
-BINS = [-20, -18, -16, -14, -12, -10, -9, -8, -7, -6, -5.5, -5, -4.5, -4, -3.5, -3, -2.5, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 2.5, 3]
-DELTA_G_FEATURES = ['on_target_' + str(b) for b in BINS[1:]]
+BINS = [
+    -20,
+    -18,
+    -16,
+    -14,
+    -12,
+    -10,
+    -9,
+    -8,
+    -7,
+    -6,
+    -5.5,
+    -5,
+    -4.5,
+    -4,
+    -3.5,
+    -3,
+    -2.5,
+    -2,
+    -1.5,
+    -1,
+    -0.5,
+    0,
+    0.5,
+    1,
+    1.5,
+    2,
+    2.5,
+    3,
+]
+DELTA_G_FEATURES = ["on_target_" + str(b) for b in BINS[1:]]
 
 ALL_FEATURES = BASE_FEATURES + DELTA_G_FEATURES
 
 
 def generate_primer_sequence(length=12, gc_target=None):
     """Generate a random primer sequence with optional GC content target."""
-    bases = 'ATGC'
+    bases = "ATGC"
     if gc_target is None:
         gc_target = random.uniform(0.3, 0.7)
 
     gc_count = int(length * gc_target)
     at_count = length - gc_count
 
-    seq = ['G'] * (gc_count // 2) + ['C'] * (gc_count - gc_count // 2)
-    seq += ['A'] * (at_count // 2) + ['T'] * (at_count - at_count // 2)
+    seq = ["G"] * (gc_count // 2) + ["C"] * (gc_count - gc_count // 2)
+    seq += ["A"] * (at_count // 2) + ["T"] * (at_count - at_count // 2)
     random.shuffle(seq)
-    return ''.join(seq)
+    return "".join(seq)
 
 
 def compute_melting_temp(seq):
     """Simple Tm calculation using basic nearest-neighbor approximation."""
     # Wallace rule for short primers
-    a_count = seq.count('A')
-    t_count = seq.count('T')
-    g_count = seq.count('G')
-    c_count = seq.count('C')
+    a_count = seq.count("A")
+    t_count = seq.count("T")
+    g_count = seq.count("G")
+    c_count = seq.count("C")
 
     if len(seq) < 14:
         # Wallace rule
@@ -89,27 +136,27 @@ def extract_features(seq, molarity=2.5):
     features = {}
 
     # Basic features
-    features['molarity'] = molarity
-    features['sequence.length'] = len(seq)
+    features["molarity"] = molarity
+    features["sequence.length"] = len(seq)
 
     # Base counts and proportions
-    for base in 'ATGC':
+    for base in "ATGC":
         count = seq.count(base)
-        features[f'number.of.{base}'] = count
-        features[f'proportion.of.{base}'] = count / len(seq)
+        features[f"number.of.{base}"] = count
+        features[f"proportion.of.{base}"] = count / len(seq)
 
     # GC content
-    features['GC.content'] = (seq.count('G') + seq.count('C')) / len(seq)
+    features["GC.content"] = (seq.count("G") + seq.count("C")) / len(seq)
 
     # Melting temperature
-    features['melting_tm'] = compute_melting_temp(seq)
+    features["melting_tm"] = compute_melting_temp(seq)
 
     # GC clamp (last 5 bases)
     last_five = seq[-5:]
-    features['GC.clamp'] = last_five.count('G') + last_five.count('C')
+    features["GC.clamp"] = last_five.count("G") + last_five.count("C")
 
     # Longest repeats
-    for base in 'ATGC':
+    for base in "ATGC":
         max_run = 0
         current_run = 0
         for c in seq:
@@ -118,25 +165,25 @@ def extract_features(seq, molarity=2.5):
                 max_run = max(max_run, current_run)
             else:
                 current_run = 0
-        features[f'longest.{base}.repeat'] = max_run
+        features[f"longest.{base}.repeat"] = max_run
 
     # Dinucleotide repeats
-    for dinuc in ['AA', 'CC', 'TT', 'GG']:
-        features[f'{dinuc} repeat'] = seq.count(dinuc)
+    for dinuc in ["AA", "CC", "TT", "GG"]:
+        features[f"{dinuc} repeat"] = seq.count(dinuc)
 
     # 3' end bases (encoded as integers)
-    base_to_int = {'A': 0, 'T': 1, 'G': 2, 'C': 3}
-    for i, name in enumerate(['first', 'second', 'third', 'fourth', 'fifth']):
+    base_to_int = {"A": 0, "T": 1, "G": 2, "C": 3}
+    for i, name in enumerate(["first", "second", "third", "fourth", "fifth"]):
         if len(seq) > i:
-            features[f'3.end.{name}.base'] = base_to_int.get(seq[-(i+1)], 0)
+            features[f"3.end.{name}.base"] = base_to_int.get(seq[-(i + 1)], 0)
         else:
-            features[f'3.end.{name}.base'] = 0
+            features[f"3.end.{name}.base"] = 0
 
     # Generate synthetic thermodynamic histogram
     # Primers with good Tm and GC content should have more strong binding events
     total_sites = random.randint(100, 10000)
-    gc = features['GC.content']
-    tm = features['melting_tm']
+    gc = features["GC.content"]
+    tm = features["melting_tm"]
 
     # Quality factor based on primer properties
     quality = 0.5
@@ -144,7 +191,7 @@ def extract_features(seq, molarity=2.5):
         quality += 0.2
     if 30 <= tm <= 42:
         quality += 0.2
-    if features['GC.clamp'] >= 2:
+    if features["GC.clamp"] >= 2:
         quality += 0.1
 
     # Distribute binding sites across energy bins
@@ -173,7 +220,7 @@ def compute_target_score(features):
     score = 10.0  # baseline
 
     # Melting temperature effect
-    tm = features['melting_tm']
+    tm = features["melting_tm"]
     if 30 <= tm <= 42:
         score += 3.0
     elif 25 <= tm < 30 or 42 < tm <= 50:
@@ -182,7 +229,7 @@ def compute_target_score(features):
         score -= 3.0
 
     # GC content effect
-    gc = features['GC.content']
+    gc = features["GC.content"]
     if 0.4 <= gc <= 0.6:
         score += 2.5
     elif 0.35 <= gc < 0.4 or 0.6 < gc <= 0.65:
@@ -191,7 +238,7 @@ def compute_target_score(features):
         score -= 3.0
 
     # GC clamp effect
-    gc_clamp = features['GC.clamp']
+    gc_clamp = features["GC.clamp"]
     if 2 <= gc_clamp <= 3:
         score += 2.0
     elif gc_clamp == 1 or gc_clamp == 4:
@@ -201,10 +248,10 @@ def compute_target_score(features):
 
     # Homopolymer penalty
     max_repeat = max(
-        features['longest.A.repeat'],
-        features['longest.T.repeat'],
-        features['longest.G.repeat'],
-        features['longest.C.repeat']
+        features["longest.A.repeat"],
+        features["longest.T.repeat"],
+        features["longest.G.repeat"],
+        features["longest.C.repeat"],
     )
     if max_repeat >= 5:
         score -= 4.0
@@ -214,7 +261,7 @@ def compute_target_score(features):
         score -= 1.0
 
     # 3' end stability (G or C at 3' end)
-    end_base = features['3.end.first.base']
+    end_base = features["3.end.first.base"]
     if end_base in [2, 3]:  # G or C
         score += 1.0
 
@@ -257,8 +304,8 @@ def generate_training_data(n_samples=5000):
         # Compute target score
         score = compute_target_score(features)
 
-        features['sequence'] = seq
-        features['target_score'] = score
+        features["sequence"] = seq
+        features["target_score"] = score
         data.append(features)
 
         if (i + 1) % 1000 == 0:
@@ -273,7 +320,7 @@ def train_model(df, output_path):
 
     # Prepare features and target
     X = df[ALL_FEATURES]
-    y = df['target_score']
+    y = df["target_score"]
 
     # Handle any NaN values
     X = X.fillna(0)
@@ -285,7 +332,7 @@ def train_model(df, output_path):
         min_samples_split=5,
         min_samples_leaf=2,
         n_jobs=-1,
-        random_state=42
+        random_state=42,
     )
 
     rf.fit(X, y)
@@ -298,36 +345,61 @@ def train_model(df, output_path):
     print(f"  Training MSE: {mse:.4f}")
     print(f"  Training R2: {r2:.4f}")
 
-    # Save model
+    # Save model. The bundled model ships in skops format (version-tolerant,
+    # no arbitrary-code deserialization); a .p/.pkl output still pickles for
+    # backward compatibility.
     print(f"\nSaving model to {output_path}...")
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    with open(output_path, 'wb') as f:
-        pickle.dump(rf, f)
+    if str(output_path).endswith(".skops"):
+        from skops.io import dump as _skops_dump
+        from skops.io import get_untrusted_types
+        from skops.io import load as _skops_load
+
+        _skops_dump(rf, output_path)
+        untrusted = get_untrusted_types(file=str(output_path))
+        if untrusted:
+            raise SystemExit(f"Refusing to ship: skops archive has untrusted types {untrusted}")
+        loaded_model = _skops_load(str(output_path))
+    else:
+        with open(output_path, "wb") as f:
+            pickle.dump(rf, f)
+        with open(output_path, "rb") as f:
+            loaded_model = pickle.load(f)
 
     print("Model saved successfully!")
-
-    # Verify model can be loaded
-    with open(output_path, 'rb') as f:
-        loaded_model = pickle.load(f)
-
     test_pred = loaded_model.predict(X.head(5))
     print(f"\nVerification: Model loaded and predicted {len(test_pred)} samples")
+
+    # Remind the maintainer to refresh the integrity hash.
+    import hashlib
+
+    h = hashlib.sha256(open(output_path, "rb").read()).hexdigest()
+    print(
+        f"\nUpdate neoswga/core/models/checksums.json:\n  "
+        f'"{os.path.basename(str(output_path))}": "{h}"'
+    )
 
     return rf
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Retrain random forest model for sklearn 1.7 compatibility'
+        description="Retrain random forest model for sklearn 1.7 compatibility"
     )
-    parser.add_argument('--output', '-o', type=str,
-                        default='neoswga/core/models/random_forest_filter.p',
-                        help='Output model path')
-    parser.add_argument('--samples', '-n', type=int, default=5000,
-                        help='Number of training samples')
-    parser.add_argument('--backup', action='store_true',
-                        help='Backup existing model before overwriting')
+    parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default="neoswga/core/models/random_forest_filter.skops",
+        help="Output model path (.skops recommended; .p/.pkl pickles)",
+    )
+    parser.add_argument(
+        "--samples", "-n", type=int, default=5000, help="Number of training samples"
+    )
+    parser.add_argument(
+        "--backup", action="store_true", help="Backup existing model before overwriting"
+    )
 
     args = parser.parse_args()
 
@@ -338,9 +410,10 @@ def main():
 
     # Backup existing model if requested
     if args.backup and output_path.exists():
-        backup_path = output_path.with_suffix('.p.bak')
+        backup_path = output_path.with_suffix(".p.bak")
         print(f"Backing up existing model to {backup_path}")
         import shutil
+
         shutil.copy(output_path, backup_path)
 
     # Generate training data
@@ -352,5 +425,5 @@ def main():
     print("\nDone! The new model is compatible with sklearn 1.7+")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
