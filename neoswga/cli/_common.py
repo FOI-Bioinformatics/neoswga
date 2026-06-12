@@ -7,12 +7,48 @@ them (no circular dependency).
 """
 
 import argparse
+import functools
 import json
 import logging
 import os
 import sys
 
 logger = logging.getLogger(__name__)
+
+
+def params_command(_func=None, *, merge=("json_file",), seed=False, validate=True):
+    """Decorator for params.json-based CLI handlers' common entry preamble.
+
+    Runs, in order, before the wrapped handler body:
+      1. ``validate_params_json_file(args.json_file)`` -- when ``validate`` and
+         ``args`` carries a non-None ``json_file``;
+      2. ``merge_args_to_parameter(args, parameter, merge)`` -- when ``merge`` is
+         truthy (default: just the standard ``["json_file"]`` merge);
+      3. ``_apply_seed(args)`` -- when ``seed`` is True.
+
+    Handler-specific extras (additional ``merge_args_to_parameter`` calls,
+    ``_record_run_manifest`` writes, timing, try/except) stay in the body; this
+    only factors out the mechanical, zero-variation opener. Validating before
+    seeding means a bad params path fails fast (the previous hand-written order
+    seeded first, which was wasted work on the error path).
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(args):
+            if validate and getattr(args, "json_file", None) is not None:
+                validate_params_json_file(args.json_file)
+            if merge:
+                from neoswga.core import parameter
+
+                merge_args_to_parameter(args, parameter, list(merge))
+            if seed:
+                _apply_seed(args)
+            return func(args)
+
+        return wrapper
+
+    return decorator(_func) if _func is not None else decorator
 
 
 def check_jellyfish_available():
