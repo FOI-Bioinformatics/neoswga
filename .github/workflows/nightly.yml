@@ -38,7 +38,7 @@ jobs:
         run: pip install -e ".[dev,improved]"
 
       - name: Run integration tests (excluding scale-marked)
-        run: pytest tests/integration/ tests/test_e2e_integration.py -m "not scale" -q --timeout=600
+        run: pytest tests/integration/ tests/test_plasmid_e2e.py tests/test_extension_reach_e2e_to_report.py -m "not scale" -q --timeout=600
 
       - name: Run plasmid example end-to-end
         run: |
