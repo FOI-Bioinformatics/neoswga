@@ -368,57 +368,50 @@ class EfficiencyPredictor:
             Only loads from the package's models directory for security.
         """
         try:
-            import os
+            import pandas as pd
 
             from neoswga.core.rf_preprocessing import (
-                compute_primer_features,
-                load_model_safely,
+                base_features,
+                delta_g_on_features,
+                get_features,
+                predict_new_primers,
             )
 
-            # Load the random forest model from package directory only. Prefer
-            # the version-tolerant skops model; fall back to a legacy pickle.
-            package_dir = os.path.dirname(os.path.abspath(__file__))
-            model_dir = os.path.join(package_dir, "models")
-            model_path = os.path.join(model_dir, "random_forest_filter.skops")
-            if not os.path.exists(model_path):
-                model_path = os.path.join(model_dir, "random_forest_filter.p")
+            # Score with the trained RF model. The model is a
+            # RandomForestREGRESSOR whose output is on a ~0-20 scale, so we use
+            # predict() (via predict_new_primers, which verifies the model hash,
+            # loads it through skops, and falls back to a heuristic if the model
+            # is unavailable).
+            #
+            # We build only the 26 base sequence features and zero the 27
+            # delta-G histogram features: the delta-G histogram contributes <2%
+            # of model importance, and computing it requires genome k-mer files
+            # + the pipeline's multiprocessing config, neither of which a quick
+            # pre-synthesis check on a bare primer list can assume.
+            #
+            # NOTE: the previous implementation called a nonexistent
+            # compute_primer_features() and model.predict_proba() (a classifier
+            # method this regressor does not have), so it silently returned a
+            # constant ml_score of 0.5 for every input.
+            rows = [get_features(primer, target=False)[2:] for primer in primers]
+            df = pd.DataFrame(rows, columns=base_features)
+            for col in delta_g_on_features:
+                df[col] = 0.0
 
-            # Security: Verify model path is within package directory
-            model_path = os.path.abspath(model_path)
-            if not model_path.startswith(package_dir):
-                logger.error("Model path traversal attempt blocked")
+            scored = predict_new_primers(df)
+            preds = scored["on.target.pred"].to_numpy(dtype=float)
+            if len(preds) == 0:
                 return 0.5, 30.0
 
-            if not os.path.exists(model_path):
-                if verbose:
-                    logger.warning("RF model not found, using estimate")
-                return 0.6, 50.0  # Default estimate
-
-            # load_model_safely verifies the SHA-256 then loads via skops
-            # (no arbitrary code) for .skops, or the guarded pickle for .pkl/.p.
-            model = load_model_safely(model_path)
-
-            # Get predictions for each primer
-            scores = []
-            for primer in primers:
-                try:
-                    features = compute_primer_features(primer)
-                    pred = model.predict_proba([features])[0][1]  # Probability of good primer
-                    scores.append(pred)
-                except Exception as e:
-                    logger.debug(f"Ignored error computing features for primer: {e}")
-                    scores.append(0.5)  # Default if features fail
-
-            # Average score
-            ml_score = np.mean(scores)
-
-            # Estimate enrichment from score
-            # Empirical: score 0.8 -> ~100x enrichment
+            # Normalize the ~0-20 regressor output to 0-1 (matches the report's
+            # amp_pred normalization), then estimate enrichment empirically.
+            norm = np.clip(preds / 20.0, 0.0, 1.0)
+            ml_score = float(np.mean(norm))
             enrichment = 10 ** (ml_score * 2.5)
 
             if verbose:
                 logger.info(f"  Mean ML score: {ml_score:.2f}")
-                logger.info(f"  Score range: {min(scores):.2f} - {max(scores):.2f}")
+                logger.info(f"  Score range: {norm.min():.2f} - {norm.max():.2f}")
 
             return ml_score, enrichment
 
