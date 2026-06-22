@@ -273,3 +273,101 @@ def run_simulate(args):
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    multi_genome_parser = subparsers.add_parser(
+        "multi-genome", help="Pan-genome primer design for multiple targets"
+    )
+    multi_genome_parser.add_argument(
+        "--genomes", required=True, nargs="+", help="List of target genome FASTA files"
+    )
+    multi_genome_parser.add_argument(
+        "--background", nargs="+", help="Background genome FASTA files (e.g., host DNA)"
+    )
+    multi_genome_parser.add_argument(
+        "--blacklist",
+        nargs="+",
+        help="Blacklist genome FASTA files (strongly avoid, e.g., other pathogens)",
+    )
+    multi_genome_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    multi_genome_parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducible design."
+    )
+    multi_genome_parser.add_argument(
+        "--num-primers", type=int, default=12, help="Number of primers to design (default: 12)"
+    )
+    multi_genome_parser.add_argument(
+        "--min-k", type=int, default=8, help="Minimum primer length (default: 8)"
+    )
+    multi_genome_parser.add_argument(
+        "--max-k", type=int, default=12, help="Maximum primer length (default: 12)"
+    )
+    multi_genome_parser.add_argument(
+        "--polymerase",
+        choices=["phi29", "equiphi29", "bst", "klenow"],
+        help="Polymerase type: phi29 (30C), equiphi29 (42C), " "bst (63C), klenow (37C)",
+    )
+    multi_genome_parser.add_argument(
+        "--validate-simulation", action="store_true", help="Validate with simulation"
+    )
+    multi_genome_parser.add_argument("--quiet", action="store_true", help="Minimal output")
+
+    # =========================================================================
+    # CATEGORY 4: Simulation command (orphaned features)
+    # =========================================================================
+
+    simulate_parser = subparsers.add_parser("simulate", help="Agent-based replication simulation")
+    sim_input = simulate_parser.add_mutually_exclusive_group(required=True)
+    sim_input.add_argument("--primers", nargs="+", help="Primer sequences to simulate")
+    sim_input.add_argument(
+        "--from-results",
+        type=str,
+        metavar="DIR_OR_CSV",
+        help="Read primers from pipeline results directory or step4 CSV file "
+        "(e.g., --from-results results/ or --from-results step4_improved_df.csv)",
+    )
+    simulate_parser.add_argument("--genome", required=True, help="Target genome FASTA file")
+    simulate_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for simulation results"
+    )
+    simulate_parser.add_argument(
+        "--duration",
+        "--cycles",
+        type=int,
+        default=60,
+        help="Simulation duration in minutes (default: 60)",
+    )
+    simulate_parser.add_argument(
+        "--replicates", type=int, default=5, help="Number of simulation replicates (default: 5)"
+    )
+    simulate_parser.add_argument(
+        "--polymerase",
+        choices=["phi29", "equiphi29", "bst", "klenow"],
+        default="phi29",
+        help="Polymerase type: phi29 (30C), equiphi29 (42C), "
+        "bst (63C), klenow (37C) (default: phi29)",
+    )
+    simulate_parser.add_argument(
+        "--visualize", action="store_true", help="Generate visualization plots"
+    )
+    simulate_parser.add_argument("--report", action="store_true", help="Generate HTML report")
+    simulate_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible simulation (replicates derive distinct "
+        "seeds so a run reproduces exactly).",
+    )
+
+    # Expand primers - add new primers to existing validated set

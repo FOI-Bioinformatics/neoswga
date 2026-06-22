@@ -1150,3 +1150,595 @@ def run_build_filter(args):
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    count_kmers_parser = subparsers.add_parser(
+        "count-kmers", help="K-mer preprocessing with primer length control"
+    )
+    add_common_options(count_kmers_parser)
+    count_kmers_parser.add_argument("-x", "--fasta-fore", help="Target genome FASTA")
+    count_kmers_parser.add_argument("-y", "--fasta-back", help="Background genome FASTA")
+    count_kmers_parser.add_argument("-k", "--kmer-fore", help="Target k-mer prefix")
+    count_kmers_parser.add_argument("-l", "--kmer-back", help="Background k-mer prefix")
+
+    # Primer length control (defaults from params.json, or 6-12 if not specified)
+    count_kmers_parser.add_argument(
+        "--min-k",
+        type=int,
+        default=None,
+        help="Minimum primer length (default: from params.json or 6). Supported range: 6-18bp",
+    )
+    count_kmers_parser.add_argument(
+        "--max-k",
+        type=int,
+        default=None,
+        help="Maximum primer length (default: from params.json or 12). Use 15-18bp with DMSO/betaine additives",
+    )
+    count_kmers_parser.add_argument(
+        "--exclusion-genome",
+        type=str,
+        default=None,
+        help="Exclusion genome FASTA file (e.g., mtDNA)",
+    )
+    count_kmers_parser.add_argument(
+        "--blacklist",
+        "-bl",
+        nargs="+",
+        default=None,
+        help="Blacklist genome FASTA file(s) (penalty-weighted filtering)",
+    )
+    count_kmers_parser.add_argument(
+        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
+    )
+    count_kmers_parser.add_argument(
+        "--max-bl-freq",
+        type=float,
+        default=None,
+        help="Maximum blacklist frequency (default: 0.0, any hit rejects)",
+    )
+
+    # =========================================================================
+    # STEP 2: Candidate filtering
+    # =========================================================================
+
+    filter_parser = subparsers.add_parser(
+        "filter", help="Candidate primer filtering (adaptive GC + reaction conditions)"
+    )
+    add_common_options(filter_parser)
+
+    # GC Filtering Options
+    step2_gc_group = filter_parser.add_argument_group("GC Content Filtering")
+    step2_gc_group.add_argument(
+        "--gc-tolerance",
+        type=float,
+        default=0.15,
+        help="GC tolerance for adaptive filter (default: 0.15)",
+    )
+    step2_gc_group.add_argument(
+        "--gc-min", type=float, help="Explicit minimum GC content (overrides adaptive)"
+    )
+    step2_gc_group.add_argument(
+        "--gc-max", type=float, help="Explicit maximum GC content (overrides adaptive)"
+    )
+
+    # Reaction Conditions
+    step2_rxn_group = filter_parser.add_argument_group("Reaction Conditions")
+    step2_rxn_group.add_argument(
+        "--reaction-temp",
+        type=float,
+        help="Reaction temperature in C (default: from params.json or polymerase preset)",
+    )
+    step2_rxn_group.add_argument(
+        "--na-conc",
+        type=float,
+        help="Sodium concentration in mM (default: from params.json or 50.0)",
+    )
+
+    # Additives
+    step2_add_group = filter_parser.add_argument_group(
+        "Additives (enable longer primers & GC-extreme genomes)"
+    )
+    step2_add_group.add_argument(
+        "--dmso-percent",
+        type=float,
+        help="DMSO concentration 0-10%% (Tm lowering, secondary structure reduction)",
+    )
+    step2_add_group.add_argument(
+        "--betaine-m",
+        type=float,
+        help="Betaine concentration 0-2.5 M (equalizes AT/GC, enables longer primers)",
+    )
+    step2_add_group.add_argument(
+        "--trehalose-m", type=float, help="Trehalose concentration 0-1.0 M (Tm lowering)"
+    )
+    step2_add_group.add_argument(
+        "--glycerol-percent", type=float, help="Glycerol concentration 0-15%% (enzyme stabilizer)"
+    )
+    step2_add_group.add_argument(
+        "--bsa", type=float, help="BSA concentration 0-400 ug/mL (inhibitor neutralizer)"
+    )
+    step2_add_group.add_argument(
+        "--peg-percent", type=float, help="PEG concentration 0-15%% (molecular crowding)"
+    )
+    step2_add_group.add_argument(
+        "--mg-conc", type=float, help="Mg2+ concentration in mM (auto-optimized if not specified)"
+    )
+    step2_add_group.add_argument(
+        "--ssb",
+        action="store_true",
+        help="Use single-strand binding protein (lowers effective annealing temp)",
+    )
+    step2_add_group.add_argument(
+        "--ethanol-percent",
+        type=float,
+        help="Ethanol concentration 0-5%% (secondary structure reduction)",
+    )
+    step2_add_group.add_argument(
+        "--urea-m", type=float, help="Urea concentration 0-2.0 M (denatures GC-rich regions)"
+    )
+    step2_add_group.add_argument(
+        "--tmac-m", type=float, help="TMAC concentration 0-0.1 M (equalizes AT/GC Tm)"
+    )
+    step2_add_group.add_argument(
+        "--formamide-percent", type=float, help="Formamide concentration 0-10%% (Tm lowering)"
+    )
+
+    # Preset Conditions
+    filter_parser.add_argument(
+        "--preset",
+        choices=[
+            "standard_phi29",
+            "enhanced_equiphi29",
+            "high_gc_genome",
+            "long_primers_15mer",
+            "q_solution",
+            "gc_melt",
+            "crude_sample",
+            "low_temp",
+            "bst",
+            "klenow",
+            "extreme_gc",
+        ],
+        help="Use predefined reaction conditions preset",
+    )
+
+    # Traditional Filtering Parameters
+    step2_trad_group = filter_parser.add_argument_group("Traditional Filtering")
+    step2_trad_group.add_argument(
+        "--min-fg-freq", type=float, help="Minimum target genome frequency (default: 1e-5)"
+    )
+    step2_trad_group.add_argument(
+        "--max-bg-freq", type=float, help="Maximum background genome frequency (default: 5e-6)"
+    )
+    step2_trad_group.add_argument(
+        "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.6)"
+    )
+    step2_trad_group.add_argument(
+        "--max-primer", type=int, help="Number of top primers to keep (default: 500)"
+    )
+    step2_trad_group.add_argument(
+        "--min-tm", type=float, help="Minimum melting temperature in C (default: 15)"
+    )
+    step2_trad_group.add_argument(
+        "--max-tm", type=float, help="Maximum melting temperature in C (default: 45)"
+    )
+    step2_trad_group.add_argument(
+        "--max-dimer-bp", type=int, help="Maximum heterodimer base pairs (default: 3)"
+    )
+    step2_trad_group.add_argument(
+        "--max-self-dimer-bp", type=int, help="Maximum self-dimer base pairs (default: 4)"
+    )
+
+    # Background Bloom Filter (for large background genomes)
+    step2_bloom_group = filter_parser.add_argument_group("Background Filtering (for large genomes)")
+    step2_bloom_group.add_argument(
+        "--use-bloom-filter",
+        action="store_true",
+        default=False,
+        help="Use Bloom filter for background filtering (memory-efficient for human genome)",
+    )
+    step2_bloom_group.add_argument(
+        "--bloom-filter-path",
+        type=str,
+        help="Path to pre-built Bloom filter (.pkl). Build with: neoswga build-filter",
+    )
+    step2_bloom_group.add_argument(
+        "--sampled-index-path",
+        type=str,
+        help="Path to pre-built sampled index (.pkl) for count estimation",
+    )
+    step2_bloom_group.add_argument(
+        "--bloom-max-bg-matches",
+        type=int,
+        default=10,
+        help="Maximum background matches via Bloom filter (default: 10)",
+    )
+
+    # Exclusion Genome Filtering (zero-tolerance for contaminants)
+    step2_excl_group = filter_parser.add_argument_group(
+        "Exclusion Genome Filtering (reject primers binding contaminant sequences)"
+    )
+    step2_excl_group.add_argument(
+        "--exclusion-genome",
+        type=str,
+        default=None,
+        help="Exclusion genome FASTA file (e.g., mtDNA, chloroplast). "
+        "Primers binding this genome are rejected.",
+    )
+    step2_excl_group.add_argument(
+        "--excl-threshold",
+        type=int,
+        default=0,
+        help="Maximum allowed hits in exclusion genome " "(default: 0 = any hit rejects primer)",
+    )
+
+    # Blacklist Genome Filtering (penalty-weighted)
+    step2_bl_group = filter_parser.add_argument_group(
+        "Blacklist Genome Filtering (penalty-weighted filtering of contaminating sequences)"
+    )
+    step2_bl_group.add_argument(
+        "--blacklist", "-bl", nargs="+", default=None, help="Blacklist genome FASTA file(s)"
+    )
+    step2_bl_group.add_argument(
+        "--bl-penalty", type=float, default=None, help="Blacklist penalty weight (default: 5.0)"
+    )
+    step2_bl_group.add_argument(
+        "--max-bl-freq",
+        type=float,
+        default=None,
+        help="Maximum blacklist frequency (default: 0.0, any hit rejects)",
+    )
+
+    # =========================================================================
+    # STEP 3: Random forest scoring
+    # =========================================================================
+
+    score_parser = subparsers.add_parser(
+        "score", help="Amplification efficacy scoring with ML threshold control"
+    )
+    add_common_options(score_parser)
+
+    score_parser.add_argument(
+        "--min-amp-pred", type=float, help="Minimum amplification prediction score (default: 10)"
+    )
+    score_parser.add_argument(
+        "--full-score",
+        action="store_true",
+        help="Include thermodynamic delta-G histogram features in "
+        "random-forest scoring. These features contribute <2%% of "
+        "model accuracy but >99%% of scoring compute time, so they "
+        "are skipped by default. Pass this flag only if you need "
+        "the full histogram output for downstream analysis.",
+    )
+    score_parser.add_argument(
+        "--fast-score",
+        action="store_true",
+        help="Deprecated alias for the current default behavior "
+        "(thermodynamic histogram features are skipped). "
+        "Accepted for backwards compatibility.",
+    )
+    score_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible scoring. K-mer "
+        "sampling (on by default) is otherwise "
+        "non-deterministic; set this for repeatable "
+        "step3 output.",
+    )
+
+    # Enhanced feature engineering options
+    score_parser.add_argument(
+        "--use-enhanced-features",
+        action="store_true",
+        help="Use enhanced 120+ feature model (requires enhanced_rf_model.pkl)",
+    )
+    score_parser.add_argument(
+        "--enhanced-model-path", type=str, default=None, help="Path to enhanced random forest model"
+    )
+
+    # =========================================================================
+    # STEP 4: Primer set optimization
+    # =========================================================================
+
+    optimize_parser = subparsers.add_parser(
+        "optimize", help="Primer set optimization (network-based + experimental)"
+    )
+    add_common_options(optimize_parser)
+
+    # Method Selection
+    opt_method_group = optimize_parser.add_argument_group("Method Selection")
+    opt_method_group.add_argument(
+        "-m",
+        "--optimization-method",
+        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
+        default="hybrid",
+        help="Optimization method. "
+        "Decision tree: "
+        "hybrid (default, general use), "
+        "dominating-set (speed-critical, large pools), "
+        "background-aware (clinical, 10-20x bg reduction), "
+        "network (Tm-weighted, dimer-aware), "
+        "ensemble (run several and keep the best by "
+        "normalized score). "
+        "Use --method-guide for detailed comparison.",
+    )
+    opt_method_group.add_argument(
+        "--ensemble-methods",
+        nargs="+",
+        default=None,
+        metavar="METHOD",
+        help="Methods to run when --optimization-method=ensemble "
+        "(default: hybrid dominating-set network background-aware). "
+        "The best result by application-weighted normalized score "
+        "is kept; a per-method comparison table is printed.",
+    )
+    opt_method_group.add_argument(
+        "--ensemble-combine",
+        choices=["best", "union"],
+        default="best",
+        help="How ensemble combines methods: 'best' keeps the single best set; "
+        "'union' additionally re-optimizes over the pooled primers from all "
+        "methods (can beat any single method; never worsens it).",
+    )
+    opt_method_group.add_argument(
+        "--scoring-weights",
+        dest="scoring_weights",
+        choices=["clinical", "discovery", "fast", "balanced", "enrichment"],
+        default="balanced",
+        help="Scoring-weight preset for the network optimizer: "
+        "clinical (high specificity), discovery (max coverage), "
+        "fast (quick screening), balanced (equal weights), "
+        "enrichment (sequencing).",
+    )
+    opt_method_group.add_argument(
+        "--method-guide",
+        action="store_true",
+        help="Show optimization method selection guide and exit",
+    )
+
+    # Primer Strategy
+    opt_strategy_group = optimize_parser.add_argument_group("Primer Strategy")
+    opt_strategy_group.add_argument(
+        "--use-cooperative-binding",
+        action="store_true",
+        help="[EXPERIMENTAL] Cooperative binding model (not yet fully integrated)",
+    )
+    opt_strategy_group.add_argument(
+        "--primer-strategy",
+        choices=["standard", "hybrid"],
+        default="standard",
+        help="Primer design strategy (standard: uniform length, hybrid: mixed lengths)",
+    )
+
+    # Background Filtering
+    opt_bg_group = optimize_parser.add_argument_group("Background Filtering")
+    opt_bg_group.add_argument(
+        "--use-background-filter",
+        action="store_true",
+        default=False,
+        help="Use Bloom filter for background filtering",
+    )
+    opt_bg_group.add_argument(
+        "--no-bg-prefilter",
+        action="store_true",
+        default=False,
+        help="Disable automatic background pre-filtering of candidates "
+        "(enabled by default when background genome data is available)",
+    )
+    opt_bg_group.add_argument(
+        "--background-bloom-path", type=str, help="Path to pre-built Bloom filter"
+    )
+    opt_bg_group.add_argument(
+        "--background-sampled-path", type=str, help="Path to pre-built sampled index"
+    )
+    opt_bg_group.add_argument(
+        "--no-background",
+        action="store_true",
+        default=False,
+        help="Host-free mode: optimize without background genome data. "
+        "Relies on intrinsic primer quality (Tm, complexity, evenness) "
+        "rather than fg/bg selectivity. Use when background genome is "
+        "unknown or unavailable.",
+    )
+
+    # Performance
+    opt_perf_group = optimize_parser.add_argument_group("Performance")
+    opt_perf_group.add_argument(
+        "--use-position-cache",
+        action="store_true",
+        default=True,
+        help="Use in-memory position cache (default: True, 1000x speedup)",
+    )
+    opt_perf_group.add_argument(
+        "--no-position-cache",
+        action="store_false",
+        dest="use_position_cache",
+        help="Disable position cache (slower)",
+    )
+    opt_perf_group.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible results. Affects the network "
+        "refinement, ensemble re-seeding, RF k-mer sampling, and any "
+        "background pre-filtering. Required for clinical/regulated workflows.",
+    )
+    opt_perf_group.add_argument(
+        "-n",
+        "--num-primers",
+        type=int,
+        help="Number of primers to select (default: from params.json or 6)",
+    )
+    opt_perf_group.add_argument(
+        "--max-optimization-time",
+        type=int,
+        default=300,
+        help="Maximum optimization time in seconds (default: 300)",
+    )
+    opt_perf_group.add_argument(
+        "--max-extension",
+        type=int,
+        default=70000,
+        help="Maximum Phi29 extension length in bp (default: 70000)",
+    )
+
+    # Set Size & Application
+    opt_size_group = optimize_parser.add_argument_group("Set Size & Application")
+    opt_size_group.add_argument(
+        "--auto-size",
+        action="store_true",
+        help="Automatically determine optimal primer set size based on "
+        "application profile and reaction conditions",
+    )
+    opt_size_group.add_argument(
+        "--application",
+        type=str,
+        choices=["balanced", "discovery", "clinical", "enrichment", "metagenomics"],
+        default="enrichment",
+        help="Application profile: "
+        "balanced (default scoring), "
+        "discovery (maximize sensitivity), "
+        "clinical (minimize false positives), "
+        "enrichment (balanced, default for auto-size), "
+        "metagenomics (capture diversity). "
+        "Drives --auto-size AND tunes normalized_score weights.",
+    )
+    opt_size_group.add_argument(
+        "--min-fg-bg-ratio",
+        type=float,
+        help="Minimum foreground/background binding site ratio. "
+        "Overrides application profile default. Higher values = more selective.",
+    )
+    opt_size_group.add_argument(
+        "--show-frontier",
+        action="store_true",
+        help="Show Pareto frontier of coverage vs fg/bg ratio tradeoffs "
+        "(requires matplotlib for plotting)",
+    )
+    opt_size_group.add_argument(
+        "--quick-estimate",
+        action="store_true",
+        help="Use quick estimation only for auto-size (skip full optimization at multiple sizes)",
+    )
+
+    # Mechanistic Model
+    opt_mech_group = optimize_parser.add_argument_group("Mechanistic Model")
+    opt_mech_group.add_argument(
+        "--use-mechanistic-model",
+        action="store_true",
+        help="Use mechanistic model for primer weighting during optimization",
+    )
+    opt_mech_group.add_argument(
+        "--mechanistic-weight",
+        type=float,
+        default=None,
+        help="Weight for mechanistic model in scoring (0.0-1.0, default 0.3 when "
+        "enabled). Setting this > 0 implies --use-mechanistic-model.",
+    )
+    opt_mech_group.add_argument(
+        "--template-gc",
+        type=float,
+        help="Template genome GC content (0-1). Auto-detected if not specified.",
+    )
+    opt_mech_group.add_argument(
+        "--uniformity-weight",
+        type=float,
+        default=0.0,
+        help="Weight for coverage uniformity in scoring (0.0-1.0, default: 0.0). "
+        "Higher values prioritize even genome coverage over raw enrichment.",
+    )
+
+    # Post-processing
+    opt_post_group = optimize_parser.add_argument_group("Post-processing")
+    opt_post_group.add_argument(
+        "--minimize-primers",
+        action="store_true",
+        help="Post-process to minimize primer count while maintaining coverage",
+    )
+    opt_post_group.add_argument(
+        "--target-coverage",
+        type=float,
+        default=0.70,
+        help="Target genome coverage fraction when minimizing primers (default: 0.70)",
+    )
+    opt_post_group.add_argument(
+        "--min-per-target-coverage",
+        type=float,
+        default=0.0,
+        help="Multi-genome runs only: minimum coverage required on every "
+        "individual target. Below this, the post-optimization validator "
+        "flags a warning. Default 0.0 (disabled).",
+    )
+
+    # Validation
+    opt_val_group = optimize_parser.add_argument_group("Validation")
+    opt_val_group.add_argument(
+        "--validate-simulation",
+        action="store_true",
+        help="Validate results with stochastic simulation (Gillespie algorithm)",
+    )
+    opt_val_group.add_argument(
+        "--simulation-time",
+        type=float,
+        default=3600.0,
+        help="Simulation time in seconds (default: 3600)",
+    )
+
+    # =========================================================================
+    # UNIFIED: Complete pipeline (all 4 steps)
+    # =========================================================================
+
+    build_filter_parser = subparsers.add_parser(
+        "build-filter", help="Build background Bloom filter (one-time setup)"
+    )
+    build_filter_parser.add_argument(
+        "--genome",
+        required=True,
+        help="Path to background genome FASTA (or k-mer prefix with --from-kmers)",
+    )
+    build_filter_parser.add_argument(
+        "-o",
+        "--output",
+        "--output-dir",
+        required=True,
+        dest="output_dir",
+        help="Output directory for filter files",
+    )
+    build_filter_parser.add_argument(
+        "--from-kmers",
+        action="store_true",
+        help="Build from jellyfish k-mer files (MUCH faster for large genomes)",
+    )
+    build_filter_parser.add_argument(
+        "--min-k", type=int, default=6, help="Minimum k-mer length (default: 6)"
+    )
+    build_filter_parser.add_argument(
+        "--max-k", type=int, default=12, help="Maximum k-mer length (default: 12)"
+    )
+    build_filter_parser.add_argument(
+        "--force", action="store_true", help="Rebuild even if filter exists"
+    )
+    build_filter_parser.add_argument(
+        "--capacity", type=int, help="Bloom filter capacity (default: auto from genome size)"
+    )
+    build_filter_parser.add_argument(
+        "--error-rate", type=float, default=0.01, help="Bloom filter error rate (default: 0.01)"
+    )
+    build_filter_parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    build_filter_parser.add_argument("-q", "--quiet", action="store_true", help="Minimal output")
+
+    # =========================================================================
+    # UTILITY: Validate (parent command with install/params/model subcommands)
+    # =========================================================================

@@ -25,7 +25,10 @@ DEFAULT_BUDGET = 200
 # These are the only functions currently over DEFAULT_BUDGET; each is a known
 # refactor candidate (e.g. create_parser -> per-group builders).
 _BUDGETS = {
-    "cli_unified.py::create_parser": 1460,
+    # Per-group argparse builders extracted from the old create_parser monolith;
+    # declarative add_argument blocks (pipeline's includes the ~250-line optimize
+    # command). create_parser itself is now ~30 lines and no longer pinned.
+    "cli/pipeline.py::add_parsers": 600,
     "cli/pipeline.py::run_step4": 550,
     "core/parameter.py::get_params": 540,
     "core/unified_optimizer.py::run_optimization": 470,

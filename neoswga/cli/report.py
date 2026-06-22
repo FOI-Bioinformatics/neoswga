@@ -363,3 +363,126 @@ def run_export(args):
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    report_parser = subparsers.add_parser(
+        "report", help="Generate comprehensive HTML report for primer set"
+    )
+    report_parser.add_argument(
+        "-d", "--dir", required=True, help="Results directory containing pipeline output"
+    )
+    report_parser.add_argument(
+        "-o", "--output", help="Output file path (default: <dir>/report.html)"
+    )
+    report_parser.add_argument(
+        "--format", choices=["html", "json"], default="html", help="Output format (default: html)"
+    )
+    report_parser.add_argument(
+        "--level",
+        choices=["summary", "full"],
+        default="summary",
+        help="Report level: summary (1-page) or full (technical report)",
+    )
+    report_parser.add_argument(
+        "--check", action="store_true", help="Validate only, do not generate report"
+    )
+    report_parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Include interactive Plotly charts (requires plotly)",
+    )
+    report_parser.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress progress messages"
+    )
+
+    # =========================================================================
+    # EXPORT: Primer export for synthesis ordering
+    # =========================================================================
+
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Export primers for synthesis ordering",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="""
+Export optimized primers in formats ready for synthesis ordering.
+
+Generates:
+  - FASTA file with primer sequences
+  - Vendor-ready CSV (IDT, Twist, Sigma)
+  - Wet-lab protocol with reaction conditions
+
+Examples:
+  neoswga export -d ./results/
+  neoswga export -d ./results/ -o ./order/ --vendor idt --project MyProject
+  neoswga export -d ./results/ --format fasta --output primers.fasta
+""",
+    )
+    export_parser.add_argument(
+        "-d", "--dir", required=True, help="Results directory containing step4_improved_df.csv"
+    )
+    export_parser.add_argument(
+        "-o", "--output", default="./export", help="Output directory (default: ./export)"
+    )
+    export_parser.add_argument(
+        "--project", default="SWGA", help="Project name for file naming (default: SWGA)"
+    )
+    export_parser.add_argument(
+        "--vendor",
+        default="idt",
+        choices=["idt", "twist", "sigma", "generic"],
+        help="Vendor format for CSV (default: idt)",
+    )
+    export_parser.add_argument(
+        "--format",
+        choices=["all", "fasta", "csv", "protocol", "bed", "bedgraph"],
+        default="all",
+        help="Export format (default: all)",
+    )
+    export_parser.add_argument("-j", "--json-file", help="params.json for reaction conditions")
+    export_parser.add_argument(
+        "--modifications",
+        choices=["none", "standard", "low-input"],
+        default="standard",
+        help="Modification profile: none (bare primers), "
+        "standard (3' PTO for exonuclease protection), "
+        "low-input (3' PTO + 5' C18 spacer for tdMDA) "
+        "(default: standard)",
+    )
+    export_parser.add_argument(
+        "--pto-bonds",
+        type=int,
+        default=None,
+        help="Override number of 3' phosphorothioate bonds (default: 2)",
+    )
+    export_parser.add_argument(
+        "--no-modifications",
+        action="store_true",
+        help="Export bare sequences without modifications " "(equivalent to --modifications none)",
+    )
+    export_parser.add_argument(
+        "--genome-name",
+        default="genome",
+        help="Chromosome/contig name for BED/BedGraph output (default: genome)",
+    )
+    export_parser.add_argument(
+        "--window-size",
+        type=int,
+        default=1000,
+        help="Window size in bp for BedGraph binning (default: 1000)",
+    )
+    export_parser.set_defaults(func=run_export)
+
+    # =========================================================================
+    # SETUP: Interactive workflow selector
+    # =========================================================================

@@ -784,3 +784,162 @@ def run_rescore_set(args):
             logger.info(f"rescore-set results written to {args.output}")
     else:
         print(output_json)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    expand_parser = subparsers.add_parser(
+        "expand-primers",
+        help="Expand existing primer set with additional primers to fill coverage gaps",
+    )
+    expand_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    expand_parser.add_argument(
+        "--fixed-primers",
+        nargs="+",
+        required=True,
+        help="Primer sequences to keep (already validated)",
+    )
+    expand_parser.add_argument(
+        "--fixed-primers-file", help="File with fixed primers (one per line)"
+    )
+    expand_parser.add_argument(
+        "--failed-primers", nargs="+", help="Primer sequences to exclude (failed in wet lab)"
+    )
+    expand_parser.add_argument(
+        "--failed-primers-file", help="File with failed primers to exclude (one per line)"
+    )
+    expand_parser.add_argument(
+        "--num-new", type=int, default=6, help="Number of new primers to add (default: 6)"
+    )
+    expand_parser.add_argument(
+        "--optimization-method",
+        default="hybrid",
+        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
+        help="Optimization method (default: hybrid)",
+    )
+    expand_parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible expansion.",
+    )
+    expand_parser.add_argument(
+        "--bam",
+        help="Mapped BAM of real sequencing reads against the "
+        "target genome. Low-depth regions are merged with "
+        "in-silico coverage gaps and the candidate pool is "
+        "focused on primers that bind inside the gaps. "
+        "Requires the [bam] extra (pip install 'neoswga[bam]').",
+    )
+    expand_parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=5,
+        help="Sequencing depth below which a base counts as a " "BAM coverage gap (default: 5).",
+    )
+    expand_parser.add_argument(
+        "--min-gap-size",
+        type=int,
+        default=10000,
+        help="Minimum gap length to act on, bp (default: 10000).",
+    )
+    expand_parser.add_argument(
+        "--contig-alias",
+        action="append",
+        default=None,
+        metavar="FG=BAMCONTIG",
+        help="Map a foreground prefix/basename to a BAM contig "
+        "name when they differ. Repeatable.",
+    )
+    expand_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for expanded primer set"
+    )
+    expand_parser.add_argument(
+        "--quiet", "-q", action="store_true", help="Suppress progress output"
+    )
+
+    # Analyze coverage - read-only inspection of in-silico + BAM gaps
+
+    swap_parser = subparsers.add_parser(
+        "swap-primer",
+        help="Replace under-performing primers in an existing set with better "
+        "candidates from a pool (greedy dimer-aware optimization).",
+    )
+    swap_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    swap_parser.add_argument("--primers", nargs="+", required=True, help="Current primer set")
+    swap_parser.add_argument("--primers-file", help="File with current primers (one per line)")
+    swap_parser.add_argument(
+        "--candidates-file",
+        help="File with candidate pool for replacement, "
+        "one primer per line. Defaults to step2_df.csv "
+        "primers if present in data_dir.",
+    )
+    swap_parser.add_argument(
+        "--max-swaps", type=int, default=3, help="Maximum replacements to attempt (default: 3)"
+    )
+    swap_parser.add_argument(
+        "--output",
+        "-o",
+        help="Output JSON with before/after set and per-swap " "deltas (default: stdout)",
+    )
+    swap_parser.add_argument("--quiet", "-q", action="store_true")
+    swap_parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducible swaps."
+    )
+
+    # Contract set: remove redundant primers while keeping coverage above threshold
+
+    contract_parser = subparsers.add_parser(
+        "contract-set",
+        help="Remove redundant primers from a set while keeping coverage above "
+        "--min-coverage. Greedy leave-one-out.",
+    )
+    contract_parser.add_argument("-j", "--json-file", required=True)
+    contract_parser.add_argument("--primers", nargs="+", required=True)
+    contract_parser.add_argument("--primers-file")
+    contract_parser.add_argument(
+        "--min-coverage",
+        type=float,
+        default=0.70,
+        help="Minimum foreground coverage to keep (default: 0.70)",
+    )
+    contract_parser.add_argument("--output", "-o")
+    contract_parser.add_argument(
+        "--seed", type=int, default=None, help="Random seed for reproducible contraction."
+    )
+    contract_parser.add_argument("--quiet", "-q", action="store_true")
+
+    # Rescore set under arbitrary conditions
+
+    rescore_parser = subparsers.add_parser(
+        "rescore-set",
+        help="Rescore an existing primer set under arbitrary reaction "
+        "conditions (polymerase + additives) without re-optimizing.",
+    )
+    rescore_parser.add_argument("-j", "--json-file", required=True)
+    rescore_parser.add_argument("--primers", nargs="+", required=True)
+    rescore_parser.add_argument("--primers-file")
+    rescore_parser.add_argument("--polymerase", choices=["phi29", "equiphi29", "bst", "klenow"])
+    rescore_parser.add_argument("--reaction-temp", type=float)
+    rescore_parser.add_argument("--mg-conc", type=float)
+    rescore_parser.add_argument("--na-conc", type=float)
+    rescore_parser.add_argument("--dmso-percent", type=float)
+    rescore_parser.add_argument("--betaine-m", type=float)
+    rescore_parser.add_argument("--trehalose-m", type=float)
+    rescore_parser.add_argument("--formamide-percent", type=float)
+    rescore_parser.add_argument("--ethanol-percent", type=float)
+    rescore_parser.add_argument("--urea-m", type=float)
+    rescore_parser.add_argument("--tmac-m", type=float)
+    rescore_parser.add_argument("--output", "-o")
+    rescore_parser.add_argument("--quiet", "-q", action="store_true")
+
+    # Predict efficiency - unified confidence score for primer set

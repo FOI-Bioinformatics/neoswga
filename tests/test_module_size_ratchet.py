@@ -18,8 +18,12 @@ _PKG_ROOT = Path(__file__).resolve().parent.parent / "neoswga"
 # Per-module ceilings (current size, rounded up slightly for trailing edits).
 # A module NOT listed here must stay under DEFAULT_BUDGET.
 _BUDGETS = {
-    # Being split into neoswga/cli/ submodules; budget ratchets down per slice.
-    "cli_unified.py": 1900,
+    # cli_unified is now just create_parser orchestration + main dispatch; the
+    # per-group subparser builders live in neoswga/cli/<group>.py next to their
+    # handlers. pipeline.py holds the count-kmers/filter/score/optimize/build
+    # handlers + their argparse (the optimize command alone is ~250 arg lines).
+    "cli_unified.py": 500,
+    "cli/pipeline.py": 1800,
     "core/report/technical_report.py": 2200,
 }
 

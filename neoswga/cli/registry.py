@@ -189,3 +189,88 @@ def run_genome_remove(args):
     else:
         logger.error(f"Genome '{args.name}' not found in library")
         sys.exit(1)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    bg_list_parser = subparsers.add_parser(
+        "background-list", help="List available pre-computed background genomes"
+    )
+    bg_list_parser.add_argument(
+        "--discover", action="store_true", help="Search for new backgrounds in default directories"
+    )
+    bg_list_parser.add_argument("--search", help="Search for backgrounds by name or species")
+    bg_list_parser.add_argument(
+        "--quiet", "-q", action="store_true", help="Suppress verbose output"
+    )
+
+    # Background registry - add new background
+
+    bg_add_parser = subparsers.add_parser(
+        "background-add", help="Add a pre-computed background to the registry"
+    )
+    bg_add_parser.add_argument(
+        "--name", required=True, help='Human-readable name (e.g., "Human GRCh38")'
+    )
+    bg_add_parser.add_argument(
+        "--species", required=True, help='Species name (e.g., "Homo sapiens")'
+    )
+    bg_add_parser.add_argument("--bloom-path", help="Path to Bloom filter pickle file")
+    bg_add_parser.add_argument(
+        "--kmer-prefix", help="Prefix for k-mer files (without _Xmer_all.txt)"
+    )
+    bg_add_parser.add_argument("--genome-size", type=int, default=0, help="Genome size in bp")
+    bg_add_parser.add_argument(
+        "--min-k", type=int, default=6, help="Minimum k-mer length (default: 6)"
+    )
+    bg_add_parser.add_argument(
+        "--max-k", type=int, default=12, help="Maximum k-mer length (default: 12)"
+    )
+    bg_add_parser.add_argument("--description", help="Additional description")
+    bg_add_parser.add_argument(
+        "--overwrite", action="store_true", help="Overwrite existing entry with same name"
+    )
+
+    # =========================================================================
+    # UTILITY: Genome library management
+    # =========================================================================
+
+    genome_add_parser = subparsers.add_parser(
+        "genome-add", help="Add a genome to the pre-calculated library"
+    )
+    genome_add_parser.add_argument("name", help="Identifier for the genome (e.g., human-grch38)")
+    genome_add_parser.add_argument("fasta", help="Path to genome FASTA file")
+    genome_add_parser.add_argument(
+        "--role",
+        choices=["bg", "bl"],
+        default="bg",
+        help="Role: bg (background) or bl (blacklist). Default: bg",
+    )
+    genome_add_parser.add_argument("--species", default="", help="Species name (optional)")
+    genome_add_parser.add_argument(
+        "--k-ranges", default="6-12,12-18", help="K-mer ranges to compute (default: 6-12,12-18)"
+    )
+    genome_add_parser.add_argument(
+        "--no-bloom", action="store_true", help="Skip Bloom filter construction"
+    )
+
+    genome_list_parser = subparsers.add_parser(
+        "genome-list", help="List genomes in the pre-calculated library"
+    )
+    genome_list_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed information"
+    )
+
+    genome_remove_parser = subparsers.add_parser(
+        "genome-remove", help="Remove a genome from the pre-calculated library"
+    )
+    genome_remove_parser.add_argument("name", help="Identifier of genome to remove")
