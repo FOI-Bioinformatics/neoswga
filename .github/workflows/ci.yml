@@ -38,6 +38,12 @@ jobs:
         continue-on-error: true
         run: mypy neoswga --ignore-missing-imports --no-strict-optional
 
+      - name: Dependency vulnerability audit (non-blocking advisory)
+        continue-on-error: true
+        run: |
+          pip install pip-audit
+          pip-audit --progress-spinner off || true
+
   test:
     needs: lint
     runs-on: ${{ matrix.os }}
@@ -86,3 +92,27 @@ jobs:
 
       - name: Check distribution
         run: twine check dist/*
+
+      - name: Install the built wheel and import-smoke it
+        # Guards the packaging-omission class: a wheel can build + pass `twine
+        # check` yet omit a subpackage (e.g. neoswga.cli) or data file (the
+        # model / checksums), breaking real installs. Install into a clean venv
+        # and import the entry point + every cli submodule + the bundled model.
+        run: |
+          python -m venv /tmp/wheel-venv
+          /tmp/wheel-venv/bin/pip install dist/*.whl
+          /tmp/wheel-venv/bin/python - <<'PY'
+          import importlib, pkgutil
+          import neoswga.cli_unified  # entry point
+          import neoswga.cli as cli_pkg
+          subs = [m.name for m in pkgutil.iter_modules(cli_pkg.__path__)]
+          assert subs, "neoswga.cli shipped with no submodules"
+          for name in subs:
+              importlib.import_module(f"neoswga.cli.{name}")
+          # bundled model + checksums must be present in the installed package
+          from importlib.resources import files
+          models = files("neoswga.core") / "models"
+          assert (models / "random_forest_filter.skops").is_file(), "model not packaged"
+          assert (models / "checksums.json").is_file(), "checksums not packaged"
+          print(f"wheel import-smoke OK: cli submodules={len(subs)}, model+checksums present")
+          PY
