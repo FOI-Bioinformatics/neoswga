@@ -274,3 +274,117 @@ def run_analyze_stability(args):
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    subparsers.add_parser("show-presets", help="Show available reaction condition presets")
+
+    # =========================================================================
+    # SETUP: Initialize new project (setup wizard)
+    # =========================================================================
+
+    optimize_cond_parser = subparsers.add_parser(
+        "optimize-conditions", help="Find optimal reaction conditions for a genome"
+    )
+    optimize_cond_parser.add_argument(
+        "--fg", "--foreground", required=True, help="Foreground genome FASTA file"
+    )
+    optimize_cond_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    optimize_cond_parser.add_argument(
+        "--target-k", type=int, help="Target k-mer length to optimize for"
+    )
+
+    # =========================================================================
+    # ADVANCED: Analyze primer set
+    # =========================================================================
+
+    analyze_parser = subparsers.add_parser(
+        "analyze-set", help="[EXPERIMENTAL] Analyze an existing primer set"
+    )
+    analyze_parser.add_argument(
+        "--primers", required=True, nargs="+", help="Primer sequences to analyze"
+    )
+    analyze_parser.add_argument("--fg", required=True, help="Foreground genome FASTA")
+    analyze_parser.add_argument("--fg-kmers", required=True, help="Foreground k-mer file prefix")
+    analyze_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    analyze_parser.add_argument(
+        "--preset", default="standard_phi29", help="Reaction conditions preset"
+    )
+    analyze_parser.add_argument(
+        "--simulate", action="store_true", help="Run replication simulation"
+    )
+
+    # =========================================================================
+    # CATEGORY 1: Genome analysis (orphaned feature)
+    # =========================================================================
+
+    analyze_genome_parser = subparsers.add_parser(
+        "analyze-genome", help="[EXPERIMENTAL] Analyze genome suitability for SWGA"
+    )
+    analyze_genome_parser.add_argument(
+        "--genome", required=True, help="Genome FASTA file to analyze"
+    )
+    analyze_genome_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for analysis report"
+    )
+    analyze_genome_parser.add_argument(
+        "--window-size",
+        type=int,
+        default=1000,
+        help="Window size for GC profiling (default: 1000bp)",
+    )
+
+    # =========================================================================
+    # CATEGORY 1: Dimer network analysis (orphaned feature)
+    # =========================================================================
+
+    analyze_dimers_parser = subparsers.add_parser(
+        "analyze-dimers", help="[EXPERIMENTAL] Analyze primer dimer interaction network"
+    )
+    analyze_dimers_parser.add_argument(
+        "--primers", required=True, nargs="+", help="Primer sequences to analyze"
+    )
+    analyze_dimers_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for network visualization"
+    )
+    analyze_dimers_parser.add_argument(
+        "--threshold", type=float, default=0.3, help="Dimer severity threshold (default: 0.3)"
+    )
+    analyze_dimers_parser.add_argument(
+        "--visualize", action="store_true", help="Generate network visualization"
+    )
+
+    # =========================================================================
+    # CATEGORY 1: 3' stability analysis (orphaned feature)
+    # =========================================================================
+
+    analyze_stability_parser = subparsers.add_parser(
+        "analyze-stability", help="Analyze 3' end stability and specificity"
+    )
+    analyze_stability_parser.add_argument(
+        "--primers", required=True, nargs="+", help="Primer sequences to analyze"
+    )
+    analyze_stability_parser.add_argument(
+        "--output", "-o", required=True, help="Output file for stability report"
+    )
+    analyze_stability_parser.add_argument(
+        "--temp", type=float, default=37.0, help="Reaction temperature in C (default: 37)"
+    )
+
+    # =========================================================================
+    # CATEGORY 1: Optimal oligo generator (orphaned feature)
+    # =========================================================================
+
+    # =========================================================================
+    # CATEGORY 3: Multi-genome pipeline (orphaned feature)
+    # =========================================================================

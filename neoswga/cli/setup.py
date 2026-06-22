@@ -420,3 +420,188 @@ def run_interpret(args):
     except FileNotFoundError as e:
         logger.error(str(e))
         sys.exit(1)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    validate_parser = subparsers.add_parser(
+        "validate",
+        help="Validate the installation, a params.json file, or the "
+        "mechanistic model. Run without a subcommand for installation "
+        "checks (backwards-compatible).",
+    )
+    # Backwards-compat flags (when invoked as `neoswga validate [--quick|--all]`
+    # with no subcommand — preserves the historical installation-check shape).
+    validate_parser.add_argument(
+        "--quick", action="store_true", help="Run quick installation validation (subset of tests)"
+    )
+    validate_parser.add_argument(
+        "--all", action="store_true", help="Run all installation tests including benchmarks"
+    )
+
+    validate_sub = validate_parser.add_subparsers(
+        dest="validate_mode",
+        metavar="{install,params,model}",
+        title="subcommands",
+    )
+
+    validate_install_sub = validate_sub.add_parser(
+        "install",
+        help="Check that Jellyfish, Python dependencies, and ML models load.",
+    )
+    validate_install_sub.add_argument(
+        "--quick", action="store_true", help="Run quick validation (subset of tests)"
+    )
+    validate_install_sub.add_argument(
+        "--all", action="store_true", help="Run all tests including benchmarks"
+    )
+
+    validate_params_sub = validate_sub.add_parser(
+        "params",
+        help="Validate a params.json file against the schema.",
+    )
+    validate_params_sub.add_argument(
+        "-j", "--json-file", required=True, help="Parameters JSON file to validate"
+    )
+
+    validate_model_sub = validate_sub.add_parser(
+        "model",
+        help="Run regression tests on the mechanistic model.",
+    )
+    validate_model_sub.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed results for each test"
+    )
+    validate_model_sub.add_argument(
+        "--output-json", action="store_true", help="Output results as JSON"
+    )
+
+    # =========================================================================
+    # UTILITY: Show presets
+    # =========================================================================
+
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Set up a new primer design project with guided configuration. "
+        "Requires a target genome path; use `neoswga start` for a "
+        "menu-driven entry point that walks you through choosing a "
+        "command first.",
+    )
+    init_parser.add_argument("--genome", "-g", required=True, help="Target genome FASTA file")
+    init_parser.add_argument("--background", "-b", help="Background genome FASTA file (optional)")
+    init_parser.add_argument(
+        "--output",
+        "-o",
+        default="params.json",
+        help="Output params.json path (default: params.json)",
+    )
+    init_parser.add_argument(
+        "--output-dir",
+        default="results",
+        help="Directory for pipeline output files (default: results)",
+    )
+    init_parser.add_argument(
+        "--advanced", "-a", action="store_true", help="Show advanced configuration options"
+    )
+    init_parser.add_argument(
+        "--yes", "-y", action="store_true", help="Auto-approve without prompting"
+    )
+    init_parser.add_argument(
+        "--non-interactive", action="store_true", help="Run non-interactively with defaults"
+    )
+    init_parser.add_argument(
+        "--blacklist",
+        "-bl",
+        nargs="+",
+        default=None,
+        help="Blacklist genome FASTA file(s) for contamination filtering",
+    )
+
+    # =========================================================================
+    # SETUP: Validate parameters
+    # =========================================================================
+
+    validate_params_parser = subparsers.add_parser(
+        "validate-params", help="Validate params.json configuration before running"
+    )
+    validate_params_parser.add_argument(
+        "-j", "--json-file", required=True, help="Parameters JSON file to validate"
+    )
+
+    # =========================================================================
+    # SETUP: Dump canonical JSON schema
+    # =========================================================================
+
+    schema_parser = subparsers.add_parser(
+        "schema", help="Inspect or dump the canonical params.json schema"
+    )
+    schema_parser.add_argument(
+        "--dump", action="store_true", help="Print the params.json JSON Schema to stdout"
+    )
+    schema_parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default=None,
+        help="Write the schema to the given file instead of stdout",
+    )
+
+    # =========================================================================
+    # SETUP: Diagnostic health check
+    # =========================================================================
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Run a diagnostic health check on the installation, "
+        "params.json, and optimizer capability matrix",
+    )
+    doctor_parser.add_argument(
+        "-j",
+        "--json-file",
+        type=str,
+        default=None,
+        help="Optional params.json to include in the diagnostic",
+    )
+    doctor_parser.add_argument(
+        "--json",
+        dest="output_json",
+        action="store_true",
+        help="Emit the diagnostic report as JSON instead of text",
+    )
+
+    # =========================================================================
+    # SETUP: Validate mechanistic model
+    # =========================================================================
+
+    validate_model_parser = subparsers.add_parser(
+        "validate-model", help="Validate mechanistic model against expected behavior"
+    )
+    validate_model_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed results for each test"
+    )
+    validate_model_parser.add_argument(
+        "--output-json", action="store_true", help="Output results as JSON"
+    )
+
+    # =========================================================================
+    # SETUP: Interpret results
+    # =========================================================================
+
+    interpret_parser = subparsers.add_parser(
+        "interpret", help="Interpret pipeline results and provide quality assessment"
+    )
+    interpret_parser.add_argument(
+        "-d", "--dir", required=True, help="Results directory containing step4_improved_df.csv"
+    )
+
+    # =========================================================================
+    # SETUP: Generate report
+    # =========================================================================

@@ -536,3 +536,185 @@ def run_design(args):
 
         traceback.print_exc()
         sys.exit(1)
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    design_parser = subparsers.add_parser(
+        "design", help="Run complete primer design pipeline (all 4 steps sequentially)"
+    )
+    add_common_options(design_parser)
+
+    # Multi-genome option (merges multi-genome)
+    design_parser.add_argument(
+        "--multi-genome",
+        nargs="+",
+        metavar="GENOME",
+        help="Design pan-genome primers for multiple target genomes",
+    )
+    design_parser.add_argument(
+        "--min-coverage",
+        type=float,
+        default=0.8,
+        help="Minimum fraction of genomes to cover (default: 0.8)",
+    )
+
+    # Step control
+    design_parser.add_argument(
+        "--start-from",
+        type=int,
+        choices=[1, 2, 3, 4],
+        help="Start from step: 1=count-kmers, 2=filter, 3=score, 4=optimize",
+    )
+    design_parser.add_argument(
+        "--stop-at",
+        type=int,
+        choices=[1, 2, 3, 4],
+        help="Stop at step: 1=count-kmers, 2=filter, 3=score, 4=optimize",
+    )
+
+    # =========================================================================
+    # UTILITY: Build background filter
+    # =========================================================================
+
+    subparsers.add_parser(
+        "start",
+        help="Interactive menu to discover and launch neoswga features. "
+        "If you already know you want to create a params.json for a "
+        "specific genome, use `neoswga init -g GENOME` directly.",
+    )
+
+    # =========================================================================
+    # SETUP: Suggest reaction conditions
+    # =========================================================================
+
+    suggest_parser = subparsers.add_parser(
+        "suggest", help="Suggest optimal reaction conditions based on genome and primer length"
+    )
+    suggest_parser.add_argument(
+        "--genome-gc", type=float, help="Target genome GC content (0-1, e.g., 0.65 for 65%%)"
+    )
+    suggest_parser.add_argument(
+        "--genome", type=str, help="Target genome FASTA file (calculates GC automatically)"
+    )
+    suggest_parser.add_argument(
+        "--primer-length", "-l", type=int, help="Target primer length in bp"
+    )
+    suggest_parser.add_argument(
+        "--context",
+        "-c",
+        choices=["standard", "clinical", "high_throughput", "low_input"],
+        default="standard",
+        help="Application context (default: standard)",
+    )
+    suggest_parser.add_argument(
+        "--polymerase",
+        choices=["phi29", "equiphi29", "bst", "klenow"],
+        default="phi29",
+        help="Polymerase type (default: phi29)",
+    )
+    suggest_parser.add_argument(
+        "--optimize-for",
+        choices=["amplification", "specificity", "coverage", "processivity"],
+        default="amplification",
+        help="Optimization goal (default: amplification)",
+    )
+    suggest_parser.add_argument(
+        "--use-optimizer",
+        action="store_true",
+        help="Use advanced multi-additive optimizer (grid search)",
+    )
+    suggest_parser.add_argument(
+        "--sweep",
+        action="store_true",
+        help="Sweep a grid of reaction conditions and rank by " "predicted amplification factor",
+    )
+    suggest_parser.add_argument(
+        "--kmer-range",
+        action="store_true",
+        help="Print a recommended (min_k, max_k) range based on genome size, "
+        "GC, and polymerase, then exit",
+    )
+    suggest_parser.add_argument(
+        "--genome-size",
+        type=int,
+        help="Target genome size in bp (for --kmer-range). Auto-derived from --genome if that flag is given.",
+    )
+    suggest_parser.add_argument(
+        "--output", "-o", type=str, help="Output CSV path for condition sweep results"
+    )
+
+    # =========================================================================
+    # ADVANCED: Optimize conditions
+    # =========================================================================
+
+    cov_parser = subparsers.add_parser(
+        "analyze-coverage",
+        help="Report coverage gaps for a primer set, from in-silico binding "
+        "sites and (optionally) real sequencing depth (BAM). Read-only.",
+    )
+    cov_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    cov_parser.add_argument(
+        "--primers", nargs="+", help="Current primer set (the primers to assess)."
+    )
+    cov_parser.add_argument("--primers-file", help="File with current primers (one per line).")
+    cov_parser.add_argument(
+        "--bam", help="Mapped BAM of real reads vs the target genome. " "Requires the [bam] extra."
+    )
+    cov_parser.add_argument(
+        "--min-depth",
+        type=int,
+        default=5,
+        help="Depth below which a base is a BAM gap (default: 5).",
+    )
+    cov_parser.add_argument(
+        "--min-gap-size",
+        type=int,
+        default=10000,
+        help="Minimum gap length to report, bp (default: 10000).",
+    )
+    cov_parser.add_argument(
+        "--contig-alias",
+        action="append",
+        default=None,
+        metavar="FG=BAMCONTIG",
+        help="Map a foreground prefix/basename to a BAM contig. " "Repeatable.",
+    )
+    cov_parser.add_argument(
+        "--output", "-o", required=True, help="Output directory for gap BED/JSON."
+    )
+    cov_parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
+
+    # Swap primer: replace worst performers with better candidates
+
+    predict_parser = subparsers.add_parser(
+        "predict-efficiency", help="Predict efficiency of primer set before synthesis"
+    )
+    predict_parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    predict_parser.add_argument(
+        "--primers", nargs="+", required=True, help="Primer sequences to evaluate"
+    )
+    predict_parser.add_argument("--primers-file", help="File with primers (one per line)")
+    predict_parser.add_argument(
+        "--run-simulation",
+        action="store_true",
+        help="Run simulation for more accurate prediction (slower)",
+    )
+    predict_parser.add_argument(
+        "--track", action="store_true", help="Record prediction for later outcome tracking"
+    )
+    predict_parser.add_argument("--output", "-o", help="Output JSON file for prediction results")
+    predict_parser.add_argument(
+        "--quiet", "-q", action="store_true", help="Suppress progress output"
+    )
+
+    # Background registry - list available pre-computed backgrounds
