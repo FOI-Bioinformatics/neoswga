@@ -128,6 +128,7 @@ include-package-data = true
 [tool.setuptools.package-data]
 neoswga = ["*.md"]
 "neoswga.core" = ["*.md", "models/*.skops", "models/*.p", "models/*.json"]
+"neoswga.core.report" = ["templates/*.html"]
 "neoswga.core.schema" = ["*.json"]
 
 [tool.black]

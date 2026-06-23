@@ -114,5 +114,7 @@ jobs:
           models = files("neoswga.core") / "models"
           assert (models / "random_forest_filter.skops").is_file(), "model not packaged"
           assert (models / "checksums.json").is_file(), "checksums not packaged"
-          print(f"wheel import-smoke OK: cli submodules={len(subs)}, model+checksums present")
+          report_tpl = files("neoswga.core.report") / "templates" / "technical_report.html"
+          assert report_tpl.is_file(), "report HTML template not packaged"
+          print(f"wheel import-smoke OK: cli submodules={len(subs)}, model+checksums+template present")
           PY
