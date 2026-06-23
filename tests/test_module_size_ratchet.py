@@ -24,7 +24,8 @@ _BUDGETS = {
     # handlers + their argparse (the optimize command alone is ~250 arg lines).
     "cli_unified.py": 500,
     "cli/pipeline.py": 1800,
-    "core/report/technical_report.py": 2200,
+    # HTML template extracted to report/templates/technical_report.html.
+    "core/report/technical_report.py": 1300,
 }
 
 # Any other single module should stay below this. The current second-largest
