@@ -174,8 +174,12 @@
 
     "optimization_method": {
       "type": "string",
-      "enum": ["hybrid", "greedy", "network", "genetic", "milp",
-               "dominating-set", "background-aware", "moea"]
+      "description": "Optimizer to use. The four canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias.",
+      "default": "hybrid",
+      "enum": ["hybrid", "dominating-set", "network", "background-aware",
+               "ensemble", "auto", "all",
+               "hybrid-optimizer", "two-stage", "ds", "set-cover",
+               "network-optimizer", "tm-weighted", "clinical", "bg-aware"]
     },
 
     "use_bloom_filter": {"type": "boolean", "default": false},

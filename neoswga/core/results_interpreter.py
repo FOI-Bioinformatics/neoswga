@@ -422,13 +422,21 @@ class ResultsInterpreter:
             # With N primers, overall enrichment scales roughly as
             # mean_amplification_factor ^ (N * coverage_efficiency).
             # We use a simplified estimate: mean_factor * num_primers * processivity_scaling
-            processivity_map = {
-                "phi29": 70000,
-                "equiphi29": 80000,
-                "bst": 2000,
-                "klenow": 10000,
-            }
-            processivity = processivity_map.get(polymerase, 70000)
+            # Read processivity from reaction_conditions rather than keeping a
+            # hand copy here; this table had already gone stale once.
+            # get_polymerase_processivity raises on an unknown polymerase, but
+            # this is a best-effort interpretation of an existing result, so keep
+            # the previous phi29 fallback rather than failing the whole report.
+            from neoswga.core.reaction_conditions import get_polymerase_processivity
+
+            try:
+                processivity = get_polymerase_processivity(polymerase)
+            except (ValueError, KeyError):
+                logger.debug(
+                    f"Unknown polymerase {polymerase!r}; using phi29 processivity "
+                    f"for the enrichment estimate"
+                )
+                processivity = 70000
             # Scale by log2 of processivity relative to typical genome regions
             import math
 

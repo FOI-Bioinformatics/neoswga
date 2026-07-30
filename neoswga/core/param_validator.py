@@ -92,15 +92,33 @@ PARAM_RANGES = {
 }
 
 VALID_POLYMERASES = ["phi29", "equiphi29", "bst", "klenow"]
+# Must stay in step with what the pipeline actually accepts:
+#   - the four optimizers registered via @OptimizerFactory.register() plus their
+#     declared aliases (see neoswga/core/{hybrid,network,background_aware}_optimizer.py
+#     and dominating_set_adapter.py), and
+#   - the virtual ensemble names handled directly in unified_optimizer.run_optimization.
+# Deliberately a literal rather than a registry lookup: this module is imported by
+# `validate-params` and must not pull in the numpy/scipy optimizer stack.
+# tests/test_optimization_method_lists_agree.py enforces agreement with the registry.
 VALID_OPTIMIZATION_METHODS = [
+    # canonical
     "hybrid",
-    "greedy",
-    "network",
-    "genetic",
-    "milp",
     "dominating-set",
+    "network",
     "background-aware",
-    "moea",
+    # virtual (ensemble runner)
+    "ensemble",
+    "auto",
+    "all",
+    # registered aliases
+    "hybrid-optimizer",
+    "two-stage",
+    "ds",
+    "set-cover",
+    "network-optimizer",
+    "tm-weighted",
+    "clinical",
+    "bg-aware",
 ]
 
 # Polymerase temperature ranges

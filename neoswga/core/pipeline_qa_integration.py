@@ -175,10 +175,14 @@ def apply_post_step2_qa_filter(
             # Analyze network
             metrics, profiles, matrix = analyzer.analyze_primer_set(passing_primers)
 
-            # Filter out hub primers (high degree)
+            # Filter out hub primers (many dimer partners).
+            # analyze_primer_set returns profiles as Dict[str, PrimerDimerProfile],
+            # so iterate .values(); iterating the dict itself yields primer strings.
+            # The per-primer partner count is `num_interactions` (there is no
+            # `degree` attribute).
             failed_dimer = 0
-            for profile in profiles:
-                if profile.degree > config.max_hub_degree:
+            for profile in profiles.values():
+                if profile.num_interactions > config.max_hub_degree:
                     # Find this primer in df and mark as failed
                     mask = (df[seq_col] == profile.primer) & df["qa_pass"]
                     df.loc[mask, "qa_pass"] = False
@@ -189,7 +193,7 @@ def apply_post_step2_qa_filter(
                     mask = (df[seq_col] == profile.primer) & df["qa_pass"]
                     if mask.any():
                         # Lower score for primers with more interactions
-                        dimer_score = max(0.0, 1.0 - profile.degree / 10.0)
+                        dimer_score = max(0.0, 1.0 - profile.num_interactions / 10.0)
                         df.loc[mask, "qa_score"] *= dimer_score
 
             filter_reasons["dimer_hub"] = failed_dimer
@@ -402,16 +406,24 @@ class QAAwareOptimizer:
         filtered = []
         hub_primers = []
 
-        for profile in profiles:
-            if profile.degree <= hub_threshold:
+        # profiles is Dict[str, PrimerDimerProfile]; the per-primer partner count
+        # is `num_interactions`.
+        for profile in profiles.values():
+            if profile.num_interactions <= hub_threshold:
                 filtered.append(profile.primer)
             else:
-                hub_primers.append((profile.primer, profile.degree))
+                hub_primers.append((profile.primer, profile.num_interactions))
 
         if verbose:
+            # DimerNetworkMetrics has no mean_degree; derive it from the profiles.
+            mean_degree = (
+                sum(p.num_interactions for p in profiles.values()) / len(profiles)
+                if profiles
+                else 0.0
+            )
             logger.info(f"\nNetwork analysis:")
             logger.info(f"  Total interactions: {metrics.total_interactions}")
-            logger.info(f"  Mean degree: {metrics.mean_degree:.2f}")
+            logger.info(f"  Mean degree: {mean_degree:.2f}")
             logger.info(f"  Hub primers (>{hub_threshold} interactions): {len(hub_primers)}")
             logger.info(f"  Remaining candidates: {len(filtered)}")
 

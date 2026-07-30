@@ -54,6 +54,48 @@ def test_santalucia_nn_entropy_matches_table_1():
 # Owczarzy 2004 salt correction coefficient
 # ----------------------------------------------------------------------
 
+def test_nn_reverse_complement_entries_are_self_consistent():
+    """Every non-canonical NN key must carry its reverse-complement's values.
+
+    A stack "XY/WZ" and its reverse complement describe the same duplex read
+    from the other end, so they are thermodynamically identical. The tables
+    carry the RC entries purely to avoid computing reverse complements at
+    lookup time, which means a mis-assigned RC entry is a silent Tm error for
+    every primer containing that dinucleotide. The two tests above only cover
+    the 10 canonical stacks, so they cannot catch it.
+    """
+    from neoswga.core import thermodynamics as td
+
+    complement = {"A": "T", "T": "A", "C": "G", "G": "C"}
+
+    def revcomp(seq):
+        return "".join(complement[b] for b in reversed(seq))
+
+    for table, name in ((td.ENTHALPY_NN, "ENTHALPY_NN"), (td.ENTROPY_NN, "ENTROPY_NN")):
+        for key, value in table.items():
+            top, bottom = key.split("/")
+            # The bottom strand is written 3'->5', so it is the plain complement.
+            assert bottom == "".join(complement[b] for b in top), (
+                f"{name}['{key}'] is malformed: bottom strand is not the "
+                f"complement of the top strand"
+            )
+            rc_key = f"{revcomp(top)}/{''.join(complement[b] for b in revcomp(top))}"
+            assert rc_key in table, f"{name} is missing the RC partner '{rc_key}' of '{key}'"
+            assert abs(table[rc_key] - value) < 1e-6, (
+                f"{name}['{key}']={value} disagrees with its reverse complement "
+                f"{name}['{rc_key}']={table[rc_key]}. revcomp({top}) is "
+                f"{revcomp(top)}, so these two stacks describe the same duplex "
+                f"and must be equal."
+            )
+
+
+def test_nn_tables_have_identical_keys():
+    """ENTHALPY_NN and ENTROPY_NN must describe the same set of stacks."""
+    from neoswga.core import thermodynamics as td
+
+    assert set(td.ENTHALPY_NN) == set(td.ENTROPY_NN)
+
+
 def test_owczarzy_entropy_salt_coefficient():
     """Owczarzy 2004 coefficient 0.368 must match Biochemistry 43:3537."""
     import inspect

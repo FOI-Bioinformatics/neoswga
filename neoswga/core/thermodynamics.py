@@ -62,7 +62,7 @@ ENTHALPY_NN = {
     "TT/AA": -7.9,  # = AA/TT
     "AC/TG": -8.4,  # = GT/CA
     "TC/AG": -8.2,  # = GA/CT
-    "AG/TC": -8.0,  # = GG/CC (entropy differs slightly)
+    "AG/TC": -7.8,  # = CT/GA (revcomp of AG is CT)
     "TG/AC": -8.5,  # = CA/GT
     "CC/GG": -8.0,  # = GG/CC
 }
@@ -85,7 +85,7 @@ ENTROPY_NN = {
     "TT/AA": -22.2,  # = AA/TT
     "AC/TG": -22.4,  # = GT/CA
     "TC/AG": -22.2,  # = GA/CT
-    "AG/TC": -19.9,  # = GG/CC
+    "AG/TC": -21.0,  # = CT/GA (revcomp of AG is CT)
     "TG/AC": -22.7,  # = CA/GT
     "CC/GG": -19.9,  # = GG/CC
 }

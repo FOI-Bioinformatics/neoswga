@@ -501,6 +501,24 @@ PRESETS = {
 # Command groups for organized help display
 
 
+# Concentration additives carried by a reaction-conditions preset. Kept as an
+# explicit tuple rather than introspected so the set is greppable and reviewable;
+# tests/test_preset_round_trip.py asserts it stays complete against
+# ReactionConditions.__init__.
+PRESET_ADDITIVE_FIELDS = (
+    "dmso_percent",
+    "betaine_m",
+    "trehalose_m",
+    "formamide_percent",
+    "glycerol_percent",
+    "bsa_ug_ml",
+    "peg_percent",
+    "ethanol_percent",
+    "urea_m",
+    "tmac_m",
+)
+
+
 def load_preset_conditions(preset_name):
     """
     Load predefined reaction conditions preset.
@@ -533,20 +551,23 @@ def load_preset_conditions(preset_name):
 
     conditions = preset_map[preset_name]
 
-    # Convert ReactionConditions to dict
-    return {
+    # Convert ReactionConditions to dict.
+    #
+    # Every concentration knob on ReactionConditions must appear here. This list
+    # previously omitted urea_m, tmac_m, ethanol_percent and formamide_percent, so
+    # `--preset extreme_gc` silently dropped the two additives that define it
+    # (urea_m=0.5, tmac_m=0.05) and applied a preset that was no longer that preset.
+    # tests/test_preset_round_trip.py enforces coverage against the dataclass.
+    out = {
         "reaction_temp": conditions.temp,
         "polymerase": conditions.polymerase,
-        "dmso_percent": conditions.dmso_percent,
-        "betaine_m": conditions.betaine_m,
-        "trehalose_m": conditions.trehalose_m,
-        "glycerol_percent": conditions.glycerol_percent,
-        "bsa_ug_ml": conditions.bsa_ug_ml,
-        "peg_percent": conditions.peg_percent,
         "na_conc": conditions.na_conc,
         "mg_conc": conditions.mg_conc,
         "ssb": conditions.ssb,
     }
+    for name in PRESET_ADDITIVE_FIELDS:
+        out[name] = getattr(conditions, name)
+    return out
 
 
 def add_common_options(parser):

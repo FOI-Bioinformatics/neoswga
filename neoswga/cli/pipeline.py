@@ -12,6 +12,7 @@ from neoswga.cli._common import (
     _record_run_manifest,
     check_jellyfish_available,
     collect_primers_from_args,
+    load_preset_conditions,
     merge_args_to_parameter,
     params_command,
     setup_gpu_acceleration,

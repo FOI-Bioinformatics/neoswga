@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
+from neoswga.core.parameter import default_mg_conc
 from neoswga.core.genome_analysis import calculate_genome_stats, get_gc_class, recommend_adaptive_qa
 
 logger = logging.getLogger(__name__)
@@ -571,7 +572,11 @@ class SetupWizard:
             "trehalose_m": 0.0,
             # Salt concentrations
             "na_conc": 50.0,
-            "mg_conc": 2.0 if self.gc_class in ("extreme_at", "at_rich") else 0.0,
+            # Use the same polymerase-aware default the pipeline would apply.
+            # This previously wrote 0.0 for any non-AT-rich genome, and because an
+            # explicit key suppresses the default in parameter.get_params(), that
+            # ran the whole pipeline at zero magnesium.
+            "mg_conc": default_mg_conc(polymerase),
             # Filtering thresholds
             "min_fg_freq": 1e-5,
             "max_bg_freq": 5e-6,

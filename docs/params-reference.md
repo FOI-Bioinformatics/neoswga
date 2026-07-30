@@ -68,7 +68,7 @@ neoswga schema --dump > params.schema.json
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
 | `num_primers` | integer | min: 1; max: 50 | `6` | - |
-| `optimization_method` | string | one of: hybrid, greedy, network, genetic, milp, dominating-set, background-aware, moea | - | - |
+| `optimization_method` | string | one of: hybrid, dominating-set, network, background-aware, ensemble, auto, all, hybrid-optimizer, two-stage, ds, set-cover, network-optimizer, tm-weighted, clinical, bg-aware | `hybrid` | Optimizer to use. The four canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias. |
 | `peg_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
 | `polymerase` | string | one of: phi29, equiphi29, bst, klenow | `phi29` | - |
 | `primer_conc` | number | min: 1e-09; max: 0.0001 | `5e-07` | - |

@@ -37,6 +37,7 @@ from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.genome_io import GenomeCache, GenomeLoader
 from neoswga.core.hybrid_optimizer import HybridOptimizer
 from neoswga.core.kmer_counter import MultiGenomeKmerCounter
+from neoswga.core.thermodynamics import reverse_complement
 from neoswga.core.multi_genome_filter import (
     GenomeEntry,
     GenomeRole,
@@ -139,6 +140,7 @@ class MultiGenomePipeline:
         preferred_polymerase: Optional[str] = None,
         primer_count: int = 12,
         validate_with_simulation: bool = False,
+        cpus: int = 4,
     ):
         """
         Initialize multi-genome pipeline.
@@ -150,6 +152,7 @@ class MultiGenomePipeline:
             preferred_polymerase: Override polymerase selection
             primer_count: Target number of primers
             validate_with_simulation: Run Gillespie simulation validation
+            cpus: CPUs handed to Jellyfish for k-mer counting
         """
         self.genome_set = genome_set
         self.genome_set.validate()
@@ -171,11 +174,48 @@ class MultiGenomePipeline:
         self.genome_cache = GenomeCache(max_cache_size=10)
 
         # Efficient k-mer counter with caching
-        self.kmer_counter = MultiGenomeKmerCounter(use_parallel=True)
+        self.kmer_counter = MultiGenomeKmerCounter(
+            cpus=cpus, output_dir=str(self.output_dir / "kmer_counts")
+        )
 
         logger.info("Initialized multi-genome pipeline")
         logger.info(f"  Output directory: {self.output_dir}")
         logger.info(genome_set.summary())
+
+    def _count_candidates_all_genomes(
+        self, candidates: List[str]
+    ) -> Dict[str, Dict[str, int]]:
+        """
+        Count every candidate primer in every registered genome.
+
+        `MultiGenomeKmerCounter` exposes per-k tables (`count_kmers`) and a
+        single-k-mer lookup (`get_kmer_count`). Calling `get_kmer_count` per
+        candidate would re-run Jellyfish parsing for each one, so group the
+        candidates by length and pull one table per (genome, k) instead.
+
+        Jellyfish stores canonical k-mers -- the lexicographic minimum of the
+        k-mer and its reverse complement -- so each candidate is looked up under
+        its canonical form, matching `get_kmer_count`.
+
+        Returns:
+            {genome_name: {candidate: count}}, with 0 for absent candidates.
+        """
+        by_k: Dict[int, List[str]] = {}
+        for primer in candidates:
+            by_k.setdefault(len(primer), []).append(primer)
+
+        all_counts: Dict[str, Dict[str, int]] = {}
+        for genome in self.genome_set.get_all_genomes():
+            counts: Dict[str, int] = {}
+            for k, primers in by_k.items():
+                table = self.kmer_counter.count_kmers(genome.name, k)
+                for primer in primers:
+                    upper = primer.upper()
+                    canonical = min(upper, reverse_complement(upper))
+                    counts[primer] = table.get(canonical, 0)
+            all_counts[genome.name] = counts
+
+        return all_counts
 
     def _load_genome(self, fasta_path: Path) -> str:
         """
@@ -342,19 +382,18 @@ class MultiGenomePipeline:
             min_enrichment=10.0,  # 10x enrichment minimum
         )
 
-        # Add genomes to k-mer counter and count candidates efficiently
+        # Register genomes with the k-mer counter. add_genome() takes the FASTA
+        # path (it runs Jellyfish over the file); it does not take a sequence.
         for genome in self.genome_set.get_all_genomes():
-            sequence = self._load_genome(genome.fasta_path)
+            if genome.name not in self.kmer_counter.genome_fastas:
+                self.kmer_counter.add_genome(genome.name, str(genome.fasta_path))
 
-            # Add genome to counter (if not already added)
-            if genome.name not in self.kmer_counter.genome_sequences:
-                self.kmer_counter.add_genome(genome.name, sequence)
-
-        # Count all candidates across all genomes efficiently
+        # Count all candidates across all genomes.
         logger.info(
-            f"  Counting {len(candidates)} candidates across {len(self.genome_set.get_all_genomes())} genomes..."
+            f"  Counting {len(candidates)} candidates across "
+            f"{len(self.genome_set.get_all_genomes())} genomes..."
         )
-        all_counts = self.kmer_counter.count_candidates_all_genomes(candidates)
+        all_counts = self._count_candidates_all_genomes(candidates)
 
         # Load counts into filter
         for genome in self.genome_set.get_all_genomes():
@@ -366,6 +405,7 @@ class MultiGenomePipeline:
 
         # Filter primers
         passing, scores = mg_filter.filter_primers(candidates, verbose=True)
+
 
         logger.info(f"  Multi-genome filtering: {len(candidates)} → {len(passing)} primers")
 

@@ -8,6 +8,25 @@ from neoswga.core import utility as _utility
 
 logger = logging.getLogger(__name__)
 
+
+# Polymerase-aware Mg2+ defaults (mM). phi29 / equiphi29 / klenow all use ~10 mM in
+# vendor-recommended buffers (the standard phi29 buffer is 10 mM MgCl2 with
+# 10 mM (NH4)2SO4 and 4 mM DTT); bst tolerates lower Mg2+. Unknown polymerases fall
+# back to 10 mM rather than the old 2 mM value, which was suboptimal for every
+# supported polymerase.
+#
+# Module-level and public so callers that emit a params.json -- notably
+# core/wizard.py -- write the same value the pipeline would otherwise default to,
+# instead of hardcoding a fifth independent copy. Writing a *wrong* explicit value is
+# worse than omitting the key, because an explicit key suppresses the default below.
+MG_DEFAULTS_MM = {"phi29": 10.0, "equiphi29": 10.0, "bst": 8.0, "klenow": 10.0}
+MG_DEFAULT_FALLBACK_MM = 10.0
+
+
+def default_mg_conc(polymerase: str) -> float:
+    """Return the default Mg2+ concentration (mM) for a polymerase."""
+    return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
+
 src_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Optimization parameters (loaded from JSON)
@@ -733,13 +752,9 @@ def get_params(args):
     # Load from JSON file if present, otherwise use module defaults
     polymerase = data.get("polymerase", "phi29")
     na_conc = data.get("na_conc", 50.0)
-    # Polymerase-aware Mg2+ defaults (mM). phi29 / equiphi29 / klenow all use
-    # ~10 mM in vendor-recommended buffers; bst tolerates lower Mg2+. Fall back
-    # to 10 mM for unknown polymerases rather than the old 2 mM value which was
-    # suboptimal for every supported polymerase.
-    _mg_defaults = {"phi29": 10.0, "equiphi29": 10.0, "bst": 8.0, "klenow": 10.0}
+    _mg_defaults = MG_DEFAULTS_MM
     if "mg_conc" not in data and "mg_conc" not in _json_data:
-        mg_conc = _mg_defaults.get(polymerase.lower(), 10.0)
+        mg_conc = default_mg_conc(polymerase)
         # Review I5: mg_conc default changed from 2.0 (pre-3.7) to polymerase-
         # aware values (phi29/equiphi29/klenow 10, bst 8). Surface the shift
         # so users rerunning an older params.json without mg_conc see why the
@@ -750,7 +765,7 @@ def get_params(args):
             f"to 2.0 mM. Pin 'mg_conc' in params.json to lock the value."
         )
     else:
-        mg_conc = data.get("mg_conc", _mg_defaults.get(polymerase.lower(), 10.0))
+        mg_conc = data.get("mg_conc", default_mg_conc(polymerase))
     primer_conc = data.get("primer_conc", 0.5e-6)
 
     # Auto-set reaction temperature based on polymerase if not specified
