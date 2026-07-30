@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from neoswga.core.registry import views as _registry_views
+
 logger = logging.getLogger(__name__)
 
 
@@ -153,12 +155,7 @@ def suggest_kmer_range(
         (min_k, max_k) inclusive bounds recommended for this scenario.
     """
     polymerase = (polymerase or "phi29").lower()
-    polymerase_bounds = {
-        "phi29": (6, 12),
-        "equiphi29": (10, 18),
-        "bst": (15, 25),
-        "klenow": (8, 15),
-    }
+    polymerase_bounds = _registry_views.primer_length_ranges()
     min_k, max_k = polymerase_bounds.get(polymerase, (6, 12))
 
     # Size-based adjustment: larger genomes need a longer minimum k so

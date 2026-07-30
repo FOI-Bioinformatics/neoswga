@@ -17,6 +17,7 @@ from neoswga.cli._common import (
     params_command,
     validate_params_json_file,
 )
+from neoswga.core.registry import polymerase_names as _polymerase_names
 
 logger = logging.getLogger(__name__)
 
@@ -928,7 +929,7 @@ def add_parsers(subparsers):
     rescore_parser.add_argument("-j", "--json-file", required=True)
     rescore_parser.add_argument("--primers", nargs="+", required=True)
     rescore_parser.add_argument("--primers-file")
-    rescore_parser.add_argument("--polymerase", choices=["phi29", "equiphi29", "bst", "klenow"])
+    rescore_parser.add_argument("--polymerase", choices=_polymerase_names())
     rescore_parser.add_argument("--reaction-temp", type=float)
     rescore_parser.add_argument("--mg-conc", type=float)
     rescore_parser.add_argument("--na-conc", type=float)

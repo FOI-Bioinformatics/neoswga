@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
-from neoswga.core.parameter import default_mg_conc
 from neoswga.core.genome_analysis import calculate_genome_stats, get_gc_class, recommend_adaptive_qa
+from neoswga.core.parameter import default_mg_conc
 
 logger = logging.getLogger(__name__)
 

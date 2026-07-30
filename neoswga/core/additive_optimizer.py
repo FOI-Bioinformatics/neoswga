@@ -35,6 +35,7 @@ from typing import Dict, List, Optional, Tuple
 from neoswga.core.mechanistic_model import MechanisticEffects, MechanisticModel
 from neoswga.core.mechanistic_params import get_polymerase_params
 from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.registry import views as _registry_views
 
 
 @dataclass
@@ -220,32 +221,10 @@ class AdditiveOptimizer:
     }
 
     # Constraints based on polymerase
-    POLYMERASE_CONSTRAINTS = {
-        "phi29": {
-            "max_dmso": 8.0,
-            "max_betaine": 2.5,
-            "optimal_temp": 30.0,
-            "max_primer_length_base": 12,
-        },
-        "equiphi29": {
-            "max_dmso": 6.0,  # More sensitive at higher temp
-            "max_betaine": 2.0,
-            "optimal_temp": 42.0,
-            "max_primer_length_base": 15,
-        },
-        "bst": {
-            "max_dmso": 5.0,
-            "max_betaine": 1.5,
-            "optimal_temp": 60.0,
-            "max_primer_length_base": 18,
-        },
-        "klenow": {
-            "max_dmso": 10.0,
-            "max_betaine": 2.0,
-            "optimal_temp": 37.0,
-            "max_primer_length_base": 12,
-        },
-    }
+    # Derived from the registry. Note `optimal_temp` here is the preset
+    # operating temperature, which differs from the canonical optimal_temp for
+    # bst (60.0 vs 63.0) - see registry/INCONSISTENCIES.md #3.
+    POLYMERASE_CONSTRAINTS = _registry_views.additive_optimizer_constraints()
 
     def __init__(self, polymerase: str = "phi29"):
         """

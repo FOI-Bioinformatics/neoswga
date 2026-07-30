@@ -37,7 +37,6 @@ from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.genome_io import GenomeCache, GenomeLoader
 from neoswga.core.hybrid_optimizer import HybridOptimizer
 from neoswga.core.kmer_counter import MultiGenomeKmerCounter
-from neoswga.core.thermodynamics import reverse_complement
 from neoswga.core.multi_genome_filter import (
     GenomeEntry,
     GenomeRole,
@@ -46,6 +45,7 @@ from neoswga.core.multi_genome_filter import (
     MultiGenomeScore,
 )
 from neoswga.core.thermodynamic_filter import create_filter_from_conditions
+from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
 
@@ -182,9 +182,7 @@ class MultiGenomePipeline:
         logger.info(f"  Output directory: {self.output_dir}")
         logger.info(genome_set.summary())
 
-    def _count_candidates_all_genomes(
-        self, candidates: List[str]
-    ) -> Dict[str, Dict[str, int]]:
+    def _count_candidates_all_genomes(self, candidates: List[str]) -> Dict[str, Dict[str, int]]:
         """
         Count every candidate primer in every registered genome.
 
@@ -405,7 +403,6 @@ class MultiGenomePipeline:
 
         # Filter primers
         passing, scores = mg_filter.filter_primers(candidates, verbose=True)
-
 
         logger.info(f"  Multi-genome filtering: {len(candidates)} → {len(passing)} primers")
 

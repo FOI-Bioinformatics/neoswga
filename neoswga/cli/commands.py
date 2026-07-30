@@ -18,6 +18,8 @@ from neoswga.cli._common import (
     validate_params_json_file,
 )
 from neoswga.cli.pipeline import run_step1, run_step2, run_step3, run_step4
+from neoswga.core.registry import polymerase_names as _polymerase_names
+from neoswga.core.registry import views as _registry_views
 
 logger = logging.getLogger(__name__)
 
@@ -89,12 +91,9 @@ def run_suggest(args):
         if primer_length is None:
             # Default primer length by polymerase type
             polymerase = getattr(args, "polymerase", "phi29")
-            primer_length_defaults = {
-                "phi29": 9,
-                "equiphi29": 15,
-                "bst": 20,
-                "klenow": 12,
-            }
+            # Scalar suggested length - distinct from the (min_k, max_k) design
+            # window in POLYMERASE_PRIMER_LENGTHS.
+            primer_length_defaults = _registry_views.default_primer_lengths()
             primer_length = primer_length_defaults.get(polymerase, 10)
         if genome_gc is None:
             genome_gc = 0.5
@@ -618,7 +617,7 @@ def add_parsers(subparsers):
     )
     suggest_parser.add_argument(
         "--polymerase",
-        choices=["phi29", "equiphi29", "bst", "klenow"],
+        choices=_polymerase_names(),
         default="phi29",
         help="Polymerase type (default: phi29)",
     )

@@ -21,6 +21,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# The registry is stdlib-only on purpose, so importing it here does not drag the
+# numpy/scipy stack into `neoswga validate-params`.
+from neoswga.core.registry import polymerase_names as _polymerase_names
+from neoswga.core.registry import views as _registry_views
+
 logger = logging.getLogger(__name__)
 
 
@@ -91,7 +96,7 @@ PARAM_RANGES = {
     "cpus": (1, 128),
 }
 
-VALID_POLYMERASES = ["phi29", "equiphi29", "bst", "klenow"]
+VALID_POLYMERASES = _polymerase_names()
 # Must stay in step with what the pipeline actually accepts:
 #   - the four optimizers registered via @OptimizerFactory.register() plus their
 #     declared aliases (see neoswga/core/{hybrid,network,background_aware}_optimizer.py
@@ -121,21 +126,14 @@ VALID_OPTIMIZATION_METHODS = [
     "bg-aware",
 ]
 
-# Polymerase temperature ranges
-POLYMERASE_TEMP_RANGES = {
-    "phi29": (20.0, 40.0),
-    "equiphi29": (40.0, 47.0),
-    "bst": (55.0, 70.0),
-    "klenow": (20.0, 42.0),
-}
+# Polymerase temperature ranges used for WARNINGS. Deliberately distinct from the
+# hard reject bounds in ReactionConditions._validate and from the vendor-optimal
+# band in POLYMERASE_CHARACTERISTICS. See registry/INCONSISTENCIES.md #2: the
+# klenow warn band is currently wider than the reject band.
+POLYMERASE_TEMP_RANGES = _registry_views.warn_temp_ranges()
 
-# Recommended primer lengths by polymerase
-POLYMERASE_PRIMER_LENGTHS = {
-    "phi29": (6, 12),
-    "equiphi29": (10, 18),
-    "bst": (15, 25),
-    "klenow": (8, 15),
-}
+# Recommended primer length design window by polymerase.
+POLYMERASE_PRIMER_LENGTHS = _registry_views.primer_length_ranges()
 
 
 class ParamValidator:

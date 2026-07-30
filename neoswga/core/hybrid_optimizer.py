@@ -21,6 +21,7 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from dataclasses import replace as _dc_replace
 from typing import Dict, List, Optional, Tuple
 
 import networkx as nx
@@ -28,6 +29,7 @@ import numpy as np
 
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
+from neoswga.core.registry import POLYMERASES as _POLYMERASES
 
 logger = logging.getLogger(__name__)
 
@@ -51,48 +53,40 @@ class PolymeraseConfig:
     max_gc: float = 0.75
 
 
-# Standard polymerase presets
+# Standard polymerase presets, derived from the registry.
+#
+# NOTE `max_extension` is the SET-COVER reach, which is a different quantity from
+# `processivity` in POLYMERASE_CHARACTERISTICS. For bst the seeded value (10000)
+# exceeds bst processivity (2000), which is physically impossible - see
+# registry/INCONSISTENCIES.md #1. It is carried verbatim here because changing it
+# re-ranks every bst hybrid-optimizer result.
 POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
-    "phi29": PolymeraseConfig(
-        max_extension=70000,
-        thermo_filter=False,
-        primer_multiplier=1.0,
-        reaction_temp=30.0,
-        min_primer_tm=20.0,
-        max_primer_tm=50.0,
-    ),
-    "equiphi29": PolymeraseConfig(
-        max_extension=80000,
-        thermo_filter=True,
-        primer_multiplier=0.85,
-        reaction_temp=42.0,
-        min_primer_tm=37.0,
-        max_primer_tm=62.0,
-        min_gc=0.25,
-        max_gc=0.75,
-    ),
-    "bst": PolymeraseConfig(
-        max_extension=10000,
-        thermo_filter=True,
-        primer_multiplier=1.0,
-        reaction_temp=60.0,
-        min_primer_tm=50.0,
-        max_primer_tm=75.0,
-    ),
-    "klenow": PolymeraseConfig(
-        max_extension=5000,
-        thermo_filter=False,
-        primer_multiplier=1.0,
-        reaction_temp=37.0,
-        min_primer_tm=20.0,
-        max_primer_tm=55.0,
-    ),
+    key: PolymeraseConfig(
+        max_extension=spec.legacy_hybrid_max_extension,
+        thermo_filter=spec.thermo_filter,
+        primer_multiplier=spec.primer_multiplier,
+        reaction_temp=spec.preset_reaction_temp,
+        min_primer_tm=spec.primer_tm_range[0],
+        max_primer_tm=spec.primer_tm_range[1],
+        min_gc=spec.gc_range[0],
+        max_gc=spec.gc_range[1],
+    )
+    for key, spec in _POLYMERASES.items()
 }
 
 
 def _get_polymerase_config(polymerase: str) -> PolymeraseConfig:
-    """Get polymerase config, falling back to phi29 defaults."""
-    return POLYMERASE_PRESETS.get(polymerase, POLYMERASE_PRESETS["phi29"])
+    """Get a polymerase config, falling back to phi29 defaults.
+
+    Returns a COPY. `PolymeraseConfig` is a mutable dataclass and
+    `HybridOptimizer._adjust_for_gc` writes to `min_gc`/`max_gc` on the instance it
+    holds. Handing out the shared preset let one genome's GC adaptation leak into
+    every optimizer constructed later in the same process -- so an AT-rich target
+    would silently widen the GC window for an unrelated GC-rich target in an
+    ensemble, multi-genome, or long-running session.
+    """
+    preset = POLYMERASE_PRESETS.get(polymerase, POLYMERASE_PRESETS["phi29"])
+    return _dc_replace(preset)
 
 
 @dataclass

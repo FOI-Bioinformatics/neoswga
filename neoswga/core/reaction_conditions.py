@@ -43,6 +43,7 @@ import numpy as np
 
 from neoswga.core import thermodynamics as thermo
 from neoswga.core.additives import AdditiveConcentrations
+from neoswga.core.registry import views as _registry_views
 
 # ========================================
 # Polymerase Characteristics Database
@@ -90,78 +91,11 @@ from neoswga.core.additives import AdditiveConcentrations
 # Dwivedi-Yu et al. (2023), not Dean et al. (2002), for this field.
 # ---------------------------------------------------------------------------
 
-POLYMERASE_CHARACTERISTICS = {
-    "phi29": {
-        "name": "Phi29 DNA Polymerase",
-        "temp_range": (30.0, 40.0),
-        "optimal_temp": 30.0,
-        "processivity": 70000,  # ~70kb, Blanco et al. (1989) JBC 264:8935
-        # typical_amplicon_length = effective per-primer reach in a dense
-        # SWGA design. Clarke et al. (2017) filter their M. tuberculosis
-        # candidate sets to mean inter-primer spacing <5 kb; Dwivedi-Yu
-        # et al. (2023) report Prevotella sets at 1 site per 2-5 kbp
-        # (successful) and 1 per 2.8-7.4 kbp (unsuccessful). At these
-        # densities, extension from any one primer is truncated by
-        # downstream primer-initiated strand displacement after ~2-5 kb.
-        # NB: this is NOT the gel fragment size of the amplified product
-        # (Dean 2002 / Picher 2016 report ~10 kb mean gel bands for
-        # unselective phi29 MDA); it is the coverage-scoring reach per
-        # primer site in a selective multi-primer reaction.
-        "typical_amplicon_length": 3000,  # bp, +/- 1 kb uncertainty
-        "strand_displacement": True,
-        "exonuclease": "3to5",  # Proofreading
-        "error_rate": 1e-6,  # Very high fidelity
-        "requires_primer": True,
-        "description": "High-fidelity, high-processivity polymerase for MDA/SWGA",
-    },
-    "equiphi29": {
-        "name": "EquiPhi29 DNA Polymerase",
-        "temp_range": (42.0, 45.0),
-        "optimal_temp": 42.0,
-        "processivity": 80000,  # ~80kb at elevated temp (NEB data)
-        # Slightly longer effective reach than phi29 due to reduced
-        # secondary-structure interference at 42-45 C; SWGA designs using
-        # equiphi29 can tolerate slightly sparser primer spacing before
-        # extension is truncated. Still bounded by primer density, not
-        # processivity.
-        "typical_amplicon_length": 4000,  # bp, +/- 1 kb uncertainty
-        "strand_displacement": True,
-        "exonuclease": "3to5",
-        "error_rate": 1e-6,
-        "requires_primer": True,
-        "description": "Thermostable phi29 variant for higher specificity",
-    },
-    "bst": {
-        "name": "Bst 2.0/3.0 DNA Polymerase",
-        "temp_range": (60.0, 65.0),
-        "optimal_temp": 63.0,
-        "processivity": 2000,  # ~1-2kb, Notomi et al. (2000) NAR 28:e63
-        # Already processivity-limited; LAMP-context reaction times
-        # (30-60 min) shrink realised per-primer reach further.
-        "typical_amplicon_length": 1000,  # bp, +/- 0.5 kb uncertainty
-        "strand_displacement": True,
-        "exonuclease": "none",  # Large fragment lacks exo
-        "error_rate": 1e-4,  # Lower fidelity
-        "requires_primer": True,
-        "description": "LAMP-compatible, high-temperature isothermal amplification",
-    },
-    "klenow": {
-        "name": "Klenow Fragment (exo-)",
-        "temp_range": (25.0, 40.0),
-        "optimal_temp": 37.0,
-        "processivity": 10000,  # ~10kb, Bambara et al. (1978) JBC 253:413
-        # Despite 10 kb processivity, lower extension rate (50 nt/s vs
-        # phi29's 150) and moderate strand-displacement activity produce
-        # ~1-2 kb effective per-primer reach in SWGA-style multi-primer
-        # reactions.
-        "typical_amplicon_length": 1500,  # bp, +/- 0.5 kb uncertainty
-        "strand_displacement": True,  # Moderate
-        "exonuclease": "none",  # exo- variant
-        "error_rate": 1e-4,
-        "requires_primer": True,
-        "description": "Budget-friendly alternative with moderate processivity",
-    },
-}
+# The table itself now lives in neoswga/core/registry/polymerases.py, which is the
+# single source of truth for polymerase facts. This name is kept as a derived view
+# so the many existing importers keep working unchanged; see also
+# registry/INCONSISTENCIES.md for values that are deliberately seeded as-is.
+POLYMERASE_CHARACTERISTICS = _registry_views.as_characteristics()
 
 
 def get_polymerase_processivity(polymerase: str) -> int:
@@ -337,13 +271,12 @@ class ReactionConditions:
 
     def _validate(self):
         """Validate reaction condition parameters."""
-        # Temperature range depends on polymerase
-        polymerase_temp_ranges = {
-            "phi29": (20, 40),
-            "equiphi29": (30, 50),
-            "bst": (50, 72),
-            "klenow": (25, 40),
-        }
+        # Temperature range depends on polymerase. These are the HARD reject
+        # bounds and are deliberately wider than the vendor-optimal
+        # `temp_range` in POLYMERASE_CHARACTERISTICS, and different again from
+        # the warn bounds in param_validator - three distinct concepts, all
+        # carried separately by the registry.
+        polymerase_temp_ranges = _registry_views.hard_temp_ranges()
 
         if self.polymerase not in polymerase_temp_ranges:
             raise ValueError(

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from neoswga.core import utility as _utility
+from neoswga.core.registry import views as _registry_views
 
 logger = logging.getLogger(__name__)
 
@@ -19,13 +20,14 @@ logger = logging.getLogger(__name__)
 # core/wizard.py -- write the same value the pipeline would otherwise default to,
 # instead of hardcoding a fifth independent copy. Writing a *wrong* explicit value is
 # worse than omitting the key, because an explicit key suppresses the default below.
-MG_DEFAULTS_MM = {"phi29": 10.0, "equiphi29": 10.0, "bst": 8.0, "klenow": 10.0}
+MG_DEFAULTS_MM = _registry_views.mg_defaults()
 MG_DEFAULT_FALLBACK_MM = 10.0
 
 
 def default_mg_conc(polymerase: str) -> float:
     """Return the default Mg2+ concentration (mM) for a polymerase."""
     return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
+
 
 src_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -635,12 +637,7 @@ def get_params(args):
     _polymerase_default = (
         data.get("polymerase") or _json_data.get("polymerase") or "phi29"
     ).lower()
-    _polymerase_kmer_defaults = {
-        "phi29": (6, 12),
-        "equiphi29": (10, 18),
-        "bst": (15, 25),
-        "klenow": (8, 15),
-    }
+    _polymerase_kmer_defaults = _registry_views.primer_length_ranges()
     _def_min_k, _def_max_k = _polymerase_kmer_defaults.get(_polymerase_default, (6, 12))
     if "min_k" not in data and "min_k" not in _json_data:
         data["min_k"] = _def_min_k

@@ -13,6 +13,8 @@ import logging
 import os
 import sys
 
+from neoswga.core.registry import polymerase_names as _polymerase_names
+
 logger = logging.getLogger(__name__)
 
 
@@ -576,7 +578,7 @@ def add_common_options(parser):
     parser.add_argument("-z", "--data-dir", type=str, help="Data directory")
     parser.add_argument(
         "--polymerase",
-        choices=["phi29", "equiphi29", "bst", "klenow"],
+        choices=_polymerase_names(),
         help="Polymerase type: phi29 (30-40C), equiphi29 (42-45C), bst (60-65C), klenow (25-40C)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")

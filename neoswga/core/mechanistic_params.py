@@ -25,6 +25,8 @@ References:
 
 from typing import Any, Dict, Tuple
 
+from neoswga.core.registry import views as _registry_views
+
 # =============================================================================
 # Additive Tm Correction Parameters (Arrhenius-based)
 # =============================================================================
@@ -165,53 +167,10 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
     # Pathway 3: Enzyme activity modifiers
     # How conditions affect polymerase performance
     "enzyme": {
-        # Phi29 polymerase characteristics
-        "phi29": {
-            "optimal_temp": 30.0,  # C
-            "processivity": 70000,  # bp, Blanco 1989
-            "processivity_step": 0.99857,  # Per 100bp step for stochastic model
-            "extension_rate": 150,  # nt/s at optimal temp (median of 100-170 range)
-            # EMPIRICAL: no single primary-literature value for phi29 DMSO
-            # tolerance. 5% is the practical upper bound in common vendor
-            # protocols (NEB, Epicentre) above which yield drops sharply; the
-            # mild (0.02) / steep (0.12) coefficients are fit to reproduce
-            # that drop in the mechanistic model rather than measured directly.
-            # Verify against in-house titration before publishing absolute
-            # amplification predictions; relative rankings remain valid.
-            "dmso_threshold": 5.0,  # % before steep inhibition
-            "dmso_mild_coef": 0.02,  # activity reduction per % below threshold
-            "dmso_steep_coef": 0.12,  # activity reduction per % above threshold
-        },
-        # EquiPhi29 (thermostable variant)
-        "equiphi29": {
-            "optimal_temp": 42.0,
-            "processivity": 80000,
-            "processivity_step": 0.99875,  # Per 100bp step for stochastic model
-            "extension_rate": 200,  # nt/s (thermally enhanced)
-            "dmso_threshold": 4.0,  # slightly less tolerant
-            "dmso_mild_coef": 0.025,
-            "dmso_steep_coef": 0.15,
-        },
-        # Bst polymerase
-        "bst": {
-            "optimal_temp": 63.0,
-            "processivity": 2000,
-            "processivity_step": 0.9512,  # Per 100bp step for stochastic model
-            "extension_rate": 100,
-            "dmso_threshold": 3.0,
-            "dmso_mild_coef": 0.03,
-            "dmso_steep_coef": 0.18,
-        },
-        # Klenow fragment
-        "klenow": {
-            "optimal_temp": 37.0,
-            "processivity": 10000,
-            "processivity_step": 0.99005,  # Per 100bp step for stochastic model
-            "extension_rate": 50,
-            "dmso_threshold": 5.0,
-            "dmso_mild_coef": 0.02,
-            "dmso_steep_coef": 0.10,
-        },
+        # Per-polymerase values come from the registry (single source of truth);
+        # the shared additive/Mg keys below stay here because they are not
+        # per-enzyme. See neoswga/core/registry/polymerases.py.
+        **_registry_views.mechanistic_enzyme_params(),
         # Betaine effect: enhancement at low conc, inhibition at high
         # EMPIRICAL: peak at 1 M is an operating-point choice, not a measurement.
         # Rees et al. (1993) reported ~5.2 M for full AT/GC Tm equalization, but
