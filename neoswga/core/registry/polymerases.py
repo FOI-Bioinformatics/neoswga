@@ -182,8 +182,9 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
     ),
     "bst": PolymeraseSpec(
         key="bst",
-        display_name="Bst 2.0/3.0 DNA Polymerase",
+        display_name="Bst 2.0 DNA Polymerase, Large Fragment",
         description="LAMP-compatible, high-temperature isothermal amplification",
+        aliases=("bst2.0", "bst2"),
         optimal_temp=63.0,
         temp_optimal_range=(60.0, 65.0),
         temp_hard_range=(50.0, 72.0),
@@ -210,6 +211,93 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         additive_limits={"dmso_percent": 5.0, "betaine_m": 1.5},
         dmso_response={"threshold": 3.0, "mild_coef": 0.03, "steep_coef": 0.18},
         references=("Notomi et al. (2000) NAR 28:e63",),
+    ),
+    "bst3.0": PolymeraseSpec(
+        key="bst3.0",
+        display_name="Bst 3.0 DNA Polymerase",
+        description="Faster, more robust Bst variant with a wider thermal window",
+        aliases=("bst3",),
+        # NEB gives Bst 3.0 a 60-72 C window against Bst 2.0's 65 C optimum, and
+        # describes it as the fastest and most robust option for isothermal
+        # methods such as LAMP. That temperature difference is the sourced,
+        # substantive distinction between the two.
+        optimal_temp=68.0,
+        temp_optimal_range=(60.0, 72.0),
+        temp_hard_range=(50.0, 75.0),
+        temp_warn_range=(58.0, 73.0),
+        # Processivity, reach, rate and additive tolerance are SHARED with Bst
+        # 2.0 rather than differentiated: NEB publishes no separate figures, and
+        # inventing a difference would be worse than admitting there is no
+        # evidence for one.
+        processivity_bp=2000,
+        typical_amplicon_bp=1000,
+        legacy_hybrid_max_extension=10000,
+        extension_rate_nt_s=100,
+        processivity_step=0.9512,
+        strand_displacement=True,
+        exonuclease="none",
+        error_rate=1e-4,
+        mg_default_mm=8.0,
+        primer_length_range=(15, 25),
+        default_primer_length=20,
+        additive_opt_base_length=18,
+        primer_tm_range=(50.0, 78.0),
+        gc_range=(0.25, 0.75),
+        preset_reaction_temp=68.0,
+        thermo_filter=True,
+        primer_multiplier=1.0,
+        additive_limits={"dmso_percent": 5.0, "betaine_m": 1.5},
+        dmso_response={"threshold": 3.0, "mild_coef": 0.03, "steep_coef": 0.18},
+        references=("NEB Bst 3.0 product documentation",),
+    ),
+    "bsu": PolymeraseSpec(
+        key="bsu",
+        display_name="Bsu DNA Polymerase, Large Fragment",
+        description="Mesophilic strand-displacing polymerase; the low-temperature "
+        "alternative to Klenow with genuine strand displacement",
+        aliases=("bsu-lf", "bsu_large_fragment"),
+        # SOURCED (NEB M0330 / Watchmaker datasheet): optimal 37 C, usable
+        # 25-50 C depending on application; heat-inactivated at 75 C for 20 min;
+        # lacks BOTH 5'->3' and 3'->5' exonuclease; strand-displacing, and used
+        # for RPA and other isothermal amplification.
+        optimal_temp=37.0,
+        temp_optimal_range=(25.0, 50.0),
+        temp_hard_range=(20.0, 55.0),
+        temp_warn_range=(25.0, 50.0),
+        # NOT PUBLISHED. Neither NEB nor Watchmaker states a processivity for
+        # Bsu LF. This value is INFERRED, not sourced: Bsu large fragment is the
+        # B. subtilis Pol I large fragment, structurally the counterpart of the
+        # E. coli Pol I large fragment (Klenow), which is distributive at 5-40 nt.
+        # Treat it as an order-of-magnitude placeholder and do not cite it.
+        processivity_bp=50,
+        # Effective reach is set above Klenow's 500 bp because Bsu is described
+        # as strand-displacing and is used for RPA, which requires real
+        # displacement activity - Klenow's is only moderate. Also an estimate.
+        typical_amplicon_bp=1000,
+        legacy_hybrid_max_extension=1000,
+        extension_rate_nt_s=50,
+        processivity_step=0.99005,
+        strand_displacement=True,
+        exonuclease="none",
+        error_rate=1e-4,
+        # SOURCED: recommended buffer is 10 mM MgCl2, 50 mM NaCl, 1 mM DTT,
+        # 10 mM Tris-HCl pH 7.9.
+        mg_default_mm=10.0,
+        primer_length_range=(8, 15),
+        default_primer_length=12,
+        additive_opt_base_length=12,
+        primer_tm_range=(20.0, 55.0),
+        gc_range=(0.25, 0.75),
+        preset_reaction_temp=37.0,
+        thermo_filter=False,
+        primer_multiplier=1.0,
+        distributive=True,
+        additive_limits={"dmso_percent": 10.0, "betaine_m": 2.0},
+        dmso_response={"threshold": 5.0, "mild_coef": 0.02, "steep_coef": 0.10},
+        references=(
+            "NEB M0330 Bsu DNA Polymerase, Large Fragment",
+            "Watchmaker Genomics Bsu DNA Polymerase Large Fragment datasheet",
+        ),
     ),
     "klenow": PolymeraseSpec(
         key="klenow",

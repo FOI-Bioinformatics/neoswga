@@ -115,9 +115,17 @@ class TestPolymeraseConfig:
         assert config.reaction_temp == 37.0
 
     def test_all_presets_present(self):
-        """Test that all expected polymerase presets are defined."""
-        expected = {'phi29', 'equiphi29', 'bst', 'klenow'}
-        assert set(POLYMERASE_PRESETS.keys()) == expected
+        """Presets must cover the registry, and never lose the original four.
+
+        This was an exact-set equality, which made adding any polymerase a test
+        failure rather than a one-line registry edit. Split into the two things
+        it was actually protecting: agreement with the registry (the real
+        invariant) and a floor under the four that shipped originally.
+        """
+        from neoswga.core.registry import POLYMERASES
+
+        assert set(POLYMERASE_PRESETS) == set(POLYMERASES)
+        assert {'phi29', 'equiphi29', 'bst', 'klenow'} <= set(POLYMERASE_PRESETS)
 
     def test_get_polymerase_config_known(self):
         """Test that known polymerase names return correct config."""

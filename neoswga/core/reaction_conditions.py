@@ -226,6 +226,10 @@ class ReactionConditions:
         tmac_m: float = 0.0,
         na_conc: float = 50.0,
         mg_conc: Optional[float] = None,
+        k_conc: float = 0.0,
+        nh4_conc: float = 0.0,
+        dntp_conc: float = 0.0,
+        dtt_mm: float = 0.0,
         ssb: bool = False,
         polymerase: str = "phi29",
     ):
@@ -272,6 +276,20 @@ class ReactionConditions:
         if mg_conc is None:
             mg_conc = _registry_views.mg_defaults().get(self.polymerase, 10.0)
         self.mg_conc = mg_conc
+        # Additional buffer species. Defaults of 0 reproduce the previous
+        # behaviour exactly. They exist because a real isothermal buffer could
+        # not be expressed before: the standard phi29 buffer supplies its
+        # monovalent cations as 10 mM (NH4)2SO4 (= 20 mM NH4+) with no sodium at
+        # all, and an alternative formulation uses 66 mM K-acetate. Users had to
+        # misreport those as na_conc.
+        self.k_conc = k_conc
+        self.nh4_conc = nh4_conc
+        # Total dNTP (sum of all four) in mM. Chelates Mg2+ ~1:1, so free Mg2+
+        # is below nominal total (von Ahsen et al. 2001 Clin Chem 47:1956).
+        self.dntp_conc = dntp_conc
+        # DTT is in every phi29 buffer at 1-4 mM. Recorded for protocol export
+        # and completeness; it has no melting-temperature term.
+        self.dtt_mm = dtt_mm
 
         # Validate inputs
         self._validate()
@@ -508,7 +526,15 @@ class ReactionConditions:
             Effective Tm in degrees Celsius
         """
         # Calculate base Tm with salt
-        tm_base = thermo.calculate_tm_with_salt(seq, self.na_conc, self.mg_conc, primer_conc)
+        tm_base = thermo.calculate_tm_with_salt(
+            seq,
+            self.na_conc,
+            self.mg_conc,
+            primer_conc,
+            k_conc=self.k_conc,
+            nh4_conc=self.nh4_conc,
+            dntp_conc=self.dntp_conc,
+        )
 
         # Calculate GC content for GC-dependent corrections
         gc = thermo.gc_content(seq)
@@ -918,6 +944,10 @@ class ReactionConditions:
             "tmac_m": self.tmac_m,
             "na_conc": self.na_conc,
             "mg_conc": self.mg_conc,
+            "k_conc": self.k_conc,
+            "nh4_conc": self.nh4_conc,
+            "dntp_conc": self.dntp_conc,
+            "dtt_mm": self.dtt_mm,
             "ssb": self.ssb,
             "polymerase": self.polymerase,
         }

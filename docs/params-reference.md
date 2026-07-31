@@ -36,7 +36,9 @@ neoswga schema --dump > params.schema.json
 | `bsa_ug_ml` | number | min: 0.0; max: 400.0 | `0.0` | - |
 | `cpus` | integer | min: 1; max: 128 | - | - |
 | `dmso_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |
+| `dntp_conc` | number | min: 0.0; max: 10.0 | `0.0` | Total dNTP concentration (mM, sum of all four). Chelates Mg2+ roughly 1:1, lowering free Mg2+. |
 | `drop_iterations` | integer | min: 0; max: 100 | - | - |
+| `dtt_mm` | number | min: 0.0; max: 20.0 | `0.0` | DTT concentration (mM). Recorded for protocol completeness; no melting-temperature term. |
 | `ethanol_percent` | number | min: 0.0; max: 5.0 | `0.0` | - |
 | `excl_genomes` | array of string | - | - | Zero-tolerance exclusion genomes (e.g., mtDNA). |
 | `excl_prefixes` | array of string | - | - | - |
@@ -50,6 +52,7 @@ neoswga schema --dump > params.schema.json
 | `genome_gc` | number | min: 0.0; max: 1.0 | - | - |
 | `glycerol_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
 | `iterations` | integer | min: 1; max: 100 | `8` | - |
+| `k_conc` | number | min: 0.0; max: 1000.0 | `0.0` | K+ concentration (mM). Sums with na_conc and nh4_conc into ionic strength. |
 | `long_primer_mode` | boolean | - | `False` | - |
 | `max_bg_freq` | number | min: 0.0; max: 1.0 | - | - |
 | `max_bl_freq` | number | min: 0.0; max: 1.0 | `0.0` | Maximum permissible blacklist frequency; 0 = zero tolerance. |
@@ -67,10 +70,11 @@ neoswga schema --dump > params.schema.json
 | `min_sample_count` | integer | min: 1 | - | - |
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
+| `nh4_conc` | number | min: 0.0; max: 1000.0 | `0.0` | NH4+ concentration (mM). The standard phi29 buffer supplies 20 mM NH4+ as 10 mM (NH4)2SO4. |
 | `num_primers` | integer | min: 1; max: 50 | `6` | - |
 | `optimization_method` | string | one of: hybrid, dominating-set, network, background-aware, ensemble, auto, all, hybrid-optimizer, two-stage, ds, set-cover, network-optimizer, tm-weighted, clinical, bg-aware | `hybrid` | Optimizer to use. The four canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias. |
 | `peg_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
-| `polymerase` | string | one of: phi29, equiphi29, bst, klenow | `phi29` | - |
+| `polymerase` | string | one of: phi29, equiphi29, bst, bst3.0, bsu, klenow | `phi29` | - |
 | `primer_conc` | number | min: 1e-09; max: 0.0001 | `5e-07` | - |
 | `reaction_temp` | number | min: 20.0; max: 70.0 | - | - |
 | `retries` | integer | min: 0; max: 100 | - | - |
@@ -78,6 +82,7 @@ neoswga schema --dump > params.schema.json
 | `schema_version` | integer | min: 1; max: 2 | `2` | Version of this schema the file was written for. Version 2 corrected several scientific constants (Klenow processivity, phi29 extension rate, the Mg2+ activity model, the AG/TC nearest-neighbour parameter) and changed the mg_conc default from 0.0 to the polymerase buffer value; a v1 file still runs but produces different numbers. |
 | `selection_metric` | string | one of: deterministic, random, stochastic | - | - |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
+| `ssb` | boolean | - | `False` | Single-stranded binding protein present. Previously accepted by the CLI but absent from this schema. |
 | `target_set_size` | integer | min: 1; max: 50 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
 | `top_set_count` | integer | min: 1; max: 100 | - | - |

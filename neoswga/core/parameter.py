@@ -29,6 +29,39 @@ MG_DEFAULT_FALLBACK_MM = 10.0
 # rather than letting the difference look like nondeterminism.
 CURRENT_SCHEMA_VERSION = 2
 
+# Canonical list of reaction-chemistry parameters that must flow
+# params.json -> module globals -> ReactionConditions. Adding an entry here
+# wires it through get_params, get_current_config and set_from_config at once.
+#
+# This exists because four of them (glycerol_percent, peg_percent, bsa_ug_ml,
+# ssb) were schema-valid and CLI-exposed but had no field here, so get_params
+# never read them: users could set them, validate-params would pass, and the
+# pipeline silently ignored them. tests/test_reaction_params_reach_pipeline.py
+# enforces that this list stays in step with PipelineParameters,
+# ReactionConditions and the JSON schema.
+REACTION_PARAM_DEFAULTS = {
+    # Tm-active additives
+    "dmso_percent": 0.0,
+    "betaine_m": 0.0,
+    "trehalose_m": 0.0,
+    "formamide_percent": 0.0,
+    "ethanol_percent": 0.0,
+    "urea_m": 0.0,
+    "tmac_m": 0.0,
+    # Recorded but with no Tm model - they act on the enzyme, not the duplex
+    "glycerol_percent": 0.0,
+    "peg_percent": 0.0,
+    "bsa_ug_ml": 0.0,
+    # Buffer species. K+ and NH4+ sum with Na+ into ionic strength; dNTPs
+    # chelate Mg2+ ~1:1; DTT is recorded for protocol completeness.
+    "k_conc": 0.0,
+    "nh4_conc": 0.0,
+    "dntp_conc": 0.0,
+    "dtt_mm": 0.0,
+    # Single-stranded binding protein (boolean; see reaction_conditions)
+    "ssb": False,
+}
+
 SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is distributive; the old figure
     cited a paper that does not support it). Klenow coverage estimates drop.
   - phi29 extension rate 150 -> 53 nt/s (Blanco 1989). Simulated timings only.
@@ -128,6 +161,18 @@ class PipelineParameters:
     urea_m: float = 0.0
     tmac_m: float = 0.0
 
+    # Enzyme-acting additives (no Tm model; recorded and passed through)
+    glycerol_percent: float = 0.0
+    peg_percent: float = 0.0
+    bsa_ug_ml: float = 0.0
+    ssb: bool = False
+
+    # Buffer species beyond Na+/Mg2+
+    k_conc: float = 0.0
+    nh4_conc: float = 0.0
+    dntp_conc: float = 0.0
+    dtt_mm: float = 0.0
+
     # Optimization settings
     iterations: int = 8
     max_sets: int = 5
@@ -209,13 +254,7 @@ def get_current_config() -> PipelineParameters:
         na_conc=globals().get("na_conc", 50.0),
         mg_conc=globals().get("mg_conc", 2.0),
         primer_conc=globals().get("primer_conc", 0.5e-6),
-        dmso_percent=globals().get("dmso_percent", 0.0),
-        betaine_m=globals().get("betaine_m", 0.0),
-        trehalose_m=globals().get("trehalose_m", 0.0),
-        formamide_percent=globals().get("formamide_percent", 0.0),
-        ethanol_percent=globals().get("ethanol_percent", 0.0),
-        urea_m=globals().get("urea_m", 0.0),
-        tmac_m=globals().get("tmac_m", 0.0),
+        **{_n: globals().get(_n, _d) for _n, _d in REACTION_PARAM_DEFAULTS.items()},
         iterations=globals().get("iterations", 8),
         max_sets=globals().get("max_sets", 5),
         retries=globals().get("retries", 5),
@@ -297,14 +336,9 @@ def set_from_config(config: PipelineParameters) -> None:
     g["mg_conc"] = config.mg_conc
     g["primer_conc"] = config.primer_conc
 
-    # Thermodynamic additives
-    g["dmso_percent"] = config.dmso_percent
-    g["betaine_m"] = config.betaine_m
-    g["trehalose_m"] = config.trehalose_m
-    g["formamide_percent"] = config.formamide_percent
-    g["ethanol_percent"] = config.ethanol_percent
-    g["urea_m"] = config.urea_m
-    g["tmac_m"] = config.tmac_m
+    # Reaction-chemistry parameters, driven by REACTION_PARAM_DEFAULTS
+    for _name in REACTION_PARAM_DEFAULTS:
+        g[_name] = getattr(config, _name)
 
     # Optimization settings
     g["iterations"] = config.iterations
@@ -399,7 +433,8 @@ na_conc = 50.0  # mM
 mg_conc = 2.0  # mM
 primer_conc = 0.5e-6  # M (0.5 uM)
 
-# Thermodynamic additives
+# Thermodynamic additives and other reaction-chemistry parameters.
+# Declared from REACTION_PARAM_DEFAULTS so this block cannot drift from it.
 dmso_percent = 0.0
 betaine_m = 0.0
 trehalose_m = 0.0
@@ -407,6 +442,14 @@ formamide_percent = 0.0
 ethanol_percent = 0.0
 urea_m = 0.0
 tmac_m = 0.0
+glycerol_percent = 0.0
+peg_percent = 0.0
+bsa_ug_ml = 0.0
+ssb = False
+k_conc = 0.0
+nh4_conc = 0.0
+dntp_conc = 0.0
+dtt_mm = 0.0
 
 # Exclusion genome parameters (e.g., mitochondrial DNA, chloroplast sequences)
 excl_genomes = []
@@ -802,14 +845,11 @@ def get_params(args):
     else:
         reaction_temp = 30.0  # Default to phi29 temperature
 
-    # Thermodynamic additives (optional)
-    dmso_percent = data.get("dmso_percent", 0.0)
-    betaine_m = data.get("betaine_m", 0.0)
-    trehalose_m = data.get("trehalose_m", 0.0)
-    formamide_percent = data.get("formamide_percent", 0.0)
-    ethanol_percent = data.get("ethanol_percent", 0.0)
-    urea_m = data.get("urea_m", 0.0)
-    tmac_m = data.get("tmac_m", 0.0)
+    # Reaction-chemistry parameters (all optional). Driven by
+    # REACTION_PARAM_DEFAULTS so a new additive needs one edit, not seven.
+    _g = globals()
+    for _name, _default in REACTION_PARAM_DEFAULTS.items():
+        _g[_name] = data.get(_name, _default)
 
     # Store all reaction parameters in data dict
     data["polymerase"] = polymerase
@@ -817,13 +857,8 @@ def get_params(args):
     data["na_conc"] = na_conc
     data["mg_conc"] = mg_conc
     data["primer_conc"] = primer_conc
-    data["dmso_percent"] = dmso_percent
-    data["betaine_m"] = betaine_m
-    data["trehalose_m"] = trehalose_m
-    data["formamide_percent"] = formamide_percent
-    data["ethanol_percent"] = ethanol_percent
-    data["urea_m"] = urea_m
-    data["tmac_m"] = tmac_m
+    for _name in REACTION_PARAM_DEFAULTS:
+        data[_name] = _g[_name]
 
     if args.fasta_fore is not None:
         data["fg_genomes"] = get_all_files(args.fasta_fore)
