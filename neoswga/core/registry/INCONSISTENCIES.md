@@ -131,3 +131,32 @@ roughly 1:1, so free Mg2+ sits several mM below nominal total.
 
 The replacement test asserts that no polymerase's own default falls outside the
 model's usable band — the invariant the old value violated.
+
+---
+
+## 7. `normalized_score` does not use `max_gap`, and misranks validated sets
+
+Not a polymerase constant, but the same class of problem and tracked the same way.
+
+`PrimerSetMetrics.normalized_score` weights coverage, selectivity, dimer risk,
+evenness and Tm. It **computes `max_gap` and then ignores it**.
+
+Scored against the only wet-lab-validated benchmark available — the six
+*Prevotella* sets in Dwivedi-Yu et al. (2023), S2 Table statistics against S3
+Table outcomes — it ranks the two winners **3rd and 4th** and puts a 2.1x failure
+first, in every application profile. The full score spread is ~7 % across sets
+whose measured enrichment spans 60-fold.
+
+On that data `max_gap` is the strongest single predictor (Spearman rho -0.83, and
+ranking by it alone reproduces the measured top three in order), while mean
+binding distance — the metric the project's guidance previously treated as
+dominant — has essentially no correlation (rho -0.09).
+
+Tracked by a strict xfail in
+`tests/validation/test_published_primer_sets.py`. Full write-up in
+`docs/validation/published_primer_sets.md`.
+
+**Recommended resolution:** add a `max_gap` coverage-hole term to
+`normalized_score`. Not done here because it re-ranks all optimizer output and
+needs regenerated integration baselines — and because n = 6 is too few to fit
+weights on. Extend the benchmark first.

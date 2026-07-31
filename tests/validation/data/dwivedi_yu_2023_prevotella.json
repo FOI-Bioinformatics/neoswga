@@ -1,0 +1,148 @@
+{
+  "source": {
+    "citation": "Dwivedi-Yu JA, Oppler ZJ, Mitchell MW, Song YS, Brisson D (2023) A fast machine-learning-guided primer design pipeline for selective whole genome amplification. PLOS Comput Biol 19(4): e1010137.",
+    "doi": "10.1371/journal.pcbi.1010137",
+    "tables": "S2 Table (primer set statistics and sequences); S3 Table (percent reads mapping)",
+    "target_genome": "GCF_000144405.1 (Prevotella melaninogenica ATCC 25845)",
+    "background": "human",
+    "notes": "Primer sequences carry 3' phosphorothioate bonds, written as '*' in the source table and stripped here. Percentages are of 15 Mbp sequenced."
+  },
+  "control_pct_reads_on_target": 0.6,
+  "sets": {
+    "Prev01": {
+      "primers": [
+        "AACGATAG",
+        "ACGATAGA"
+      ],
+      "published": {
+        "fg_bg_ratio": 0.0538,
+        "size": 2,
+        "fg_gini": 0.6,
+        "fg_max_distance": 65300.0,
+        "fg_mean_distance": 7390.0,
+        "fg_std_deviation": 9240.0,
+        "bg_mean_distance": 137000.0
+      },
+      "outcome": {
+        "pct_reads_on_target": 1.23,
+        "fold_enrichment_vs_control": 2.05,
+        "successful": false
+      }
+    },
+    "Prev02": {
+      "primers": [
+        "AACGATAG",
+        "ACGATAGA",
+        "TGAGCGTA"
+      ],
+      "published": {
+        "fg_bg_ratio": 0.0494,
+        "size": 3,
+        "fg_gini": 0.566,
+        "fg_max_distance": 42200.0,
+        "fg_mean_distance": 5030.0,
+        "fg_std_deviation": 5950.0,
+        "bg_mean_distance": 102000.0
+      },
+      "outcome": {
+        "pct_reads_on_target": 1.24,
+        "fold_enrichment_vs_control": 2.07,
+        "successful": false
+      }
+    },
+    "Prev03": {
+      "primers": [
+        "ATCGGTAA",
+        "TACGAAGA",
+        "TCATCGGT",
+        "TATCGGTG"
+      ],
+      "published": {
+        "fg_bg_ratio": 0.0916,
+        "size": 4,
+        "fg_gini": 0.533,
+        "fg_max_distance": 31500.0,
+        "fg_mean_distance": 4100.0,
+        "fg_std_deviation": 4350.0,
+        "bg_mean_distance": 44800.0
+      },
+      "outcome": {
+        "pct_reads_on_target": 57.34,
+        "fold_enrichment_vs_control": 95.57,
+        "successful": true
+      }
+    },
+    "Prev04": {
+      "primers": [
+        "ACGATAGC",
+        "CGAAGATA",
+        "CACGATAG",
+        "ACGATAGT",
+        "AATTCATAATT",
+        "TGAGCGTA",
+        "GAGCGTAA",
+        "GCGTTAGT",
+        "GGCGTTAG"
+      ],
+      "published": {
+        "fg_bg_ratio": 0.0664,
+        "size": 9,
+        "fg_gini": 0.623,
+        "fg_max_distance": 33300.0,
+        "fg_mean_distance": 1980.0,
+        "fg_std_deviation": 2640.0,
+        "bg_mean_distance": 29900.0
+      },
+      "outcome": {
+        "pct_reads_on_target": 7.7,
+        "fold_enrichment_vs_control": 12.83,
+        "successful": true
+      }
+    },
+    "Prev05": {
+      "primers": [
+        "ACGATAGC",
+        "CGAAGATA",
+        "CACGATAG",
+        "ACGATAGT",
+        "AACGATAG",
+        "ACGATAGA"
+      ],
+      "published": {
+        "fg_bg_ratio": 0.0804,
+        "size": 6,
+        "fg_gini": 0.638,
+        "fg_max_distance": 37700.0,
+        "fg_mean_distance": 2760.0,
+        "fg_std_deviation": 3790.0,
+        "bg_mean_distance": 34300.0
+      },
+      "outcome": {
+        "pct_reads_on_target": 1.2,
+        "fold_enrichment_vs_control": 2.0,
+        "successful": false
+      }
+    },
+    "Prev06": {
+      "primers": [
+        "CGAACGA",
+        "CGAAGATA",
+        "GCGAACG"
+      ],
+      "published": {
+        "fg_bg_ratio": 0.098,
+        "size": 3,
+        "fg_gini": 0.552,
+        "fg_max_distance": 31300.0,
+        "fg_mean_distance": 4980.0,
+        "fg_std_deviation": 5460.0,
+        "bg_mean_distance": 50800.0
+      },
+      "outcome": {
+        "pct_reads_on_target": 72.22,
+        "fold_enrichment_vs_control": 120.37,
+        "successful": true
+      }
+    }
+  }
+}
