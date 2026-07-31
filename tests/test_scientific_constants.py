@@ -157,9 +157,12 @@ def test_bst_processivity_matches_notomi_2000():
     assert POLYMERASE_CHARACTERISTICS["bst"]["processivity"] == 2_000
 
 
-def test_klenow_processivity_matches_bambara_1978():
+def test_klenow_processivity_is_distributive():
     from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
-    assert POLYMERASE_CHARACTERISTICS["klenow"]["processivity"] == 10_000
+    # Corrected 2026-07: Klenow is distributive, 5-40 nt (42 nt measured,
+    # JACS 2013 PMC3738269). The former 10_000 bp cited Bambara 1978, which
+    # does not support it.
+    assert POLYMERASE_CHARACTERISTICS["klenow"]["processivity"] == 40
 
 
 @pytest.mark.parametrize("polymerase,expected_temp", [
@@ -192,12 +195,30 @@ def test_betaine_peak_in_operating_range():
     assert 0.5 <= peak <= 2.0
 
 
-def test_mg_optimal_consistent_with_rahman_2014():
-    """Mg2+ optimum should be in the 2-3 mM range for balanced GC targets,
-    per Rahman et al. (2014) PLoS One 9:e112515."""
+def test_mg_optimal_matches_isothermal_buffer():
+    """Mg2+ optimum must reflect strand-displacing isothermal amplification.
+
+    This test previously asserted a 2-3 mM PCR range citing "Rahman et al.
+    (2014) PLoS One 9:e112515". That attribution is wrong twice: the DOI is an
+    unrelated rice paper, and the real Rahman 2014 (Anwer Khan Modern Medical
+    College Journal 4(1):30-36) is a general PCR review, not a source for
+    isothermal chemistry.
+
+    Standard phi29 buffer is 10 mM MgCl2 (Thermo MAN0030290, NEB phi29 buffer),
+    which is also what the pipeline's own polymerase defaults use - so the old
+    value made the model penalise its own default configuration.
+    """
     from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
-    mg_opt = MECHANISTIC_MODEL_PARAMS["enzyme"]["mg_optimal"]
-    assert 2.0 <= mg_opt <= 3.0
+    from neoswga.core.registry import POLYMERASES
+
+    enzyme = MECHANISTIC_MODEL_PARAMS["enzyme"]
+    assert 8.0 <= enzyme["mg_optimal"] <= 12.0
+
+    # The model must not penalise any polymerase's own default concentration.
+    for key, spec in POLYMERASES.items():
+        assert (
+            enzyme["mg_low_threshold"] <= spec.mg_default_mm <= enzyme["mg_high_threshold"]
+        ), f"{key}: default {spec.mg_default_mm} mM Mg2+ falls outside the model's usable band"
 
 
 # ----------------------------------------------------------------------

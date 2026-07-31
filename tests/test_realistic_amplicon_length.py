@@ -32,7 +32,7 @@ import pytest
     ("phi29", 3000),
     ("equiphi29", 4000),
     ("bst", 1000),
-    ("klenow", 1500),
+    ("klenow", 500),
 ])
 def test_typical_amplicon_length_matches_literature(polymerase, expected):
     from neoswga.core.reaction_conditions import (
@@ -48,9 +48,16 @@ def test_typical_amplicon_strictly_shorter_than_processivity():
     from neoswga.core.reaction_conditions import (
         get_typical_amplicon_length, get_polymerase_processivity,
     )
+    from neoswga.core.registry import get_polymerase
+
     for poly in ("phi29", "equiphi29", "bst", "klenow"):
         reach = get_typical_amplicon_length(poly)
         processivity = get_polymerase_processivity(poly)
+        if get_polymerase(poly).distributive:
+            # A distributive enzyme re-binds and continues, so effective reach
+            # over a long incubation legitimately exceeds single-event
+            # processivity. Klenow: 40 nt processivity, ~500 bp effective reach.
+            continue
         assert reach <= processivity, (
             f"{poly}: per-primer reach ({reach}) must not exceed "
             f"single-event processivity ({processivity})"

@@ -20,7 +20,6 @@ References:
     - Hutton (1977) NAR 4:3537-3555 (urea)
     - Melchior & von Hippel (1973) PNAS 70:298-302 (TMAC)
     - Blanco et al. (1989) JBC 264:8935-8940 (phi29 processivity)
-    - Rahman et al. (2014) PLoS One 9:e112515 (Mg optimization)
 """
 
 from typing import Any, Dict, Tuple
@@ -184,10 +183,26 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         "betaine_inhibition_coef": 0.15,  # processivity reduction per M excess
         # Formamide is always inhibitory
         "formamide_coef": 0.06,  # activity reduction per %
-        # Mg2+ optimum
-        "mg_optimal": 2.5,  # mM optimal concentration
-        "mg_low_threshold": 1.0,  # mM below which activity drops
-        "mg_high_threshold": 6.0,  # mM above which activity drops
+        # Mg2+ optimum, calibrated for strand-displacing ISOTHERMAL amplification.
+        #
+        # The previous values (optimal 2.5, high threshold 6.0) were PCR figures,
+        # and were attributed to "Rahman et al. (2014) PLoS One 9:e112515". That
+        # attribution is wrong twice over: the DOI belongs to an unrelated rice
+        # chromatin-remodelling paper, and the actual Rahman 2014 (Anwer Khan
+        # Modern Medical College Journal 4(1):30-36) is a general PCR review --
+        # not an authority for isothermal strand-displacement chemistry.
+        #
+        # The effect was self-contradictory: the pipeline's own polymerase
+        # defaults use 10 mM, the vendor-recommended concentration, and the model
+        # then penalised that default as excessive magnesium.
+        #
+        # Standard phi29 buffer is 10 mM MgCl2 with 10 mM (NH4)2SO4 and 4 mM DTT
+        # (Thermo phi29 manual MAN0030290; NEB phi29 buffer). Bst runs nearer
+        # 8 mM. The band below is wide because dNTPs chelate Mg2+ roughly 1:1, so
+        # free Mg2+ sits several mM under the nominal total.
+        "mg_optimal": 10.0,  # mM, vendor-recommended for phi29-family MDA
+        "mg_low_threshold": 4.0,  # mM below which activity drops
+        "mg_high_threshold": 15.0,  # mM above which activity drops
         # Glycerol: stabilizes enzyme but slows it
         "glycerol_stability": 0.02,  # stability increase per %
         "glycerol_speed_penalty": 0.02,  # speed reduction per %

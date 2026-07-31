@@ -24,6 +24,25 @@ MG_DEFAULTS_MM = _registry_views.mg_defaults()
 MG_DEFAULT_FALLBACK_MM = 10.0
 
 
+# Bumped to 2 when the scientific corrections landed. A v1 params.json still
+# runs, but the numbers it produces will not match a v1-era run, so say why
+# rather than letting the difference look like nondeterminism.
+CURRENT_SCHEMA_VERSION = 2
+
+SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is distributive; the old figure
+    cited a paper that does not support it). Klenow coverage estimates drop.
+  - phi29 extension rate 150 -> 53 nt/s (Blanco 1989). Simulated timings only.
+  - Mg2+ activity model recalibrated for isothermal amplification: optimum
+    2.5 -> 10 mM, usable band 1-6 -> 4-15 mM. The old PCR figures penalised the
+    pipeline's own 10 mM default.
+  - ReactionConditions now defaults mg_conc to the polymerase's buffer value
+    instead of 0.0. Five presets previously inherited zero magnesium.
+  - Reaction presets now report the values they actually apply; show-presets and
+    --preset had diverged.
+  - AG/TC nearest-neighbour Tm parameter corrected (affected ~38% of 8-mers).
+  Pin values explicitly in params.json if you need to reproduce an older run."""
+
+
 def default_mg_conc(polymerase: str) -> float:
     """Return the default Mg2+ concentration (mM) for a polymerase."""
     return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
@@ -566,7 +585,6 @@ def get_params(args):
             _json_data.update(data_extra)  # Store raw JSON for CLI access
 
             # Schema versioning
-            CURRENT_SCHEMA_VERSION = 1
             schema_version = (
                 data_extra.get("schema_version", None) if isinstance(data_extra, dict) else None
             )
@@ -574,7 +592,16 @@ def get_params(args):
                 logger.warning(
                     "params.json has no 'schema_version' field. "
                     "Defaults may differ between NeoSWGA versions. "
-                    "Add '\"schema_version\": 1' to your params.json for reproducibility."
+                    f"Add '\"schema_version\": {CURRENT_SCHEMA_VERSION}' to your "
+                    "params.json for reproducibility."
+                )
+            elif schema_version < CURRENT_SCHEMA_VERSION:
+                logger.warning(
+                    f"params.json declares schema_version {schema_version}; this "
+                    f"NeoSWGA uses version {CURRENT_SCHEMA_VERSION}. Several "
+                    f"scientific constants were corrected in v2 and results will "
+                    f"differ from a v1 run:\n"
+                    f"{SCHEMA_V2_MIGRATION_NOTE}"
                 )
             elif schema_version > CURRENT_SCHEMA_VERSION:
                 logger.warning(

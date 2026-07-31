@@ -128,9 +128,27 @@ def test_optimal_temp_sits_inside_the_hard_band(key):
 
 @pytest.mark.parametrize("key", sorted(POLYMERASES))
 def test_coverage_reach_does_not_exceed_processivity(key):
-    """The realistic per-primer reach must fit inside the single-molecule maximum."""
+    """Per-primer reach must fit inside the single-molecule maximum.
+
+    Exempt for distributive enzymes: they dissociate after a short run and
+    re-bind, so effective reach over a long incubation legitimately exceeds
+    single-event processivity. Klenow (40 nt processivity, ~500 bp effective
+    reach) is the case this exists for.
+    """
     spec = POLYMERASES[key]
+    if spec.distributive:
+        pytest.skip(f"{key} is distributive; reach is not bounded by processivity")
     assert spec.typical_amplicon_bp <= spec.processivity_bp, key
+
+
+def test_distributive_enzymes_are_flagged():
+    """A very low processivity must be accompanied by the distributive flag."""
+    for key, spec in POLYMERASES.items():
+        if spec.processivity_bp < 1000:
+            assert spec.distributive, (
+                f"{key} has processivity {spec.processivity_bp} bp but is not "
+                f"flagged distributive; reach/coverage reasoning will be wrong"
+            )
 
 
 @pytest.mark.parametrize("key", sorted(POLYMERASES))
@@ -187,9 +205,16 @@ def _ledger(key, entry, detail):
             "the set-cover stage credits bst primers with 5x the reach the enzyme "
             "has. Fixing re-ranks every bst hybrid-optimizer result.",
         ),
+        _ledger(
+            "klenow",
+            1,
+            "klenow legacy_hybrid_max_extension is 5000 against a corrected 40 nt "
+            "processivity and ~500 bp effective reach - a 10x over-credit. This "
+            "violation was HIDDEN by the old 10000 bp processivity figure and was "
+            "exposed by correcting it.",
+        ),
         "phi29",
         "equiphi29",
-        "klenow",
     ],
 )
 def test_set_cover_reach_does_not_exceed_processivity(key):
@@ -240,39 +265,18 @@ def test_preset_reaction_temp_matches_optimal_temp(key):
     assert spec.preset_reaction_temp == spec.optimal_temp, key
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "INCONSISTENCIES.md #4: klenow processivity is seeded at 10000 bp, but "
-        "Klenow is distributive - 5-40 nt, 42 nt measured (PMC3738269). Correcting "
-        "it is part of the scientific-corrections phase."
-    ),
-)
 def test_klenow_processivity_matches_literature():
+    """Fixed: was 10000 bp citing Bambara 1978, which does not support it."""
     assert POLYMERASES["klenow"].processivity_bp <= 100
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "INCONSISTENCIES.md #5: phi29 extension_rate is seeded at 150 nt/s; Blanco "
-        "et al. (1989) - the same paper cited for the 70 kb processivity - reports "
-        "~53 nt/s."
-    ),
-)
 def test_phi29_extension_rate_matches_literature():
+    """Fixed: was 150 nt/s against Blanco 1989's ~53 nt/s."""
     assert POLYMERASES["phi29"].extension_rate_nt_s == pytest.approx(53, abs=10)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "INCONSISTENCIES.md #6: the enzyme model's mg_optimal is 2.5 mM (a PCR "
-        "figure) while phi29's own default is 10 mM (the vendor buffer), so the "
-        "default configuration is penalised by the model as having too much Mg."
-    ),
-)
 def test_magnesium_model_covers_the_default_concentration():
+    """Fixed: the model was PCR-calibrated (2.5 mM) and penalised its own default."""
     from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
 
     enzyme = MECHANISTIC_MODEL_PARAMS["enzyme"]

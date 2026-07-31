@@ -144,7 +144,9 @@ class SimulationConfig:
     time_step: float = 1.0  # seconds
     polymerase_type: str = "phi29"  # 'phi29' or 'equiphi29'
     primer_binding_rate: float = 1e-3  # per second per site
-    extension_rate: float = 150.0  # bp/sec (median of 100-170 range)
+    # Blanco et al. (1989) JBC 264:8935 reports ~53 nt/s for phi29; the
+    # previous 150.0 compressed every simulated timing by roughly 3x.
+    extension_rate: float = 53.0  # bp/sec
     extension_rate_gc_penalty: float = 0.5  # Slowdown in high-GC
     fork_collision_distance: int = 100  # bp for collision
     template_regeneration: bool = True  # Legacy flag (use enable_strand_displacement)

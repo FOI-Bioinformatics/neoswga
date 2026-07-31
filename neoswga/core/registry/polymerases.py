@@ -100,6 +100,12 @@ class PolymeraseSpec:
     thermo_filter: bool
     primer_multiplier: float
 
+    # A distributive enzyme dissociates after a short run and re-binds, so its
+    # effective reach over a long incubation exceeds its single-event
+    # processivity. For those, typical_amplicon_bp > processivity_bp is correct
+    # rather than a contradiction, and the invariant tests treat them separately.
+    distributive: bool = False
+
     additive_limits: Mapping[str, float] = field(default_factory=dict)
     dmso_response: Mapping[str, float] = field(default_factory=dict)
 
@@ -124,7 +130,10 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         processivity_bp=70000,
         typical_amplicon_bp=3000,
         legacy_hybrid_max_extension=70000,
-        extension_rate_nt_s=150,
+        # Blanco et al. (1989) -- the same paper cited for the 70 kb
+        # processivity -- reports ~53 nt/s; single-molecule work agrees at
+        # ~50 nt/s. The previous 150 nt/s compressed every simulated timing ~3x.
+        extension_rate_nt_s=53,
         processivity_step=0.99857,
         strand_displacement=True,
         exonuclease="3to5",
@@ -212,10 +221,20 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         # NOTE: wider than temp_hard_range, so 41 C passes validation and then
         # raises. Seeded verbatim; see INCONSISTENCIES.md.
         temp_warn_range=(20.0, 42.0),
-        # NOTE: literature puts Klenow processivity at 5-40 nt (42 nt measured),
-        # not 10 kb. Seeded verbatim pending the scientific-corrections phase.
-        processivity_bp=10000,
-        typical_amplicon_bp=1500,
+        # Klenow is DISTRIBUTIVE: it dissociates after ~5-40 nt. 42 nt was
+        # measured directly by single-molecule nanocircuit recording (JACS 2013,
+        # PMC3738269). The previous 10000 bp value cited Bambara et al. (1978),
+        # which does not support it, and overstated reach by ~250x.
+        processivity_bp=40,
+        # Effective per-primer reach is NOT bounded by single-event processivity
+        # for a distributive enzyme -- the polymerase re-binds and continues, so
+        # over a long isothermal incubation synthesis extends well past 40 nt.
+        # 500 bp is a conservative estimate for a multi-primer reaction, not a
+        # measurement; it is deliberately far below phi29's 3000 bp because low
+        # processivity plus moderate strand displacement is exactly why Klenow
+        # cannot carry a sparse primer set.
+        typical_amplicon_bp=500,
+        distributive=True,
         legacy_hybrid_max_extension=5000,
         extension_rate_nt_s=50,
         processivity_step=0.99005,

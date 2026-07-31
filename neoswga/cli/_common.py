@@ -452,52 +452,37 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
 
 
 # Preset configurations for reaction conditions
-PRESETS = {
-    "standard_phi29": {
-        "temperature": 37.0,
-        "dmso_percent": 0.0,
-        "betaine_m": 0.0,
-        "polymerase": "phi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": False,
-        "optimization_method": "hybrid",
-        "target_set_size": 6,
-    },
-    "enhanced_equiphi29": {
-        "temperature": 42.0,
-        "dmso_percent": 5.0,
-        "betaine_m": 1.0,
-        "polymerase": "equiphi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": True,
-        "optimization_method": "hybrid",
-        "target_set_size": 6,
-    },
-    "long_primers_15mer": {
-        "temperature": 45.0,
-        "dmso_percent": 7.0,
-        "betaine_m": 1.5,
-        "polymerase": "equiphi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": True,
-        "optimization_method": "hybrid",
-        "target_set_size": 6,
-    },
-    "high_gc_genome": {
-        "temperature": 45.0,
-        "dmso_percent": 10.0,
-        "betaine_m": 2.0,
-        "polymerase": "equiphi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": True,
-        "optimization_method": "hybrid",
-        "target_set_size": 8,
-    },
+# The named presets, each an optimizer-facing config derived from the SAME
+# reaction-conditions factory that `--preset` applies (see PRESET_FACTORIES and
+# load_preset_conditions below). It used to be a hand-maintained literal that had
+# drifted: `show-presets` printed 37 C / 0 mM Mg for standard_phi29 while
+# `--preset standard_phi29` applied 30 C / 2.5 mM, and long_primers_15mer
+# advertised 7% DMSO / 1.5 M betaine while applying 5% / 1.0 M. Three of four
+# presets described something the tool would not do. Deriving them removes the
+# divergence by construction.
+_PRESET_OPTIMIZER_HINTS = {
+    "standard_phi29": {"optimization_method": "hybrid", "target_set_size": 6},
+    "enhanced_equiphi29": {"optimization_method": "hybrid", "target_set_size": 6},
+    "long_primers_15mer": {"optimization_method": "hybrid", "target_set_size": 6},
+    "high_gc_genome": {"optimization_method": "hybrid", "target_set_size": 8},
 }
+
+
+def _build_presets():
+    out = {}
+    for name, hints in _PRESET_OPTIMIZER_HINTS.items():
+        applied = load_preset_conditions(name)
+        out[name] = {
+            "temperature": applied["reaction_temp"],
+            "polymerase": applied["polymerase"],
+            "dmso_percent": applied["dmso_percent"],
+            "betaine_m": applied["betaine_m"],
+            "na_conc": applied["na_conc"],
+            "mg_conc": applied["mg_conc"],
+            "ssb": applied["ssb"],
+            **hints,
+        }
+    return out
 
 
 # Command groups for organized help display
@@ -570,6 +555,10 @@ def load_preset_conditions(preset_name):
     for name in PRESET_ADDITIVE_FIELDS:
         out[name] = getattr(conditions, name)
     return out
+
+
+# Built after load_preset_conditions so the two cannot disagree.
+PRESETS = _build_presets()
 
 
 def add_common_options(parser):

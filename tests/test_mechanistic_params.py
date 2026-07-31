@@ -209,14 +209,21 @@ class TestParameterValues:
         assert MECHANISTIC_MODEL_PARAMS['enzyme']['betaine_enhancement'] > 0
 
     def test_processivity_ordering(self):
-        """Phi29 should have highest processivity among standard polymerases."""
+        """Phi29 has the highest processivity; Klenow the lowest.
+
+        The old assertion was `phi29 > klenow > bst`, which only held because
+        Klenow carried an unsupported 10 kb figure. Klenow is distributive
+        (~40 nt), so it now sits below Bst - which is the whole reason Klenow
+        cannot carry a sparse primer set.
+        """
         enzyme = MECHANISTIC_MODEL_PARAMS['enzyme']
 
         phi29_proc = enzyme['phi29']['processivity']
+        equiphi29_proc = enzyme['equiphi29']['processivity']
         bst_proc = enzyme['bst']['processivity']
         klenow_proc = enzyme['klenow']['processivity']
 
-        assert phi29_proc > klenow_proc > bst_proc
+        assert equiphi29_proc > phi29_proc > bst_proc > klenow_proc
 
     def test_optimal_temps_ordered(self):
         """Optimal temps should increase: phi29 < equiphi29 < bst."""

@@ -30,7 +30,6 @@ References:
 - Henke et al. (1997) Nucleic Acids Res 25:3957-3958 (betaine)
 - Varadaraj & Skinner (1994) Gene 140:1-5 (DMSO)
 - Spiess et al. (2004) Biotechniques 36:732-736 (trehalose)
-- Rahman et al. (2014) PLoS One 9:e112515 (Mg2+ optimization)
 - Owczarzy et al. (2008) Biochemistry 47:5336-5353 (salt corrections)
 - Melchior & von Hippel (1973) PNAS 70:298-302 (TMAC AT/GC equalization)
 - Cheng et al. (1994) PNAS 91:5695-5699 (ethanol effects)
@@ -226,7 +225,7 @@ class ReactionConditions:
         urea_m: float = 0.0,
         tmac_m: float = 0.0,
         na_conc: float = 50.0,
-        mg_conc: float = 0.0,
+        mg_conc: Optional[float] = None,
         ssb: bool = False,
         polymerase: str = "phi29",
     ):
@@ -262,9 +261,17 @@ class ReactionConditions:
         self.urea_m = urea_m
         self.tmac_m = tmac_m
         self.na_conc = na_conc
-        self.mg_conc = mg_conc
         self.ssb = ssb
         self.polymerase = polymerase.lower()
+        # mg_conc=None means "use this polymerase's standard buffer value".
+        # The old default was 0.0, which silently produced a non-functional
+        # reaction: five shipped presets never set mg_conc and so inherited zero
+        # magnesium. Requiring every caller to remember it was the wrong default
+        # - no polymerase reaction runs without Mg2+. Resolved after
+        # self.polymerase so the lookup is polymerase-aware.
+        if mg_conc is None:
+            mg_conc = _registry_views.mg_defaults().get(self.polymerase, 10.0)
+        self.mg_conc = mg_conc
 
         # Validate inputs
         self._validate()
@@ -800,7 +807,10 @@ class ReactionConditions:
         """
         Optimize Mg2+ concentration based on genome GC content.
 
-        Literature evidence (Rahman et al. 2014, Owczarzy et al. 2008):
+        Owczarzy et al. (2008) for the salt/Tm relationship. NOTE: this GC-based
+        adjustment was previously attributed to Rahman et al. (2014); that is a
+        general PCR review and does not cover isothermal amplification, so treat
+        the GC adjustment as an operating-point heuristic rather than sourced:
         - AT-rich genomes (<35% GC): Higher Mg2+ stabilizes AT-rich duplexes
         - GC-rich genomes (>65% GC): Lower Mg2+ reduces non-specific binding
         - Balanced genomes: Standard 2.0 mM
@@ -1009,7 +1019,7 @@ def get_standard_conditions() -> ReactionConditions:
         temp=30.0,
         polymerase="phi29",
         na_conc=50.0,
-        mg_conc=2.5,  # Optimal for phi29 activity
+        mg_conc=10.0,  # Standard phi29 buffer (was 2.5, a PCR figure)
     )
 
 
@@ -1022,7 +1032,7 @@ def get_equiphi_conditions() -> ReactionConditions:
         temp=42.0,
         polymerase="equiphi29",
         na_conc=50.0,
-        mg_conc=2.5,  # Optimal for equiphi29 activity
+        mg_conc=10.0,  # Standard phi29-family buffer (was 2.5, a PCR figure)
     )
 
 
@@ -1039,7 +1049,7 @@ def get_enhanced_conditions() -> ReactionConditions:
         betaine_m=1.0,
         polymerase="equiphi29",
         na_conc=50.0,
-        mg_conc=2.5,  # Optimal for polymerase activity
+        mg_conc=10.0,  # Standard phi29-family buffer (was 2.5, a PCR figure)
     )
 
 
@@ -1099,7 +1109,7 @@ def get_gc_melt_conditions() -> ReactionConditions:
         dmso_percent=5.0,
         betaine_m=2.0,
         trehalose_m=0.5,
-        mg_conc=1.5,
+        mg_conc=10.0,  # was 1.5, far below the phi29-family buffer
         polymerase="equiphi29",
         na_conc=50.0,
     )
@@ -1267,7 +1277,7 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
             temp=37.0,
             dmso_percent=3.0,
             betaine_m=0.8,
-            mg_conc=2.5,  # Extra Mg2+ for AT-rich
+            mg_conc=10.0,  # Standard phi29-family buffer
             polymerase="phi29",
             na_conc=50.0,
         )

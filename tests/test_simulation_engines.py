@@ -176,7 +176,7 @@ class TestSimulationConfig:
 
     def test_default_extension_rate(self):
         cfg = SimulationConfig()
-        assert cfg.extension_rate == 150.0
+        assert cfg.extension_rate == 53.0  # Blanco 1989; was 150.0 (~3x too fast)
 
     def test_default_processivity_limit(self):
         cfg = SimulationConfig()

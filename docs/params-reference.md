@@ -75,7 +75,7 @@ neoswga schema --dump > params.schema.json
 | `reaction_temp` | number | min: 20.0; max: 70.0 | - | - |
 | `retries` | integer | min: 0; max: 100 | - | - |
 | `sample_rate` | number or null | min: 0.001; max: 1.0 | - | - |
-| `schema_version` | integer | min: 1; max: 1 | `1` | Version of this schema the file was written for. |
+| `schema_version` | integer | min: 1; max: 2 | `2` | Version of this schema the file was written for. Version 2 corrected several scientific constants (Klenow processivity, phi29 extension rate, the Mg2+ activity model, the AG/TC nearest-neighbour parameter) and changed the mg_conc default from 0.0 to the polymerase buffer value; a v1 file still runs but produces different numbers. |
 | `selection_metric` | string | one of: deterministic, random, stochastic | - | - |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
 | `target_set_size` | integer | min: 1; max: 50 | - | - |

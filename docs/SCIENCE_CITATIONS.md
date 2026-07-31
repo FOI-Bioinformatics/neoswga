@@ -87,8 +87,9 @@ values at the temperature extremes.
 | klenow | 37 | 10,000 | Bambara et al. (1978) JBC 253:413 |
 
 Mg2+ recommendations by GC content
-(`reaction_conditions.py:~740`): Rahman et al. (2014) PLoS One
-9:e112515.
+(`reaction_conditions.py`): heuristic. Previously attributed to "Rahman et al.
+(2014) PLoS One 9:e112515" -- a mis-attribution: that DOI is an unrelated rice
+paper, and the real Rahman et al. (2014) Anwer Khan Modern Medical College Journal 4(1):30-36 -- a general PCR review, not an isothermal-amplification source.
 
 ### Typical amplicon length vs. processivity vs. gel fragment size
 
@@ -185,7 +186,7 @@ calibrate against your own wet-lab measurements via
 | betaine_peak 1.0 M | `mechanistic_params.py:218` | EMPIRICAL — peak enhancement, not full equalization (5.2 M per Rees 1993) |
 | betaine_enhancement 0.12 | `mechanistic_params.py:219` | EMPIRICAL |
 | betaine_inhibition_start 1.5 M | `mechanistic_params.py:220` | EMPIRICAL — practitioner consensus |
-| mg_optimal 2.5 mM | `mechanistic_params.py:227` | EMPIRICAL — matches Rahman (2014) PLoS One 9:e112515 balanced-GC recommendation |
+| mg_optimal 10.0 mM | `mechanistic_params.py` | Standard phi29 buffer (Thermo MAN0030290, NEB phi29 buffer). Corrected from 2.5 mM, which was a PCR figure mis-attributed to Rahman (2014) |
 | Gaussian delta_t width 5 C | `mechanistic_params.py:~243` | EMPIRICAL — Gaussian for effective-Tm scoring |
 
 ## Validation ranges (ParamValidator)
