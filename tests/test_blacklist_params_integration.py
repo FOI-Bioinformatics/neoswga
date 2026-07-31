@@ -21,17 +21,33 @@ def _mk_args(json_file):
     all set to None so params.json values / defaults take effect."""
     attrs = {
         "json_file": str(json_file),
-        "data_dir": None, "src_dir": None,
-        "min_fg_freq": None, "max_bg_freq": None,
-        "min_tm": None, "max_tm": None,
-        "max_gini": None, "max_primer": None, "min_amp_pred": None,
-        "cpus": None, "max_dimer_bp": None, "max_self_dimer_bp": None,
-        "verbose": None, "drop_iterations": None, "iterations": None,
-        "top_set_count": None, "retries": None, "max_sets": None,
-        "selection_metric": None, "fg_circular": None, "bg_circular": None,
-        "min_k": None, "max_k": None,
-        "fasta_fore": None, "fasta_back": None,
-        "kmer_fore": None, "kmer_back": None,
+        "data_dir": None,
+        "src_dir": None,
+        "min_fg_freq": None,
+        "max_bg_freq": None,
+        "min_tm": None,
+        "max_tm": None,
+        "max_gini": None,
+        "max_primer": None,
+        "min_amp_pred": None,
+        "cpus": None,
+        "max_dimer_bp": None,
+        "max_self_dimer_bp": None,
+        "verbose": None,
+        "drop_iterations": None,
+        "iterations": None,
+        "top_set_count": None,
+        "retries": None,
+        "max_sets": None,
+        "selection_metric": None,
+        "fg_circular": None,
+        "bg_circular": None,
+        "min_k": None,
+        "max_k": None,
+        "fasta_fore": None,
+        "fasta_back": None,
+        "kmer_fore": None,
+        "kmer_back": None,
     }
     return SimpleNamespace(**attrs)
 
@@ -72,9 +88,9 @@ def test_bl_seq_lengths_auto_computed_when_missing(tmp_path):
     parameter.reset_to_defaults()
     parameter.get_params(_mk_args(params_file))
 
-    assert parameter.bl_seq_lengths == [2000], (
-        f"bl_seq_lengths should be auto-computed; got {parameter.bl_seq_lengths}"
-    )
+    assert parameter.bl_seq_lengths == [
+        2000
+    ], f"bl_seq_lengths should be auto-computed; got {parameter.bl_seq_lengths}"
 
 
 def test_bl_seq_lengths_recomputed_when_mismatched(tmp_path):
@@ -90,9 +106,9 @@ def test_bl_seq_lengths_recomputed_when_mismatched(tmp_path):
     parameter.reset_to_defaults()
     parameter.get_params(_mk_args(params_file))
 
-    assert parameter.bl_seq_lengths == [1000], (
-        f"Mismatched bl_seq_lengths should be recomputed; got {parameter.bl_seq_lengths}"
-    )
+    assert parameter.bl_seq_lengths == [
+        1000
+    ], f"Mismatched bl_seq_lengths should be recomputed; got {parameter.bl_seq_lengths}"
 
 
 def test_bl_seq_lengths_preserved_when_correct(tmp_path):

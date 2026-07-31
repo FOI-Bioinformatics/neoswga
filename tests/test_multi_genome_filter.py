@@ -17,18 +17,20 @@ from neoswga.core.multi_genome_filter import (
     MultiGenomeFilter,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def tmp_fasta(tmp_path):
     """Create minimal FASTA files for testing."""
+
     def _make(name="genome.fna"):
         p = tmp_path / name
         p.write_text(">seq1\nATCGATCG\n")
         return p
+
     return _make
 
 
@@ -62,6 +64,7 @@ def genome_set_mixed(target_fasta, background_fasta, blacklist_fasta, tmp_fasta)
 # GenomeRole
 # ---------------------------------------------------------------------------
 
+
 class TestGenomeRole:
 
     def test_enum_values(self):
@@ -82,6 +85,7 @@ class TestGenomeRole:
 # ---------------------------------------------------------------------------
 # GenomeEntry
 # ---------------------------------------------------------------------------
+
 
 class TestGenomeEntry:
 
@@ -104,21 +108,15 @@ class TestGenomeEntry:
         assert entry.penalty_weight == 0.0
 
     def test_background_default_penalty_weight(self, background_fasta):
-        entry = GenomeEntry(
-            name="BG", fasta_path=background_fasta, role=GenomeRole.BACKGROUND
-        )
+        entry = GenomeEntry(name="BG", fasta_path=background_fasta, role=GenomeRole.BACKGROUND)
         assert entry.penalty_weight == 1.0
 
     def test_blacklist_default_penalty_weight(self, blacklist_fasta):
-        entry = GenomeEntry(
-            name="BL", fasta_path=blacklist_fasta, role=GenomeRole.BLACKLIST
-        )
+        entry = GenomeEntry(name="BL", fasta_path=blacklist_fasta, role=GenomeRole.BLACKLIST)
         assert entry.penalty_weight == 5.0
 
     def test_string_path_converted_to_path_object(self, target_fasta):
-        entry = GenomeEntry(
-            name="T", fasta_path=str(target_fasta), role=GenomeRole.TARGET
-        )
+        entry = GenomeEntry(name="T", fasta_path=str(target_fasta), role=GenomeRole.TARGET)
         assert isinstance(entry.fasta_path, Path)
 
     def test_missing_file_raises(self, tmp_path):
@@ -133,6 +131,7 @@ class TestGenomeEntry:
 # ---------------------------------------------------------------------------
 # GenomeSet
 # ---------------------------------------------------------------------------
+
 
 class TestGenomeSet:
 
@@ -201,6 +200,7 @@ class TestGenomeSet:
 # MultiGenomeScore
 # ---------------------------------------------------------------------------
 
+
 class TestMultiGenomeScore:
 
     def test_creation_and_fields(self):
@@ -253,6 +253,7 @@ class TestMultiGenomeScore:
 # ---------------------------------------------------------------------------
 # MultiGenomeFilter
 # ---------------------------------------------------------------------------
+
 
 class TestMultiGenomeFilter:
 

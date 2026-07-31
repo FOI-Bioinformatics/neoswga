@@ -1,4 +1,5 @@
 """Test that pipeline commands auto-validate params.json."""
+
 import json
 import tempfile
 import os
@@ -11,12 +12,12 @@ def test_valid_params_pass_validation():
 
     # Note the plural 'fg_genomes' — the pipeline and schema require a list.
     params = {
-        'data_dir': '/tmp/test_neoswga_valid',
-        'fg_genomes': ['/tmp/test.fna'],
-        'fg_prefixes': ['/tmp/test'],
+        "data_dir": "/tmp/test_neoswga_valid",
+        "fg_genomes": ["/tmp/test.fna"],
+        "fg_prefixes": ["/tmp/test"],
     }
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         json.dump(params, f)
         tmp_path = f.name
 
@@ -26,5 +27,5 @@ def test_valid_params_pass_validation():
     finally:
         os.unlink(tmp_path)
         # Clean up created directory
-        if os.path.isdir('/tmp/test_neoswga_valid'):
-            os.rmdir('/tmp/test_neoswga_valid')
+        if os.path.isdir("/tmp/test_neoswga_valid"):
+            os.rmdir("/tmp/test_neoswga_valid")

@@ -66,12 +66,8 @@ class PolymeraseSpec:
     #   reachability.
     # typical_amplicon_bp: realistic per-primer reach in a dense SWGA design,
     #   used for fg_coverage scoring. This is the smaller, coverage-relevant one.
-    # legacy_hybrid_max_extension: what hybrid_optimizer's set-cover currently
-    #   uses. Seeded verbatim; for bst it exceeds processivity_bp, which is
-    #   physically impossible. See INCONSISTENCIES.md.
     processivity_bp: int
     typical_amplicon_bp: int
-    legacy_hybrid_max_extension: int
     extension_rate_nt_s: float
     processivity_step: float
 
@@ -129,7 +125,6 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         temp_warn_range=(20.0, 40.0),
         processivity_bp=70000,
         typical_amplicon_bp=3000,
-        legacy_hybrid_max_extension=70000,
         # Blanco et al. (1989) -- the same paper cited for the 70 kb
         # processivity -- reports ~53 nt/s; single-molecule work agrees at
         # ~50 nt/s. The previous 150 nt/s compressed every simulated timing ~3x.
@@ -161,7 +156,6 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         temp_warn_range=(40.0, 47.0),
         processivity_bp=80000,
         typical_amplicon_bp=4000,
-        legacy_hybrid_max_extension=80000,
         extension_rate_nt_s=200,
         processivity_step=0.99875,
         strand_displacement=True,
@@ -191,8 +185,6 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         temp_warn_range=(55.0, 70.0),
         processivity_bp=2000,
         typical_amplicon_bp=1000,
-        # NOTE: exceeds processivity_bp. Seeded verbatim; see INCONSISTENCIES.md.
-        legacy_hybrid_max_extension=10000,
         extension_rate_nt_s=100,
         processivity_step=0.9512,
         strand_displacement=True,
@@ -204,8 +196,11 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         additive_opt_base_length=18,
         primer_tm_range=(50.0, 75.0),
         gc_range=(0.25, 0.75),
-        # NOTE: 60.0, not optimal_temp 63.0. Seeded verbatim.
-        preset_reaction_temp=60.0,
+        # Collapsed to optimal_temp. hybrid_optimizer and additive_optimizer
+        # ran bst at 60.0 while the rest of the codebase advertised 63.0, with
+        # no comment explaining the 3 C difference; nothing else diverged this
+        # way, so it read as drift rather than a deliberate operating point.
+        preset_reaction_temp=63.0,
         thermo_filter=True,
         primer_multiplier=1.0,
         additive_limits={"dmso_percent": 5.0, "betaine_m": 1.5},
@@ -231,7 +226,6 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         # evidence for one.
         processivity_bp=2000,
         typical_amplicon_bp=1000,
-        legacy_hybrid_max_extension=10000,
         extension_rate_nt_s=100,
         processivity_step=0.9512,
         strand_displacement=True,
@@ -274,7 +268,6 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         # as strand-displacing and is used for RPA, which requires real
         # displacement activity - Klenow's is only moderate. Also an estimate.
         typical_amplicon_bp=1000,
-        legacy_hybrid_max_extension=1000,
         extension_rate_nt_s=50,
         processivity_step=0.99005,
         strand_displacement=True,
@@ -306,9 +299,11 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         optimal_temp=37.0,
         temp_optimal_range=(25.0, 40.0),
         temp_hard_range=(25.0, 40.0),
-        # NOTE: wider than temp_hard_range, so 41 C passes validation and then
-        # raises. Seeded verbatim; see INCONSISTENCIES.md.
-        temp_warn_range=(20.0, 42.0),
+        # Narrowed to sit inside temp_hard_range. It was (20.0, 42.0), so a
+        # klenow run at 41 C passed validate-params cleanly and then raised
+        # inside ReactionConditions.__init__ -- the validator's whole job is to
+        # catch that before the run starts.
+        temp_warn_range=(25.0, 40.0),
         # Klenow is DISTRIBUTIVE: it dissociates after ~5-40 nt. 42 nt was
         # measured directly by single-molecule nanocircuit recording (JACS 2013,
         # PMC3738269). The previous 10000 bp value cited Bambara et al. (1978),
@@ -323,7 +318,6 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         # cannot carry a sparse primer set.
         typical_amplicon_bp=500,
         distributive=True,
-        legacy_hybrid_max_extension=5000,
         extension_rate_nt_s=50,
         processivity_step=0.99005,
         strand_displacement=True,

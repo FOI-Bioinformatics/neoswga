@@ -25,15 +25,15 @@ from neoswga.core.kmer_counter import (
     get_primer_list_from_kmers,
 )
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def temp_dir():
     """Create a temporary directory for test files."""
-    tmp = tempfile.mkdtemp(prefix='test_kmer_')
+    tmp = tempfile.mkdtemp(prefix="test_kmer_")
     yield tmp
     shutil.rmtree(tmp)
 
@@ -41,29 +41,30 @@ def temp_dir():
 @pytest.fixture
 def sample_fasta(temp_dir):
     """Create a sample FASTA file."""
-    fasta_path = os.path.join(temp_dir, 'test_genome.fa')
-    with open(fasta_path, 'w') as f:
-        f.write('>chr1\n')
-        f.write('ATCGATCGATCGATCGATCGATCGATCGATCG\n')
-        f.write('GCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTA\n')
+    fasta_path = os.path.join(temp_dir, "test_genome.fa")
+    with open(fasta_path, "w") as f:
+        f.write(">chr1\n")
+        f.write("ATCGATCGATCGATCGATCGATCGATCGATCG\n")
+        f.write("GCTAGCTAGCTAGCTAGCTAGCTAGCTAGCTA\n")
     return fasta_path
 
 
 @pytest.fixture
 def sample_kmer_dump_file(temp_dir):
     """Create a sample jellyfish dump file."""
-    dump_path = os.path.join(temp_dir, 'test_6mer_all.txt')
-    with open(dump_path, 'w') as f:
-        f.write('ATCGAT 10\n')
-        f.write('TCGATC 8\n')
-        f.write('CGATCG 12\n')
-        f.write('GCTAGC 6\n')
+    dump_path = os.path.join(temp_dir, "test_6mer_all.txt")
+    with open(dump_path, "w") as f:
+        f.write("ATCGAT 10\n")
+        f.write("TCGATC 8\n")
+        f.write("CGATCG 12\n")
+        f.write("GCTAGC 6\n")
     return dump_path
 
 
 # =============================================================================
 # Jellyfish Availability Tests
 # =============================================================================
+
 
 class TestJellyfishAvailability:
     """Tests for jellyfish availability checking."""
@@ -83,7 +84,7 @@ class TestJellyfishAvailability:
 
     def test_require_jellyfish_when_not_available(self):
         """Test require_jellyfish raises RuntimeError when jellyfish is not available."""
-        with patch('shutil.which', return_value=None):
+        with patch("shutil.which", return_value=None):
             with pytest.raises(RuntimeError, match="Jellyfish is required"):
                 require_jellyfish()
 
@@ -92,32 +93,33 @@ class TestJellyfishAvailability:
 # Pure Python K-mer Counting Tests
 # =============================================================================
 
+
 class TestCountKmersInSequence:
     """Tests for pure Python k-mer counting."""
 
     def test_count_kmers_basic(self):
         """Test basic k-mer counting."""
-        sequence = 'ATCGATCG'
+        sequence = "ATCGATCG"
         counts = count_kmers_in_sequence(sequence, k=4)
 
-        assert 'ATCG' in counts
-        assert 'TCGA' in counts
-        assert 'CGAT' in counts
-        assert 'GATC' in counts
+        assert "ATCG" in counts
+        assert "TCGA" in counts
+        assert "CGAT" in counts
+        assert "GATC" in counts
 
     def test_count_kmers_with_repeats(self):
         """Test k-mer counting with repeating patterns."""
-        sequence = 'ATATAT'
+        sequence = "ATATAT"
         counts = count_kmers_in_sequence(sequence, k=2)
 
-        assert counts['AT'] == 3
-        assert counts['TA'] == 2
+        assert counts["AT"] == 3
+        assert counts["TA"] == 2
 
     def test_count_kmers_case_insensitive(self):
         """Test that counting is case-insensitive."""
-        seq_upper = 'ATCG'
-        seq_lower = 'atcg'
-        seq_mixed = 'AtCg'
+        seq_upper = "ATCG"
+        seq_lower = "atcg"
+        seq_mixed = "AtCg"
 
         counts_upper = count_kmers_in_sequence(seq_upper, k=2)
         counts_lower = count_kmers_in_sequence(seq_lower, k=2)
@@ -127,28 +129,29 @@ class TestCountKmersInSequence:
 
     def test_count_kmers_excludes_non_acgt(self):
         """Test that k-mers with non-ACGT bases are excluded."""
-        sequence = 'ATCNGATCG'
+        sequence = "ATCNGATCG"
         counts = count_kmers_in_sequence(sequence, k=4)
 
         # K-mers containing N should not be counted
-        assert 'TCNG' not in counts
-        assert 'CNGA' not in counts
-        assert 'NGAT' not in counts
+        assert "TCNG" not in counts
+        assert "CNGA" not in counts
+        assert "NGAT" not in counts
 
     def test_count_kmers_empty_sequence(self):
         """Test counting k-mers in empty sequence."""
-        counts = count_kmers_in_sequence('', k=4)
+        counts = count_kmers_in_sequence("", k=4)
         assert counts == {}
 
     def test_count_kmers_short_sequence(self):
         """Test counting k-mers when sequence is shorter than k."""
-        counts = count_kmers_in_sequence('ATG', k=4)
+        counts = count_kmers_in_sequence("ATG", k=4)
         assert counts == {}
 
 
 # =============================================================================
 # get_kmer_to_count_dict Tests
 # =============================================================================
+
 
 class TestGetKmerToCountDict:
     """Tests for get_kmer_to_count_dict function."""
@@ -157,10 +160,10 @@ class TestGetKmerToCountDict:
         """Test that dump file is parsed correctly."""
         counts = get_kmer_to_count_dict(sample_kmer_dump_file)
 
-        assert counts['ATCGAT'] == 10
-        assert counts['TCGATC'] == 8
-        assert counts['CGATCG'] == 12
-        assert counts['GCTAGC'] == 6
+        assert counts["ATCGAT"] == 10
+        assert counts["TCGATC"] == 8
+        assert counts["CGATCG"] == 12
+        assert counts["GCTAGC"] == 6
 
     def test_returns_dict(self, sample_kmer_dump_file):
         """Test that function returns a dictionary."""
@@ -169,8 +172,8 @@ class TestGetKmerToCountDict:
 
     def test_handles_empty_file(self, temp_dir):
         """Test handling of empty file."""
-        empty_file = os.path.join(temp_dir, 'empty.txt')
-        with open(empty_file, 'w') as f:
+        empty_file = os.path.join(temp_dir, "empty.txt")
+        with open(empty_file, "w") as f:
             pass  # Create empty file
 
         counts = get_kmer_to_count_dict(empty_file)
@@ -181,12 +184,13 @@ class TestGetKmerToCountDict:
 # MultiGenomeKmerCounter Tests (with mocking)
 # =============================================================================
 
+
 class TestMultiGenomeKmerCounter:
     """Tests for MultiGenomeKmerCounter class."""
 
     def test_initialization_checks_jellyfish(self):
         """Test that initialization checks for jellyfish."""
-        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=False):
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=False):
             with pytest.raises(RuntimeError, match="Jellyfish is required"):
                 MultiGenomeKmerCounter()
 
@@ -194,11 +198,11 @@ class TestMultiGenomeKmerCounter:
     def test_add_genome(self, sample_fasta):
         """Test adding a genome."""
         counter = MultiGenomeKmerCounter()
-        counter.add_genome('test', sample_fasta)
+        counter.add_genome("test", sample_fasta)
 
-        assert 'test' in counter.genome_fastas
-        assert counter.genome_fastas['test'] == sample_fasta
-        assert counter.genome_lengths['test'] > 0
+        assert "test" in counter.genome_fastas
+        assert counter.genome_fastas["test"] == sample_fasta
+        assert counter.genome_lengths["test"] > 0
 
     @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
     def test_add_genome_file_not_found(self):
@@ -206,13 +210,13 @@ class TestMultiGenomeKmerCounter:
         counter = MultiGenomeKmerCounter()
 
         with pytest.raises(FileNotFoundError):
-            counter.add_genome('test', '/nonexistent/path.fa')
+            counter.add_genome("test", "/nonexistent/path.fa")
 
     @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
     def test_cleanup(self, sample_fasta):
         """Test cleanup removes temp files."""
         counter = MultiGenomeKmerCounter()
-        counter.add_genome('test', sample_fasta)
+        counter.add_genome("test", sample_fasta)
 
         # Force creation of temp dir
         work_dir = counter._get_work_dir()
@@ -227,24 +231,25 @@ class TestMultiGenomeKmerCounter:
 # run_jellyfish Tests (with mocking for CI)
 # =============================================================================
 
+
 class TestRunJellyfish:
     """Tests for run_jellyfish standalone function."""
 
     def test_validates_genome_file_exists(self, temp_dir):
         """Test that non-existent genome file raises error."""
         with pytest.raises(FileNotFoundError, match="Genome file not found"):
-            run_jellyfish('/nonexistent/genome.fa', os.path.join(temp_dir, 'output'))
+            run_jellyfish("/nonexistent/genome.fa", os.path.join(temp_dir, "output"))
 
     def test_checks_jellyfish_available(self):
         """Test that jellyfish availability is checked."""
-        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=False):
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=False):
             with pytest.raises(RuntimeError, match="Jellyfish is required"):
-                run_jellyfish('/some/genome.fa', '/some/output')
+                run_jellyfish("/some/genome.fa", "/some/output")
 
     @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
     def test_creates_output_files(self, sample_fasta, temp_dir):
         """Test that output files are created."""
-        output_prefix = os.path.join(temp_dir, 'output')
+        output_prefix = os.path.join(temp_dir, "output")
 
         run_jellyfish(sample_fasta, output_prefix, min_k=6, max_k=6, cpus=1)
 
@@ -262,24 +267,22 @@ class TestRunJellyfish:
 # get_primer_list_from_kmers Tests (with mocking)
 # =============================================================================
 
+
 class TestGetPrimerListFromKmers:
     """Tests for get_primer_list_from_kmers function."""
 
     def test_filters_by_tm(self, temp_dir):
         """Test that Tm filtering is applied."""
         # Create mock k-mer file
-        prefix = os.path.join(temp_dir, 'test')
+        prefix = os.path.join(temp_dir, "test")
         kmer_file = f"{prefix}_6mer_all.txt"
-        with open(kmer_file, 'w') as f:
-            f.write('ATCGAT 10\n')  # Low Tm
-            f.write('GCGCGC 10\n')  # High Tm
-            f.write('ATGCAT 10\n')  # Medium Tm
+        with open(kmer_file, "w") as f:
+            f.write("ATCGAT 10\n")  # Low Tm
+            f.write("GCGCGC 10\n")  # High Tm
+            f.write("ATGCAT 10\n")  # Medium Tm
 
         primers = get_primer_list_from_kmers(
-            [prefix],
-            kmer_lengths=range(6, 7),
-            min_tm=10.0,
-            max_tm=30.0
+            [prefix], kmer_lengths=range(6, 7), min_tm=10.0, max_tm=30.0
         )
 
         # Should filter by Tm
@@ -287,17 +290,17 @@ class TestGetPrimerListFromKmers:
 
     def test_returns_list(self, temp_dir):
         """Test that function returns a list."""
-        prefix = os.path.join(temp_dir, 'test')
+        prefix = os.path.join(temp_dir, "test")
         kmer_file = f"{prefix}_6mer_all.txt"
-        with open(kmer_file, 'w') as f:
-            f.write('ATCGAT 10\n')
+        with open(kmer_file, "w") as f:
+            f.write("ATCGAT 10\n")
 
         primers = get_primer_list_from_kmers([prefix], kmer_lengths=range(6, 7))
         assert isinstance(primers, list)
 
     def test_handles_missing_files_gracefully(self, temp_dir):
         """Test that missing files don't crash the function."""
-        prefix = os.path.join(temp_dir, 'nonexistent')
+        prefix = os.path.join(temp_dir, "nonexistent")
 
         # Should not raise, just warn
         primers = get_primer_list_from_kmers([prefix], kmer_lengths=range(6, 7))
@@ -308,55 +311,56 @@ class TestGetPrimerListFromKmers:
 # Jellyfish Version Tests
 # =============================================================================
 
+
 class TestJellyfishVersion:
     """Tests for jellyfish version parsing."""
 
     def test_parses_version_2_output(self):
         """Test parsing 'jellyfish 2.3.1' output."""
         mock_result = MagicMock()
-        mock_result.stdout = 'jellyfish 2.3.1\n'
-        mock_result.stderr = ''
+        mock_result.stdout = "jellyfish 2.3.1\n"
+        mock_result.stderr = ""
 
-        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
-            with patch('subprocess.run', return_value=mock_result):
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=True):
+            with patch("subprocess.run", return_value=mock_result):
                 version = get_jellyfish_version()
-                assert version == '2.3.1'
+                assert version == "2.3.1"
 
     def test_parses_bare_version_string(self):
         """Test parsing '2.3.0' output without program name."""
         mock_result = MagicMock()
-        mock_result.stdout = '2.3.0\n'
-        mock_result.stderr = ''
+        mock_result.stdout = "2.3.0\n"
+        mock_result.stderr = ""
 
-        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
-            with patch('subprocess.run', return_value=mock_result):
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=True):
+            with patch("subprocess.run", return_value=mock_result):
                 version = get_jellyfish_version()
-                assert version == '2.3.0'
+                assert version == "2.3.0"
 
     def test_returns_none_when_not_available(self):
         """Test that None is returned when jellyfish is not installed."""
-        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=False):
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=False):
             assert get_jellyfish_version() is None
 
     def test_require_jellyfish_rejects_version_1(self):
         """Test that version 1.x is rejected."""
         mock_result = MagicMock()
-        mock_result.stdout = 'jellyfish 1.1.12\n'
-        mock_result.stderr = ''
+        mock_result.stdout = "jellyfish 1.1.12\n"
+        mock_result.stderr = ""
 
-        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
-            with patch('subprocess.run', return_value=mock_result):
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=True):
+            with patch("subprocess.run", return_value=mock_result):
                 with pytest.raises(RuntimeError, match="Jellyfish 2.x"):
                     require_jellyfish()
 
     def test_require_jellyfish_accepts_version_2(self):
         """Test that version 2.x is accepted."""
         mock_result = MagicMock()
-        mock_result.stdout = 'jellyfish 2.3.1\n'
-        mock_result.stderr = ''
+        mock_result.stdout = "jellyfish 2.3.1\n"
+        mock_result.stderr = ""
 
-        with patch('neoswga.core.kmer_counter.check_jellyfish_available', return_value=True):
-            with patch('subprocess.run', return_value=mock_result):
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=True):
+            with patch("subprocess.run", return_value=mock_result):
                 # Should not raise
                 require_jellyfish()
 
@@ -365,33 +369,32 @@ class TestJellyfishVersion:
 # K-mer Tm Filtering Exception Tests
 # =============================================================================
 
+
 class TestKmerTmFilteringExceptions:
     """Tests for narrowed exception handling in get_primer_list_from_kmers."""
 
     def test_skips_ambiguous_bases_gracefully(self, temp_dir):
         """Test that k-mers with ambiguous bases are skipped without crashing."""
-        prefix = os.path.join(temp_dir, 'test')
+        prefix = os.path.join(temp_dir, "test")
         kmer_file = f"{prefix}_6mer_all.txt"
-        with open(kmer_file, 'w') as f:
+        with open(kmer_file, "w") as f:
             # Valid k-mer followed by one with ambiguous base
-            f.write('ATCGAT 10\n')
-            f.write('NNNNAT 10\n')
+            f.write("ATCGAT 10\n")
+            f.write("NNNNAT 10\n")
 
         primers = get_primer_list_from_kmers(
-            [prefix],
-            kmer_lengths=range(6, 7),
-            min_tm=0.0,
-            max_tm=100.0
+            [prefix], kmer_lengths=range(6, 7), min_tm=0.0, max_tm=100.0
         )
 
         # ATCGAT should be included, NNNNAT should be skipped
         assert isinstance(primers, list)
-        assert 'NNNNAT' not in primers
+        assert "NNNNAT" not in primers
 
 
 # =============================================================================
 # Integration Tests
 # =============================================================================
+
 
 @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
 class TestKmerCounterIntegration:
@@ -403,10 +406,10 @@ class TestKmerCounterIntegration:
         counter = MultiGenomeKmerCounter(cpus=1, output_dir=temp_dir)
 
         # Add genome
-        counter.add_genome('test', sample_fasta)
+        counter.add_genome("test", sample_fasta)
 
         # Count k-mers
-        counts = counter.count_kmers('test', k=6)
+        counts = counter.count_kmers("test", k=6)
 
         # Verify we got results
         assert isinstance(counts, dict)
@@ -422,5 +425,5 @@ class TestKmerCounterIntegration:
         counter.cleanup()
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

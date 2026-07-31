@@ -162,9 +162,7 @@ class TestGenerateRecommendation:
         components = [
             GradeComponent("Coverage", 0.35, 0.95, 1.0, "Excellent", ""),
         ]
-        short, detailed, considerations = _generate_recommendation(
-            QualityGrade.A, components
-        )
+        short, detailed, considerations = _generate_recommendation(QualityGrade.A, components)
 
         assert "PROCEED TO SYNTHESIS" in short
         assert "excellent" in detailed.lower()
@@ -173,9 +171,7 @@ class TestGenerateRecommendation:
     def test_grade_b_recommendation(self):
         """Grade B gets proceed with monitoring recommendation."""
         components = []
-        short, detailed, considerations = _generate_recommendation(
-            QualityGrade.B, components
-        )
+        short, detailed, considerations = _generate_recommendation(QualityGrade.B, components)
 
         assert "MONITORING" in short
         assert "good" in detailed.lower()
@@ -183,9 +179,7 @@ class TestGenerateRecommendation:
     def test_grade_c_recommendation(self):
         """Grade C gets optimization recommendation."""
         components = []
-        short, detailed, considerations = _generate_recommendation(
-            QualityGrade.C, components
-        )
+        short, detailed, considerations = _generate_recommendation(QualityGrade.C, components)
 
         assert "OPTIMIZATION" in short
         assert "acceptable" in detailed.lower()
@@ -193,9 +187,7 @@ class TestGenerateRecommendation:
     def test_grade_d_recommendation(self):
         """Grade D gets strong optimization recommendation."""
         components = []
-        short, detailed, considerations = _generate_recommendation(
-            QualityGrade.D, components
-        )
+        short, detailed, considerations = _generate_recommendation(QualityGrade.D, components)
 
         assert "RECOMMENDED" in short
         assert "significant" in detailed.lower()
@@ -203,9 +195,7 @@ class TestGenerateRecommendation:
     def test_grade_f_recommendation(self):
         """Grade F gets do not proceed recommendation."""
         components = []
-        short, detailed, considerations = _generate_recommendation(
-            QualityGrade.F, components
-        )
+        short, detailed, considerations = _generate_recommendation(QualityGrade.F, components)
 
         assert "DO NOT PROCEED" in short
         assert "critical" in detailed.lower()
@@ -301,9 +291,7 @@ class TestCalculateQualityGrade:
         assessment = calculate_quality_grade(sample_pipeline_metrics)
 
         # Should still be scored (not overflow)
-        spec_component = next(
-            c for c in assessment.components if c.name == "Specificity"
-        )
+        spec_component = next(c for c in assessment.components if c.name == "Specificity")
         assert spec_component.normalized_score == 1.0
         # But raw value should be preserved
         assert spec_component.raw_value == 10000.0
@@ -316,9 +304,7 @@ class TestCalculateQualityGrade:
 
         assessment = calculate_quality_grade(sample_pipeline_metrics)
 
-        dimer_component = next(
-            c for c in assessment.components if c.name == "Dimer Risk"
-        )
+        dimer_component = next(c for c in assessment.components if c.name == "Dimer Risk")
         # -8.0 / 10.0 = 0.8 risk
         assert dimer_component.raw_value == pytest.approx(0.8, abs=0.01)
 
@@ -365,9 +351,7 @@ class TestEdgeCases:
 
         assessment = calculate_quality_grade(minimal_pipeline_metrics)
 
-        coverage_comp = next(
-            c for c in assessment.components if c.name == "Coverage"
-        )
+        coverage_comp = next(c for c in assessment.components if c.name == "Coverage")
         assert coverage_comp.rating == "Critical"
 
     def test_perfect_scores(self, sample_pipeline_metrics):
@@ -390,9 +374,7 @@ class TestEdgeCases:
         assessment = calculate_quality_grade(minimal_pipeline_metrics)
 
         # Should use default tm_range=10.0
-        thermo_comp = next(
-            c for c in assessment.components if c.name == "Thermodynamics"
-        )
+        thermo_comp = next(c for c in assessment.components if c.name == "Thermodynamics")
         assert thermo_comp.raw_value == 10.0
 
     def test_missing_uniformity(self, minimal_pipeline_metrics):
@@ -402,9 +384,7 @@ class TestEdgeCases:
         assessment = calculate_quality_grade(minimal_pipeline_metrics)
 
         # Should use default gini=0.5
-        uniform_comp = next(
-            c for c in assessment.components if c.name == "Uniformity"
-        )
+        uniform_comp = next(c for c in assessment.components if c.name == "Uniformity")
         assert uniform_comp.raw_value == 0.5  # 1 - 0.5 gini
 
     def test_negative_dimer_scores(self, sample_pipeline_metrics):
@@ -415,9 +395,7 @@ class TestEdgeCases:
 
         assessment = calculate_quality_grade(sample_pipeline_metrics)
 
-        dimer_comp = next(
-            c for c in assessment.components if c.name == "Dimer Risk"
-        )
+        dimer_comp = next(c for c in assessment.components if c.name == "Dimer Risk")
         # abs(-12.0) / 10.0 = 1.2, capped to 1.0
         assert dimer_comp.raw_value == 1.0
         assert dimer_comp.rating == "Critical"

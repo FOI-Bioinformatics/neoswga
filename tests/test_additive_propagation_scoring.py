@@ -17,8 +17,8 @@ def test_betaine_lowers_thermo_score_when_primer_is_on_high_edge():
     the corrected Tm drops below the window."""
     primer = "GCGCGCGCGCGC"  # 12-mer, 100% GC, high raw Tm
 
-    cond_no_additive = ReactionConditions(temp=30.0, polymerase='phi29')
-    cond_betaine = ReactionConditions(temp=30.0, polymerase='phi29', betaine_m=1.0)
+    cond_no_additive = ReactionConditions(temp=30.0, polymerase="phi29")
+    cond_betaine = ReactionConditions(temp=30.0, polymerase="phi29", betaine_m=1.0)
 
     scorer_plain = IntegratedQualityScorer(conditions=cond_no_additive)
     scorer_betaine = IntegratedQualityScorer(conditions=cond_betaine)
@@ -26,22 +26,24 @@ def test_betaine_lowers_thermo_score_when_primer_is_on_high_edge():
     tm_plain = scorer_plain._primer_tm(primer, 1.0, 12)
     tm_betaine = scorer_betaine._primer_tm(primer, 1.0, 12)
 
-    assert tm_betaine < tm_plain, (
-        f"Betaine should lower Tm; got plain={tm_plain:.1f}, betaine={tm_betaine:.1f}"
-    )
+    assert (
+        tm_betaine < tm_plain
+    ), f"Betaine should lower Tm; got plain={tm_plain:.1f}, betaine={tm_betaine:.1f}"
     # The 1 M betaine correction should be ~-1.2 C or more (vendor data)
-    assert tm_plain - tm_betaine >= 1.0, (
-        f"Betaine 1 M should shift Tm by at least 1 C; got {tm_plain - tm_betaine:.2f}"
-    )
+    assert (
+        tm_plain - tm_betaine >= 1.0
+    ), f"Betaine 1 M should shift Tm by at least 1 C; got {tm_plain - tm_betaine:.2f}"
 
 
 def test_dmso_and_betaine_together_shift_more():
     primer = "GCATCGATCGAT"
 
-    cond_plain = ReactionConditions(temp=30.0, polymerase='phi29')
+    cond_plain = ReactionConditions(temp=30.0, polymerase="phi29")
     cond_cocktail = ReactionConditions(
-        temp=30.0, polymerase='phi29',
-        dmso_percent=5.0, betaine_m=1.0,
+        temp=30.0,
+        polymerase="phi29",
+        dmso_percent=5.0,
+        betaine_m=1.0,
     )
 
     scorer_plain = IntegratedQualityScorer(conditions=cond_plain)
@@ -51,9 +53,9 @@ def test_dmso_and_betaine_together_shift_more():
     tm_cocktail = scorer_cocktail._primer_tm(primer, 0.5, 12)
 
     # 5% DMSO ~ -2.75 C, 1 M betaine ~ -1.2 C, combined > 3 C
-    assert tm_plain - tm_cocktail >= 3.0, (
-        f"DMSO+betaine cocktail should shift Tm by >=3 C; got {tm_plain - tm_cocktail:.2f}"
-    )
+    assert (
+        tm_plain - tm_cocktail >= 3.0
+    ), f"DMSO+betaine cocktail should shift Tm by >=3 C; got {tm_plain - tm_cocktail:.2f}"
 
 
 def test_scorer_without_conditions_still_works():
@@ -71,11 +73,13 @@ def test_additives_change_thermo_score_for_borderline_primer():
     primer = "ATCGATCGATCG"
 
     # Set target_temp so optimal range is tight around the raw Tm
-    cond_plain = ReactionConditions(temp=30.0, polymerase='phi29')
+    cond_plain = ReactionConditions(temp=30.0, polymerase="phi29")
     # Strong Tm-depressing cocktail
     cond_depressed = ReactionConditions(
-        temp=30.0, polymerase='phi29',
-        betaine_m=2.0, dmso_percent=8.0,
+        temp=30.0,
+        polymerase="phi29",
+        betaine_m=2.0,
+        dmso_percent=8.0,
     )
 
     scorer_plain = IntegratedQualityScorer(conditions=cond_plain)
@@ -85,6 +89,6 @@ def test_additives_change_thermo_score_for_borderline_primer():
     score_depressed = scorer_depressed._calculate_thermo_score(primer)
 
     # The cocktail lowers Tm significantly; the score must differ.
-    assert score_plain != score_depressed, (
-        f"Thermo score should change with heavy additives; got {score_plain} vs {score_depressed}"
-    )
+    assert (
+        score_plain != score_depressed
+    ), f"Thermo score should change with heavy additives; got {score_plain} vs {score_depressed}"

@@ -10,14 +10,15 @@ from pathlib import Path
 
 # Use the same import trick as conftest.py
 import sys
+
 project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-sys.modules.setdefault('neoswga', type(sys)('neoswga'))
-sys.modules.setdefault('neoswga.core', type(sys)('neoswga.core'))
-sys.modules['neoswga'].__path__ = [str(project_root / 'neoswga')]
-sys.modules['neoswga.core'].__path__ = [str(project_root / 'neoswga' / 'core')]
+sys.modules.setdefault("neoswga", type(sys)("neoswga"))
+sys.modules.setdefault("neoswga.core", type(sys)("neoswga.core"))
+sys.modules["neoswga"].__path__ = [str(project_root / "neoswga")]
+sys.modules["neoswga.core"].__path__ = [str(project_root / "neoswga" / "core")]
 
 from neoswga.core.report.metrics import collect_pipeline_metrics, CoverageMetrics
 from neoswga.core.report.quality import calculate_quality_grade, QualityGrade
@@ -78,10 +79,7 @@ class TestE2EReportGeneration:
         """Generate executive summary from Bacillus data."""
         output_file = tmp_path / "bacillus_summary.html"
 
-        summary = generate_executive_summary(
-            str(bacillus_results_dir),
-            str(output_file)
-        )
+        summary = generate_executive_summary(str(bacillus_results_dir), str(output_file))
 
         # Check summary data
         assert summary.metrics.primer_count == 6
@@ -133,16 +131,16 @@ class TestE2EReportGeneration:
         html = render_executive_summary(summary)
 
         # Basic HTML validation
-        assert html.count('<html') == 1
-        assert html.count('</html>') == 1
-        assert html.count('<head>') == 1
-        assert html.count('</head>') == 1
-        assert html.count('<body>') == 1
-        assert html.count('</body>') == 1
+        assert html.count("<html") == 1
+        assert html.count("</html>") == 1
+        assert html.count("<head>") == 1
+        assert html.count("</head>") == 1
+        assert html.count("<body>") == 1
+        assert html.count("</body>") == 1
 
         # Check for unclosed tags (basic check)
-        assert html.count('<div') == html.count('</div>')
-        assert html.count('<table>') == html.count('</table>')
+        assert html.count("<div") == html.count("</div>")
+        assert html.count("<table>") == html.count("</table>")
 
     def test_coverage_badge_estimated_when_no_optimizer(self, bacillus_results_dir):
         """Coverage badge shows 'Estimated' when coverage is not from optimizer."""
@@ -305,8 +303,7 @@ class TestEdgeCases:
         # Create minimal step4
         step4 = tmp_path / "step4_improved_df.csv"
         step4.write_text(
-            "sequence,score,fg_freq,bg_freq,tm,gini\n"
-            "ATCGATCG,0.8,0.001,0.00001,35.0,0.2\n"
+            "sequence,score,fg_freq,bg_freq,tm,gini\n" "ATCGATCG,0.8,0.001,0.00001,35.0,0.2\n"
         )
 
         metrics = collect_pipeline_metrics(str(tmp_path))
@@ -322,8 +319,7 @@ class TestEdgeCases:
         """Generate report with single primer."""
         step4 = tmp_path / "step4_improved_df.csv"
         step4.write_text(
-            "sequence,score,fg_freq,bg_freq,tm,gini\n"
-            "ATCGATCG,0.8,0.001,0.00001,35.0,0.2\n"
+            "sequence,score,fg_freq,bg_freq,tm,gini\n" "ATCGATCG,0.8,0.001,0.00001,35.0,0.2\n"
         )
 
         metrics = collect_pipeline_metrics(str(tmp_path))
@@ -357,8 +353,7 @@ class TestSecurityEscaping:
         """Verify XSS is prevented in primer sequences."""
         step4 = tmp_path / "step4_improved_df.csv"
         step4.write_text(
-            'sequence,score,fg_freq,bg_freq\n'
-            '<script>alert("xss")</script>,0.8,0.001,0.00001\n'
+            "sequence,score,fg_freq,bg_freq\n" '<script>alert("xss")</script>,0.8,0.001,0.00001\n'
         )
 
         metrics = collect_pipeline_metrics(str(tmp_path))
@@ -367,8 +362,8 @@ class TestSecurityEscaping:
         html = render_executive_summary(summary)
 
         # Script tag should be escaped
-        assert '<script>' not in html
-        assert '&lt;script&gt;' in html
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
 
     def test_format_string_injection_prevention(self, tmp_path):
         """Verify format string injection is prevented."""
@@ -412,7 +407,7 @@ class TestOutputQuality:
         html = render_executive_summary(summary)
 
         # Should have color styling
-        assert 'style' in html or 'class=' in html
+        assert "style" in html or "class=" in html
 
         # Grade letter should be present
         assert quality.grade.value in html
@@ -473,8 +468,7 @@ class TestTechnicalReport:
         """Technical report generates with minimal step4 data."""
         step4 = tmp_path / "step4_improved_df.csv"
         step4.write_text(
-            "sequence,score,fg_freq,bg_freq,tm,gini\n"
-            "ATCGATCG,0.8,0.001,0.00001,35.0,0.2\n"
+            "sequence,score,fg_freq,bg_freq,tm,gini\n" "ATCGATCG,0.8,0.001,0.00001,35.0,0.2\n"
         )
 
         data = collect_technical_report_data(str(tmp_path))

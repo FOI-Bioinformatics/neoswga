@@ -24,15 +24,16 @@ def _has_jellyfish():
 def _write_extreme_gc_fasta(path: Path, length: int, gc: float, seed: int = 0):
     """Write a synthetic FASTA with approximately the target GC fraction."""
     import random
+
     rng = random.Random(seed)
     with path.open("w") as fh:
         fh.write(f">synthetic_gc{int(gc*100)}\n")
         line = []
         for _ in range(length):
             if rng.random() < gc:
-                line.append('G' if rng.random() < 0.5 else 'C')
+                line.append("G" if rng.random() < 0.5 else "C")
             else:
-                line.append('A' if rng.random() < 0.5 else 'T')
+                line.append("A" if rng.random() < 0.5 else "T")
             if len(line) >= 80:
                 fh.write("".join(line) + "\n")
                 line = []
@@ -43,7 +44,10 @@ def _write_extreme_gc_fasta(path: Path, length: int, gc: float, seed: int = 0):
 def _run_cli(cmd, cwd):
     return subprocess.run(
         [sys.executable, "-m", "neoswga.cli_unified", *cmd],
-        capture_output=True, text=True, timeout=300, cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        cwd=cwd,
     )
 
 
@@ -86,9 +90,9 @@ def test_at_rich_scenario_auto_adapts_gc_window(tmp_path):
 
     # Log must announce adaptive engagement (either captured by CLI or step2).
     combined = result.stdout + result.stderr
-    assert "Extreme GC" in combined or "Adaptive GC filtering" in combined, (
-        "Expected an adaptive-GC log line for a 25% GC genome"
-    )
+    assert (
+        "Extreme GC" in combined or "Adaptive GC filtering" in combined
+    ), "Expected an adaptive-GC log line for a 25% GC genome"
 
     step2_csv = tmp_path / "step2_df.csv"
     assert step2_csv.is_file()
@@ -138,9 +142,9 @@ def test_gc_rich_scenario_auto_adapts_gc_window(tmp_path):
     assert result.returncode == 0, result.stderr[-1000:]
 
     combined = result.stdout + result.stderr
-    assert "Extreme GC" in combined or "Adaptive GC filtering" in combined, (
-        "Expected an adaptive-GC log line for a 70% GC genome"
-    )
+    assert (
+        "Extreme GC" in combined or "Adaptive GC filtering" in combined
+    ), "Expected an adaptive-GC log line for a 70% GC genome"
 
     step2_csv = tmp_path / "step2_df.csv"
     assert step2_csv.is_file()

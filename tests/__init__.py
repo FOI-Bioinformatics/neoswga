@@ -9,4 +9,4 @@ This package contains comprehensive unit tests for:
 - Reaction conditions (additives and Mg2+ optimization)
 """
 
-__version__ = '1.0.0'
+__version__ = "1.0.0"

@@ -58,11 +58,9 @@ def test_ensemble_picks_by_normalized_score_not_raw(monkeypatch):
     from neoswga.core import unified_optimizer as uo
 
     # 'a': huge raw score, poor real quality -> low normalized.
-    a = _result("a", raw_score=9999.0,
-                metrics=_metrics(0.10, 0.0, 1.0, 1.0, (10.0, 40.0)))
+    a = _result("a", raw_score=9999.0, metrics=_metrics(0.10, 0.0, 1.0, 1.0, (10.0, 40.0)))
     # 'b': tiny raw score, excellent real quality -> high normalized.
-    b = _result("b", raw_score=0.01,
-                metrics=_metrics(0.97, 100.0, 0.0, 0.0, (34.0, 35.0)))
+    b = _result("b", raw_score=0.01, metrics=_metrics(0.97, 100.0, 0.0, 0.0, (34.0, 35.0)))
     stubs = {"a": _StubOptimizer("a", a), "b": _StubOptimizer("b", b)}
 
     def fake_create(name, **kwargs):
@@ -71,15 +69,23 @@ def test_ensemble_picks_by_normalized_score_not_raw(monkeypatch):
     monkeypatch.setattr(uo.OptimizerFactory, "create", staticmethod(fake_create))
 
     winner = uo._run_ensemble(
-        methods=["a", "b"], cache=object(), candidates=["ATCG", "GGGG"],
-        fg_prefixes=["fg"], fg_seq_lengths=[1000],
-        bg_prefixes=[], bg_seq_lengths=[],
-        target_size=2, config=None, conditions=None,
-        application="balanced", seed=1, verbose=False,
+        methods=["a", "b"],
+        cache=object(),
+        candidates=["ATCG", "GGGG"],
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[1000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        target_size=2,
+        config=None,
+        conditions=None,
+        application="balanced",
+        seed=1,
+        verbose=False,
     )
 
-    assert winner.optimizer_name == "b"          # normalized winner
-    assert winner.score == pytest.approx(0.01)   # carried through
+    assert winner.optimizer_name == "b"  # normalized winner
+    assert winner.score == pytest.approx(0.01)  # carried through
     # comparison table present with one row per method, exactly one selected.
     assert winner.ensemble_comparison is not None
     methods = {r["method"] for r in winner.ensemble_comparison}
@@ -101,11 +107,19 @@ def test_ensemble_degrades_when_some_methods_fail(monkeypatch):
     monkeypatch.setattr(uo.OptimizerFactory, "create", staticmethod(fake_create))
 
     winner = uo._run_ensemble(
-        methods=["broken", "good"], cache=object(), candidates=["ATCG"],
-        fg_prefixes=["fg"], fg_seq_lengths=[1000],
-        bg_prefixes=[], bg_seq_lengths=[],
-        target_size=1, config=None, conditions=None,
-        application="balanced", seed=None, verbose=False,
+        methods=["broken", "good"],
+        cache=object(),
+        candidates=["ATCG"],
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[1000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        target_size=1,
+        config=None,
+        conditions=None,
+        application="balanced",
+        seed=None,
+        verbose=False,
     )
 
     assert winner.optimizer_name == "good"
@@ -124,11 +138,19 @@ def test_ensemble_all_methods_fail_returns_error(monkeypatch):
     monkeypatch.setattr(uo.OptimizerFactory, "create", staticmethod(fake_create))
 
     res = uo._run_ensemble(
-        methods=["a", "b"], cache=object(), candidates=["ATCG"],
-        fg_prefixes=["fg"], fg_seq_lengths=[1000],
-        bg_prefixes=[], bg_seq_lengths=[],
-        target_size=1, config=None, conditions=None,
-        application="balanced", seed=None, verbose=False,
+        methods=["a", "b"],
+        cache=object(),
+        candidates=["ATCG"],
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[1000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        target_size=1,
+        config=None,
+        conditions=None,
+        application="balanced",
+        seed=None,
+        verbose=False,
     )
     assert res.status == OptimizationStatus.ERROR
 
@@ -138,7 +160,5 @@ def test_ensemble_is_in_cli_optimize_choices():
     from neoswga.cli_unified import create_parser
 
     parser = create_parser()
-    args = parser.parse_args(
-        ["optimize", "-j", "params.json", "--optimization-method", "ensemble"]
-    )
+    args = parser.parse_args(["optimize", "-j", "params.json", "--optimization-method", "ensemble"])
     assert args.optimization_method == "ensemble"

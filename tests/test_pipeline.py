@@ -24,10 +24,10 @@ from neoswga.core.improved_pipeline import (
     ImprovedPipeline,
 )
 
-
 # =============================================================================
 # StepValidationResult Tests
 # =============================================================================
+
 
 class TestStepValidationResult:
     """Tests for StepValidationResult dataclass."""
@@ -35,10 +35,7 @@ class TestStepValidationResult:
     def test_valid_result(self):
         """Test creating a valid result."""
         result = StepValidationResult(
-            valid=True,
-            missing_files=[],
-            error_message="",
-            remediation=""
+            valid=True, missing_files=[], error_message="", remediation=""
         )
         assert result.valid is True
         assert result.missing_files == []
@@ -49,7 +46,7 @@ class TestStepValidationResult:
             valid=False,
             missing_files=["file1.fasta", "file2.fasta"],
             error_message="Files not found",
-            remediation="Check paths"
+            remediation="Check paths",
         )
         assert result.valid is False
         assert len(result.missing_files) == 2
@@ -65,7 +62,7 @@ class TestStepPrerequisiteError:
             valid=False,
             missing_files=["missing.fasta"],
             error_message="Test error",
-            remediation="Fix it"
+            remediation="Fix it",
         )
         error = StepPrerequisiteError(step=2, validation=validation)
 
@@ -80,7 +77,7 @@ class TestStepPrerequisiteError:
             valid=False,
             missing_files=[f"file{i}.txt" for i in range(10)],
             error_message="Many files missing",
-            remediation="Check paths"
+            remediation="Check paths",
         )
         error = StepPrerequisiteError(step=1, validation=validation)
 
@@ -95,6 +92,7 @@ class TestStepPrerequisiteError:
 # Step Validation Tests
 # =============================================================================
 
+
 class TestValidateStep1Prerequisites:
     """Tests for step 1 prerequisite validation."""
 
@@ -108,9 +106,7 @@ class TestValidateStep1Prerequisites:
         bg_genome.write_text(">seq1\nACGT\n")
 
         result = validate_step1_prerequisites(
-            data_dir=str(tmp_path),
-            fg_genomes=[str(fg_genome)],
-            bg_genomes=[str(bg_genome)]
+            data_dir=str(tmp_path), fg_genomes=[str(fg_genome)], bg_genomes=[str(bg_genome)]
         )
 
         assert result.valid is True
@@ -119,9 +115,7 @@ class TestValidateStep1Prerequisites:
     def test_invalid_with_missing_fg(self, tmp_path):
         """Test validation fails with missing foreground genome."""
         result = validate_step1_prerequisites(
-            data_dir=str(tmp_path),
-            fg_genomes=["/nonexistent/genome.fasta"],
-            bg_genomes=[]
+            data_dir=str(tmp_path), fg_genomes=["/nonexistent/genome.fasta"], bg_genomes=[]
         )
 
         assert result.valid is False
@@ -133,9 +127,7 @@ class TestValidateStep1Prerequisites:
         fg_genome.write_text(">seq1\nACGT\n")
 
         result = validate_step1_prerequisites(
-            data_dir=str(tmp_path),
-            fg_genomes=[str(fg_genome)],
-            bg_genomes=[]
+            data_dir=str(tmp_path), fg_genomes=[str(fg_genome)], bg_genomes=[]
         )
 
         assert result.valid is True
@@ -147,9 +139,7 @@ class TestValidateStep1Prerequisites:
         fg_genome.write_text(">seq1\nACGT\n")
 
         result = validate_step1_prerequisites(
-            data_dir=str(new_dir),
-            fg_genomes=[str(fg_genome)],
-            bg_genomes=[]
+            data_dir=str(new_dir), fg_genomes=[str(fg_genome)], bg_genomes=[]
         )
 
         assert result.valid is True
@@ -170,7 +160,7 @@ class TestValidateStep2Prerequisites:
             fg_prefixes=[str(tmp_path / "target")],
             bg_prefixes=[],
             min_k=6,
-            max_k=6
+            max_k=6,
         )
 
         assert result.valid is True
@@ -182,7 +172,7 @@ class TestValidateStep2Prerequisites:
             fg_prefixes=[str(tmp_path / "target")],
             bg_prefixes=[],
             min_k=6,
-            max_k=8
+            max_k=8,
         )
 
         assert result.valid is False
@@ -222,8 +212,7 @@ class TestValidateStep4Prerequisites:
         positions_file.write_bytes(b"dummy")  # Just need file to exist
 
         result = validate_step4_prerequisites(
-            data_dir=str(tmp_path),
-            fg_prefixes=[str(tmp_path / "target")]
+            data_dir=str(tmp_path), fg_prefixes=[str(tmp_path / "target")]
         )
 
         assert result.valid is True
@@ -231,8 +220,7 @@ class TestValidateStep4Prerequisites:
     def test_invalid_without_step3_output(self, tmp_path):
         """Test validation fails without step3 output."""
         result = validate_step4_prerequisites(
-            data_dir=str(tmp_path),
-            fg_prefixes=[str(tmp_path / "target")]
+            data_dir=str(tmp_path), fg_prefixes=[str(tmp_path / "target")]
         )
 
         assert result.valid is False
@@ -244,8 +232,8 @@ class TestValidateStep4Prerequisites:
         step3_file = tmp_path / "step3_df.csv"
         step3_file.write_text(
             "primer,fg_freq,bg_freq,amp_pred\n"
-            "ATCGATCG,100,10,5\n"       # 8bp primer
-            "GCTAGCTAGC,80,8,4\n"        # 10bp primer
+            "ATCGATCG,100,10,5\n"  # 8bp primer
+            "GCTAGCTAGC,80,8,4\n"  # 10bp primer
         )
 
         # Only create position file for k=8, not for k=10
@@ -253,8 +241,7 @@ class TestValidateStep4Prerequisites:
         pos_8.write_bytes(b"dummy")
 
         result = validate_step4_prerequisites(
-            data_dir=str(tmp_path),
-            fg_prefixes=[str(tmp_path / "target")]
+            data_dir=str(tmp_path), fg_prefixes=[str(tmp_path / "target")]
         )
 
         assert result.valid is False
@@ -265,8 +252,8 @@ class TestValidateStep4Prerequisites:
         step3_file = tmp_path / "step3_df.csv"
         step3_file.write_text(
             "primer,fg_freq,bg_freq,amp_pred\n"
-            "ATCGATCG,100,10,5\n"       # 8bp
-            "GCTAGCTAGC,80,8,4\n"        # 10bp
+            "ATCGATCG,100,10,5\n"  # 8bp
+            "GCTAGCTAGC,80,8,4\n"  # 10bp
         )
 
         # Create position files for both k=8 and k=10
@@ -274,8 +261,7 @@ class TestValidateStep4Prerequisites:
         (tmp_path / "target_10mer_positions.h5").write_bytes(b"dummy")
 
         result = validate_step4_prerequisites(
-            data_dir=str(tmp_path),
-            fg_prefixes=[str(tmp_path / "target")]
+            data_dir=str(tmp_path), fg_prefixes=[str(tmp_path / "target")]
         )
 
         assert result.valid is True
@@ -284,6 +270,7 @@ class TestValidateStep4Prerequisites:
 # =============================================================================
 # PipelineConfig Tests
 # =============================================================================
+
 
 class TestPipelineConfig:
     """Tests for PipelineConfig dataclass."""
@@ -295,30 +282,23 @@ class TestPipelineConfig:
         assert config.gc_tolerance == 0.15
         assert config.reaction_temp == 30.0
         assert config.num_primers == 10
-        assert config.optimization_method == 'hybrid'
+        assert config.optimization_method == "hybrid"
         assert config.verbose is True
 
     def test_custom_values(self):
         """Test custom configuration values."""
         config = PipelineConfig(
-            gc_tolerance=0.2,
-            reaction_temp=42.0,
-            num_primers=15,
-            optimization_method='greedy'
+            gc_tolerance=0.2, reaction_temp=42.0, num_primers=15, optimization_method="greedy"
         )
 
         assert config.gc_tolerance == 0.2
         assert config.reaction_temp == 42.0
         assert config.num_primers == 15
-        assert config.optimization_method == 'greedy'
+        assert config.optimization_method == "greedy"
 
     def test_thermodynamic_options(self):
         """Test thermodynamic optimization options."""
-        config = PipelineConfig(
-            tm_weight=0.5,
-            dimer_penalty=0.3,
-            max_dimer_bp=5
-        )
+        config = PipelineConfig(tm_weight=0.5, dimer_penalty=0.3, max_dimer_bp=5)
 
         assert config.tm_weight == 0.5
         assert config.dimer_penalty == 0.3
@@ -328,6 +308,7 @@ class TestPipelineConfig:
 # =============================================================================
 # ImprovedPipeline Tests
 # =============================================================================
+
 
 class TestImprovedPipeline:
     """Tests for ImprovedPipeline class."""
@@ -374,6 +355,7 @@ class TestImprovedPipeline:
 # Integration Tests
 # =============================================================================
 
+
 class TestPipelineIntegration:
     """Integration tests for pipeline components."""
 
@@ -397,5 +379,5 @@ class TestPipelineIntegration:
         assert pipeline.config.skip_adaptive_filter is True
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

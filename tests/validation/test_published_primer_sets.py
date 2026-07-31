@@ -22,11 +22,16 @@ no matter how dense the average spacing is elsewhere. Prev04 has the best mean
 spacing of all six (1980 bp) and finished third; Prev06 has the second-worst
 (4980 bp) and won outright.
 
-**2. That neoswga's own scoring does not yet reflect this.**
-``PrimerSetMetrics.normalized_score`` weights coverage, selectivity, dimer risk,
-evenness and Tm - but never ``max_gap``, despite computing it. On this data it
-ranks the two wet-lab winners 3rd and 4th and puts a 2x failure first. That
-assertion is marked xfail so the gap is tracked rather than silently tolerated.
+**2. That the shipped scoring does rank the winners first - but narrowly.**
+``PrimerSetMetrics.normalized_score`` surfaces Prev03 and Prev06 as the top two,
+which is correct. The margin over the next set is only a few points of score
+against a 60-fold spread in measured performance, so the ordering should not be
+read as a confident separation on six sets.
+
+Note ``normalized_score`` does not use ``max_gap`` despite computing it, and
+``max_gap`` is the strongest single predictor here. Adding a hole term was tried
+and made no difference to the ranking on this data, so it was not shipped: a
+change that re-ranks all optimizer output needs to demonstrate a benefit first.
 
 **Caveat, stated plainly: n = 6.** These correlations are suggestive, not
 established, and any re-weighting tuned on six points risks fitting noise. The
@@ -42,6 +47,7 @@ import pytest
 DATA = Path(__file__).parent / "data" / "dwivedi_yu_2023_prevotella.json"
 WET_LAB_WINNERS = {"Prev03", "Prev06"}
 GENOME_BP = 3_168_282  # P. melaninogenica ATCC 25845
+BACKGROUND_BP = 3_100_000_000  # human, the background used in the paper
 
 
 @pytest.fixture(scope="module")
@@ -165,7 +171,13 @@ def _metrics_from_published(p):
     from neoswga.core.base_optimizer import PrimerSetMetrics
 
     fg_sites = max(1, round(GENOME_BP / p["fg_mean_distance"]))
-    bg_sites = max(1, round(GENOME_BP / p["bg_mean_distance"]))
+    # The background was the HUMAN genome, so background sites must be counted
+    # over 3.1 Gb, not over the 3.2 Mb target. Dividing both by the target size
+    # understated background sites ~1000-fold and inverted the selectivity
+    # ordering. Note the paper's own "fg/bg ratio" column is a ratio of mean
+    # SPACINGS (fg_mean/bg_mean), which is a different quantity from
+    # PrimerSetMetrics.selectivity_ratio (fg_sites/bg_sites).
+    bg_sites = max(1, round(BACKGROUND_BP / p["bg_mean_distance"]))
     return PrimerSetMetrics(
         fg_coverage=min(1.0, fg_sites * 3000 * 2 / GENOME_BP),
         bg_coverage=0.0,
@@ -191,18 +203,17 @@ def test_normalized_score_is_computable_for_every_published_set(sets):
         assert 0.0 <= score <= 1.0, name
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "normalized_score does not use max_gap, the strongest predictor in the "
-        "only wet-lab-validated dataset available. It ranks the two winners 3rd "
-        "and 4th and puts Prev02 (a 2.1x failure) first. Fixing it re-ranks all "
-        "optimizer output, so it needs its own change with regenerated "
-        "integration baselines. See docs/validation/."
-    ),
-)
 @pytest.mark.parametrize("application", ["balanced", "clinical", "enrichment"])
 def test_normalized_score_ranks_the_wet_lab_winners_first(sets, application):
+    """The shipped scoring does surface the two wet-lab winners.
+
+    This was briefly recorded as a known failure. That was wrong, and the cause
+    was a bug in the reconstruction above, not in the scoring: background sites
+    were counted over the 3.2 Mb target instead of the 3.1 Gb human background,
+    which understated them ~1000-fold and inverted the selectivity ordering.
+    With the background sized correctly, normalized_score ranks Prev03 and
+    Prev06 first without any change to its weights.
+    """
     scored = sorted(
         sets,
         key=lambda n: -_metrics_from_published(sets[n]["published"]).normalized_score(

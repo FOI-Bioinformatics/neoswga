@@ -13,8 +13,7 @@ from neoswga.core.base_optimizer import OPTIMIZER_APPLICATION_WEIGHTS
 
 
 def test_optimizer_weights_table_covers_all_applications():
-    for name in ("balanced", "discovery", "clinical",
-                 "enrichment", "metagenomics"):
+    for name in ("balanced", "discovery", "clinical", "enrichment", "metagenomics"):
         w = OPTIMIZER_APPLICATION_WEIGHTS[name]
         assert {"tm_weight", "uniformity_weight", "dimer_penalty"} <= set(w)
         for k, v in w.items():
@@ -27,15 +26,15 @@ def test_clinical_vs_metagenomics_have_different_weights():
     c = OPTIMIZER_APPLICATION_WEIGHTS["clinical"]
     m = OPTIMIZER_APPLICATION_WEIGHTS["metagenomics"]
 
-    assert c["dimer_penalty"] > m["dimer_penalty"], (
-        "clinical should weigh dimer_penalty higher than metagenomics"
-    )
-    assert c["tm_weight"] > m["tm_weight"], (
-        "clinical should weigh tm_weight higher than metagenomics"
-    )
-    assert m["uniformity_weight"] > c["uniformity_weight"], (
-        "metagenomics should weigh uniformity higher than clinical"
-    )
+    assert (
+        c["dimer_penalty"] > m["dimer_penalty"]
+    ), "clinical should weigh dimer_penalty higher than metagenomics"
+    assert (
+        c["tm_weight"] > m["tm_weight"]
+    ), "clinical should weigh tm_weight higher than metagenomics"
+    assert (
+        m["uniformity_weight"] > c["uniformity_weight"]
+    ), "metagenomics should weigh uniformity higher than clinical"
 
 
 def test_unified_optimizer_forwards_application_weights(monkeypatch):
@@ -55,8 +54,11 @@ def test_unified_optimizer_forwards_application_weights(monkeypatch):
 
             def optimize(self, candidates, target_size):
                 from neoswga.core.base_optimizer import (
-                    OptimizationResult, OptimizationStatus, PrimerSetMetrics,
+                    OptimizationResult,
+                    OptimizationStatus,
+                    PrimerSetMetrics,
                 )
+
                 return OptimizationResult(
                     primers=tuple(candidates[: target_size or 2]),
                     score=0.5,
@@ -80,6 +82,7 @@ def test_unified_optimizer_forwards_application_weights(monkeypatch):
     # Patch PositionCache inside run_optimization (it's built before the
     # factory call)
     from neoswga.core import unified_optimizer as _uo
+
     monkeypatch.setattr(_uo, "PositionCache", lambda *a, **kw: _DummyCache())
 
     _uo.run_optimization(
@@ -94,9 +97,9 @@ def test_unified_optimizer_forwards_application_weights(monkeypatch):
         application="clinical",
     )
 
-    assert "tm_weight" in captured, (
-        f"run_optimization did not forward tm_weight; got keys {sorted(captured)}"
-    )
+    assert (
+        "tm_weight" in captured
+    ), f"run_optimization did not forward tm_weight; got keys {sorted(captured)}"
     clinical_w = OPTIMIZER_APPLICATION_WEIGHTS["clinical"]
     assert captured["tm_weight"] == clinical_w["tm_weight"]
     assert captured["uniformity_weight"] == clinical_w["uniformity_weight"]
@@ -118,8 +121,11 @@ def test_caller_overrides_application_weights(monkeypatch):
 
             def optimize(self, candidates, target_size):
                 from neoswga.core.base_optimizer import (
-                    OptimizationResult, OptimizationStatus, PrimerSetMetrics,
+                    OptimizationResult,
+                    OptimizationStatus,
+                    PrimerSetMetrics,
                 )
+
                 return OptimizationResult(
                     primers=tuple(candidates[: target_size or 1]),
                     score=0.5,
@@ -151,6 +157,6 @@ def test_caller_overrides_application_weights(monkeypatch):
         tm_weight=0.99,  # explicit override
     )
 
-    assert captured["tm_weight"] == 0.99, (
-        "explicit tm_weight kwarg must override the application preset"
-    )
+    assert (
+        captured["tm_weight"] == 0.99
+    ), "explicit tm_weight kwarg must override the application preset"

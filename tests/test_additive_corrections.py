@@ -36,7 +36,6 @@ from neoswga.core.reaction_conditions import (
 )
 from neoswga.core.thermodynamics import calculate_tm_with_salt, gc_content
 
-
 # =============================================================================
 # DMSO Corrections
 # =============================================================================
@@ -65,9 +64,7 @@ class TestDMSOCorrections:
         """DMSO effect should be approximately linear with concentration."""
         base = ReactionConditions(polymerase="equiphi29", temp=42.0)
         dmso5 = ReactionConditions(polymerase="equiphi29", temp=42.0, dmso_percent=5.0)
-        dmso10 = ReactionConditions(
-            polymerase="equiphi29", temp=42.0, dmso_percent=10.0
-        )
+        dmso10 = ReactionConditions(polymerase="equiphi29", temp=42.0, dmso_percent=10.0)
 
         c0 = base.calculate_tm_correction(0.5, 12)
         c5 = dmso5.calculate_tm_correction(0.5, 12)
@@ -79,9 +76,7 @@ class TestDMSOCorrections:
 
     def test_dmso_at_10_percent(self):
         """10% DMSO should reduce Tm by about 6C."""
-        conditions = ReactionConditions(
-            polymerase="equiphi29", temp=42.0, dmso_percent=10.0
-        )
+        conditions = ReactionConditions(polymerase="equiphi29", temp=42.0, dmso_percent=10.0)
         correction = conditions.calculate_tm_correction(gc_content=0.5, primer_length=12)
         assert correction < -5
 
@@ -156,9 +151,7 @@ class TestBetaineCorrections:
 
     def test_betaine_at_2_5m(self):
         """Betaine near isostabilizing concentration (2.5M)."""
-        conditions = ReactionConditions(
-            polymerase="equiphi29", temp=42.0, betaine_m=2.5
-        )
+        conditions = ReactionConditions(polymerase="equiphi29", temp=42.0, betaine_m=2.5)
         corr_50 = conditions.calculate_tm_correction(gc_content=0.5, primer_length=12)
         corr_33 = conditions.calculate_tm_correction(gc_content=0.33, primer_length=12)
         assert isinstance(corr_50, float)
@@ -172,36 +165,22 @@ class TestBetaineCorrections:
         cond_0 = ReactionConditions(temp=30, betaine_m=0)
         cond_2 = ReactionConditions(temp=30, betaine_m=2.0)
 
-        range_no = (
-            cond_0.calculate_effective_tm(seq_gc)
-            - cond_0.calculate_effective_tm(seq_at)
-        )
-        range_2m = (
-            cond_2.calculate_effective_tm(seq_gc)
-            - cond_2.calculate_effective_tm(seq_at)
-        )
+        range_no = cond_0.calculate_effective_tm(seq_gc) - cond_0.calculate_effective_tm(seq_at)
+        range_2m = cond_2.calculate_effective_tm(seq_gc) - cond_2.calculate_effective_tm(seq_at)
         assert range_2m < range_no
 
     def test_betaine_arrhenius_correction(self):
         """Betaine Arrhenius correction at 37C, 50% GC, should be about -1.2C/M."""
         corrector = ArrheniusTmCorrector(37.0)
-        correction = corrector.calculate_correction(
-            "betaine", 1.0, gc_content=0.5
-        )
+        correction = corrector.calculate_correction("betaine", 1.0, gc_content=0.5)
         assert -1.5 < correction < -0.9
 
     def test_betaine_arrhenius_gc_ordering(self):
         """Betaine correction should be more negative for GC-rich sequences."""
         corrector = ArrheniusTmCorrector(37.0)
-        corr_gc = corrector.calculate_correction(
-            "betaine", 1.0, gc_content=0.6, primer_length=12
-        )
-        corr_50 = corrector.calculate_correction(
-            "betaine", 1.0, gc_content=0.5, primer_length=12
-        )
-        corr_at = corrector.calculate_correction(
-            "betaine", 1.0, gc_content=0.4, primer_length=12
-        )
+        corr_gc = corrector.calculate_correction("betaine", 1.0, gc_content=0.6, primer_length=12)
+        corr_50 = corrector.calculate_correction("betaine", 1.0, gc_content=0.5, primer_length=12)
+        corr_at = corrector.calculate_correction("betaine", 1.0, gc_content=0.4, primer_length=12)
         assert corr_gc < corr_50 < corr_at
 
     def test_betaine_literature_range(self):
@@ -227,13 +206,9 @@ class TestBetaineCorrections:
         seq_gc = "GCGCGCGCGC"
         seq_50 = "GCGCATATAT"
 
-        diff_no = abs(
-            cond_0.calculate_effective_tm(seq_gc)
-            - cond_0.calculate_effective_tm(seq_50)
-        )
+        diff_no = abs(cond_0.calculate_effective_tm(seq_gc) - cond_0.calculate_effective_tm(seq_50))
         diff_2m = abs(
-            conditions.calculate_effective_tm(seq_gc)
-            - conditions.calculate_effective_tm(seq_50)
+            conditions.calculate_effective_tm(seq_gc) - conditions.calculate_effective_tm(seq_50)
         )
         assert diff_2m < diff_no
         reduction_pct = (diff_no - diff_2m) / diff_no * 100
@@ -349,17 +324,13 @@ class TestLengthDependentCorrection:
         """calculate_effective_tm should apply length-dependent correction."""
         conditions = ReactionConditions(temp=30, betaine_m=2.0)
 
-        seq_8 = "GCGCGCGC"    # 8bp, 100% GC
+        seq_8 = "GCGCGCGC"  # 8bp, 100% GC
         seq_16 = "GCGCGCGCGCGCGCGC"  # 16bp, 100% GC
 
-        base_diff = (
-            calculate_tm_with_salt(seq_16, 50, 0)
-            - calculate_tm_with_salt(seq_8, 50, 0)
-        )
-        effective_diff = (
-            conditions.calculate_effective_tm(seq_16)
-            - conditions.calculate_effective_tm(seq_8)
-        )
+        base_diff = calculate_tm_with_salt(seq_16, 50, 0) - calculate_tm_with_salt(seq_8, 50, 0)
+        effective_diff = conditions.calculate_effective_tm(
+            seq_16
+        ) - conditions.calculate_effective_tm(seq_8)
         assert effective_diff < base_diff
 
     def test_short_primer_correction(self):
@@ -428,12 +399,8 @@ class TestTMACCorrections:
     def test_tmac_gc_equalization_arrhenius(self):
         """TMAC primary effect is GC equalization via Arrhenius model."""
         corrector = ArrheniusTmCorrector(37.0)
-        corr_50 = corrector.calculate_correction(
-            "tmac", 0.05, gc_content=0.5, primer_length=12
-        )
-        corr_70 = corrector.calculate_correction(
-            "tmac", 0.05, gc_content=0.7, primer_length=12
-        )
+        corr_50 = corrector.calculate_correction("tmac", 0.05, gc_content=0.5, primer_length=12)
+        corr_70 = corrector.calculate_correction("tmac", 0.05, gc_content=0.7, primer_length=12)
         assert corr_70 < corr_50
 
     def test_tmac_at_practical_concentrations(self):
@@ -442,10 +409,7 @@ class TestTMACCorrections:
         cond_01 = ReactionConditions(temp=30, tmac_m=0.1)
 
         seq_gc = "GCGCGCGCGC"
-        reduction = (
-            cond_0.calculate_effective_tm(seq_gc)
-            - cond_01.calculate_effective_tm(seq_gc)
-        )
+        reduction = cond_0.calculate_effective_tm(seq_gc) - cond_01.calculate_effective_tm(seq_gc)
         assert reduction > 0.5
 
     def test_recalibrated_tmac_coefficient(self):
@@ -575,12 +539,8 @@ class TestCombinedAdditives:
 
     def test_combined_extremes_reasonable(self):
         """Combined additives at moderate concentrations should stay reasonable."""
-        additives = AdditiveConcentrations(
-            dmso_percent=5.0, betaine_m=1.5, formamide_percent=2.0
-        )
-        correction = additives.calculate_tm_correction(
-            gc_content=0.5, reaction_temp_celsius=42.0
-        )
+        additives = AdditiveConcentrations(dmso_percent=5.0, betaine_m=1.5, formamide_percent=2.0)
+        correction = additives.calculate_tm_correction(gc_content=0.5, reaction_temp_celsius=42.0)
         assert -15.0 < correction < 0.0
 
 
@@ -631,9 +591,7 @@ class TestATRichSequences:
         cond_0 = ReactionConditions(temp=30, betaine_m=0)
         cond_1 = ReactionConditions(temp=30, betaine_m=1.0)
 
-        effect = (
-            cond_0.calculate_effective_tm(seq) - cond_1.calculate_effective_tm(seq)
-        )
+        effect = cond_0.calculate_effective_tm(seq) - cond_1.calculate_effective_tm(seq)
         assert effect < 2.0
 
 
@@ -648,9 +606,7 @@ class TestBalancedSequences:
         cond_0 = ReactionConditions(temp=30, betaine_m=0)
         cond_2 = ReactionConditions(temp=30, betaine_m=2.0)
 
-        reduction = (
-            cond_0.calculate_effective_tm(seq) - cond_2.calculate_effective_tm(seq)
-        )
+        reduction = cond_0.calculate_effective_tm(seq) - cond_2.calculate_effective_tm(seq)
         assert 0.5 < reduction < 3.0
 
 
@@ -698,8 +654,7 @@ class TestArrheniusTemperatureBehavior:
         """Higher temperatures should produce larger destabilizing effects."""
         temps = [25, 30, 37, 42, 45]
         corrections = [
-            ArrheniusTmCorrector(float(t)).calculate_correction("dmso", 5.0)
-            for t in temps
+            ArrheniusTmCorrector(float(t)).calculate_correction("dmso", 5.0) for t in temps
         ]
         for c in corrections:
             assert c < 0
@@ -708,9 +663,7 @@ class TestArrheniusTemperatureBehavior:
 
     def test_reasonable_temperature_sensitivity(self):
         """Temperature sensitivity ratio between 30C and 42C should be moderate."""
-        _, _, ratio = ArrheniusTmCorrector(37.0).compare_temperatures(
-            "dmso", 5.0, 30.0, 42.0
-        )
+        _, _, ratio = ArrheniusTmCorrector(37.0).compare_temperatures("dmso", 5.0, 30.0, 42.0)
         assert 1.0 < ratio < 1.5
 
     def test_compare_temperatures(self):
@@ -741,8 +694,11 @@ class TestAdditiveParameters:
     def test_all_required_fields(self):
         """All additives should have required parameter fields."""
         required = [
-            "ref_coef", "ref_temp", "activation_energy",
-            "max_concentration", "gc_dependent",
+            "ref_coef",
+            "ref_temp",
+            "activation_energy",
+            "max_concentration",
+            "gc_dependent",
         ]
         for additive, params in ADDITIVE_TM_PARAMS.items():
             for field in required:
@@ -808,9 +764,7 @@ class TestReactionConditionsArrhenius:
 
     def test_default_uses_arrhenius(self):
         """Default behavior should use Arrhenius corrections."""
-        conditions = ReactionConditions(
-            temp=42.0, dmso_percent=5.0, polymerase="equiphi29"
-        )
+        conditions = ReactionConditions(temp=42.0, dmso_percent=5.0, polymerase="equiphi29")
         correction = conditions.calculate_tm_correction(gc_content=0.5)
         arrhenius_corr = conditions.additives.calculate_tm_correction(
             gc_content=0.5, reaction_temp_celsius=42.0
@@ -819,48 +773,37 @@ class TestReactionConditionsArrhenius:
 
     def test_can_disable_arrhenius(self):
         """Arrhenius can be disabled for backward compatibility."""
-        conditions = ReactionConditions(
-            temp=30.0, dmso_percent=5.0, polymerase="phi29"
-        )
-        arrhenius = conditions.calculate_tm_correction(
-            gc_content=0.5, use_arrhenius=True
-        )
-        fixed = conditions.calculate_tm_correction(
-            gc_content=0.5, use_arrhenius=False
-        )
+        conditions = ReactionConditions(temp=30.0, dmso_percent=5.0, polymerase="phi29")
+        arrhenius = conditions.calculate_tm_correction(gc_content=0.5, use_arrhenius=True)
+        fixed = conditions.calculate_tm_correction(gc_content=0.5, use_arrhenius=False)
         assert abs(arrhenius - fixed) < 1.0
 
     def test_phi29_vs_equiphi29_temperature_effect(self):
         """Additive effects should differ between phi29 and equiphi29."""
-        phi29 = ReactionConditions(
-            temp=30.0, dmso_percent=5.0, betaine_m=1.0, polymerase="phi29"
-        )
+        phi29 = ReactionConditions(temp=30.0, dmso_percent=5.0, betaine_m=1.0, polymerase="phi29")
         equiphi29 = ReactionConditions(
             temp=42.0, dmso_percent=5.0, betaine_m=1.0, polymerase="equiphi29"
         )
-        assert abs(
-            phi29.calculate_tm_correction(gc_content=0.5)
-            - equiphi29.calculate_tm_correction(gc_content=0.5)
-        ) > 0.1
+        assert (
+            abs(
+                phi29.calculate_tm_correction(gc_content=0.5)
+                - equiphi29.calculate_tm_correction(gc_content=0.5)
+            )
+            > 0.1
+        )
 
     def test_fixed_vs_arrhenius_similar_at_reference(self):
         """At reference temp (37C), fixed and Arrhenius should be similar."""
         additives = AdditiveConcentrations(dmso_percent=5.0)
         fixed = additives.calculate_tm_correction(gc_content=0.5)
-        arrhenius = additives.calculate_tm_correction(
-            gc_content=0.5, reaction_temp_celsius=37.0
-        )
+        arrhenius = additives.calculate_tm_correction(gc_content=0.5, reaction_temp_celsius=37.0)
         assert abs(fixed - arrhenius) < abs(fixed) * 0.2
 
     def test_arrhenius_varies_with_temperature(self):
         """Arrhenius correction should vary with temperature."""
         additives = AdditiveConcentrations(dmso_percent=5.0, betaine_m=1.0)
-        corr_30 = additives.calculate_tm_correction(
-            gc_content=0.5, reaction_temp_celsius=30.0
-        )
-        corr_42 = additives.calculate_tm_correction(
-            gc_content=0.5, reaction_temp_celsius=42.0
-        )
+        corr_30 = additives.calculate_tm_correction(gc_content=0.5, reaction_temp_celsius=30.0)
+        corr_42 = additives.calculate_tm_correction(gc_content=0.5, reaction_temp_celsius=42.0)
         assert corr_42 != corr_30
 
 

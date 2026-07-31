@@ -35,9 +35,7 @@ def test_default_mg_conc_is_case_insensitive(polymerase):
     assert default_mg_conc(polymerase.upper()) == default_mg_conc(polymerase)
 
 
-@pytest.mark.parametrize(
-    "gc_class", ["extreme_at", "at_rich", "balanced", "gc_rich", "extreme_gc"]
-)
+@pytest.mark.parametrize("gc_class", ["extreme_at", "at_rich", "balanced", "gc_rich", "extreme_gc"])
 def test_wizard_emits_usable_magnesium_for_every_gc_class(gc_class):
     """Regression: non-AT-rich genomes previously got mg_conc = 0.0."""
     from neoswga.core import wizard as wizard_mod
@@ -50,9 +48,9 @@ def test_wizard_emits_usable_magnesium_for_every_gc_class(gc_class):
         "wizard is back to branching mg_conc on GC class; it should emit the "
         "polymerase-aware default so the pipeline and the wizard agree"
     )
-    assert "default_mg_conc(polymerase)" in source, (
-        "wizard should emit parameter.default_mg_conc(polymerase) for mg_conc"
-    )
+    assert (
+        "default_mg_conc(polymerase)" in source
+    ), "wizard should emit parameter.default_mg_conc(polymerase) for mg_conc"
 
 
 def test_wizard_generated_config_passes_the_validator(tmp_path):

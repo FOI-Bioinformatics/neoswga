@@ -14,17 +14,33 @@ import pytest
 def _mk_args(json_file):
     attrs = {
         "json_file": str(json_file),
-        "data_dir": None, "src_dir": None,
-        "min_fg_freq": None, "max_bg_freq": None,
-        "min_tm": None, "max_tm": None,
-        "max_gini": None, "max_primer": None, "min_amp_pred": None,
-        "cpus": None, "max_dimer_bp": None, "max_self_dimer_bp": None,
-        "verbose": None, "drop_iterations": None, "iterations": None,
-        "top_set_count": None, "retries": None, "max_sets": None,
-        "selection_metric": None, "fg_circular": None, "bg_circular": None,
-        "min_k": None, "max_k": None,
-        "fasta_fore": None, "fasta_back": None,
-        "kmer_fore": None, "kmer_back": None,
+        "data_dir": None,
+        "src_dir": None,
+        "min_fg_freq": None,
+        "max_bg_freq": None,
+        "min_tm": None,
+        "max_tm": None,
+        "max_gini": None,
+        "max_primer": None,
+        "min_amp_pred": None,
+        "cpus": None,
+        "max_dimer_bp": None,
+        "max_self_dimer_bp": None,
+        "verbose": None,
+        "drop_iterations": None,
+        "iterations": None,
+        "top_set_count": None,
+        "retries": None,
+        "max_sets": None,
+        "selection_metric": None,
+        "fg_circular": None,
+        "bg_circular": None,
+        "min_k": None,
+        "max_k": None,
+        "fasta_fore": None,
+        "fasta_back": None,
+        "kmer_fore": None,
+        "kmer_back": None,
     }
     return SimpleNamespace(**attrs)
 
@@ -50,6 +66,7 @@ def _write_params(tmp_path, seq: str, extra=None):
 def test_at_rich_genome_triggers_adaptive_window(tmp_path, caplog):
     """25% GC genome should get gc_min ~0.10 (clamped to 0.15) and gc_max ~0.40."""
     from neoswga.core import parameter
+
     parameter.reset_to_defaults()
 
     # 25% GC sequence
@@ -57,6 +74,7 @@ def test_at_rich_genome_triggers_adaptive_window(tmp_path, caplog):
     params_file = _write_params(tmp_path, seq)
 
     import logging
+
     with caplog.at_level(logging.INFO, logger="neoswga.core.parameter"):
         parameter.get_params(_mk_args(params_file))
 
@@ -69,6 +87,7 @@ def test_at_rich_genome_triggers_adaptive_window(tmp_path, caplog):
 def test_gc_rich_genome_triggers_adaptive_window(tmp_path, caplog):
     """70% GC genome should get gc_min ~0.55 and gc_max ~0.85."""
     from neoswga.core import parameter
+
     parameter.reset_to_defaults()
 
     # 70% GC sequence
@@ -76,6 +95,7 @@ def test_gc_rich_genome_triggers_adaptive_window(tmp_path, caplog):
     params_file = _write_params(tmp_path, seq)
 
     import logging
+
     with caplog.at_level(logging.INFO, logger="neoswga.core.parameter"):
         parameter.get_params(_mk_args(params_file))
 
@@ -87,6 +107,7 @@ def test_gc_rich_genome_triggers_adaptive_window(tmp_path, caplog):
 def test_explicit_gc_min_overrides_adaptive(tmp_path):
     """User-specified gc_min in params.json wins over the adaptive value."""
     from neoswga.core import parameter
+
     parameter.reset_to_defaults()
 
     # 25% GC, but user pins gc_min=0.30
@@ -101,6 +122,7 @@ def test_explicit_gc_min_overrides_adaptive(tmp_path):
 def test_adaptive_gc_false_disables_auto(tmp_path):
     """adaptive_gc: false in params.json disables auto-adaptive GC."""
     from neoswga.core import parameter
+
     parameter.reset_to_defaults()
 
     # 70% GC, but user opts out
@@ -116,12 +138,14 @@ def test_adaptive_gc_false_disables_auto(tmp_path):
 def test_balanced_gc_skips_extreme_message(tmp_path, caplog):
     """A 50% GC genome still gets adaptive bounds but no extreme-GC warning."""
     from neoswga.core import parameter
+
     parameter.reset_to_defaults()
 
     seq = "AG" * 500  # 50% GC
     params_file = _write_params(tmp_path, seq)
 
     import logging
+
     with caplog.at_level(logging.INFO, logger="neoswga.core.parameter"):
         parameter.get_params(_mk_args(params_file))
 

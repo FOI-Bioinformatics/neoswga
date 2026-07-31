@@ -32,8 +32,12 @@ def _result_with(primers, per_target_cov):
     m = PrimerSetMetrics.empty()
     # dataclasses.replace works because PrimerSetMetrics is frozen.
     from dataclasses import replace as _r
-    m = _r(m, per_target_coverage=dict(per_target_cov),
-           fg_coverage=float(sum(per_target_cov.values()) / len(per_target_cov)))
+
+    m = _r(
+        m,
+        per_target_coverage=dict(per_target_cov),
+        fg_coverage=float(sum(per_target_cov.values()) / len(per_target_cov)),
+    )
     return OptimizationResult(
         primers=tuple(primers),
         score=1.0,
@@ -62,14 +66,16 @@ def _compute_saturation_warnings(primers, prefixes, lengths, extension):
         saturation = length / expected_window if expected_window else 1.0
         # The inline test mirrors run_optimization: coverage assumed >= 0.95
         if saturation < 1.0:
-            warnings.append({
-                "level": "warning",
-                "code": "coverage_saturated_on_small_genome",
-                "detail": (
-                    f"{prefix}: genome={length} bp, {n} primers x 2x "
-                    f"{extension} bp reach = {expected_window} bp"
-                ),
-            })
+            warnings.append(
+                {
+                    "level": "warning",
+                    "code": "coverage_saturated_on_small_genome",
+                    "detail": (
+                        f"{prefix}: genome={length} bp, {n} primers x 2x "
+                        f"{extension} bp reach = {expected_window} bp"
+                    ),
+                }
+            )
     return warnings
 
 
@@ -105,7 +111,7 @@ def test_multi_target_warns_only_on_saturated_prefix():
     """One small plasmid + one normal genome → warn on the plasmid,
     skip the normal one."""
     w = _compute_saturation_warnings(
-        primers=["A"*10]*5,
+        primers=["A" * 10] * 5,
         prefixes=["tiny_plasmid", "normal_genome"],
         lengths=[8000, 2_000_000],
         extension=3000,
@@ -171,6 +177,7 @@ def test_warning_attaches_to_validation_json(tmp_path):
 
     # Round-trip via the Phase 17A loader.
     from neoswga.core.report.metrics import _load_validation_report
+
     issues, ok = _load_validation_report(tmp_path)
     assert ok is True  # saturation is only a warning, not an error
     codes = [i["code"] for i in issues]

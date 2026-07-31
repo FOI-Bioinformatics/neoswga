@@ -70,9 +70,7 @@ def test_dimer_network_analyzer_flags_pathological_pair_in_set():
     metrics, profiles, _matrix = analyzer.analyze_primer_set(primers, verbose=False)
 
     # At least one primer should have a non-empty problematic_partners list
-    any_flagged = any(
-        prof.problematic_partners for prof in profiles.values()
-    )
+    any_flagged = any(prof.problematic_partners for prof in profiles.values())
     assert any_flagged, (
         "Analyzer should flag at least one problematic partner in a set "
         "with two copies of a palindromic dimer-prone primer"

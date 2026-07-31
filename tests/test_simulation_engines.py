@@ -20,10 +20,10 @@ from neoswga.core.replication_simulator import (
 )
 from neoswga.core.reaction_conditions import ReactionConditions, get_standard_conditions
 
-
 # ---------------------------------------------------------------------------
 # ForkState enum
 # ---------------------------------------------------------------------------
+
 
 class TestForkState:
     """Verify ForkState enum values."""
@@ -51,6 +51,7 @@ class TestForkState:
 # ---------------------------------------------------------------------------
 # ReplicationFork dataclass
 # ---------------------------------------------------------------------------
+
 
 class TestReplicationFork:
     """Verify ReplicationFork construction and default state."""
@@ -113,6 +114,7 @@ class TestReplicationFork:
 # DisplacedStrand dataclass
 # ---------------------------------------------------------------------------
 
+
 class TestDisplacedStrand:
     """Verify DisplacedStrand construction and properties."""
 
@@ -159,6 +161,7 @@ class TestDisplacedStrand:
 # SimulationConfig defaults
 # ---------------------------------------------------------------------------
 
+
 class TestSimulationConfig:
     """Verify SimulationConfig default values."""
 
@@ -204,6 +207,7 @@ class TestSimulationConfig:
 # Helper to build a small simulator
 # ---------------------------------------------------------------------------
 
+
 def _make_small_genome(length=1000):
     """Generate a simple repeating genome sequence."""
     random.seed(42)
@@ -227,10 +231,7 @@ def _make_simulator(
     if primers is None:
         primers = ["ATCGATCG"]
     if primer_positions is None:
-        primer_positions = {
-            p: {"forward": [100, 500], "reverse": [300, 700]}
-            for p in primers
-        }
+        primer_positions = {p: {"forward": [100, 500], "reverse": [300, 700]} for p in primers}
 
     config = SimulationConfig(
         duration=duration,
@@ -256,6 +257,7 @@ def _make_simulator(
 # ---------------------------------------------------------------------------
 # Phi29Simulator initialization
 # ---------------------------------------------------------------------------
+
 
 class TestPhi29SimulatorInit:
     """Verify Phi29Simulator initialization."""
@@ -291,6 +293,7 @@ class TestPhi29SimulatorInit:
 # ---------------------------------------------------------------------------
 # Simulation run
 # ---------------------------------------------------------------------------
+
 
 class TestSimulationRun:
     """Test short simulation runs and result structure."""
@@ -361,6 +364,7 @@ class TestSimulationRun:
 # Edge cases
 # ---------------------------------------------------------------------------
 
+
 class TestEdgeCases:
     """Edge case scenarios for the simulator."""
 
@@ -409,6 +413,7 @@ class TestEdgeCases:
 # ---------------------------------------------------------------------------
 # Determinism with fixed seed
 # ---------------------------------------------------------------------------
+
 
 class TestDeterminism:
     """Verify that simulation results are reproducible with a fixed seed."""

@@ -29,7 +29,8 @@ class TestVersionFlag:
     def test_version_output(self):
         result = subprocess.run(
             [sys.executable, "-m", "neoswga.cli_unified", "--version"],
-            capture_output=True, text=True
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0
         assert "neoswga" in result.stdout
@@ -99,10 +100,9 @@ class TestArgumentParsing:
 
     def test_optimize_method_choices(self):
         parser = create_parser()
-        args = parser.parse_args([
-            "optimize", "-j", "params.json",
-            "--optimization-method", "hybrid"
-        ])
+        args = parser.parse_args(
+            ["optimize", "-j", "params.json", "--optimization-method", "hybrid"]
+        )
         assert args.optimization_method == "hybrid"
 
     def test_optimize_accepts_all_methods(self):
@@ -111,13 +111,16 @@ class TestArgumentParsing:
         # ensemble pseudo-method. Keep in sync with the registry
         # (see tests/test_docs_consistency.py).
         methods = [
-            "hybrid", "dominating-set", "network", "background-aware", "ensemble",
+            "hybrid",
+            "dominating-set",
+            "network",
+            "background-aware",
+            "ensemble",
         ]
         for method in methods:
-            args = parser.parse_args([
-                "optimize", "-j", "params.json",
-                "--optimization-method", method
-            ])
+            args = parser.parse_args(
+                ["optimize", "-j", "params.json", "--optimization-method", method]
+            )
             assert args.optimization_method == method
 
     def test_report_level_choices(self):

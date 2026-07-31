@@ -13,7 +13,10 @@ ROOT = Path(__file__).resolve().parent.parent
 def _run(args, cwd=None, timeout=30):
     return subprocess.run(
         [sys.executable, "-m", "neoswga.cli_unified", *args],
-        capture_output=True, text=True, timeout=timeout, cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
     )
 
 
@@ -70,8 +73,7 @@ def test_doctor_reports_at_least_three_additive_aware_optimizers():
     payload = json.loads(r.stdout)
     aware_names = {o["name"] for o in payload["optimizers"] if o["additive_aware"]}
     assert {"network", "hybrid", "background-aware"}.issubset(aware_names), (
-        f"Expected network/hybrid/background-aware to show as additive-aware; "
-        f"got {aware_names}"
+        f"Expected network/hybrid/background-aware to show as additive-aware; " f"got {aware_names}"
     )
 
 
@@ -81,6 +83,7 @@ def test_doctor_aware_flag_uses_class_attribute_not_source_grep():
     optimizer-zoo trim only four methods remain registered."""
     from neoswga.core.optimizer_factory import OptimizerRegistry
     from neoswga.core import unified_optimizer as _uo
+
     _uo._ensure_optimizers_registered()
 
     expected_aware = {"network", "hybrid", "background-aware"}
@@ -88,15 +91,14 @@ def test_doctor_aware_flag_uses_class_attribute_not_source_grep():
 
     for name in expected_aware:
         cls = OptimizerRegistry.get(name)
-        assert getattr(cls, "ADDITIVE_AWARE", False) is True, (
-            f"{name} ({cls.__name__}) should have ADDITIVE_AWARE = True"
-        )
+        assert (
+            getattr(cls, "ADDITIVE_AWARE", False) is True
+        ), f"{name} ({cls.__name__}) should have ADDITIVE_AWARE = True"
 
     for name in expected_coverage_only:
         cls = OptimizerRegistry.get(name)
         assert getattr(cls, "ADDITIVE_AWARE", False) is False, (
-            f"{name} ({cls.__name__}) is coverage-only and should have "
-            f"ADDITIVE_AWARE = False"
+            f"{name} ({cls.__name__}) is coverage-only and should have " f"ADDITIVE_AWARE = False"
         )
 
 
@@ -107,9 +109,9 @@ def test_doctor_json_distinguishes_aware_vs_coverage_only():
     payload = json.loads(r.stdout)
     by_name = {o["name"]: o["additive_aware"] for o in payload["optimizers"]}
     for name in ("network", "hybrid", "background-aware"):
-        assert by_name.get(name) is True, (
-            f"{name} should be additive-aware in doctor JSON; got {by_name.get(name)}"
-        )
+        assert (
+            by_name.get(name) is True
+        ), f"{name} should be additive-aware in doctor JSON; got {by_name.get(name)}"
     assert by_name.get("dominating-set") is False, (
         f"dominating-set should be coverage-only in doctor JSON; "
         f"got {by_name.get('dominating-set')}"

@@ -15,13 +15,15 @@ import pytest
 
 from neoswga.core.base_optimizer import PrimerSetMetrics
 from neoswga.core.results_interpreter import (
-    QualityRating, COVERAGE_THRESHOLDS, ENRICHMENT_THRESHOLDS,
-    UNIFORMITY_THRESHOLDS, DIMER_SCORE_THRESHOLDS,
+    QualityRating,
+    COVERAGE_THRESHOLDS,
+    ENRICHMENT_THRESHOLDS,
+    UNIFORMITY_THRESHOLDS,
+    DIMER_SCORE_THRESHOLDS,
 )
 
 
-def _metrics_at(cov: float, sel: float, dimer: float, gini: float,
-                tm_range=(50, 60)):
+def _metrics_at(cov: float, sel: float, dimer: float, gini: float, tm_range=(50, 60)):
     """Build a metrics object that matches the per-component threshold at
     the target grade."""
     return PrimerSetMetrics(
@@ -47,7 +49,8 @@ def _grade_all(cov, sel, dimer, gini):
     """Return the overall grade by taking the worst of the four component
     ratings (mirrors results_interpreter's min-of-ratings rule)."""
     grades = [
-        QualityRating(r).value for r in [
+        QualityRating(r).value
+        for r in [
             _rate_coverage(cov),
             _rate_enrichment(sel),
             _rate_dimer(dimer),
@@ -61,27 +64,32 @@ def _grade_all(cov, sel, dimer, gini):
 
 def _rate_coverage(v):
     from neoswga.core.results_interpreter import rate_metric
+
     return rate_metric(v, COVERAGE_THRESHOLDS)
 
 
 def _rate_enrichment(v):
     from neoswga.core.results_interpreter import rate_metric
+
     return rate_metric(v, ENRICHMENT_THRESHOLDS)
 
 
 def _rate_dimer(v):
     from neoswga.core.results_interpreter import rate_metric
+
     return rate_metric(v, DIMER_SCORE_THRESHOLDS, lower_is_better=True)
 
 
 def _rate_uniformity(v):
     from neoswga.core.results_interpreter import rate_metric
+
     return rate_metric(v, UNIFORMITY_THRESHOLDS, lower_is_better=True)
 
 
 # ----------------------------------------------------------------------
 # Alignment assertions
 # ----------------------------------------------------------------------
+
 
 def test_all_excellent_maps_to_high_normalized_score():
     """A set that grades EXCELLENT on every component should score > 0.85."""
@@ -132,8 +140,7 @@ def test_application_weights_preserve_grade_ordering():
     strictly better normalized_score."""
     better = _metrics_at(cov=0.95, sel=200.0, dimer=0.10, gini=0.25)
     worse = _metrics_at(cov=0.60, sel=30.0, dimer=0.40, gini=0.65)
-    for application in ("balanced", "discovery", "clinical",
-                        "enrichment", "metagenomics"):
+    for application in ("balanced", "discovery", "clinical", "enrichment", "metagenomics"):
         b = better.normalized_score(application=application)
         w = worse.normalized_score(application=application)
         assert b > w, f"{application}: better should outrank worse ({b:.3f} vs {w:.3f})"
@@ -163,12 +170,12 @@ def test_mixed_grade_excellent_coverage_critical_dimer():
     balanced = m.normalized_score(application="balanced")
     # CRITICAL dimer drags the score below EXCELLENT territory but not to
     # CRITICAL; this is the documented disagreement between the two reports.
-    assert balanced < 0.85, (
-        f"CRITICAL dimer should keep normalized_score below 0.85; got {balanced:.3f}"
-    )
-    assert balanced > 0.30, (
-        f"EXCELLENT coverage+selectivity should keep score > 0.30; got {balanced:.3f}"
-    )
+    assert (
+        balanced < 0.85
+    ), f"CRITICAL dimer should keep normalized_score below 0.85; got {balanced:.3f}"
+    assert (
+        balanced > 0.30
+    ), f"EXCELLENT coverage+selectivity should keep score > 0.30; got {balanced:.3f}"
 
 
 def test_clinical_penalises_bad_dimer_more_than_metagenomics():

@@ -438,6 +438,13 @@
       "type": "boolean",
       "default": false,
       "description": "Single-stranded binding protein present. Previously accepted by the CLI but absent from this schema."
+    },
+    "propanediol_m": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.5,
+      "default": 0.0,
+      "description": "1,2-propanediol (M). GC-rich enhancer; ~5.4 C Tm depression per M (Horakova 2011). Typical 1 M."
     }
   }
 }

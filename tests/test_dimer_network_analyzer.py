@@ -20,7 +20,7 @@ from neoswga.core.dimer_network_analyzer import (
     DimerNetworkMetrics,
     DimerNetworkAnalyzer,
     create_dimer_network_analyzer,
-    filter_primer_set_by_dimer_network
+    filter_primer_set_by_dimer_network,
 )
 from neoswga.core.reaction_conditions import ReactionConditions
 
@@ -31,17 +31,17 @@ class TestDimerInteraction(unittest.TestCase):
     def test_create_heterodimer(self):
         """Test creating a heterodimer interaction."""
         inter = DimerInteraction(
-            primer1='ACGTACGT',
-            primer2='TGCATGCA',
+            primer1="ACGTACGT",
+            primer2="TGCATGCA",
             energy=-8.5,
             tm=45.0,
             severity=0.6,
             forms_dimer=True,
-            is_homodimer=False
+            is_homodimer=False,
         )
 
-        self.assertEqual(inter.primer1, 'ACGTACGT')
-        self.assertEqual(inter.primer2, 'TGCATGCA')
+        self.assertEqual(inter.primer1, "ACGTACGT")
+        self.assertEqual(inter.primer2, "TGCATGCA")
         self.assertEqual(inter.energy, -8.5)
         self.assertTrue(inter.forms_dimer)
         self.assertFalse(inter.is_homodimer)
@@ -49,13 +49,13 @@ class TestDimerInteraction(unittest.TestCase):
     def test_create_homodimer(self):
         """Test creating a homodimer interaction."""
         inter = DimerInteraction(
-            primer1='ACGTACGT',
-            primer2='ACGTACGT',
+            primer1="ACGTACGT",
+            primer2="ACGTACGT",
             energy=-10.0,
             tm=50.0,
             severity=0.8,
             forms_dimer=True,
-            is_homodimer=True
+            is_homodimer=True,
         )
 
         self.assertTrue(inter.is_homodimer)
@@ -73,7 +73,7 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
             severity_threshold=0.3,
             hub_threshold=3,
             max_mean_severity=0.2,
-            max_hub_primers=2
+            max_hub_primers=2,
         )
 
         self.analyzer_strict = DimerNetworkAnalyzer(
@@ -81,7 +81,7 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
             severity_threshold=0.2,
             hub_threshold=2,
             max_mean_severity=0.15,
-            max_hub_primers=1
+            max_hub_primers=1,
         )
 
         self.analyzer_lenient = DimerNetworkAnalyzer(
@@ -89,17 +89,17 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
             severity_threshold=0.4,
             hub_threshold=4,
             max_mean_severity=0.3,
-            max_hub_primers=3
+            max_hub_primers=3,
         )
 
     def test_analyze_good_primer_set(self):
         """Test analysis of a primer set with minimal dimer interactions."""
         # These primers are designed to have minimal complementarity
         primers = [
-            'AAAAAAAAAA',  # Poly-A
-            'TTTTTTTTTT',  # Poly-T
-            'GGGGGGGGGG',  # Poly-G
-            'CCCCCCCCCC',  # Poly-C
+            "AAAAAAAAAA",  # Poly-A
+            "TTTTTTTTTT",  # Poly-T
+            "GGGGGGGGGG",  # Poly-G
+            "CCCCCCCCCC",  # Poly-C
         ]
 
         metrics, profiles, matrix = self.analyzer_moderate.analyze_primer_set(primers)
@@ -122,10 +122,10 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
         """Test analysis of primers with known complementarity."""
         # Create primers with some complementarity
         primers = [
-            'ACGTACGTAC',  # Primer 1
-            'GTACGTACGT',  # Primer 2 - overlaps with 1
-            'TACGTACGTA',  # Primer 3 - overlaps with 1 and 2
-            'GGGGGGGGGG',  # Primer 4 - no overlap
+            "ACGTACGTAC",  # Primer 1
+            "GTACGTACGT",  # Primer 2 - overlaps with 1
+            "TACGTACGTA",  # Primer 3 - overlaps with 1 and 2
+            "GGGGGGGGGG",  # Primer 4 - no overlap
         ]
 
         metrics, profiles, matrix = self.analyzer_moderate.analyze_primer_set(primers)
@@ -144,11 +144,11 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
     def test_identify_hub_primers(self):
         """Test identification of hub primers."""
         primers = [
-            'ACGTACGTAC',  # Hub primer - complementary to many
-            'GTACGTACGT',  # Interacts with hub
-            'TACGTACGTA',  # Interacts with hub
-            'CGTACGTACG',  # Interacts with hub
-            'GGGGGGGGGG',  # Isolated primer
+            "ACGTACGTAC",  # Hub primer - complementary to many
+            "GTACGTACGT",  # Interacts with hub
+            "TACGTACGTA",  # Interacts with hub
+            "CGTACGTACG",  # Interacts with hub
+            "GGGGGGGGGG",  # Isolated primer
         ]
 
         metrics, profiles, matrix = self.analyzer_moderate.analyze_primer_set(primers)
@@ -174,7 +174,7 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
 
     def test_single_primer(self):
         """Test analysis with single primer."""
-        primers = ['ACGTACGTAC']
+        primers = ["ACGTACGTAC"]
 
         metrics, profiles, matrix = self.analyzer_moderate.analyze_primer_set(primers)
 
@@ -186,8 +186,8 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
     def test_two_primers_no_interaction(self):
         """Test two primers with no significant interaction."""
         primers = [
-            'AAAAAAAAAA',
-            'GGGGGGGGGG',
+            "AAAAAAAAAA",
+            "GGGGGGGGGG",
         ]
 
         metrics, profiles, matrix = self.analyzer_moderate.analyze_primer_set(primers)
@@ -199,15 +199,15 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
     def test_primer_replacement_suggestions(self):
         """Test suggesting replacements for problematic primers."""
         primers = [
-            'ACGTACGTAC',  # Problematic
-            'GTACGTACGT',  # Problematic
-            'GGGGGGGGGG',  # Good
+            "ACGTACGTAC",  # Problematic
+            "GTACGTACGT",  # Problematic
+            "GGGGGGGGGG",  # Good
         ]
 
         candidates = [
-            'TTTTTTTTTT',
-            'CCCCCCCCCC',
-            'ATATATATAT',
+            "TTTTTTTTTT",
+            "CCCCCCCCCC",
+            "ATATATATAT",
         ]
 
         metrics, profiles, matrix = self.analyzer_moderate.analyze_primer_set(primers)
@@ -231,9 +231,9 @@ class TestDimerNetworkAnalyzer(unittest.TestCase):
     def test_stringency_levels(self):
         """Test different stringency levels."""
         primers = [
-            'ACGTACGTAC',
-            'GTACGTACGT',
-            'TACGTACGTA',
+            "ACGTACGTAC",
+            "GTACGTACGT",
+            "TACGTACGTA",
         ]
 
         # Analyze with strict
@@ -255,7 +255,7 @@ class TestFactoryFunctions(unittest.TestCase):
 
     def test_create_lenient_analyzer(self):
         """Test creating lenient analyzer."""
-        analyzer = create_dimer_network_analyzer('lenient')
+        analyzer = create_dimer_network_analyzer("lenient")
         self.assertEqual(analyzer.severity_threshold, 0.4)
         self.assertEqual(analyzer.hub_threshold, 4)
         self.assertEqual(analyzer.max_mean_severity, 0.3)
@@ -263,7 +263,7 @@ class TestFactoryFunctions(unittest.TestCase):
 
     def test_create_moderate_analyzer(self):
         """Test creating moderate analyzer."""
-        analyzer = create_dimer_network_analyzer('moderate')
+        analyzer = create_dimer_network_analyzer("moderate")
         self.assertEqual(analyzer.severity_threshold, 0.3)
         self.assertEqual(analyzer.hub_threshold, 3)
         self.assertEqual(analyzer.max_mean_severity, 0.2)
@@ -271,7 +271,7 @@ class TestFactoryFunctions(unittest.TestCase):
 
     def test_create_strict_analyzer(self):
         """Test creating strict analyzer."""
-        analyzer = create_dimer_network_analyzer('strict')
+        analyzer = create_dimer_network_analyzer("strict")
         self.assertEqual(analyzer.severity_threshold, 0.2)
         self.assertEqual(analyzer.hub_threshold, 2)
         self.assertEqual(analyzer.max_mean_severity, 0.15)
@@ -281,14 +281,14 @@ class TestFactoryFunctions(unittest.TestCase):
         """Test creating analyzer with custom conditions."""
         # Use temp=35.0 which is valid for default phi29 polymerase (20-40C)
         conditions = ReactionConditions(temp=35.0, betaine_m=1.5)
-        analyzer = create_dimer_network_analyzer('moderate', conditions)
+        analyzer = create_dimer_network_analyzer("moderate", conditions)
         self.assertEqual(analyzer.conditions.temp, 35.0)
         self.assertEqual(analyzer.conditions.betaine_m, 1.5)
 
     def test_invalid_stringency(self):
         """Test creating analyzer with invalid stringency defaults to moderate."""
         # Invalid stringency falls back to moderate (default behavior)
-        analyzer = create_dimer_network_analyzer('ultra_strict')
+        analyzer = create_dimer_network_analyzer("ultra_strict")
         self.assertEqual(analyzer.severity_threshold, 0.3)  # Same as moderate
 
 
@@ -298,15 +298,13 @@ class TestFilteringFunctions(unittest.TestCase):
     def test_filter_all_pass(self):
         """Test filtering where all primers pass."""
         primers = [
-            'AAAAAAAAAA',
-            'TTTTTTTTTT',
-            'GGGGGGGGGG',
+            "AAAAAAAAAA",
+            "TTTTTTTTTT",
+            "GGGGGGGGGG",
         ]
 
         # Note: filter_primer_set_by_dimer_network returns (passes: bool, metrics)
-        passes, metrics = filter_primer_set_by_dimer_network(
-            primers, stringency='moderate'
-        )
+        passes, metrics = filter_primer_set_by_dimer_network(primers, stringency="moderate")
 
         self.assertIsInstance(passes, bool)
         self.assertEqual(metrics.num_primers, 3)
@@ -314,16 +312,14 @@ class TestFilteringFunctions(unittest.TestCase):
     def test_filter_with_removal(self):
         """Test filtering returns metrics for primer set."""
         primers = [
-            'ACGTACGTAC',
-            'GTACGTACGT',
-            'TACGTACGTA',
-            'GGGGGGGGGG',
+            "ACGTACGTAC",
+            "GTACGTACGT",
+            "TACGTACGTA",
+            "GGGGGGGGGG",
         ]
 
         # Note: filter_primer_set_by_dimer_network returns (passes: bool, metrics)
-        passes, metrics = filter_primer_set_by_dimer_network(
-            primers, stringency='strict'
-        )
+        passes, metrics = filter_primer_set_by_dimer_network(primers, stringency="strict")
 
         # Returns pass status and metrics
         self.assertIsInstance(passes, bool)
@@ -333,7 +329,7 @@ class TestFilteringFunctions(unittest.TestCase):
         """Test filtering empty primer list raises an error or returns failure."""
         # Empty primer list may raise error or return failure status
         try:
-            passes, metrics = filter_primer_set_by_dimer_network([], stringency='moderate')
+            passes, metrics = filter_primer_set_by_dimer_network([], stringency="moderate")
             self.assertFalse(passes)
         except (ValueError, TypeError):
             # Acceptable to raise error for empty set
@@ -349,7 +345,7 @@ class TestNetworkMetrics(unittest.TestCase):
 
     def test_metrics_structure(self):
         """Test that metrics have correct structure."""
-        primers = ['AAAAAAAAAA', 'TTTTTTTTTT']
+        primers = ["AAAAAAAAAA", "TTTTTTTTTT"]
 
         metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers)
 
@@ -364,9 +360,9 @@ class TestNetworkMetrics(unittest.TestCase):
     def test_severity_distribution(self):
         """Test severity distribution calculation."""
         primers = [
-            'ACGTACGTAC',
-            'GTACGTACGT',
-            'TACGTACGTA',
+            "ACGTACGTAC",
+            "GTACGTACGT",
+            "TACGTACGTA",
         ]
 
         metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers)
@@ -391,7 +387,7 @@ class TestPrimerProfile(unittest.TestCase):
 
     def test_profile_fields(self):
         """Test that profile has all required fields."""
-        primers = ['ACGTACGTAC', 'GTACGTACGT']
+        primers = ["ACGTACGTAC", "GTACGTACGT"]
 
         metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers)
 
@@ -407,7 +403,7 @@ class TestPrimerProfile(unittest.TestCase):
 
     def test_profile_consistency(self):
         """Test profile values are consistent."""
-        primers = ['ACGTACGTAC', 'GTACGTACGT', 'TACGTACGTA']
+        primers = ["ACGTACGTAC", "GTACGTACGT", "TACGTACGTA"]
 
         metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers)
 
@@ -435,16 +431,16 @@ class TestReplacementOptimization(unittest.TestCase):
     def test_greedy_optimization(self):
         """Test greedy set optimization."""
         primers = [
-            'ACGTACGTAC',
-            'GTACGTACGT',
-            'TACGTACGTA',
+            "ACGTACGTAC",
+            "GTACGTACGT",
+            "TACGTACGTA",
         ]
 
         candidates = [
-            'AAAAAAAAAA',
-            'TTTTTTTTTT',
-            'GGGGGGGGGG',
-            'CCCCCCCCCC',
+            "AAAAAAAAAA",
+            "TTTTTTTTTT",
+            "GGGGGGGGGG",
+            "CCCCCCCCCC",
         ]
 
         optimized, final_metrics = self.analyzer.optimize_set_greedy(
@@ -461,9 +457,9 @@ class TestReplacementOptimization(unittest.TestCase):
     def test_replacement_improves_quality(self):
         """Test that replacement suggestions target worst primers."""
         primers = [
-            'ACGTACGTAC',  # Potentially problematic
-            'GTACGTACGT',  # Potentially problematic
-            'GGGGGGGGGG',  # Good
+            "ACGTACGTAC",  # Potentially problematic
+            "GTACGTACGT",  # Potentially problematic
+            "GGGGGGGGGG",  # Good
         ]
 
         metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers)
@@ -472,7 +468,7 @@ class TestReplacementOptimization(unittest.TestCase):
 
         # Should not replace the good primer
         if to_replace:
-            self.assertNotIn('GGGGGGGGGG', to_replace)
+            self.assertNotIn("GGGGGGGGGG", to_replace)
 
 
 class TestEdgeCases(unittest.TestCase):
@@ -484,7 +480,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_identical_primers(self):
         """Test set with identical primers."""
-        primers = ['ACGTACGT', 'ACGTACGT', 'ACGTACGT']
+        primers = ["ACGTACGT", "ACGTACGT", "ACGTACGT"]
 
         # Should handle this gracefully
         metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers)
@@ -492,7 +488,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_very_short_primers(self):
         """Test with very short primers."""
-        primers = ['AAA', 'TTT', 'GGG']
+        primers = ["AAA", "TTT", "GGG"]
 
         # Should not crash
         metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers)
@@ -501,9 +497,9 @@ class TestEdgeCases(unittest.TestCase):
     def test_very_long_primers(self):
         """Test with very long primers."""
         primers = [
-            'A' * 50,
-            'T' * 50,
-            'G' * 50,
+            "A" * 50,
+            "T" * 50,
+            "G" * 50,
         ]
 
         # Should handle long primers
@@ -513,10 +509,10 @@ class TestEdgeCases(unittest.TestCase):
     def test_large_primer_set(self):
         """Test with larger primer set (performance check)."""
         # Create 20 diverse primers
-        bases = ['A', 'T', 'G', 'C']
+        bases = ["A", "T", "G", "C"]
         primers = []
         for i in range(20):
-            primer = ''.join([bases[j % 4] for j in range(i, i + 10)])
+            primer = "".join([bases[j % 4] for j in range(i, i + 10)])
             primers.append(primer)
 
         # Should complete in reasonable time
@@ -534,26 +530,22 @@ class TestVerboseOutput(unittest.TestCase):
 
     def test_verbose_analysis(self):
         """Test that verbose mode runs without error."""
-        primers = ['ACGTACGTAC', 'GTACGTACGT']
+        primers = ["ACGTACGTAC", "GTACGTACGT"]
 
         # Should not crash with verbose=True
-        metrics, profiles, matrix = self.analyzer.analyze_primer_set(
-            primers, verbose=True
-        )
+        metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers, verbose=True)
 
         self.assertEqual(metrics.num_primers, 2)
 
     def test_quiet_analysis(self):
         """Test that quiet mode runs without error."""
-        primers = ['ACGTACGTAC', 'GTACGTACGT']
+        primers = ["ACGTACGTAC", "GTACGTACGT"]
 
         # Should not crash with verbose=False
-        metrics, profiles, matrix = self.analyzer.analyze_primer_set(
-            primers, verbose=False
-        )
+        metrics, profiles, matrix = self.analyzer.analyze_primer_set(primers, verbose=False)
 
         self.assertEqual(metrics.num_primers, 2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

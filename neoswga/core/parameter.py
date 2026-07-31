@@ -48,6 +48,7 @@ REACTION_PARAM_DEFAULTS = {
     "ethanol_percent": 0.0,
     "urea_m": 0.0,
     "tmac_m": 0.0,
+    "propanediol_m": 0.0,
     # Recorded but with no Tm model - they act on the enzyme, not the duplex
     "glycerol_percent": 0.0,
     "peg_percent": 0.0,
@@ -160,6 +161,7 @@ class PipelineParameters:
     ethanol_percent: float = 0.0
     urea_m: float = 0.0
     tmac_m: float = 0.0
+    propanediol_m: float = 0.0
 
     # Enzyme-acting additives (no Tm model; recorded and passed through)
     glycerol_percent: float = 0.0
@@ -442,6 +444,7 @@ formamide_percent = 0.0
 ethanol_percent = 0.0
 urea_m = 0.0
 tmac_m = 0.0
+propanediol_m = 0.0
 glycerol_percent = 0.0
 peg_percent = 0.0
 bsa_ug_ml = 0.0

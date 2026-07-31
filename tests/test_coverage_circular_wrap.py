@@ -20,7 +20,6 @@ from typing import List
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # _mark_window — the primitive
 # ---------------------------------------------------------------------------
@@ -156,8 +155,7 @@ class _BareOptimizer:
         self.config = _FakeConfig(extension_reach=reach, fg_circular=circular)
 
 
-def _compute(circular: bool, positions: List[int], length: int,
-             reach: int = 3000) -> float:
+def _compute(circular: bool, positions: List[int], length: int, reach: int = 3000) -> float:
     from neoswga.core.base_optimizer import BaseOptimizer
 
     opt = _BareOptimizer(circular=circular, reach=reach)

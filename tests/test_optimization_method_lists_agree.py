@@ -22,7 +22,6 @@ from pathlib import Path
 
 import pytest
 
-
 # The ensemble runner is dispatched by name in unified_optimizer.run_optimization
 # rather than registered as an optimizer class.
 VIRTUAL_METHODS = {"ensemble", "auto", "all"}
@@ -46,11 +45,7 @@ def _registered_methods():
 
 def _schema_enum():
     schema_path = (
-        Path(__file__).resolve().parents[1]
-        / "neoswga"
-        / "core"
-        / "schema"
-        / "params.schema.json"
+        Path(__file__).resolve().parents[1] / "neoswga" / "core" / "schema" / "params.schema.json"
     )
     schema = json.loads(schema_path.read_text())
     return set(schema["properties"]["optimization_method"]["enum"])
@@ -61,9 +56,9 @@ def test_validator_accepts_every_real_method():
 
     expected = _registered_methods() | VIRTUAL_METHODS
     missing = expected - set(VALID_OPTIMIZATION_METHODS)
-    assert not missing, (
-        f"param_validator would reject method(s) the pipeline accepts: {sorted(missing)}"
-    )
+    assert (
+        not missing
+    ), f"param_validator would reject method(s) the pipeline accepts: {sorted(missing)}"
 
 
 def test_validator_lists_nothing_the_pipeline_rejects():
@@ -71,9 +66,7 @@ def test_validator_lists_nothing_the_pipeline_rejects():
 
     allowed = _registered_methods() | VIRTUAL_METHODS
     phantom = set(VALID_OPTIMIZATION_METHODS) - allowed
-    assert not phantom, (
-        f"param_validator advertises method(s) that do not exist: {sorted(phantom)}"
-    )
+    assert not phantom, f"param_validator advertises method(s) that do not exist: {sorted(phantom)}"
 
 
 def test_schema_enum_matches_validator():
@@ -101,9 +94,7 @@ def test_cli_choices_are_a_subset_of_valid_methods():
 
     parser = create_parser()
     optimize = parser._subparsers._group_actions[0].choices["optimize"]
-    choices = next(
-        a.choices for a in optimize._actions if a.dest == "optimization_method"
-    )
+    choices = next(a.choices for a in optimize._actions if a.dest == "optimization_method")
     unsupported = set(choices) - set(VALID_OPTIMIZATION_METHODS)
     assert not unsupported, (
         f"CLI offers --optimization-method value(s) that validate-params rejects: "

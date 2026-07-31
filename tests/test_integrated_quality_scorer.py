@@ -17,7 +17,7 @@ from neoswga.core.integrated_quality_scorer import (
     PrimerQualityScore,
     SetQualityScore,
     IntegratedQualityScorer,
-    quick_score_primers
+    quick_score_primers,
 )
 from neoswga.core.strand_bias_analyzer import StrandBindingSite
 from neoswga.core.reaction_conditions import ReactionConditions
@@ -29,7 +29,7 @@ class TestPrimerQualityScore(unittest.TestCase):
     def test_create_good_score(self):
         """Test creating a high-quality primer score."""
         score = PrimerQualityScore(
-            primer='ACGTACGTACGC',
+            primer="ACGTACGTACGC",
             strand_bias_score=0.9,
             dimer_score=0.85,
             three_prime_score=0.8,
@@ -41,7 +41,7 @@ class TestPrimerQualityScore(unittest.TestCase):
             passes_three_prime=True,
             passes_all=True,
             failure_reasons=[],
-            rank=1
+            rank=1,
         )
 
         self.assertTrue(score.passes_all)
@@ -51,7 +51,7 @@ class TestPrimerQualityScore(unittest.TestCase):
     def test_create_poor_score(self):
         """Test creating a low-quality primer score."""
         score = PrimerQualityScore(
-            primer='AAAAAAAAAA',
+            primer="AAAAAAAAAA",
             strand_bias_score=0.4,
             dimer_score=0.3,
             three_prime_score=0.2,
@@ -62,8 +62,8 @@ class TestPrimerQualityScore(unittest.TestCase):
             passes_dimer=False,
             passes_three_prime=False,
             passes_all=False,
-            failure_reasons=['Low complexity', 'Poor 3\' stability'],
-            rank=10
+            failure_reasons=["Low complexity", "Poor 3' stability"],
+            rank=10,
         )
 
         self.assertFalse(score.passes_all)
@@ -76,7 +76,7 @@ class TestSetQualityScore(unittest.TestCase):
     def test_create_passing_set(self):
         """Test creating a passing set score."""
         set_score = SetQualityScore(
-            primers=['PRIMER1', 'PRIMER2', 'PRIMER3'],
+            primers=["PRIMER1", "PRIMER2", "PRIMER3"],
             mean_overall_score=0.75,
             min_overall_score=0.65,
             set_dimer_score=0.8,
@@ -85,7 +85,7 @@ class TestSetQualityScore(unittest.TestCase):
             failure_reason=None,
             num_failing_strand=0,
             num_failing_dimer=0,
-            num_failing_three_prime=0
+            num_failing_three_prime=0,
         )
 
         self.assertTrue(set_score.passes)
@@ -94,16 +94,16 @@ class TestSetQualityScore(unittest.TestCase):
     def test_create_failing_set(self):
         """Test creating a failing set score."""
         set_score = SetQualityScore(
-            primers=['PRIMER1', 'PRIMER2'],
+            primers=["PRIMER1", "PRIMER2"],
             mean_overall_score=0.4,
             min_overall_score=0.3,
             set_dimer_score=0.3,
             set_strand_bias_score=0.5,
             passes=False,
-            failure_reason='Mean set score below threshold',
+            failure_reason="Mean set score below threshold",
             num_failing_strand=1,
             num_failing_dimer=2,
-            num_failing_three_prime=1
+            num_failing_three_prime=1,
         )
 
         self.assertFalse(set_score.passes)
@@ -118,28 +118,25 @@ class TestIntegratedQualityScorer(unittest.TestCase):
         self.conditions = ReactionConditions(temp=30.0)
 
         self.scorer_moderate = IntegratedQualityScorer(
-            conditions=self.conditions,
-            stringency='moderate'
+            conditions=self.conditions, stringency="moderate"
         )
 
         self.scorer_strict = IntegratedQualityScorer(
-            conditions=self.conditions,
-            stringency='strict'
+            conditions=self.conditions, stringency="strict"
         )
 
         self.scorer_lenient = IntegratedQualityScorer(
-            conditions=self.conditions,
-            stringency='lenient'
+            conditions=self.conditions, stringency="lenient"
         )
 
     def test_score_single_primer(self):
         """Test scoring a single primer."""
-        primer = 'ACGTACGTACGC'
+        primer = "ACGTACGTACGC"
 
         # Create minimal binding sites for strand bias
         sites = [
-            StrandBindingSite(100, '+', primer),
-            StrandBindingSite(200, '-', primer),
+            StrandBindingSite(100, "+", primer),
+            StrandBindingSite(200, "-", primer),
         ]
 
         score = self.scorer_moderate.score_primer(primer, sites)
@@ -153,18 +150,16 @@ class TestIntegratedQualityScorer(unittest.TestCase):
     def test_analyze_good_primer_set(self):
         """Test analyzing a high-quality primer set."""
         primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
-            'TGCATGCATGCA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
+            "TGCATGCATGCA",
         ]
 
         # Create balanced binding sites for each primer
         binding_sites = {}
         for i, primer in enumerate(primers):
-            sites = [
-                StrandBindingSite(j * 100, '+', primer) for j in range(3)
-            ] + [
-                StrandBindingSite(j * 100, '-', primer) for j in range(3, 6)
+            sites = [StrandBindingSite(j * 100, "+", primer) for j in range(3)] + [
+                StrandBindingSite(j * 100, "-", primer) for j in range(3, 6)
             ]
             binding_sites[primer] = sites
 
@@ -179,9 +174,9 @@ class TestIntegratedQualityScorer(unittest.TestCase):
     def test_analyze_diverse_quality_primers(self):
         """Test analyzing primers with varying quality."""
         primers = [
-            'ACGTACGTACGC',  # Good
-            'AAAAAAAAAA',    # Poor - low complexity
-            'GCTAGCTAGCTA',  # Good
+            "ACGTACGTACGC",  # Good
+            "AAAAAAAAAA",  # Poor - low complexity
+            "GCTAGCTAGCTA",  # Good
         ]
 
         primer_scores, set_score = self.scorer_moderate.analyze_primer_set(primers)
@@ -196,9 +191,9 @@ class TestIntegratedQualityScorer(unittest.TestCase):
     def test_ranking_primers(self):
         """Test that primers are ranked correctly."""
         primers = [
-            'ACGTACGTACGC',
-            'AAAAAAAAAA',
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "AAAAAAAAAA",
+            "GCTAGCTAGCTA",
         ]
 
         primer_scores, set_score = self.scorer_moderate.analyze_primer_set(primers)
@@ -221,7 +216,7 @@ class TestIntegratedQualityScorer(unittest.TestCase):
 
     def test_single_primer_set(self):
         """Test analyzing single primer."""
-        primers = ['ACGTACGTACGC']
+        primers = ["ACGTACGTACGC"]
 
         primer_scores, set_score = self.scorer_moderate.analyze_primer_set(primers)
 
@@ -231,21 +226,19 @@ class TestIntegratedQualityScorer(unittest.TestCase):
     def test_custom_weights(self):
         """Test scorer with custom weights."""
         custom_weights = {
-            'dimer': 0.5,
-            'three_prime': 0.2,
-            'strand_bias': 0.15,
-            'thermodynamics': 0.1,
-            'complexity': 0.05
+            "dimer": 0.5,
+            "three_prime": 0.2,
+            "strand_bias": 0.15,
+            "thermodynamics": 0.1,
+            "complexity": 0.05,
         }
 
         scorer = IntegratedQualityScorer(
-            conditions=self.conditions,
-            stringency='moderate',
-            weights=custom_weights
+            conditions=self.conditions, stringency="moderate", weights=custom_weights
         )
 
-        self.assertEqual(scorer.weights['dimer'], 0.5)
-        self.assertEqual(scorer.weights['three_prime'], 0.2)
+        self.assertEqual(scorer.weights["dimer"], 0.5)
+        self.assertEqual(scorer.weights["three_prime"], 0.2)
 
         # Weights should sum to 1.0
         self.assertAlmostEqual(sum(scorer.weights.values()), 1.0, places=2)
@@ -254,11 +247,11 @@ class TestIntegratedQualityScorer(unittest.TestCase):
         """Test that weights are normalized if they don't sum to 1.0."""
         # Weights that don't sum to 1.0 are automatically normalized
         invalid_weights = {
-            'dimer': 0.5,
-            'three_prime': 0.5,
-            'strand_bias': 0.5,  # Sum > 1.0
-            'thermodynamics': 0.1,
-            'complexity': 0.05
+            "dimer": 0.5,
+            "three_prime": 0.5,
+            "strand_bias": 0.5,  # Sum > 1.0
+            "thermodynamics": 0.1,
+            "complexity": 0.05,
         }
 
         # Does not raise, normalizes instead
@@ -276,9 +269,9 @@ class TestRecommendations(unittest.TestCase):
     def test_generate_recommendations(self):
         """Test that recommendations are generated."""
         primers = [
-            'ACGTACGTACGC',
-            'AAAAAAAAAA',  # Poor complexity
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "AAAAAAAAAA",  # Poor complexity
+            "GCTAGCTAGCTA",
         ]
 
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
@@ -292,31 +285,31 @@ class TestRecommendations(unittest.TestCase):
         """Test that recommendations identify weak dimensions."""
         # Create primers with specific weaknesses
         primers = [
-            'AAAAAAAAAA',  # Very low complexity
-            'TTTTTTTTTT',  # Very low complexity
-            'GGGGGGGGGG',  # Very low complexity
+            "AAAAAAAAAA",  # Very low complexity
+            "TTTTTTTTTT",  # Very low complexity
+            "GGGGGGGGGG",  # Very low complexity
         ]
 
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
         recommendations = self.scorer.get_recommendations(primer_scores, set_score)
 
         # Should mention complexity issue
-        rec_text = ' '.join(recommendations).lower()
-        self.assertIn('complexity', rec_text)
+        rec_text = " ".join(recommendations).lower()
+        self.assertIn("complexity", rec_text)
 
     def test_no_recommendations_for_good_set(self):
         """Test that good sets get minimal recommendations."""
         primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
-            'TGCATGCATGCA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
+            "TGCATGCATGCA",
         ]
 
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
         recommendations = self.scorer.get_recommendations(primer_scores, set_score)
 
         # Should have few or no critical recommendations
-        critical_recs = [r for r in recommendations if 'replace' in r.lower()]
+        critical_recs = [r for r in recommendations if "replace" in r.lower()]
         # May or may not have recommendations depending on quality
 
 
@@ -326,8 +319,8 @@ class TestQuickScoreFunction(unittest.TestCase):
     def test_quick_score_basic(self):
         """Test basic quick scoring."""
         primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
         ]
 
         primer_scores, set_score = quick_score_primers(primers)
@@ -337,10 +330,10 @@ class TestQuickScoreFunction(unittest.TestCase):
 
     def test_quick_score_with_stringency(self):
         """Test quick scoring with different stringency."""
-        primers = ['ACGTACGTACGC']
+        primers = ["ACGTACGTACGC"]
 
-        primer_scores_strict, _ = quick_score_primers(primers, stringency='strict')
-        primer_scores_lenient, _ = quick_score_primers(primers, stringency='lenient')
+        primer_scores_strict, _ = quick_score_primers(primers, stringency="strict")
+        primer_scores_lenient, _ = quick_score_primers(primers, stringency="lenient")
 
         # Both should complete
         self.assertEqual(len(primer_scores_strict), 1)
@@ -348,18 +341,16 @@ class TestQuickScoreFunction(unittest.TestCase):
 
     def test_quick_score_with_sites(self):
         """Test quick scoring with binding sites."""
-        primers = ['ACGTACGTACGC']
+        primers = ["ACGTACGTACGC"]
 
         sites = {
-            'ACGTACGTACGC': [
-                StrandBindingSite(100, '+', 'ACGTACGTACGC'),
-                StrandBindingSite(200, '-', 'ACGTACGTACGC'),
+            "ACGTACGTACGC": [
+                StrandBindingSite(100, "+", "ACGTACGTACGC"),
+                StrandBindingSite(200, "-", "ACGTACGTACGC"),
             ]
         }
 
-        primer_scores, set_score = quick_score_primers(
-            primers, binding_sites_dict=sites
-        )
+        primer_scores, set_score = quick_score_primers(primers, binding_sites_dict=sites)
 
         self.assertEqual(len(primer_scores), 1)
 
@@ -370,14 +361,14 @@ class TestStringencyLevels(unittest.TestCase):
     def setUp(self):
         """Set up primers for testing."""
         self.primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
         ]
 
     def test_lenient_vs_strict(self):
         """Test that lenient passes more than strict."""
-        scorer_lenient = IntegratedQualityScorer(stringency='lenient')
-        scorer_strict = IntegratedQualityScorer(stringency='strict')
+        scorer_lenient = IntegratedQualityScorer(stringency="lenient")
+        scorer_strict = IntegratedQualityScorer(stringency="strict")
 
         _, set_score_lenient = scorer_lenient.analyze_primer_set(self.primers)
         _, set_score_strict = scorer_strict.analyze_primer_set(self.primers)
@@ -390,7 +381,7 @@ class TestStringencyLevels(unittest.TestCase):
 
     def test_moderate_is_middle_ground(self):
         """Test that moderate is between lenient and strict."""
-        scorer_moderate = IntegratedQualityScorer(stringency='moderate')
+        scorer_moderate = IntegratedQualityScorer(stringency="moderate")
 
         _, set_score = scorer_moderate.analyze_primer_set(self.primers)
         self.assertIsNotNone(set_score)
@@ -405,7 +396,7 @@ class TestScoreDimensions(unittest.TestCase):
 
     def test_all_dimensions_present(self):
         """Test that all dimensions are scored."""
-        primer = 'ACGTACGTACGC'
+        primer = "ACGTACGTACGC"
         score = self.scorer.score_primer(primer)
 
         # Check all dimension scores are present
@@ -421,23 +412,23 @@ class TestScoreDimensions(unittest.TestCase):
             score.dimer_score,
             score.three_prime_score,
             score.complexity_score,
-            score.thermo_score
+            score.thermo_score,
         ]:
             self.assertGreaterEqual(dim_score, 0.0)
             self.assertLessEqual(dim_score, 1.0)
 
     def test_overall_score_is_weighted(self):
         """Test that overall score reflects weights."""
-        primer = 'ACGTACGTACGC'
+        primer = "ACGTACGTACGC"
         score = self.scorer.score_primer(primer)
 
         # Overall should be weighted average
         weighted = (
-            self.scorer.weights['dimer'] * score.dimer_score +
-            self.scorer.weights['three_prime'] * score.three_prime_score +
-            self.scorer.weights['strand_bias'] * score.strand_bias_score +
-            self.scorer.weights['thermodynamics'] * score.thermo_score +
-            self.scorer.weights['complexity'] * score.complexity_score
+            self.scorer.weights["dimer"] * score.dimer_score
+            + self.scorer.weights["three_prime"] * score.three_prime_score
+            + self.scorer.weights["strand_bias"] * score.strand_bias_score
+            + self.scorer.weights["thermodynamics"] * score.thermo_score
+            + self.scorer.weights["complexity"] * score.complexity_score
         )
 
         self.assertAlmostEqual(score.overall_score, weighted, places=2)
@@ -453,9 +444,9 @@ class TestSetLevelMetrics(unittest.TestCase):
     def test_mean_score_calculation(self):
         """Test mean score is calculated correctly."""
         primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
-            'TGCATGCATGCA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
+            "TGCATGCATGCA",
         ]
 
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
@@ -468,9 +459,9 @@ class TestSetLevelMetrics(unittest.TestCase):
     def test_min_score_identification(self):
         """Test that minimum score is identified."""
         primers = [
-            'ACGTACGTACGC',
-            'AAAAAAAAAA',  # Should be lowest
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "AAAAAAAAAA",  # Should be lowest
+            "GCTAGCTAGCTA",
         ]
 
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
@@ -482,9 +473,9 @@ class TestSetLevelMetrics(unittest.TestCase):
     def test_failure_counts(self):
         """Test that failure counts are tracked."""
         primers = [
-            'ACGTACGTACGC',
-            'AAAAAAAAAA',
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "AAAAAAAAAA",
+            "GCTAGCTAGCTA",
         ]
 
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
@@ -496,9 +487,9 @@ class TestSetLevelMetrics(unittest.TestCase):
 
         # Total failures should not exceed number of primers
         total_failures = (
-            set_score.num_failing_strand +
-            set_score.num_failing_dimer +
-            set_score.num_failing_three_prime
+            set_score.num_failing_strand
+            + set_score.num_failing_dimer
+            + set_score.num_failing_three_prime
         )
         # Note: primers can fail multiple dimensions, so total may exceed len(primers)
 
@@ -513,28 +504,24 @@ class TestVerboseMode(unittest.TestCase):
     def test_verbose_analysis(self):
         """Test that verbose mode runs without error."""
         primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
         ]
 
         # Should not crash with verbose=True
-        primer_scores, set_score = self.scorer.analyze_primer_set(
-            primers, verbose=True
-        )
+        primer_scores, set_score = self.scorer.analyze_primer_set(primers, verbose=True)
 
         self.assertEqual(len(primer_scores), 2)
 
     def test_quiet_analysis(self):
         """Test that quiet mode runs without error."""
         primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
         ]
 
         # Should not crash with verbose=False
-        primer_scores, set_score = self.scorer.analyze_primer_set(
-            primers, verbose=False
-        )
+        primer_scores, set_score = self.scorer.analyze_primer_set(primers, verbose=False)
 
         self.assertEqual(len(primer_scores), 2)
 
@@ -548,7 +535,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_identical_primers(self):
         """Test set with identical primers."""
-        primers = ['ACGTACGT', 'ACGTACGT', 'ACGTACGT']
+        primers = ["ACGTACGT", "ACGTACGT", "ACGTACGT"]
 
         # Should handle gracefully (may de-duplicate)
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
@@ -558,7 +545,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_very_short_primers(self):
         """Test with very short primers."""
-        primers = ['AAA', 'TTT', 'GGG']
+        primers = ["AAA", "TTT", "GGG"]
 
         # Should not crash
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
@@ -567,8 +554,8 @@ class TestEdgeCases(unittest.TestCase):
     def test_very_long_primers(self):
         """Test with very long primers."""
         primers = [
-            'A' * 50 + 'CGCGC',
-            'T' * 50 + 'GCGCG',
+            "A" * 50 + "CGCGC",
+            "T" * 50 + "GCGCG",
         ]
 
         # Should handle long primers
@@ -578,10 +565,10 @@ class TestEdgeCases(unittest.TestCase):
     def test_large_primer_set(self):
         """Test with larger primer set."""
         # Create 20 diverse primers (but pattern repeats every 4)
-        bases = ['A', 'T', 'G', 'C']
+        bases = ["A", "T", "G", "C"]
         primers = []
         for i in range(20):
-            primer = ''.join([bases[(i + j) % 4] for j in range(12)])
+            primer = "".join([bases[(i + j) % 4] for j in range(12)])
             primers.append(primer)
 
         # Due to cyclic pattern, only 4 unique primers exist
@@ -602,7 +589,7 @@ class TestConsistency(unittest.TestCase):
 
     def test_score_reproducibility(self):
         """Test that same primer gets same score."""
-        primer = 'ACGTACGTACGC'
+        primer = "ACGTACGTACGC"
 
         score1 = self.scorer.score_primer(primer)
         score2 = self.scorer.score_primer(primer)
@@ -612,8 +599,8 @@ class TestConsistency(unittest.TestCase):
     def test_set_score_consistency(self):
         """Test that set score is consistent with primer scores."""
         primers = [
-            'ACGTACGTACGC',
-            'GCTAGCTAGCTA',
+            "ACGTACGTACGC",
+            "GCTAGCTAGCTA",
         ]
 
         primer_scores, set_score = self.scorer.analyze_primer_set(primers)
@@ -625,5 +612,5 @@ class TestConsistency(unittest.TestCase):
         self.assertEqual(len(set_score.primers), len(primer_scores))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

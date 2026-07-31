@@ -27,9 +27,9 @@ def _write_random_fasta(path: Path, length: int, seed: int = 0, gc: float = 0.5)
     alphabet = []
     # Build an alphabet weighted by the target GC fraction.
     for _ in range(int(gc * 100)):
-        alphabet.append('G' if rng.random() < 0.5 else 'C')
+        alphabet.append("G" if rng.random() < 0.5 else "C")
     for _ in range(int((1 - gc) * 100)):
-        alphabet.append('A' if rng.random() < 0.5 else 'T')
+        alphabet.append("A" if rng.random() < 0.5 else "T")
     with path.open("w") as fh:
         fh.write(f">synthetic_{length}bp\n")
         # Write 80 bp per line for valid FASTA
@@ -74,6 +74,7 @@ def test_bacterial_scale_pipeline_memory(tmp_path):
         "fg_circular": False,
     }
     import json
+
     params_file = tmp_path / "params.json"
     params_file.write_text(json.dumps(params))
 
@@ -82,22 +83,20 @@ def test_bacterial_scale_pipeline_memory(tmp_path):
     try:
         # Run count-kmers via the CLI (jellyfish required)
         result = subprocess.run(
-            [sys.executable, "-m", "neoswga.cli_unified",
-             "count-kmers", "-j", str(params_file)],
-            capture_output=True, text=True, timeout=600,
+            [sys.executable, "-m", "neoswga.cli_unified", "count-kmers", "-j", str(params_file)],
+            capture_output=True,
+            text=True,
+            timeout=600,
         )
-        assert result.returncode == 0, (
-            f"count-kmers failed: {result.stderr[-2000:]}"
-        )
+        assert result.returncode == 0, f"count-kmers failed: {result.stderr[-2000:]}"
 
         result = subprocess.run(
-            [sys.executable, "-m", "neoswga.cli_unified",
-             "filter", "-j", str(params_file)],
-            capture_output=True, text=True, timeout=600,
+            [sys.executable, "-m", "neoswga.cli_unified", "filter", "-j", str(params_file)],
+            capture_output=True,
+            text=True,
+            timeout=600,
         )
-        assert result.returncode == 0, (
-            f"filter failed: {result.stderr[-2000:]}"
-        )
+        assert result.returncode == 0, f"filter failed: {result.stderr[-2000:]}"
     finally:
         os.chdir(original_cwd)
 

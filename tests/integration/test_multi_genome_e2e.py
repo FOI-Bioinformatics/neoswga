@@ -14,13 +14,13 @@ from pathlib import Path
 
 import pytest
 
-
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plasmid_example"
 
 
 def _reset_pipeline_state(params_file):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
+
     pipeline_mod._initialized = False
     pipeline_mod.fg_prefixes = None
     pipeline_mod.bg_prefixes = None
@@ -109,6 +109,7 @@ def test_multi_target_background_blacklist_filter_runs(multi_genome_workdir):
     _reset_pipeline_state(str(params_file))
 
     from neoswga.core.pipeline import step2
+
     df = step2()
 
     assert (multi_genome_workdir / "step2_df.csv").is_file()
@@ -122,21 +123,38 @@ def test_multi_target_parameter_propagation(multi_genome_workdir):
     """All foreground prefixes must be populated end-to-end in `parameter`."""
     from types import SimpleNamespace
     from neoswga.core import parameter
+
     parameter.reset_to_defaults()
 
     attrs = {
         "json_file": str(multi_genome_workdir / "params.json"),
-        "data_dir": None, "src_dir": None,
-        "min_fg_freq": None, "max_bg_freq": None,
-        "min_tm": None, "max_tm": None,
-        "max_gini": None, "max_primer": None, "min_amp_pred": None,
-        "cpus": None, "max_dimer_bp": None, "max_self_dimer_bp": None,
-        "verbose": None, "drop_iterations": None, "iterations": None,
-        "top_set_count": None, "retries": None, "max_sets": None,
-        "selection_metric": None, "fg_circular": None, "bg_circular": None,
-        "min_k": None, "max_k": None,
-        "fasta_fore": None, "fasta_back": None,
-        "kmer_fore": None, "kmer_back": None,
+        "data_dir": None,
+        "src_dir": None,
+        "min_fg_freq": None,
+        "max_bg_freq": None,
+        "min_tm": None,
+        "max_tm": None,
+        "max_gini": None,
+        "max_primer": None,
+        "min_amp_pred": None,
+        "cpus": None,
+        "max_dimer_bp": None,
+        "max_self_dimer_bp": None,
+        "verbose": None,
+        "drop_iterations": None,
+        "iterations": None,
+        "top_set_count": None,
+        "retries": None,
+        "max_sets": None,
+        "selection_metric": None,
+        "fg_circular": None,
+        "bg_circular": None,
+        "min_k": None,
+        "max_k": None,
+        "fasta_fore": None,
+        "fasta_back": None,
+        "kmer_fore": None,
+        "kmer_back": None,
     }
     data = parameter.get_params(SimpleNamespace(**attrs))
 

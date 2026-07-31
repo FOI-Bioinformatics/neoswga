@@ -24,10 +24,10 @@ from neoswga.core.genome_io import (
     validate_genome_file,
 )
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def simple_fasta_file(tmp_path):
@@ -51,7 +51,7 @@ ATCGATCGATCGATCGATCG
 >seq2
 GCTAGCTAGCTAGCTAGCTA
 """
-    with gzip.open(fasta_path, 'wt') as f:
+    with gzip.open(fasta_path, "wt") as f:
         f.write(content)
     return fasta_path
 
@@ -65,7 +65,7 @@ ATCGATCGATCGATCGATCG
 >seq2
 GCTAGCTAGCTAGCTAGCTA
 """
-    with zipfile.ZipFile(zip_path, 'w') as zf:
+    with zipfile.ZipFile(zip_path, "w") as zf:
         zf.writestr("genome.fasta", content)
     return zip_path
 
@@ -98,6 +98,7 @@ def large_fasta_file(tmp_path):
 # GenomeStats Tests
 # =============================================================================
 
+
 class TestGenomeStats:
     """Tests for GenomeStats dataclass."""
 
@@ -114,7 +115,7 @@ class TestGenomeStats:
             sequence_lengths=[20, 20],
             mean_length=20.0,
             max_length=20,
-            min_length=20
+            min_length=20,
         )
 
         assert stats.total_sequences == 2
@@ -134,7 +135,7 @@ class TestGenomeStats:
             sequence_lengths=[20, 20],
             mean_length=20.0,
             max_length=20,
-            min_length=20
+            min_length=20,
         )
 
         str_repr = str(stats)
@@ -147,6 +148,7 @@ class TestGenomeStats:
 # =============================================================================
 # GenomeLoader Format Detection Tests
 # =============================================================================
+
 
 class TestFormatDetection:
     """Tests for file format detection."""
@@ -179,7 +181,7 @@ class TestFormatDetection:
         content = """>seq1
 ATCG
 """
-        with gzip.open(gzip_path, 'wt') as f:
+        with gzip.open(gzip_path, "wt") as f:
             f.write(content)
 
         loader = GenomeLoader()
@@ -199,6 +201,7 @@ ATCG
 # GenomeLoader Loading Tests
 # =============================================================================
 
+
 class TestGenomeLoading:
     """Tests for genome loading functionality."""
 
@@ -209,7 +212,7 @@ class TestGenomeLoading:
 
         assert isinstance(sequence, str)
         assert len(sequence) == 40  # Two 20 bp sequences
-        assert 'ATCG' in sequence
+        assert "ATCG" in sequence
 
     def test_load_gzipped_fasta(self, gzipped_fasta_file):
         """Test loading gzipped FASTA file."""
@@ -279,6 +282,7 @@ class TestGenomeLoading:
 # Streaming Loading Tests
 # =============================================================================
 
+
 class TestStreamingLoading:
     """Tests for streaming genome loading."""
 
@@ -301,6 +305,7 @@ class TestStreamingLoading:
 # =============================================================================
 # GC Content Tests
 # =============================================================================
+
 
 class TestGCContent:
     """Tests for GC content calculation."""
@@ -345,6 +350,7 @@ class TestGCContent:
 # N Base Content Tests
 # =============================================================================
 
+
 class TestNContent:
     """Tests for N base counting."""
 
@@ -371,6 +377,7 @@ class TestNContent:
 # Validation Tests
 # =============================================================================
 
+
 class TestValidation:
     """Tests for genome validation."""
 
@@ -386,8 +393,7 @@ class TestValidation:
         """Test validating a genome that's too short."""
         loader = GenomeLoader()
         is_valid, issues = loader.validate_genome(
-            simple_fasta_file,
-            min_length=1000000  # 1 Mbp minimum
+            simple_fasta_file, min_length=1000000  # 1 Mbp minimum
         )
 
         assert is_valid is False
@@ -400,11 +406,7 @@ class TestValidation:
         fasta_path.write_text(">seq1\nATCGNNNNNNNNNNATCG\n")
 
         loader = GenomeLoader()
-        is_valid, issues = loader.validate_genome(
-            fasta_path,
-            max_n_fraction=0.10,
-            min_length=10
-        )
+        is_valid, issues = loader.validate_genome(fasta_path, max_n_fraction=0.10, min_length=10)
 
         assert is_valid is False
         assert any("N bases" in issue for issue in issues)
@@ -425,6 +427,7 @@ class TestValidation:
 # =============================================================================
 # GenomeCache Tests
 # =============================================================================
+
 
 class TestGenomeCache:
     """Tests for GenomeCache class."""
@@ -495,6 +498,7 @@ class TestGenomeCache:
 # Convenience Function Tests
 # =============================================================================
 
+
 class TestConvenienceFunctions:
     """Tests for module-level convenience functions."""
 
@@ -527,6 +531,7 @@ class TestConvenienceFunctions:
 # =============================================================================
 # Edge Cases
 # =============================================================================
+
 
 class TestEdgeCases:
     """Tests for edge cases."""
@@ -574,7 +579,7 @@ class TestEdgeCases:
     def test_zip_without_fasta(self, tmp_path):
         """Test loading zip without FASTA file raises."""
         zip_path = tmp_path / "no_fasta.zip"
-        with zipfile.ZipFile(zip_path, 'w') as zf:
+        with zipfile.ZipFile(zip_path, "w") as zf:
             zf.writestr("readme.txt", "This is not a FASTA file")
 
         loader = GenomeLoader()
@@ -583,5 +588,5 @@ class TestEdgeCases:
             loader.load_genome(zip_path)
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

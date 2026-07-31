@@ -28,16 +28,21 @@ These tests lock in:
 import pytest
 
 
-@pytest.mark.parametrize("polymerase,expected", [
-    ("phi29", 3000),
-    ("equiphi29", 4000),
-    ("bst", 1000),
-    ("klenow", 500),
-])
+@pytest.mark.parametrize(
+    "polymerase,expected",
+    [
+        ("phi29", 3000),
+        ("equiphi29", 4000),
+        ("bst", 1000),
+        ("klenow", 500),
+    ],
+)
 def test_typical_amplicon_length_matches_literature(polymerase, expected):
     from neoswga.core.reaction_conditions import (
-        POLYMERASE_CHARACTERISTICS, get_typical_amplicon_length,
+        POLYMERASE_CHARACTERISTICS,
+        get_typical_amplicon_length,
     )
+
     assert POLYMERASE_CHARACTERISTICS[polymerase]["typical_amplicon_length"] == expected
     assert get_typical_amplicon_length(polymerase) == expected
 
@@ -46,7 +51,8 @@ def test_typical_amplicon_strictly_shorter_than_processivity():
     """Sanity: per-primer reach < single-event processivity for every
     polymerase."""
     from neoswga.core.reaction_conditions import (
-        get_typical_amplicon_length, get_polymerase_processivity,
+        get_typical_amplicon_length,
+        get_polymerase_processivity,
     )
     from neoswga.core.registry import get_polymerase
 
@@ -76,6 +82,7 @@ def test_typical_amplicon_strictly_shorter_than_processivity():
 def test_polymerase_extension_reach_defaults_to_realistic():
     """Phase 16: the default is per-primer reach, not processivity."""
     from neoswga.core.coverage import polymerase_extension_reach
+
     assert polymerase_extension_reach("phi29") == 3000
     assert polymerase_extension_reach("equiphi29") == 4000
 
@@ -83,6 +90,7 @@ def test_polymerase_extension_reach_defaults_to_realistic():
 def test_polymerase_extension_reach_processivity_opt_in():
     """Callers that explicitly ask for processivity still get it."""
     from neoswga.core.coverage import polymerase_extension_reach
+
     assert polymerase_extension_reach("phi29", coverage_metric="processivity") == 70000
     assert polymerase_extension_reach("equiphi29", coverage_metric="processivity") == 80000
     assert polymerase_extension_reach("bst", coverage_metric="processivity") == 2000
@@ -99,8 +107,10 @@ def test_compute_per_prefix_coverage_default_extension_is_realistic():
             return [10000]  # single mid-genome position
 
     agg, per = compute_per_prefix_coverage(
-        cache=FakeCache(), primers=["ACGT"],
-        prefixes=["x"], seq_lengths=[20000],
+        cache=FakeCache(),
+        primers=["ACGT"],
+        prefixes=["x"],
+        seq_lengths=[20000],
         # NB: no `extension=` — exercising the default
     )
     # Default extension = 3000 → window [7000, 13000) = 6000 bp covered
@@ -121,8 +131,11 @@ def test_compute_per_prefix_coverage_explicit_extension_honoured():
 
     # 70 kb extension on a 20 kb genome → full coverage
     agg, _ = compute_per_prefix_coverage(
-        cache=FakeCache(), primers=["ACGT"],
-        prefixes=["x"], seq_lengths=[20000], extension=70000,
+        cache=FakeCache(),
+        primers=["ACGT"],
+        prefixes=["x"],
+        seq_lengths=[20000],
+        extension=70000,
     )
     assert agg == 1.0
 
@@ -132,14 +145,15 @@ def test_coverage_change_documented_in_citations():
     reach numbers so scientific reviewers can find them. Accept either
     unformatted (3000) or comma-separated (3,000) rendering."""
     from pathlib import Path
+
     doc = Path(__file__).resolve().parent.parent / "docs" / "SCIENCE_CITATIONS.md"
     if not doc.is_file():
         pytest.skip("SCIENCE_CITATIONS.md not present")
     text = doc.read_text()
     # The field name must appear verbatim.
-    assert "typical_amplicon_length" in text, (
-        "SCIENCE_CITATIONS.md should mention 'typical_amplicon_length'"
-    )
+    assert (
+        "typical_amplicon_length" in text
+    ), "SCIENCE_CITATIONS.md should mention 'typical_amplicon_length'"
     # Numbers may be rendered with or without thousands separator.
     for value, comma_form in (("3000", "3,000"), ("4000", "4,000")):
         assert value in text or comma_form in text, (

@@ -22,8 +22,8 @@ class TestUniformityScoring:
 
         # Add some test sites
         positions = np.array([1000, 5000, 10000, 15000])
-        network.add_primer_sites("ATCGATCG", positions, '+')
-        network.add_primer_sites("GCTAGCTA", positions + 500, '-')
+        network.add_primer_sites("ATCGATCG", positions, "+")
+        network.add_primer_sites("GCTAGCTA", positions + 500, "-")
         network.build_edges()
 
         # Verify coverage_uniformity returns a value
@@ -44,8 +44,8 @@ class TestUniformityScoring:
 
         # Add sites spread across genome - will form multiple components
         for i, pos in enumerate([1000, 10000, 20000, 30000, 40000]):
-            network_even.add_primer_sites(f"ATCG{i:04d}", np.array([pos]), '+')
-            network_even.add_primer_sites(f"GCTA{i:04d}", np.array([pos + 500]), '-')
+            network_even.add_primer_sites(f"ATCG{i:04d}", np.array([pos]), "+")
+            network_even.add_primer_sites(f"GCTA{i:04d}", np.array([pos + 500]), "-")
         network_even.build_edges()
 
         genome_length = 50000
@@ -54,8 +54,8 @@ class TestUniformityScoring:
         # Create network with clustered components
         network_clustered = AmplificationNetwork(max_extension=2000)
         for i, pos in enumerate([1000, 2000, 3000, 4000, 5000]):
-            network_clustered.add_primer_sites(f"ATCG{i:04d}", np.array([pos]), '+')
-            network_clustered.add_primer_sites(f"GCTA{i:04d}", np.array([pos + 500]), '-')
+            network_clustered.add_primer_sites(f"ATCG{i:04d}", np.array([pos]), "+")
+            network_clustered.add_primer_sites(f"GCTA{i:04d}", np.array([pos + 500]), "-")
         network_clustered.build_edges()
 
         cv_clustered = network_clustered.coverage_uniformity(genome_length)
@@ -67,8 +67,9 @@ class TestUniformityScoring:
         assert cv_clustered >= 0
         # If multiple components formed, evenness should differ
         if network_even.num_components() > 1 and network_clustered.num_components() > 1:
-            assert cv_even <= cv_clustered, \
-                f"Even CV ({cv_even}) should be <= clustered CV ({cv_clustered})"
+            assert (
+                cv_even <= cv_clustered
+            ), f"Even CV ({cv_even}) should be <= clustered CV ({cv_clustered})"
 
 
 class TestNetworkOptimizerUniformity:
@@ -85,12 +86,12 @@ class TestNetworkOptimizerUniformity:
         # Should not raise error
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['test_fg'],
-            bg_prefixes=['test_bg'],
+            fg_prefixes=["test_fg"],
+            bg_prefixes=["test_bg"],
             fg_seq_lengths=[100000],
             bg_seq_lengths=[100000],
             max_extension=70000,
-            uniformity_weight=0.3
+            uniformity_weight=0.3,
         )
 
         assert optimizer.uniformity_weight == 0.3
@@ -104,8 +105,8 @@ class TestNetworkOptimizerUniformity:
 
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['test_fg'],
-            bg_prefixes=['test_bg'],
+            fg_prefixes=["test_fg"],
+            bg_prefixes=["test_bg"],
             fg_seq_lengths=[100000],
             bg_seq_lengths=[100000],
         )
@@ -144,11 +145,11 @@ class TestHybridOptimizerUniformity:
 
         optimizer = HybridOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['test_fg'],
+            fg_prefixes=["test_fg"],
             fg_seq_lengths=[100000],
-            bg_prefixes=['test_bg'],
+            bg_prefixes=["test_bg"],
             bg_seq_lengths=[100000],
-            uniformity_weight=0.3
+            uniformity_weight=0.3,
         )
 
         assert optimizer.uniformity_weight == 0.3
@@ -165,8 +166,8 @@ class TestCLIUniformityOption:
         parser = create_parser()
 
         # Parse args with uniformity-weight
-        args = parser.parse_args(['optimize', '-j', 'test.json', '--uniformity-weight', '0.3'])
-        assert hasattr(args, 'uniformity_weight')
+        args = parser.parse_args(["optimize", "-j", "test.json", "--uniformity-weight", "0.3"])
+        assert hasattr(args, "uniformity_weight")
         assert args.uniformity_weight == 0.3
 
     def test_cli_uniformity_weight_default(self):
@@ -174,10 +175,10 @@ class TestCLIUniformityOption:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args(['optimize', '-j', 'test.json'])
+        args = parser.parse_args(["optimize", "-j", "test.json"])
 
         assert args.uniformity_weight == 0.0
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -55,14 +55,18 @@ class PolymeraseConfig:
 
 # Standard polymerase presets, derived from the registry.
 #
-# NOTE `max_extension` is the SET-COVER reach, which is a different quantity from
-# `processivity` in POLYMERASE_CHARACTERISTICS. For bst the seeded value (10000)
-# exceeds bst processivity (2000), which is physically impossible - see
-# registry/INCONSISTENCIES.md #1. It is carried verbatim here because changing it
-# re-ranks every bst hybrid-optimizer result.
+# NOTE `max_extension` is the Stage-2 amplification-NETWORK reach -- "could two
+# primers connect via one uninterrupted extension?" -- so single-molecule
+# processivity is the right quantity for it. The Stage-1 set-cover COVERAGE
+# objective uses `coverage_reach` (the realistic per-primer reach), threaded
+# separately by unified_optimizer.
+#
+# These were previously hand-maintained numbers that disagreed with processivity
+# for bst (10000 vs 2000, physically impossible) and klenow (5000 vs 40). They
+# now derive from processivity_bp, so the two cannot diverge again.
 POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
     key: PolymeraseConfig(
-        max_extension=spec.legacy_hybrid_max_extension,
+        max_extension=spec.processivity_bp,
         thermo_filter=spec.thermo_filter,
         primer_multiplier=spec.primer_multiplier,
         reaction_temp=spec.preset_reaction_temp,

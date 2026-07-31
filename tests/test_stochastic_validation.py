@@ -28,7 +28,7 @@ class TestGillespieSimulator:
         bg_network.graph = Mock()
         bg_network.graph.edges = Mock(return_value=[])
 
-        primers = ['ATCGATCG', 'GCTAGCTA']
+        primers = ["ATCGATCG", "GCTAGCTA"]
         params = ReactionParameters(temperature=30.0)
 
         simulator = GillespieSimulator(primers, fg_network, bg_network, params)
@@ -84,6 +84,7 @@ class TestValidateNetworkPredictions:
     def test_function_exists(self):
         """validate_network_predictions should be importable."""
         from neoswga.core.stochastic_simulator import validate_network_predictions
+
         assert callable(validate_network_predictions)
 
 
@@ -95,9 +96,9 @@ class TestStochasticValidationCLI:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args(['optimize', '-j', 'test.json', '--validate-simulation'])
+        args = parser.parse_args(["optimize", "-j", "test.json", "--validate-simulation"])
 
-        assert hasattr(args, 'validate_simulation')
+        assert hasattr(args, "validate_simulation")
         assert args.validate_simulation == True
 
     def test_cli_has_simulation_time_option(self):
@@ -105,12 +106,9 @@ class TestStochasticValidationCLI:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args([
-            'optimize', '-j', 'test.json',
-            '--simulation-time', '7200'
-        ])
+        args = parser.parse_args(["optimize", "-j", "test.json", "--simulation-time", "7200"])
 
-        assert hasattr(args, 'simulation_time')
+        assert hasattr(args, "simulation_time")
         assert args.simulation_time == 7200.0
 
     def test_cli_simulation_time_default(self):
@@ -118,7 +116,7 @@ class TestStochasticValidationCLI:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args(['optimize', '-j', 'test.json'])
+        args = parser.parse_args(["optimize", "-j", "test.json"])
 
         assert args.simulation_time == 3600.0
 
@@ -129,8 +127,9 @@ class TestSimulationPlotting:
     def test_plot_function_exists(self):
         """plot_simulation_results should be importable."""
         from neoswga.core.stochastic_simulator import plot_simulation_results
+
         assert callable(plot_simulation_results)
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

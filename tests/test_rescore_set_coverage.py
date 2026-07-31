@@ -21,7 +21,10 @@ EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 def _run(args, cwd=None, timeout=120):
     return subprocess.run(
         [sys.executable, "-m", "neoswga.cli_unified", *args],
-        capture_output=True, text=True, timeout=timeout, cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
     )
 
 
@@ -30,9 +33,18 @@ def rescore_output():
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
     result = _run(
-        ["rescore-set", "-j", "params.json",
-         "--primers", "AAACGCT", "CATCCGTAAG", "AGGAAAGGAC",
-         "--betaine-m", "1.0", "--quiet"],
+        [
+            "rescore-set",
+            "-j",
+            "params.json",
+            "--primers",
+            "AAACGCT",
+            "CATCCGTAAG",
+            "AGGAAAGGAC",
+            "--betaine-m",
+            "1.0",
+            "--quiet",
+        ],
         cwd=str(EXAMPLE_DIR),
     )
     assert result.returncode == 0, result.stderr
@@ -42,9 +54,14 @@ def rescore_output():
 def test_rescore_output_has_coverage_block(rescore_output):
     cov = rescore_output.get("coverage")
     assert cov is not None, "rescore-set output missing 'coverage' block"
-    for key in ("fg_coverage", "per_target_coverage",
-                "bg_coverage", "per_background_coverage",
-                "selectivity_ratio", "extension_reach_bp"):
+    for key in (
+        "fg_coverage",
+        "per_target_coverage",
+        "bg_coverage",
+        "per_background_coverage",
+        "selectivity_ratio",
+        "extension_reach_bp",
+    ):
         assert key in cov, f"coverage block missing key {key}"
 
 
@@ -62,26 +79,44 @@ def test_rescore_extension_reach_reflects_polymerase():
         pytest.skip()
     # phi29 -> 70000
     r = _run(
-        ["rescore-set", "-j", "params.json",
-         "--primers", "AAACGCT", "CATCCGTAAG",
-         "--polymerase", "phi29", "--quiet"],
+        [
+            "rescore-set",
+            "-j",
+            "params.json",
+            "--primers",
+            "AAACGCT",
+            "CATCCGTAAG",
+            "--polymerase",
+            "phi29",
+            "--quiet",
+        ],
         cwd=str(EXAMPLE_DIR),
     )
     assert r.returncode == 0
     phi = json.loads(r.stdout)
     # bst -> 2000
     r = _run(
-        ["rescore-set", "-j", "params.json",
-         "--primers", "AAACGCT", "CATCCGTAAG",
-         "--polymerase", "bst", "--reaction-temp", "63", "--quiet"],
+        [
+            "rescore-set",
+            "-j",
+            "params.json",
+            "--primers",
+            "AAACGCT",
+            "CATCCGTAAG",
+            "--polymerase",
+            "bst",
+            "--reaction-temp",
+            "63",
+            "--quiet",
+        ],
         cwd=str(EXAMPLE_DIR),
     )
     assert r.returncode == 0
     bst = json.loads(r.stdout)
 
-    assert phi["coverage"]["extension_reach_bp"] > bst["coverage"]["extension_reach_bp"], (
-        "phi29 should have larger extension reach than bst"
-    )
+    assert (
+        phi["coverage"]["extension_reach_bp"] > bst["coverage"]["extension_reach_bp"]
+    ), "phi29 should have larger extension reach than bst"
 
 
 def test_rescore_selectivity_ratio_positive(rescore_output):

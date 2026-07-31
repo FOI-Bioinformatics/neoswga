@@ -76,6 +76,7 @@ neoswga schema --dump > params.schema.json
 | `peg_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
 | `polymerase` | string | one of: phi29, equiphi29, bst, bst3.0, bsu, klenow | `phi29` | - |
 | `primer_conc` | number | min: 1e-09; max: 0.0001 | `5e-07` | - |
+| `propanediol_m` | number | min: 0.0; max: 1.5 | `0.0` | 1,2-propanediol (M). GC-rich enhancer; ~5.4 C Tm depression per M (Horakova 2011). Typical 1 M. |
 | `reaction_temp` | number | min: 20.0; max: 70.0 | - | - |
 | `retries` | integer | min: 0; max: 100 | - | - |
 | `sample_rate` | number or null | min: 0.001; max: 1.0 | - | - |

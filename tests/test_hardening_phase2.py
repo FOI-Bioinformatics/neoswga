@@ -3,10 +3,10 @@
 import pandas as pd
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # RF k-mer sampling determinism
 # ---------------------------------------------------------------------------
+
 
 def test_kmer_sampling_seed_is_reproducible():
     """Same seed -> identical sampling decisions; different seed differs."""
@@ -19,8 +19,8 @@ def test_kmer_sampling_seed_is_reproducible():
     a = draws(42)
     b = draws(42)
     c = draws(43)
-    assert a == b           # reproducible
-    assert a != c           # seed actually matters
+    assert a == b  # reproducible
+    assert a != c  # seed actually matters
 
 
 def test_set_kmer_sampling_seed_none_reseeds_from_entropy():
@@ -36,37 +36,61 @@ def test_set_kmer_sampling_seed_none_reseeds_from_entropy():
 # Strand convention adapters
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("raw,expected", [
-    ("+", "forward"), ("-", "reverse"),
-    ("forward", "forward"), ("reverse", "reverse"), ("both", "both"),
-    ("F", "forward"), ("r", "reverse"), ("FWD", "forward"),
-])
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("+", "forward"),
+        ("-", "reverse"),
+        ("forward", "forward"),
+        ("reverse", "reverse"),
+        ("both", "both"),
+        ("F", "forward"),
+        ("r", "reverse"),
+        ("FWD", "forward"),
+    ],
+)
 def test_to_cache_strand(raw, expected):
     from neoswga.core.strand_conventions import to_cache_strand
+
     assert to_cache_strand(raw) == expected
 
 
 def test_to_cache_strand_rejects_unknown():
     from neoswga.core.strand_conventions import to_cache_strand
+
     with pytest.raises(ValueError):
         to_cache_strand("sideways")
 
 
-@pytest.mark.parametrize("raw,expected", [
-    ("forward", "+"), ("+", "+"),
-    ("reverse", "-"), ("-", "-"),
-    ("both", "."),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("forward", "+"),
+        ("+", "+"),
+        ("reverse", "-"),
+        ("-", "-"),
+        ("both", "."),
+    ],
+)
 def test_to_bed_strand(raw, expected):
     from neoswga.core.strand_conventions import to_bed_strand
+
     assert to_bed_strand(raw) == expected
 
 
-@pytest.mark.parametrize("pos,expected", [
-    (10, "forward"), (0, "forward"), (-1, "reverse"), (-9999, "reverse"),
-])
+@pytest.mark.parametrize(
+    "pos,expected",
+    [
+        (10, "forward"),
+        (0, "forward"),
+        (-1, "reverse"),
+        (-9999, "reverse"),
+    ],
+)
 def test_from_sign(pos, expected):
     from neoswga.core.strand_conventions import from_sign
+
     assert from_sign(pos) == expected
 
 
@@ -74,20 +98,24 @@ def test_from_sign(pos, expected):
 # primer_column resolver
 # ---------------------------------------------------------------------------
 
+
 def test_primer_column_prefers_primer():
     from neoswga.core.io_utils import primer_column
+
     df = pd.DataFrame({"primer": ["ATCG"], "seq": ["GGGG"]})
     assert primer_column(df) == "primer"
 
 
 def test_primer_column_falls_back_to_seq():
     from neoswga.core.io_utils import primer_column
+
     df = pd.DataFrame({"seq": ["ATCG"]})
     assert primer_column(df) == "seq"
 
 
 def test_primer_column_raises_when_neither():
     from neoswga.core.io_utils import primer_column
+
     df = pd.DataFrame({"other": [1]})
     with pytest.raises(KeyError):
         primer_column(df)

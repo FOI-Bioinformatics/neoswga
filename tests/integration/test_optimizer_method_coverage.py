@@ -24,10 +24,7 @@ import tempfile
 
 import pytest
 
-
-EXAMPLE_DIR = os.path.join(
-    os.path.dirname(__file__), '..', '..', 'examples', 'plasmid_example'
-)
+EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "plasmid_example")
 
 
 # ---------------------------------------------------------------------------
@@ -35,7 +32,7 @@ EXAMPLE_DIR = os.path.join(
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope="module")
 def plasmid_scored_workdir():
     """Copy the plasmid example to a tmpdir, run step2 + step3 once,
     leave step3_df.csv on disk for every parametrised optimizer call
@@ -45,10 +42,11 @@ def plasmid_scored_workdir():
         pytest.skip("Plasmid example data not available")
 
     from neoswga.core.kmer_counter import check_jellyfish_available
+
     if not check_jellyfish_available():
         pytest.skip("jellyfish not available (required for count-kmers / step1)")
 
-    tmpdir = tempfile.mkdtemp(prefix='neoswga_optmethods_')
+    tmpdir = tempfile.mkdtemp(prefix="neoswga_optmethods_")
     for fname in os.listdir(EXAMPLE_DIR):
         src = os.path.join(EXAMPLE_DIR, fname)
         if os.path.isfile(src):
@@ -56,12 +54,12 @@ def plasmid_scored_workdir():
 
     # Permissive params so step3 doesn't truncate to zero (tiny plasmid
     # makes the RF predictor score very low).
-    params_path = os.path.join(tmpdir, 'params.json')
+    params_path = os.path.join(tmpdir, "params.json")
     with open(params_path) as fh:
         params_data = json.load(fh)
-    params_data.setdefault('min_amp_pred', 0.0)
-    params_data.setdefault('schema_version', 1)
-    with open(params_path, 'w') as fh:
+    params_data.setdefault("min_amp_pred", 0.0)
+    params_data.setdefault("schema_version", 1)
+    with open(params_path, "w") as fh:
         json.dump(params_data, fh, indent=2)
 
     original_cwd = os.getcwd()
@@ -70,6 +68,7 @@ def plasmid_scored_workdir():
     def _reset():
         import neoswga.core.pipeline as pipeline_mod
         from neoswga.core import parameter as param_mod
+
         pipeline_mod._initialized = False
         pipeline_mod.fg_prefixes = None
         pipeline_mod.bg_prefixes = None
@@ -83,6 +82,7 @@ def plasmid_scored_workdir():
 
     _reset()
     from neoswga.core.pipeline import step1, step2, step3
+
     # Generate the k-mer count files (count-kmers); they are not committed.
     step1()
 
@@ -109,15 +109,15 @@ def plasmid_scored_workdir():
 # (only unit-tested with stubs) plus the registered methods, run end-to-end.
 # Unregistered names are skipped inside the test body.
 UNDER_TESTED_METHODS = [
-    'ensemble',
-    'dominating-set',
-    'network',
-    'background-aware',
+    "ensemble",
+    "dominating-set",
+    "network",
+    "background-aware",
 ]
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize('method', UNDER_TESTED_METHODS)
+@pytest.mark.parametrize("method", UNDER_TESTED_METHODS)
 def test_under_tested_optimizer_smoke(plasmid_scored_workdir, method):
     """Each method must run the plasmid example through step 4 without
     raising and return at least one non-empty primer set.
@@ -153,30 +153,22 @@ def test_under_tested_optimizer_smoke(plasmid_scored_workdir, method):
         pytest.skip(f"{method} requires an optional dependency: {e}")
 
     assert primer_sets is not None, f"{method}: optimize_step4 returned None"
-    assert len(primer_sets) > 0, (
-        f"{method}: expected at least one primer set, got {primer_sets!r}"
-    )
+    assert len(primer_sets) > 0, f"{method}: expected at least one primer set, got {primer_sets!r}"
     best_set = primer_sets[0]
-    assert len(best_set) > 0, (
-        f"{method}: best primer set is empty"
-    )
+    assert len(best_set) > 0, f"{method}: best primer set is empty"
     for primer in best_set:
-        assert isinstance(primer, str), (
-            f"{method}: non-string primer entry {primer!r} in set"
-        )
-        assert set(primer.upper()) <= set('ACGTN'), (
-            f"{method}: primer {primer!r} contains non-DNA characters"
-        )
+        assert isinstance(primer, str), f"{method}: non-string primer entry {primer!r} in set"
+        assert set(primer.upper()) <= set(
+            "ACGTN"
+        ), f"{method}: primer {primer!r} contains non-DNA characters"
 
     # Summary file is the contract every optimizer path writes to.
-    summary_path = os.path.join(tmpdir, 'step4_improved_df_summary.json')
-    assert os.path.exists(summary_path), (
-        f"{method}: step4_improved_df_summary.json not written"
-    )
+    summary_path = os.path.join(tmpdir, "step4_improved_df_summary.json")
+    assert os.path.exists(summary_path), f"{method}: step4_improved_df_summary.json not written"
     with open(summary_path) as fh:
         summary = json.load(fh)
-    assert 'primers' in summary, f"{method}: summary missing 'primers' key"
-    assert 'metrics' in summary, f"{method}: summary missing 'metrics' key"
+    assert "primers" in summary, f"{method}: summary missing 'primers' key"
+    assert "metrics" in summary, f"{method}: summary missing 'metrics' key"
 
 
 def _maybe_skip_on_missing_optional_dep(method: str) -> None:
@@ -185,7 +177,7 @@ def _maybe_skip_on_missing_optional_dep(method: str) -> None:
     moea needs pymoo; multi-agent has no external dep but is a thin
     ensemble wrapper. The rest are pure-Python.
     """
-    if method == 'moea':
+    if method == "moea":
         try:
             import pymoo  # noqa: F401
         except ImportError:

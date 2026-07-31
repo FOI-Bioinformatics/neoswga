@@ -50,9 +50,7 @@ def test_registry_reproduces_validator_tables():
 def test_registry_reproduces_mechanistic_enzyme_params():
     from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
 
-    existing = {
-        k: v for k, v in MECHANISTIC_MODEL_PARAMS["enzyme"].items() if isinstance(v, dict)
-    }
+    existing = {k: v for k, v in MECHANISTIC_MODEL_PARAMS["enzyme"].items() if isinstance(v, dict)}
     assert R.mechanistic_enzyme_params() == existing
 
 
@@ -73,7 +71,7 @@ def test_registry_reproduces_hybrid_presets():
 
     for key, spec in POLYMERASES.items():
         cfg = POLYMERASE_PRESETS[key]
-        assert cfg.max_extension == spec.legacy_hybrid_max_extension, key
+        assert cfg.max_extension == spec.processivity_bp, key
         assert cfg.thermo_filter == spec.thermo_filter, key
         assert cfg.primer_multiplier == spec.primer_multiplier, key
         assert cfg.reaction_temp == spec.preset_reaction_temp, key
@@ -189,49 +187,33 @@ def _ledger(key, entry, detail):
     """Mark exactly the polymerase that violates a ledgered invariant."""
     return pytest.param(
         key,
-        marks=pytest.mark.xfail(
-            strict=True, reason=f"INCONSISTENCIES.md #{entry}: {detail}"
-        ),
+        marks=pytest.mark.xfail(strict=True, reason=f"INCONSISTENCIES.md #{entry}: {detail}"),
     )
 
 
-@pytest.mark.parametrize(
-    "key",
-    [
-        _ledger(
-            "bst",
-            1,
-            "bst legacy_hybrid_max_extension is 10000 but bst processivity is 2000 - "
-            "the set-cover stage credits bst primers with 5x the reach the enzyme "
-            "has. Fixing re-ranks every bst hybrid-optimizer result.",
-        ),
-        _ledger(
-            "klenow",
-            1,
-            "klenow legacy_hybrid_max_extension is 5000 against a corrected 40 nt "
-            "processivity and ~500 bp effective reach - a 10x over-credit. This "
-            "violation was HIDDEN by the old 10000 bp processivity figure and was "
-            "exposed by correcting it.",
-        ),
-        "phi29",
-        "equiphi29",
-    ],
-)
-def test_set_cover_reach_does_not_exceed_processivity(key):
+@pytest.mark.parametrize("key", sorted(POLYMERASES))
+def test_network_reach_equals_processivity(key):
+    """Stage-2 network reach must BE single-molecule processivity.
+
+    hybrid_optimizer's `max_extension` answers "could two primers connect via
+    one uninterrupted extension?", which is exactly what processivity measures.
+    It used to be a separately maintained number that disagreed for bst
+    (10000 vs 2000, physically impossible) and klenow (5000 vs 40); it now
+    derives from processivity_bp so the two cannot diverge.
+
+    Not to be confused with the Stage-1 set-cover COVERAGE reach, which is
+    `coverage_reach` / `typical_amplicon_bp` and is legitimately much smaller.
+    """
+    from neoswga.core.hybrid_optimizer import POLYMERASE_PRESETS
+
     spec = POLYMERASES[key]
-    assert spec.legacy_hybrid_max_extension <= spec.processivity_bp, key
+    assert POLYMERASE_PRESETS[key].max_extension == spec.processivity_bp, key
 
 
 @pytest.mark.parametrize(
     "key",
     [
-        _ledger(
-            "klenow",
-            2,
-            "klenow temp_warn_range (20,42) is wider than temp_hard_range (25,40), "
-            "so a klenow run at 41 C passes validate-params and then raises inside "
-            "ReactionConditions.__init__.",
-        ),
+        "klenow",
         "phi29",
         "equiphi29",
         "bst",
@@ -240,21 +222,14 @@ def test_set_cover_reach_does_not_exceed_processivity(key):
 def test_warn_band_is_contained_in_hard_band(key):
     spec = POLYMERASES[key]
     assert _contains(spec.temp_hard_range, spec.temp_warn_range), (
-        f"{key}: validate-params would accept a temperature that "
-        f"ReactionConditions rejects"
+        f"{key}: validate-params would accept a temperature that " f"ReactionConditions rejects"
     )
 
 
 @pytest.mark.parametrize(
     "key",
     [
-        _ledger(
-            "bst",
-            3,
-            "bst preset_reaction_temp is 60.0 while its optimal_temp is 63.0 - "
-            "hybrid_optimizer and additive_optimizer run bst 3 C below the optimum "
-            "the rest of the codebase advertises.",
-        ),
+        "bst",
         "phi29",
         "equiphi29",
         "klenow",
@@ -345,16 +320,12 @@ def test_schema_polymerase_enum_matches_registry():
     from pathlib import Path
 
     schema_path = (
-        Path(__file__).resolve().parents[1]
-        / "neoswga"
-        / "core"
-        / "schema"
-        / "params.schema.json"
+        Path(__file__).resolve().parents[1] / "neoswga" / "core" / "schema" / "params.schema.json"
     )
     schema = json.loads(schema_path.read_text())
-    assert set(schema["properties"]["polymerase"]["enum"]) == set(POLYMERASES), (
-        "params.schema.json polymerase enum has drifted from the registry"
-    )
+    assert set(schema["properties"]["polymerase"]["enum"]) == set(
+        POLYMERASES
+    ), "params.schema.json polymerase enum has drifted from the registry"
 
 
 def test_cli_polymerase_choices_match_registry():
@@ -366,15 +337,13 @@ def test_cli_polymerase_choices_match_registry():
 
     checked = 0
     for command, sub in subparsers.items():
-        action = next(
-            (a for a in sub._actions if a.dest == "polymerase" and a.choices), None
-        )
+        action = next((a for a in sub._actions if a.dest == "polymerase" and a.choices), None)
         if action is None:
             continue
         checked += 1
-        assert set(action.choices) == set(POLYMERASES), (
-            f"`{command} --polymerase` choices have drifted from the registry"
-        )
+        assert set(action.choices) == set(
+            POLYMERASES
+        ), f"`{command} --polymerase` choices have drifted from the registry"
     assert checked > 0, "no --polymerase flags found; did the CLI change?"
 
 
@@ -388,8 +357,7 @@ def test_no_module_still_hardcodes_the_polymerase_list():
         str(p.relative_to(root))
         for p in root.rglob("*.py")
         # the registry itself is allowed to name them
-        if "registry/" not in str(p.relative_to(root))
-        and literal in p.read_text()
+        if "registry/" not in str(p.relative_to(root)) and literal in p.read_text()
     ]
     assert not offenders, (
         f"polymerase list hardcoded again in: {offenders}. Use "

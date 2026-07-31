@@ -13,7 +13,6 @@ import pytest
 from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.secondary_structure import StructurePrediction
 
-
 # A deliberately complementary pair; forms a strong dimer at low temp.
 HOT_DIMER_SEQ_1 = "ATCGATCGAT"
 HOT_DIMER_SEQ_2 = "ATCGATCGAT"  # palindrome-like — binds to its own reverse complement
@@ -21,7 +20,9 @@ HOT_DIMER_SEQ_2 = "ATCGATCGAT"  # palindrome-like — binds to its own reverse c
 
 def _severity(temp: float, polymerase: str = "phi29", betaine_m: float = 0.0):
     cond = ReactionConditions(
-        temp=temp, polymerase=polymerase, betaine_m=betaine_m,
+        temp=temp,
+        polymerase=polymerase,
+        betaine_m=betaine_m,
     )
     pred = StructurePrediction(cond)
     result = pred.predict_heterodimer(HOT_DIMER_SEQ_1, HOT_DIMER_SEQ_2)
@@ -68,9 +69,9 @@ def test_tm_estimate_is_temperature_aware():
             temp=min(hot_temp, 55.0),  # cap at bst range to stay in polymerase validation
             polymerase="bst" if hot_temp > 50 else "equiphi29",
         )
-        assert not stable_hot or sev_hot < sev_30, (
-            f"Above dimer Tm, pair should be reported unstable or with lower severity"
-        )
+        assert (
+            not stable_hot or sev_hot < sev_30
+        ), f"Above dimer Tm, pair should be reported unstable or with lower severity"
 
 
 def test_betaine_does_not_increase_severity_at_constant_temp():

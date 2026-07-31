@@ -115,6 +115,23 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         "gc_equalization_conc": 3.0,  # M for full GC independence (Melchior 1973)
         "description": "Equalizes AT/GC Tm, isostabilizing agent",
     },
+    "propanediol": {
+        # 1,2-propanediol. Horakova et al. (2011) BMC Biotechnol 11:41 measured
+        # 4.9-5.9 C of Tm depression at 1 M on a 45.5% GC short duplex; -5.4 is
+        # the midpoint. Working range 0.5-1.5 M, 1 M typical.
+        #
+        # Added because it is one of the few GC-rich enhancers with a published
+        # numeric Tm coefficient. Ethylene glycol and sulfolane are frequently
+        # recommended alongside it and are deliberately NOT included: neither has
+        # a coefficient we could source, and inventing one is exactly the failure
+        # mode this codebase has been cleaning up.
+        "ref_coef": -5.4,  # C per M (Horakova 2011 midpoint)
+        "ref_temp": 310.15,  # K (37C)
+        "activation_energy": 2000.0,  # J/mol (ESTIMATED; no multi-temp data)
+        "max_concentration": 1.5,  # M
+        "gc_dependent": False,
+        "description": "GC-rich enhancer; strong Tm depression per mole",
+    },
     "ethanol": {
         "ref_coef": -0.4,  # C per % (Cheng 1994)
         "ref_temp": 310.15,  # K (37C)
@@ -137,6 +154,7 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         "formamide_coef": -0.65,  # C per %, Blake 1996
         "trehalose_coef": -3.0,  # C per M, midpoint of Spiess 2004 range
         "ethanol_coef": -0.4,  # C per %, Cheng 1994
+        "propanediol_coef": -5.4,  # C per M, Horakova 2011 (BMC Biotechnol 11:41)
         "betaine_uniform_coef": -1.2,  # C per M, avg of Rees 1993 / Henke 1997
         "urea_coef": -2.5,  # C per M, Lesnick 1995 (short oligos)
         "tmac_uniform_coef": -0.5,  # C per M, Melchior 1973

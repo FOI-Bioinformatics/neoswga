@@ -72,18 +72,23 @@ class TestSimulationRescoreHappyPath:
 
         # Patch the classes in the source modules so that the local imports
         # inside _simulation_rescore pick up the mocks.
-        with patch(
-            "neoswga.core.simulation_fitness.SimulationBasedEvaluator",
-            mock_evaluator_cls,
-        ), patch(
-            "neoswga.core.position_cache.PositionCache",
-            mock_cache_cls,
-        ), patch(
-            "neoswga.core.genome_io.GenomeLoader",
-            mock_loader_cls,
-        ), patch(
-            "neoswga.core.unified_optimizer.parameter",
-        ) as mock_parameter:
+        with (
+            patch(
+                "neoswga.core.simulation_fitness.SimulationBasedEvaluator",
+                mock_evaluator_cls,
+            ),
+            patch(
+                "neoswga.core.position_cache.PositionCache",
+                mock_cache_cls,
+            ),
+            patch(
+                "neoswga.core.genome_io.GenomeLoader",
+                mock_loader_cls,
+            ),
+            patch(
+                "neoswga.core.unified_optimizer.parameter",
+            ) as mock_parameter,
+        ):
             mock_parameter.fg_genomes = ["/fake/genome.fna"]
 
             out = _simulation_rescore(
@@ -114,18 +119,23 @@ class TestSimulationRescoreHappyPath:
         """When fg_genomes is empty, genome_seq stays None and function returns None."""
         result = _make_success_result()
 
-        with patch(
-            "neoswga.core.simulation_fitness.SimulationBasedEvaluator",
-            MagicMock(),
-        ), patch(
-            "neoswga.core.position_cache.PositionCache",
-            MagicMock(),
-        ), patch(
-            "neoswga.core.genome_io.GenomeLoader",
-            MagicMock(),
-        ), patch(
-            "neoswga.core.unified_optimizer.parameter",
-        ) as mock_parameter:
+        with (
+            patch(
+                "neoswga.core.simulation_fitness.SimulationBasedEvaluator",
+                MagicMock(),
+            ),
+            patch(
+                "neoswga.core.position_cache.PositionCache",
+                MagicMock(),
+            ),
+            patch(
+                "neoswga.core.genome_io.GenomeLoader",
+                MagicMock(),
+            ),
+            patch(
+                "neoswga.core.unified_optimizer.parameter",
+            ) as mock_parameter,
+        ):
             mock_parameter.fg_genomes = []
 
             out = _simulation_rescore(

@@ -287,6 +287,21 @@ class ArrheniusTmCorrector:
         return (corr1, corr2, ratio)
 
 
+# Maps ADDITIVE_TM_PARAMS keys to AdditiveConcentrations field names. The two
+# differ because the field names carry units (_percent / _m) and the parameter
+# keys do not. tests/test_additive_tm_wiring.py asserts this stays complete.
+TM_PARAM_FIELDS = {
+    "dmso": "dmso_percent",
+    "betaine": "betaine_m",
+    "trehalose": "trehalose_m",
+    "formamide": "formamide_percent",
+    "ethanol": "ethanol_percent",
+    "urea": "urea_m",
+    "tmac": "tmac_m",
+    "propanediol": "propanediol_m",
+}
+
+
 @dataclass(frozen=True)
 class AdditiveConcentrations:
     """
@@ -318,6 +333,7 @@ class AdditiveConcentrations:
     ethanol_percent: float = 0.0
     urea_m: float = 0.0
     tmac_m: float = 0.0
+    propanediol_m: float = 0.0
 
     def __post_init__(self):
         """Validate all concentrations are within valid ranges."""
@@ -331,6 +347,7 @@ class AdditiveConcentrations:
         self._validate_range("ethanol_percent", self.ethanol_percent, 0, 5)
         self._validate_range("urea_m", self.urea_m, 0, 2.0)
         self._validate_range("tmac_m", self.tmac_m, 0, 0.1)
+        self._validate_range("propanediol_m", self.propanediol_m, 0, 1.5)
 
     def _validate_range(self, name: str, value: float, min_val: float, max_val: float):
         """Validate a value is within range."""
@@ -390,6 +407,7 @@ class AdditiveConcentrations:
         correction += self._trehalose_correction()
         correction += self._formamide_correction()
         correction += self._ethanol_correction()
+        correction += self._propanediol_correction()
         correction += self._urea_correction()
         correction += self._tmac_uniform_correction()
         correction += self._betaine_uniform_correction()
@@ -418,22 +436,15 @@ class AdditiveConcentrations:
         """
         corrector = ArrheniusTmCorrector(reaction_temp_celsius)
 
-        # Build additives dictionary
-        additives_dict = {}
-        if self.dmso_percent > 0:
-            additives_dict["dmso"] = self.dmso_percent
-        if self.betaine_m > 0:
-            additives_dict["betaine"] = self.betaine_m
-        if self.trehalose_m > 0:
-            additives_dict["trehalose"] = self.trehalose_m
-        if self.formamide_percent > 0:
-            additives_dict["formamide"] = self.formamide_percent
-        if self.ethanol_percent > 0:
-            additives_dict["ethanol"] = self.ethanol_percent
-        if self.urea_m > 0:
-            additives_dict["urea"] = self.urea_m
-        if self.tmac_m > 0:
-            additives_dict["tmac"] = self.tmac_m
+        # Built from TM_PARAM_FIELDS rather than a hardcoded if-chain: this list
+        # had already fallen behind once, so an additive could be defined in
+        # ADDITIVE_TM_PARAMS, accepted by the dataclass, and still contribute
+        # nothing on the Arrhenius path while the legacy path applied it.
+        additives_dict = {
+            key: getattr(self, field)
+            for key, field in TM_PARAM_FIELDS.items()
+            if getattr(self, field, 0.0) > 0
+        }
 
         return corrector.calculate_total_correction(additives_dict, gc_content, primer_length)
 
@@ -489,6 +500,19 @@ class AdditiveConcentrations:
         Reference: Blake & Delcourt (1996) NAR 24:2095-2103
         """
         return -0.65 * self.formamide_percent
+
+    def _propanediol_correction(self) -> float:
+        """
+        1,2-propanediol Tm correction.
+
+        Horakova et al. (2011) BMC Biotechnol 11:41 report 4.9-5.9 C of Tm
+        depression at 1 M on a 45.5% GC short duplex; -5.4 C/M is the midpoint.
+        Effective working range is 0.5-1.5 M, with 1 M typical, and it is often
+        paired with trehalose.
+
+        Reference: Horakova et al. (2011) BMC Biotechnol 11:41
+        """
+        return -5.4 * self.propanediol_m
 
     def _ethanol_correction(self) -> float:
         """

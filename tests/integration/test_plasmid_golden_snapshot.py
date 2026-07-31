@@ -21,10 +21,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-
-EXAMPLE_DIR = os.path.join(
-    os.path.dirname(__file__), '..', '..', 'examples', 'plasmid_example'
-)
+EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "plasmid_example")
 
 
 @pytest.fixture
@@ -34,20 +31,20 @@ def plasmid_workdir():
     if not os.path.isdir(EXAMPLE_DIR):
         pytest.skip("Plasmid example data not available")
 
-    tmpdir = tempfile.mkdtemp(prefix='neoswga_golden_')
+    tmpdir = tempfile.mkdtemp(prefix="neoswga_golden_")
     for fname in os.listdir(EXAMPLE_DIR):
         src = os.path.join(EXAMPLE_DIR, fname)
         if os.path.isfile(src):
             shutil.copy2(src, tmpdir)
 
-    params_path = os.path.join(tmpdir, 'params.json')
+    params_path = os.path.join(tmpdir, "params.json")
     with open(params_path) as fh:
         params_data = json.load(fh)
     # The example params.json omits min_amp_pred; the small plasmid needs
     # it permissive so the RF score doesn't truncate to zero.
-    params_data.setdefault('min_amp_pred', 0.0)
-    params_data.setdefault('schema_version', 1)
-    with open(params_path, 'w') as fh:
+    params_data.setdefault("min_amp_pred", 0.0)
+    params_data.setdefault("schema_version", 1)
+    with open(params_path, "w") as fh:
         json.dump(params_data, fh, indent=2)
 
     original_cwd = os.getcwd()
@@ -82,10 +79,13 @@ def test_plasmid_golden_snapshot(plasmid_workdir, reset_pipeline_state):
     - Extension-reach default regressed to processivity (would inflate
       coverage on a 6 kb plasmid).
     """
-    params_file = os.path.join(plasmid_workdir, 'params.json')
-    for fname in ['step2_df.csv', 'step3_df.csv',
-                  'step4_improved_df.csv',
-                  'step4_improved_df_summary.json']:
+    params_file = os.path.join(plasmid_workdir, "params.json")
+    for fname in [
+        "step2_df.csv",
+        "step3_df.csv",
+        "step4_improved_df.csv",
+        "step4_improved_df_summary.json",
+    ]:
         path = os.path.join(plasmid_workdir, fname)
         if os.path.exists(path):
             os.remove(path)
@@ -104,7 +104,7 @@ def test_plasmid_golden_snapshot(plasmid_workdir, reset_pipeline_state):
 
     reset_pipeline_state(params_file)
     primer_sets, scores, _cache = optimize_step4(
-        optimization_method='dominating-set',
+        optimization_method="dominating-set",
         verbose=False,
         seed=42,
     )
@@ -118,24 +118,23 @@ def test_plasmid_golden_snapshot(plasmid_workdir, reset_pipeline_state):
     # essentially the whole circular target. Tiling / hybrid on the same
     # data historically pick 2-3 primers. Accept 1-6; lower bound 1
     # guards against "optimizer returned empty set with status=SUCCESS".
-    assert 1 <= len(best_set) <= 6, (
-        f"Expected 1-6 primers for plasmid; got {len(best_set)}: {best_set}"
-    )
+    assert (
+        1 <= len(best_set) <= 6
+    ), f"Expected 1-6 primers for plasmid; got {len(best_set)}: {best_set}"
 
     # Snapshot 2: read back summary JSON and check metrics.
-    summary_path = os.path.join(plasmid_workdir, 'step4_improved_df_summary.json')
+    summary_path = os.path.join(plasmid_workdir, "step4_improved_df_summary.json")
     assert os.path.exists(summary_path), (
-        "step4_improved_df_summary.json missing — optimizer did not "
-        "write the summary"
+        "step4_improved_df_summary.json missing — optimizer did not " "write the summary"
     )
     with open(summary_path) as fh:
         summary = json.load(fh)
 
-    metrics = summary.get('metrics', {})
-    fg_cov = metrics.get('fg_coverage', 0.0)
-    selectivity = metrics.get('selectivity_ratio', 0.0)
-    bg_cov = metrics.get('bg_coverage', 0.0)
-    dimer_risk = metrics.get('dimer_risk_score', 0.0)
+    metrics = summary.get("metrics", {})
+    fg_cov = metrics.get("fg_coverage", 0.0)
+    selectivity = metrics.get("selectivity_ratio", 0.0)
+    bg_cov = metrics.get("bg_coverage", 0.0)
+    dimer_risk = metrics.get("dimer_risk_score", 0.0)
 
     # Snapshot 3: fg_coverage must be high. The plasmid is 6.2 kb and
     # phi29 reach is 3 kb, so a single primer's window (±3 kb around
@@ -165,9 +164,9 @@ def test_plasmid_golden_snapshot(plasmid_workdir, reset_pipeline_state):
     )
 
     # Snapshot 6: step4_improved_df.csv schema is stable.
-    step4_csv = os.path.join(plasmid_workdir, 'step4_improved_df.csv')
+    step4_csv = os.path.join(plasmid_workdir, "step4_improved_df.csv")
     df4 = pd.read_csv(step4_csv)
-    for col in ('primer', 'score', 'coverage'):
+    for col in ("primer", "score", "coverage"):
         assert col in df4.columns, (
             f"step4_improved_df.csv missing column '{col}'; got {list(df4.columns)}. "
             f"Schema regression."
@@ -180,24 +179,28 @@ def test_plasmid_snapshot_is_reproducible(plasmid_workdir, reset_pipeline_state)
     """Running the same seed twice must produce the same primer set.
     Guards against non-threaded RNG that would cause drift between
     nightly runs even without code changes."""
-    params_file = os.path.join(plasmid_workdir, 'params.json')
+    params_file = os.path.join(plasmid_workdir, "params.json")
 
     def run_once():
-        for fname in ['step2_df.csv', 'step3_df.csv',
-                      'step4_improved_df.csv',
-                      'step4_improved_df_summary.json']:
+        for fname in [
+            "step2_df.csv",
+            "step3_df.csv",
+            "step4_improved_df.csv",
+            "step4_improved_df_summary.json",
+        ]:
             path = os.path.join(plasmid_workdir, fname)
             if os.path.exists(path):
                 os.remove(path)
         reset_pipeline_state(params_file)
         from neoswga.core.pipeline import step2, step3
         from neoswga.core.unified_optimizer import optimize_step4
+
         step2()
         reset_pipeline_state(params_file)
         step3()
         reset_pipeline_state(params_file)
         primer_sets, _scores, _cache = optimize_step4(
-            optimization_method='dominating-set',
+            optimization_method="dominating-set",
             verbose=False,
             seed=42,
         )

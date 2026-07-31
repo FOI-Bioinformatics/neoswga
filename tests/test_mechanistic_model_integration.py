@@ -27,8 +27,10 @@ def test_network_optimizer_builds_mech_model_when_weight_positive():
 
     opt_off = NetworkOptimizer(
         position_cache=None,
-        fg_prefixes=[], bg_prefixes=[],
-        fg_seq_lengths=[], bg_seq_lengths=[],
+        fg_prefixes=[],
+        bg_prefixes=[],
+        fg_seq_lengths=[],
+        bg_seq_lengths=[],
         conditions=cond,
         mechanistic_weight=0.0,
     )
@@ -36,14 +38,14 @@ def test_network_optimizer_builds_mech_model_when_weight_positive():
 
     opt_on = NetworkOptimizer(
         position_cache=None,
-        fg_prefixes=[], bg_prefixes=[],
-        fg_seq_lengths=[], bg_seq_lengths=[],
+        fg_prefixes=[],
+        bg_prefixes=[],
+        fg_seq_lengths=[],
+        bg_seq_lengths=[],
         conditions=cond,
         mechanistic_weight=0.3,
     )
-    assert opt_on.mech_model is not None, (
-        "Weight>0 with conditions must build a MechanisticModel"
-    )
+    assert opt_on.mech_model is not None, "Weight>0 with conditions must build a MechanisticModel"
 
 
 def test_hybrid_forwards_mechanistic_weight_to_network():
@@ -69,7 +71,7 @@ def test_hybrid_forwards_mechanistic_weight_to_network():
         conditions=cond,
         mechanistic_weight=0.3,
     )
-    assert hyb.network_optimizer.mech_model is not None, (
-        "hybrid did not forward mechanistic_weight to its NetworkOptimizer"
-    )
+    assert (
+        hyb.network_optimizer.mech_model is not None
+    ), "hybrid did not forward mechanistic_weight to its NetworkOptimizer"
     assert hyb.network_optimizer.mechanistic_weight == 0.3

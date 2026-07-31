@@ -142,9 +142,7 @@ def test_cli_preset_choices_all_resolve():
     for command in ("filter", "score", "optimize"):
         if command not in subparsers:
             continue
-        action = next(
-            (a for a in subparsers[command]._actions if a.dest == "preset"), None
-        )
+        action = next((a for a in subparsers[command]._actions if a.dest == "preset"), None)
         if action is None or not action.choices:
             continue
         for choice in action.choices:

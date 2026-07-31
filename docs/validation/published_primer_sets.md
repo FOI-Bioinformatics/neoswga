@@ -56,34 +56,39 @@ The mechanism is straightforward: a region no primer can reach stays unamplified
 however tightly spaced the sites are elsewhere. Average density hides holes;
 `max_gap` and `gap_gini` measure them.
 
-## Finding 2: `normalized_score` does not reproduce the outcome
+## Finding 2 (CORRECTED): the shipped scoring does rank the winners first
 
-`PrimerSetMetrics.normalized_score` weights coverage, selectivity, dimer risk,
-evenness and Tm. It **computes `max_gap` but never uses it**.
+An earlier version of this report claimed `normalized_score` ranked the two
+winners 3rd and 4th and put a 2.1x failure first. **That was wrong.** The cause
+was a bug in the reconstruction used to build `PrimerSetMetrics` from the
+published statistics, not in the scoring: background sites were counted over the
+3.2 Mb *target* genome instead of the 3.1 Gb *human background*, understating
+them roughly 1000-fold and inverting the selectivity ordering.
 
-Scored on the published statistics:
+With the background sized correctly:
 
 | Rank by our score | Set | Score | Actual |
 |---|---|---|---|
-| 1 | Prev02 | 0.684 | 2.1x |
-| 2 | Prev04 | 0.663 | 13x |
-| 3 | Prev03 | 0.659 | **96x** |
-| 4 | Prev06 | 0.656 | **120x** |
-| 5 | Prev05 | 0.654 | 2.0x |
-| 6 | Prev01 | 0.610 | 2.0x |
+| 1 | Prev03 | 0.542 | **96x** |
+| 2 | Prev06 | 0.540 | **120x** |
+| 3 | Prev02 | 0.533 | 2.1x |
+| 4 | Prev04 | 0.532 | 13x |
+| 5 | Prev05 | 0.528 | 2.0x |
+| 6 | Prev01 | 0.479 | 2.0x |
 
-The two wet-lab winners rank 3rd and 4th, and a 2.1x failure ranks first. The
-same ordering holds for the `balanced`, `clinical` and `enrichment` application
-profiles.
+The top two are the wet-lab winners, with no change to the scoring weights.
 
-The score is also barely discriminating: the full spread is 0.610-0.684, about
-7 %, across sets whose measured performance spans 60-fold.
+Two caveats remain, and they are real:
 
-Tracked as a strict `xfail` in
-`tests/validation/test_published_primer_sets.py::test_normalized_score_ranks_the_wet_lab_winners_first`
-so the gap cannot be silently tolerated. It is **not** fixed here: changing the
-scoring re-ranks all optimizer output and needs its own change with integration
-baselines regenerated deliberately.
+- **The margin is thin.** The winners lead the next set by about 0.008 of score,
+  against a 60-fold spread in measured enrichment. The ordering is right; it is
+  not a confident separation.
+- **`max_gap` is still unused.** `normalized_score` computes it and never reads
+  it, even though it is the strongest single predictor in this dataset. A
+  coverage-hole term was implemented and tested against this benchmark: it
+  changed nothing in the ranking, so it was **not shipped**. A change that
+  re-ranks all optimizer output has to demonstrate a benefit first, and on the
+  only validation data available this one does not.
 
 ## Caveat
 
@@ -91,20 +96,25 @@ baselines regenerated deliberately.
 re-weighting tuned on six points risks fitting noise — with this many sets it is
 trivial to find weights that rank perfectly and mean nothing.
 
-What the data does support firmly is the negative result: the current scoring
-ranks the winners 3rd and 4th on the only real outcome data available, and the
-metric previously treated as dominant has no correlation here. That is enough to
-justify re-examining the weights; it is not enough to fix them by fitting.
+What the data supports firmly is Finding 1: the metric previously treated as
+dominant (mean binding distance) has no correlation with outcome here, while the
+worst coverage hole and evenness both track it. Those are computed directly from
+the published tables and do not depend on any reconstruction.
+
+Finding 2 is weaker in both directions: the scoring gets the order right, but by
+a margin too small to call a real separation on six sets.
 
 ## Recommended next step
 
-Include `max_gap` in `normalized_score` as a coverage-hole penalty. It is
-already computed, it is the strongest single predictor here, and it is
-mechanistically motivated independently of this dataset.
-
-Before committing to weights, extend the benchmark: the Clarke et al. (2017)
+Extend the benchmark before changing any weights. The Clarke et al. (2017)
 *M. tuberculosis* sets are the obvious second source, and any in-house sets with
-measured outcomes would help more than tuning on these six.
+measured outcomes would be worth more than either.
+
+A `max_gap` coverage-hole term remains the most plausible improvement --
+mechanistically motivated, already computed, and the strongest single predictor
+here. It was implemented and measured against this benchmark and made no
+difference to the ranking, so it is not in the codebase. Revisit it when there
+is enough outcome data to tell whether it helps.
 
 ## Follow-up: not yet done
 

@@ -14,7 +14,9 @@ def test_last_result_starts_none_after_successful_run(monkeypatch):
     """Back-to-back runs must not leak state even when the second raises."""
     from neoswga.core import unified_optimizer as _uo
     from neoswga.core.base_optimizer import (
-        OptimizationResult, OptimizationStatus, PrimerSetMetrics,
+        OptimizationResult,
+        OptimizationStatus,
+        PrimerSetMetrics,
     )
 
     class DummyCache:
@@ -38,9 +40,8 @@ def test_last_result_starts_none_after_successful_run(monkeypatch):
         raise RuntimeError("simulated optimizer-construction failure")
 
     from neoswga.core import optimizer_factory
-    monkeypatch.setattr(
-        optimizer_factory.OptimizerFactory, "create", exploding_create
-    )
+
+    monkeypatch.setattr(optimizer_factory.OptimizerFactory, "create", exploding_create)
     monkeypatch.setattr(_uo, "PositionCache", lambda *a, **kw: DummyCache())
 
     result = _uo.run_optimization(
@@ -57,9 +58,9 @@ def test_last_result_starts_none_after_successful_run(monkeypatch):
     # The second call returned a failure. _LAST_RESULT must have been
     # reset at the top of run_optimization, not left pointing at the
     # prior success.
-    assert result.status == OptimizationStatus.ERROR, (
-        f"Expected ERROR from simulated failure, got {result.status}"
-    )
+    assert (
+        result.status == OptimizationStatus.ERROR
+    ), f"Expected ERROR from simulated failure, got {result.status}"
     assert _uo._LAST_RESULT is None, (
         f"_LAST_RESULT leaked a stale prior-run result: "
         f"{_uo._LAST_RESULT!r} (was set to fake_prior before the failing call)"
@@ -72,7 +73,9 @@ def test_last_result_clears_before_each_run(monkeypatch):
     is in progress."""
     from neoswga.core import unified_optimizer as _uo
     from neoswga.core.base_optimizer import (
-        OptimizationResult, OptimizationStatus, PrimerSetMetrics,
+        OptimizationResult,
+        OptimizationStatus,
+        PrimerSetMetrics,
     )
 
     class DummyCache:
@@ -108,6 +111,7 @@ def test_last_result_clears_before_each_run(monkeypatch):
             )
 
     from neoswga.core import optimizer_factory
+
     monkeypatch.setattr(
         optimizer_factory.OptimizerFactory,
         "create",

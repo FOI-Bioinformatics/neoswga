@@ -9,7 +9,6 @@ when they do not.
 
 from neoswga.core.param_validator import ParamValidator, ValidationLevel
 
-
 REQUIRED = {
     "fg_genomes": ["foo.fna"],
     "fg_prefixes": ["foo"],
@@ -23,8 +22,7 @@ def _validate(params):
 
 def _info_messages_for(messages, parameter_name):
     return [
-        m for m in messages
-        if m.level == ValidationLevel.INFO and m.parameter == parameter_name
+        m for m in messages if m.level == ValidationLevel.INFO and m.parameter == parameter_name
     ]
 
 
@@ -32,7 +30,9 @@ def test_absent_bg_keys_emit_no_background_info():
     messages = _validate({})
     msgs = _info_messages_for(messages, "bg_genomes")
     assert len(msgs) == 1
-    assert "no-background" in msgs[0].message.lower() or "background-free" in msgs[0].message.lower()
+    assert (
+        "no-background" in msgs[0].message.lower() or "background-free" in msgs[0].message.lower()
+    )
 
 
 def test_empty_bg_lists_emit_no_background_info():
@@ -42,10 +42,12 @@ def test_empty_bg_lists_emit_no_background_info():
 
 
 def test_bg_genomes_present_does_not_emit_info():
-    messages = _validate({
-        "bg_genomes": ["host.fna"],
-        "bg_prefixes": ["host"],
-    })
+    messages = _validate(
+        {
+            "bg_genomes": ["host.fna"],
+            "bg_prefixes": ["host"],
+        }
+    )
     assert _info_messages_for(messages, "bg_genomes") == []
 
 

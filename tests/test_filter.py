@@ -14,15 +14,16 @@ from unittest.mock import patch, MagicMock
 
 from neoswga.core.filter import filter_extra
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
+
 
 @pytest.fixture(autouse=True)
 def reset_reaction_conditions():
     """Reset cached reaction conditions between tests."""
     from neoswga.core.filter import reset_reaction_conditions
+
     reset_reaction_conditions()
     yield
     reset_reaction_conditions()
@@ -31,7 +32,7 @@ def reset_reaction_conditions():
 @pytest.fixture
 def mock_parameter():
     """Mock the parameter module with standard settings."""
-    with patch('neoswga.core.filter.parameter') as mock_param:
+    with patch("neoswga.core.filter.parameter") as mock_param:
         mock_param.min_tm = 15
         mock_param.max_tm = 55
         mock_param.gc_min = 0.375
@@ -39,7 +40,7 @@ def mock_parameter():
         mock_param.verbose = False
         mock_param.max_self_dimer_bp = 4
         mock_param.genome_gc = None
-        mock_param.polymerase = 'phi29'
+        mock_param.polymerase = "phi29"
         mock_param.reaction_temp = 30.0
         mock_param.na_conc = 50.0
         mock_param.mg_conc = 0.0
@@ -56,7 +57,7 @@ def mock_parameter():
 @pytest.fixture
 def mock_dimer():
     """Mock the dimer module."""
-    with patch('neoswga.core.filter.dimer') as mock_d:
+    with patch("neoswga.core.filter.dimer") as mock_d:
         mock_d.is_dimer.return_value = False
         mock_d.is_dimer_fast.return_value = False
         yield mock_d
@@ -65,6 +66,7 @@ def mock_dimer():
 # =============================================================================
 # Homopolymer (Rule 5) Tests
 # =============================================================================
+
 
 class TestHomopolymerFilter:
     """Tests for homopolymer detection (Rule 5)."""
@@ -108,6 +110,7 @@ class TestHomopolymerFilter:
 # =============================================================================
 # GC Content (Rule 2) Tests
 # =============================================================================
+
 
 class TestGCContentFilter:
     """Tests for GC content filtering (Rule 2)."""
@@ -158,6 +161,7 @@ class TestGCContentFilter:
 # GC Clamp (Rule 3) Tests
 # =============================================================================
 
+
 class TestGCClampFilter:
     """Tests for GC clamp rules (Rule 3)."""
 
@@ -195,6 +199,7 @@ class TestGCClampFilter:
 # 3' End GC (Rule 1) Tests
 # =============================================================================
 
+
 class TestThreePrimeGCFilter:
     """Tests for 3' end GC rules (Rule 1)."""
 
@@ -229,6 +234,7 @@ class TestThreePrimeGCFilter:
 # =============================================================================
 # Dinucleotide Repeat (Rule 4) Tests
 # =============================================================================
+
 
 class TestDinucleotideRepeatFilter:
     """Tests for dinucleotide repeat detection (Rule 4)."""
@@ -277,12 +283,13 @@ class TestDinucleotideRepeatFilter:
 # Self-Dimer Tests
 # =============================================================================
 
+
 class TestSelfDimerFilter:
     """Tests for self-dimer detection."""
 
     def test_rejects_self_dimer(self, mock_parameter):
         """Test rejection of primer that forms self-dimer."""
-        with patch('neoswga.core.filter.dimer') as mock_dimer:
+        with patch("neoswga.core.filter.dimer") as mock_dimer:
             mock_dimer.is_dimer_fast.return_value = True
 
             result = filter_extra("ATCGATCG")
@@ -295,7 +302,7 @@ class TestSelfDimerFilter:
         ATCGATCG (50% GC) passes all filtering rules when the dimer
         check returns False, and GC and Tm ranges are relaxed.
         """
-        with patch('neoswga.core.filter.dimer') as mock_dimer:
+        with patch("neoswga.core.filter.dimer") as mock_dimer:
             mock_dimer.is_dimer_fast.return_value = False
             mock_parameter.gc_min = 0.3
             mock_parameter.gc_max = 0.7
@@ -310,6 +317,7 @@ class TestSelfDimerFilter:
 # =============================================================================
 # Tm Filter Tests
 # =============================================================================
+
 
 class TestTmFilter:
     """Tests for melting temperature filtering."""
@@ -342,6 +350,7 @@ class TestTmFilter:
 # =============================================================================
 # Integration Tests
 # =============================================================================
+
 
 class TestFilterIntegration:
     """Integration tests for filter_extra."""
@@ -380,6 +389,7 @@ class TestFilterIntegration:
 # =============================================================================
 # Edge Cases
 # =============================================================================
+
 
 class TestEdgeCases:
     """Tests for edge cases."""
@@ -446,5 +456,5 @@ class TestEdgeCases:
         assert result is False
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

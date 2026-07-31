@@ -26,9 +26,9 @@ def test_kmer_counter_constructor_signature_is_what_the_pipeline_uses():
     params = inspect.signature(MultiGenomeKmerCounter.__init__).parameters
     assert "cpus" in params
     assert "output_dir" in params
-    assert "use_parallel" not in params, (
-        "if MultiGenomeKmerCounter gained use_parallel, update multi_genome_pipeline"
-    )
+    assert (
+        "use_parallel" not in params
+    ), "if MultiGenomeKmerCounter gained use_parallel, update multi_genome_pipeline"
 
 
 def test_pipeline_constructs_counter_with_real_kwargs():
@@ -49,9 +49,9 @@ def test_pipeline_uses_attributes_that_exist_on_the_counter():
     assert "self.genome_lengths" in src_counter
 
     src_pipeline = inspect.getsource(mgp)
-    assert "kmer_counter.genome_sequences" not in src_pipeline, (
-        "pipeline references genome_sequences, which does not exist on the counter"
-    )
+    assert (
+        "kmer_counter.genome_sequences" not in src_pipeline
+    ), "pipeline references genome_sequences, which does not exist on the counter"
 
 
 def test_pipeline_only_calls_methods_the_counter_defines():
@@ -90,9 +90,11 @@ def test_count_candidates_helper_exists_and_is_used():
     import neoswga.core.multi_genome_pipeline as mgp
 
     assert hasattr(MGP := mgp.MultiGenomePipeline, "_count_candidates_all_genomes")
-    src = inspect.getsource(MGP._apply_multi_genome_filter) if hasattr(
-        MGP, "_apply_multi_genome_filter"
-    ) else inspect.getsource(mgp)
+    src = (
+        inspect.getsource(MGP._apply_multi_genome_filter)
+        if hasattr(MGP, "_apply_multi_genome_filter")
+        else inspect.getsource(mgp)
+    )
     assert "count_candidates_all_genomes" in src
 
 

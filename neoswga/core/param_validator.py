@@ -75,6 +75,7 @@ PARAM_RANGES = {
     "ethanol_percent": (0.0, 5.0),
     "urea_m": (0.0, 2.0),
     "tmac_m": (0.0, 0.1),
+    "propanediol_m": (0.0, 1.5),
     "glycerol_percent": (0.0, 15.0),
     "peg_percent": (0.0, 15.0),
     "bsa_ug_ml": (0.0, 400.0),

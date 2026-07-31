@@ -1,4 +1,5 @@
 """Test that reaction conditions cache is properly invalidated."""
+
 import pytest
 from unittest.mock import patch
 from neoswga.core import parameter
@@ -7,7 +8,7 @@ from neoswga.core import parameter
 def _set_default_params():
     """Set minimal valid parameter values for filter module."""
     parameter.reaction_temp = 30.0
-    parameter.polymerase = 'phi29'
+    parameter.polymerase = "phi29"
     parameter.dmso_percent = 0.0
     parameter.betaine_m = 0.0
     parameter.trehalose_m = 0.0

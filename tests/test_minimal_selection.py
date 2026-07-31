@@ -27,19 +27,17 @@ class TestMinimalPrimerSelector:
             # This creates overlapping coverage
             start = i * 8000
             positions = list(range(start, min(start + 10000, genome_length)))
-            primers.append(Primer(
-                sequence=f"PRIMER{i:02d}",
-                binding_sites=positions,
-                quality_score=0.8,
-                gc_content=0.5
-            ))
+            primers.append(
+                Primer(
+                    sequence=f"PRIMER{i:02d}",
+                    binding_sites=positions,
+                    quality_score=0.8,
+                    gc_content=0.5,
+                )
+            )
 
         # Select minimal set for 50% coverage
-        result = selector.select_minimal_set(
-            primers=primers,
-            target_coverage=0.50,
-            max_primers=10
-        )
+        result = selector.select_minimal_set(primers=primers, target_coverage=0.50, max_primers=10)
 
         # Should need fewer than all 10 primers
         assert len(result.selected_primers) < 10
@@ -58,19 +56,17 @@ class TestMinimalPrimerSelector:
         for i in range(10):
             start = i * 10000
             positions = list(range(start, start + 10000))
-            primers.append(Primer(
-                sequence=f"PRIMER{i:02d}",
-                binding_sites=positions,
-                quality_score=0.8,
-                gc_content=0.5
-            ))
+            primers.append(
+                Primer(
+                    sequence=f"PRIMER{i:02d}",
+                    binding_sites=positions,
+                    quality_score=0.8,
+                    gc_content=0.5,
+                )
+            )
 
         # Request 30% coverage - should need 3 primers
-        result = selector.select_minimal_set(
-            primers=primers,
-            target_coverage=0.30,
-            max_primers=10
-        )
+        result = selector.select_minimal_set(primers=primers, target_coverage=0.30, max_primers=10)
 
         # Should select approximately 3 primers for 30% coverage
         assert len(result.selected_primers) <= 5  # Allow some margin
@@ -88,18 +84,16 @@ class TestMinimalPrimerSelector:
         for i in range(5):
             start = i * 20000
             positions = list(range(start, start + 15000))
-            primers.append(Primer(
-                sequence=f"PRIMER{i:02d}",
-                binding_sites=positions,
-                quality_score=0.8,
-                gc_content=0.5
-            ))
+            primers.append(
+                Primer(
+                    sequence=f"PRIMER{i:02d}",
+                    binding_sites=positions,
+                    quality_score=0.8,
+                    gc_content=0.5,
+                )
+            )
 
-        result = selector.select_minimal_set(
-            primers=primers,
-            target_coverage=0.70,
-            max_primers=5
-        )
+        result = selector.select_minimal_set(primers=primers, target_coverage=0.70, max_primers=5)
 
         # Uniformity should be calculated
         assert result.coverage_uniformity >= 0
@@ -118,21 +112,17 @@ class TestMinimalPrimerSelector:
                 sequence="PRIMER01",
                 binding_sites=list(range(0, 30000)),
                 quality_score=0.8,
-                gc_content=0.5
+                gc_content=0.5,
             ),
             Primer(
                 sequence="PRIMER02",
                 binding_sites=list(range(70000, 100000)),
                 quality_score=0.8,
-                gc_content=0.5
-            )
+                gc_content=0.5,
+            ),
         ]
 
-        result = selector.select_minimal_set(
-            primers=primers,
-            target_coverage=0.50,
-            max_primers=2
-        )
+        result = selector.select_minimal_set(primers=primers, target_coverage=0.50, max_primers=2)
 
         # Should have identified a gap
         assert len(result.gaps) > 0
@@ -146,9 +136,9 @@ class TestMinimalSelectionCLI:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args(['optimize', '-j', 'test.json', '--minimize-primers'])
+        args = parser.parse_args(["optimize", "-j", "test.json", "--minimize-primers"])
 
-        assert hasattr(args, 'minimize_primers')
+        assert hasattr(args, "minimize_primers")
         assert args.minimize_primers == True
 
     def test_cli_has_target_coverage_option(self):
@@ -156,9 +146,9 @@ class TestMinimalSelectionCLI:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args(['optimize', '-j', 'test.json', '--target-coverage', '0.80'])
+        args = parser.parse_args(["optimize", "-j", "test.json", "--target-coverage", "0.80"])
 
-        assert hasattr(args, 'target_coverage')
+        assert hasattr(args, "target_coverage")
         assert args.target_coverage == 0.80
 
     def test_cli_target_coverage_default(self):
@@ -166,7 +156,7 @@ class TestMinimalSelectionCLI:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args(['optimize', '-j', 'test.json'])
+        args = parser.parse_args(["optimize", "-j", "test.json"])
 
         assert args.target_coverage == 0.70
 
@@ -182,13 +172,13 @@ class TestPipelineIntegrationMinimal:
         sig = inspect.signature(optimize_step4)
         params = sig.parameters
 
-        assert 'minimize_primers' in params
-        assert 'target_coverage' in params
+        assert "minimize_primers" in params
+        assert "target_coverage" in params
 
         # Check defaults
-        assert params['minimize_primers'].default == False
-        assert params['target_coverage'].default == 0.70
+        assert params["minimize_primers"].default == False
+        assert params["target_coverage"].default == 0.70
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

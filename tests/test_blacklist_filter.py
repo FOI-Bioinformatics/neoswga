@@ -14,9 +14,9 @@ class TestFilterBlacklistPenalty:
         """Primers pass when no blacklist k-mer files exist."""
         from neoswga.core.pipeline import _filter_blacklist_penalty
 
-        primers = ['ATCGATCG', 'GCTAGCTA']
+        primers = ["ATCGATCG", "GCTAGCTA"]
         mask, freqs = _filter_blacklist_penalty(
-            primers, [str(tmp_path / 'nonexistent')], [1000], max_bl_freq=0.0
+            primers, [str(tmp_path / "nonexistent")], [1000], max_bl_freq=0.0
         )
         assert all(mask)
         assert all(f == 0.0 for f in freqs)
@@ -26,26 +26,26 @@ class TestFilterBlacklistPenalty:
         from neoswga.core.pipeline import _filter_blacklist_penalty
 
         # Create a k-mer file with a hit
-        kmer_file = tmp_path / 'bl_test_8mer_all.txt'
-        kmer_file.write_text('ATCGATCG 5\nGCTAGCTA 0\n')
+        kmer_file = tmp_path / "bl_test_8mer_all.txt"
+        kmer_file.write_text("ATCGATCG 5\nGCTAGCTA 0\n")
 
-        primers = ['ATCGATCG', 'GCTAGCTA']
+        primers = ["ATCGATCG", "GCTAGCTA"]
         mask, freqs = _filter_blacklist_penalty(
-            primers, [str(tmp_path / 'bl_test')], [10000], max_bl_freq=0.0
+            primers, [str(tmp_path / "bl_test")], [10000], max_bl_freq=0.0
         )
         assert mask[0] is False  # ATCGATCG has hits
-        assert mask[1] is True   # GCTAGCTA has 0 hits
+        assert mask[1] is True  # GCTAGCTA has 0 hits
 
     def test_frequency_threshold(self, tmp_path):
         """Primers below max_bl_freq pass."""
         from neoswga.core.pipeline import _filter_blacklist_penalty
 
-        kmer_file = tmp_path / 'bl_test_8mer_all.txt'
-        kmer_file.write_text('ATCGATCG 1\nGCTAGCTA 100\n')
+        kmer_file = tmp_path / "bl_test_8mer_all.txt"
+        kmer_file.write_text("ATCGATCG 1\nGCTAGCTA 100\n")
 
-        primers = ['ATCGATCG', 'GCTAGCTA']
+        primers = ["ATCGATCG", "GCTAGCTA"]
         mask, freqs = _filter_blacklist_penalty(
-            primers, [str(tmp_path / 'bl_test')], [10000], max_bl_freq=0.001
+            primers, [str(tmp_path / "bl_test")], [10000], max_bl_freq=0.001
         )
         # ATCGATCG: freq = 1/10000 = 0.0001 <= 0.001 -> pass
         assert mask[0] is True
@@ -56,12 +56,12 @@ class TestFilterBlacklistPenalty:
         """Blacklist frequencies are calculated correctly."""
         from neoswga.core.pipeline import _filter_blacklist_penalty
 
-        kmer_file = tmp_path / 'bl_test_6mer_all.txt'
-        kmer_file.write_text('ATCGAT 50\n')
+        kmer_file = tmp_path / "bl_test_6mer_all.txt"
+        kmer_file.write_text("ATCGAT 50\n")
 
-        primers = ['ATCGAT']
+        primers = ["ATCGAT"]
         _, freqs = _filter_blacklist_penalty(
-            primers, [str(tmp_path / 'bl_test')], [5000], max_bl_freq=1.0
+            primers, [str(tmp_path / "bl_test")], [5000], max_bl_freq=1.0
         )
         assert abs(freqs[0] - 50 / 5000) < 1e-10
 
@@ -70,17 +70,14 @@ class TestFilterBlacklistPenalty:
         from neoswga.core.pipeline import _filter_blacklist_penalty
 
         # Two blacklist genomes
-        bl1 = tmp_path / 'bl1_8mer_all.txt'
-        bl1.write_text('ATCGATCG 10\n')
-        bl2 = tmp_path / 'bl2_8mer_all.txt'
-        bl2.write_text('ATCGATCG 20\n')
+        bl1 = tmp_path / "bl1_8mer_all.txt"
+        bl1.write_text("ATCGATCG 10\n")
+        bl2 = tmp_path / "bl2_8mer_all.txt"
+        bl2.write_text("ATCGATCG 20\n")
 
-        primers = ['ATCGATCG']
+        primers = ["ATCGATCG"]
         _, freqs = _filter_blacklist_penalty(
-            primers,
-            [str(tmp_path / 'bl1'), str(tmp_path / 'bl2')],
-            [5000, 5000],
-            max_bl_freq=1.0
+            primers, [str(tmp_path / "bl1"), str(tmp_path / "bl2")], [5000, 5000], max_bl_freq=1.0
         )
         # freq = (10 + 20) / (5000 + 5000) = 0.003
         assert abs(freqs[0] - 30 / 10000) < 1e-10
@@ -105,32 +102,31 @@ class TestBlacklistParameterFields:
         from neoswga.core.parameter import get_current_config
 
         config = get_current_config()
-        assert hasattr(config, 'bl_genomes')
-        assert hasattr(config, 'bl_prefixes')
-        assert hasattr(config, 'bl_penalty')
-        assert hasattr(config, 'max_bl_freq')
+        assert hasattr(config, "bl_genomes")
+        assert hasattr(config, "bl_prefixes")
+        assert hasattr(config, "bl_penalty")
+        assert hasattr(config, "max_bl_freq")
 
     def test_set_from_config_roundtrip(self):
         """set_from_config preserves bl_ fields."""
-        from neoswga.core.parameter import (
-            PipelineParameters, set_from_config, get_current_config
-        )
+        from neoswga.core.parameter import PipelineParameters, set_from_config, get_current_config
 
         config = PipelineParameters(
-            bl_genomes=['/tmp/test.fna'],
-            bl_prefixes=['/tmp/bl_test'],
+            bl_genomes=["/tmp/test.fna"],
+            bl_prefixes=["/tmp/bl_test"],
             bl_penalty=3.0,
             max_bl_freq=0.001,
         )
         set_from_config(config)
         restored = get_current_config()
-        assert restored.bl_genomes == ['/tmp/test.fna']
-        assert restored.bl_prefixes == ['/tmp/bl_test']
+        assert restored.bl_genomes == ["/tmp/test.fna"]
+        assert restored.bl_prefixes == ["/tmp/bl_test"]
         assert restored.bl_penalty == 3.0
         assert restored.max_bl_freq == 0.001
 
         # Reset to defaults
         from neoswga.core.parameter import reset_to_defaults
+
         reset_to_defaults()
 
     def test_backward_compat_no_bl_fields(self):

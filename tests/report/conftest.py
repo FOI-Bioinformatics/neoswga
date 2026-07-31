@@ -19,10 +19,10 @@ if str(project_root) not in sys.path:
 
 # Block the main package from loading to avoid dependency issues
 # We only need the report submodule which has no external dependencies
-sys.modules.setdefault('neoswga', type(sys)('neoswga'))
-sys.modules.setdefault('neoswga.core', type(sys)('neoswga.core'))
-sys.modules['neoswga'].__path__ = [str(project_root / 'neoswga')]
-sys.modules['neoswga.core'].__path__ = [str(project_root / 'neoswga' / 'core')]
+sys.modules.setdefault("neoswga", type(sys)("neoswga"))
+sys.modules.setdefault("neoswga.core", type(sys)("neoswga.core"))
+sys.modules["neoswga"].__path__ = [str(project_root / "neoswga")]
+sys.modules["neoswga.core"].__path__ = [str(project_root / "neoswga" / "core")]
 
 # Now we can import the report module directly
 from neoswga.core.report.metrics import (
@@ -80,29 +80,37 @@ def complete_results_dir(tmp_path):
 
     # Create params.json
     params = tmp_path / "params.json"
-    params.write_text(json.dumps({
-        "fg": "/path/to/target.fna",
-        "bg": "/path/to/background.fna",
-        "fg_size": 4000000,
-        "bg_size": 3000000000,
-        "min_k": 10,
-        "max_k": 12,
-        "polymerase": "phi29",
-        "reaction_temp": 30.0,
-        "num_primers": 6,
-    }))
+    params.write_text(
+        json.dumps(
+            {
+                "fg": "/path/to/target.fna",
+                "bg": "/path/to/background.fna",
+                "fg_size": 4000000,
+                "bg_size": 3000000000,
+                "min_k": 10,
+                "max_k": 12,
+                "polymerase": "phi29",
+                "reaction_temp": 30.0,
+                "num_primers": 6,
+            }
+        )
+    )
 
     # Create filter_stats.json
     filter_stats = tmp_path / "filter_stats.json"
-    filter_stats.write_text(json.dumps({
-        "total_kmers": 100000,
-        "after_frequency": 50000,
-        "after_background": 10000,
-        "after_gini": 5000,
-        "after_thermodynamic": 1000,
-        "after_complexity": 500,
-        "final_candidates": 6,
-    }))
+    filter_stats.write_text(
+        json.dumps(
+            {
+                "total_kmers": 100000,
+                "after_frequency": 50000,
+                "after_background": 10000,
+                "after_gini": 5000,
+                "after_thermodynamic": 1000,
+                "after_complexity": 500,
+                "final_candidates": 6,
+            }
+        )
+    )
 
     return tmp_path
 
@@ -249,7 +257,7 @@ def create_csv_file(path: Path, rows: List[Dict]) -> Path:
         return path
 
     fieldnames = list(rows[0].keys())
-    with open(path, 'w', newline='') as f:
+    with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)

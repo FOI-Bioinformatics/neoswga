@@ -8,9 +8,7 @@ import pytest
 
 from neoswga.core.kmer_counter import check_jellyfish_available
 
-PLASMID_DIR = os.path.join(
-    os.path.dirname(__file__), os.pardir, "examples", "plasmid_example"
-)
+PLASMID_DIR = os.path.join(os.path.dirname(__file__), os.pardir, "examples", "plasmid_example")
 
 requires_jellyfish = pytest.mark.skipif(
     not check_jellyfish_available(), reason="Jellyfish not installed"
@@ -59,10 +57,7 @@ class TestPlasmidE2E:
         """Run count-kmers, filter, score, optimize and verify outputs."""
         # Step 1: count-kmers
         self._run("count-kmers")
-        kmer_files = [
-            f for f in os.listdir(self.workdir)
-            if f.endswith("_all.txt")
-        ]
+        kmer_files = [f for f in os.listdir(self.workdir) if f.endswith("_all.txt")]
         assert len(kmer_files) > 0, "No k-mer output files produced"
 
         # Step 2: filter

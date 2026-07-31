@@ -51,9 +51,9 @@ def test_dimer_profile_fields_are_what_the_qa_code_expects():
     profile_fields = set(PrimerDimerProfile.__dataclass_fields__)
     assert "num_interactions" in profile_fields
     assert "primer" in profile_fields
-    assert "degree" not in profile_fields, (
-        "PrimerDimerProfile gained a `degree` field - reconcile pipeline_qa_integration"
-    )
+    assert (
+        "degree" not in profile_fields
+    ), "PrimerDimerProfile gained a `degree` field - reconcile pipeline_qa_integration"
     assert "mean_degree" not in set(DimerNetworkMetrics.__dataclass_fields__)
 
 
@@ -62,9 +62,7 @@ def test_analyze_primer_set_returns_a_mapping():
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
 
     analyzer = create_dimer_network_analyzer("moderate", None)
-    _metrics, profiles, _matrix = analyzer.analyze_primer_set(
-        ["ATCGATCGATCG", "GCTAGCTAGCTA"]
-    )
+    _metrics, profiles, _matrix = analyzer.analyze_primer_set(["ATCGATCGATCG", "GCTAGCTAGCTA"])
     assert isinstance(profiles, dict)
     for key, value in profiles.items():
         assert isinstance(key, str), "iterating this dict directly yields primer strings"

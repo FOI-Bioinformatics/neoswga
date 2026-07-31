@@ -16,7 +16,6 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-
 # =============================================================================
 # Test: --no-background (host-free) optimization mode
 # =============================================================================
@@ -30,9 +29,7 @@ class TestNoBackgroundFlag:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args([
-            'optimize', '-j', 'params.json', '--no-background'
-        ])
+        args = parser.parse_args(["optimize", "-j", "params.json", "--no-background"])
         assert args.no_background is True
 
     def test_cli_no_background_default_false(self):
@@ -40,9 +37,7 @@ class TestNoBackgroundFlag:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args([
-            'optimize', '-j', 'params.json'
-        ])
+        args = parser.parse_args(["optimize", "-j", "params.json"])
         assert args.no_background is False
 
 
@@ -98,10 +93,10 @@ class TestEnrichmentEstimate:
         # Should have enrichment estimate if mechanistic model is available
         if report.enrichment_estimate is not None:
             est = report.enrichment_estimate
-            assert 'estimated_fold_enrichment' in est
-            assert est['estimated_fold_enrichment'] >= 1.0
-            assert 'polymerase' in est
-            assert est['polymerase'] == 'phi29'
+            assert "estimated_fold_enrichment" in est
+            assert est["estimated_fold_enrichment"] >= 1.0
+            assert "polymerase" in est
+            assert est["polymerase"] == "phi29"
 
     def test_enrichment_estimate_without_params(self, tmp_path):
         """Enrichment estimate returns None when params.json is missing."""
@@ -137,14 +132,14 @@ class TestConditionSweep:
         results = sweep_conditions(
             genome_gc=0.5,
             primer_length=10,
-            polymerase='phi29',
+            polymerase="phi29",
             verbose=False,
         )
 
         assert len(results) > 0
         # Results should be sorted by amplification_factor (descending)
         for i in range(len(results) - 1):
-            assert results[i]['amplification_factor'] >= results[i + 1]['amplification_factor']
+            assert results[i]["amplification_factor"] >= results[i + 1]["amplification_factor"]
 
     def test_sweep_conditions_has_required_fields(self):
         """Each result has required fields."""
@@ -157,8 +152,12 @@ class TestConditionSweep:
         )
 
         required_fields = [
-            'temperature', 'dmso_percent', 'betaine_m', 'mg_conc',
-            'amplification_factor', 'processivity_factor',
+            "temperature",
+            "dmso_percent",
+            "betaine_m",
+            "mg_conc",
+            "amplification_factor",
+            "processivity_factor",
         ]
         for r in results:
             for field in required_fields:
@@ -172,15 +171,15 @@ class TestConditionSweep:
         results = sweep_conditions(
             genome_gc=0.65,
             primer_length=12,
-            polymerase='equiphi29',
+            polymerase="equiphi29",
             output_path=output_path,
             verbose=False,
         )
 
         assert Path(output_path).exists()
         content = Path(output_path).read_text()
-        assert 'temperature' in content
-        assert 'amplification_factor' in content
+        assert "temperature" in content
+        assert "amplification_factor" in content
 
     def test_sweep_conditions_gc_variation(self):
         """Different GC contents produce different optimal conditions."""
@@ -195,9 +194,9 @@ class TestConditionSweep:
             best_high = results_high_gc[0]
             # At least one parameter should differ in the top result
             differs = (
-                best_low['temperature'] != best_high['temperature'] or
-                best_low['dmso_percent'] != best_high['dmso_percent'] or
-                best_low['betaine_m'] != best_high['betaine_m']
+                best_low["temperature"] != best_high["temperature"]
+                or best_low["dmso_percent"] != best_high["dmso_percent"]
+                or best_low["betaine_m"] != best_high["betaine_m"]
             )
             # This is not guaranteed but likely
             assert len(results_low_gc) > 0 and len(results_high_gc) > 0
@@ -207,9 +206,7 @@ class TestConditionSweep:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args([
-            'suggest', '--genome-gc', '0.5', '--sweep'
-        ])
+        args = parser.parse_args(["suggest", "--genome-gc", "0.5", "--sweep"])
         assert args.sweep is True
 
     def test_cli_sweep_output_flag(self):
@@ -217,11 +214,10 @@ class TestConditionSweep:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args([
-            'suggest', '--genome-gc', '0.5', '--sweep',
-            '--output', 'conditions.csv'
-        ])
-        assert args.output == 'conditions.csv'
+        args = parser.parse_args(
+            ["suggest", "--genome-gc", "0.5", "--sweep", "--output", "conditions.csv"]
+        )
+        assert args.output == "conditions.csv"
 
 
 # =============================================================================
@@ -238,23 +234,23 @@ class TestBedExport:
 
         primers = ["ATCGATCG", "GCTAGCTA"]
         positions = {
-            "ATCGATCG": [(100, 'forward'), (500, 'reverse')],
-            "GCTAGCTA": [(200, 'forward')],
+            "ATCGATCG": [(100, "forward"), (500, "reverse")],
+            "GCTAGCTA": [(200, "forward")],
         }
 
         bed_path = str(tmp_path / "test.bed")
         export_to_bed(primers, positions, "chr1", bed_path)
 
         content = Path(bed_path).read_text()
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         assert len(lines) == 3  # 3 total binding sites
 
         # Verify BED format: chrom, start, end, name, score, strand
         for line in lines:
-            fields = line.split('\t')
+            fields = line.split("\t")
             assert len(fields) == 6
-            assert fields[0] == 'chr1'
-            assert fields[5] in ('+', '-')
+            assert fields[0] == "chr1"
+            assert fields[5] in ("+", "-")
 
     def test_bedgraph_export_basic(self, tmp_path):
         """BedGraph export produces valid format."""
@@ -262,21 +258,21 @@ class TestBedExport:
 
         primers = ["ATCGATCG"]
         positions = {
-            "ATCGATCG": [(100, 'forward'), (150, 'reverse'), (1100, 'forward')],
+            "ATCGATCG": [(100, "forward"), (150, "reverse"), (1100, "forward")],
         }
 
         bg_path = str(tmp_path / "test.bedgraph")
         export_to_bedgraph(primers, positions, "chr1", 5000, bg_path, window_size=1000)
 
         content = Path(bg_path).read_text()
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         assert len(lines) >= 1
 
         # Verify BedGraph format: chrom, start, end, value
         for line in lines:
-            fields = line.split('\t')
+            fields = line.split("\t")
             assert len(fields) == 4
-            assert fields[0] == 'chr1'
+            assert fields[0] == "chr1"
             assert int(fields[3]) > 0  # Count should be positive
 
     def test_cli_export_bed_format(self):
@@ -284,21 +280,18 @@ class TestBedExport:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args([
-            'export', '-d', '/tmp/test', '--format', 'bed'
-        ])
-        assert args.format == 'bed'
+        args = parser.parse_args(["export", "-d", "/tmp/test", "--format", "bed"])
+        assert args.format == "bed"
 
     def test_cli_export_bedgraph_format(self):
         """CLI export accepts --format bedgraph."""
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args([
-            'export', '-d', '/tmp/test', '--format', 'bedgraph',
-            '--window-size', '500'
-        ])
-        assert args.format == 'bedgraph'
+        args = parser.parse_args(
+            ["export", "-d", "/tmp/test", "--format", "bedgraph", "--window-size", "500"]
+        )
+        assert args.format == "bedgraph"
         assert args.window_size == 500
 
 
@@ -315,7 +308,7 @@ class TestShannonEntropy:
         from neoswga.core.base_optimizer import PrimerSetMetrics
 
         metrics = PrimerSetMetrics.empty()
-        assert hasattr(metrics, 'gap_entropy')
+        assert hasattr(metrics, "gap_entropy")
         assert metrics.gap_entropy == 0.0
 
     def test_entropy_in_metrics_dict(self):
@@ -341,8 +334,8 @@ class TestShannonEntropy:
         )
 
         d = metrics.to_dict()
-        assert 'gap_entropy' in d
-        assert d['gap_entropy'] == 2.5
+        assert "gap_entropy" in d
+        assert d["gap_entropy"] == 2.5
 
 
 # =============================================================================
@@ -358,8 +351,8 @@ class TestStrandAlternation:
         from neoswga.core.base_optimizer import PrimerSetMetrics
 
         metrics = PrimerSetMetrics.empty()
-        assert hasattr(metrics, 'strand_alternation_score')
-        assert hasattr(metrics, 'strand_coverage_ratio')
+        assert hasattr(metrics, "strand_alternation_score")
+        assert hasattr(metrics, "strand_coverage_ratio")
 
     def test_strand_fields_in_dict(self):
         """Strand fields appear in to_dict() output."""
@@ -367,8 +360,8 @@ class TestStrandAlternation:
 
         metrics = PrimerSetMetrics.empty()
         d = metrics.to_dict()
-        assert 'strand_alternation_score' in d
-        assert 'strand_coverage_ratio' in d
+        assert "strand_alternation_score" in d
+        assert "strand_coverage_ratio" in d
 
 
 # =============================================================================
@@ -385,6 +378,7 @@ class TestSimulationFitnessModule:
             SimulationBasedEvaluator,
             SimulationFitness,
         )
+
         assert SimulationBasedEvaluator is not None
         assert SimulationFitness is not None
 
@@ -418,6 +412,7 @@ class TestSimulationRescore:
     def test_rescore_function_exists(self):
         """_simulation_rescore is available."""
         from neoswga.core.unified_optimizer import _simulation_rescore
+
         assert callable(_simulation_rescore)
 
     def test_rescore_with_failed_result(self):
@@ -426,5 +421,5 @@ class TestSimulationRescore:
         from neoswga.core.base_optimizer import OptimizationResult
 
         result = OptimizationResult.failure("test", "test failure")
-        score = _simulation_rescore(result, ['prefix'], [1000])
+        score = _simulation_rescore(result, ["prefix"], [1000])
         assert score is None

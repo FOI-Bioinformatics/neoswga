@@ -503,6 +503,7 @@ PRESET_ADDITIVE_FIELDS = (
     "ethanol_percent",
     "urea_m",
     "tmac_m",
+    "propanediol_m",
     # Buffer species added with the schema v2 chemistry work. Defaults of 0
     # preserve behaviour; presets may set them to describe a real buffer.
     "k_conc",

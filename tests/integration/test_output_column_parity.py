@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 import pandas as pd
 
-
 ROOT = Path(__file__).resolve().parent.parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -28,6 +27,7 @@ EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 def _reset_pipeline_state(params_file):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
+
     pipeline_mod._initialized = False
     pipeline_mod.fg_prefixes = None
     pipeline_mod.bg_prefixes = None
@@ -46,6 +46,7 @@ def primed_workdir(tmp_path):
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
     from neoswga.core.kmer_counter import check_jellyfish_available
+
     if not check_jellyfish_available():
         pytest.skip("jellyfish not available (required for count-kmers / step1)")
     for fname in os.listdir(EXAMPLE_DIR):
@@ -64,6 +65,7 @@ def primed_workdir(tmp_path):
     os.chdir(tmp_path)
     _reset_pipeline_state(str(params_path))
     from neoswga.core.pipeline import step1, step2, step3
+
     # Generate k-mer count files (count-kmers); not committed to the repo.
     step1()
     _reset_pipeline_state(str(params_path))
@@ -103,9 +105,9 @@ def test_every_optimizer_emits_same_columns(primed_workdir):
         # Move out of the way so the next optimizer doesn't inherit state
         csv_path.rename(primed_workdir / f"step4_{method}.csv")
 
-    assert len(column_sets) >= 2, (
-        f"Need at least 2 working optimizers to compare; got {list(column_sets)}"
-    )
+    assert (
+        len(column_sets) >= 2
+    ), f"Need at least 2 working optimizers to compare; got {list(column_sets)}"
 
     # Every optimizer must emit the same column set. If this breaks,
     # downstream reporters (results_interpreter, export) can crash.

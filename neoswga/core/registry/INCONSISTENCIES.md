@@ -5,77 +5,57 @@ changed no behaviour. That faithfulness means it also inherited the contradictio
 those tables had accumulated.
 
 This file is the ledger. Each entry is tracked by an assertion in
-`tests/test_registry_invariants.py`; the ones that fail today are marked
-`xfail(strict=True)`, so fixing one turns the test green and forces the ledger to be
-updated rather than letting the fix pass unnoticed.
+`tests/test_registry_invariants.py`.
 
-**None of these should be "cleaned up" as part of a refactor.** Each changes numeric
-output, and several change which primers get selected. They need a dedicated change
-with integration baselines regenerated deliberately.
+**Status: entries 1-6 are fixed; entry 7 is open by deliberate choice.** They
+were not fixed during the registry refactor, because each changes numeric output
+and several change which primers get selected; they were carried as
+`xfail(strict=True)` until they could be addressed with the whole suite
+watching. No strict-xfail entries remain — #7 is documented rather than
+pinned, because it is a gap in the model rather than a demonstrated defect
+(see below).
 
----
-
-## 1. bst set-cover reach exceeds bst processivity — physically impossible
-
-| Field | bst value | Source |
-|---|---|---|
-| `legacy_hybrid_max_extension` | 10000 | `hybrid_optimizer.POLYMERASE_PRESETS` |
-| `processivity_bp` | 2000 | `reaction_conditions.POLYMERASE_CHARACTERISTICS` |
-| `typical_amplicon_bp` | 1000 | same |
-
-**Klenow now violates this too.** Correcting its processivity from 10000 bp to
-40 nt (entry #4) exposed a violation the wrong figure had been hiding: the
-set-cover stage credits Klenow with 5000 bp against ~500 bp of effective reach,
-a 10x over-credit.
-
-A polymerase cannot extend further than it stays bound. The set-cover stage
-therefore credits each bst primer with 5x more reach than the enzyme has, and 10x
-the realistic per-primer reach the result is later *scored* on.
-
-**Why not fixed here:** `max_extension` (set-cover reach) and `processivity`
-(single-molecule reach) are genuinely different quantities, and the project's own
-coverage-reach doctrine says selection should use the *realistic* reach
-(`coverage.polymerase_extension_reach('realistic')`, i.e. 1000 for bst, 1500 for
-klenow) — which matches neither column. Changing bst from 10000 re-ranks every
-hybrid-optimizer result for that polymerase.
-
-**Recommended resolution:** point Stage-1 set-cover at `typical_amplicon_bp` for all
-polymerases, so selection and scoring agree, and regenerate the integration
-baselines.
+Kept as a record of what was wrong and why, because several of these were
+long-standing and the reasoning matters more than the diffs.
 
 ---
 
-## 2. klenow warn band is wider than the hard-reject band
+## 1. Network reach disagreed with processivity — FIXED
 
-| Band | klenow value | Source |
-|---|---|---|
-| `temp_warn_range` | (20.0, 42.0) | `param_validator.POLYMERASE_TEMP_RANGES` |
-| `temp_hard_range` | (25.0, 40.0) | `ReactionConditions._validate` |
+`hybrid_optimizer.POLYMERASE_PRESETS[...].max_extension` was a hand-maintained
+number that disagreed with `processivity_bp`: bst 10000 against a processivity of
+2000 (a reach the enzyme cannot achieve), klenow 5000 against a corrected 40 nt.
 
-A klenow run at 41 °C passes `neoswga validate-params` cleanly and then raises
-`ValueError` inside `ReactionConditions.__init__`. Same at 21–24 °C. The validator's
-job is to catch exactly this before the run starts.
+The original ledger entry described this as the *set-cover* reach. That was
+wrong. `max_extension` feeds the Stage-2 amplification-**network** connectivity
+question — "could two primers connect via one uninterrupted extension?" — for
+which single-molecule processivity is exactly the right quantity. The Stage-1
+set-cover **coverage** objective uses `coverage_reach`, threaded separately by
+`unified_optimizer` and already set to the realistic per-primer reach.
 
-**Recommended resolution:** narrow `temp_warn_range` to sit inside
-`temp_hard_range`. Low risk — it only affects warning text — but it does change
-validator output, so it is grouped here.
+**Fixed by** deriving `max_extension` from `processivity_bp` and deleting the
+separate `legacy_hybrid_max_extension` field, so the two cannot diverge again.
+Affects bst, bst3.0, bsu and klenow; phi29 and equiphi29 already agreed.
 
----
+## 2. klenow warn band was wider than the hard-reject band — FIXED
 
-## 3. bst operating temperature disagrees with its optimum
+`temp_warn_range` was (20.0, 42.0) while `temp_hard_range` is (25.0, 40.0), so a
+klenow run at 41 C passed `neoswga validate-params` cleanly and then raised
+`ValueError` inside `ReactionConditions.__init__`. Catching exactly that before
+the run starts is the validator's job.
 
-| Field | bst value | Source |
-|---|---|---|
-| `optimal_temp` | 63.0 | `reaction_conditions`, `mechanistic_params` |
-| `preset_reaction_temp` | 60.0 | `hybrid_optimizer`, `additive_optimizer` |
+**Fixed by** narrowing `temp_warn_range` to (25.0, 40.0). An invariant test now
+asserts the warn band sits inside the hard band for every polymerase.
 
-Two subsystems run bst 3 °C below the optimum the rest of the codebase advertises.
-Possibly deliberate (a conservative operating point), possibly drift; there is no
-comment either way. phi29, equiphi29 and klenow agree across both fields.
+## 3. bst operating temperature disagreed with its optimum — FIXED
 
-**Recommended resolution:** decide which is intended and collapse to one field.
+`preset_reaction_temp` was 60.0 while `optimal_temp` is 63.0, so
+`hybrid_optimizer` and `additive_optimizer` ran bst 3 C below the optimum the
+rest of the codebase advertised. No comment explained the difference and no other
+polymerase diverged this way, so it read as drift rather than a deliberate
+conservative operating point.
 
----
+**Fixed by** collapsing `preset_reaction_temp` to `optimal_temp` (63.0).
 
 ## 4. klenow processivity contradicted the literature by ~250x — FIXED
 
@@ -94,11 +74,6 @@ processivity_bp` is correct here, not a contradiction. The invariant test skips
 distributive enzymes for that comparison. The 500 bp figure is a conservative
 estimate for a multi-primer reaction, not a measurement.
 
-Knock-on effect: this exposed the Klenow half of entry #1 above, which the wrong
-10000 bp figure had been masking.
-
----
-
 ## 5. phi29 extension rate was ~3x too fast — FIXED
 
 `extension_rate_nt_s` was 150, annotated "median of 100-170 range". Blanco et al.
@@ -107,8 +82,6 @@ single-molecule work agrees at ~50 nt/s. **Corrected to 53** in both the registr
 and `replication_simulator.ReplicationConfig`.
 
 Affects simulation timings only, not primer selection.
-
----
 
 ## 6. The magnesium model was calibrated for PCR, not MDA — FIXED
 
@@ -120,43 +93,33 @@ Worse, the test guarding the old value cited **"Rahman et al. (2014) PLoS One
 9:e112515"**. That attribution is wrong twice over: the DOI resolves to an
 unrelated rice chromatin-remodelling paper, and the real Rahman et al. (2014)
 (*Anwer Khan Modern Medical College Journal* 4(1):30-36) is a general **PCR**
-review — not an authority for isothermal strand-displacement chemistry. A
-mis-attributed, domain-inappropriate citation was lending false authority to a
-wrong number.
+review — not an authority for isothermal strand-displacement chemistry.
 
 **Corrected to** `mg_optimal = 10.0`, `mg_low_threshold = 4.0`,
 `mg_high_threshold = 15.0`, matching the standard phi29 buffer (Thermo
-MAN0030290, NEB phi29 buffer). The band is wide because dNTPs chelate Mg2+
-roughly 1:1, so free Mg2+ sits several mM below nominal total.
+MAN0030290, NEB phi29 buffer). The replacement test asserts that no polymerase's
+own default falls outside the model's usable band.
 
-The replacement test asserts that no polymerase's own default falls outside the
-model's usable band — the invariant the old value violated.
-
----
-
-## 7. `normalized_score` does not use `max_gap`, and misranks validated sets
-
-Not a polymerase constant, but the same class of problem and tracked the same way.
+## 7. `normalized_score` computes `max_gap` and never uses it — OPEN (by choice)
 
 `PrimerSetMetrics.normalized_score` weights coverage, selectivity, dimer risk,
-evenness and Tm. It **computes `max_gap` and then ignores it**.
+evenness and Tm. It computes `max_gap` and then ignores it — even though on the
+only wet-lab-validated benchmark available (six *Prevotella* sets, Dwivedi-Yu
+et al. 2023) `max_gap` is the strongest single predictor of measured enrichment
+(Spearman rho -0.83, and ranking by it alone reproduces the measured top three in
+order), while mean binding distance has essentially none (rho -0.09).
 
-Scored against the only wet-lab-validated benchmark available — the six
-*Prevotella* sets in Dwivedi-Yu et al. (2023), S2 Table statistics against S3
-Table outcomes — it ranks the two winners **3rd and 4th** and puts a 2.1x failure
-first, in every application profile. The full score spread is ~7 % across sets
-whose measured enrichment spans 60-fold.
+**This is a gap in the model, not a demonstrated defect in the ranking.** The
+shipped scoring does rank the two winners first on that benchmark. An earlier
+version of this entry claimed otherwise; that came from a bug in the validation
+harness (background sites counted over the 3.2 Mb target rather than the 3.1 Gb
+human background) and has been corrected.
 
-On that data `max_gap` is the strongest single predictor (Spearman rho -0.83, and
-ranking by it alone reproduces the measured top three in order), while mean
-binding distance — the metric the project's guidance previously treated as
-dominant — has essentially no correlation (rho -0.09).
+A coverage-hole term based on `max_gap` was implemented and measured against the
+benchmark. It changed nothing in the ranking, so it was **not** shipped:
+re-ranking all optimizer output requires demonstrating a benefit, and on the
+available data there is none to show.
 
-Tracked by a strict xfail in
-`tests/validation/test_published_primer_sets.py`. Full write-up in
-`docs/validation/published_primer_sets.md`.
-
-**Recommended resolution:** add a `max_gap` coverage-hole term to
-`normalized_score`. Not done here because it re-ranks all optimizer output and
-needs regenerated integration baselines — and because n = 6 is too few to fit
-weights on. Extend the benchmark first.
+**Recommended resolution:** extend the benchmark first (Clarke et al. 2017
+*M. tuberculosis*, or in-house sets with outcomes), then re-test a hole term.
+Full write-up in `docs/validation/published_primer_sets.md`.

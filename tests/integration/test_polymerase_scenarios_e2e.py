@@ -16,13 +16,13 @@ from pathlib import Path
 
 import pytest
 
-
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plasmid_example"
 
 
 def _reset_pipeline_state(params_file):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
+
     pipeline_mod._initialized = False
     pipeline_mod.fg_prefixes = None
     pipeline_mod.bg_prefixes = None
@@ -70,16 +70,20 @@ def scenario_workdir():
 @pytest.mark.slow
 def test_phi29_scenario_filter_runs(scenario_workdir):
     """phi29 at 30 C with 6-12 bp primers on the plasmid example."""
-    params_file = _build_scenario(scenario_workdir, {
-        "polymerase": "phi29",
-        "reaction_temp": 30.0,
-        "min_k": 6,
-        "max_k": 12,
-    })
+    params_file = _build_scenario(
+        scenario_workdir,
+        {
+            "polymerase": "phi29",
+            "reaction_temp": 30.0,
+            "min_k": 6,
+            "max_k": 12,
+        },
+    )
     os.chdir(scenario_workdir)
     _reset_pipeline_state(str(params_file))
 
     from neoswga.core.pipeline import step2
+
     df = step2()
     assert (scenario_workdir / "step2_df.csv").is_file()
     assert len(df) > 0, "phi29 scenario produced no primers"
@@ -93,21 +97,25 @@ def test_equiphi29_scenario_filter_runs(scenario_workdir):
     Plasmid is tiny (<10 kb) and can't realistically fit 10-18 bp primers;
     use 8-12 bp here so step2 produces candidates but the polymerase,
     temperature, and additives are exercised."""
-    params_file = _build_scenario(scenario_workdir, {
-        "polymerase": "equiphi29",
-        "reaction_temp": 43.0,
-        "min_k": 8,
-        "max_k": 12,
-        "mg_conc": 10.0,
-        "dmso_percent": 5.0,
-        "betaine_m": 1.0,
-        "min_tm": 20,
-        "max_tm": 70,
-    })
+    params_file = _build_scenario(
+        scenario_workdir,
+        {
+            "polymerase": "equiphi29",
+            "reaction_temp": 43.0,
+            "min_k": 8,
+            "max_k": 12,
+            "mg_conc": 10.0,
+            "dmso_percent": 5.0,
+            "betaine_m": 1.0,
+            "min_tm": 20,
+            "max_tm": 70,
+        },
+    )
     os.chdir(scenario_workdir)
     _reset_pipeline_state(str(params_file))
 
     from neoswga.core.pipeline import step2
+
     df = step2()
     assert (scenario_workdir / "step2_df.csv").is_file()
     assert len(df) > 0, "equiphi29 scenario produced no primers"
@@ -125,13 +133,25 @@ def test_phi29_vs_equiphi29_produce_different_primer_counts(scenario_workdir):
     phi_dir.mkdir()
     equi_dir.mkdir()
 
-    phi_params = _build_scenario(phi_dir, {
-        **base_overrides, "polymerase": "phi29", "reaction_temp": 30.0,
-    })
-    equi_params = _build_scenario(equi_dir, {
-        **base_overrides, "polymerase": "equiphi29", "reaction_temp": 43.0,
-        "mg_conc": 10.0, "dmso_percent": 5.0, "betaine_m": 1.0,
-    })
+    phi_params = _build_scenario(
+        phi_dir,
+        {
+            **base_overrides,
+            "polymerase": "phi29",
+            "reaction_temp": 30.0,
+        },
+    )
+    equi_params = _build_scenario(
+        equi_dir,
+        {
+            **base_overrides,
+            "polymerase": "equiphi29",
+            "reaction_temp": 43.0,
+            "mg_conc": 10.0,
+            "dmso_percent": 5.0,
+            "betaine_m": 1.0,
+        },
+    )
 
     from neoswga.core.pipeline import step2
 

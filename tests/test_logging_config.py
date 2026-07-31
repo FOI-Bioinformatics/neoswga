@@ -55,8 +55,13 @@ def test_temporary_log_level_restores():
 def test_colored_formatter_outputs_message():
     fmt = lc.ColoredFormatter("%(levelname)s: %(message)s")
     record = logging.LogRecord(
-        name="x", level=logging.WARNING, pathname=__file__, lineno=1,
-        msg="careful", args=(), exc_info=None,
+        name="x",
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg="careful",
+        args=(),
+        exc_info=None,
     )
     out = fmt.format(record)
     assert "careful" in out

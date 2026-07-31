@@ -224,6 +224,7 @@ class ReactionConditions:
         ethanol_percent: float = 0.0,
         urea_m: float = 0.0,
         tmac_m: float = 0.0,
+        propanediol_m: float = 0.0,
         na_conc: float = 50.0,
         mg_conc: Optional[float] = None,
         k_conc: float = 0.0,
@@ -264,6 +265,7 @@ class ReactionConditions:
         self.ethanol_percent = ethanol_percent
         self.urea_m = urea_m
         self.tmac_m = tmac_m
+        self.propanediol_m = propanediol_m
         self.na_conc = na_conc
         self.ssb = ssb
         self.polymerase = polymerase.lower()
@@ -942,6 +944,7 @@ class ReactionConditions:
             "ethanol_percent": self.ethanol_percent,
             "urea_m": self.urea_m,
             "tmac_m": self.tmac_m,
+            "propanediol_m": self.propanediol_m,
             "na_conc": self.na_conc,
             "mg_conc": self.mg_conc,
             "k_conc": self.k_conc,
@@ -981,6 +984,7 @@ class ReactionConditions:
             ethanol_percent=self.ethanol_percent,
             urea_m=self.urea_m,
             tmac_m=self.tmac_m,
+            propanediol_m=self.propanediol_m,
         )
 
     @classmethod
