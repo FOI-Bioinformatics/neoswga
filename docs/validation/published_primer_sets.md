@@ -190,3 +190,72 @@ Fixed, and `test_scanner_agrees_with_a_naive_search` now compares our scanner
 against an independent search for all 284 primers on both plasmids. The single
 remaining difference is a genuine circular wrap-around that the naive search does
 not model.
+
+---
+
+# Third benchmark: Clarke et al. (2017) M. tuberculosis sets
+
+**Data:** Clarke EL, Sundararaman SA, Seifert SN, Bushman FD, Hahn BH, Brisson D
+(2017) *Bioinformatics* 33(14):2071-2077. Table 2 (set characteristics, with the
+four most effective sets footnoted) and Supplementary Table 2 (primer sequences),
+obtained via EuropePMC (PMC5870857) since the publisher PDF is not directly
+retrievable.
+**Test suite:** `tests/validation/test_clarke_2017_mtb.py`
+**Fixture:** `tests/validation/data/clarke_2017_mtb.json`
+
+Twelve sets against *M. tuberculosis* in a human background, including two
+chosen deliberately as negative controls (`MtbUneven`, highest Gini;
+`MtbSparse`, sparsest binding).
+
+## This benchmark contradicts the Prevotella one
+
+| Metric | Clarke Mtb (n=12) | Dwivedi-Yu Prevotella (n=6) |
+|---|---|---|
+| mean binding distance | **separates winners** | does not |
+| worst gap (`max_gap`) | does not | **separates winners** |
+| Gini (evenness) | does not (runs slightly backwards) | **separates winners** |
+
+The four most effective Mtb sets are the four densest, cleanly separated with no
+overlap. Gini runs the *wrong* way: the winners' median Gini is 0.522 against
+0.482 for the sets they beat.
+
+## Why, and what to take from it
+
+The papers' methods account for the difference. Clarke pre-filtered the primer
+pool for even binding before assembling sets, "constrain[ing] the range of set
+binding evenness ... by removing primers that cluster on repeat regions". With
+evenness already controlled it had little residual variance to explain the
+outcome, so density dominated. Dwivedi-Yu did not control evenness, so it varied
+across their sets and the coverage holes dominated.
+
+**Neither "density predicts" nor "evenness predicts" is universally true. What
+predicts is whichever property is currently limiting.** That is a more useful
+rule than either dataset alone yields, and it is only visible because there are
+now two benchmarks that disagree.
+
+This revises the conclusion drawn from the Prevotella data alone, which had been
+carried into the swga-chemistry skill as a general claim. Both the skill and
+`references/troubleshooting.md` are corrected.
+
+## A trap worth recording
+
+`fg_bg_ratio` is defined identically in both papers (fg_mean_distance /
+bg_mean_distance), and it appears to separate winners in *both* datasets — but in
+**opposite directions**: lower is better for Clarke, higher for Dwivedi-Yu.
+
+An analysis that supplies the expected direction per dataset will report it as a
+consistent predictor. It is not one, and that circularity was present in a first
+pass of this comparison before being caught.
+
+## Status of the `max_gap` question
+
+The original motivation for a third benchmark was to decide whether to add a
+`max_gap` coverage-hole term to `normalized_score`. The answer is now clearer,
+and it is *not* a straightforward yes: `max_gap` separates winners on Prevotella
+and does not on Clarke. A term weighted for one dataset would be wrong for the
+other.
+
+The remaining honest position is unchanged from before: do not tune scoring
+weights on this much data. What both benchmarks support is reporting `mean_gap`,
+`max_gap` and `gap_gini` alongside any composite score so the user can see which
+regime they are in, rather than compressing them into one number.
