@@ -188,16 +188,28 @@ class PositionCache:
                 by_k[len(primer)].append(primer)
 
             for k, primer_list in by_k.items():
-                found = _ss.get_all_positions_per_k(
-                    primer_list, genome_path, circular=self.circular
-                )
+                # get_all_positions_per_k scans the FORWARD strand only, so the
+                # reverse complement must be queried as a separate k-mer - which
+                # is exactly what string_search.get_positions does when building
+                # the HDF5 index, and what _load_all_positions expects when it
+                # looks up both the primer and its rc.
+                #
+                # Omitting it silently lost every reverse-strand binding site.
+                # On the bundled plasmid example that zeroed 147 of 568
+                # primer/genome counts, which would read as "this primer does
+                # not bind" rather than "we only looked at one strand".
+                rc_map = {p: reverse_complement(p) for p in primer_list}
+                query = list({*primer_list, *rc_map.values()})
+                found = _ss.get_all_positions_per_k(query, genome_path, circular=self.circular)
                 for primer in primer_list:
-                    hits = found.get(primer) or []
-                    # Cache even a zero-length result: having scanned, "no sites"
-                    # is now a KNOWN answer rather than an unknown one. That
+                    fwd = found.get(primer) or []
+                    rev = found.get(rc_map[primer]) or []
+                    # Cache even zero-length results: having scanned, "no sites"
+                    # is a KNOWN answer rather than an unknown one. That
                     # distinction is the whole point of this method.
-                    self.cache[(prefix, primer, "forward")] = np.array(hits, dtype=np.int32)
-                    if len(hits) == 0:
+                    self.cache[(prefix, primer, "forward")] = np.array(fwd, dtype=np.int32)
+                    self.cache[(prefix, primer, "reverse")] = np.array(rev, dtype=np.int32)
+                    if not fwd and not rev:
                         zero_site.append(primer)
 
         if zero_site:

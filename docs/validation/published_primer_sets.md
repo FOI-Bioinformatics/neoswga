@@ -123,3 +123,70 @@ is enough outcome data to tell whether it helps.
   recomputed from the genome. Recomputing would need GCF_000144405.1 plus a
   human background, which is too large to fetch during a test run; a separate
   opt-in benchmark would close that loop.
+
+---
+
+# Second benchmark: per-primer plasmid amplification
+
+**Data:** same paper, S1 Table — 310 qPCR measurements of fold amplification for
+284 primers on the pcDNA and pLTR plasmids. Those are the two plasmids shipped in
+`examples/plasmid_example`, so binding sites are recomputed with this codebase
+rather than taken on trust.
+**Test suite:** `tests/validation/test_plasmid_amplification.py`
+**Fixture:** `tests/validation/data/dwivedi_yu_2023_plasmid_amplification.json`
+
+## What this benchmark can and cannot test
+
+Every primer has **exactly one on-target site and zero off-target sites** — they
+were selected that way. Site geometry is constant, so this dataset cannot speak
+to whether foreground/background site ratio predicts selectivity: the predictor
+has no variance.
+
+That is worth recording because the obvious analyses are actively misleading:
+
+- Spearman of site ratio against measured selectivity returns about **-0.01**.
+  That reads as "site ratio does not predict selectivity" and would be a false
+  and consequential conclusion. It actually means "no variance".
+- Splitting into deciles by site ratio appears to show a **four-fold** effect
+  (median selectivity 0.53 vs 2.12). That is entirely an artefact of how ties get
+  ordered.
+
+Both were computed during this work before the constant geometry was noticed.
+
+## What it does test: sequence properties predict amplification
+
+With site geometry held fixed, measured on-target amplification still spans
+0.0x to 161x. Something other than binding-site count drives it, and
+sequence-level properties track it:
+
+| Property | Spearman vs measured on-target amplification |
+|---|---|
+| **primer length** | **+0.52** |
+| **melting temperature** | **+0.43** |
+| GC fraction | +0.12 |
+
+Length and Tm are correlated with each other, so these are not independent
+signals. Still, this is a direct check on the premise behind the pipeline's
+thermodynamic filtering, and it holds at n = 310 — a far better-powered result
+than the six-set benchmark above.
+
+None of these predict measured *selectivity* (all rho about 0.1), which is
+expected: with identical site geometry there is little selectivity to predict.
+
+## A real bug this benchmark caught
+
+Recomputing the site counts surfaced a defect in the scan fallback added for
+`evaluate-set`: `string_search.get_all_positions_per_k` scans the **forward
+strand only**, so the reverse complement has to be queried as a separate k-mer —
+which is what `string_search.get_positions` does when building the HDF5 index.
+The scan fallback omitted it.
+
+The effect was that every reverse-strand binding site was silently lost: **147 of
+568** primer/genome counts on this dataset came back zero, each of which would
+read as "this primer does not bind" rather than "we only looked at one strand".
+146 of 284 primers appeared to bind neither plasmid.
+
+Fixed, and `test_scanner_agrees_with_a_naive_search` now compares our scanner
+against an independent search for all 284 primers on both plasmids. The single
+remaining difference is a genuine circular wrap-around that the naive search does
+not model.
