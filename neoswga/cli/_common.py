@@ -645,3 +645,87 @@ def _record_run_manifest(step: str, args, parameter, input_files=None):
         )
     except Exception as e:
         logger.debug(f"run_manifest write skipped: {e}")
+
+
+def bootstrap_params_from_genome(genome_paths, output_dir, circular=True):
+    """Populate the parameter module from bare genome FASTAs.
+
+    The iterative commands all require a params.json carrying `fg_prefixes`,
+    `fg_genomes` and `fg_seq_lengths`, which in practice means a prior
+    `neoswga init` plus `count-kmers`. Someone holding an oligo list and a
+    reference genome has none of that, and the missing piece is bookkeeping
+    rather than anything scientific -- so synthesise it.
+
+    K-mer index files are NOT created here. Commands that need binding
+    positions should pass `genome_paths` with `on_missing='scan'` so
+    PositionCache finds the primers by scanning the FASTA directly.
+
+    Args:
+        genome_paths: One or more foreground FASTA paths.
+        output_dir: Directory used for `data_dir` and as the k-mer prefix root.
+        circular: Whether the targets are circular.
+
+    Returns:
+        The dict of parameters that were applied.
+    """
+    import os
+
+    from neoswga.core import parameter
+    from neoswga.core import utility as _utility
+
+    genome_paths = [genome_paths] if isinstance(genome_paths, str) else list(genome_paths)
+    for path in genome_paths:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Genome file not found: {path}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    prefixes = [
+        os.path.join(output_dir, os.path.splitext(os.path.basename(g))[0]) for g in genome_paths
+    ]
+    lengths = _utility.get_all_seq_lengths(
+        fname_genomes=genome_paths, cpus=getattr(parameter, "cpus", 1) or 1
+    )
+
+    applied = {
+        "fg_genomes": genome_paths,
+        "fg_prefixes": prefixes,
+        "fg_seq_lengths": lengths,
+        "data_dir": output_dir,
+        "src_dir": output_dir,
+        "fg_circular": circular,
+    }
+    for key, value in applied.items():
+        setattr(parameter, key, value)
+
+    logger.info(
+        "Bootstrapped parameters from %d genome(s): %s bp total",
+        len(genome_paths),
+        f"{sum(lengths):,}",
+    )
+    return applied
+
+
+def add_position_source_options(parser):
+    """Add the flags that let a command find binding positions without an index.
+
+    Shared so `--genome` means the same thing everywhere: scan this FASTA for
+    any primer that is not already in the HDF5 position files, instead of
+    silently reporting zero coverage for it.
+    """
+    parser.add_argument(
+        "--genome",
+        nargs="+",
+        metavar="FASTA",
+        help="Target genome FASTA(s). Primers missing from the k-mer index are "
+        "found by scanning these directly, so an externally-designed oligo set "
+        "can be evaluated without a prior count-kmers run. Also lets -j be "
+        "omitted entirely.",
+    )
+    parser.add_argument(
+        "--scan-background",
+        action="store_true",
+        help="Also scan background genomes for missing primers. Off by default: "
+        "background specificity is a frequency question the k-mer counts already "
+        "answer, and scanning a host-sized genome holds it in memory.",
+    )
+    return parser

@@ -17,9 +17,53 @@ from neoswga.cli._common import (
     params_command,
     validate_params_json_file,
 )
+from neoswga.core.position_cache import MissingPositionsError
 from neoswga.core.registry import polymerase_names as _polymerase_names
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_expansion_candidates(candidates_file, data_dir, quiet=False):
+    """Load the candidate pool for expand-primers.
+
+    Prefers an explicit --candidates-file, falling back to the scored
+    ``step3_df.csv``. Before --candidates-file existed, step3 was a hard
+    precondition, so expanding a set required re-running the whole pipeline
+    even when the caller already had a candidate list.
+    """
+    import pandas as _pd
+
+    from neoswga.core.io_utils import primer_column
+
+    if candidates_file:
+        if not os.path.exists(candidates_file):
+            logger.error(f"Candidates file not found: {candidates_file}")
+            sys.exit(1)
+        source = candidates_file
+        logger.info(f"Using candidate pool from {candidates_file}")
+    else:
+        source = os.path.join(data_dir, "step3_df.csv")
+        if not os.path.exists(source):
+            logger.error(f"Step 3 output not found: {source}")
+            logger.error(
+                "Run 'neoswga score' first, or pass --candidates-file with your "
+                "own candidate list."
+            )
+            sys.exit(1)
+
+    if not quiet:
+        logger.info(f"Loading candidates from {source}...")
+
+    df = _pd.read_csv(source)
+    try:
+        primer_col = primer_column(df)
+    except KeyError:
+        logger.error(
+            f"Invalid candidates file: missing 'primer' or 'seq' column. "
+            f"Found: {list(df.columns)}"
+        )
+        sys.exit(1)
+    return df[primer_col].tolist()
 
 
 def run_expand_primers(args):
@@ -82,29 +126,11 @@ def run_expand_primers(args):
         fg_seq_lengths = core_pipeline.fg_seq_lengths
         bg_seq_lengths = core_pipeline.bg_seq_lengths
 
-        # Load candidate primers from scored step3 output
-        data_dir = getattr(parameter, "data_dir", ".")
-        step3_file = os.path.join(data_dir, "step3_df.csv")
-
-        if not os.path.exists(step3_file):
-            logger.error(f"Step 3 output not found: {step3_file}")
-            logger.error("Run 'neoswga score' first to generate candidate primers.")
-            sys.exit(1)
-
-        if not quiet:
-            logger.info(f"Loading candidates from {step3_file}...")
-
-        df = pd.read_csv(step3_file)
-        from neoswga.core.io_utils import primer_column
-
-        try:
-            primer_col = primer_column(df)
-        except KeyError:
-            logger.error(
-                f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}"
-            )
-            sys.exit(1)
-        candidates = df[primer_col].tolist()
+        candidates = _resolve_expansion_candidates(
+            getattr(args, "candidates_file", None),
+            getattr(parameter, "data_dir", "."),
+            quiet=quiet,
+        )
 
         if not quiet:
             logger.info(f"Candidate pool: {len(candidates)} primers")
@@ -413,6 +439,24 @@ def run_swap_primer(args):
         print(output_json)
 
 
+def _realistic_reach():
+    """Per-primer coverage reach for the configured polymerase.
+
+    Coverage is scored on the REALISTIC reach (~3 kb for phi29), not
+    single-molecule processivity (~70 kb). contract-set and rescore-set both
+    used processivity, which on a multi-Mb target let one binding site cover a
+    large fraction of the genome -- turning --min-coverage into an on/off switch
+    rather than a threshold.
+    """
+    from neoswga.core import parameter
+    from neoswga.core.coverage import polymerase_extension_reach
+
+    return polymerase_extension_reach(
+        getattr(parameter, "polymerase", "phi29") or "phi29",
+        coverage_metric="realistic",
+    )
+
+
 @params_command(seed=True)
 def run_contract_set(args):
     """Greedy leave-one-out contraction that keeps coverage above threshold."""
@@ -448,7 +492,7 @@ def run_contract_set(args):
         if not total_genome:
             return 0.0
         covered = 0
-        extension = 70000
+        extension = _realistic_reach()
         import numpy as _np
 
         for prefix, length in zip(fg_prefixes, fg_lengths or [0] * len(fg_prefixes)):
@@ -686,13 +730,13 @@ def run_rescore_set(args):
     # multi-target user can see uneven distribution.
     coverage_block: dict = {}
     try:
+        from neoswga.core.coverage import polymerase_extension_reach
         from neoswga.core.position_cache import PositionCache
-        from neoswga.core.reaction_conditions import get_polymerase_processivity
 
-        try:
-            extension = int(get_polymerase_processivity(conditions.polymerase))
-        except Exception:
-            extension = 70_000
+        # Realistic per-primer reach, matching how the optimizer scores
+        # fg_coverage. This used single-molecule processivity (~70 kb), which
+        # overstated coverage by roughly an order of magnitude.
+        extension = polymerase_extension_reach(conditions.polymerase, coverage_metric="realistic")
 
         fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
         fg_lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
@@ -749,8 +793,23 @@ def run_rescore_set(args):
             "selectivity_ratio": float((fg_cov / bg_cov) if bg_cov > 1e-12 else (fg_cov * 1000.0)),
             "extension_reach_bp": int(extension),
         }
+    except MissingPositionsError as e:
+        # Never swallow this one. It means the coverage number would be a
+        # meaningless zero rather than a low result, which is exactly the
+        # failure this command is used to diagnose.
+        logger.error(
+            "Cannot compute coverage: %s\n"
+            "Pass --genome to scan for these primers directly, or run "
+            "'neoswga count-kmers' so they are indexed.",
+            e,
+        )
+        raise
     except Exception as e:
-        logger.debug(f"rescore-set coverage block skipped: {e}")
+        logger.error(
+            "rescore-set coverage block failed: %s. Reported coverage is " "incomplete.",
+            e,
+            exc_info=True,
+        )
         coverage_block = {"error": str(e)}
 
     result = {
@@ -814,6 +873,12 @@ def add_parsers(subparsers):
     )
     expand_parser.add_argument(
         "--failed-primers", nargs="+", help="Primer sequences to exclude (failed in wet lab)"
+    )
+    expand_parser.add_argument(
+        "--candidates-file",
+        help="CSV of candidate primers to draw new ones from. Without this, "
+        "expand-primers requires data_dir/step3_df.csv from a prior 'score' run; "
+        "with it, that becomes a fallback rather than a precondition.",
     )
     expand_parser.add_argument(
         "--failed-primers-file", help="File with failed primers to exclude (one per line)"

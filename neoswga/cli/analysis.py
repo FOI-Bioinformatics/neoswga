@@ -125,14 +125,34 @@ def analyze_primer_set(args):
 
     logger.info("Analyzing primer set...")
 
-    # Load preset config
-    config_dict = PRESETS[args.preset]
+    # Resolve via load_preset_conditions so every additive the preset defines is
+    # applied. This used to read the PRESETS display dict and pass only four
+    # fields, which was the third place the preset divergence bit: analyze-set
+    # ran at 0 mM Mg and dropped urea/TMAC/ethanol/formamide entirely.
+    from neoswga.cli._common import load_preset_conditions
+
+    applied = load_preset_conditions(args.preset)
+    if not applied:
+        raise ValueError(f"Unknown preset: {args.preset}")
     conditions = rc.ReactionConditions(
-        temp=config_dict["temperature"],
-        dmso_percent=config_dict["dmso_percent"],
-        betaine_m=config_dict["betaine_m"],
-        polymerase=config_dict["polymerase"],
+        temp=applied["reaction_temp"],
+        polymerase=applied["polymerase"],
+        na_conc=applied["na_conc"],
+        mg_conc=applied["mg_conc"],
+        **{
+            k: v
+            for k, v in applied.items()
+            if k not in ("reaction_temp", "polymerase", "na_conc", "mg_conc", "ssb")
+        },
     )
+
+    if getattr(args, "fg", None) or getattr(args, "fg_kmers", None):
+        logger.warning(
+            "analyze-set does not use --fg/--fg-kmers; it performs sequence-only "
+            "analysis. For coverage and binding-site density against a genome, "
+            "use: neoswga evaluate-set --primers ... --genome %s",
+            getattr(args, "fg", None) or "<genome.fasta>",
+        )
 
     primers = args.primers
 
@@ -158,21 +178,58 @@ def analyze_primer_set(args):
         hairpins = ss.check_hairpins(primer, conditions)
         homodimer = ss.check_homodimer(primer, conditions)
         print(f"  {primer}:")
+        # check_hairpins returns a list of dicts and check_homodimer a dict;
+        # both were accessed as objects, which raised as soon as a hairpin was
+        # found or this line was reached.
         if hairpins:
-            worst = min(hairpins, key=lambda h: h.energy)
-            print(f"    Hairpin: dG={worst.energy:.2f} kcal/mol, stem={worst.stem_length}bp")
+            worst = min(hairpins, key=lambda h: h["energy"])
+            print(
+                f"    Hairpin: dG={worst['energy']:.2f} kcal/mol, "
+                f"stem={worst.get('stem_length', 0)}bp"
+            )
         else:
-            print(f"    Hairpin: none detected")
-        print(f"    Homodimer: dG={homodimer.energy:.2f} kcal/mol")
+            print("    Hairpin: none detected")
+        print(f"    Homodimer: dG={float(homodimer['energy']):.2f} kcal/mol")
 
     # Check heterodimers
     print("\nHeterodimer Analysis:")
+    heterodimers = []
     for i, p1 in enumerate(primers):
         for j, p2 in enumerate(primers):
             if i < j:
                 result = ss.check_heterodimer(p1, p2, conditions)
-                if result.energy < -6.0:
-                    print(f"  {p1} x {p2}: dG={result.energy:.2f} kcal/mol (warning)")
+                # check_heterodimer returns a dict; the previous code used
+                # attribute access and raised the moment this branch executed.
+                energy = float(result["energy"])
+                heterodimers.append({"primer_a": p1, "primer_b": p2, "delta_g": energy})
+                if energy < -6.0:
+                    print(f"  {p1} x {p2}: dG={energy:.2f} kcal/mol (warning)")
+
+    # Honour --output. It used to be a required argument that wrote nothing, so
+    # anyone scripting around this command got an empty directory.
+    if getattr(args, "output", None):
+        import json as _json
+        import os as _os
+
+        _os.makedirs(args.output, exist_ok=True)
+        report = {
+            "preset": args.preset,
+            "conditions": conditions.to_dict(),
+            "primers": [
+                {
+                    "primer": p,
+                    "length": len(p),
+                    "gc": round(thermo.gc_content(p), 4),
+                    "tm": round(conditions.calculate_effective_tm(p), 2),
+                }
+                for p in primers
+            ],
+            "heterodimers": heterodimers,
+        }
+        out_path = _os.path.join(args.output, "primer_analysis.json")
+        with open(out_path, "w") as fh:
+            _json.dump(report, fh, indent=2)
+        print(f"\nWrote {out_path}")
 
     print("\nAnalysis complete!")
 
@@ -309,14 +366,29 @@ def add_parsers(subparsers):
     # =========================================================================
 
     analyze_parser = subparsers.add_parser(
-        "analyze-set", help="[EXPERIMENTAL] Analyze an existing primer set"
+        "analyze-set",
+        help="Sequence-level analysis of a primer set (Tm, GC, hairpins, dimers)",
+        description=(
+            "Sequence-only analysis: melting temperature, GC, hairpins and "
+            "pairwise dimers. It does NOT look at a genome - for coverage, "
+            "binding-site density and selectivity use 'neoswga evaluate-set'."
+        ),
     )
     analyze_parser.add_argument(
         "--primers", required=True, nargs="+", help="Primer sequences to analyze"
     )
-    analyze_parser.add_argument("--fg", required=True, help="Foreground genome FASTA")
-    analyze_parser.add_argument("--fg-kmers", required=True, help="Foreground k-mer file prefix")
-    analyze_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    # --fg / --fg-kmers were required but never read, and --output was required
+    # but nothing was written. Kept as accepted-but-optional so existing command
+    # lines keep working, with a pointer to the command that does use a genome.
+    analyze_parser.add_argument(
+        "--fg", help="(unused) Foreground genome FASTA - use evaluate-set for genome-aware analysis"
+    )
+    analyze_parser.add_argument(
+        "--fg-kmers", help="(unused) Foreground k-mer prefix - use evaluate-set instead"
+    )
+    analyze_parser.add_argument(
+        "--output", "-o", help="Optional output directory; writes primer_analysis.json"
+    )
     analyze_parser.add_argument(
         "--preset", default="standard_phi29", help="Reaction conditions preset"
     )

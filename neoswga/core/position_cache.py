@@ -18,6 +18,20 @@ import numpy as np
 
 from neoswga.core.thermodynamics import reverse_complement
 
+
+class MissingPositionsError(RuntimeError):
+    """Raised when primers have no cached binding positions.
+
+    Distinguishes "this primer was never indexed, so its coverage is unknown"
+    from "this primer genuinely has no binding sites, so its coverage is zero".
+    Both previously produced an empty array and an identical 0.0 coverage.
+    """
+
+    def __init__(self, message: str, missing: Optional[List[str]] = None):
+        super().__init__(message)
+        self.missing = list(missing or [])
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,23 +59,159 @@ class PositionCache:
         positions = cache.get_positions('fg_prefix', 'ATCGATCG')  # Fast!
     """
 
-    def __init__(self, fname_prefixes: List[str], primers: List[str]):
+    def __init__(
+        self,
+        fname_prefixes: List[str],
+        primers: List[str],
+        *,
+        genome_paths: Optional[List[str]] = None,
+        circular: bool = False,
+        on_missing: str = "warn",
+    ):
         """
         Load all positions for given primers from HDF5 files.
 
         Args:
             fname_prefixes: List of path prefixes (e.g., ['data/ecoli'])
             primers: List of primer sequences to cache
+            genome_paths: FASTA paths aligned with ``fname_prefixes``. Required
+                for ``on_missing='scan'``.
+            circular: Whether the genomes are circular (affects wrap-around
+                matches when scanning).
+            on_missing: What to do about primers with no cached positions.
 
-        Raises:
-            FileNotFoundError: If HDF5 files don't exist
+                * ``'warn'`` (default) - log and carry on, preserving the
+                  historical behaviour for existing callers.
+                * ``'scan'`` - find them by scanning ``genome_paths`` directly.
+                  This is what lets an externally-designed oligo set be
+                  evaluated without a prior ``count-kmers`` run.
+                * ``'error'`` - raise :class:`MissingPositionsError`.
+
+        A primer absent from the HDF5 used to be skipped in silence, and
+        :meth:`get_positions` returned an empty array rather than raising. An
+        outside primer set therefore scored 0% coverage with nothing to indicate
+        the number was meaningless -- which silently corrupted expand-primers,
+        contract-set, rescore-set and predict-efficiency. Hence this parameter,
+        and :attr:`missing_primers` below.
         """
+        if on_missing not in ("warn", "scan", "error"):
+            raise ValueError(f"on_missing must be 'warn', 'scan' or 'error', got {on_missing!r}")
+
         self.cache: Dict[Tuple[str, str, str], np.ndarray] = {}
         self.primers = set(primers)
         self.fname_prefixes = fname_prefixes
+        self.genome_paths = genome_paths
+        self.circular = circular
+        self.on_missing = on_missing
+        # (prefix, primer) pairs that produced no cached positions -- i.e. whose
+        # coverage is UNKNOWN because they were never indexed.
+        self.missing_primers: List[Tuple[str, str]] = []
+        # Primers that were scanned and genuinely have no binding sites. Their
+        # zero coverage is a real result. Only populated by on_missing='scan'.
+        self.zero_site_primers: List[str] = []
 
         self._load_all_positions()
+        self._resolve_missing()
         self._report_statistics()
+
+    def _resolve_missing(self) -> None:
+        """Handle primers that produced no positions, per ``on_missing``."""
+        self.missing_primers = [
+            (prefix, primer)
+            for prefix in self.fname_prefixes
+            for primer in sorted(self.primers)
+            if (prefix, primer, "forward") not in self.cache
+            and (prefix, primer, "reverse") not in self.cache
+        ]
+        if not self.missing_primers:
+            return
+
+        names = sorted({p for _, p in self.missing_primers})
+        summary = ", ".join(names[:5]) + (f" (+{len(names) - 5} more)" if len(names) > 5 else "")
+
+        if self.on_missing == "scan":
+            self._scan_missing_from_genomes()
+        elif self.on_missing == "error":
+            raise MissingPositionsError(
+                f"{len(names)} primer(s) have no cached binding positions: {summary}. "
+                f"They are absent from the HDF5 position files for "
+                f"{', '.join(self.fname_prefixes)}. Any coverage computed for them "
+                f"would be 0 regardless of where they actually bind. Either run "
+                f"'neoswga count-kmers' so they are indexed, or pass "
+                f"genome_paths= with on_missing='scan' to find them directly.",
+                missing=names,
+            )
+        else:
+            logger.warning(
+                "%d primer(s) have no cached positions and will score as zero "
+                "coverage: %s. If these came from outside this pipeline, they are "
+                "not in the HDF5 index -- the coverage number is meaningless, not "
+                "low.",
+                len(names),
+                summary,
+            )
+
+    def _scan_missing_from_genomes(self) -> None:
+        """Find missing primers by scanning the FASTA directly.
+
+        Uses the existing single-pass Aho-Corasick scanner in
+        ``core.string_search`` rather than a bespoke matcher, so circular
+        wrap-around and reverse complements are handled the same way the
+        pipeline handles them everywhere else.
+        """
+        if not self.genome_paths:
+            raise ValueError("on_missing='scan' requires genome_paths aligned with fname_prefixes")
+        if len(self.genome_paths) != len(self.fname_prefixes):
+            raise ValueError(
+                f"genome_paths has {len(self.genome_paths)} entries but "
+                f"fname_prefixes has {len(self.fname_prefixes)}; they must align"
+            )
+
+        from neoswga.core import string_search as _ss
+
+        zero_site: List[str] = []
+        by_prefix: Dict[str, List[str]] = defaultdict(list)
+        for prefix, primer in self.missing_primers:
+            by_prefix[prefix].append(primer)
+
+        for prefix, genome_path in zip(self.fname_prefixes, self.genome_paths):
+            wanted = by_prefix.get(prefix)
+            if not wanted:
+                continue
+            logger.info(
+                "Scanning %s for %d primer(s) missing from the position index",
+                genome_path,
+                len(wanted),
+            )
+            by_k: Dict[int, List[str]] = defaultdict(list)
+            for primer in wanted:
+                by_k[len(primer)].append(primer)
+
+            for k, primer_list in by_k.items():
+                found = _ss.get_all_positions_per_k(
+                    primer_list, genome_path, circular=self.circular
+                )
+                for primer in primer_list:
+                    hits = found.get(primer) or []
+                    # Cache even a zero-length result: having scanned, "no sites"
+                    # is now a KNOWN answer rather than an unknown one. That
+                    # distinction is the whole point of this method.
+                    self.cache[(prefix, primer, "forward")] = np.array(hits, dtype=np.int32)
+                    if len(hits) == 0:
+                        zero_site.append(primer)
+
+        if zero_site:
+            names = sorted(set(zero_site))
+            logger.info(
+                "%d primer(s) have genuinely no binding sites after scanning: %s. "
+                "Zero coverage for these is a real result, not a missing index.",
+                len(names),
+                ", ".join(names[:5]),
+            )
+
+        # Everything requested has now been resolved one way or the other.
+        self.missing_primers = []
+        self.zero_site_primers = sorted(set(zero_site))
 
     def _load_all_positions(self) -> None:
         """Single-pass load of all position data"""
@@ -85,7 +235,12 @@ class PositionCache:
                 hdf5_path = f"{fname_prefix}_{k}mer_positions.h5"
 
                 if not os.path.exists(hdf5_path):
-                    logger.warning(f"HDF5 file not found: {hdf5_path}")
+                    # Expected when scanning: there is no index yet, and that is
+                    # precisely the case on_missing='scan' exists to handle.
+                    if self.on_missing == "scan":
+                        logger.debug(f"No position index at {hdf5_path}; will scan")
+                    else:
+                        logger.warning(f"HDF5 file not found: {hdf5_path}")
                     continue
 
                 with h5py.File(hdf5_path, "r") as db:
@@ -459,7 +614,10 @@ class StreamingPositionCache:
             fw = np.array(db[primer]) if primer in db else np.array([])
             rc = reverse_complement(primer)
             rv = np.array(db[rc]) if rc in db else np.array([])
-            return np.concatenate([fw, rv])
+            # np.unique, matching PositionCache.get_positions: a palindromic
+            # primer's site appears under both the forward and reverse keys and
+            # would otherwise be double-counted in total_fg_sites/selectivity.
+            return np.unique(np.concatenate([fw, rv]))
         elif strand == "forward":
             return np.array(db[primer]) if primer in db else np.array([])
         else:  # reverse
