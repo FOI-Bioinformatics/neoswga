@@ -114,6 +114,12 @@ def pytest_configure(config):
             "report": cli_unified.run_report,
             "export": cli_unified.run_export,
             "doctor": cli_unified.run_doctor,
+            "background-list": cli_unified.run_background_list,
+            "background-add": cli_unified.run_background_add,
+            "genome-list": cli_unified.run_genome_list,
+            "genome-add": cli_unified.run_genome_add,
+            "genome-remove": cli_unified.run_genome_remove,
+            "show-presets": lambda args: cli_unified.show_presets(),
         }
     )
 
