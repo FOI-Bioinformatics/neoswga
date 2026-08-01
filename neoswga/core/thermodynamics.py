@@ -157,8 +157,20 @@ def reverse_complement(seq: str) -> str:
 
 
 def is_palindrome(seq: str) -> bool:
-    """Check if sequence is palindromic."""
-    return seq == reverse_complement(seq)
+    """Check if sequence is palindromic (self-complementary).
+
+    Both sides are normalised. `reverse_complement` uppercases its output, so
+    comparing a raw sequence against it made the check case-sensitive: a
+    lowercase palindrome such as `acgtacgtacgt` compared unequal to its own
+    reverse complement and silently lost the self-complementarity symmetry
+    correction (SantaLucia 1998), shifting its Tm by about 1.5 C.
+
+    Lowercase reaches here from soft-masked FASTA and from primer lists typed
+    by hand, and the affected sequences are exactly the self-complementary ones
+    whose thermodynamics matter most for dimer risk.
+    """
+    normalized = normalize_sequence(seq)
+    return normalized == reverse_complement(normalized)
 
 
 def is_watson_crick(base1: str, base2: str) -> bool:
