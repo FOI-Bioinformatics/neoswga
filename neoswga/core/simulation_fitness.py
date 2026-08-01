@@ -141,15 +141,23 @@ class SimulationBasedEvaluator:
 
         results = []
 
+        # Resolve conditions ONCE and derive the polymerase from them, so the
+        # simulated enzyme and the simulated buffer cannot disagree. They did:
+        # with conditions=None the config named phi29 while the default
+        # conditions were equiphi29 at 42 C, so phi29-length primers (Tm around
+        # 26-31 C) could never prime and every set came back with zero forks and
+        # zero coverage -- for a reason that had nothing to do with the primers.
+        conditions = self.conditions or self._get_default_conditions()
+        polymerase_type = self._get_polymerase_type(conditions)
+
         for i in range(self.n_replicates):
             if verbose:
                 logger.info(f"  Replicate {i+1}/{self.n_replicates}")
 
-            # Create simulator
             config = SimulationConfig(
                 duration=self.simulation_duration,
                 time_step=1.0,
-                polymerase_type=self._get_polymerase_type(),
+                polymerase_type=polymerase_type,
             )
 
             simulator = Phi29Simulator(
@@ -157,7 +165,7 @@ class SimulationBasedEvaluator:
                 primer_positions=primer_positions,
                 genome_length=self.genome_length,
                 genome_sequence=self.genome_sequence,
-                conditions=self.conditions or self._get_default_conditions(),
+                conditions=conditions,
                 config=config,
             )
 
@@ -213,55 +221,86 @@ class SimulationBasedEvaluator:
 
     def _build_position_dict(self, primers: List[str]) -> Dict[str, Dict[str, List[int]]]:
         """Build position dictionary for simulator"""
+        # PositionCache is keyed by (fname_prefix, primer, strand), where the
+        # prefix is the real path stem the HDF5 was written under. This asked
+        # for the empty string, which matches no key, so every primer came back
+        # with no binding sites -- and `get_positions` returns an empty array
+        # rather than raising, so nothing surfaced. Every fitness score this
+        # evaluator produced was therefore computed from an empty binding map,
+        # which for its stated purpose (comparing optimization methods) means
+        # every set scored identically.
+        prefixes = list(getattr(self.position_cache, "fname_prefixes", []) or [])
+        if not prefixes:
+            logger.warning(
+                "Position cache exposes no genome prefixes; simulation fitness "
+                "will see no binding sites and every set will score the same."
+            )
+
         positions = {}
+        total_sites = 0
 
         for primer in primers:
-            # Get positions from cache (assuming single genome for now)
-            # Cache stores positions per (genome, primer, strand)
-            # We need to combine into {'forward': [...], 'reverse': [...]}
+            forward_positions: List[int] = []
+            reverse_positions: List[int] = []
 
-            forward_positions = []
-            reverse_positions = []
+            for prefix in prefixes:
+                try:
+                    fwd = self.position_cache.get_positions(prefix, primer, "forward")
+                    rev = self.position_cache.get_positions(prefix, primer, "reverse")
+                except (KeyError, AttributeError, TypeError) as e:
+                    logger.debug(f"Cache access failed for primer {primer}: {e}")
+                    continue
 
-            # Try to get positions (this depends on cache structure)
-            try:
-                # Position cache API: get_positions(genome_id, primer, strand)
-                # We need to know the genome ID - for now assume it's set during init
-                # This will need to be adjusted based on actual cache structure
-                fwd = self.position_cache.get_positions("", primer, "forward")
-                rev = self.position_cache.get_positions("", primer, "reverse")
+                forward_positions.extend(int(p) for p in fwd)
+                reverse_positions.extend(int(p) for p in rev)
 
-                if len(fwd) > 0:
-                    forward_positions = fwd.tolist()
-                if len(rev) > 0:
-                    reverse_positions = rev.tolist()
-            except (KeyError, AttributeError, TypeError) as e:
-                # If cache access fails, just skip this primer
-                logger.debug(f"Cache access failed for primer {primer}: {e}")
-
+            total_sites += len(forward_positions) + len(reverse_positions)
             positions[primer] = {"forward": forward_positions, "reverse": reverse_positions}
+
+        if primers and total_sites == 0:
+            logger.warning(
+                "No binding sites found for any of the %d primers. Simulated "
+                "fitness will be zero for reasons unrelated to the primers -- "
+                "check that the position cache was built for these prefixes.",
+                len(primers),
+            )
 
         return positions
 
-    def _get_polymerase_type(self) -> str:
-        """Determine polymerase type from conditions"""
-        if self.conditions is None:
+    def _get_polymerase_type(self, conditions=None) -> str:
+        """Determine the polymerase to simulate, from the conditions in use.
+
+        Takes the conditions explicitly so the caller can pass the RESOLVED
+        ones. Reading self.conditions here meant that when it was None the
+        answer was "phi29" while the defaults actually applied were equiphi29 at
+        42 C -- an enzyme and a buffer that do not go together.
+        """
+        if conditions is None:
+            conditions = self.conditions
+        if conditions is None:
             return "phi29"
 
-        # Check temperature to infer polymerase
-        if hasattr(self.conditions, "temp"):
-            if self.conditions.temp >= 42:
-                return "equiphi29"
-            else:
-                return "phi29"
+        polymerase = getattr(conditions, "polymerase", None)
+        if polymerase:
+            return polymerase
 
+        # Fall back to inferring from temperature.
+        temp = getattr(conditions, "temp", None)
+        if temp is not None and temp >= 42:
+            return "equiphi29"
         return "phi29"
 
     def _get_default_conditions(self) -> ReactionConditions:
-        """Get default reaction conditions"""
-        from neoswga.core.reaction_conditions import get_enhanced_conditions
+        """Default reaction conditions: standard phi29 at 30 C.
 
-        return get_enhanced_conditions()
+        This returned the ENHANCED preset (equiphi29, 42 C). That is not the
+        project default -- `parameter.polymerase` is phi29 -- so a primer set
+        designed for phi29 was being evaluated in a buffer 12 C hotter than the
+        one it was designed for, where its primers do not bind.
+        """
+        from neoswga.core.reaction_conditions import get_standard_conditions
+
+        return get_standard_conditions()
 
     def compare_sets(
         self, primer_sets: List[Tuple[str, List[str]]], verbose: bool = True
