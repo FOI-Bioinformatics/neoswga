@@ -62,7 +62,12 @@ def _resolve_sources(args):
 def run_evaluate_set(args):
     """Evaluate an existing oligo set: coverage, gaps, selectivity, dimers."""
     from neoswga.core import parameter
-    from neoswga.core.coverage import compute_per_prefix_coverage, polymerase_extension_reach
+    from neoswga.core.coverage import (
+        compute_per_prefix_coverage,
+        gap_regime_note,
+        interpret_gap_metrics,
+        polymerase_extension_reach,
+    )
     from neoswga.core.position_cache import PositionCache
     from neoswga.core.reaction_conditions import ReactionConditions
 
@@ -127,6 +132,35 @@ def run_evaluate_set(args):
 
     total_sites = sum(p["binding_sites"] for p in per_primer)
     genome_bp = sum(lengths)
+
+    # Gap statistics from the union of binding positions. Reported alongside
+    # mean spacing because the two published benchmarks disagree about which of
+    # the three predicts success - see docs/validation/.
+    import numpy as _np
+
+    gaps = []
+    for prefix, length in zip(prefixes, lengths):
+        pos = sorted({int(x) for primer in primers for x in cache.get_positions(prefix, primer)})
+        if len(pos) < 2:
+            continue
+        d = _np.diff(pos).tolist()
+        if not args.linear:
+            d.append(length - pos[-1] + pos[0])  # wrap-around gap
+        gaps.extend(d)
+
+    if gaps:
+        arr = _np.array(sorted(gaps), dtype=float)
+        n = len(arr)
+        mean_gap = float(arr.mean())
+        max_gap = float(arr.max())
+        # Gini of the gap distribution; 0 = perfectly even spacing.
+        gap_gini = (
+            float((2.0 * _np.sum((_np.arange(1, n + 1)) * arr) / (n * arr.sum()) - (n + 1) / n))
+            if arr.sum() > 0
+            else 0.0
+        )
+    else:
+        mean_gap = max_gap = gap_gini = 0.0
     result = {
         "primers": per_primer,
         "num_primers": len(primers),
@@ -139,7 +173,14 @@ def run_evaluate_set(args):
         # published sets sit near 1 site per 2-5 kbp.
         "mean_binding_distance_bp": (round(genome_bp / total_sites) if total_sites else None),
         "genome_bp": genome_bp,
+        "mean_gap_bp": round(mean_gap),
+        "max_gap_bp": round(max_gap),
+        "gap_gini": round(gap_gini, 4),
+        "gap_interpretation": interpret_gap_metrics(
+            mean_gap, max_gap, gap_gini, extension_reach=reach
+        ),
         "zero_site_primers": cache.zero_site_primers,
+        "_regime_note": gap_regime_note(gap_gini),
         "conditions": {
             "polymerase": conditions.polymerase,
             "temp": conditions.temp,
@@ -177,6 +218,13 @@ def _print_report(result):
     print(f"  Coverage @ {result['extension_reach_bp']} bp reach : {result['fg_coverage']:.1%}")
     for name, cov in result["per_target_coverage"].items():
         print(f"      {os.path.basename(name)}: {cov:.1%}")
+
+    if result.get("gap_interpretation"):
+        print("\n  Gap analysis (all three shown: the published benchmarks")
+        print("  disagree about which one predicts success):")
+        for r in result["gap_interpretation"]:
+            print(f"      {r['label']:<22s} {r['value']:>9s}  {r['verdict']}")
+        print(f"      -> {result['_regime_note']}")
 
     if result["zero_site_primers"]:
         print(

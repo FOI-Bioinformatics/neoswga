@@ -259,3 +259,75 @@ The remaining honest position is unchanged from before: do not tune scoring
 weights on this much data. What both benchmarks support is reporting `mean_gap`,
 `max_gap` and `gap_gini` alongside any composite score so the user can see which
 regime they are in, rather than compressing them into one number.
+
+---
+
+# Fourth benchmark: Clarke et al. (2017) Wolbachia sets
+
+**Data:** same paper, Table 1 / Supplementary Table 1, with outcomes quoted from
+Results 3.1. Five sets against *W. pipientis* in a *D. melanogaster* background,
+including the original hand-designed set from Leichty and Brisson (2014).
+**Test suite:** `tests/validation/test_clarke_2017_wolbachia.py`
+
+This one is unusually clean because the authors built it as a controlled
+contrast: within each of two primer melting-temperature ranges they took the
+**most selective** set and the **most even** set, pitting the two design criteria
+directly against each other.
+
+| Set | selected for | Tm range | Gini | mean gap | max gap | outcome |
+|---|---|---|---|---|---|---|
+| `TmL/Even` | evenness | low | **0.537** | 6853 | 34.7 kb | **effective** — 10x over 60–75 % of genome |
+| `TmL/Selective` | selectivity | low | 0.654 | 5327 | 31.1 kb | partial — uneven coverage |
+| `Leichty 2014` | hand-designed | — | 0.712 | **5305** | 112.8 kb | partial — uneven coverage |
+| `TmH/Even` | evenness | high | 0.537 | 13070 | 112.8 kb | ineffective |
+| `TmH/Selective` | selectivity | high | 0.660 | 12074 | 128.2 kb | ineffective |
+
+Unamplified control reached 10x over 2.8 % of the genome.
+
+**Evenness wins, and density runs backwards.** `TmL/Even` was effective with
+*worse* mean spacing than both sets it beat. The hand-designed Leichty set has
+the best density of all five and the worst evenness, and did not improve
+sequencing efficiency.
+
+A second, independent failure mode also shows up: both high-Tm sets failed
+regardless of which criterion they were selected for. Raising the Tm window
+shrank the usable primer pool, roughly doubling mean spacing and pushing max gaps
+past 110 kb. Tm range set the outcome before either criterion could apply.
+
+---
+
+# Synthesis across the three set-level benchmarks
+
+| Dataset | n | density predicts? | evenness predicts? |
+|---|---|---|---|
+| Prevotella (Dwivedi-Yu 2023) | 6 | no | **yes** (with worst gap) |
+| Wolbachia (Clarke 2017) | 5 | no (backwards) | **yes** |
+| *M. tuberculosis* (Clarke 2017) | 12 | **yes** | no (backwards) |
+
+Two of three favour evenness. The odd one out is *M. tuberculosis*, and the paper
+states why: there the primer **pool** was pre-filtered for even binding, which
+removed most of the variance in evenness and left density as the limiting
+property.
+
+All three are consistent with a single rule: **whichever property is currently
+limiting is the one that predicts.** That is what the reporting change is built
+around — `mean_gap`, `max_gap` and `gap_gini` are now shown together with their
+benchmark context in both HTML reports and in `evaluate-set`, rather than folded
+into a composite that would have to commit to one regime.
+
+## Why the scoring weights were still not changed
+
+With 6, 5 and 12 sets, any weighting fitted to one dataset is contradicted by
+another. A `max_gap` term helps on Prevotella, is neutral-to-harmful on
+*M. tuberculosis*, and does not cleanly separate the Wolbachia sets either
+(`TmL/Selective` has a *better* max gap than the winner). The composite score is
+left alone; the three statistics are surfaced so the reader can see the regime.
+
+## Datasets sought but not obtained
+
+- **Oyola et al. (2016)** *Plasmodium falciparum* sWGA (Malaria Journal
+  12936-2016-1641). Three probe pools (10, 20, 28 primers) with measured yield
+  and >18-fold enrichment, but the primer sequences sit in Additional file 1
+  Table S2, which is not retrievable through EuropePMC or the Springer static
+  endpoints. Its outcome axis is also different — yield by pool size rather than
+  per-set coverage — so it would test set *size*, not gap structure.

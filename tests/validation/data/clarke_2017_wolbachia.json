@@ -1,0 +1,135 @@
+{
+ "source": {
+  "citation": "Clarke EL, Sundararaman SA, Seifert SN, Bushman FD, Hahn BH, Brisson D (2017) swga: a primer design toolkit for selective whole genome amplification. Bioinformatics 33(14):2071-2077.",
+  "doi": "10.1093/bioinformatics/btx118",
+  "tables": "Table 1 / Supplementary Table 1 (Wolbachia sets); outcomes from Results 3.1",
+  "target": "Wolbachia pipientis",
+  "background": "Drosophila melanogaster",
+  "outcome": "Fraction of target genome at >=10x after ~100 Mbp sequencing. Unamplified control reached 10x over only 2.8% of the genome.",
+  "notes": "TmL sets used the standard 15-45 C primer Tm range; TmH used 35-55 C. Within each Tm range one set was chosen for selectivity and one for evenness, so the design directly contrasts those two criteria. The Leichty and Brisson (2014) set is the original hand-designed set, included by the authors as a comparison."
+ },
+ "sets": {
+  "TmL/Selective": {
+   "primers": [
+    "AACATAGATC",
+    "AAGAGATACC",
+    "AATGTTCGTA",
+    "ACGTGTTAG",
+    "AGAAATTTACTA",
+    "ATCTAGAGAT",
+    "ATCTATGTTAAG",
+    "TACGTCATAC",
+    "TATGCAAGAA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.054434250764525995,
+    "size": 9,
+    "fg_gini": 0.654,
+    "fg_max_distance": 31147,
+    "fg_mean_distance": 5327,
+    "fg_std_deviation": 7004,
+    "bg_mean_distance": 97839
+   },
+   "outcome": {
+    "tier": "partial",
+    "effective": false,
+    "note": "improved coverage but not sequencing efficiency; uneven",
+    "tm_range": "low",
+    "selected_for": "selectivity"
+   }
+  },
+  "TmL/Even": {
+   "primers": [
+    "AATGTTCGTA",
+    "ATAAGCTGAA",
+    "TAAAGACATA",
+    "TACGTCATAC",
+    "TATGCAAGAA",
+    "TGAGATACC",
+    "TTTCTGGATC"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.10502793296089384,
+    "size": 7,
+    "fg_gini": 0.537,
+    "fg_max_distance": 34697,
+    "fg_mean_distance": 6853,
+    "fg_std_deviation": 6996,
+    "bg_mean_distance": 65271
+   },
+   "outcome": {
+    "tier": "effective",
+    "effective": true,
+    "note": "10x coverage of 60-75% of genome vs 2.8% unamplified",
+    "tm_range": "low",
+    "selected_for": "evenness"
+   }
+  },
+  "TmH/Even": {
+   "primers": [
+    "CACTGGAATCC",
+    "CGCTACTTGTTA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.007541899441340781,
+    "size": 2,
+    "fg_gini": 0.537,
+    "fg_max_distance": 112818,
+    "fg_mean_distance": 13070,
+    "fg_std_deviation": 15515,
+    "bg_mean_distance": 1732423
+   },
+   "outcome": {
+    "tier": "ineffective",
+    "effective": false,
+    "note": "enriched only small portions; no improvement over control",
+    "tm_range": "high",
+    "selected_for": "evenness"
+   }
+  },
+  "TmH/Selective": {
+   "primers": [
+    "CTACGTGTTAGC",
+    "CTACTTGTTAGC"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.0005,
+    "size": 2,
+    "fg_gini": 0.66,
+    "fg_max_distance": 128209,
+    "fg_mean_distance": 12074,
+    "fg_std_deviation": 18011,
+    "bg_mean_distance": 24253916
+   },
+   "outcome": {
+    "tier": "ineffective",
+    "effective": false,
+    "note": "enriched only small portions; no improvement over control",
+    "tm_range": "high",
+    "selected_for": "selectivity"
+   }
+  },
+  "Leichty and Brisson 2014": {
+   "primers": [
+    "ATCCAAGTAG",
+    "CGGTATCTC"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.0163061797752809,
+    "size": 2,
+    "fg_gini": 0.712,
+    "fg_max_distance": 112839,
+    "fg_mean_distance": 5305,
+    "fg_std_deviation": 10052,
+    "bg_mean_distance": 325172
+   },
+   "outcome": {
+    "tier": "partial",
+    "effective": false,
+    "note": "improved coverage but not sequencing efficiency; uneven",
+    "tm_range": "low",
+    "selected_for": "hand-designed"
+   }
+  }
+ }
+}

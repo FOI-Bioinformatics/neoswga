@@ -186,3 +186,149 @@ def polymerase_extension_reach(
         return int(get_typical_amplicon_length(polymerase))
     except Exception:
         return default
+
+
+# Benchmark reference points, from the two published set-level datasets with
+# wet-lab outcomes. See docs/validation/published_primer_sets.md.
+#
+# Dwivedi-Yu et al. (2023) PLOS Comput Biol 19:e1010137 - six Prevotella sets.
+# Clarke et al. (2017) Bioinformatics 33:2071 - twelve M. tuberculosis sets.
+#
+# The two disagree about WHICH statistic predicts success, and that disagreement
+# is the reason these are reported side by side rather than folded into one
+# score. Clarke pre-filtered their primer pool for even binding, which removed
+# most of the variance in evenness; density then separated their winners
+# cleanly. Dwivedi-Yu did not, so evenness varied and the worst coverage hole
+# separated theirs instead. Whichever property is currently limiting is the one
+# that predicts, so the user needs to see all three.
+BENCHMARK_MEAN_GAP_BP = (2000, 5000)  # successful published sets, both datasets
+# Boundary drawn between the two successful sets (0.533, 0.552) and the four
+# that failed (0.566, 0.600, 0.623, 0.638) in Dwivedi-Yu 2023. It is a cut read
+# off six labelled points, NOT a measured constant - treat it as a rough
+# orientation marker rather than a threshold with meaning. It also does not
+# transfer: evenness did not separate winners in Clarke 2017 at all.
+BENCHMARK_GINI_GOOD = 0.56
+
+
+def interpret_gap_metrics(mean_gap, max_gap, gap_gini, extension_reach=3000):
+    """Describe gap statistics against the published benchmarks.
+
+    Returns a list of (label, value, verdict) tuples for display. The verdicts
+    reference real datasets rather than invented thresholds, and deliberately
+    avoid collapsing to a single pass/fail: the two benchmarks disagree about
+    which statistic matters, so the honest output shows where the set sits on
+    each and lets the reader judge.
+
+    Args:
+        mean_gap: Mean distance between adjacent binding sites (bp).
+        max_gap: Largest gap between binding sites (bp).
+        gap_gini: Gini coefficient of the gap distribution (0 = perfectly even).
+        extension_reach: Realistic per-primer reach (bp). A gap wider than twice
+            this contains sequence no primer can reach.
+
+    Returns:
+        List of dicts with keys: label, value, verdict, detail.
+    """
+    out = []
+
+    lo, hi = BENCHMARK_MEAN_GAP_BP
+    if mean_gap <= 0:
+        verdict, detail = "unknown", "No gaps measured."
+    elif mean_gap <= hi:
+        verdict = "within published range"
+        detail = (
+            f"Successful published sets run {lo/1000:.0f}-{hi/1000:.0f} kb mean "
+            f"spacing (Clarke 2017; Dwivedi-Yu 2023)."
+        )
+    else:
+        verdict = "sparser than published sets"
+        detail = (
+            f"Successful published sets run {lo/1000:.0f}-{hi/1000:.0f} kb. "
+            f"Density separated the winners in Clarke 2017, though not in "
+            f"Dwivedi-Yu 2023."
+        )
+    out.append(
+        {
+            "label": "Mean gap",
+            "value": f"{mean_gap/1000:.1f} kb",
+            "verdict": verdict,
+            "detail": detail,
+        }
+    )
+
+    reachable = 2 * max(1, extension_reach)
+    if max_gap <= 0:
+        verdict, detail = "unknown", "No gaps measured."
+    elif max_gap <= reachable:
+        verdict = "fully reachable"
+        detail = (
+            f"No stretch exceeds twice the {extension_reach/1000:.0f} kb per-primer "
+            f"reach, so no region is out of reach of some primer."
+        )
+    else:
+        unreachable = max_gap - reachable
+        verdict = "leaves an unreachable stretch"
+        detail = (
+            f"About {unreachable/1000:.1f} kb of this gap sits beyond the reach of "
+            f"any flanking primer. The worst gap was the strongest predictor of "
+            f"measured enrichment in Dwivedi-Yu 2023 (rho -0.83); a set can look "
+            f"dense on average and still fail on one hole."
+        )
+    out.append(
+        {
+            "label": "Max gap",
+            "value": f"{max_gap/1000:.1f} kb",
+            "verdict": verdict,
+            "detail": detail,
+        }
+    )
+
+    # Gini of 0 is legitimate when there is a single gap (or perfectly regular
+    # spacing) - it means "perfectly even", not "not measured". Only treat it as
+    # unknown when there were no gaps to measure at all.
+    if mean_gap <= 0 and max_gap <= 0:
+        verdict, detail = "unknown", "No gaps measured."
+    elif gap_gini <= BENCHMARK_GINI_GOOD:
+        verdict = "even"
+        detail = (
+            f"At or below {BENCHMARK_GINI_GOOD}, the range of the two successful "
+            f"sets in Dwivedi-Yu 2023 (0.533 and 0.552). That cut is drawn from "
+            f"six labelled sets, so treat it as orientation rather than a "
+            f"threshold."
+        )
+    else:
+        verdict = "uneven"
+        detail = (
+            f"Above {BENCHMARK_GINI_GOOD}. The four sets that failed in "
+            f"Dwivedi-Yu 2023 ran 0.566-0.638, the two that worked 0.533-0.552. "
+            f"That cut comes from six labelled sets and does not transfer: "
+            f"evenness did NOT separate winners in Clarke 2017, whose pool was "
+            f"pre-filtered for even binding."
+        )
+    out.append(
+        {
+            "label": "Gap evenness (Gini)",
+            "value": f"{gap_gini:.3f}",
+            "verdict": verdict,
+            "detail": detail,
+        }
+    )
+
+    return out
+
+
+def gap_regime_note(gap_gini):
+    """One-line guidance on which statistic is likely limiting.
+
+    Included because the composite `normalized_score` does not use `max_gap` at
+    all, so a reader relying on the score alone cannot see this distinction.
+    """
+    if gap_gini > BENCHMARK_GINI_GOOD:
+        return (
+            "Binding is uneven, so coverage holes are the likely limiting factor - "
+            "look at max gap before adding primers to raise average density."
+        )
+    return (
+        "Binding is reasonably even, so density is the likely lever - compare "
+        "mean gap against the 2-5 kb range of published successful sets."
+    )

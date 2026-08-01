@@ -568,6 +568,43 @@ def create_executive_summary(
     )
 
 
+def _render_gap_analysis(coverage):
+    """Gap statistics with their benchmark context.
+
+    All three are shown rather than combined: the published primer-set datasets
+    with wet-lab outcomes disagree about which one predicts success, so the
+    reader needs to see which regime they are in. See
+    docs/validation/published_primer_sets.md.
+    """
+    if coverage is None or coverage.mean_gap <= 0:
+        return ""
+
+    from neoswga.core.coverage import gap_regime_note, interpret_gap_metrics
+
+    reach = getattr(coverage, "extension_reach", 0) or 3000
+    rows = interpret_gap_metrics(
+        coverage.mean_gap, coverage.max_gap, coverage.gap_gini, extension_reach=reach
+    )
+    items = "".join(f"""
+                <div class="gap-metric-item">
+                    <span class="gap-label">{html_escape(r["label"])}</span>
+                    <span class="gap-value">{html_escape(r["value"])}</span>
+                    <span class="gap-verdict">{html_escape(r["verdict"])}</span>
+                    <span class="gap-detail">{html_escape(r["detail"])}</span>
+                </div>""" for r in rows)
+    return f"""
+        <div class="gap-analysis">
+            <h3>Gap Analysis</h3>
+            <p class="gap-intro">These three are shown side by side on purpose.
+            The published benchmarks with wet-lab outcomes disagree about which
+            one predicts success, so no single number is reported in their place.
+            The overall quality score does not use max gap at all.</p>
+            <div class="gap-metrics">{items}
+            </div>
+            <p class="gap-regime">{html_escape(gap_regime_note(coverage.gap_gini))}</p>
+        </div>"""
+
+
 def render_executive_summary(summary: ExecutiveSummary, interactive: bool = False) -> str:
     """
     Render executive summary to HTML.
@@ -644,30 +681,8 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         coverage_badge_label = "Estimated (30 kb/primer)"
         coverage_badge_class = "badge-estimated"
 
-    # Gap analysis section
-    gap_analysis_html = ""
-    if metrics.coverage is not None and metrics.coverage.mean_gap > 0:
-        mean_gap_kb = metrics.coverage.mean_gap / 1000
-        max_gap_kb = metrics.coverage.max_gap / 1000
-        gap_gini = metrics.coverage.gap_gini
-        gap_analysis_html = f"""
-        <div class="gap-analysis">
-            <h3>Gap Analysis</h3>
-            <div class="gap-metrics">
-                <div class="gap-metric-item">
-                    <span class="gap-label">Mean Gap</span>
-                    <span class="gap-value">{mean_gap_kb:.1f} kb</span>
-                </div>
-                <div class="gap-metric-item">
-                    <span class="gap-label">Max Gap</span>
-                    <span class="gap-value">{max_gap_kb:.1f} kb</span>
-                </div>
-                <div class="gap-metric-item">
-                    <span class="gap-label">Gap Gini</span>
-                    <span class="gap-value">{gap_gini:.3f}</span>
-                </div>
-            </div>
-        </div>"""
+    # Gap analysis section (all three statistics, with benchmark context)
+    gap_analysis_html = _render_gap_analysis(metrics.coverage)
 
     # Generate interactive charts if requested and Plotly is available
     interactive_charts = ""
