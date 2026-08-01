@@ -68,6 +68,21 @@ class ReactionState:
             self.bg_bound = defaultdict(int)
 
 
+def _default_phi29(key: str, fallback: float):
+    """Read a phi29 kinetic default from the polymerase registry.
+
+    Kept as a lookup rather than a literal so a correction to the registry
+    reaches this simulator too. Falls back if the registry cannot be read, so
+    importing this module never depends on it.
+    """
+    try:
+        from neoswga.core.registry import views
+
+        return views.mechanistic_enzyme_params()["phi29"][key]
+    except Exception:  # pragma: no cover - registry always present in practice
+        return fallback
+
+
 @dataclass
 class ReactionParameters:
     """Kinetic parameters for SWGA.
@@ -93,10 +108,18 @@ class ReactionParameters:
     k_on: float = 1e6  # M^-1 s^-1 (primer binding)
     k_off: float = 1e-2  # s^-1 (dissociation)
 
-    # Extension kinetics
-    extension_rate: float = 150.0  # nt/s (Phi29 median, literature 100-170)
+    # Extension kinetics.
+    #
+    # Defaults come from the polymerase registry rather than a literal, so this
+    # cannot drift from the rest of the tool again. It had: the schema v2
+    # correction moved phi29 from 150 to 53 nt/s (Blanco 1989) everywhere except
+    # here, leaving this simulator running the enzyme ~2.8x too fast and
+    # carrying a comment ("literature 100-170") that contradicted the corrected
+    # value. `from_conditions` always reads the registry, so only direct
+    # construction of ReactionParameters() was affected.
+    extension_rate: float = field(default_factory=lambda: _default_phi29("extension_rate", 53.0))
     processivity_step: float = 0.99857  # Per 100bp step (phi29 default)
-    max_extension: int = 70000  # Maximum extension length (bp)
+    max_extension: int = field(default_factory=lambda: _default_phi29("processivity", 70000))
 
     # Resource consumption
     dNTP_per_nt: float = 4.0  # Average dNTPs per nucleotide
