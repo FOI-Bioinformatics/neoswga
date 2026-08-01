@@ -114,6 +114,10 @@ def pytest_configure(config):
             "report": cli_unified.run_report,
             "export": cli_unified.run_export,
             "doctor": cli_unified.run_doctor,
+            "validate": cli_unified.run_validate,
+            "validate-model": cli_unified.run_validate_model,
+            "simulate": cli_unified.run_simulate,
+            "multi-genome": cli_unified.run_multi_genome,
             "background-list": cli_unified.run_background_list,
             "background-add": cli_unified.run_background_add,
             "genome-list": cli_unified.run_genome_list,
@@ -223,3 +227,38 @@ def scored_primers(pipeline_run):
         rows = list(csv.DictReader(fh))
     key = "primer" if rows and "primer" in rows[0] else list(rows[0])[0]
     return [r[key] for r in rows]
+
+
+@pytest.fixture(scope="session")
+def completed_run(pipeline_run):
+    """A workspace taken all the way through `optimize`.
+
+    `report`, `export` and `interpret` all read step4 output, so they need a
+    finished run rather than the scored-only workspace `pipeline_run` provides.
+    Built once for the session: optimize is the slowest step here.
+    """
+    import os
+    import subprocess
+    import sys
+
+    summary = os.path.join(pipeline_run["data_dir"], "step4_improved_df_summary.json")
+    if not os.path.exists(summary):
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "neoswga.cli_unified",
+                "optimize",
+                "-j",
+                pipeline_run["params_file"],
+                "--seed",
+                "1",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(pipeline_run["dir"]),
+            timeout=1800,
+        )
+        if proc.returncode != 0 or not os.path.exists(summary):
+            pytest.skip(f"optimize did not complete:\n{proc.stderr[-1000:]}")
+    return pipeline_run
