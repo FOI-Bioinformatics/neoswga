@@ -23,6 +23,14 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+_COMPLEMENT = str.maketrans("ACGT", "TGCA")
+
+
+def _reverse_complement(seq: str) -> str:
+    """Reverse complement of an ACGT string."""
+    return seq.translate(_COMPLEMENT)[::-1]
+
+
 @dataclass
 class BackgroundFilterConfig:
     """Configuration for background filtering"""
@@ -237,13 +245,29 @@ class BackgroundBloomFilter:
 
     def contains(self, kmer: str) -> bool:
         """
-        Check if k-mer likely exists in background genome.
+        Check if k-mer likely exists in background genome, on either strand.
+
+        The reverse complement is checked too, because the background is
+        double-stranded: a primer whose revcomp occurs in the host genome binds
+        the host just as surely as one matching the forward strand.
+
+        This used to test the forward strand only, while `add_genome` also
+        indexed only the forward strand -- so roughly half of the primers that
+        bind the background were reported absent and survived filtering. It
+        also disagreed with the non-Bloom path, which counts CANONICAL k-mers
+        (`jellyfish -C`) and so has always been strand-symmetric.
+
+        Checking both at query time rather than indexing both keeps filters
+        built by earlier versions correct without a rebuild, and does not grow
+        the filter.
 
         Returns:
-            True if kmer in genome (or false positive)
-            False if kmer definitely NOT in genome
+            True if kmer or its reverse complement is in the genome (or a false
+            positive), False if both are definitely absent.
         """
-        return kmer in self.bloom
+        if kmer in self.bloom:
+            return True
+        return _reverse_complement(kmer) in self.bloom
 
     def estimate_match_count(self, primer: str, max_mismatches: int = 1) -> int:
         """
@@ -400,7 +424,12 @@ class SampledGenomeIndex:
         Returns:
             Estimated count in full genome
         """
+        # Both strands, for the same reason as BackgroundBloomFilter.contains:
+        # the background is double-stranded and the non-Bloom path counts
+        # canonical k-mers.
         sampled_count = self.kmers.get(kmer, 0)
+        if kmer != _reverse_complement(kmer):
+            sampled_count += self.kmers.get(_reverse_complement(kmer), 0)
         return sampled_count * self.sample_rate
 
     def _is_valid_kmer(self, kmer: str) -> bool:
@@ -464,12 +493,22 @@ class BackgroundFilter:
         """
         genome_size = self._estimate_genome_size(fasta_path)
 
-        # Build Bloom filter
-        logger.info("Building Bloom filter...")
-        self.bloom = BackgroundBloomFilter(
-            capacity=genome_size, error_rate=self.config.bloom_fp_rate
-        )
-        self.bloom.add_genome(fasta_path, include_mismatches=True)
+        # Capacity must count INSERTIONS, not bases. Every position contributes
+        # one k-mer per length in min_k..max_k (seven by default), so sizing the
+        # filter to the base count overflows it by about an order of magnitude
+        # and pybloom raises "BloomFilter is at capacity" partway through --
+        # on any genome, not just large ones.
+        #
+        # Mismatch variants are not indexed here for the same reason the CLI
+        # path and build_background_filter skip them: each adds a further 3*k
+        # entries, which is another ~30x on top. `estimate_match_count` still
+        # generates them at query time, so the capability is not lost, only the
+        # cost of pre-computing it.
+        capacity = max(1, genome_size * 10)
+
+        logger.info("Building Bloom filter (capacity=%s)...", f"{capacity:,}")
+        self.bloom = BackgroundBloomFilter(capacity=capacity, error_rate=self.config.bloom_fp_rate)
+        self.bloom.add_genome(fasta_path, include_mismatches=False)
 
         # Build sampled index
         logger.info("Building sampled index...")
