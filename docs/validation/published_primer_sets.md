@@ -384,6 +384,68 @@ tests so the suite does not quietly narrow back to the easy case.
 
 ---
 
+# Seventh benchmark: Oyola et al. (2016) Plasmodium falciparum
+
+Data: *Malaria Journal* 15:597, Table S1 (Additional file 1, a PowerPoint whose
+slide 5 carries the table) for sequences, Results for outcomes. One published set,
+`Probe_10`, applied to 156 patients: >18-fold enrichment, 73.2 % (sd 4.4, N=5) of
+reads on target against <1 % for standard WGA; parasitaemia threshold 0.03 %.
+
+Fixture `tests/validation/data/oyola_2016_pfalciparum.json`, tests
+`tests/validation/test_oyola_2016_pfalciparum.py`.
+
+## It replicates the nested-set result
+
+Three nested pools were compared on mock samples — `Probe_10` (first 10 primers),
+`Probe_20` (first 20), `Probe_28` (all 28) — and the **smallest won**, on yield and
+cost. Leichty and Brisson (2014) found the same with `SR2` beating the `SR1` it was
+drawn from. Two groups, different organisms, twelve years apart, same direction:
+adding primers to a working pool made it worse.
+
+Neither is conclusive alone, and only `Probe_10`'s sequences were published so the
+losing pools cannot be scored. But it is now two independent observations pointing
+against "more primers means more coverage", which is worth not designing against.
+
+## It is a set this tool cannot design
+
+*P. falciparum* is ~19 % GC and the working primers are **pure A/T** — one is
+twelve consecutive adenines. Running them through our own filters:
+
+| Filter | Passing |
+|---|---|
+| GC clamp (≥1 G/C in last 5 bases) | **0 / 10** |
+| Adaptive GC filter at genome GC 0.19 | **0 / 10** |
+| Repeat filter | 6 / 10 |
+
+Both failures are structural, not a matter of threshold tuning:
+
+- The **GC clamp** cannot be satisfied by any zero-GC primer at any setting.
+- The **adaptive GC filter** floors its lower bound at `max(0.20, genome_gc - tol)`,
+  so for a 0.19-GC genome the "adapted" window is 0.20–0.34 — it excludes the
+  target's own average composition. An adaptive filter that cannot admit sequences
+  at the target's GC is not adapting.
+
+### Scope of the finding
+
+This is not a general filter problem. Across all 31 published sets in the suite,
+exactly two are rejected outright, and both are very AT-rich targets:
+
+| Set | target | mean GC | passes clamp |
+|---|---|---|---|
+| `oyola_2016:Probe_10` | *P. falciparum* (~19 % GC) | 0.00 | 0 / 10 |
+| `leichty_brisson_2014:B31-BL21` | *B. burgdorferi* (~28 % GC) | 0.00 | 0 / 20 |
+
+Every other set passes almost completely (typically n−1 of n or better). So what is
+in question is not the clamp itself but its **unconditional** application: it is
+standard PCR primer-design doctrine imported into a regime it does not fit — SWGA
+against an AT-rich genome at 30 °C, where AT-rich primers are the entire point.
+
+The tests **pin current behaviour** rather than assert desired behaviour, so a
+deliberate change to the filters surfaces here as a failure to review rather than
+passing silently. No filter change has been made.
+
+---
+
 # Synthesis across the set-level benchmarks
 
 | Dataset | n | density predicts? | evenness predicts? |
@@ -393,6 +455,7 @@ tests so the suite does not quietly narrow back to the easy case.
 | *M. tuberculosis* (Clarke 2017) | 12 | **yes** | no (backwards) |
 | Leishmania (Dwivedi-Yu 2023) | 4 | not measurable | not measurable |
 | Borrelia / Wolbachia (Leichty 2014) | 3 | — | — (not a design criterion) |
+| *P. falciparum* (Oyola 2016) | 1 (of 3 nested) | — | — (only the winner published) |
 
 Among the three where both are measurable, two favour evenness. The odd one out is
 *M. tuberculosis*, and the paper states why: there the primer **pool** was
@@ -412,6 +475,16 @@ The two datasets added later sharpen rather than change this:
 - **Leichty 2014** shows the objective itself is not single-valued. `SR2` is
   simultaneously the most selective set on record and the least even. Any score
   that ranks sets on one axis is silently choosing for the user.
+- **Oyola 2016** moves the question upstream of scoring entirely. Before any set
+  can be ranked, its primers have to survive filtering — and for very AT-rich
+  targets ours do not. A candidate that is never generated cannot be scored well
+  or badly.
+
+Two of the seven datasets (Leichty's `SR2` ⊂ `SR1`, Oyola's `Probe_10` ⊂
+`Probe_20` ⊂ `Probe_28`) also independently found the **smaller** of two nested
+pools to perform better. `target_set_size` defaults to 6 and `--auto-size` scales
+with application profile; neither dataset contradicts those defaults, but both
+argue against treating a larger set as safer.
 
 ## Why the scoring weights were still not changed
 
@@ -423,13 +496,6 @@ already in the score runs backwards on Leishmania. The composite score is left
 alone; the statistics are surfaced so the reader can see the regime they are in.
 
 ## Datasets sought but not obtained
-
-- **Oyola et al. (2016)** *Plasmodium falciparum* sWGA (Malaria Journal
-  12936-2016-1641). Three probe pools (10, 20, 28 primers) with measured yield
-  and >18-fold enrichment, but the primer sequences sit in Additional file 1
-  Table S2, which is not retrievable through EuropePMC or the Springer static
-  endpoints. Its outcome axis is also different — yield by pool size rather than
-  per-set coverage — so it would test set *size*, not gap structure.
 
 - **Cowell et al. (2017)** *Plasmodium vivax* `pvset1` / `pvset1920`. Sequences are
   recoverable, but the published outcome is a per-sample enrichment series rather
