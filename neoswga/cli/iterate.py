@@ -457,6 +457,29 @@ def _realistic_reach():
     )
 
 
+def _prefix_lengths(parameter, kind):
+    """Resolve (prefixes, sequence lengths) for 'fg' or 'bg' from module state.
+
+    `get_params` publishes `<kind>_seq_lengths` as a module global, deriving it
+    from the FASTAs when params.json omits the key. The `_json_data` fallback is
+    kept only for a caller that populated the raw JSON without running
+    get_params.
+
+    That fallback used to be the PRIMARY path, which was the bug: the derived
+    value never lands in `_json_data`, so a params.json without an explicit
+    `fg_seq_lengths` -- which is every config `neoswga init` writes -- made
+    contract-set and rescore-set exit with "fg_seq_lengths missing from params;
+    cannot compute coverage" while the pipeline itself ran fine. Only the two
+    shipped examples declare the key by hand, which is why it went unseen.
+    """
+    prefixes = list(getattr(parameter, f"{kind}_prefixes", []) or [])
+    lengths = list(getattr(parameter, f"{kind}_seq_lengths", []) or [])
+    if not lengths:
+        raw = getattr(parameter, "_json_data", {}) or {}
+        lengths = list(raw.get(f"{kind}_seq_lengths", []) or [])
+    return prefixes, lengths
+
+
 @params_command(seed=True)
 def run_contract_set(args):
     """Greedy leave-one-out contraction that keeps coverage above threshold."""
@@ -470,13 +493,7 @@ def run_contract_set(args):
     pipeline_mod._initialize()
 
     current = _load_primer_list(args.primers, args.primers_file, name="primer")
-    fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
-    # fg_seq_lengths flows through _json_data / data dict rather than the module
-    # globals, so fall back to _json_data if the global is empty.
-    fg_lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
-    if not fg_lengths:
-        raw = getattr(parameter, "_json_data", {}) or {}
-        fg_lengths = list(raw.get("fg_seq_lengths", []) or [])
+    fg_prefixes, fg_lengths = _prefix_lengths(parameter, "fg")
     if not fg_prefixes:
         logger.error("No fg_prefixes available; cannot compute coverage.")
         sys.exit(1)
@@ -682,9 +699,28 @@ def run_rescore_set(args):
         pv = getattr(parameter, attr, None)
         return pv if pv is not None else fallback
 
+    # A temperature configured for one polymerase is not meaningful for another:
+    # params.json carrying phi29's 30 C makes `--polymerase bst` fail validation
+    # outright (bst runs 50-72 C), which is the most obvious use of a command
+    # whose purpose is rescoring under a different chemistry. When the
+    # polymerase is overridden on the command line and the temperature is not,
+    # take the new polymerase's optimum rather than the old one's setting.
+    polymerase = _pick("polymerase", "phi29")
+    if getattr(args, "polymerase", None) and getattr(args, "reaction_temp", None) is None:
+        reaction_temp = parameter.default_reaction_temp(polymerase)
+        logger.info(
+            "Using %s's optimal temperature %.1f C (params.json specifies %s C, "
+            "which belongs to the previous polymerase). Pass --reaction-temp to override.",
+            polymerase,
+            reaction_temp,
+            getattr(parameter, "reaction_temp", None),
+        )
+    else:
+        reaction_temp = _pick("reaction_temp", 30.0) or 30.0
+
     conditions = ReactionConditions(
-        temp=_pick("reaction_temp", 30.0) or 30.0,
-        polymerase=_pick("polymerase", "phi29"),
+        temp=reaction_temp,
+        polymerase=polymerase,
         na_conc=_pick("na_conc", 50.0),
         mg_conc=_pick("mg_conc", 10.0),
         dmso_percent=_pick("dmso_percent", 0.0),
@@ -738,17 +774,9 @@ def run_rescore_set(args):
         # overstated coverage by roughly an order of magnitude.
         extension = polymerase_extension_reach(conditions.polymerase, coverage_metric="realistic")
 
-        fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
-        fg_lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
-        if not fg_lengths:
-            raw = getattr(parameter, "_json_data", {}) or {}
-            fg_lengths = list(raw.get("fg_seq_lengths", []) or [])
+        fg_prefixes, fg_lengths = _prefix_lengths(parameter, "fg")
 
-        bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
-        bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
-        if not bg_lengths:
-            raw = getattr(parameter, "_json_data", {}) or {}
-            bg_lengths = list(raw.get("bg_seq_lengths", []) or [])
+        bg_prefixes, bg_lengths = _prefix_lengths(parameter, "bg")
 
         all_prefixes = fg_prefixes + bg_prefixes
         cache = PositionCache(all_prefixes, primers) if all_prefixes else None

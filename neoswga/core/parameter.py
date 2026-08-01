@@ -670,6 +670,8 @@ def get_params(args):
     global src_dir
     global genome_gc
     global fg_genomes
+    global fg_seq_lengths
+    global bg_seq_lengths
     global bg_genomes
     global fg_prefixes
     global bg_prefixes
@@ -1067,6 +1069,17 @@ def get_params(args):
         data["bg_seq_lengths"] = _utility.get_all_seq_lengths(
             fname_genomes=data["bg_genomes"], cpus=data["cpus"]
         )
+
+    # Publish the derived lengths as module globals, the way fg_genomes and
+    # fg_prefixes already are. They are computed from the FASTAs when params.json
+    # omits them -- which `neoswga init` always does -- so leaving them only in
+    # the returned `data` meant every consumer reading module state saw nothing.
+    # contract-set and rescore-set both exited with "fg_seq_lengths missing from
+    # params; cannot compute coverage" on any config the wizard produced, while
+    # the pipeline itself worked, because the two shipped examples happen to
+    # declare the key by hand.
+    fg_seq_lengths = data.get("fg_seq_lengths", []) or []
+    bg_seq_lengths = data.get("bg_seq_lengths", []) or []
 
     # Auto-compute blacklist genome lengths (mirrors bg_seq_lengths handling) so the
     # frequency-based blacklist filter in pipeline._filter_blacklist_penalty gets

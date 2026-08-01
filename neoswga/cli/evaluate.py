@@ -74,9 +74,6 @@ def run_evaluate_set(args):
     primers = collect_primers_from_args(
         getattr(args, "primers", None), getattr(args, "primers_file", None)
     )
-    if not primers:
-        raise ValueError("No primers supplied. Use --primers or --primers-file.")
-
     os.makedirs(args.output, exist_ok=True)
     prefixes, genomes, lengths = _resolve_sources(args)
 
@@ -116,9 +113,25 @@ def run_evaluate_set(args):
         circular=not args.linear,
     )
 
+    # Three outcomes, and conflating them is precisely the bug this command
+    # exists to prevent:
+    #   ok           - looked up, binds somewhere
+    #   no_sites     - looked up, binds nowhere. A real result.
+    #   not_indexed  - never resolved. Its zero is meaningless, not low.
+    # `missing_primers` is populated only when nothing could be scanned, and is
+    # cleared once a scan resolves everything, so the two lists are disjoint.
+    unresolved = sorted({p for _, p in cache.missing_primers})
+    zero_site = set(cache.zero_site_primers)
+
     per_primer = []
     for primer in primers:
         sites = sum(len(cache.get_positions(p, primer)) for p in prefixes)
+        if primer in unresolved:
+            status = "not_indexed"
+        elif sites == 0 or primer in zero_site:
+            status = "no_sites"
+        else:
+            status = "ok"
         per_primer.append(
             {
                 "primer": primer,
@@ -126,7 +139,7 @@ def run_evaluate_set(args):
                 "gc": round((primer.count("G") + primer.count("C")) / max(1, len(primer)), 4),
                 "tm": round(conditions.calculate_effective_tm(primer), 2),
                 "binding_sites": sites,
-                "indexed": primer not in cache.zero_site_primers,
+                "status": status,
             }
         )
 
@@ -180,6 +193,11 @@ def run_evaluate_set(args):
             mean_gap, max_gap, gap_gini, extension_reach=reach
         ),
         "zero_site_primers": cache.zero_site_primers,
+        # Primers whose coverage could not be determined at all. Reported
+        # separately because their zero is an absence of evidence, not
+        # evidence of absence, and a caller reading only the JSON would
+        # otherwise see a confident-looking 0% with nothing to flag it.
+        "unresolved_primers": unresolved,
         "_regime_note": gap_regime_note(gap_gini),
         "conditions": {
             "polymerase": conditions.polymerase,
@@ -225,6 +243,15 @@ def _print_report(result):
         for r in result["gap_interpretation"]:
             print(f"      {r['label']:<22s} {r['value']:>9s}  {r['verdict']}")
         print(f"      -> {result['_regime_note']}")
+
+    if result.get("unresolved_primers"):
+        print(
+            f"\n  {len(result['unresolved_primers'])} primer(s) could NOT be "
+            f"looked up; their coverage is unknown, not zero:"
+        )
+        for p in result["unresolved_primers"][:10]:
+            print(f"      {p}")
+        print("      Pass --genome so they can be scanned directly.")
 
     if result["zero_site_primers"]:
         print(

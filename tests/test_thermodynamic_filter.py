@@ -10,23 +10,27 @@ Tests all functionality including:
 - Edge cases and error handling
 """
 
-import unittest
 import logging
+import unittest
 import warnings
 from typing import List
 
 from neoswga.core.thermodynamic_filter import (
-    ThermodynamicCriteria,
     PrimerThermodynamics,
+    ThermodynamicCriteria,
     ThermodynamicFilter,
-    calculate_adaptive_gc_range,
     calculate_adaptive_dimer_threshold,
+    calculate_adaptive_gc_range,
     create_filter_from_conditions,
     create_thermodynamic_filter_adaptive,
 )
 
-# Suppress logging during tests
-logging.disable(logging.CRITICAL)
+# NOTE: this module used to call logging.disable(logging.CRITICAL) here.
+# That runs at COLLECTION time, before any test executes, and disables
+# logging process-wide for the rest of the session -- silently voiding
+# every log-based assertion in the suite. pytest already captures log
+# output and shows it only for failing tests, so the noise it was meant
+# to suppress was never a problem.
 
 
 class TestThermodynamicCriteria(unittest.TestCase):

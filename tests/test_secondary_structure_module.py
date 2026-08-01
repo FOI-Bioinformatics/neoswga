@@ -11,24 +11,29 @@ Tests all functionality including:
 - Structure-based filtering
 """
 
-import unittest
-import numpy as np
 import logging
+import unittest
 
+import numpy as np
+
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.secondary_structure import (
-    loop_penalty,
-    bulge_penalty,
     StructurePrediction,
+    bulge_penalty,
+    calculate_dimer_matrix,
+    check_hairpins,
     check_heterodimer,
     check_homodimer,
-    check_hairpins,
-    calculate_dimer_matrix,
     filter_primers_by_structure,
+    loop_penalty,
 )
-from neoswga.core.reaction_conditions import ReactionConditions
 
-# Suppress logging during tests
-logging.disable(logging.CRITICAL)
+# NOTE: this module used to call logging.disable(logging.CRITICAL) here.
+# That runs at COLLECTION time, before any test executes, and disables
+# logging process-wide for the rest of the session -- silently voiding
+# every log-based assertion in the suite. pytest already captures log
+# output and shows it only for failing tests, so the noise it was meant
+# to suppress was never a problem.
 
 
 class TestLoopPenalty(unittest.TestCase):
