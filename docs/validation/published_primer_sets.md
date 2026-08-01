@@ -296,18 +296,108 @@ past 110 kb. Tm range set the outcome before either criterion could apply.
 
 ---
 
-# Synthesis across the three set-level benchmarks
+# Fifth benchmark: Leichty and Brisson (2014), the original SWGA paper
+
+Data: *Genetics* 198:473, Table S1 (sequences) and Results (outcomes). Three sets:
+`B31-BL21` (20 primers, *Borrelia burgdorferi* against *E. coli*) and `SR1` / `SR2`
+(10 and 2 primers, *Wolbachia pipientis* against *D. melanogaster*).
+
+Fixture `tests/validation/data/leichty_brisson_2014.json`, tests
+`tests/validation/test_leichty_brisson_2014.py`.
+
+## A nested-set experiment
+
+`SR2` is a strict subset of `SR1` — the same two primers, nothing else. It was the
+*more* selective of the two: with restriction digest it reached 1264-fold target
+amplification against 9-fold background (~140x), and up to 70 % of reads on target
+against 2.4–8.8 % unamplified. Fewer, more selective primers beat more primers on
+enrichment. This is the only place in the suite where set size varies with
+composition held fixed.
+
+## It documents the other half of a trade-off
+
+Clarke et al. (2017) later benchmarked this same `SR2` set — it is their
+"Leichty and Brisson 2014" row — and found it gave *uneven* coverage and did not
+improve sequencing efficiency, despite competitive binding density. It has the
+worst Gini of the five Wolbachia sets.
+
+Both results are correct. They measure different things: `SR2` maximises
+enrichment and sacrifices evenness. Evenness was never a design criterion here —
+the 2014 selection scored target/background k-mer frequency ratio with a Tm cutoff,
+predating the Gini index in the `swga` toolkit entirely.
+
+This is the clearest evidence in the suite that **a single composite score cannot
+serve both goals**, and it is only visible by combining two papers. Which end of
+the trade-off you want depends on whether you need target DNA or even coverage.
+
+---
+
+# Sixth benchmark: Dwivedi-Yu et al. (2023) Leishmania braziliensis sets
+
+Data: *PLOS Pathogens* 19(3):e1011230, S1 Table (both sheets) for the sets,
+Results for the outcomes. Four sets of ten 8-mers drawn from a shared pool of 23,
+designed with `swga2.0` against **three** backgrounds (human, *S. aureus*,
+*S. pyogenes*). PS1 and PS4 reached ≥60 % parasite-mapping reads from 1 % and
+0.1 % starting parasite DNA; PS2 and PS3 "performed more poorly on synthetic
+samples" and were relegated to nested second-round reactions.
+
+Fixture `tests/validation/data/dwivedi_yu_2023_leishmania.json`, tests
+`tests/validation/test_leishmania_2023.py`.
+
+## The closest thing here to a controlled A/B
+
+PS1 and PS2 are **entirely disjoint** — twenty primers, no overlap — and PS3/PS4
+are hybrids. Membership in the PS1 pool tracks the outcome exactly:
+
+| Set | from PS1 | from PS2 | outcome |
+|---|---|---|---|
+| PS1 | 10 | 0 | effective |
+| PS4 | 6 | 2 | effective |
+| PS3 | 2 | 6 | poor |
+| PS2 | 0 | 10 | poor |
+
+## Composition does not explain it, and points the wrong way
+
+Neither mean Tm, Tm spread, GC content nor 3' clamp separates the winners:
+
+| Set | effective | mean Tm | Tm spread | mean GC |
+|---|---|---|---|---|
+| PS1 | yes | 28.98 | 0.83 | 0.613 |
+| PS2 | no | 28.88 | 0.95 | 0.600 |
+| PS3 | no | 28.49 | 1.65 | 0.588 |
+| PS4 | **yes** | 27.85 | **1.71** | 0.575 |
+
+PS4 won with the *widest* Tm spread and the *lowest* GC of the four. The composite
+score carries a Tm-uniformity term; on this dataset that term points backwards.
+One counter-example is not grounds for removing it, but it is grounds for not
+treating uniform within-set Tm as established. Recorded as a test rather than
+acted on.
+
+What this dataset cannot test is binding geometry — that would need the 32 Mb
+*L. braziliensis* assembly, too large to carry as a fixture. The narrow and honest
+reading is: whatever separated these sets, it was not primer composition.
+
+It also fills two gaps in the suite. It is the only **multi-background** design,
+and the only one against a **GC-rich** target (~60 %), where the others are AT-rich
+bacterial genomes — `B31-BL21`'s primers are near-zero GC. Both facts are pinned by
+tests so the suite does not quietly narrow back to the easy case.
+
+---
+
+# Synthesis across the set-level benchmarks
 
 | Dataset | n | density predicts? | evenness predicts? |
 |---|---|---|---|
 | Prevotella (Dwivedi-Yu 2023) | 6 | no | **yes** (with worst gap) |
 | Wolbachia (Clarke 2017) | 5 | no (backwards) | **yes** |
 | *M. tuberculosis* (Clarke 2017) | 12 | **yes** | no (backwards) |
+| Leishmania (Dwivedi-Yu 2023) | 4 | not measurable | not measurable |
+| Borrelia / Wolbachia (Leichty 2014) | 3 | — | — (not a design criterion) |
 
-Two of three favour evenness. The odd one out is *M. tuberculosis*, and the paper
-states why: there the primer **pool** was pre-filtered for even binding, which
-removed most of the variance in evenness and left density as the limiting
-property.
+Among the three where both are measurable, two favour evenness. The odd one out is
+*M. tuberculosis*, and the paper states why: there the primer **pool** was
+pre-filtered for even binding, which removed most of the variance in evenness and
+left density as the limiting property.
 
 All three are consistent with a single rule: **whichever property is currently
 limiting is the one that predicts.** That is what the reporting change is built
@@ -315,13 +405,22 @@ around — `mean_gap`, `max_gap` and `gap_gini` are now shown together with thei
 benchmark context in both HTML reports and in `evaluate-set`, rather than folded
 into a composite that would have to commit to one regime.
 
+The two datasets added later sharpen rather than change this:
+
+- **Leishmania** rules out primer composition as the explanation in at least one
+  case, which pushes the signal further toward binding geometry.
+- **Leichty 2014** shows the objective itself is not single-valued. `SR2` is
+  simultaneously the most selective set on record and the least even. Any score
+  that ranks sets on one axis is silently choosing for the user.
+
 ## Why the scoring weights were still not changed
 
-With 6, 5 and 12 sets, any weighting fitted to one dataset is contradicted by
+With 6, 5, 12 and 4 sets, any weighting fitted to one dataset is contradicted by
 another. A `max_gap` term helps on Prevotella, is neutral-to-harmful on
 *M. tuberculosis*, and does not cleanly separate the Wolbachia sets either
-(`TmL/Selective` has a *better* max gap than the winner). The composite score is
-left alone; the three statistics are surfaced so the reader can see the regime.
+(`TmL/Selective` has a *better* max gap than the winner). The Tm-uniformity term
+already in the score runs backwards on Leishmania. The composite score is left
+alone; the statistics are surfaced so the reader can see the regime they are in.
 
 ## Datasets sought but not obtained
 
@@ -331,3 +430,25 @@ left alone; the three statistics are surfaced so the reader can see the regime.
   Table S2, which is not retrievable through EuropePMC or the Springer static
   endpoints. Its outcome axis is also different — yield by pool size rather than
   per-set coverage — so it would test set *size*, not gap structure.
+
+- **Cowell et al. (2017)** *Plasmodium vivax* `pvset1` / `pvset1920`. Sequences are
+  recoverable, but the published outcome is a per-sample enrichment series rather
+  than a comparison between sets, so it cannot separate a winner from a loser.
+
+- **Thesis-derived sets** (*P. falciparum* 6A/8A; *Toxoplasma gondii*). The
+  *T. gondii* sets are `swga` tool output with no wet-lab result, so they measure
+  the tool's own agreement with itself rather than an outcome. Excluded on that
+  basis.
+
+## Survey method
+
+The starting point was a local collection of 19 SWGA papers, screened
+programmatically by scoring each PDF for the density of DNA-like tokens alongside
+outcome keywords (fold, enrichment, coverage). That flagged five candidates, of
+which one — Leichty and Brisson (2014) — carried both complete sequences and
+quantified outcomes. The remaining benchmark, Leishmania, came from a subsequent
+literature search rather than the local set.
+
+The screen's value was mostly negative: most SWGA papers either report sequences
+without a set-level outcome, or an outcome without sequences. Requiring both is
+what keeps the suite at six datasets.
