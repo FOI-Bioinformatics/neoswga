@@ -347,14 +347,33 @@ class GillespieSimulator:
 
         return dict(extensions)
 
-    def simulate(self, max_time: float = 28800.0, sample_interval: float = 60.0) -> List[Dict]:
+    def simulate(
+        self,
+        max_time: float = 28800.0,
+        sample_interval: float = 60.0,
+        max_iterations: int = 1_000_000,
+    ) -> List[Dict]:
         """
         Run Gillespie simulation.
 
+        Exact Gillespie advances one molecular event at a time, so the number of
+        iterations grows with the total reaction propensity -- which grows with
+        the number of binding sites. Measured on this implementation, reaching
+        the 8-hour default takes roughly 2 wall hours for a 3-site network, 5
+        days at 20 sites and several months at 100. A real design has hundreds,
+        so the documented default is not reachable at realistic scale.
+
+        `max_iterations` bounds that. It does not make large runs accurate; it
+        makes them terminate and say what happened, instead of appearing to
+        hang. The returned history is a valid trajectory up to the point it
+        stops, and the stopping is logged with the simulated time reached.
+
         Args:
-            max_time: Maximum simulation time (seconds). Default 8 hours (28800s)
+            max_time: Maximum simulated time (seconds). Default 8 hours (28800s)
                       to match typical SWGA protocol duration.
             sample_interval: Sampling interval for recording state
+            max_iterations: Safety bound on reaction events. Set higher for a
+                      long run you intend to wait for, or None to disable.
 
         Returns:
             List of state snapshots
@@ -367,6 +386,18 @@ class GillespieSimulator:
 
         iteration = 0
         while state.time < max_time:
+            if max_iterations is not None and iteration >= max_iterations:
+                logger.warning(
+                    "Stopped after %s reaction events having simulated %.1f s of "
+                    "the requested %.1f s. Exact Gillespie scales with total "
+                    "propensity, so large networks cannot reach the full "
+                    "duration; raise max_iterations to continue, or reduce "
+                    "max_time.",
+                    f"{iteration:,}",
+                    state.time,
+                    max_time,
+                )
+                break
             iteration += 1
 
             # Calculate reaction propensities
@@ -449,7 +480,13 @@ class GillespieSimulator:
                 for target_site, distance in self.fg_extensions[site_idx]:
                     if distance <= self.params.max_extension:
                         # Extension rate depends on polymerase availability
-                        propensity = self.params.polymerase_binding * self.params.polymerase * count
+                        # Polymerase CONCENTRATION lives on the reaction state,
+                        # not on the kinetic parameters -- params carries
+                        # `polymerase_binding` (a rate constant) and nothing
+                        # called `polymerase`. Reading it here raised
+                        # AttributeError the moment any primer was bound, so the
+                        # Gillespie loop crashed as soon as it tried to extend.
+                        propensity = self.params.polymerase_binding * state.polymerase * count
                         propensity *= self.params.extension_probability(distance)
                         reactions.append(("fg_extend", propensity, site_idx, target_site, distance))
 
@@ -458,9 +495,7 @@ class GillespieSimulator:
             if count > 0 and site_idx in self.bg_extensions:
                 for target_site, distance in self.bg_extensions[site_idx]:
                     if distance <= self.params.max_extension:
-                        propensity = (
-                            self.params.polymerase_binding * self.params.polymerase * count * 0.5
-                        )
+                        propensity = self.params.polymerase_binding * state.polymerase * count * 0.5
                         propensity *= self.params.extension_probability(distance)
                         reactions.append(("bg_extend", propensity, site_idx, target_site, distance))
 

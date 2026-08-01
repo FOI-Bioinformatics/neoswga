@@ -461,6 +461,21 @@ def plot_primer_contributions(ax, primer_contributions: List):
         )
 
 
+def _severity_from_size(length):
+    """Bucket a gap by length, using the same thresholds as simulation_analysis.
+
+    Kept in step with `SimulationAnalyzer._analyze_coverage` so an unlabelled
+    gap lands in the bucket it would have been given there.
+    """
+    if length > 100_000:
+        return "critical"
+    if length > 50_000:
+        return "high"
+    if length > 20_000:
+        return "medium"
+    return "low"
+
+
 def plot_gaps(ax, gaps: List[Dict]):
     """
     Plot gap severity distribution.
@@ -482,10 +497,22 @@ def plot_gaps(ax, gaps: List[Dict]):
         ax.axis("off")
         return
 
-    # Count by severity
+    # Count by severity.
+    #
+    # Two gap shapes exist in this project. `simulation_analysis` labels each
+    # gap with a severity; `SwgaSimulator._identify_gaps` emits
+    # {start, end, length, mean_coverage} and does not. Only the labelled shape
+    # is passed here today, but indexing the key directly meant handing over the
+    # other one -- the obvious thing to try -- raised a bare KeyError from
+    # inside the plotting code, in the panel whose whole job is to report
+    # coverage problems. Fall back to bucketing by size on the same thresholds
+    # simulation_analysis uses.
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     for gap in gaps:
-        severity_counts[gap["severity"]] += 1
+        severity = gap.get("severity")
+        if severity not in severity_counts:
+            severity = _severity_from_size(gap.get("length", gap.get("size", 0)))
+        severity_counts[severity] += 1
 
     # Plot pie chart
     labels = []
