@@ -14,7 +14,11 @@ import numpy as np
 import pandas as pd
 
 from neoswga.core import dimer, parameter, primer_attributes
-from neoswga.core.parameter import EXTREME_AT_GENOME_GC, EXTREME_GC_GENOME_GC
+from neoswga.core.parameter import (
+    EXTREME_AT_GENOME_GC,
+    EXTREME_GC_GENOME_GC,
+    default_reaction_temp,
+)
 from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
@@ -32,9 +36,19 @@ def _get_reaction_conditions() -> ReactionConditions:
     """
     global _reaction_conditions
     if _reaction_conditions is None:
+        # `parameter.reaction_temp` EXISTS as None until get_params runs, so a
+        # getattr default never fires -- ReactionConditions(temp=None) then
+        # raises TypeError when it range-checks the temperature. Fall back to
+        # the polymerase's optimal temperature, matching what
+        # thermodynamics.get_current_config already does.
+        polymerase = getattr(parameter, "polymerase", None) or "phi29"
+        reaction_temp = getattr(parameter, "reaction_temp", None)
+        if reaction_temp is None:
+            reaction_temp = default_reaction_temp(polymerase)
+
         _reaction_conditions = ReactionConditions(
-            temp=getattr(parameter, "reaction_temp", 30.0),
-            polymerase=getattr(parameter, "polymerase", "phi29"),
+            temp=reaction_temp,
+            polymerase=polymerase,
             dmso_percent=getattr(parameter, "dmso_percent", 0.0),
             betaine_m=getattr(parameter, "betaine_m", 0.0),
             trehalose_m=getattr(parameter, "trehalose_m", 0.0),

@@ -82,6 +82,24 @@ def default_mg_conc(polymerase: str) -> float:
     return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
 
 
+def default_reaction_temp(polymerase: str) -> float:
+    """
+    Return the optimal reaction temperature (deg C) for a polymerase.
+
+    Needed because the module-level `reaction_temp` is None until `get_params`
+    runs. Code that reaches ReactionConditions before that -- a library caller,
+    or any helper invoked outside the CLI pipeline -- cannot rely on a getattr
+    default, because the attribute exists and merely holds None. Constructing
+    ReactionConditions with temp=None raises a TypeError from its range check,
+    so callers need a real value rather than a sentinel.
+    """
+    return (
+        _registry_views.as_characteristics()
+        .get((polymerase or "").lower(), {})
+        .get("optimal_temp", 30.0)
+    )
+
+
 src_dir = os.path.dirname(os.path.abspath(__file__))
 
 # Optimization parameters (loaded from JSON)
@@ -471,6 +489,16 @@ max_bl_freq = 0.0
 gc_tolerance = 0.15
 gc_min = 0.375
 gc_max = 0.625
+genome_gc = None
+
+# Dimer and Tm constraints. These mirror the PipelineParameters defaults above
+# and exist as module globals so the filtering rules can run before get_params
+# has populated them -- filter.filter_extra reads max_self_dimer_bp as a bare
+# attribute, so its absence was an AttributeError rather than a fallback.
+max_dimer_bp = 3
+max_self_dimer_bp = 4
+min_tm = None
+max_tm = None
 
 # Genome GC below/above which a target counts as compositionally extreme, and
 # the GC bound on the matching side is released rather than centred on the
@@ -482,7 +510,7 @@ EXTREME_AT_GENOME_GC = 0.30
 EXTREME_GC_GENOME_GC = 0.70
 
 
-def adaptive_gc_window(genome_gc, gc_tolerance=gc_tolerance):
+def adaptive_gc_window(genome_gc, gc_tolerance=None):
     """
     Primer GC window for a target of the given composition.
 
@@ -511,6 +539,12 @@ def adaptive_gc_window(genome_gc, gc_tolerance=gc_tolerance):
     Returns:
         (gc_min, gc_max) fractions
     """
+    # Read the module global at call time, not as a def-time default: binding it
+    # in the signature would freeze the value at import and silently ignore any
+    # later change to parameter.gc_tolerance.
+    if gc_tolerance is None:
+        gc_tolerance = globals().get("gc_tolerance", 0.15)
+
     gc_min = max(0.15, genome_gc - gc_tolerance)
     gc_max = min(0.85, genome_gc + gc_tolerance)
 

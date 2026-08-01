@@ -10,6 +10,7 @@ CLIs share the same code path.
 
 from __future__ import annotations
 
+import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -210,6 +211,18 @@ BENCHMARK_MEAN_GAP_BP = (2000, 5000)  # successful published sets, both datasets
 BENCHMARK_GINI_GOOD = 0.56
 
 
+def _unknown_gap_rows():
+    """Rows used when the gap statistics are absent or not finite."""
+    return [
+        {"label": label, "value": "unknown", "verdict": "unknown", "detail": detail}
+        for label, detail in (
+            ("Mean gap", "No gaps measured."),
+            ("Max gap", "No gaps measured; nothing to compare against primer reach."),
+            ("Gap evenness (Gini)", "No gaps measured."),
+        )
+    ]
+
+
 def interpret_gap_metrics(mean_gap, max_gap, gap_gini, extension_reach=3000):
     """Describe gap statistics against the published benchmarks.
 
@@ -229,6 +242,18 @@ def interpret_gap_metrics(mean_gap, max_gap, gap_gini, extension_reach=3000):
     Returns:
         List of dicts with keys: label, value, verdict, detail.
     """
+
+    # A failed optimization carries inf gaps (see base_optimizer.json_safe), and
+    # a summary JSON round-tripped through `null` brings them back as None.
+    # Neither is a measurement, so report them as such rather than rendering
+    # "About inf kb of this gap sits beyond the reach of any flanking primer",
+    # which read as a real figure in a real report.
+    def _finite(x):
+        return isinstance(x, (int, float)) and math.isfinite(x)
+
+    if not (_finite(mean_gap) and _finite(max_gap) and _finite(gap_gini)):
+        return _unknown_gap_rows()
+
     out = []
 
     lo, hi = BENCHMARK_MEAN_GAP_BP

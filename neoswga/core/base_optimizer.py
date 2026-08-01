@@ -11,6 +11,7 @@ Design principles:
 """
 
 import logging
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -28,6 +29,26 @@ class OptimizationStatus(Enum):
     PARTIAL = "partial"  # Converged but below target
     NO_CONVERGENCE = "no_convergence"
     ERROR = "error"
+
+
+def json_safe(value: Any) -> Any:
+    """
+    Replace non-finite floats with None so the result is valid JSON.
+
+    A failed optimization carries `score=-inf` and `mean_gap`/`max_gap` of `inf`
+    -- deliberately, since "no coverage" really is unboundedly bad and any finite
+    sentinel would rank it as merely mediocre. But `json.dump` writes those as
+    the bare tokens `Infinity` / `-Infinity` / `NaN`, which RFC 8259 does not
+    allow. Python reads them back happily, so the damage is invisible from
+    inside: `step4_improved_df_summary.json` is the file the report and any
+    downstream tooling read, and JavaScript, Go and Rust parsers all reject it.
+
+    `null` is the honest encoding -- the quantity is not representable -- and it
+    round-trips to None rather than to a number that would be silently wrong.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 @dataclass(frozen=True)
@@ -301,9 +322,9 @@ class OptimizationResult:
         """Convert to dictionary for JSON serialization."""
         d = {
             "primers": list(self.primers),
-            "score": self.score,
+            "score": json_safe(self.score),
             "status": self.status.value,
-            "metrics": self.metrics.to_dict(),
+            "metrics": {k: json_safe(v) for k, v in self.metrics.to_dict().items()},
             "iterations": self.iterations,
             "optimizer_name": self.optimizer_name,
             "num_primers": self.num_primers,
