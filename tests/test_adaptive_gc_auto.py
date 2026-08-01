@@ -64,7 +64,13 @@ def _write_params(tmp_path, seq: str, extra=None):
 
 
 def test_at_rich_genome_triggers_adaptive_window(tmp_path, caplog):
-    """25% GC genome should get gc_min ~0.10 (clamped to 0.15) and gc_max ~0.40."""
+    """25% GC genome should get gc_min 0.0 and gc_max ~0.40.
+
+    The lower bound used to be clamped to 0.15. It is released entirely below
+    `EXTREME_AT_GENOME_GC` because published sets against AT-rich targets use
+    primers with no G or C at all, which no positive floor admits -- see
+    tests/validation/test_oyola_2016_pfalciparum.py.
+    """
     from neoswga.core import parameter
 
     parameter.reset_to_defaults()
@@ -78,7 +84,7 @@ def test_at_rich_genome_triggers_adaptive_window(tmp_path, caplog):
     with caplog.at_level(logging.INFO, logger="neoswga.core.parameter"):
         parameter.get_params(_mk_args(params_file))
 
-    assert 0.14 <= parameter.gc_min <= 0.16
+    assert parameter.gc_min == 0.0
     assert 0.39 <= parameter.gc_max <= 0.41
     # Extreme-GC message surfaces to the user
     assert any("Extreme GC genome" in rec.message for rec in caplog.records)

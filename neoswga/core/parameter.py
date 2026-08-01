@@ -472,6 +472,67 @@ gc_tolerance = 0.15
 gc_min = 0.375
 gc_max = 0.625
 
+# Genome GC below/above which a target counts as compositionally extreme, and
+# the GC bound on the matching side is released rather than centred on the
+# genome mean. Shared by the adaptive GC window here, the GC-clamp rule in
+# filter.filter_extra and the filters in adaptive_filters, so the three cannot
+# drift apart. See docs/validation/published_primer_sets.md for the published
+# zero-GC primer sets that motivated this.
+EXTREME_AT_GENOME_GC = 0.30
+EXTREME_GC_GENOME_GC = 0.70
+
+
+def adaptive_gc_window(genome_gc, gc_tolerance=gc_tolerance):
+    """
+    Primer GC window for a target of the given composition.
+
+    The window is normally the genome GC plus or minus `gc_tolerance`, which is
+    what lets extreme-GC organisms such as Francisella (33%) or Burkholderia
+    (67%) work at all.
+
+    On strongly AT-rich or GC-rich targets that is not enough, because the
+    working primers sit at the composition *extreme* rather than near the genome
+    mean, so a window centred on the mean excludes them. Published sets show
+    this plainly: Oyola et al. (2016) amplified P. falciparum (19% GC) with ten
+    primers of ZERO GC, and Leichty and Brisson (2014) did the same for
+    Borrelia. Both are rejected by any positive lower bound, at any tolerance.
+
+    The reason is that SWGA selects on differential target/background k-mer
+    frequency, which on an AT-rich target drives primers to pure A/T -- and
+    short 8-12mers quantise GC coarsely enough that "near the genome mean" is
+    not reachable anyway. So beyond the thresholds the bound on the matching
+    side is released entirely. Those thresholds are shared with the GC-clamp
+    rule in filter.filter_extra and the filters in adaptive_filters.
+
+    Args:
+        genome_gc: Target genome GC fraction (0.0-1.0)
+        gc_tolerance: Allowed deviation from genome GC
+
+    Returns:
+        (gc_min, gc_max) fractions
+    """
+    gc_min = max(0.15, genome_gc - gc_tolerance)
+    gc_max = min(0.85, genome_gc + gc_tolerance)
+
+    if genome_gc < EXTREME_AT_GENOME_GC:
+        gc_min = 0.0
+    elif genome_gc > EXTREME_GC_GENOME_GC:
+        gc_max = 1.0
+
+    # Log explicitly when adaptive kicks in on extreme-GC genomes so the user
+    # can trace why their GC window looks different.
+    if genome_gc < 0.35 or genome_gc > 0.65:
+        logger.info(
+            "Extreme GC genome detected (GC=%.1f%%). Adaptive GC filter "
+            "engaged: primer GC window %.2f-%.2f. Set 'adaptive_gc': false "
+            "in params.json to disable.",
+            genome_gc * 100,
+            gc_min,
+            gc_max,
+        )
+
+    return gc_min, gc_max
+
 
 def get_all_files(prefix_or_file):
     """
@@ -1030,9 +1091,6 @@ def get_params(args):
     user_set_gc_min = "gc_min" in _json_data
     user_set_gc_max = "gc_max" in _json_data
 
-    # Adaptive GC filtering: compute gc_min and gc_max based on genome_gc
-    # If genome_gc is known, use genome_gc +/- gc_tolerance
-    # This enables extreme GC genomes like Francisella (33%) and Burkholderia (67%)
     if (
         adaptive_gc_enabled
         and genome_gc is not None
@@ -1040,20 +1098,7 @@ def get_params(args):
         and not user_set_gc_min
         and not user_set_gc_max
     ):
-        # Adaptive: primer GC should match target genome GC +/- tolerance
-        gc_min = max(0.15, genome_gc - gc_tolerance)
-        gc_max = min(0.85, genome_gc + gc_tolerance)
-        # Log explicitly when adaptive kicks in on extreme-GC genomes so
-        # the user can trace why their GC window looks different.
-        if genome_gc < 0.35 or genome_gc > 0.65:
-            logger.info(
-                "Extreme GC genome detected (GC=%.1f%%). Adaptive GC filter "
-                "engaged: primer GC window %.2f-%.2f. Set 'adaptive_gc': false "
-                "in params.json to disable.",
-                genome_gc * 100,
-                gc_min,
-                gc_max,
-            )
+        gc_min, gc_max = adaptive_gc_window(genome_gc, gc_tolerance)
     else:
         # Fallback to explicit gc_min/gc_max if specified, otherwise use defaults
         gc_min = data.get("gc_min", 0.375)

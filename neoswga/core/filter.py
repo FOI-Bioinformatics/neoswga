@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from neoswga.core import dimer, parameter, primer_attributes
+from neoswga.core.parameter import EXTREME_AT_GENOME_GC, EXTREME_GC_GENOME_GC
 from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
@@ -276,11 +277,11 @@ def filter_extra(primer: str) -> bool:
     # for AT-rich (e.g. Plasmodium ~25% GC) or GC-rich (e.g. Mycobacterium ~65% GC) targets
     gc_in_last_5 = _count_gc(primer[-5:])
     genome_gc = getattr(parameter, "genome_gc", None)
-    if genome_gc is not None and genome_gc < 0.30:
+    if genome_gc is not None and genome_gc < EXTREME_AT_GENOME_GC:
         # AT-rich genome: allow 0 GC in last 5, reject >3
         gc_clamp_min = 0
         gc_clamp_max = MAX_GC_IN_LAST_5_BASES
-    elif genome_gc is not None and genome_gc > 0.70:
+    elif genome_gc is not None and genome_gc > EXTREME_GC_GENOME_GC:
         # GC-rich genome: allow up to 4 GC in last 5, require >=1 AT
         gc_clamp_min = 1
         gc_clamp_max = 4

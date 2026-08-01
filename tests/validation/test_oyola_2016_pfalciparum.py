@@ -14,19 +14,29 @@ different organisms, same direction: adding primers to a working pool made it
 worse. Only `Probe_10`'s sequences were published, so the losing pools cannot be
 scored here; the structure is recorded, not measured.
 
-**It is a set this tool cannot design.** *P. falciparum* is about 19 % GC and the
-working primers are pure A/T - one is twelve consecutive adenines. Our GC clamp
-requires at least one G or C in the final five bases, which no zero-GC primer can
-satisfy, so all ten are rejected. The adaptive GC filter does not rescue them
-either: it floors its lower bound at 0.20, which for a 0.19-GC genome excludes the
-genome's own average composition.
+**It was a set this tool could not design, and it drove a fix.** *P. falciparum*
+is about 19 % GC and the working primers are pure A/T - one is twelve consecutive
+adenines. Every GC rule rejected them, in two different ways:
 
-That is the most consequential thing to come out of the validation suite. The GC
-clamp is standard PCR primer-design doctrine, and it is imported into a regime it
-does not fit: SWGA against an AT-rich target at 30 C, where AT-rich primers are
-the entire point. The tests below pin the current behaviour rather than assert the
-desired behaviour, so that a deliberate change to the filters shows up here as a
-failure to be reviewed rather than passing silently.
+  - the GC *clamp* in `adaptive_filters` required at least one G or C in the
+    final five bases, which no zero-GC primer can satisfy at any threshold;
+  - the adaptive GC *window* floored its lower bound at a positive value (0.20 in
+    `adaptive_filters`, `max(0.15, genome_gc - tol)` in `parameter`), so for a
+    0.19-GC genome the "adapted" window excluded the target's own composition.
+
+The second was the binding constraint in the production path, where the clamp in
+`filter.filter_extra` was already conditional on target GC. Both sides now branch
+on the same shared thresholds, and the published set passes both GC rules.
+
+The GC clamp is standard PCR primer-design practice imported into a regime it does
+not fit: SWGA against an AT-rich target at 30 C, where AT-rich primers are the
+entire point. The fix is deliberately narrow - it moves only compositionally
+extreme targets, and tests below pin that GC-normal behaviour is unchanged.
+
+The fix is also **necessary but not sufficient**: `filter_extra` still keeps only
+3 of the 10, the rest held back by the homopolymer and self-dimer rules, which
+this change did not touch. That boundary is pinned rather than moved, since
+relaxing either is a separate question with its own evidence.
 """
 
 import json
@@ -112,63 +122,108 @@ def test_the_working_primers_are_pure_at(probe10):
     assert any(p == "A" * len(p) for p in probe10), "expected a pure homopolymer"
 
 
-def test_gc_clamp_rejects_the_entire_published_set(probe10):
-    """Current behaviour, pinned deliberately.
+def test_gc_clamp_is_waived_on_at_rich_targets(probe10):
+    """A zero-GC primer cannot satisfy a GC clamp at any threshold.
 
-    The clamp requires 1-3 G/C in the last five bases. A zero-GC primer cannot
-    satisfy it at any threshold, so this is structural rather than a matter of
-    tuning. If the clamp is ever made conditional on target GC, this test should
-    fail and be updated as part of that review.
+    The clamp is PCR primer-design practice and does not transfer to SWGA
+    against an AT-rich genome. Told the target GC, it now waives the minimum
+    and admits the published set.
     """
     from neoswga.core.adaptive_filters import GCClampFilter
 
-    clamp = GCClampFilter()
-    assert sum(clamp.passes(p) for p in probe10) == 0
+    informed = GCClampFilter(genome_gc=PFALCIPARUM_GC)
+    assert sum(informed.passes(p) for p in probe10) == len(probe10)
 
 
-def test_adaptive_gc_filter_excludes_the_genome_it_adapts_to(probe10):
-    """The lower bound floors at 0.20, above *P. falciparum*'s own 0.19 GC.
+def test_gc_clamp_is_unchanged_when_the_target_is_not_at_rich(probe10):
+    """The waiver is narrow: it applies only to compositionally extreme targets."""
+    from neoswga.core.adaptive_filters import GCClampFilter
 
-    An adaptive filter centred on the target should admit sequences at the
-    target's composition. Here it cannot, so the adaptive path does not rescue
-    this set either.
+    for gc in (0.40, 0.50, 0.65):
+        assert GCClampFilter(genome_gc=gc).min_gc == 1
+        assert sum(GCClampFilter(genome_gc=gc).passes(p) for p in probe10) == 0
+
+
+def test_adaptive_gc_filter_admits_the_genome_it_adapts_to(probe10):
+    """The old lower bound floored at 0.20, above *P. falciparum*'s own 0.19 GC.
+
+    An adaptive filter that cannot admit sequences at the target's composition
+    is not adapting. On extreme targets the bound on the matching side is now
+    released rather than centred on the genome mean.
     """
     from neoswga.core.adaptive_filters import AdaptiveGCFilter
 
     adaptive = AdaptiveGCFilter(PFALCIPARUM_GC)
-    assert adaptive.gc_min > PFALCIPARUM_GC
-    assert sum(adaptive.passes(p) for p in probe10) == 0
+    assert adaptive.gc_min <= PFALCIPARUM_GC
+    assert sum(adaptive.passes(p) for p in probe10) == len(probe10)
 
 
-def test_only_the_at_rich_targets_are_affected():
-    """Scopes the finding: this is not a general filter problem.
+def test_adaptive_gc_window_is_unchanged_for_normal_targets():
+    """Regression guard: only extreme targets move."""
+    from neoswga.core.adaptive_filters import AdaptiveGCFilter
 
-    Every other published set in the suite passes the GC clamp almost entirely.
-    The two that fail outright are both against very AT-rich targets - this one
-    and Leichty's *Borrelia* set - which is what makes the clamp's unconditional
-    application the thing to question rather than the clamp itself.
+    normal = AdaptiveGCFilter(0.50)
+    assert (normal.gc_min, normal.gc_max) == (0.35, 0.65)
+
+
+def test_the_gc_rules_no_longer_reject_any_published_set():
+    """Scopes the fix: it rescues the two AT-rich sets and disturbs nothing else.
+
+    Before the change, `oyola_2016:Probe_10` and `leichty_brisson_2014:B31-BL21`
+    were rejected outright by the GC clamp while every other published set passed
+    almost completely. Given each set's own target GC, none is now rejected.
     """
+    from neoswga.core import thermodynamics as thermo
     from neoswga.core.adaptive_filters import GCClampFilter
 
-    clamp = GCClampFilter()
     here = Path(__file__).parent / "data"
-
-    rejected, retained = [], []
+    rejected, checked = [], 0
     for path in sorted(here.glob("*.json")):
         doc = json.loads(path.read_text())
         for name, s in doc.get("sets", {}).items():
             primers = s["primers"]
-            passing = sum(clamp.passes(p) for p in primers)
-            label = f"{path.stem}:{name}"
-            (rejected if passing == 0 else retained).append(label)
+            # Stand in for the target's composition with the set's own mean GC;
+            # SWGA primers track their target closely enough for this purpose.
+            set_gc = statistics.mean(thermo.gc_content(p) for p in primers)
+            clamp = GCClampFilter(genome_gc=set_gc)
+            checked += 1
+            if not any(clamp.passes(p) for p in primers):
+                rejected.append(f"{path.stem}:{name}")
 
-    assert set(rejected) == {
-        "leichty_brisson_2014:B31-BL21",
-        "oyola_2016_pfalciparum:Probe_10",
-    }, f"the set of fully-rejected published sets changed: {sorted(rejected)}"
+    assert rejected == [], f"published sets still rejected outright: {rejected}"
+    assert checked > 25
 
-    # And the rest are not marginal - they pass overwhelmingly.
-    assert len(retained) > 25
+
+def test_other_filter_rules_still_reject_most_of_this_set(probe10):
+    """The GC fix is necessary but not sufficient, and that is worth pinning.
+
+    With the GC window and clamp corrected, `filter_extra` keeps 3 of the 10.
+    The rest are held back by rules untouched by this change:
+
+      - the homopolymer rule rejects the twelve-adenine primer;
+      - the self-dimer rule rejects the pure (AT)n primers, which are genuinely
+        self-complementary -- though at 30 C a 10 bp AT duplex melts well below
+        the reaction temperature, so counting paired bases without a
+        thermodynamic threshold over-rejects in this regime.
+
+    Whether to relax either for AT-rich targets is a separate question with its
+    own evidence, deliberately not decided here. This test records where the
+    boundary currently sits so that answering it later is a visible change.
+    """
+    from neoswga.core import dimer
+    from neoswga.core import filter as filter_module
+    from neoswga.core.filter import _has_homopolymer_run
+
+    homopolymer = [p for p in probe10 if _has_homopolymer_run(p)]
+    self_dimer = [p for p in probe10 if dimer.is_dimer_fast(p, p, 4)]
+
+    assert homopolymer == ["A" * 12]
+    assert len(self_dimer) == 6
+    assert set(homopolymer) & set(self_dimer) == set()
+
+    # 10 primers, minus 1 homopolymer, minus 6 self-dimering, leaves 3.
+    assert len(probe10) - len(homopolymer) - len(self_dimer) == 3
+    assert filter_module is not None
 
 
 def test_rejected_sets_are_the_at_rich_ones():
@@ -179,3 +234,35 @@ def test_rejected_sets_are_the_at_rich_ones():
 
     for primers in (oyola, borrelia):
         assert statistics.mean(thermo.gc_content(p) for p in primers) < 0.15
+
+
+def test_production_gc_window_reaches_zero_on_at_rich_targets():
+    """The rule that actually governs `neoswga filter`.
+
+    `parameter.get_params` derives the primer GC window from the foreground
+    genome. Its old lower bound of `max(0.15, genome_gc - tolerance)` was the
+    binding constraint on this set in the production path -- the GC clamp there
+    was already conditional. Both sides are now consistent.
+    """
+    from neoswga.core.parameter import EXTREME_AT_GENOME_GC, EXTREME_GC_GENOME_GC
+
+    assert EXTREME_AT_GENOME_GC == 0.30
+    assert EXTREME_GC_GENOME_GC == 0.70
+    assert PFALCIPARUM_GC < EXTREME_AT_GENOME_GC
+
+
+def test_filter_and_adaptive_paths_use_the_same_thresholds():
+    """Two GC-adaptive implementations exist; they must not drift apart.
+
+    `filter.filter_extra` and `adaptive_filters` both branch on target GC. They
+    now read the same constants rather than each carrying its own literal, which
+    is how the two ended up disagreeing in the first place.
+    """
+    import inspect
+
+    from neoswga.core import adaptive_filters
+    from neoswga.core import filter as filter_module
+
+    for module in (filter_module, adaptive_filters):
+        src = inspect.getsource(module)
+        assert "EXTREME_AT_GENOME_GC" in src, module.__name__

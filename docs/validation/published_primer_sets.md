@@ -406,43 +406,80 @@ Neither is conclusive alone, and only `Probe_10`'s sequences were published so t
 losing pools cannot be scored. But it is now two independent observations pointing
 against "more primers means more coverage", which is worth not designing against.
 
-## It is a set this tool cannot design
+## It was a set this tool could not design
 
 *P. falciparum* is ~19 % GC and the working primers are **pure A/T** — one is
-twelve consecutive adenines. Running them through our own filters:
+twelve consecutive adenines. Every GC rule rejected them, in two different ways.
 
-| Filter | Passing |
-|---|---|
-| GC clamp (≥1 G/C in last 5 bases) | **0 / 10** |
-| Adaptive GC filter at genome GC 0.19 | **0 / 10** |
-| Repeat filter | 6 / 10 |
+| Rule | Before | After |
+|---|---|---|
+| GC clamp (`adaptive_filters`) | 0 / 10 | **10 / 10** |
+| Adaptive GC window at genome GC 0.19 | 0 / 10 | **10 / 10** |
+| GC content window (`parameter`, production path) | 0 / 10 | **10 / 10** |
+| `filter_extra` overall | 0 / 10 | 3 / 10 |
 
-Both failures are structural, not a matter of threshold tuning:
+Neither failure was a matter of threshold tuning:
 
-- The **GC clamp** cannot be satisfied by any zero-GC primer at any setting.
-- The **adaptive GC filter** floors its lower bound at `max(0.20, genome_gc - tol)`,
-  so for a 0.19-GC genome the "adapted" window is 0.20–0.34 — it excludes the
-  target's own average composition. An adaptive filter that cannot admit sequences
-  at the target's GC is not adapting.
+- The **GC clamp** cannot be satisfied by a zero-GC primer at any setting. It is
+  standard PCR primer-design practice, imported into a regime it does not fit —
+  SWGA against an AT-rich genome at 30 °C, where AT-rich primers are the point.
+- The **adaptive GC window** floored its lower bound at a positive value (0.20 in
+  `adaptive_filters`, `max(0.15, genome_gc - tol)` in `parameter`). For a 0.19-GC
+  genome the "adapted" window was 0.20–0.34 — it excluded the target's own average
+  composition. A filter that cannot admit sequences at the target's GC is not
+  adapting.
 
-### Scope of the finding
+An important correction to an earlier version of this section: the clamp was **not**
+the binding constraint in the production path. `filter.filter_extra` already made
+the clamp conditional on `parameter.genome_gc`, which `get_params` does set from the
+foreground genome. What blocked the set there was the GC *content* floor. Both the
+clamp and the window are now conditional, on shared thresholds.
 
-This is not a general filter problem. Across all 31 published sets in the suite,
-exactly two are rejected outright, and both are very AT-rich targets:
+## What changed
 
-| Set | target | mean GC | passes clamp |
-|---|---|---|---|
-| `oyola_2016:Probe_10` | *P. falciparum* (~19 % GC) | 0.00 | 0 / 10 |
-| `leichty_brisson_2014:B31-BL21` | *B. burgdorferi* (~28 % GC) | 0.00 | 0 / 20 |
+`parameter.EXTREME_AT_GENOME_GC` (0.30) and `EXTREME_GC_GENOME_GC` (0.70) are now
+the single definition of a compositionally extreme target, read by
+`parameter.adaptive_gc_window`, `filter.filter_extra` and both filters in
+`adaptive_filters` — the three had each carried their own literal, which is how
+they came to disagree. Beyond a threshold the bound on the *matching* side is
+released rather than centred on the genome mean:
 
-Every other set passes almost completely (typically n−1 of n or better). So what is
-in question is not the clamp itself but its **unconditional** application: it is
-standard PCR primer-design doctrine imported into a regime it does not fit — SWGA
-against an AT-rich genome at 30 °C, where AT-rich primers are the entire point.
+| Target | genome GC | primer GC window |
+|---|---|---|
+| *P. falciparum* | 0.19 | **0.00**–0.34 |
+| *B. burgdorferi* | 0.28 | **0.00**–0.43 |
+| *Francisella* | 0.33 | 0.18–0.48 |
+| *E. coli* | 0.50 | 0.35–0.65 |
+| *Burkholderia* | 0.67 | 0.52–0.82 |
+| GC-rich | 0.72 | 0.57–**1.00** |
 
-The tests **pin current behaviour** rather than assert desired behaviour, so a
-deliberate change to the filters surfaces here as a failure to review rather than
-passing silently. No filter change has been made.
+The rationale is that SWGA selects on differential target/background k-mer
+frequency, which on an AT-rich target drives primers to pure A/T — and short
+8–12mers quantise GC coarsely enough that "near the genome mean" is not reachable
+anyway.
+
+### Scope
+
+Deliberately narrow. Across all 31 published sets, exactly two were rejected
+outright and both are very AT-rich targets — this one and `B31-BL21`
+(*B. burgdorferi*, 0.00 mean GC, 0/20 before). Every other set already passed at
+n−1 of n or better, and GC-normal behaviour is unchanged (a 0.50-GC target still
+gets 0.35–0.65, clamp minimum still 1). Tests pin both directions.
+
+### Necessary but not sufficient
+
+`filter_extra` now keeps **3 of 10**, not 10. The rest are held back by rules this
+change did not touch:
+
+- the **homopolymer** rule rejects the twelve-adenine primer;
+- the **self-dimer** rule rejects the six pure (AT)n primers. These are genuinely
+  self-complementary — but at 30 °C a 10 bp AT duplex melts well below the reaction
+  temperature, so counting paired bases without a thermodynamic threshold
+  over-rejects in this regime.
+
+Whether to relax either for AT-rich targets is a separate question with its own
+evidence, not decided here. The boundary is pinned by test so that answering it
+later is a visible change.
 
 ---
 
