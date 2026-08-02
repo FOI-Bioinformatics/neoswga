@@ -19,6 +19,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from neoswga.core.thermodynamics import reverse_complement
+
 logger = logging.getLogger(__name__)
 
 # Try to import CuPy for GPU acceleration
@@ -273,6 +275,31 @@ class GPUThermodynamics:
 # ========================================
 
 
+def _split_strands(handle, primer, positions):
+    """Split an HDF5 position array into (forward, reverse).
+
+    Two layouts are accepted. SIGN-ENCODED stores reverse-strand sites as
+    negative positions -- the convention `strand_conventions` documents for this
+    module. FLAT is what this project actually writes and what PositionCache
+    reads: forward hits under the primer, reverse hits under its REVERSE
+    COMPLEMENT, all non-negative.
+
+    Only the sign-encoded split was implemented, so against a real position file
+    -- which contains no negative values -- the reverse array was always empty
+    and every reverse-strand binding site was invisible. The identical mistake
+    was found in `amplicon_network`; this is the same fix.
+    """
+    forward = positions[positions >= 0]
+    reverse = -positions[positions < 0]
+
+    if len(reverse) == 0:
+        rc_primer = reverse_complement(primer)
+        if rc_primer in handle:
+            reverse = handle[rc_primer][:]
+
+    return forward, reverse
+
+
 class PositionDatabase:
     """
     Efficient HDF5 position database with memory mapping and caching.
@@ -350,12 +377,7 @@ class PositionDatabase:
             # Load positions
             positions = handle[primer][:]
 
-            # Separate forward/reverse
-            # (Assuming negative positions are reverse strand)
-            forward = positions[positions >= 0]
-            reverse = -positions[positions < 0]
-
-            result = (forward, reverse)
+            result = _split_strands(handle, primer, positions)
 
         # Add to cache
         self._add_to_cache(cache_key, result)
@@ -402,9 +424,7 @@ class PositionDatabase:
                 else:
                     if primer in handle:
                         positions = handle[primer][:]
-                        forward = positions[positions >= 0]
-                        reverse = -positions[positions < 0]
-                        result = (forward, reverse)
+                        result = _split_strands(handle, primer, positions)
                     else:
                         result = (np.array([]), np.array([]))
 
