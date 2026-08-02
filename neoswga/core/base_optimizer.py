@@ -465,6 +465,11 @@ class OptimizerConfig:
     target_set_size: int = 6
     max_iterations: int = 100
     max_dimer_bp: int = 4
+    # Self-dimer threshold. The clique optimizer reached for this with
+    # `getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)` and the
+    # fallback fired every time, because the field did not exist -- so a
+    # params.json setting it had no effect anywhere.
+    max_self_dimer_bp: int = 5
     min_tm: float = 20.0
     max_tm: float = 50.0
     verbose: bool = True

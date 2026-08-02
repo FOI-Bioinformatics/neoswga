@@ -351,6 +351,45 @@ def _run_ensemble(
     return _dc_replace(winner, ensemble_comparison=tuple(rows))
 
 
+def _build_optimizer_config(target_size, verbose, extension_reach, fg_circular, kwargs):
+    """Populate every configurable field, not just the ones a caller passes.
+
+    This used to set five fields and leave the rest at their dataclass
+    defaults, so `max_dimer_bp`, `max_self_dimer_bp`, `min_tm` and `max_tm`
+    never arrived however params.json configured them -- every optimizer read
+    the default instead.
+
+    It mattered most on the clique optimizer, where the effect was a broken
+    guarantee rather than a shifted score. A params.json asking for
+    max_dimer_bp=3 got the default 4, which is LOOSER, so the compatibility
+    graph gained edges and the returned "dimer-free" clique could contain a
+    pair that dimerises at 3. The opposite direction would have been harmless
+    -- a clique in a sparser graph is still a clique in a denser one -- which
+    is why this only ever failed one way, and why unit tests that build the
+    config themselves never saw it.
+
+    Precedence: explicit kwarg, then the `parameter` global, then the default.
+    """
+
+    def pick(name, default):
+        value = kwargs.get(name)
+        if value is None:
+            value = getattr(parameter, name, None)
+        return default if value is None else value
+
+    return OptimizerConfig(
+        target_set_size=target_size,
+        max_iterations=kwargs.get("max_iterations", 100),
+        verbose=verbose,
+        extension_reach=extension_reach,
+        fg_circular=fg_circular,
+        max_dimer_bp=pick("max_dimer_bp", 4),
+        max_self_dimer_bp=pick("max_self_dimer_bp", 5),
+        min_tm=pick("min_tm", 20.0),
+        max_tm=pick("max_tm", 50.0),
+    )
+
+
 def _collect_forbidden_primers(candidates, verbose: bool) -> list:
     """Candidates that exceed the blacklist frequency ceiling.
 
@@ -634,12 +673,13 @@ def run_optimization(
     fg_circular = kwargs.get("fg_circular")
     if fg_circular is None:
         fg_circular = bool(getattr(parameter, "fg_circular", False))
-    config = OptimizerConfig(
-        target_set_size=target_size,
-        max_iterations=kwargs.get("max_iterations", 100),
+
+    config = _build_optimizer_config(
+        target_size=target_size,
         verbose=verbose,
         extension_reach=extension_reach,
         fg_circular=fg_circular,
+        kwargs=kwargs,
     )
 
     # Popped rather than read off `config`: these arrive as kwargs, and the
