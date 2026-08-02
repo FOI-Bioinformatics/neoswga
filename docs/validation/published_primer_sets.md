@@ -177,6 +177,36 @@ than the six-set benchmark above.
 None of these predict measured *selectivity* (all rho about 0.1), which is
 expected: with identical site geometry there is little selectivity to predict.
 
+## The default Tm window costs most of the measured amplification
+
+Running the 141 pcDNA-designed primers through the shipped phi29 filter
+settings (`min_tm` 15, `max_tm` 45) splits them three ways:
+
+| | n | median measured amplification |
+|---|---|---|
+| below the window | 14 | 0.80x |
+| inside the window | 51 | 6.45x |
+| **above the window** | **76** | **19.95x** |
+
+The lower bound earns its place: the primers it rejects genuinely amplified
+badly. The upper bound does not behave like a filter on quality. The 76 primers
+above it amplified about three times better than those inside, and carry **74%
+of all amplification measured in the experiment**. Only 2 of the 141 survive
+the complete filter.
+
+This is recorded rather than acted on, because the benchmark cannot settle the
+question it raises. Every primer here has exactly one on-target site and zero
+off-target sites, so there is no selectivity to lose — the same constant
+geometry noted above. At genome scale a longer, higher-Tm primer binds more
+sites including background ones, and an upper Tm bound is defensible as a
+selectivity constraint rather than an amplification one.
+
+What was previously unmeasured is the cost side of that trade. Raising `max_tm`
+is not consequence-free in either direction, and the decision needs data this
+benchmark cannot provide: per-primer amplification measured against a genome
+with real background. Pinned by
+`tests/validation/test_tm_window_vs_measured_amplification.py`.
+
 ## A real bug this benchmark caught
 
 Recomputing the site counts surfaced a defect in the scan fallback added for
