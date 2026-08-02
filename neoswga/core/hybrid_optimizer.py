@@ -189,6 +189,8 @@ class HybridOptimizer:
         max_extension: int = 70000,
         coverage_reach: Optional[int] = None,
         uniformity_weight: float = 0.0,
+        min_tm: Optional[float] = None,
+        max_tm: Optional[float] = None,
         polymerase: str = "phi29",
         genome_gc_content: Optional[float] = None,
         background_pruning: bool = False,
@@ -243,6 +245,13 @@ class HybridOptimizer:
             self.max_extension = self.poly_config.max_extension
         else:
             self.max_extension = max_extension
+
+        # Explicit Tm window, when the caller configured one. Stage-0 screening
+        # built its criteria from the polymerase preset alone, so a user who
+        # widened max_tm in params.json had the filter step honour it and the
+        # optimizer silently narrow it back.
+        self.min_tm = min_tm
+        self.max_tm = max_tm
 
         # coverage_reach is the realistic per-primer reach used for the Stage-1
         # set-cover COVERAGE objective, so selection optimizes the same coverage
@@ -979,6 +988,50 @@ class HybridOptimizer:
         coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
         return coverage
 
+    def _thermo_criteria(self):
+        """Criteria for the Stage-0 thermodynamic screen.
+
+        Two things used to be wrong here and both were invisible.
+
+        The Tm bounds came from the polymerase preset alone, so a window
+        widened in params.json was honoured by the filter step and then
+        narrowed back by the optimizer. An explicitly configured bound now
+        wins; the preset remains the default when nothing is configured.
+
+        `na_conc=50.0, mg_conc=0.0` were hardcoded. Every hairpin, homodimer
+        and heterodimer energy this screen rejects primers on was therefore
+        computed for a reaction containing no magnesium -- the same
+        zero-magnesium fault schema v2 corrected in the presets, and Mg2+ is
+        the dominant term in the salt correction. The configured buffer is
+        used instead.
+        """
+        from neoswga.core.thermodynamic_filter import ThermodynamicCriteria
+
+        conditions = getattr(self, "conditions", None)
+        if conditions is not None:
+            na_conc = conditions.na_conc
+            mg_conc = conditions.mg_conc
+        else:
+            from neoswga.core.parameter import default_mg_conc
+
+            na_conc = 50.0
+            mg_conc = default_mg_conc(self.polymerase)
+
+        return ThermodynamicCriteria(
+            min_tm=self.min_tm if self.min_tm is not None else self.poly_config.min_primer_tm,
+            max_tm=self.max_tm if self.max_tm is not None else self.poly_config.max_primer_tm,
+            target_tm=self.poly_config.reaction_temp + 5,
+            na_conc=na_conc,
+            mg_conc=mg_conc,
+            max_homodimer_dg=-10.0,
+            max_heterodimer_dg=-10.0,
+            max_hairpin_dg=-3.0,
+            min_gc=self.poly_config.min_gc,
+            max_gc=self.poly_config.max_gc,
+            reaction_temp=self.poly_config.reaction_temp,
+            polymerase=self.polymerase,
+        )
+
     def _thermo_filter_candidates(self, candidates: List[str], verbose: bool = True) -> List[str]:
         """
         Apply thermodynamic filtering based on polymerase requirements.
@@ -997,20 +1050,7 @@ class HybridOptimizer:
         try:
             from neoswga.core.thermodynamic_filter import ThermodynamicCriteria, ThermodynamicFilter
 
-            criteria = ThermodynamicCriteria(
-                min_tm=self.poly_config.min_primer_tm,
-                max_tm=self.poly_config.max_primer_tm,
-                target_tm=self.poly_config.reaction_temp + 5,
-                na_conc=50.0,
-                mg_conc=0.0,
-                max_homodimer_dg=-10.0,
-                max_heterodimer_dg=-10.0,
-                max_hairpin_dg=-3.0,
-                min_gc=self.poly_config.min_gc,
-                max_gc=self.poly_config.max_gc,
-                reaction_temp=self.poly_config.reaction_temp,
-                polymerase=self.polymerase,
-            )
+            criteria = self._thermo_criteria()
 
             thermo_filter = ThermodynamicFilter(criteria)
             filtered, stats = thermo_filter.filter_candidates(
@@ -1191,6 +1231,8 @@ class HybridBaseOptimizer(BaseOptimizer):
             # and the scored metrics.fg_coverage share one coverage definition.
             coverage_reach=getattr(self.config, "extension_reach", None),
             polymerase=kwargs.get("polymerase", "phi29"),
+            min_tm=getattr(self.config, "min_tm", None),
+            max_tm=getattr(self.config, "max_tm", None),
             genome_gc_content=kwargs.get("genome_gc_content"),
             background_pruning=kwargs.get("background_pruning", False),
             background_weight=kwargs.get("background_weight", 2.0),

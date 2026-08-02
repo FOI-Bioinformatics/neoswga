@@ -18,6 +18,7 @@ from neoswga.core.parameter import (
     EXTREME_AT_GENOME_GC,
     EXTREME_GC_GENOME_GC,
     default_reaction_temp,
+    default_tm_range,
 )
 from neoswga.core.reaction_conditions import ReactionConditions, build_reaction_conditions
 
@@ -185,6 +186,38 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
     return primer_to_count
 
 
+def _resolve_tm_window() -> Tuple[float, float]:
+    """The Tm window this filter applies, in Celsius.
+
+    Two faults lived in the two lines this replaces:
+
+        tm_min = getattr(parameter, "min_tm", None) or 15
+        tm_max = getattr(parameter, "max_tm", None) or 55
+
+    The fallback was a fixed 15-55 whatever the enzyme, so a params.json that
+    did not mention Tm screened a bst design at 63 C through a window built for
+    phi29 -- keeping primers that cannot prime at that temperature and
+    rejecting ones that can. And `or` treats a configured 0.0 as absent, the
+    same sentinel-versus-value confusion found elsewhere in this codebase; 0 C
+    is a legitimate way to ask for no lower bound.
+
+    `get_params` now resolves both from the polymerase when params.json is
+    silent, so the globals are normally populated. The fallback here is for
+    library callers that reach the filter without going through it, and it
+    reads the same registry rather than being a fourth independent answer to
+    "what Tm is acceptable".
+    """
+    polymerase = getattr(parameter, "polymerase", None) or "phi29"
+    default_low, default_high = default_tm_range(polymerase)
+
+    tm_min = getattr(parameter, "min_tm", None)
+    tm_max = getattr(parameter, "max_tm", None)
+    return (
+        default_low if tm_min is None else tm_min,
+        default_high if tm_max is None else tm_max,
+    )
+
+
 def _count_gc(sequence: str) -> int:
     """Count G and C bases in a sequence."""
     return sum(1 for base in sequence if base in "GC")
@@ -248,8 +281,7 @@ def filter_extra(primer: str) -> bool:
     # Use effective Tm that accounts for additives (DMSO, betaine, etc.)
     conditions = _get_reaction_conditions()
     primer_tm = conditions.calculate_effective_tm(primer)
-    tm_min = getattr(parameter, "min_tm", None) or 15
-    tm_max = getattr(parameter, "max_tm", None) or 55
+    tm_min, tm_max = _resolve_tm_window()
     if not (tm_min <= primer_tm <= tm_max):
         logger.debug(
             f"Tm filter: {primer} effective Tm={primer_tm:.1f} outside [{tm_min}, {tm_max}]"

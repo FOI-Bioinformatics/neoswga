@@ -40,6 +40,11 @@ DTT_DEFAULTS_MM = {
 }
 DTT_DEFAULT_FALLBACK_MM = 4.0
 
+# Used only for an unrecognised polymerase. Deliberately wide: guessing a
+# narrow window for an enzyme we know nothing about would silently discard
+# usable primers.
+TM_RANGE_FALLBACK = (20.0, 55.0)
+
 
 # Bumped to 2 when the scientific corrections landed. A v1 params.json still
 # runs, but the numbers it produces will not match a v1-era run, so say why
@@ -97,6 +102,27 @@ SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is d
 def default_mg_conc(polymerase: str) -> float:
     """Return the default Mg2+ concentration (mM) for a polymerase."""
     return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
+
+
+def default_tm_range(polymerase: str) -> tuple:
+    """Return the (min, max) primer Tm window for a polymerase, in Celsius.
+
+    A primer is usable when it binds at the reaction temperature, and those
+    temperatures span more than thirty degrees across the supported enzymes --
+    phi29 at 30 C, bst at 63 C. A window that does not move with the enzyme is
+    filtering for the wrong chemistry: `filter.py` used a fixed 15-55 fallback,
+    so a bst design was filtered through a window built for phi29.
+
+    Sourced from the registry's `primer_tm_range`, which is also where the
+    hybrid optimizer's polymerase presets come from, so the two cannot drift.
+    """
+    from neoswga.core.registry import POLYMERASES
+
+    spec = POLYMERASES.get((polymerase or "").lower())
+    if spec is not None and spec.primer_tm_range:
+        low, high = spec.primer_tm_range
+        return float(low), float(high)
+    return TM_RANGE_FALLBACK
 
 
 def default_dtt_mm(polymerase: str) -> float:
@@ -946,6 +972,13 @@ def get_params(args):
     # Polymerase and reaction condition parameters (optional)
     # Load from JSON file if present, otherwise use module defaults
     polymerase = data.get("polymerase", "phi29")
+
+    # Polymerase-aware Tm window; see default_tm_range. Resolved here rather
+    # than where min_tm is first read, because the polymerase is not known
+    # until this line. An explicit value in params.json still wins.
+    _tm_low, _tm_high = default_tm_range(polymerase)
+    min_tm = data["min_tm"] = _tm_low if min_tm is None else min_tm
+    max_tm = data["max_tm"] = _tm_high if max_tm is None else max_tm
     na_conc = data.get("na_conc", 50.0)
     _mg_defaults = MG_DEFAULTS_MM
     if "mg_conc" not in data and "mg_conc" not in _json_data:
