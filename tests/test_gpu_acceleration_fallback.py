@@ -18,9 +18,17 @@ whether the acceleration is real:
 2. It must degrade cleanly when the optional dependency is absent, which is the
    normal case.
 
-WHAT THESE TESTS DO NOT COVER: the CuPy kernels themselves. `cupy` is not
-installed here, so every path below exercises the NumPy fallback. The GPU
-branches remain unverified, and a test suite cannot pretend otherwise.
+ON TESTING THE GPU PATH WITHOUT A GPU: cupy cannot be installed on this machine
+-- its build says "macOS is no longer supported", and it needs CUDA or ROCm
+while this is Apple silicon. But the module uses only cupy's numpy-compatible
+surface (`cp.array`, `cp.zeros`, `cp.exp`, `cp.asnumpy`) with no custom kernels
+or streams, so a numpy-backed stand-in exercises the real GPU branches and
+proves they agree with the CPU ones.
+
+That verifies the branch LOGIC -- allocation, the loops that fill the arrays,
+the conversion back to numpy. It does not verify CUDA itself: device dtype and
+precision, memory behaviour, and anything genuinely device-specific are still
+unverified and would need real hardware.
 """
 
 import numpy as np
@@ -241,17 +249,126 @@ def test_calculations_work_with_no_gpu_present(conditions):
     assert len(calculator.batch_calculate_tm(PRIMERS)) == len(PRIMERS)
 
 
-@pytest.mark.skipif(is_gpu_available(), reason="a GPU is present; fallback is not in use")
-def test_the_gpu_kernels_themselves_are_not_covered_here():
-    """Recorded so the coverage figure is not mistaken for verification.
+# ----------------------------------------------------------------------
+# The GPU branches, exercised through a numpy-backed stand-in
+# ----------------------------------------------------------------------
 
-    Every test in this file exercises the NumPy fallback, because cupy is not
-    installed. The CuPy branches are unverified, and would need a machine with a
-    device to test properly.
+
+@pytest.fixture
+def gpu_module():
+    """Reload gpu_acceleration with a numpy-backed `cupy` in place.
+
+    `GPU_AVAILABLE` is decided at import time, so the module has to be reloaded
+    for the GPU branches to be reachable. The fixture restores sys.modules and
+    reloads again afterwards, so no other test sees a module that believes it
+    has a GPU.
     """
-    import inspect
+    import importlib
+    import sys
+    import types
 
     from neoswga.core import gpu_acceleration
 
-    source = inspect.getsource(gpu_acceleration)
-    assert "cupy" in source, "the module no longer has a GPU path to leave untested"
+    shim = types.ModuleType("cupy")
+    for name in dir(np):
+        if not name.startswith("_"):
+            setattr(shim, name, getattr(np, name))
+    shim.asnumpy = lambda a: np.asarray(a)
+
+    cuda = types.ModuleType("cupy.cuda")
+    cuda.Device = lambda *a, **k: type("Device", (), {"id": 0})()
+    runtime = types.ModuleType("cupy.cuda.runtime")
+    runtime.getDeviceProperties = lambda i: {
+        "name": b"numpy-stand-in",
+        "totalGlobalMem": 8 * 1024**3,
+    }
+    cuda.runtime = runtime
+    shim.cuda = cuda
+
+    saved = {k: sys.modules.get(k) for k in ("cupy", "cupy.cuda")}
+    sys.modules["cupy"] = shim
+    sys.modules["cupy.cuda"] = cuda
+    try:
+        importlib.reload(gpu_acceleration)
+        assert gpu_acceleration.GPU_AVAILABLE, "the stand-in did not activate the GPU path"
+        yield gpu_acceleration
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = value
+        importlib.reload(gpu_acceleration)
+
+
+def _cpu_results(conditions, primers):
+    calculator = GPUThermodynamics(conditions)
+    return {
+        "tm": np.asarray(calculator.batch_calculate_tm(primers)),
+        "gc": np.asarray(calculator.calculate_gc_content_batch(primers)),
+        "dg": np.asarray(calculator.batch_calculate_dg(primers)),
+        "prob": np.asarray(calculator.batch_binding_probability(primers)),
+        "matrix": np.asarray(calculator.calculate_pairwise_binding_matrix(primers, primers)),
+    }
+
+
+@pytest.mark.parametrize("metric", ["tm", "gc", "dg", "prob", "matrix"])
+def test_gpu_branch_agrees_with_the_cpu_branch(gpu_module, conditions, metric):
+    """The property that makes an acceleration safe to enable.
+
+    If the two paths disagree, nothing fails -- the scores simply differ
+    depending on whether an optional package happens to be installed, which is
+    the worst possible way for a numerical difference to appear.
+    """
+    cpu = _cpu_results(conditions, PRIMERS)
+
+    accelerated = gpu_module.GPUThermodynamics(conditions)
+    gpu = {
+        "tm": np.asarray(accelerated.batch_calculate_tm(PRIMERS)),
+        "gc": np.asarray(accelerated.calculate_gc_content_batch(PRIMERS)),
+        "dg": np.asarray(accelerated.batch_calculate_dg(PRIMERS)),
+        "prob": np.asarray(accelerated.batch_binding_probability(PRIMERS)),
+        "matrix": np.asarray(accelerated.calculate_pairwise_binding_matrix(PRIMERS, PRIMERS)),
+    }
+
+    assert gpu[metric].shape == cpu[metric].shape
+    assert np.allclose(gpu[metric], cpu[metric], equal_nan=True)
+
+
+def test_gpu_branch_returns_numpy_not_device_arrays(gpu_module, conditions):
+    """Callers index and serialise these; a device array left unconverted would
+    fail far from here, or silently behave differently."""
+    accelerated = gpu_module.GPUThermodynamics(conditions)
+    result = accelerated.batch_calculate_tm(PRIMERS)
+
+    assert isinstance(result, np.ndarray)
+
+
+def test_gpu_info_reports_the_device_when_one_is_present(gpu_module):
+    """The device-introspection branch is the only genuinely CUDA-specific code
+    here, so it is worth reaching at least once."""
+    info = gpu_module.get_gpu_info()
+
+    assert info["available"] is True
+    assert info["backend"] == "cupy"
+    assert "device_name" in info
+
+
+def test_real_cuda_execution_remains_unverified():
+    """Recorded so the coverage figure is not mistaken for full verification.
+
+    The stand-in above proves the GPU branches compute the same values as the
+    CPU ones, which is the property that matters for correctness. It cannot
+    prove anything about CUDA itself -- device dtype and precision, memory
+    behaviour, kernel launch -- and cupy cannot be installed on this machine to
+    check: its build refuses macOS, and it requires CUDA or ROCm while this is
+    Apple silicon.
+    """
+    try:
+        import cupy  # noqa: F401
+
+        pytest.skip("cupy is installed; this caveat no longer applies")
+    except ImportError:
+        pass
+
+    assert is_gpu_available() is False
