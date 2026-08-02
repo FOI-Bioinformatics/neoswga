@@ -19,7 +19,7 @@ Version: 3.0 - Phase 2.1
 
 import logging
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from dataclasses import replace as _dc_replace
 from typing import Dict, List, Optional, Tuple
@@ -32,6 +32,14 @@ from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimize
 from neoswga.core.registry import POLYMERASES as _POLYMERASES
 
 logger = logging.getLogger(__name__)
+
+# How much Stage-2 removal weighs the coverage a removal costs against the
+# amplification-network score it leaves behind. Both terms are normalised
+# within each removal step, so this is a genuine 0-1 trade-off rather than a
+# coefficient between incommensurable units. Half and half: Stage 2 exists to
+# improve connectivity, so coverage must not simply dominate it and turn the
+# stage into a second set-cover pass.
+_STAGE2_COVERAGE_WEIGHT = 0.5
 
 
 # =========================================================================
@@ -115,6 +123,14 @@ class HybridResult:
     final_coverage: float
     final_connectivity: float
     final_predicted_amplification: float
+
+    # Stage-1 primers in greedy selection order. `stage1_primers` comes from a
+    # set and has no meaningful order; this does. Set-cover picks the largest
+    # marginal gain at each step, so its first N picks are the same N whatever
+    # `stage1_count` was, and coverage over that prefix is non-decreasing in N.
+    # Stage 2 is floored against it, which is what makes final coverage
+    # monotone in the requested count.
+    stage1_ordered_primers: List[str] = field(default_factory=list)
 
     # Simulation validation (optional)
     simulation_fitness: Optional[object] = None  # SimulationFitness if validated
@@ -452,6 +468,8 @@ class HybridOptimizer:
         # Combine fixed primers with newly selected primers
         stage1_new_primers = stage1_result["primers"]
         stage1_primers = fixed_primers + [p for p in stage1_new_primers if p not in fixed_primers]
+        # Greedy selection order, which `stage1_primers` (built from a set) loses.
+        stage1_ordered = list(stage1_result.get("ordered_primers") or stage1_primers)
         stage1_coverage = stage1_result["coverage"]
         stage1_regions = stage1_result["covered_regions"]
 
@@ -481,6 +499,7 @@ class HybridOptimizer:
             return HybridResult(
                 primers=stage1_primers,
                 stage1_primers=stage1_primers,
+                stage1_ordered_primers=stage1_ordered,
                 stage1_coverage=stage1_coverage,
                 stage1_regions_covered=stage1_regions,
                 stage2_primers=stage1_primers,
@@ -542,7 +561,11 @@ class HybridOptimizer:
         # Use network-based selection from Stage 1 primers
         # Fixed primers will never be removed during refinement
         stage2_primers = self._network_refine(
-            stage1_primers, target_count=final_count, fixed_primers=fixed_primers, verbose=verbose
+            stage1_primers,
+            target_count=final_count,
+            fixed_primers=fixed_primers,
+            verbose=verbose,
+            coverage_floor_set=stage1_ordered,
         )
 
         stage2_runtime = time.time() - stage2_start
@@ -624,6 +647,7 @@ class HybridOptimizer:
         return HybridResult(
             primers=stage2_primers,
             stage1_primers=stage1_primers,
+            stage1_ordered_primers=stage1_ordered,
             stage1_coverage=stage1_coverage,
             stage1_regions_covered=stage1_regions,
             stage2_primers=stage2_primers,
@@ -646,6 +670,7 @@ class HybridOptimizer:
         target_count: int,
         fixed_primers: Optional[List[str]] = None,
         verbose: bool = True,
+        coverage_floor_set: Optional[List[str]] = None,
     ) -> List[str]:
         """
         Refine primer set using network analysis.
@@ -693,9 +718,31 @@ class HybridOptimizer:
         current_primers = primers.copy()
         current_node_set = set(full_network.graph.nodes())
 
+        # Coverage bookkeeping for the removal criterion.
+        #
+        # The criterion used to be `connectivity + pred_amp / 100`, with no
+        # coverage term at all. That is not a neutral omission: the primer
+        # whose removal leaves the best network score is the most peripheral
+        # one in the amplification graph, and a primer is peripheral precisely
+        # when its sites sit far from everything else -- which is to say when
+        # it is the only thing covering its region. Stage 2 was therefore
+        # biased towards dropping exactly the primers carrying unique
+        # coverage, and took a 94.0%-covering Stage-1 set down to 64.9%.
+        #
+        # `_calculate_coverage` per candidate per step would undo the O(1)
+        # subgraph optimisation above, so instead count how many primers cover
+        # each bin once, and get the cost of a removal from the bins where that
+        # count is 1.
+        bins_by_primer = self._coverage_bins_by_primer(current_primers)
+        bin_counts = Counter()
+        for owned in bins_by_primer.values():
+            bin_counts.update(owned)
+        total_bins = self._total_coverage_bins()
+
         while len(current_primers) > target_count:
             best_to_remove = None
             best_score_after_removal = -float("inf")
+            candidates = []
 
             # Try removing each primer using subgraph views (O(1) each)
             for primer in current_primers:
@@ -726,15 +773,47 @@ class HybridOptimizer:
                 else:
                     pred_amp = 2 ** min(largest / 10.0, 20.0)
 
-                score = connectivity + pred_amp / 100
+                network_score = connectivity + pred_amp / 100
 
-                if score > best_score_after_removal:
-                    best_score_after_removal = score
-                    best_to_remove = primer
+                # Bins only this primer covers: what removing it costs.
+                unique_bins = sum(1 for b in bins_by_primer.get(primer, ()) if bin_counts[b] == 1)
+                candidates.append((primer, network_score, unique_bins))
+
+            if not candidates:
+                best_to_remove = None
+            else:
+                # Rank on both axes within this step rather than adding raw
+                # values: algebraic connectivity and a bin count share no
+                # scale, and a fixed coefficient between them would be
+                # arbitrary and input-dependent. Normalising per step keeps the
+                # trade-off meaningful whatever the magnitudes happen to be.
+                net_values = [c[1] for c in candidates]
+                cost_values = [c[2] for c in candidates]
+                net_lo, net_hi = min(net_values), max(net_values)
+                cost_lo, cost_hi = min(cost_values), max(cost_values)
+                net_span = (net_hi - net_lo) or 1.0
+                cost_span = (cost_hi - cost_lo) or 1.0
+
+                best_combined = -float("inf")
+                for primer, network_score, unique_bins in candidates:
+                    norm_net = (network_score - net_lo) / net_span
+                    # Cheap to remove == loses few unique bins == score 1.
+                    norm_keep = 1.0 - (unique_bins - cost_lo) / cost_span
+                    combined = (
+                        1.0 - _STAGE2_COVERAGE_WEIGHT
+                    ) * norm_net + _STAGE2_COVERAGE_WEIGHT * norm_keep
+                    if combined > best_combined:
+                        best_combined = combined
+                        best_to_remove = primer
+                best_score_after_removal = best_combined
 
             if best_to_remove:
                 current_primers.remove(best_to_remove)
                 current_node_set -= nodes_by_primer.get(best_to_remove, set())
+                for b in bins_by_primer.get(best_to_remove, ()):
+                    bin_counts[b] -= 1
+                    if bin_counts[b] <= 0:
+                        del bin_counts[b]
                 if verbose and len(current_primers) % 5 == 0:
                     logger.info(f"  Reduced to {len(current_primers)} primers...")
             else:
@@ -761,7 +840,65 @@ class HybridOptimizer:
                 f"Connectivity improved: {initial_stats['connectivity']:.2f} → {final_connectivity:.2f}"
             )
 
+        # Floor the result at the Stage-1 greedy prefix of the same size.
+        #
+        # Coverage-aware removal makes Stage 2 much less destructive, but "much
+        # less destructive" is a tendency, not a guarantee -- it holds on the
+        # inputs someone happened to try. Greedy set cover selects in a
+        # deterministic order, so its first N picks are the same N whatever
+        # stage1_count was, and coverage over that prefix is non-decreasing in
+        # N. Refusing to return anything worse than it turns the tendency into
+        # a floor that is itself monotone in the requested count.
+        if coverage_floor_set:
+            baseline = list(coverage_floor_set)[:target_count]
+            if len(baseline) == target_count:
+                refined_coverage = self._calculate_coverage(current_primers)
+                baseline_coverage = self._calculate_coverage(baseline)
+                if baseline_coverage > refined_coverage + 1e-12:
+                    if verbose:
+                        logger.info(
+                            f"  Refinement covered {refined_coverage:.1%} against "
+                            f"{baseline_coverage:.1%} for the stage-1 prefix; "
+                            f"keeping the prefix."
+                        )
+                    return baseline
+
         return current_primers
+
+    def _coverage_bins_by_primer(self, primers: List[str]) -> Dict[str, set]:
+        """Bins each primer covers, at the granularity `_calculate_coverage` uses.
+
+        Computed once per refinement so the removal loop can price a candidate
+        from a bin-occupancy counter instead of recomputing coverage, which
+        would undo the O(1) subgraph views the loop is built around.
+        """
+        from neoswga.core.dominating_set_optimizer import BipartiteGraph, coverage_bin_size
+
+        bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
+        owned: Dict[str, set] = {}
+
+        for primer in primers:
+            graph = BipartiteGraph(bin_size=bin_size)
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+                fw = self.position_cache.get_positions(prefix, primer, "forward")
+                rv = self.position_cache.get_positions(prefix, primer, "reverse")
+                positions = np.concatenate([fw, rv])
+                if len(positions) > 0:
+                    graph.add_primer_coverage(
+                        primer,
+                        positions,
+                        prefix,
+                        length,
+                        extension_reach=self.coverage_reach,
+                    )
+            owned[primer] = set(graph.regions)
+        return owned
+
+    def _total_coverage_bins(self) -> int:
+        from neoswga.core.dominating_set_optimizer import coverage_bin_size
+
+        bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
+        return sum((length + bin_size - 1) // bin_size for length in self.fg_seq_lengths)
 
     def _build_network(self, primers: List[str]) -> AmplificationNetwork:
         """Build amplification network for primer set"""

@@ -335,8 +335,16 @@ class DominatingSetOptimizer:
         if verbose:
             logger.info(f"Graph: {len(graph.primers)} primers, {len(graph.regions)} regions")
 
-        # Greedy set cover - start with fixed primers' coverage
+        # Greedy set cover - start with fixed primers' coverage.
+        #
+        # `order` records the sequence selection happened in, which `selected`
+        # (a set) destroys. It matters downstream: greedy picks the primer with
+        # the largest marginal coverage at each step, so its first N picks are
+        # the same N whatever `max_primers` was, and coverage over that prefix
+        # is non-decreasing in N. That makes the prefix a monotone baseline the
+        # hybrid optimizer's Stage-2 refinement is floored against.
         selected = set(fixed_primers)
+        order = list(fixed_primers)
         covered_regions = set()
 
         # Pre-fill coverage from fixed primers
@@ -374,6 +382,7 @@ class DominatingSetOptimizer:
 
             # Add primer
             selected.add(best_primer)
+            order.append(best_primer)
             covered_regions.update(graph.primer_to_regions[best_primer])
 
             if verbose and (iteration + 1) % 5 == 0:
@@ -401,6 +410,7 @@ class DominatingSetOptimizer:
 
         result = {
             "primers": list(selected),
+            "ordered_primers": order,
             "new_primers": new_primers,
             "fixed_primers": fixed_primers,
             "n_primers": len(selected),
