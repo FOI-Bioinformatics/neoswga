@@ -115,6 +115,16 @@ NH₄⁺ +0.46 °C, dNTP −1.16 °C (Mg²⁺ chelation), glycerol changing pred
 SSB doubling the binding rate. The last two act through `MechanisticModel` rather than
 Tm, and the `--auto-size` path that builds that model was among the sites dropping them.
 
+**PEG, BSA and DTT act on the enzyme, and now do so.** All three were accepted,
+range-validated and consumed by nothing. They were given mechanistic pathways rather
+than Tm coefficients, because none is a duplex-stability agent at these
+concentrations: PEG crowding raises kon up to a plateau and then costs speed through
+viscosity (so the model reports an interior optimum rather than "more is better"),
+BSA is a saturating stabiliser, DTT a deficiency penalty. This also required folding
+`stability_factor` into `predicted_amplification_factor` — it was computed, reported,
+and left out of the product, so every stability-mediated term was invisible in the
+headline number.
+
 **A third coverage semantics was found and not adopted.**
 `minimal_primer_selector.MinimalPrimerSelector` — never called from anywhere — counts
 `covered_positions` as the set of binding-site *coordinates*, so a primer covers as
@@ -136,11 +146,10 @@ selection, trimming and reporting all share the figure written to
 - **RF training provenance is undocumented.** swga 2.0 states its training set (396
   primers from RCA experiments); the model shipped in
   `neoswga/core/models/random_forest_filter.skops` does not have an equivalent record.
-- **`peg_percent`, `bsa_ug_ml` and `dtt_mm` have no model behind them.** They are
-  accepted, range-validated and now correctly forwarded, but nothing consumes them:
-  no Tm coefficient and no mechanistic pathway. This was previously masked by the
-  forwarding bug — they could not be seen to do nothing while they were not arriving.
-  Either give them a pathway or drop them; PEG is a crowding agent and BSA a
-  stabiliser, so neither belongs in a Tm correction, and a mechanistic term would be
-  the honest place. Note `glycerol_percent` and `ssb` are in the same shape but *do*
-  have pathways (enzyme stability/speed, and kon respectively).
+- **Additive coverage is broader than the published tools', and correspondingly less
+  validated.** swga 1.0 and 2.0 model no additives at all. NeoSWGA models thirteen
+  plus four buffer species, but the Tm coefficients are literature-derived while the
+  enzyme- and kinetics-pathway magnitudes are EMPIRICAL, calibrated to reproduce
+  qualitative protocol behaviour rather than measured. `docs/SCIENCE_CITATIONS.md`
+  marks which is which. Predictions of *relative* effect are the defensible use;
+  absolute yield needs calibration against local wet-lab data.
