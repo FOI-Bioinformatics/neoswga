@@ -33,6 +33,7 @@ from typing import Dict, List, Optional, Tuple
 
 from Bio import SeqIO
 
+from neoswga.core import parameter
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.genome_io import GenomeCache, GenomeLoader
 from neoswga.core.hybrid_optimizer import HybridOptimizer
@@ -43,6 +44,7 @@ from neoswga.core.multi_genome_filter import (
     GenomeSet,
     MultiGenomeFilter,
     MultiGenomeScore,
+    format_enrichment,
 )
 from neoswga.core.thermodynamic_filter import create_filter_from_conditions
 from neoswga.core.thermodynamics import reverse_complement
@@ -352,7 +354,20 @@ class MultiGenomePipeline:
             f"  Custom Tm range preserved: {thermo_filter.criteria.min_tm}-{thermo_filter.criteria.max_tm}°C"
         )
 
-        filtered, stats = thermo_filter.filter_candidates(candidates)
+        # Heterodimer checking is deliberately deferred. It is O(n^2) over the
+        # candidate pool, and at this point the pool is every k-mer that passed
+        # the per-primer filters: ~15,000 for a 15 kb toy genome, and on the
+        # order of 150,000 for a 5 Mb bacterial one. That is 10^8 and 10^10
+        # pairs respectively -- tens of minutes at best and days at worst -- so
+        # `multi-genome` appeared to hang on any real input.
+        #
+        # It is also the wrong place for it: heterodimer compatibility only
+        # matters among primers that could end up in the same reaction. The
+        # check now runs in step 6b, on the ranked shortlist, where n is
+        # `primer_count` rather than the whole pool. The single-genome pipeline
+        # avoids the same trap by cutting to `max_primer` before any pairwise
+        # work.
+        filtered, stats = thermo_filter.filter_candidates(candidates, check_heterodimers=False)
 
         logger.info(f"  Thermodynamic filtering: {len(candidates)} → {len(filtered)} primers")
         logger.info(f"  Pass rate: {len(filtered)/len(candidates)*100:.1f}%")
@@ -407,6 +422,38 @@ class MultiGenomePipeline:
         logger.info(f"  Multi-genome filtering: {len(candidates)} → {len(passing)} primers")
 
         return passing, mg_filter
+
+    def _drop_heterodimer_partners(self, ranked: List[str], params, target_count: int) -> List[str]:
+        """Take primers in rank order, skipping any that dimerise with a keeper.
+
+        This is the pairwise check that used to run over the entire candidate
+        pool in step 4. Greedy over an already-ranked shortlist is O(n*k) with k
+        = target_count, so it costs nothing here while still ensuring the set
+        that ships is mutually compatible -- which is the only place the
+        property actually matters.
+        """
+        from neoswga.core import dimer
+
+        max_bp = getattr(parameter, "max_dimer_bp", 3) or 3
+
+        selected: List[str] = []
+        rejected = 0
+        for primer in ranked:
+            if len(selected) >= target_count:
+                break
+            if any(dimer.is_dimer_fast(primer, kept, max_bp) for kept in selected):
+                rejected += 1
+                continue
+            selected.append(primer)
+
+        if rejected:
+            logger.info(f"  Dropped {rejected} primer(s) that dimerise with a selected primer")
+        if len(selected) < target_count:
+            logger.warning(
+                f"Only {len(selected)} mutually compatible primers available, "
+                f"fewer than the requested {target_count}"
+            )
+        return selected
 
     def run(self, verbose: bool = True) -> MultiGenomePipelineResult:
         """
@@ -471,19 +518,39 @@ class MultiGenomePipeline:
 
         # Step 6: Select final primers (rank by composite score)
         logger.info("\nStep 6: Selecting final primers...")
-        ranked = mg_filter.rank_primers(mg_filtered, top_n=self.primer_count)
-        final_primers = [p for p, s in ranked]
+        # Rank a surplus so the heterodimer pass below has replacements to draw
+        # on rather than simply returning a shorter set.
+        shortlist_size = max(self.primer_count * 4, self.primer_count + 20)
+        ranked = mg_filter.rank_primers(mg_filtered, top_n=shortlist_size)
+        final_primers = self._drop_heterodimer_partners(
+            [p for p, s in ranked], params, self.primer_count
+        )
 
         logger.info(f"  Selected {len(final_primers)} primers")
 
-        # Calculate aggregate metrics
+        # Calculate aggregate metrics.
+        #
+        # An empty selection is a legitimate outcome -- no candidate cleared the
+        # filters, or none were mutually compatible -- and the run should report
+        # that, not die averaging over nothing. It used to raise
+        # ZeroDivisionError here, so the user got a traceback instead of the
+        # finding that their genome set yields no usable primers.
         scores = [mg_filter.score_primer(p) for p in final_primers]
 
-        mean_target_freq = sum(s.target_frequency for s in scores) / len(scores)
-        mean_bg_freq = sum(s.background_frequency for s in scores) / len(scores)
-        mean_bl_freq = sum(s.blacklist_frequency for s in scores) / len(scores)
-        mean_enrichment = sum(s.enrichment_score for s in scores) / len(scores)
-        min_enrichment = min(s.enrichment_score for s in scores)
+        if scores:
+            mean_target_freq = sum(s.target_frequency for s in scores) / len(scores)
+            mean_bg_freq = sum(s.background_frequency for s in scores) / len(scores)
+            mean_bl_freq = sum(s.blacklist_frequency for s in scores) / len(scores)
+            mean_enrichment = sum(s.enrichment_score for s in scores) / len(scores)
+            min_enrichment = min(s.enrichment_score for s in scores)
+        else:
+            logger.error(
+                "No primers selected. Every candidate was rejected by the "
+                "multi-genome filters, or no mutually compatible set could be "
+                "assembled. Try relaxing min_enrichment or max_background_freq."
+            )
+            mean_target_freq = mean_bg_freq = mean_bl_freq = 0.0
+            mean_enrichment = min_enrichment = 0.0
 
         # Step 7: Generate protocol
         logger.info("\nStep 7: Generating protocol...")
@@ -531,7 +598,10 @@ class MultiGenomePipeline:
         logger.info(f"{'='*80}")
         logger.info(f"Total runtime: {total_runtime:.1f}s")
         logger.info(f"Selected {len(final_primers)} primers")
-        logger.info(f"Mean enrichment: {mean_enrichment:.1f}x (min: {min_enrichment:.1f}x)")
+        logger.info(
+            f"Mean enrichment: {format_enrichment(mean_enrichment)} "
+            f"(min: {format_enrichment(min_enrichment)})"
+        )
 
         return result
 
@@ -598,7 +668,7 @@ INCUBATION PARAMETERS
   Estimated time: 4-16 hours
 
 EXPECTED PERFORMANCE
-  Mean enrichment: {mean_enrichment:.1f}x
+  Mean enrichment: {format_enrichment(mean_enrichment)}
   Selectivity: Target-specific amplification
   Background suppression: {1.0/mean_enrichment*100:.2f}% relative to target
 
@@ -655,7 +725,7 @@ Generated by NeoSWGA Multi-Genome Pipeline
             f.write(f"Primers: {result.primer_count}\n")
             f.write(f"Polymerase: {result.polymerase}\n")
             f.write(f"Temperature: {result.reaction_temp}°C\n")
-            f.write(f"Mean enrichment: {result.mean_enrichment:.1f}x\n")
+            f.write(f"Mean enrichment: {format_enrichment(result.mean_enrichment)}\n")
             f.write(f"Runtime: {result.total_runtime:.1f}s\n")
 
         logger.info(f"Saved summary: {summary_file}")

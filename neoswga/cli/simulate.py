@@ -74,7 +74,9 @@ def run_multi_genome(args):
 
         logger.info(f"Pan-genome design complete! Results saved to: {args.output}")
         logger.info(f"Designed {result.primer_count} primers")
-        logger.info(f"Mean enrichment: {result.mean_enrichment:.1f}x")
+        from neoswga.core.multi_genome_filter import format_enrichment
+
+        logger.info(f"Mean enrichment: {format_enrichment(result.mean_enrichment)}")
 
     except Exception as e:
         logger.error(f"Multi-genome pipeline failed: {e}")

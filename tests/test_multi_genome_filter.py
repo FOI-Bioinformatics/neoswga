@@ -5,16 +5,18 @@ and MultiGenomeFilter data structures and scoring logic.
 """
 
 import math
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from neoswga.core.multi_genome_filter import (
-    GenomeRole,
+    MAX_ENRICHMENT,
     GenomeEntry,
+    GenomeRole,
     GenomeSet,
-    MultiGenomeScore,
     MultiGenomeFilter,
+    MultiGenomeScore,
 )
 
 # ---------------------------------------------------------------------------
@@ -339,14 +341,23 @@ class TestMultiGenomeFilterScoring:
         expected = 1.5e-4 / 5e-6  # 30x
         assert score.enrichment_score == pytest.approx(expected)
 
-    def test_enrichment_infinite_when_no_background_binding(self, genome_set_mixed):
+    def test_enrichment_is_maximal_when_no_background_binding(self, genome_set_mixed):
+        """No background binding is the best outcome; it reports MAX_ENRICHMENT.
+
+        This used to be `float("inf")`. That made `results.json` invalid JSON,
+        and it collapsed ranking: `rank_primers` orders by
+        target_frequency * enrichment / penalty, so every zero-background primer
+        tied at inf and the ordering among the best candidates was arbitrary.
+        """
         mgf = MultiGenomeFilter(genome_set_mixed)
         mgf.load_genome_counts("Target1", {"ATCG": 100}, 1_000_000)
         mgf.load_genome_counts("Target2", {"ATCG": 100}, 1_000_000)
         mgf.load_genome_counts("Background1", {}, 1_000_000)
         mgf.load_genome_counts("Blacklist1", {}, 1_000_000)
         score = mgf.score_primer("ATCG")
-        assert math.isinf(score.enrichment_score)
+
+        assert math.isfinite(score.enrichment_score)
+        assert score.enrichment_score == MAX_ENRICHMENT
 
     def test_enrichment_zero_when_no_target_and_no_background(self, genome_set_mixed):
         mgf = MultiGenomeFilter(genome_set_mixed)
@@ -441,9 +452,14 @@ class TestMultiGenomeFilterTargetsOnly:
         score = targets_only_filter.score_primer("ATCG")
         assert score.blacklist_frequency == pytest.approx(0.0)
 
-    def test_enrichment_infinite(self, targets_only_filter):
+    def test_enrichment_is_maximal_with_no_background_genome(self, targets_only_filter):
+        """With no background at all there is nothing to be enriched against.
+
+        Reported as the maximum rather than infinity, for the same reasons.
+        """
         score = targets_only_filter.score_primer("ATCG")
-        assert math.isinf(score.enrichment_score)
+        assert math.isfinite(score.enrichment_score)
+        assert score.enrichment_score == MAX_ENRICHMENT
 
     def test_penalty_zero(self, targets_only_filter):
         score = targets_only_filter.score_primer("ATCG")

@@ -35,6 +35,35 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+# Enrichment reported for a primer that binds the target but has no detectable
+# background binding -- the best possible outcome.
+#
+# This used to be `float("inf")`, which broke two things. `results.json` became
+# invalid JSON, since Infinity is not an RFC 8259 token. And ranking degenerated:
+# `rank_primers` orders by target_frequency * enrichment / penalty, so every
+# zero-background primer tied at inf and the ordering among the best candidates
+# was arbitrary -- on a background sharing few k-mers with the target, that is
+# most of the pool.
+#
+# A large constant fixes both. It clears any `min_enrichment` threshold, as inf
+# did, while leaving the composite proportional to target_frequency, so equally
+# selective primers order by how well they bind the target. That tie-break is
+# what the composite was reaching for in the first place.
+MAX_ENRICHMENT = 1e6
+
+
+def format_enrichment(value: float) -> str:
+    """Render an enrichment for humans, without a sentinel posing as a datum.
+
+    `MAX_ENRICHMENT` means "no background binding was detected", not "measured
+    1,000,000x". Printing the bare number invites reading a placeholder as a
+    result, which is the confusion this whole value exists to avoid.
+    """
+    if value >= MAX_ENRICHMENT:
+        return "no background binding detected"
+    return f"{value:.1f}x"
+
+
 class GenomeRole(Enum):
     """Role of a genome in the SWGA experiment"""
 
@@ -96,7 +125,11 @@ class GenomeSet:
     blacklists: List[GenomeEntry] = field(default_factory=list)
 
     def add_genome(
-        self, name: str, fasta_path: str, role: str, penalty_weight: Optional[float] = None
+        self,
+        name: str,
+        fasta_path: str,
+        role: "str | GenomeRole",
+        penalty_weight: Optional[float] = None,
     ):
         """
         Add a genome to the set.
@@ -104,10 +137,23 @@ class GenomeSet:
         Args:
             name: Genome name
             fasta_path: Path to FASTA file
-            role: "target", "background", or "blacklist"
+            role: "target", "background" or "blacklist", or the equivalent
+                `GenomeRole` member.
             penalty_weight: Optional custom penalty weight
+
+        Accepting the enum matters because `GenomeRole` is exported alongside
+        this class, so passing it is the obvious thing to do -- and it used to
+        fail with `AttributeError: 'GenomeRole' object has no attribute 'lower'`
+        from inside the setup call, before any work began.
         """
-        role_enum = GenomeRole(role.lower())
+        if isinstance(role, GenomeRole):
+            role_enum = role
+        else:
+            try:
+                role_enum = GenomeRole(str(role).lower())
+            except ValueError:
+                valid = ", ".join(member.value for member in GenomeRole)
+                raise ValueError(f"Unknown genome role {role!r}. Expected one of: {valid}")
 
         entry = GenomeEntry(
             name=name,
@@ -354,11 +400,28 @@ class MultiGenomeFilter:
         background_freq = np.max(background_freqs) if background_freqs else 0.0
         blacklist_freq = np.max(blacklist_freqs) if blacklist_freqs else 0.0
 
-        # Calculate enrichment
+        # Calculate enrichment.
+        #
+        # A primer with no background binding is the BEST outcome, and it used
+        # to score `inf`. That broke two things at once. `results.json` became
+        # invalid JSON -- Infinity is not an RFC 8259 token -- and, worse,
+        # ranking degenerated: `rank_primers` sorts by
+        # target_frequency * enrichment / penalty, so every zero-background
+        # primer tied at inf and the ordering among the best candidates was
+        # arbitrary. On a background that shares few k-mers with the target,
+        # that is most of the pool.
+        #
+        # Instead of inf, use the smallest frequency the background could
+        # actually resolve: one binding site in the background genome. The
+        # resulting enrichment is finite, comparable, and orders by target
+        # frequency among equally-selective primers, which is the tie-break
+        # that was wanted all along.
         if background_freq > 0:
             enrichment = target_freq / background_freq
+        elif target_freq > 0:
+            enrichment = MAX_ENRICHMENT
         else:
-            enrichment = float("inf") if target_freq > 0 else 0.0
+            enrichment = 0.0
 
         # Calculate weighted penalty score
         penalty = 0.0
