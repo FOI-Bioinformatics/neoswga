@@ -104,6 +104,17 @@ for every candidate, so the base score breaks ties in the same order whatever th
 weight. An end-to-end assertion would have failed for the wrong reason and condemned a
 working option.
 
+**Reaction conditions now reach the chemistry.** `ReactionConditions` takes 20
+parameters and nothing constructed it with all of them — each of nineteen call sites
+hand-listed its own subset, from two of twenty in `cli/evaluate.py` to eleven in
+`core/filter.py`. No site passed `k_conc`, `nh4_conc`, `dntp_conc` or `dtt_mm`, so the
+phi29 buffer species reached no calculation at all. `build_reaction_conditions()` now
+reads the field list off the constructor, so a new field is forwarded everywhere
+without anyone updating call sites. Effects that previously reached nothing: K⁺ +1.07 °C,
+NH₄⁺ +0.46 °C, dNTP −1.16 °C (Mg²⁺ chelation), glycerol changing predicted amplification,
+SSB doubling the binding rate. The last two act through `MechanisticModel` rather than
+Tm, and the `--auto-size` path that builds that model was among the sites dropping them.
+
 **A third coverage semantics was found and not adopted.**
 `minimal_primer_selector.MinimalPrimerSelector` — never called from anywhere — counts
 `covered_positions` as the set of binding-site *coordinates*, so a primer covers as
@@ -125,7 +136,11 @@ selection, trimming and reporting all share the figure written to
 - **RF training provenance is undocumented.** swga 2.0 states its training set (396
   primers from RCA experiments); the model shipped in
   `neoswga/core/models/random_forest_filter.skops` does not have an equivalent record.
-- **Reaction conditions are dropped at most call sites.** No caller constructs
-  `ReactionConditions` with every additive field; `cli/evaluate.py` passes two
-  (temperature and polymerase). The schema-v2 buffer species (`k_conc`, `nh4_conc`,
-  `dntp_conc`, `dtt_mm`) are omitted everywhere, so that work is only partly effective.
+- **`peg_percent`, `bsa_ug_ml` and `dtt_mm` have no model behind them.** They are
+  accepted, range-validated and now correctly forwarded, but nothing consumes them:
+  no Tm coefficient and no mechanistic pathway. This was previously masked by the
+  forwarding bug — they could not be seen to do nothing while they were not arriving.
+  Either give them a pathway or drop them; PEG is a crowding agent and BSA a
+  stabiliser, so neither belongs in a Tm correction, and a mechanistic term would be
+  the honest place. Note `glycerol_percent` and `ssb` are in the same shape but *do*
+  have pathways (enzyme stability/speed, and kon respectively).
