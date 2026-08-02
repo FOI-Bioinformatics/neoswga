@@ -106,6 +106,8 @@ def run_evaluate_set(args):
     )
     os.makedirs(args.output, exist_ok=True)
     prefixes, genomes, lengths = _resolve_sources(args)
+    bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
+    bg_genomes = list(getattr(parameter, "bg_genomes", []) or [])
 
     polymerase = (
         getattr(args, "polymerase", None) or getattr(parameter, "polymerase", "phi29") or "phi29"
@@ -172,7 +174,45 @@ def run_evaluate_set(args):
             }
         )
 
+    # Background sites, and the selectivity they give.
+    #
+    # This command is documented as reporting "coverage, gaps, selectivity,
+    # dimers" and had no background handling at all: params.json carries
+    # bg_prefixes, every other command counts them, and this one ignored them.
+    # A user with a host genome configured got a report with no specificity in
+    # it -- for SWGA, the half that decides whether a design is usable.
+    # `--scan-background` was a flag for the missing capability.
+    #
+    # Scanning is opt-in for the reason its help gives: a host-sized genome
+    # held in memory is expensive, and background specificity is a frequency
+    # question the k-mer counts already answer.
+    bg_per_primer = {}
+    if bg_prefixes:
+        scan_bg = bool(getattr(args, "scan_background", False)) and len(bg_genomes) == len(
+            bg_prefixes
+        )
+        bg_cache = PositionCache(
+            bg_prefixes,
+            primers,
+            genome_paths=bg_genomes if scan_bg else None,
+            circular=bool(getattr(parameter, "bg_circular", False)),
+            on_missing="scan" if scan_bg else "warn",
+        )
+        for primer in primers:
+            bg_per_primer[primer] = sum(
+                len(bg_cache.get_positions(prefix, primer)) for prefix in bg_prefixes
+            )
+        for record in per_primer:
+            record["background_sites"] = bg_per_primer.get(record["primer"], 0)
+
     total_sites = sum(p["binding_sites"] for p in per_primer)
+    total_bg_sites = sum(bg_per_primer.values()) if bg_prefixes else None
+    # None rather than 0 where no background is configured: an absent
+    # background is "not measured", and reporting 0 would read as perfect
+    # specificity -- a confident claim from no evidence.
+    selectivity = None
+    if bg_prefixes:
+        selectivity = round(total_sites / total_bg_sites, 4) if total_bg_sites else None
     genome_bp = sum(lengths)
 
     # Gap statistics from the union of binding positions. Reported alongside
@@ -210,6 +250,8 @@ def run_evaluate_set(args):
         "per_target_coverage": {k: round(v, 4) for k, v in coverage.items()},
         "extension_reach_bp": reach,
         "total_binding_sites": total_sites,
+        "total_background_sites": total_bg_sites,
+        "selectivity_ratio": selectivity,
         # The literature's dominant predictor of SWGA success: mean distance
         # between binding sites (Clarke 2017, Dwivedi-Yu 2023). Successful
         # published sets sit near 1 site per 2-5 kbp.
@@ -253,6 +295,15 @@ def _print_report(result):
     print(f"  Primers              : {result['num_primers']}")
     print(f"  Target size          : {result['genome_bp']:,} bp")
     print(f"  Binding sites        : {result['total_binding_sites']:,}")
+    if result.get("total_background_sites") is not None:
+        print(f"  Background sites     : {result['total_background_sites']:,}")
+        ratio = result.get("selectivity_ratio")
+        # "no background sites at all" is the best possible outcome, not a
+        # missing measurement, so it gets said rather than left blank.
+        print(
+            f"  Selectivity (fg/bg)  : "
+            + (f"{ratio:.2f}x" if ratio is not None else "no background binding")
+        )
     mbd = result["mean_binding_distance_bp"]
     if mbd:
         print(f"  Mean binding distance: {mbd:,} bp (1 site per {mbd / 1000:.1f} kbp)")

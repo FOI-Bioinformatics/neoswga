@@ -179,3 +179,120 @@ def test_initialize_callers_set_the_params_path(filename, func):
         f"{filename}::{func.name} calls pipeline._initialize() without setting "
         f"parameter.json_file first, so -j would be ignored"
     )
+
+
+# ----------------------------------------------------------------------
+# evaluate-set and the background it was configured with
+# ----------------------------------------------------------------------
+
+
+def test_evaluate_set_reports_selectivity_when_a_background_is_configured(tmp_path, monkeypatch):
+    """`evaluate-set` is documented as reporting "coverage, gaps, selectivity,
+    dimers" and had no background handling at all.
+
+    params.json carries `bg_prefixes`, the pipeline counts background sites for
+    every other command, and this one ignored them -- so a user with a host
+    genome configured got a report with no specificity in it, which for SWGA is
+    the half that decides whether the design is usable. `--scan-background` was
+    a flag for the capability that was missing.
+    """
+    import numpy as np
+
+    h5py = pytest.importorskip("h5py")
+
+    from neoswga.cli.evaluate import run_evaluate_set
+
+    primer = "TTGACCATGA"
+    fg = tmp_path / "fg.fasta"
+    bg = tmp_path / "bg.fasta"
+    fg.write_text(">fg\n" + "ACGT" * 500 + "\n")
+    bg.write_text(">bg\n" + "ACGT" * 500 + "\n")
+
+    for name, sites in (("fg", [100, 600, 1100]), ("bg", [50])):
+        with h5py.File(str(tmp_path / f"{name}_10mer_positions.h5"), "w") as fh:
+            fh.create_dataset(primer, data=np.array(sites, dtype=np.int32))
+
+    params = tmp_path / "params.json"
+    params.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "data_dir": str(tmp_path),
+                "fg_genomes": [str(fg)],
+                "fg_prefixes": [str(tmp_path / "fg")],
+                "fg_seq_lengths": [2000],
+                "bg_genomes": [str(bg)],
+                "bg_prefixes": [str(tmp_path / "bg")],
+                "bg_seq_lengths": [2000],
+                "polymerase": "phi29",
+                "reaction_temp": 30.0,
+            }
+        )
+    )
+
+    out = tmp_path / "out"
+    args = SimpleNamespace(
+        json_file=str(params),
+        genome=None,
+        output=str(out),
+        linear=False,
+        primers=[primer],
+        primers_file=None,
+        polymerase=None,
+        scan_background=False,
+    )
+    run_evaluate_set(args)
+
+    report = json.loads((out / "evaluation.json").read_text())
+
+    assert report.get("total_background_sites") == 1
+    assert report.get("selectivity_ratio") == pytest.approx(3.0)
+    assert report["primers"][0].get("background_sites") == 1
+
+
+def test_evaluate_set_says_so_when_there_is_no_background(tmp_path):
+    """Absent background must read as "not configured", not as perfect
+    specificity -- a null is honest where a 0 would be a confident claim."""
+    import numpy as np
+
+    h5py = pytest.importorskip("h5py")
+
+    from neoswga.cli.evaluate import run_evaluate_set
+
+    primer = "TTGACCATGA"
+    fg = tmp_path / "fg.fasta"
+    fg.write_text(">fg\n" + "ACGT" * 500 + "\n")
+    with h5py.File(str(tmp_path / "fg_10mer_positions.h5"), "w") as fh:
+        fh.create_dataset(primer, data=np.array([100, 600], dtype=np.int32))
+
+    params = tmp_path / "params.json"
+    params.write_text(
+        json.dumps(
+            {
+                "schema_version": 2,
+                "data_dir": str(tmp_path),
+                "fg_genomes": [str(fg)],
+                "fg_prefixes": [str(tmp_path / "fg")],
+                "fg_seq_lengths": [2000],
+                "polymerase": "phi29",
+                "reaction_temp": 30.0,
+            }
+        )
+    )
+    out = tmp_path / "out"
+    run_evaluate_set(
+        SimpleNamespace(
+            json_file=str(params),
+            genome=None,
+            output=str(out),
+            linear=False,
+            primers=[primer],
+            primers_file=None,
+            polymerase=None,
+            scan_background=False,
+        )
+    )
+
+    report = json.loads((out / "evaluation.json").read_text())
+    assert report.get("selectivity_ratio") is None
+    assert report.get("total_background_sites") is None
