@@ -21,7 +21,13 @@ from typing import Any, Dict, List, Optional
 
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.genome_analysis import calculate_genome_stats, get_gc_class, recommend_adaptive_qa
-from neoswga.core.parameter import CURRENT_SCHEMA_VERSION, adaptive_gc_window, default_mg_conc
+from neoswga.core.parameter import (
+    CURRENT_SCHEMA_VERSION,
+    EXTREME_AT_GENOME_GC,
+    EXTREME_GC_GENOME_GC,
+    adaptive_gc_window,
+    default_mg_conc,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -262,12 +268,21 @@ class SetupWizard:
         self.warnings: List[str] = []
 
         # Check for potential issues
-        if gc < 0.20:
+        # Warn at the point the PIPELINE actually changes behaviour, not at a
+        # separate hand-picked number.
+        #
+        # `EXTREME_AT_GENOME_GC` / `EXTREME_GC_GENOME_GC` are where
+        # `adaptive_gc_window` releases the GC bound, because published sets
+        # against such targets use primers at the composition extreme. These
+        # warnings used 0.20 and 0.75, so a genome at 22% or 27% GC had its
+        # filtering silently widened with nothing said about it -- exactly the
+        # targets where a user most needs to know the tool is adapting.
+        if gc < EXTREME_AT_GENOME_GC:
             self.warnings.append(
                 f"Extreme AT-rich genome ({gc:.1%} GC) - may have limited primer candidates. "
                 "Consider using multi-genome pipeline with closely related species."
             )
-        elif gc > 0.75:
+        elif gc > EXTREME_GC_GENOME_GC:
             self.warnings.append(
                 f"Extreme GC-rich genome ({gc:.1%} GC) - requires high additive concentrations. "
                 "Consider betaine >= 2.0M and DMSO >= 5%."

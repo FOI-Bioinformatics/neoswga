@@ -309,7 +309,9 @@ def test_milp_optimizer_skips_gracefully_when_module_absent():
     passed, details = suite.test_milp_optimizer()
     assert passed is True
     assert details["status"] == "skipped"
-    assert details["reason"] == "python-mip not installed"
+    # The reason names the retirement rather than blaming a missing package --
+    # see test_retired_optimizer_skip_reason_is_honest below.
+    assert "retired" in details["reason"]
 
 
 def test_end_to_end_initializes_the_pipeline_with_the_documented_config():
@@ -338,3 +340,23 @@ def test_run_all_tests_verbose_logs_a_summary_when_everything_passes(caplog):
     assert overall is True
     assert "All tests PASSED" in caplog.text
     assert "TEST: Adaptive GC Filter" in caplog.text
+
+
+def test_retired_optimizer_skip_reason_is_honest():
+    """It said "python-mip not installed" for a feature that no longer exists.
+
+    `milp` was retired along with greedy/genetic/moea and is not in
+    VALID_OPTIMIZATION_METHODS, so the old message sent a user off to install a
+    package that would not bring it back -- a misleading answer from the tool
+    whose job is telling you what is wrong.
+    """
+    from neoswga.core.param_validator import VALID_OPTIMIZATION_METHODS
+    from neoswga.core.validation import ValidationSuite
+
+    assert "milp" not in VALID_OPTIMIZATION_METHODS
+
+    passed, details = ValidationSuite().test_milp_optimizer()
+
+    assert passed  # a skip, not a failure
+    assert "python-mip" not in details["reason"]
+    assert "retired" in details["reason"]

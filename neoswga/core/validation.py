@@ -403,11 +403,24 @@ class ValidationSuite:
             return False, details
 
     def test_milp_optimizer(self) -> Tuple[bool, Dict]:
-        """Test MILP optimizer"""
+        """Test the MILP optimizer, which is no longer part of this package.
+
+        `milp` was retired along with greedy/genetic/moea and is not in
+        `param_validator.VALID_OPTIMIZATION_METHODS`, so this always skips. The
+        reason used to read "python-mip not installed", which sends a user off
+        to install a package that would not bring the feature back -- a
+        misleading answer from the tool whose job is telling you what is wrong.
+        """
         try:
             from .milp_optimizer import MILPOptimizer
         except ImportError:
-            return True, {"status": "skipped", "reason": "python-mip not installed"}
+            return True, {
+                "status": "skipped",
+                "reason": (
+                    "the MILP optimizer was retired; use one of "
+                    "hybrid / dominating-set / background-aware / network / ensemble"
+                ),
+            }
 
         details = {}
 

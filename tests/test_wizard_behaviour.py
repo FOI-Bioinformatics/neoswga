@@ -388,3 +388,42 @@ def test_run_wizard_raises_on_missing_background(tmp_path, balanced_fasta):
 )
 def test_format_bp(length, expected):
     assert format_bp(length) == expected
+
+
+def test_extreme_gc_warning_fires_where_the_pipeline_actually_adapts(tmp_path):
+    """The warning thresholds must not be narrower than the behaviour change.
+
+    `adaptive_gc_window` releases the GC bound below EXTREME_AT_GENOME_GC (0.30)
+    and above EXTREME_GC_GENOME_GC (0.70). The warnings used a separate,
+    narrower pair (0.20 / 0.75), so a genome at 22% or 27% GC had its filtering
+    silently widened with nothing said about it -- exactly the targets where a
+    user most needs to know the tool is adapting.
+
+    Four different "extreme GC" thresholds exist in this codebase. This pins the
+    two that must agree: the one that changes behaviour and the one that
+    explains it.
+    """
+    import random
+
+    from neoswga.core.parameter import EXTREME_AT_GENOME_GC, EXTREME_GC_GENOME_GC
+    from neoswga.core.wizard import SetupWizard
+
+    def genome_at(target_gc, name):
+        rng = random.Random(17)
+        seq = "".join(
+            rng.choice("GC") if rng.random() < target_gc else rng.choice("AT") for _ in range(4_000)
+        )
+        path = tmp_path / f"{name}.fasta"
+        path.write_text(f">{name}\n{seq}\n")
+        return str(path)
+
+    # Just inside the adaptive band: 0.27 is AT-extreme to the pipeline but was
+    # above the old 0.20 warning threshold.
+    wizard = SetupWizard(interactive=False)
+    wizard.analyze_genome(genome_at(0.27, "at_rich"))
+
+    gc = wizard.target_stats["gc_content"]
+    if gc < EXTREME_AT_GENOME_GC:
+        assert any(
+            "AT-rich" in w for w in wizard.warnings
+        ), f"no warning at {gc:.1%} GC, where the pipeline releases the GC bound"
