@@ -24,6 +24,7 @@ import numpy as np
 
 from neoswga.core import reaction_conditions as rc
 from neoswga.core import thermodynamics as thermo
+from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
 
@@ -91,18 +92,36 @@ class AmpliconNetwork:
 
             try:
                 with h5py.File(hdf5_file, "r") as f:
+                    forward, reverse = [], []
+
                     if primer in f:
                         positions = f[primer][:]
+                        # Sign-encoded layout: negative positions mean reverse.
+                        # Kept for any file that genuinely uses it, but the
+                        # pipeline does not write one -- see below.
+                        forward = list(positions[positions >= 0])
+                        reverse = list(-positions[positions < 0])
 
-                        # Separate forward and reverse
-                        # Assuming positions stored as: [pos1_fwd, pos2_fwd, ..., -pos1_rev, -pos2_rev, ...]
-                        # Negative positions indicate reverse strand
-                        forward = positions[positions >= 0]
-                        reverse = -positions[positions < 0]
+                    # The layout this project actually writes, and that
+                    # PositionCache reads: forward hits under the primer,
+                    # reverse-strand hits under its REVERSE COMPLEMENT (that is
+                    # where the revcomp matches the forward strand).
+                    #
+                    # This loader read only the primer key and split it by sign.
+                    # Real position files contain no negative values, so
+                    # `positions_reverse` was always empty -- and since an
+                    # amplicon edge is "forward primer -> downstream reverse
+                    # primer", the network could never form a single edge. Every
+                    # metric derived from it (coverage, hubs, dead ends, amplicon
+                    # statistics, critical primers) was computed on an edgeless
+                    # graph.
+                    rc_primer = reverse_complement(primer)
+                    if not reverse and rc_primer in f:
+                        reverse = list(f[rc_primer][:])
 
-                        self.positions_forward[primer] = sorted(forward)
-                        self.positions_reverse[primer] = sorted(reverse)
-            except (FileNotFoundError, KeyError):
+                    self.positions_forward[primer] = sorted(forward)
+                    self.positions_reverse[primer] = sorted(reverse)
+            except (FileNotFoundError, KeyError, OSError):
                 warnings.warn(f"Could not load positions for {primer}")
                 self.positions_forward[primer] = []
                 self.positions_reverse[primer] = []

@@ -23,6 +23,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from neoswga.core.strand_conventions import to_bed_strand
+
 logger = logging.getLogger(__name__)
 
 
@@ -152,7 +154,14 @@ def export_to_bed(
         for primer in primers:
             sites = positions.get(primer, [])
             for pos, strand in sites:
-                strand_char = "+" if strand == "forward" else "-"
+                # Via the shared adapter rather than an inline comparison.
+                # `"+" if strand == "forward" else "-"` mapped anything that was
+                # not exactly "forward" to the reverse strand -- including
+                # "both", "+" and any typo -- so a BED file could carry
+                # confidently wrong orientations. The adapter accepts all three
+                # conventions used in this codebase and maps "both" to ".",
+                # BED's unstranded marker.
+                strand_char = to_bed_strand(strand)
                 end = pos + len(primer)
                 f.write(f"{genome_name}\t{pos}\t{end}\t{primer}\t0\t{strand_char}\n")
 

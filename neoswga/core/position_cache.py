@@ -301,8 +301,22 @@ class PositionCache:
             combined = np.unique(np.concatenate([fw, rv]))
             self.cache[key] = combined
             return combined
-        else:
-            return self.cache.get((fname_prefix, primer, strand), np.array([], dtype=np.int32))
+        if strand not in ("forward", "reverse"):
+            # Three strand vocabularies exist in this codebase: this one,
+            # '+'/'-' (strand_bias_analyzer, BED) and sign-encoded positions
+            # (amplicon_network). Passing the wrong one used to fall through to
+            # `cache.get(...)` and return an empty array -- a confident zero
+            # that is indistinguishable from "this primer binds nowhere".
+            #
+            # CLAUDE.md warns about it in prose; this makes it an error instead.
+            # Use `strand_conventions.to_cache_strand` to translate.
+            raise ValueError(
+                f"Unknown strand {strand!r}. PositionCache uses 'forward', "
+                f"'reverse' or 'both' (not '+'/'-'). See "
+                f"neoswga.core.strand_conventions.to_cache_strand."
+            )
+
+        return self.cache.get((fname_prefix, primer, strand), np.array([], dtype=np.int32))
 
     def get_all_positions(
         self, fname_prefix: str, primers: List[str]
