@@ -782,7 +782,19 @@ class HybridOptimizer:
         return network
 
     def _calculate_coverage(self, primers: List[str]) -> float:
-        """Calculate genome coverage for primer set"""
+        """Binned genome coverage for a primer set, at the realistic reach.
+
+        This is an APPROXIMATION used for progress reporting and for the
+        coverage floor in background pruning. It works in `bin_size` bins, so a
+        bin counts as covered when any part of it falls within reach of a site.
+        The default 10 kb bin is coarser than phi29's ~3 kb reach, which makes
+        the figure optimistic.
+
+        The authoritative number is `PrimerSetMetrics.fg_coverage`, computed
+        base-by-base by `BaseOptimizer._compute_coverage` and written to
+        `step4_improved_df_summary.json`. Compare like with like: this method
+        and that metric will not agree exactly, by construction.
+        """
         from neoswga.core.dominating_set_optimizer import BipartiteGraph
 
         graph = BipartiteGraph(bin_size=self.bin_size)
@@ -795,7 +807,26 @@ class HybridOptimizer:
                 positions = np.concatenate([positions_fwd, positions_rev])
 
                 if len(positions) > 0:
-                    graph.add_primer_coverage(primer, positions, prefix, length)
+                    # Thread the realistic per-primer reach, as Stage-1 set
+                    # cover does. Omitting it left `extension_reach` at its
+                    # default of 0, so this measured bin OCCUPANCY -- "does any
+                    # site fall in this bin" -- and the answer depended on
+                    # `bin_size` rather than on the polymerase.
+                    #
+                    # At the default 10 kb bin that reported 100% coverage for a
+                    # set the shipped metric scores at 39%, and at a 1 kb bin the
+                    # same set scored 13%. It also meant `_prune_background`
+                    # checked its `min_coverage_threshold` floor against a
+                    # different quantity from the one finally reported, so the
+                    # guard against over-pruning was not measuring what it
+                    # protected.
+                    graph.add_primer_coverage(
+                        primer,
+                        positions,
+                        prefix,
+                        length,
+                        extension_reach=self.coverage_reach,
+                    )
 
         if len(graph.regions) == 0:
             return 0.0
