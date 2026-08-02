@@ -351,6 +351,105 @@ def _run_ensemble(
     return _dc_replace(winner, ensemble_comparison=tuple(rows))
 
 
+def _collect_forbidden_primers(candidates, verbose: bool) -> list:
+    """Candidates that exceed the blacklist frequency ceiling.
+
+    Phase 15C library-level guard. The validator used to receive
+    forbidden_primers=None, so library callers who bypassed the swap-primer CLI
+    could silently inject blacklist candidates. Cross-checks the pool against
+    params.bl_prefixes with the same helper the filter step uses, and hands the
+    hits to validate() so any that reached the selected set are flagged.
+    """
+    bl_prefixes_list = list(getattr(parameter, "bl_prefixes", []) or [])
+    bl_lengths_list = list(getattr(parameter, "bl_seq_lengths", []) or [])
+    if not (bl_prefixes_list and bl_lengths_list and candidates):
+        return []
+
+    try:
+        from .pipeline import _filter_blacklist_penalty
+
+        max_bl = getattr(parameter, "max_bl_freq", 0.0) or 0.0
+        _mask, freqs = _filter_blacklist_penalty(
+            list(candidates), bl_prefixes_list, bl_lengths_list, max_bl_freq=max_bl
+        )
+        forbidden = [p for p, f in zip(candidates, freqs) if f > max_bl]
+        if forbidden and verbose:
+            logger.warning(
+                f"Library blacklist guard: {len(forbidden)} candidate(s) exceed "
+                f"max_bl_freq={max_bl}; validator will flag any that reached the set."
+            )
+        return forbidden
+    except Exception as e:
+        logger.debug(f"library blacklist guard skipped ({e})")
+        return []
+
+
+def _minimize_primer_count(result, optimizer, target_coverage: float, verbose: bool):
+    """Trim a selected set to the fewest primers still meeting a coverage target.
+
+    Repeatedly drops whichever primer costs the least coverage, for as long as
+    what remains still clears `target_coverage`. This is deliberately a
+    post-process rather than a selection criterion: the optimizer picks the best
+    set it can at the requested size, and this asks separately whether a smaller
+    subset would still do the job.
+
+    Coverage is measured with `optimizer.compute_metrics`, the same base-level
+    figure written to `step4_improved_df_summary.json`. That matters more than
+    it looks. `MinimalPrimerSelector`, the module apparently written for this
+    job and never called by anything, counts `covered_positions` as the set of
+    binding-site COORDINATES -- so a primer covers as many bases as it has
+    sites, and extension is ignored entirely. On a 30 kb genome, 30 sites reads
+    as 0.1% coverage and no target is ever reachable. Using it here would have
+    given the flag a criterion that cannot fire. One coverage semantics, and it
+    is the reported one.
+
+    Guarded in both directions: a trimmed set is accepted only if it is
+    genuinely smaller and still clears the target, so the flag can shrink a set
+    but never silently degrade one.
+    """
+    from dataclasses import replace as _replace
+
+    try:
+        current = list(result.primers)
+        if len(current) < 2:
+            return result
+
+        best_metrics = None
+        while len(current) > 1:
+            candidate_drops = []
+            for primer in current:
+                remaining = [p for p in current if p != primer]
+                metrics = optimizer.compute_metrics(remaining)
+                if metrics.fg_coverage >= target_coverage:
+                    candidate_drops.append((metrics.fg_coverage, primer, remaining, metrics))
+
+            if not candidate_drops:
+                break
+
+            # Drop the primer whose removal leaves the most coverage standing.
+            _cov, _primer, remaining, metrics = max(candidate_drops, key=lambda d: d[0])
+            current, best_metrics = remaining, metrics
+
+        if len(current) >= len(result.primers):
+            if verbose:
+                logger.info(
+                    f"--minimize-primers: no smaller subset holds "
+                    f"{target_coverage:.0%} coverage; keeping {len(result.primers)}."
+                )
+            return result
+
+        if verbose:
+            logger.info(
+                f"--minimize-primers: {len(result.primers)} -> {len(current)} primers "
+                f"at {best_metrics.fg_coverage:.1%} coverage (target {target_coverage:.0%})."
+            )
+        return _replace(result, primers=tuple(current), metrics=best_metrics)
+
+    except Exception as e:
+        logger.warning(f"--minimize-primers skipped ({e}); keeping the full set.")
+        return result
+
+
 def run_optimization(
     method: str = "hybrid",
     candidates: Optional[List[str]] = None,
@@ -555,6 +654,15 @@ def run_optimization(
         fg_circular=fg_circular,
     )
 
+    # Popped rather than read off `config`: these arrive as kwargs, and the
+    # `OptimizerConfig` built here has no field for them -- `minimize_primers`
+    # lives on the separate `OptimizationConfig` used by
+    # run_optimization_from_config. Reading them from the wrong object is how
+    # they came to be set, forwarded, and never acted on. Popping also keeps
+    # them out of the optimizer constructors, which have no use for them.
+    _minimize_primers = bool(kwargs.pop("minimize_primers", False))
+    _target_coverage = float(kwargs.pop("target_coverage", 0.70) or 0.70)
+
     # By this point `conditions` is either a valid object or None (with
     # `_conditions_init_error` populated for validator-banner reporting
     # further down).
@@ -640,6 +748,23 @@ def run_optimization(
         with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
             result = optimizer.optimize(candidates, target_size)
 
+    # --minimize-primers / --target-coverage post-processing.
+    #
+    # Both flags were reaching this function and going no further: they were
+    # stored on OptimizationConfig, forwarded through **kwargs, and read by no
+    # optimizer. `MinimalPrimerSelector` -- which exists precisely to trim a set
+    # to the smallest one still meeting a coverage target -- had no callers
+    # anywhere outside its own module. So `--minimize-primers` did nothing,
+    # which also made the default path look like it was minimising when the
+    # real cause was the coverage-binning bug in dominating_set_optimizer.
+    if _minimize_primers and result.primers:
+        result = _minimize_primer_count(
+            result=result,
+            optimizer=optimizer,
+            target_coverage=_target_coverage,
+            verbose=verbose,
+        )
+
     # Phase 15A: populate per_target_coverage on the result so multi-
     # target runs surface "target A 95% / target B 40%" instead of one
     # aggregate. Computed in the caller (here) rather than in every
@@ -709,35 +834,7 @@ def run_optimization(
     # written to data_dir/step4_improved_df_validation.json and logged here
     # so downstream CSV consumers can trust the output shape.
     try:
-        # Phase 15C library-level blacklist guard. Previously the validator
-        # received forbidden_primers=None; library callers who bypassed the
-        # swap-primer CLI could therefore silently inject blacklist
-        # candidates. Now we cross-check the candidate pool against
-        # params.bl_prefixes using the same helper the filter step uses,
-        # and pass the hits as forbidden primers to validate().
-        forbidden: list = []
-        bl_prefixes_list = list(getattr(parameter, "bl_prefixes", []) or [])
-        bl_lengths_list = list(getattr(parameter, "bl_seq_lengths", []) or [])
-        if bl_prefixes_list and bl_lengths_list and candidates:
-            try:
-                from .pipeline import _filter_blacklist_penalty
-
-                max_bl = getattr(parameter, "max_bl_freq", 0.0) or 0.0
-                _mask, _freqs = _filter_blacklist_penalty(
-                    list(candidates),
-                    bl_prefixes_list,
-                    bl_lengths_list,
-                    max_bl_freq=max_bl,
-                )
-                forbidden = [p for p, f in zip(candidates, _freqs) if f > max_bl]
-                if forbidden and verbose:
-                    logger.warning(
-                        f"Library blacklist guard: {len(forbidden)} "
-                        f"candidate(s) exceed max_bl_freq={max_bl}; "
-                        f"validator will flag any that reached the selected set."
-                    )
-            except Exception as e:
-                logger.debug(f"library blacklist guard skipped ({e})")
+        forbidden = _collect_forbidden_primers(candidates, verbose)
 
         validation = result.validate(
             target_size=target_size,

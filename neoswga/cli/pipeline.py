@@ -708,8 +708,6 @@ def run_step4(args):
                 f"Minimal primer selection enabled (target coverage: {target_coverage:.1%})"
             )
 
-        strategy = getattr(args, "scoring_weights", "balanced")
-
         # Background pre-filter flag (enabled by default, --no-bg-prefilter disables)
         bg_prefilter = not getattr(args, "no_bg_prefilter", False)
 
@@ -735,7 +733,6 @@ def run_step4(args):
             uniformity_weight=uniformity_weight,
             minimize_primers=minimize_primers,
             target_coverage=target_coverage,
-            strategy=strategy,  # Pass strategy for normalized optimizer
             polymerase=polymerase,  # Pass polymerase for hybrid preset config
             bg_prefilter=bg_prefilter,  # Background pre-filtering of candidates
             no_background=no_background,  # Host-free mode
@@ -961,8 +958,17 @@ def run_step4(args):
                     # Create networks from cache
                     from neoswga.core.network_optimizer import AmplificationNetwork
 
+                    # --max-extension was accepted and then ignored here: both
+                    # networks were built with a literal 70000 whatever the user
+                    # asked for, so the flag could not size the amplification
+                    # network it exists to size. The default is still 70000
+                    # (phi29 single-molecule processivity), which is the right
+                    # reach for network CONNECTIVITY -- distinct from the ~3 kb
+                    # coverage reach used for set-cover selection.
+                    max_extension = getattr(args, "max_extension", 70000) or 70000
+
                     # Build fg network
-                    fg_network = AmplificationNetwork(max_extension=70000)
+                    fg_network = AmplificationNetwork(max_extension=max_extension)
                     for primer in primers:
                         for prefix in fg_prefixes:
                             try:
@@ -977,7 +983,7 @@ def run_step4(args):
                     fg_network.build_graph()
 
                     # Build bg network
-                    bg_network = AmplificationNetwork(max_extension=70000)
+                    bg_network = AmplificationNetwork(max_extension=max_extension)
                     for primer in primers:
                         for prefix in bg_prefixes:
                             try:
@@ -1502,16 +1508,12 @@ def add_parsers(subparsers):
         "'union' additionally re-optimizes over the pooled primers from all "
         "methods (can beat any single method; never worsens it).",
     )
-    opt_method_group.add_argument(
-        "--scoring-weights",
-        dest="scoring_weights",
-        choices=["clinical", "discovery", "fast", "balanced", "enrichment"],
-        default="balanced",
-        help="Scoring-weight preset for the network optimizer: "
-        "clinical (high specificity), discovery (max coverage), "
-        "fast (quick screening), balanced (equal weights), "
-        "enrichment (sequencing).",
-    )
+    # --scoring-weights was removed here. It was read into `strategy` and
+    # forwarded into optimize_step4, and no optimizer read it -- **kwargs
+    # swallowed it. Its choices (clinical / discovery / balanced / enrichment)
+    # also duplicated --application, which IS wired: unified_optimizer maps it
+    # through OPTIMIZER_APPLICATION_WEIGHTS onto tm_weight, uniformity_weight
+    # and dimer_penalty. Use --application instead.
     opt_method_group.add_argument(
         "--method-guide",
         action="store_true",

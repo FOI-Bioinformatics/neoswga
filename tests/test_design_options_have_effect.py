@@ -196,30 +196,109 @@ def test_coverage_of_a_single_primer_stays_within_its_reach(cache, genome):
 
 CORE = Path(__file__).resolve().parent.parent / "neoswga" / "core"
 
-# Flags the optimize parser accepts that are meant to steer the design.
-# Each must be read by something under neoswga/core/, or it is decoration.
-DESIGN_FLAGS = [
-    "uniformity_weight",
-    "minimize_primers",
-    "target_coverage",
-    "min_per_target_coverage",
+
+def run_with(cache, genome, **kwargs):
+    """Run the real dispatch path with one option varied."""
+    from neoswga.core.unified_optimizer import run_optimization
+
+    position_cache, prefix = cache
+    return run_optimization(
+        candidates=list(genome["primers"]),
+        fg_prefixes=[prefix],
+        fg_seq_lengths=[GENOME_LENGTH],
+        target_size=6,
+        verbose=False,
+        extension_reach=COVERAGE_REACH,
+        **kwargs,
+    )
+
+
+def result_fingerprint(result):
+    """What a user would notice: which primers, and how they scored."""
+    return (tuple(sorted(result.primers)), round(result.normalized_score, 6))
+
+
+# Options the optimize parser accepts that are meant to steer the design.
+# Each must CHANGE THE DESIGN when varied.
+#
+# Grepping for the name is not good enough, and this file learned that the hard
+# way: an earlier version of this test passed `minimize_primers` and
+# `target_coverage` because both appear under neoswga/core/ -- the first as an
+# `OptimizationConfig` field that is set, forwarded and never read, the second
+# only as substrings of the unrelated `per_target_coverage`. Stored is not
+# consumed. Only running the thing twice can tell the difference.
+BEHAVIOURAL_OPTIONS = [
+    ("minimize_primers", {"minimize_primers": False}, {"minimize_primers": True}),
+    # `target_coverage` only means anything while minimising -- it is the floor
+    # the trimmed set has to clear -- so it is varied with minimising on. A low
+    # floor lets more primers be dropped than a high one.
+    (
+        "target_coverage",
+        {"minimize_primers": True, "target_coverage": 0.99},
+        {"minimize_primers": True, "target_coverage": 0.20},
+    ),
 ]
 
 
-@pytest.mark.parametrize("flag", DESIGN_FLAGS)
-def test_design_flag_is_consumed_by_a_core_module(flag):
-    """A flag stored on the parameter object and read by nobody changes nothing.
+@pytest.mark.parametrize("option,low,high", BEHAVIOURAL_OPTIONS)
+def test_option_changes_the_design(cache, genome, option, low, high):
+    """The only assertion that separates a working option from decoration."""
+    a = run_with(cache, genome, **low)
+    b = run_with(cache, genome, **high)
 
-    These four were each traced end-to-end through `optimize_step4` into the
-    optimizers, so they earn their place on the command line.
+    assert result_fingerprint(a) != result_fingerprint(b), (
+        f"{option} made no difference to the selected set or its score; "
+        f"both runs returned {result_fingerprint(a)}"
+    )
+
+
+def test_uniformity_weight_reaches_the_scorer():
+    """`--uniformity-weight` is consumed, but only by
+    `NetworkOptimizer._evaluate_primer_addition`, which scores primer
+    ADDITIONS. Hybrid uses NetworkOptimizer only to refine by REMOVAL, so on
+    many inputs the weight cannot change hybrid's pick.
+
+    It is also easy to mistake for dead: the uniformity term clamps to the same
+    value for every candidate on a genome without strong spacing differences,
+    and the base score then breaks ties in the same order whatever the weight.
+    That is a fixture being uninformative, not a defect, so this checks
+    consumption at the scorer rather than asserting an end-to-end difference
+    that would fail for the wrong reason.
     """
-    hits = subprocess.run(
-        ["grep", "-rl", flag, str(CORE), "--include=*.py"],
-        capture_output=True,
-        text=True,
-    ).stdout.split()
+    import inspect
 
-    assert hits, f"no module under neoswga/core/ reads {flag!r}"
+    from neoswga.core.network_optimizer import NetworkOptimizer
+
+    source = inspect.getsource(NetworkOptimizer._evaluate_primer_addition)
+
+    assert "uniformity_weight" in source
+    assert "1.0 - uniformity_weight" in source, "the weight is not applied to the score"
+
+
+def test_scoring_weights_is_not_offered():
+    """Removed: it was read into `strategy`, forwarded into `optimize_step4`,
+    and swallowed by **kwargs -- its own comment said "for normalized
+    optimizer", a module deleted in 08044d9. Its choices also duplicated
+    --application, which is genuinely wired through
+    OPTIMIZER_APPLICATION_WEIGHTS.
+    """
+    from neoswga.cli_unified import create_parser
+
+    assert "--scoring-weights" not in create_parser().format_help()
+
+
+def test_max_extension_is_not_hardcoded_in_the_cli():
+    """`--max-extension` was accepted and then ignored.
+
+    The two `AmplificationNetwork` constructions in the optimize path passed a
+    literal 70000 regardless of what the user asked for, so the flag could not
+    move the amplification network it exists to size.
+    """
+    source = (
+        Path(__file__).resolve().parent.parent / "neoswga" / "cli" / "pipeline.py"
+    ).read_text()
+
+    assert "AmplificationNetwork(max_extension=70000)" not in source
 
 
 @pytest.mark.parametrize("flag", ["--use-cooperative-binding", "--primer-strategy"])
