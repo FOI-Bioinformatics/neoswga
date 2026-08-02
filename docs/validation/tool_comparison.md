@@ -81,12 +81,36 @@ that could not stop a single large clique from expanding to millions of subsets,
 a selection objective that disagreed with the metric the result was then judged on).
 It is limited to pools of roughly 200 candidates and is not in the default ensemble.
 
-**Two options were removed.** `--use-cooperative-binding` and `--primer-strategy` were
-accepted, logged, and written to the parameter object, and no module under
-`neoswga/core/` read either one, so neither could change a design.
-`tests/test_design_options_have_effect.py` now asserts that every remaining
-design flag is consumed by a core module, and that changing an option changes the
-output — the only assertion that distinguishes a working option from decoration.
+**Five options did nothing.** `--use-cooperative-binding`, `--primer-strategy` and
+`--scoring-weights` were accepted, logged and stored, and read by no module under
+`neoswga/core/`; all three were removed (`--scoring-weights` duplicated
+`--application`, which is genuinely wired). `--max-extension` was ignored in favour
+of a hardcoded 70000 and is now wired. `--minimize-primers` and `--target-coverage`
+were swallowed by `**kwargs` — read off an `OptimizerConfig` that has no such fields —
+and now drive a real post-processing pass.
+
+The first attempt to guard this was a grep for the option name under `neoswga/core/`,
+and it was too weak: a name can appear as a config field that is set, forwarded and
+never read, or only as a substring of an unrelated identifier
+(`target_coverage` vs `per_target_coverage`). Stored is not consumed.
+`tests/test_design_options_have_effect.py` now runs the dispatch path twice with the
+option varied and requires the selected set or its score to differ, which is the only
+check that separates a working option from decoration.
+
+One near-miss worth recording: `--uniformity-weight` looks dead by the same test and
+is not. It is consumed by `NetworkOptimizer._evaluate_primer_addition`, but on a
+genome without strong spacing differences the uniformity term clamps to the same value
+for every candidate, so the base score breaks ties in the same order whatever the
+weight. An end-to-end assertion would have failed for the wrong reason and condemned a
+working option.
+
+**A third coverage semantics was found and not adopted.**
+`minimal_primer_selector.MinimalPrimerSelector` — never called from anywhere — counts
+`covered_positions` as the set of binding-site *coordinates*, so a primer covers as
+many bases as it has sites and extension is ignored. On a 30 kb genome, 30 sites reads
+as 0.1% coverage. The minimisation pass uses `optimizer.compute_metrics` instead, so
+selection, trimming and reporting all share the figure written to
+`step4_improved_df_summary.json`.
 
 ## Gaps not closed
 
