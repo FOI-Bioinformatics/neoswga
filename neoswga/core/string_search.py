@@ -252,7 +252,13 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
 
 
 def get_positions(
-    primer_list, fname_prefixes, fname_genomes, circular, overwrite=False, no_all_primer_files=False
+    primer_list,
+    fname_prefixes,
+    fname_genomes,
+    circular,
+    overwrite=False,
+    no_all_primer_files=False,
+    k_values=None,
 ):
     """
     Launches a multiprocessing pool to check if all primers exists in their relevant h5py file and modifies the file
@@ -267,6 +273,8 @@ def get_positions(
         fname_prefixes: The path prefixes for the h5py files, basically the path minus '_6mer_positions.h5' where k = 6.
         fname_genomes: A list of paths to the fasta files.
         overwrite: Boolean which when set to true means overwrite the k-mer entries in the h5py file if it already exists.
+        k_values: Explicit k-mer lengths to scan. Defaults to the lengths
+            actually present in `primer_list`.
 
     Returns:
         Dictionary mapping (prefix, primer) -> list of positions when using
@@ -274,8 +282,34 @@ def get_positions(
         Callers can use this to avoid re-reading HDF5 files for immediate
         downstream calculations (e.g. Gini index).
     """
-    # Use parameter k-mer range instead of hardcoded [6-12]
-    k_range = range(parameter.min_k, parameter.max_k + 1)
+    # Scan the lengths we were actually asked about.
+    #
+    # This used to iterate `range(parameter.min_k, parameter.max_k + 1)`, so a
+    # primer whose length fell outside the configured window was silently
+    # dropped -- no error, no warning, and an empty position list that is
+    # indistinguishable from "binds nowhere". That defeats the bring-your-own-
+    # oligo case this function is the entry point for: an externally designed
+    # 14-mer set against a params.json configured for 10-mers returned nothing
+    # for every primer.
+    #
+    # An explicit `k_values` still wins, for callers that want to constrain it.
+    if k_values is not None:
+        k_range = sorted(set(k_values))
+    else:
+        k_range = sorted({len(primer) for primer in primer_list})
+
+        outside = sorted(
+            {length for length in k_range if length < parameter.min_k or length > parameter.max_k}
+        )
+        if outside:
+            logger.info(
+                "Scanning k-mer length(s) %s, which fall outside the configured "
+                "min_k-max_k window (%s-%s). They are included because they were "
+                "asked for; position files are written per length.",
+                outside,
+                parameter.min_k,
+                parameter.max_k,
+            )
 
     # Collect in-memory positions when possible (avoids HDF5 round-trip)
     position_cache = {}
