@@ -140,6 +140,7 @@ neoswga optimize -j params.json --optimization-method=hybrid           # default
 neoswga optimize -j params.json --optimization-method=dominating-set   # fast graph-based
 neoswga optimize -j params.json --optimization-method=background-aware # clinical, 10-20x bg reduction
 neoswga optimize -j params.json --optimization-method=network          # Tm-weighted, dimer-aware
+neoswga optimize -j params.json --optimization-method=clique           # guaranteed dimer-free set
 neoswga optimize -j params.json --optimization-method=ensemble         # run all, keep best
 neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combine=union  # re-optimize over pooled primers
 ```
@@ -151,6 +152,7 @@ neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combin
 | `hybrid` | Medium | General use (default) | Combines network + set-cover approaches |
 | `dominating-set` | Fast | Large primer pools | Graph-based set cover, ln(n) approximation |
 | `background-aware` | Slow | Clinical applications | 10-20x background reduction, three-stage |
+| `clique` | Slow | Sets that must be dimer-free | Max-clique on the compatibility graph (swga 1.0's approach). The only method that GUARANTEES no dimerising pair; the others penalise dimers but can accept one. Pools of ~200 candidates; not in the default ensemble |
 | `network` | Medium | Tm-weighted selection | Dimer penalty aware |
 | `ensemble` | Slow | Best-of, unsure which | Runs several methods on one shared cache, keeps the best by application-weighted `normalized_score`, prints a per-method comparison table |
 

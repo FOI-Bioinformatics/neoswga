@@ -116,6 +116,7 @@ VALID_OPTIMIZATION_METHODS = [
     "dominating-set",
     "network",
     "background-aware",
+    "clique",
     # virtual (ensemble runner)
     "ensemble",
     "auto",
@@ -129,6 +130,8 @@ VALID_OPTIMIZATION_METHODS = [
     "tm-weighted",
     "clinical",
     "bg-aware",
+    "clique-dimer-free",
+    "dimer-free",
 ]
 
 # Polymerase temperature ranges used for WARNINGS. Deliberately distinct from the

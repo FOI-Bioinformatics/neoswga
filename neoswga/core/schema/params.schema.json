@@ -359,13 +359,14 @@
     },
     "optimization_method": {
       "type": "string",
-      "description": "Optimizer to use. The four canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias.",
+      "description": "Optimizer to use. The five canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias.",
       "default": "hybrid",
       "enum": [
         "hybrid",
         "dominating-set",
         "network",
         "background-aware",
+        "clique",
         "ensemble",
         "auto",
         "all",
@@ -376,7 +377,9 @@
         "network-optimizer",
         "tm-weighted",
         "clinical",
-        "bg-aware"
+        "bg-aware",
+        "clique-dimer-free",
+        "dimer-free"
       ]
     },
     "use_bloom_filter": {

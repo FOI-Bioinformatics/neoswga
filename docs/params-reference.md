@@ -72,7 +72,7 @@ neoswga schema --dump > params.schema.json
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
 | `nh4_conc` | number | min: 0.0; max: 1000.0 | `0.0` | NH4+ concentration (mM). The standard phi29 buffer supplies 20 mM NH4+ as 10 mM (NH4)2SO4. |
 | `num_primers` | integer | min: 1; max: 50 | `6` | - |
-| `optimization_method` | string | one of: hybrid, dominating-set, network, background-aware, ensemble, auto, all, hybrid-optimizer, two-stage, ds, set-cover, network-optimizer, tm-weighted, clinical, bg-aware | `hybrid` | Optimizer to use. The four canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias. |
+| `optimization_method` | string | one of: hybrid, dominating-set, network, background-aware, clique, ensemble, auto, all, hybrid-optimizer, two-stage, ds, set-cover, network-optimizer, tm-weighted, clinical, bg-aware, clique-dimer-free, dimer-free | `hybrid` | Optimizer to use. The five canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias. |
 | `peg_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
 | `polymerase` | string | one of: phi29, equiphi29, bst, bst3.0, bsu, klenow | `phi29` | - |
 | `primer_conc` | number | min: 1e-09; max: 0.0001 | `5e-07` | - |

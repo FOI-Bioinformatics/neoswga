@@ -465,6 +465,7 @@ Decision Tree:
   Speed critical / large pool?   -> dominating-set
   Clinical / low background?     -> background-aware
   Tm-balanced, dimer-aware?      -> network
+  Must be dimer-free?            -> clique (guaranteed, small pools only)
   Not sure / want the best?      -> ensemble (runs all, keeps the best)
   Default                        -> hybrid
 
@@ -476,9 +477,20 @@ Methods:
 | dominating-set   | Fast   | Excellent | Fair        | Large pools, quick       |
 | network          | Medium | Good      | Good        | Tm-balanced, dimer-aware |
 | background-aware | Slow   | Good      | Excellent   | Clinical, low background |
+| clique           | Slow   | Fair      | Good        | Guaranteed dimer-free    |
 | ensemble         | Slow   | Best-of   | Best-of     | Run all, keep best by    |
 |                  |        |           |             | normalized score         |
 +------------------+--------+-----------+-------------+--------------------------+
+
+The other four methods PENALISE primer-dimers: a dimerising pair costs score,
+and a greedy search can still accept one when the coverage looks worth it.
+`clique` instead joins two primers with an edge only when they do NOT dimerise
+and selects a clique, so a compatible set falls out of the representation. That
+is a guarantee none of the others make, paid for with an exhaustive search: it
+is limited to pools of roughly 200 candidates, and it truncates (with a log
+line) rather than running unbounded. It is not part of the default ensemble for
+the same reason -- add it explicitly with
+--ensemble-methods hybrid network clique.
 
 Application weighting (--application) tunes how the normalized score and the
 selection knobs trade coverage vs specificity:
@@ -1453,7 +1465,14 @@ def add_parsers(subparsers):
     opt_method_group.add_argument(
         "-m",
         "--optimization-method",
-        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
+        choices=[
+            "hybrid",
+            "dominating-set",
+            "network",
+            "background-aware",
+            "clique",
+            "ensemble",
+        ],
         default="hybrid",
         help="Optimization method. "
         "Decision tree: "

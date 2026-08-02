@@ -917,7 +917,14 @@ def add_parsers(subparsers):
     expand_parser.add_argument(
         "--optimization-method",
         default="hybrid",
-        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
+        choices=[
+            "hybrid",
+            "dominating-set",
+            "network",
+            "background-aware",
+            "clique",
+            "ensemble",
+        ],
         help="Optimization method (default: hybrid)",
     )
     expand_parser.add_argument(

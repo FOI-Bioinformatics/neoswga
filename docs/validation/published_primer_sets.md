@@ -7,6 +7,10 @@ S3 Table (percent of reads mapping to target after amplification).
 **Test suite:** `tests/validation/test_published_primer_sets.py`
 **Fixture:** `tests/validation/data/dwivedi_yu_2023_prevotella.json`
 
+See [tool_comparison.md](tool_comparison.md) for how NeoSWGA compares with
+swga 1.0, swga 2.0 and COATswga, including why the coverage reach and the
+set-level scoring differ deliberately.
+
 This is a rare dataset: designed primer sets, their computed metrics, and a
 measured outcome for each. It is the only wet-lab-validated benchmark we have.
 

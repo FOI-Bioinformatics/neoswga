@@ -33,6 +33,7 @@ def _registered_methods():
 
     # Importing the optimizer modules is what triggers their register decorators.
     import neoswga.core.background_aware_optimizer  # noqa: F401
+    import neoswga.core.clique_optimizer  # noqa: F401
     import neoswga.core.dominating_set_adapter  # noqa: F401
     import neoswga.core.hybrid_optimizer  # noqa: F401
     import neoswga.core.network_optimizer  # noqa: F401

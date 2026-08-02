@@ -110,6 +110,7 @@ def test_optimize_method_choices_match_the_real_optimize_parser():
         "dominating-set",
         "background-aware",
         "network",
+        "clique",
         "ensemble",
     }
     assert hardcoded_methods == real_choices, (
@@ -310,7 +311,8 @@ def test_individual_pipeline_step_maps_to_correct_command(monkeypatch, step_choi
         ("2", "dominating-set"),
         ("3", "background-aware"),
         ("4", "network"),
-        ("5", "ensemble"),
+        ("5", "clique"),
+        ("6", "ensemble"),
     ],
 )
 def test_optimize_step_method_selection(monkeypatch, method_choice, expected_method):

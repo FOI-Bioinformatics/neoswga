@@ -120,6 +120,7 @@ def _ensure_optimizers_registered():
         # Import optimizer modules to trigger factory registration
         try:
             from . import background_aware_optimizer  # Clinical/background-aware
+            from . import clique_optimizer  # Structurally dimer-free sets
             from . import dominating_set_adapter  # Graph-based set cover
             from . import hybrid_optimizer  # Two-stage hybrid
             from . import network_optimizer  # Network connectivity
