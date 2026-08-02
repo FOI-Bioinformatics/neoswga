@@ -500,6 +500,12 @@ max_self_dimer_bp = 4
 min_tm = None
 max_tm = None
 
+# Worker count. rf_preprocessing.create_base_feature_matrix reads this as a bare
+# attribute when building the feature matrix, so its absence was an
+# AttributeError rather than a fallback -- the same shape as max_self_dimer_bp
+# above. Mirrors the PipelineParameters default.
+cpus = 1
+
 # Genome GC below/above which a target counts as compositionally extreme, and
 # the GC bound on the matching side is released rather than centred on the
 # genome mean. Shared by the adaptive GC window here, the GC-clamp rule in
