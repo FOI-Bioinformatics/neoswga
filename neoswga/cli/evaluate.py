@@ -21,6 +21,8 @@ import os
 from neoswga.cli._common import (
     bootstrap_params_from_genome,
     collect_primers_from_args,
+    merge_args_to_parameter,
+    params_command,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,8 +37,27 @@ def _resolve_sources(args):
     if getattr(args, "json_file", None):
         import neoswga.core.pipeline as pipeline_mod
 
+        # `_initialize()` reads `parameter.json_file`, not an argument, so the
+        # path has to be on the module global before the call. Setting it here
+        # as well as in the @params_command decorator is deliberate: this
+        # function is only correct if the assignment happened, and depending on
+        # a caller to have done it is how it came to be missing. The merge
+        # skips None, so it is idempotent.
+        merge_args_to_parameter(args, parameter, ["json_file"])
+
         pipeline_mod._initialized = False
-        pipeline_mod._initialize()
+        try:
+            pipeline_mod._initialize()
+        except KeyError as e:
+            # `_initialize` is shared with the pipeline steps, where a missing
+            # foreground key is fatal and a bare KeyError is fine. Here it is
+            # not: this command can work from a FASTA alone, so it can offer a
+            # way forward that the generic handler cannot.
+            raise ValueError(
+                f"params.json is missing {e} needed to locate the foreground "
+                f"genome. Pass --genome FASTA to scan it directly instead, or "
+                f"run count-kmers to populate the k-mer index."
+            ) from e
         prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
         lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
         genomes = genomes or list(getattr(parameter, "fg_genomes", []) or [])
@@ -59,6 +80,15 @@ def _resolve_sources(args):
     return prefixes, genomes, lengths
 
 
+# Every other params-taking command carries this decorator; evaluate-set was
+# the one that did not. It validates the path and, critically, merges
+# `args.json_file` onto `parameter.json_file` -- which is what
+# `pipeline._initialize()` reads. Without it `-j` was accepted and ignored:
+# the file was never opened, and the command then reported the empty globals
+# it found as though they were the user's configuration ("Missing required
+# parameter: 'fg_prefixes'" against a file that lists one). The decorator
+# skips None, so the --genome-only path is unaffected.
+@params_command
 def run_evaluate_set(args):
     """Evaluate an existing oligo set: coverage, gaps, selectivity, dimers."""
     from neoswga.core import parameter

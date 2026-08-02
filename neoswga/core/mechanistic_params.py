@@ -224,6 +224,27 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         # Glycerol: stabilizes enzyme but slows it
         "glycerol_stability": 0.02,  # stability increase per %
         "glycerol_speed_penalty": 0.02,  # speed reduction per %
+        # BSA: blocks adsorption of polymerase to vessel surfaces and
+        # sequesters inhibitors, keeping enzyme in solution. Standard phi29
+        # protocols use 0.1-0.2 mg/mL. Saturating by mechanism -- once the
+        # surfaces are blocked, more protein does nothing -- so this is a
+        # hyperbolic gain, not a per-unit coefficient. A linear term would let
+        # 400 ug/mL dominate every other consideration.
+        "bsa_stability_max": 0.15,  # EMPIRICAL max stability gain
+        "bsa_half_saturation": 50.0,  # EMPIRICAL ug/mL for half-maximal gain
+        # DTT: keeps the polymerase's cysteine thiols reduced. Standard phi29
+        # buffer is 4 mM (NEB / Thermo). This is a DEFICIENCY penalty, not a
+        # dose-response: below the standard, activity is lost over a long
+        # isothermal incubation; above it there is no further benefit, and
+        # modelling excess as beneficial would invite adding more for nothing.
+        # `parameter.default_dtt_mm` supplies the buffer value when params.json
+        # is silent, so an unset field is not read as a DTT-free reaction.
+        "dtt_deficit_penalty": 0.20,  # EMPIRICAL max stability loss at 0 mM
+        # PEG viscosity: above the crowding plateau the solution is thick
+        # enough to slow strand displacement. This is what makes PEG
+        # non-monotonic and gives the model an interior optimum instead of
+        # "more is better".
+        "peg_speed_penalty": 0.015,  # EMPIRICAL speed loss per % above plateau
         # Temperature activity coefficient
         "temp_activity_coef": 0.03,  # activity reduction per C from optimal
     },
@@ -241,6 +262,14 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         "dmso_koff_penalty": 0.03,  # koff increase per %
         # SSB (single-stranded binding protein) effect
         "ssb_kon_multiplier": 2.0,  # SSB doubles kon
+        # PEG: macromolecular crowding. Excluded volume raises the effective
+        # concentration of macromolecules and accelerates association
+        # (Zimmerman & Minton 1993, Annu Rev Biophys Biomol Struct 22:27-65).
+        # Standard in phi29 rolling-circle protocols at 5-10% PEG-8000. The
+        # excluded-volume effect is bounded, so the kon gain plateaus; past
+        # that, "peg_speed_penalty" in the enzyme pathway takes over.
+        "peg_kon_boost": 0.06,  # EMPIRICAL kon increase per % up to the plateau
+        "peg_saturation": 8.0,  # EMPIRICAL %, where the crowding benefit levels off
         # Temperature effect on koff
         "koff_temp_coef": 0.1,  # koff increase per C above optimal
     },

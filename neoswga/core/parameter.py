@@ -23,6 +23,23 @@ logger = logging.getLogger(__name__)
 MG_DEFAULTS_MM = _registry_views.mg_defaults()
 MG_DEFAULT_FALLBACK_MM = 10.0
 
+# DTT keeps the polymerase's cysteine thiols reduced. 4 mM is the standard in
+# the phi29-family vendor buffers (NEB, Thermo) and in Bst/Bsu reaction
+# buffers. The default is load-bearing rather than cosmetic: the mechanistic
+# model treats DTT as a DEFICIENCY penalty, so reading an unset `dtt_mm` of
+# 0.0 literally would hand every existing user a stability penalty for a
+# buffer component they never disabled. Unset means the vendor buffer; only an
+# explicit low value is penalised.
+DTT_DEFAULTS_MM = {
+    "phi29": 4.0,
+    "equiphi29": 4.0,
+    "bst": 4.0,
+    "bst3.0": 4.0,
+    "bsu": 4.0,
+    "klenow": 1.0,  # Klenow buffers commonly specify 1 mM DTT
+}
+DTT_DEFAULT_FALLBACK_MM = 4.0
+
 
 # Bumped to 2 when the scientific corrections landed. A v1 params.json still
 # runs, but the numbers it produces will not match a v1-era run, so say why
@@ -80,6 +97,11 @@ SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is d
 def default_mg_conc(polymerase: str) -> float:
     """Return the default Mg2+ concentration (mM) for a polymerase."""
     return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
+
+
+def default_dtt_mm(polymerase: str) -> float:
+    """Return the default DTT concentration (mM) for a polymerase."""
+    return DTT_DEFAULTS_MM.get((polymerase or "").lower(), DTT_DEFAULT_FALLBACK_MM)
 
 
 def default_reaction_temp(polymerase: str) -> float:
@@ -939,6 +961,7 @@ def get_params(args):
         )
     else:
         mg_conc = data.get("mg_conc", default_mg_conc(polymerase))
+
     primer_conc = data.get("primer_conc", 0.5e-6)
 
     # Auto-set reaction temperature based on polymerase if not specified
@@ -954,7 +977,16 @@ def get_params(args):
     # Reaction-chemistry parameters (all optional). Driven by
     # REACTION_PARAM_DEFAULTS so a new additive needs one edit, not seven.
     _g = globals()
-    for _name, _default in REACTION_PARAM_DEFAULTS.items():
+    # DTT's default is polymerase-aware, like mg_conc, and for a sharper
+    # reason: the mechanistic model scores DTT as a deficiency penalty, so a
+    # params.json that never mentions dtt_mm must mean "the vendor buffer",
+    # not "a DTT-free reaction". Taking the 0.0 literally would penalise every
+    # existing user for a component they never disabled. No warning, unlike
+    # mg_conc: this default reproduces the standard buffer, so an unset field
+    # changes no prediction.
+    _reaction_defaults = dict(REACTION_PARAM_DEFAULTS)
+    _reaction_defaults["dtt_mm"] = default_dtt_mm(polymerase)
+    for _name, _default in _reaction_defaults.items():
         _g[_name] = data.get(_name, _default)
 
     # Store all reaction parameters in data dict

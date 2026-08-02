@@ -188,6 +188,40 @@ calibrate against your own wet-lab measurements via
 | betaine_inhibition_start 1.5 M | `mechanistic_params.py:220` | EMPIRICAL — practitioner consensus |
 | mg_optimal 10.0 mM | `mechanistic_params.py` | Standard phi29 buffer (Thermo MAN0030290, NEB phi29 buffer). Corrected from 2.5 mM, which was a PCR figure mis-attributed to Rahman (2014) |
 | Gaussian delta_t width 5 C | `mechanistic_params.py:~243` | EMPIRICAL — Gaussian for effective-Tm scoring |
+| peg_kon_boost 0.06 /% | `mechanistic_params.py` (kinetics) | EMPIRICAL — magnitude tuned; the mechanism is excluded-volume crowding raising effective concentrations (Zimmerman & Minton 1993, Annu Rev Biophys Biomol Struct 22:27-65) |
+| peg_saturation 8.0 % | `mechanistic_params.py` (kinetics) | EMPIRICAL — crowding plateau, placed at the top of the 5-10% PEG-8000 band used in phi29 RCA protocols |
+| peg_speed_penalty 0.015 /% | `mechanistic_params.py` (enzyme) | EMPIRICAL — viscosity cost above the plateau. Its purpose is qualitative: it makes PEG non-monotonic so the model reports an interior optimum rather than "more is better" |
+| bsa_stability_max 0.15 | `mechanistic_params.py` (enzyme) | EMPIRICAL — ceiling on the stability gain from blocking surface adsorption |
+| bsa_half_saturation 50 ug/mL | `mechanistic_params.py` (enzyme) | EMPIRICAL — places the half-maximal effect below the 100-200 ug/mL standard protocol range, so the standard range sits on the plateau |
+| dtt_deficit_penalty 0.20 | `mechanistic_params.py` (enzyme) | EMPIRICAL — stability lost at 0 mM DTT. Modelled as a deficiency penalty, not a dose-response: excess DTT confers no benefit |
+| DTT default 4.0 mM | `parameter.py` `DTT_DEFAULTS_MM` | Standard phi29-family vendor buffer (NEB, Thermo); 1 mM for Klenow. Load-bearing rather than cosmetic — see note below |
+
+### Why PEG, BSA and DTT have no Tm coefficient
+
+None of the three is primarily a duplex-stability agent at the concentrations
+used here: PEG is a crowding agent, BSA a carrier protein, DTT a reductant.
+They were accepted by the schema and consumed by nothing, and the temptation
+on discovering that is to give them Tm coefficients so they visibly "do
+something". That would have been inventing chemistry. They act on the enzyme
+instead, through the mechanistic model's enzyme and kinetics pathways.
+
+### Why the DTT default matters
+
+DTT enters the model as a *deficiency penalty*. An unset `dtt_mm` is 0.0,
+which read literally is a DTT-free reaction, so every existing user would have
+acquired a stability penalty for a buffer component they never disabled.
+`parameter.default_dtt_mm` supplies the vendor buffer value when params.json
+is silent, exactly as `default_mg_conc` does, so an unset field changes no
+prediction. Only an explicitly low value is penalised.
+
+### `stability_factor` now reaches the amplification estimate
+
+`MechanisticEffects.stability_factor` was computed, reported, and left out of
+the `predicted_amplification_factor` product, so every term acting through
+enzyme stability — glycerol, and now BSA and DTT — could not affect the number
+the model is judged on. It is now included. This was safe because the factor is
+exactly 1.0 at defaults, so predictions for configurations that set no
+stabiliser are unchanged.
 
 ## Validation ranges (ParamValidator)
 
