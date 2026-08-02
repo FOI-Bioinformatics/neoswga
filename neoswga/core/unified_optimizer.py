@@ -534,21 +534,9 @@ def run_optimization(
     _conditions_init_error: str = ""
     if conditions is None:
         try:
-            from .reaction_conditions import ReactionConditions
+            from .reaction_conditions import build_reaction_conditions
 
-            conditions = ReactionConditions(
-                temp=getattr(parameter, "reaction_temp", None) or 30.0,
-                polymerase=getattr(parameter, "polymerase", "phi29"),
-                na_conc=getattr(parameter, "na_conc", 50.0),
-                mg_conc=getattr(parameter, "mg_conc", 10.0),
-                dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-                betaine_m=getattr(parameter, "betaine_m", 0.0),
-                trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-                formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-                ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-                urea_m=getattr(parameter, "urea_m", 0.0),
-                tmac_m=getattr(parameter, "tmac_m", 0.0),
-            )
+            conditions = build_reaction_conditions()
         except (ValueError, TypeError, KeyError) as e:
             _conditions_init_error = str(e)
             logger.error(

@@ -1039,6 +1039,84 @@ class ReactionConditions:
         )
 
 
+def build_reaction_conditions(
+    args=None,
+    *,
+    polymerase: Optional[str] = None,
+    temp: Optional[float] = None,
+    **overrides,
+) -> ReactionConditions:
+    """Build `ReactionConditions` from pipeline configuration.
+
+    Use this instead of calling `ReactionConditions(...)` with a hand-written
+    list of fields. Every caller that hand-listed its own subset dropped
+    something: `cli/evaluate.py` passed two of twenty parameters, the score
+    step five, and not one passed `k_conc`, `nh4_conc`, `dntp_conc` or
+    `dtt_mm`, so the phi29 buffer species reached no calculation at all. The
+    additives a command respected were decided independently in nineteen
+    places.
+
+    The field list is read from `ReactionConditions.__init__` rather than
+    written out here, so a new field is forwarded by every caller without
+    anyone having to remember them. That is the whole point: the previous
+    arrangement failed by omission, and an omission is invisible -- a dropped
+    additive does not raise, it just leaves the Tm at its no-additive value.
+
+    Precedence is explicit keyword > `args` attribute > `parameter` global >
+    constructor default. A value that is absent everywhere is not passed at
+    all, so the constructor's own default applies. That distinction matters for
+    `mg_conc`: `None` means "use the polymerase's buffer value" (10 mM for
+    phi29), and callers that coerced an absent value to 0.0 were running the
+    reaction at zero magnesium, which the mechanistic model then penalised.
+
+    Args:
+        args: Optional argparse namespace whose attributes override params.json.
+        polymerase: Explicit polymerase, winning over args and parameter.
+        temp: Explicit reaction temperature in Celsius.
+        **overrides: Explicit values for any other field.
+
+    Returns:
+        ReactionConditions carrying every configured field.
+    """
+    import inspect as _inspect
+
+    from neoswga.core import parameter as _parameter
+    from neoswga.core.parameter import default_reaction_temp
+
+    def _resolve(name):
+        """Explicit keyword, then CLI args, then params.json. None = unset."""
+        if overrides.get(name) is not None:
+            return overrides[name]
+        if args is not None:
+            value = getattr(args, name, None)
+            if value is not None:
+                return value
+        return getattr(_parameter, name, None)
+
+    field_names = list(_inspect.signature(ReactionConditions.__init__).parameters)[1:]
+
+    kwargs = {}
+    for name in field_names:
+        if name in ("temp", "polymerase"):
+            continue
+        value = _resolve(name)
+        if value is not None:
+            kwargs[name] = value
+
+    resolved_polymerase = polymerase or _resolve("polymerase") or "phi29"
+
+    resolved_temp = temp
+    if resolved_temp is None:
+        resolved_temp = _resolve("reaction_temp")
+    if resolved_temp is None:
+        # ReactionConditions(temp=None) raises when it range-checks, so a
+        # params file with no reaction_temp must not reach the constructor
+        # with None. Match what thermodynamics.get_current_config does.
+        resolved_temp = default_reaction_temp(resolved_polymerase)
+
+    return ReactionConditions(temp=resolved_temp, polymerase=resolved_polymerase, **kwargs)
+
+
 # ========================================
 # Preset Conditions
 # ========================================

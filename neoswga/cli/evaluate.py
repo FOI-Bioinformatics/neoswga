@@ -69,7 +69,7 @@ def run_evaluate_set(args):
         polymerase_extension_reach,
     )
     from neoswga.core.position_cache import PositionCache
-    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.reaction_conditions import build_reaction_conditions
 
     primers = collect_primers_from_args(
         getattr(args, "primers", None), getattr(args, "primers_file", None)
@@ -80,12 +80,11 @@ def run_evaluate_set(args):
     polymerase = (
         getattr(args, "polymerase", None) or getattr(parameter, "polymerase", "phi29") or "phi29"
     )
-    conditions = ReactionConditions(
-        temp=getattr(args, "reaction_temp", None)
-        or getattr(parameter, "reaction_temp", None)
-        or 30.0,
-        polymerase=polymerase,
-    )
+    # This passed two of twenty parameters, so every additive and buffer
+    # species in params.json was absent from the Tm and dimer energies this
+    # command reports -- the point of the command being to evaluate an oligo
+    # set under the user's chemistry.
+    conditions = build_reaction_conditions(args, polymerase=polymerase)
     reach = polymerase_extension_reach(polymerase, coverage_metric="realistic")
 
     # on_missing='scan' is the point of this command: an outside primer set is

@@ -32,6 +32,20 @@ from neoswga.core.thermodynamics import calculate_free_energy, calculate_tm_with
 logger = logging.getLogger(__name__)
 
 
+def _conditions_to_kwargs(conditions) -> dict:
+    """ReactionConditions -> constructor kwargs, for crossing a process boundary.
+
+    Derived from the constructor signature so a new field travels with the
+    others instead of being dropped on the way to a worker.
+    """
+    import inspect
+
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    names = list(inspect.signature(ReactionConditions.__init__).parameters)[1:]
+    return {n: getattr(conditions, n) for n in names if hasattr(conditions, n)}
+
+
 def _check_heterodimer_pair(args):
     """Check a single heterodimer pair.
 
@@ -126,12 +140,37 @@ class ThermodynamicFilter:
             criteria: Filtering criteria (uses defaults if None)
         """
         self.criteria = criteria or ThermodynamicCriteria()
+        self._conditions = None
 
         logger.info("Thermodynamic filter initialized")
         logger.info(f"  Tm range: {self.criteria.min_tm}-{self.criteria.max_tm}°C")
         logger.info(f"  Max homodimer ΔG: {self.criteria.max_homodimer_dg} kcal/mol")
         logger.info(f"  Max heterodimer ΔG: {self.criteria.max_heterodimer_dg} kcal/mol")
         logger.info(f"  GC range: {self.criteria.min_gc*100:.0f}-{self.criteria.max_gc*100:.0f}%")
+
+    def _get_conditions(self):
+        """Full reaction conditions for the structure and dimer checks.
+
+        These were built here from four `ThermodynamicCriteria` fields --
+        temperature, Na+, Mg2+ and polymerase -- so every additive and buffer
+        species configured in params.json was absent from the hairpin,
+        homodimer and heterodimer energies this filter rejects primers on. A
+        run with 5% DMSO screened the same primers as a run without it.
+
+        The criteria still win where they are set, since they carry the
+        polymerase-adjusted values `adjust_criteria_for_conditions` computes;
+        everything else comes from configuration via the builder.
+        """
+        if self._conditions is None:
+            from neoswga.core.reaction_conditions import build_reaction_conditions
+
+            self._conditions = build_reaction_conditions(
+                polymerase=self.criteria.polymerase,
+                temp=self.criteria.reaction_temp,
+                na_conc=self.criteria.na_conc,
+                mg_conc=self.criteria.mg_conc,
+            )
+        return self._conditions
 
     def analyze_primer(self, sequence: str) -> PrimerThermodynamics:
         """
@@ -166,12 +205,7 @@ class ThermodynamicFilter:
             failure_reasons.append(f"GC too high ({gc:.1%} > {self.criteria.max_gc:.1%})")
 
         # Create reaction conditions for structure analysis
-        conditions = ReactionConditions(
-            temp=self.criteria.reaction_temp,
-            na_conc=self.criteria.na_conc,
-            mg_conc=self.criteria.mg_conc,
-            polymerase=self.criteria.polymerase,
-        )
+        conditions = self._get_conditions()
 
         # Check homodimer formation
         try:
@@ -268,21 +302,16 @@ class ThermodynamicFilter:
             logger.info(f"  Checking heterodimers between {len(passing)} primers...")
 
             # Create reaction conditions
-            conditions = ReactionConditions(
-                temp=self.criteria.reaction_temp,
-                na_conc=self.criteria.na_conc,
-                mg_conc=self.criteria.mg_conc,
-                polymerase=self.criteria.polymerase,
-            )
+            conditions = self._get_conditions()
 
             # Calculate pairwise heterodimer potential
             problematic_pairs = set()
 
-            conditions_dict = {
-                "temp": self.criteria.reaction_temp,
-                "na_conc": self.criteria.na_conc,
-                "mg_conc": self.criteria.mg_conc,
-            }
+            # Carries every field across the process boundary. With three
+            # keys the worker rebuilt conditions without additives, so the
+            # parallel path (>100 pairs) and the serial path disagreed on the
+            # same primers.
+            conditions_dict = _conditions_to_kwargs(conditions)
 
             pairs = [
                 (passing[i].sequence, passing[j].sequence, i, j, conditions_dict)

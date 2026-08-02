@@ -334,7 +334,7 @@ def run_swap_primer(args):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
-    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.reaction_conditions import build_reaction_conditions
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
@@ -383,19 +383,7 @@ def run_swap_primer(args):
         except Exception as e:
             logger.debug(f"Blacklist guard skipped: {e}")
 
-    conditions = ReactionConditions(
-        temp=getattr(parameter, "reaction_temp", 30.0) or 30.0,
-        polymerase=getattr(parameter, "polymerase", "phi29"),
-        na_conc=getattr(parameter, "na_conc", 50.0),
-        mg_conc=getattr(parameter, "mg_conc", 10.0),
-        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-        betaine_m=getattr(parameter, "betaine_m", 0.0),
-        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-        urea_m=getattr(parameter, "urea_m", 0.0),
-        tmac_m=getattr(parameter, "tmac_m", 0.0),
-    )
+    conditions = build_reaction_conditions()
     analyzer = create_dimer_network_analyzer(conditions)
 
     # Snapshot "before" state: analyze_primer_set returns (metrics, profiles, matrix)
@@ -540,21 +528,9 @@ def run_contract_set(args):
     #   w_bg    = 0.15  (prefer removing primers with high bg frequency)
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
     from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
-    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.reaction_conditions import build_reaction_conditions
 
-    conditions = ReactionConditions(
-        temp=getattr(parameter, "reaction_temp", 30.0) or 30.0,
-        polymerase=getattr(parameter, "polymerase", "phi29"),
-        na_conc=getattr(parameter, "na_conc", 50.0),
-        mg_conc=getattr(parameter, "mg_conc", 10.0),
-        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-        betaine_m=getattr(parameter, "betaine_m", 0.0),
-        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-        urea_m=getattr(parameter, "urea_m", 0.0),
-        tmac_m=getattr(parameter, "tmac_m", 0.0),
-    )
+    conditions = build_reaction_conditions()
     scorer = IntegratedQualityScorer(conditions=conditions)
     dimer_analyzer = create_dimer_network_analyzer(conditions=conditions)
 
@@ -685,7 +661,7 @@ def run_rescore_set(args):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
     from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
-    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.reaction_conditions import build_reaction_conditions
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
@@ -718,19 +694,7 @@ def run_rescore_set(args):
     else:
         reaction_temp = _pick("reaction_temp", 30.0) or 30.0
 
-    conditions = ReactionConditions(
-        temp=reaction_temp,
-        polymerase=polymerase,
-        na_conc=_pick("na_conc", 50.0),
-        mg_conc=_pick("mg_conc", 10.0),
-        dmso_percent=_pick("dmso_percent", 0.0),
-        betaine_m=_pick("betaine_m", 0.0),
-        trehalose_m=_pick("trehalose_m", 0.0),
-        formamide_percent=_pick("formamide_percent", 0.0),
-        ethanol_percent=_pick("ethanol_percent", 0.0),
-        urea_m=_pick("urea_m", 0.0),
-        tmac_m=_pick("tmac_m", 0.0),
-    )
+    conditions = build_reaction_conditions(args, polymerase=polymerase, temp=reaction_temp)
 
     scorer = IntegratedQualityScorer(conditions=conditions)
     per_primer = []

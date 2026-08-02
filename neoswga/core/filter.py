@@ -19,7 +19,7 @@ from neoswga.core.parameter import (
     EXTREME_GC_GENOME_GC,
     default_reaction_temp,
 )
-from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.reaction_conditions import ReactionConditions, build_reaction_conditions
 
 logger = logging.getLogger(__name__)
 
@@ -36,29 +36,14 @@ def _get_reaction_conditions() -> ReactionConditions:
     """
     global _reaction_conditions
     if _reaction_conditions is None:
-        # `parameter.reaction_temp` EXISTS as None until get_params runs, so a
-        # getattr default never fires -- ReactionConditions(temp=None) then
-        # raises TypeError when it range-checks the temperature. Fall back to
-        # the polymerase's optimal temperature, matching what
-        # thermodynamics.get_current_config already does.
-        polymerase = getattr(parameter, "polymerase", None) or "phi29"
-        reaction_temp = getattr(parameter, "reaction_temp", None)
-        if reaction_temp is None:
-            reaction_temp = default_reaction_temp(polymerase)
-
-        _reaction_conditions = ReactionConditions(
-            temp=reaction_temp,
-            polymerase=polymerase,
-            dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-            betaine_m=getattr(parameter, "betaine_m", 0.0),
-            trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-            formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-            ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-            urea_m=getattr(parameter, "urea_m", 0.0),
-            tmac_m=getattr(parameter, "tmac_m", 0.0),
-            na_conc=getattr(parameter, "na_conc", 50.0),
-            mg_conc=getattr(parameter, "mg_conc", 0.0),
-        )
+        # Hand-listing the fields here dropped nine of them, including every
+        # buffer species and the glycerol/PEG/BSA/SSB group the filter CLI
+        # accepts. `build_reaction_conditions` reads the field list off the
+        # constructor, so nothing can be left out by omission. It also keeps
+        # the reaction_temp fallback this function needed: the global EXISTS
+        # as None until get_params runs, so a getattr default never fires and
+        # ReactionConditions(temp=None) raises when it range-checks.
+        _reaction_conditions = build_reaction_conditions()
     return _reaction_conditions
 
 

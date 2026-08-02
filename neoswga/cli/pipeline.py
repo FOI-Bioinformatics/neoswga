@@ -582,7 +582,7 @@ def run_step4(args):
 
             try:
                 from neoswga.core.mechanistic_model import MechanisticModel
-                from neoswga.core.reaction_conditions import ReactionConditions
+                from neoswga.core.reaction_conditions import build_reaction_conditions
                 from neoswga.core.set_size_optimizer import (
                     create_baseline_effects,
                     recommend_set_size,
@@ -611,12 +611,15 @@ def run_step4(args):
                 )
 
                 try:
-                    conditions = ReactionConditions(
-                        temp=reaction_temp,
-                        polymerase=polymerase,
-                        mg_conc=json_data.get("mg_conc", 2.5),
-                        dmso_percent=json_data.get("dmso_percent", 0.0),
-                        betaine_m=json_data.get("betaine_m", 0.0),
+                    # Five of twenty fields, which mattered here more than
+                    # anywhere: this feeds MechanisticModel, and glycerol and
+                    # SSB act through that model rather than through Tm, so
+                    # they were dropped at the one place they do something.
+                    # The old mg_conc default of 2.5 mM was the PCR-calibrated
+                    # value; the builder falls through to the polymerase buffer
+                    # value (10 mM for phi29) instead.
+                    conditions = build_reaction_conditions(
+                        polymerase=polymerase, temp=reaction_temp
                     )
                     model = MechanisticModel(conditions)
                     sample_primer = "A" * primer_length  # Neutral sequence
