@@ -652,11 +652,6 @@ def run_step4(args):
             except Exception as e:
                 logger.warning(f"Auto-size failed: {e}. Using default num_primers.")
 
-        # Cooperative binding (experimental - not yet fully integrated)
-        if hasattr(args, "use_cooperative_binding") and args.use_cooperative_binding:
-            logger.warning("--use-cooperative-binding is experimental and not yet fully integrated")
-            parameter.use_cooperative_binding = True
-
         # Mechanistic model: when enabled, the optimizer's
         # factory kwargs carry mechanistic_weight so NetworkOptimizer (the
         # condition-aware scoring path inside hybrid / network) will
@@ -684,11 +679,6 @@ def run_step4(args):
                 "Network / hybrid optimizers will apply a weighted mechanistic "
                 "amplification-factor term to every primer."
             )
-
-        # Primer strategy
-        merge_args_to_parameter(args, parameter, ["primer_strategy"])
-        if hasattr(args, "primer_strategy") and args.primer_strategy == "hybrid":
-            logger.info("Using hybrid primer strategy (mixed lengths)")
 
         # Use unified optimizer framework (all methods handled via factory pattern)
         from neoswga.core.unified_optimizer import list_available_optimizers, optimize_step4
@@ -1509,19 +1499,12 @@ def add_parsers(subparsers):
         help="Show optimization method selection guide and exit",
     )
 
-    # Primer Strategy
-    opt_strategy_group = optimize_parser.add_argument_group("Primer Strategy")
-    opt_strategy_group.add_argument(
-        "--use-cooperative-binding",
-        action="store_true",
-        help="[EXPERIMENTAL] Cooperative binding model (not yet fully integrated)",
-    )
-    opt_strategy_group.add_argument(
-        "--primer-strategy",
-        choices=["standard", "hybrid"],
-        default="standard",
-        help="Primer design strategy (standard: uniform length, hybrid: mixed lengths)",
-    )
+    # --use-cooperative-binding and --primer-strategy were removed here. Both
+    # were accepted, logged and written to the parameter object, and no module
+    # under neoswga/core/ ever read either one, so neither could change a
+    # design. A flag that silently does nothing is worse than an absent one: it
+    # reads as a control that was tried and found not to matter.
+    # tests/test_design_options_have_effect.py holds the line for the rest.
 
     # Background Filtering
     opt_bg_group = optimize_parser.add_argument_group("Background Filtering")

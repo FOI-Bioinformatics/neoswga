@@ -491,8 +491,6 @@ def run_design(args):
         "strategy": None,
         "use_position_cache": True,
         "use_background_filter": False,
-        "use_cooperative_binding": False,
-        "primer_strategy": None,
         "enable_qa": False,
     }
     for attr, default in optimize_defaults.items():

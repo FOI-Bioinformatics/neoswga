@@ -35,6 +35,38 @@ class CoverageRegion:
         return hash((self.chromosome, self.start, self.end))
 
 
+def coverage_bin_size(bin_size: int, extension_reach: int) -> int:
+    """Bin size that does not overstate what the polymerase reaches.
+
+    `BipartiteGraph.add_primer_coverage` marks a bin covered when any part of
+    it is within reach of a binding site. That approximation is only sound
+    while a bin is no larger than the reach: at the shipped defaults --
+    10 kb bins against a realistic ~3 kb per-primer reach -- a primer covering
+    30% of a bin claimed all of it.
+
+    Two things followed, both silent. Greedy set cover saw the genome fully
+    covered after two primers and stopped, so every request between 2 and 12
+    primers returned the same two; and the coverage reported for that set was
+    1.000 where the honest figure was 0.433. A coarse bin rounds its own error
+    up to a perfect score, which is the one direction a reader will not
+    question.
+
+    A bin equal to the reach is not enough. A site at `pos` reaches
+    `[pos, pos + reach)` but marks every bin it touches, so it claims up to
+    `reach + bin_size` bases: the relative overstatement is `bin_size / reach`.
+    Binning at a quarter of the reach holds that under 25%, which is the
+    accuracy this approximation is used at -- progress reporting and the
+    background-pruning coverage floor. The authoritative figure remains
+    `BaseOptimizer._compute_coverage`, which counts bases rather than bins.
+
+    Callers that model no extension (`extension_reach=0`) keep their bin size:
+    with no reach there is no reach to overstate.
+    """
+    if extension_reach and extension_reach > 0:
+        return max(1, min(bin_size, extension_reach // 4 or 1))
+    return bin_size
+
+
 class BipartiteGraph:
     """
     Bipartite graph: Primers ↔ Regions
@@ -216,8 +248,13 @@ class DominatingSetOptimizer:
         self.cache = cache
         self.fg_prefixes = fg_prefixes
         self.fg_seq_lengths = fg_seq_lengths
-        self.bin_size = bin_size
         self.extension_reach = extension_reach
+        self.bin_size = coverage_bin_size(bin_size, extension_reach)
+        if self.bin_size != bin_size:
+            logger.info(
+                f"Bin size reduced {bin_size:,} -> {self.bin_size:,} bp to match the "
+                f"{extension_reach:,} bp extension reach"
+            )
 
     def optimize_greedy(
         self,

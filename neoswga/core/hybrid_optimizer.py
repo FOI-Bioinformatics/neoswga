@@ -785,19 +785,22 @@ class HybridOptimizer:
         """Binned genome coverage for a primer set, at the realistic reach.
 
         This is an APPROXIMATION used for progress reporting and for the
-        coverage floor in background pruning. It works in `bin_size` bins, so a
-        bin counts as covered when any part of it falls within reach of a site.
-        The default 10 kb bin is coarser than phi29's ~3 kb reach, which makes
-        the figure optimistic.
+        coverage floor in background pruning. It works in bins, so a bin counts
+        as covered when any part of it falls within reach of a site -- which is
+        only sound while a bin is no larger than the reach. `coverage_bin_size`
+        enforces that: the configured 10 kb default is cut to the ~3 kb reach,
+        because a 10 kb bin let a primer covering 30% of it claim the whole bin
+        and report 1.000 for a set that covers 0.433.
 
         The authoritative number is `PrimerSetMetrics.fg_coverage`, computed
         base-by-base by `BaseOptimizer._compute_coverage` and written to
         `step4_improved_df_summary.json`. Compare like with like: this method
         and that metric will not agree exactly, by construction.
         """
-        from neoswga.core.dominating_set_optimizer import BipartiteGraph
+        from neoswga.core.dominating_set_optimizer import BipartiteGraph, coverage_bin_size
 
-        graph = BipartiteGraph(bin_size=self.bin_size)
+        bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
+        graph = BipartiteGraph(bin_size=bin_size)
 
         for primer in primers:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
@@ -831,10 +834,10 @@ class HybridOptimizer:
         if len(graph.regions) == 0:
             return 0.0
 
-        # Calculate total genome bins
-        total_bins = sum(
-            (length + self.bin_size - 1) // self.bin_size for length in self.fg_seq_lengths
-        )
+        # Total bins at the SAME granularity the graph was built with. Dividing
+        # bins counted at one size by a total computed at another reported
+        # coverage above 1.0.
+        total_bins = sum((length + bin_size - 1) // bin_size for length in self.fg_seq_lengths)
 
         coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
         return coverage
