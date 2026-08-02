@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.genome_analysis import calculate_genome_stats, get_gc_class, recommend_adaptive_qa
-from neoswga.core.parameter import default_mg_conc
+from neoswga.core.parameter import CURRENT_SCHEMA_VERSION, adaptive_gc_window, default_mg_conc
 
 logger = logging.getLogger(__name__)
 
@@ -538,16 +538,26 @@ class SetupWizard:
         betaine = self.user_overrides.get("betaine_m", self.recommended_additives["betaine_m"])
         dmso = self.user_overrides.get("dmso_percent", self.recommended_additives["dmso_percent"])
 
-        # Calculate GC bounds
+        # Calculate GC bounds. Use the pipeline's own adaptive_gc_window rather
+        # than a plain +/- clamp: on extreme AT- or GC-rich targets the working
+        # primers sit at the composition extreme (e.g. Oyola et al. 2016 used
+        # ZERO-GC primers on 19%-GC P. falciparum), so a mean-centred window
+        # excludes them entirely. A prior version of this method hardcoded
+        # gc_min/gc_max here, and because get_params() treats an explicit
+        # gc_min/gc_max in params.json as a user override, it silently
+        # suppressed that adaptive release for every wizard-generated config.
         gc = self.target_stats["gc_content"]
         gc_tolerance = 0.15
-        gc_min = max(0.0, gc - gc_tolerance)
-        gc_max = min(1.0, gc + gc_tolerance)
+        gc_min, gc_max = adaptive_gc_window(gc, gc_tolerance)
 
         # Build config
         config = {
-            # Schema version for reproducibility
-            "schema_version": 1,
+            # Schema version for reproducibility. Must track the pipeline's
+            # current schema (parameter.CURRENT_SCHEMA_VERSION) -- a freshly
+            # generated config that declares an old version triggers a
+            # "results will differ from a v1 run" warning on every downstream
+            # command, even though this run never used v1 defaults.
+            "schema_version": CURRENT_SCHEMA_VERSION,
             # Genome paths
             "fg_genomes": [str(self.target_path.resolve())],
             "fg_prefixes": [str(Path(output_dir) / self.target_path.stem)],
