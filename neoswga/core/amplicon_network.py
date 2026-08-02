@@ -39,11 +39,27 @@ class NetworkMetrics:
     mean_amplicon_length: float
     median_amplicon_length: float
     max_amplicon_length: float
-    strongly_connected_components: int
+    # Historically named for strongly connected components, which are all
+    # singletons on this acyclic graph. It now holds the weakly connected
+    # count -- the number of amplicon clusters -- which is the quantity the
+    # name was reaching for. `strongly_connected_components` remains as an
+    # alias below so existing readers keep working.
+    connected_components: int
     largest_component_size: int
     average_clustering: float
     network_density: float
     mean_degree: float
+
+    @property
+    def strongly_connected_components(self) -> int:
+        """Deprecated alias for `connected_components`.
+
+        Kept so existing readers do not break. The value was never actually a
+        strongly-connected count in any useful sense: the amplicon graph is
+        acyclic, so every strongly connected component is one node and this
+        equalled the node count.
+        """
+        return self.connected_components
 
 
 class AmpliconNetwork:
@@ -196,8 +212,16 @@ class AmpliconNetwork:
         if self.G.number_of_nodes() == 0:
             return 0.0
 
-        # Find all strongly connected components
-        components = list(nx.strongly_connected_components(self.G))
+        # Weakly connected components.
+        #
+        # Amplicon edges only run forward-primer -> downstream reverse-primer,
+        # so the graph is acyclic and every STRONGLY connected component is a
+        # single node. The `len(component) > 1` test below therefore never
+        # fired and this returned 0.0 for every network. The sibling
+        # implementation in network_optimizer uses `nx.connected_components`,
+        # which is the same semantics: a cluster of binding sites linked by
+        # potential amplicons.
+        components = list(nx.weakly_connected_components(self.G))
 
         # Calculate covered bases
         covered = set()
@@ -292,8 +316,11 @@ class AmpliconNetwork:
         amplicon_stats = self.calculate_amplicon_statistics()
         logger.info(f"  Mean amplicon length: {amplicon_stats['mean']:.0f} bp")
 
-        # Connected components
-        components = list(nx.strongly_connected_components(self.G))
+        # Weakly connected, for the same reason as in calculate_coverage: on an
+        # acyclic amplicon graph, strongly connected components are all
+        # singletons, so `len(components)` was just the node count and
+        # `largest_component` was always 1.
+        components = list(nx.weakly_connected_components(self.G))
         largest_component = max(components, key=len) if components else set()
         logger.info(f"  Connected components: {len(components)}")
         logger.info(f"  Largest component: {len(largest_component)} nodes")
@@ -318,7 +345,7 @@ class AmpliconNetwork:
             mean_amplicon_length=amplicon_stats["mean"],
             median_amplicon_length=amplicon_stats["median"],
             max_amplicon_length=amplicon_stats["max"],
-            strongly_connected_components=len(components),
+            connected_components=len(components),
             largest_component_size=len(largest_component),
             average_clustering=clustering,
             network_density=density,
