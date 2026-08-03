@@ -198,3 +198,98 @@ def test_the_predicted_values_are_too_close_together_to_rank(predicted):
         f"predicted selectivity spans {spread:.1f}x across sets whose measured "
         f"outcomes differ 60-fold"
     )
+
+
+# ----------------------------------------------------------------------
+# Where the lever does work
+# ----------------------------------------------------------------------
+
+needs_12mers = pytest.mark.skipif(
+    not (GENOMES / "prevotella_12mer_all.txt").exists(),
+    reason="12-mer counts absent; run neoswga count-kmers with min_k=max_k=12",
+)
+
+# A set the pipeline itself produced from Prevotella against human chr21,
+# equiphi29 at 42 C. Fixed here rather than regenerated so the test does not
+# depend on a 108-second filter run.
+PIPELINE_12MERS = [
+    "CATCAACGATAA",
+    "CCCAGAACGATA",
+    "GCGTATCAACCA",
+    "GTCAAAGTCGAA",
+    "ACGAGTTACCAT",
+    "CAACACGCTTAC",
+]
+
+
+def _selectivity_curve(primers, temperatures):
+    from neoswga.core.base_optimizer import _selectivity_from_loads
+    from neoswga.core.occupancy import weighted_site_load
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    values = []
+    for temp in temperatures:
+        conditions = ReactionConditions(temp=temp, polymerase="equiphi29")
+        fg = weighted_site_load(primers, [str(FG_PREFIX)], conditions, 1)
+        bg = weighted_site_load(primers, [str(BG_PREFIX)], conditions, 1)
+        values.append(_selectivity_from_loads(fg, bg))
+    return values
+
+
+def test_short_primers_do_not_respond_to_stringency_at_all(sets):
+    """The mechanism behind the null result above, shown rather than argued.
+
+    For a set of 7-8mers, foreground and background carry the same mixture of
+    exact and mismatched sites -- both saturated -- so the occupancy terms
+    cancel in the ratio and no temperature changes it. Measured across 38-50 C
+    the published sets are flat to two decimal places:
+
+        Prev06 (7,8-mers)   0.41  0.41  0.41  0.41
+        Prev03 (8-mers)     0.30  0.30  0.30  0.30
+    """
+    for name, entry in sets:
+        if max(len(p) for p in entry["primers"]) > 9:
+            continue
+        curve = _selectivity_curve(entry["primers"], [38.0, 42.0, 46.0, 50.0])
+        assert (
+            curve[-1] / curve[0] < 1.05
+        ), f"{name} responded to stringency: {[round(v, 3) for v in curve]}"
+
+
+@needs_12mers
+def test_twelve_mers_do_respond_to_stringency():
+    """The design consequence, on the same target and background.
+
+    At 12 bases the foreground is dominated by exact matches and the background
+    by mismatched ones, so the two no longer share a composition and stringency
+    separates them. A set the pipeline produced moves 0.60 -> 1.23 across
+    38-50 C, where the published 8-mer sets move not at all.
+
+    This is what makes the additive lever a real control in the equiphi29
+    regime and not in phi29's 6-12mers.
+    """
+    curve = _selectivity_curve(PIPELINE_12MERS, [38.0, 42.0, 46.0, 50.0])
+
+    assert curve == sorted(curve), f"not monotone in temperature: {curve}"
+    assert curve[-1] / curve[0] > 1.5, f"got {[round(v, 3) for v in curve]}"
+
+
+@needs_12mers
+def test_exact_counting_calls_this_set_perfectly_specific():
+    """Why the occupancy model is worth its cost, on a real design.
+
+    The pipeline's 12-mer set has zero exact matches in the background, so a
+    count-based selectivity reports no background binding whatsoever. Weighted
+    by occupancy the same set measures below 1 -- it binds the human background
+    more than the target, entirely through near-matches a count cannot see.
+    """
+    from neoswga.core.mismatch_counts import mismatch_class_counts
+    from neoswga.core.occupancy import weighted_site_load
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    exact_bg = sum(mismatch_class_counts(p, [str(BG_PREFIX)], 0)[0] for p in PIPELINE_12MERS)
+    assert exact_bg == 0, "the premise is that exact counting sees no background here"
+
+    conditions = ReactionConditions(temp=42.0, polymerase="equiphi29")
+    weighted_bg = weighted_site_load(PIPELINE_12MERS, [str(BG_PREFIX)], conditions, 1)
+    assert weighted_bg > 10, f"expected substantial near-match load; got {weighted_bg:.2f}"
