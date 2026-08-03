@@ -173,3 +173,8 @@ docs/superpowers/
 
 # Git worktrees
 .worktrees/
+
+# Reference genomes for the specificity validation. Fetched on request by
+# scripts/fetch_reference_genomes.py; the smallest useful pair is ~50 Mb and
+# the full human background is 3 Gb, so they are not committed.
+tests/validation/genomes/

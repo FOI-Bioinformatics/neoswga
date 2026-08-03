@@ -240,6 +240,68 @@ standard primer-design practice for specificity, and this benchmark has no
 off-target sites to measure specificity against, so it cannot adjudicate. Left
 in place and recorded.
 
+## Specificity validation against Prevotella: a negative result, and why
+
+With `scripts/fetch_reference_genomes.py` supplying the target (3 Mb) and a
+human background subset (chr21, 46 Mb), the six Prevotella sets can be scored
+by predicted selectivity and compared against their measured on-target read
+percentages. This is the only fixture with a continuous specificity outcome,
+so it is the natural test of whether the occupancy model means anything.
+
+    occupancy selectivity vs measured % on target    rho = -0.086   p = 0.872
+
+It does not rank them. Neither does anything else built on background binding,
+including the metric the authors themselves published:
+
+| metric | rho vs measured | p |
+|---|---|---|
+| **fg_max_distance** | **-0.829** | **0.042** |
+| fg_gini | -0.771 | 0.072 |
+| fg_bg_ratio (published) | +0.600 | 0.208 |
+| bg_mean_distance | -0.086 | 0.872 |
+| occupancy selectivity (ours) | -0.086 | 0.872 |
+
+What separated these six experiments was foreground gap structure, not
+specificity — consistent with the finding recorded above that whichever
+property is currently limiting is the one that predicts.
+
+### Why no specificity metric could have worked here
+
+Five of the six sets are made entirely of 8-mers. Every canonical 8-mer — all
+32,896 of them — occurs in both genomes:
+
+| k | distinct k-mers observed in chr21 | mean count, Prevotella | mean count, chr21 |
+|---|---|---|---|
+| 7 | 8,192 (all) | 387 | 4,894 |
+| 8 | 32,896 (all) | 97 | 1,219 |
+| 11 | 1,878,441 | 2.5 | 21.3 |
+
+At 7–8 bases a primer's background load is set by how much sequence it is
+counted against, not by its sequence. Every set therefore looks alike, and the
+predicted ratios span under 2x across sets whose measured outcomes differ
+60-fold. No weighting of binding counts can separate them.
+
+### The consequence for design
+
+Sharper than the failed correlation: **additives cannot buy specificity for a
+set of 7–8mers.** Stringency works by discriminating a rare perfect-match
+population from a common mismatched one, and at that length the perfect matches
+already number in the thousands. There is nothing to discriminate.
+
+The lever needs primers long enough for exact matches to be rare. At k=11 the
+mean background count falls to 21 — which is the equiphi29 regime (12–18mers),
+not phi29's 6–12mers. That is a concrete design implication of the occupancy
+model, and it is testable independently of whether this particular benchmark
+validates it.
+
+### What would validate the model
+
+A dataset with longer primers and measured on-target yield. This one cannot,
+and saying so is more useful than recording a correlation of -0.086 without its
+explanation. Pinned by `tests/validation/test_prevotella_specificity.py`, which
+fails if a future change makes the model rank these sets — at which point this
+conclusion needs revisiting rather than the test being deleted.
+
 ## A real bug this benchmark caught
 
 Recomputing the site counts surfaced a defect in the scan fallback added for
