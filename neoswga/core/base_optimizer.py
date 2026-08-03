@@ -809,33 +809,18 @@ class BaseOptimizer(ABC):
         because silently swapping between two definitions of one number is the
         failure this codebase has produced most often.
         """
-        from neoswga.core.mismatch_counts import mismatch_class_counts
-        from neoswga.core.occupancy import default_mismatch_penalty, mismatch_tm, site_occupancy
-        from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+        from neoswga.core.occupancy import weighted_site_load
 
         conditions = getattr(self, "conditions", None)
         if conditions is None or not self.bg_prefixes:
             return 0.0, 0.0, "exact"
 
         max_mismatches = int(getattr(self.config, "max_mismatches", 1) or 0)
-        penalty = default_mismatch_penalty()
-        temp = conditions.temp
-
-        fg_load = bg_load = 0.0
-        for primer in primers:
-            try:
-                fg_classes = mismatch_class_counts(primer, self.fg_prefixes, max_mismatches)
-                bg_classes = mismatch_class_counts(primer, self.bg_prefixes, max_mismatches)
-            except (FileNotFoundError, OSError):
-                return 0.0, 0.0, "exact"
-
-            dh, _ds = calculate_enthalpy_entropy(primer)
-            tm = conditions.calculate_effective_tm(primer)
-
-            for distance, count in fg_classes.items():
-                fg_load += count * site_occupancy(dh, mismatch_tm(tm, distance, penalty), temp)
-            for distance, count in bg_classes.items():
-                bg_load += count * site_occupancy(dh, mismatch_tm(tm, distance, penalty), temp)
+        try:
+            fg_load = weighted_site_load(primers, self.fg_prefixes, conditions, max_mismatches)
+            bg_load = weighted_site_load(primers, self.bg_prefixes, conditions, max_mismatches)
+        except (FileNotFoundError, OSError):
+            return 0.0, 0.0, "exact"
 
         return fg_load, bg_load, "occupancy"
 

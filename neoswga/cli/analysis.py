@@ -9,7 +9,11 @@ import logging
 import os
 import sys
 
-from neoswga.cli._common import PRESETS, validate_primer_sequence
+from neoswga.cli._common import (
+    PRESETS,
+    collect_primers_from_args,
+    validate_primer_sequence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +80,86 @@ def show_presets():
         print()
 
 
+def _sweep_conditions_for_set(args, primers):
+    """Choose conditions by measuring selectivity, not by looking up genome GC.
+
+    Reports the whole grid rather than only the winner: a flat optimum means
+    chemistry is not the binding constraint on this design and effort belongs
+    elsewhere, and that is invisible in a single recommended value.
+    """
+    import os
+
+    from neoswga.core.condition_sweep import (
+        DEFAULT_AMPLIFICATION_WEIGHT,
+        format_sweep_table,
+        recommend_conditions_for_set,
+        sweep_conditions,
+    )
+
+    fg_prefixes = getattr(args, "fg_prefix", None) or [os.path.splitext(args.fg)[0]]
+    bg_prefixes = list(args.bg)
+    weight = getattr(args, "amplification_weight", None)
+    if weight is None:
+        weight = DEFAULT_AMPLIFICATION_WEIGHT
+
+    logger.info(
+        "Sweeping reaction conditions for %d primer(s) against %d background(s)",
+        len(primers),
+        len(bg_prefixes),
+    )
+
+    points = sweep_conditions(
+        primers=primers,
+        fg_prefixes=fg_prefixes,
+        bg_prefixes=bg_prefixes,
+        polymerase=getattr(args, "polymerase", "phi29"),
+    )
+    best = recommend_conditions_for_set(
+        primers=primers,
+        fg_prefixes=fg_prefixes,
+        bg_prefixes=bg_prefixes,
+        polymerase=getattr(args, "polymerase", "phi29"),
+        amplification_weight=weight,
+    )
+
+    print("\nCondition sweep (selectivity measured against the background):\n")
+    print(format_sweep_table(points, weight))
+    print(f"\nRecommended: {best.label}")
+
+    os.makedirs(args.output, exist_ok=True)
+    out_path = os.path.join(args.output, "condition_sweep.json")
+    with open(out_path, "w") as handle:
+        json.dump(
+            {
+                "polymerase": getattr(args, "polymerase", "phi29"),
+                "primers": list(primers),
+                "amplification_weight": weight,
+                "recommended": vars(best) if hasattr(best, "__dict__") else best.__dict__,
+                "grid": [p.__dict__ for p in points],
+            },
+            handle,
+            indent=2,
+            default=float,
+        )
+    print(f"Wrote {out_path}")
+    return 0
+
+
 def optimize_conditions(args):
     """Optimize reaction conditions for a genome"""
     from Bio import SeqIO
 
     from neoswga.core import reaction_conditions as rc
+
+    # With a primer set and a background, conditions can be chosen from a
+    # measurement instead of from genome GC content. That path is the point of
+    # this command; the GC recommendation below remains for the case where
+    # there is no design to evaluate yet.
+    primers = collect_primers_from_args(
+        getattr(args, "primers", None), getattr(args, "primers_file", None), allow_empty=True
+    )
+    if primers and getattr(args, "bg", None):
+        return _sweep_conditions_for_set(args, primers)
 
     logger.info("Analyzing genome and recommending optimal conditions...")
 
@@ -359,6 +438,39 @@ def add_parsers(subparsers):
     optimize_cond_parser.add_argument("--output", "-o", required=True, help="Output directory")
     optimize_cond_parser.add_argument(
         "--target-k", type=int, help="Target k-mer length to optimize for"
+    )
+    # Without a background and a primer set this command could only ever
+    # recommend from genome GC content -- it had no way to measure specificity,
+    # which is the thing conditions are usually being chosen for.
+    optimize_cond_parser.add_argument(
+        "--bg",
+        "--background",
+        dest="bg",
+        nargs="+",
+        help="Background k-mer prefix(es). With --primers, sweeps conditions "
+        "and reports measured selectivity against this background rather than "
+        "recommending from genome GC alone.",
+    )
+    optimize_cond_parser.add_argument(
+        "--fg-prefix",
+        nargs="+",
+        help="Foreground k-mer prefix(es) for the selectivity sweep "
+        "(defaults to --fg with its extension stripped).",
+    )
+    optimize_cond_parser.add_argument(
+        "--primers", nargs="+", help="Primer set to optimise conditions for"
+    )
+    optimize_cond_parser.add_argument("--primers-file", help="File of primers, one per line")
+    optimize_cond_parser.add_argument(
+        "--polymerase", default="phi29", help="Polymerase (default: phi29)"
+    )
+    optimize_cond_parser.add_argument(
+        "--amplification-weight",
+        type=float,
+        default=None,
+        help="How much the amplification cost counts against the specificity "
+        "gain, 0-1 (default 0.5). At 0 the search walks to the harshest "
+        "condition on the grid and recommends a reaction that amplifies nothing.",
     )
 
     # =========================================================================

@@ -120,3 +120,33 @@ def site_occupancy(dh_kcal: float, tm: float, temp: float) -> float:
     exponent = max(-_MAX_EXPONENT, min(_MAX_EXPONENT, exponent))
 
     return 1.0 / (1.0 + math.exp(exponent))
+
+
+def weighted_site_load(primers, prefixes, conditions, max_mismatches: int = 1) -> float:
+    """Occupancy-weighted binding load of a primer set against one genome set.
+
+        load = SUM_primers SUM_j n_j * theta(dH, Tm - j*penalty, T)
+
+    Three callers want this number -- the optimizer's `PrimerSetMetrics`,
+    `evaluate-set`, and the condition sweep -- so it lives in one place. Three
+    implementations of one quantity is how they come to disagree, which this
+    codebase has already demonstrated with Tm windows and dimer thresholds.
+
+    Raises `FileNotFoundError` when the jellyfish count files needed for
+    mismatch classes are absent, so a caller can fall back to exact counting
+    deliberately rather than receiving a quietly different number.
+    """
+    from neoswga.core.mismatch_counts import mismatch_class_counts
+    from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+
+    penalty = default_mismatch_penalty()
+    total = 0.0
+    for primer in primers:
+        dh, _ds = calculate_enthalpy_entropy(primer)
+        tm = conditions.calculate_effective_tm(primer)
+        for distance, count in mismatch_class_counts(primer, prefixes, max_mismatches).items():
+            if count:
+                total += count * site_occupancy(
+                    dh, mismatch_tm(tm, distance, penalty), conditions.temp
+                )
+    return total

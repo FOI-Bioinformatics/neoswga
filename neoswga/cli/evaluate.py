@@ -127,29 +127,14 @@ def _occupancy_selectivity(primers, fg_prefixes, bg_prefixes, conditions):
     there are no counts. Absent rather than silently substituted by the count
     ratio, since they are different numbers.
     """
-    from neoswga.core.mismatch_counts import mismatch_class_counts
-    from neoswga.core.occupancy import default_mismatch_penalty, mismatch_tm, site_occupancy
-    from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+    from neoswga.core.occupancy import weighted_site_load
 
     if not bg_prefixes:
         return None
 
-    penalty = default_mismatch_penalty()
-    fg_load = bg_load = 0.0
     try:
-        for primer in primers:
-            dh, _ds = calculate_enthalpy_entropy(primer)
-            tm = conditions.calculate_effective_tm(primer)
-            for source, is_foreground in ((fg_prefixes, True), (bg_prefixes, False)):
-                classes = mismatch_class_counts(primer, source, 1)
-                weighted = sum(
-                    n * site_occupancy(dh, mismatch_tm(tm, j, penalty), conditions.temp)
-                    for j, n in classes.items()
-                )
-                if is_foreground:
-                    fg_load += weighted
-                else:
-                    bg_load += weighted
+        fg_load = weighted_site_load(primers, fg_prefixes, conditions, 1)
+        bg_load = weighted_site_load(primers, bg_prefixes, conditions, 1)
     except (FileNotFoundError, OSError):
         logger.info("No k-mer count files available; reporting exact-match selectivity only.")
         return None
