@@ -179,20 +179,33 @@ expected: with identical site geometry there is little selectivity to predict.
 
 ## The default Tm window costs most of the measured amplification
 
-Running the 141 pcDNA-designed primers through the shipped phi29 filter
-settings (`min_tm` 15, `max_tm` 45) splits them three ways:
+Running the 141 pcDNA-designed primers through the shipped phi29 window
+(20-50, now resolved from the registry) splits them three ways:
 
 | | n | median measured amplification |
 |---|---|---|
-| below the window | 14 | 0.80x |
-| inside the window | 51 | 6.45x |
-| **above the window** | **76** | **19.95x** |
+| below the window | 17 | 0.94x |
+| inside the window | 57 | 5.87x |
+| **above the window** | **67** | **21.50x** |
 
 The lower bound earns its place: the primers it rejects genuinely amplified
-badly. The upper bound does not behave like a filter on quality. The 76 primers
-above it amplified about three times better than those inside, and carry **74%
-of all amplification measured in the experiment**. Only 2 of the 141 survive
-the complete filter.
+badly. The upper bound does not behave like a filter on quality — the 67
+primers above it carry **70% of all amplification measured in the experiment**.
+
+Repeating the split under the other enzymes' windows shows this is about where
+the upper bound sits, not about Tm filtering as such:
+
+| polymerase | window | below | inside | above |
+|---|---|---|---|---|
+| phi29 | 20-50 | 0.94x (n=17) | 5.87x (n=57) | **21.50x (n=67)** |
+| equiphi29 | 37-62 | 1.60x (n=47) | **16.77x (n=88)** | 32.75x (n=6) |
+| bst | 50-75 | 3.62x (n=75) | **21.32x (n=66)** | — (n=0) |
+
+As the window rises, what it admits is increasingly the primers that amplified
+well and what it rejects is increasingly the poor end — which is what a
+well-placed Tm filter should look like on this data. These primers were
+designed for phi29 rolling-circle amplification, so phi29 is the relevant
+column, and it is the one where the bound is least well placed.
 
 This is recorded rather than acted on, because the benchmark cannot settle the
 question it raises. Every primer here has exactly one on-target site and zero
@@ -206,6 +219,26 @@ is not consequence-free in either direction, and the decision needs data this
 benchmark cannot provide: per-primer amplification measured against a genome
 with real background. Pinned by
 `tests/validation/test_tm_window_vs_measured_amplification.py`.
+
+### Two adjacent changes considered and rejected
+
+**Widening the GC window for short primers.** The adaptive GC bound is a
+fraction (genome GC ± 0.15) while a primer's GC can only move in steps of 1/k,
+so the boundary lands arbitrarily between achievable values — an 8-mer with 3
+G/C sits at 0.375 and is rejected by 0.002. Admitting a half-step of slack
+looks like the principled fix, and measurement says otherwise: it admits 12
+more benchmark primers whose median measured amplification is **1.80x** against
+a pool median of 10.15x, while widening the candidate pool by 13.4%. The strict
+boundary is excluding poor amplifiers, so it stays.
+
+**Relaxing the sequence heuristics.** Under equiphi29's window, the rules that
+reject the best-amplifying primers are not Tm but the 3'-end and repeat
+heuristics: GC clamp (n=81, median 14.65x), 3' GGG/CCC (n=22, 31.10x),
+homopolymer run (n=3, 46.09x), against Tm which by then rejects the poor end
+(n=51, 2.04x). Neither swga 1.0 nor swga 2.0 applies these three. They are
+standard primer-design practice for specificity, and this benchmark has no
+off-target sites to measure specificity against, so it cannot adjudicate. Left
+in place and recorded.
 
 ## A real bug this benchmark caught
 

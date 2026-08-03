@@ -6,17 +6,27 @@ how much each individual primer amplified, rather than how a set performed:
 bundled in `examples/plasmid_example`. That makes it the only dataset that can
 say anything about where a Tm threshold should sit.
 
-Run the 141 pcDNA-designed primers through the shipped filter settings
-(phi29, min_tm 15, max_tm 45) and the window splits them three ways:
+Run the 141 pcDNA-designed primers through the shipped phi29 window (20-50,
+from the registry) and it splits them three ways:
 
-    below  window   n=14   median measured amplification   0.80x
-    inside window   n=51                                   6.45x
-    above  window   n=76                                  19.95x
+    below  window   n=17   median measured amplification   0.94x
+    inside window   n=57                                   5.87x
+    above  window   n=67                                  21.50x
 
-The lower bound earns its place -- the primers it rejects genuinely amplified
-badly. The upper bound does not look like a filter on quality: the 76 primers
-above it amplified about three times better than those inside, and carry 74%
-of all amplification measured in the experiment.
+The same split under the other enzymes' windows shows the effect is a property
+of where the upper bound sits, not of Tm filtering as such:
+
+    phi29      20-50   below  0.94x   inside   5.87x   above 21.50x  (n above = 67)
+    equiphi29  37-62   below  1.60x   inside  16.77x   above 32.75x  (n above =  6)
+    bst        50-75   below  3.62x   inside  21.32x   above  -      (n above =  0)
+
+As the window rises, the primers it admits are the ones that amplified well and
+what it rejects is increasingly the poor end. Under phi29 the lower bound is
+already doing that job -- what it excludes amplified at 0.94x -- while the
+upper bound is not.
+
+The 67 primers above phi29's upper bound carry 70% of all amplification
+measured in the experiment, so this is not a handful of outliers.
 
 This is recorded rather than acted on, because the benchmark cannot settle the
 question it raises. Every primer here has exactly one on-target site and zero
@@ -36,11 +46,15 @@ from pathlib import Path
 
 import pytest
 
+from neoswga.core.parameter import default_reaction_temp, default_tm_range
+
 DATA = Path(__file__).parent / "data" / "dwivedi_yu_2023_plasmid_amplification.json"
 
-# The shipped phi29 settings from examples/plasmid_example/params.json.
-MIN_TM = 15.0
-MAX_TM = 45.0
+# Resolved from the registry rather than hardcoded. These were written as a
+# literal 15/45 when that was what examples/plasmid_example/params.json
+# carried; the default is now polymerase-aware, so a literal would pin numbers
+# the tool no longer uses and quietly stop testing the shipped behaviour.
+MIN_TM, MAX_TM = default_tm_range("phi29")
 
 
 @pytest.fixture(scope="module")
@@ -107,8 +121,30 @@ def test_amplification_excluded_by_the_upper_bound_is_a_large_share(measured, tm
 
     excluded_share = sum(measured[p] for p in above) / sum(measured.values())
     assert excluded_share > 0.5, (
-        f"only {excluded_share:.0%} of measured amplification sits above max_tm; "
-        f"the documented figure is 74%"
+        f"only {excluded_share:.0%} of measured amplification sits above phi29's " f"max_tm"
+    )
+
+
+def test_a_higher_window_admits_the_good_amplifiers(measured):
+    """The contrast that shows this is about where the bound sits.
+
+    equiphi29's window is 37-62. Under it the primers that amplified best are
+    inside rather than above, and what falls below is the poor end -- which is
+    what a well-placed Tm filter should look like on this data.
+    """
+    import statistics
+
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    low, high = default_tm_range("equiphi29")
+    conditions = ReactionConditions(temp=default_reaction_temp("equiphi29"), polymerase="equiphi29")
+    tm = {p: conditions.calculate_effective_tm(p) for p in measured}
+
+    inside = [p for p in measured if low <= tm[p] <= high]
+    below = [p for p in measured if tm[p] < low]
+
+    assert statistics.median(measured[p] for p in inside) > statistics.median(
+        measured[p] for p in below
     )
 
 
