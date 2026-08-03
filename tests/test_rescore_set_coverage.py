@@ -8,6 +8,7 @@ The added `coverage` block closes that gap.
 """
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,27 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
+
+
+@pytest.fixture(scope="module")
+def example_workdir(tmp_path_factory):
+    """A private copy of the plasmid example.
+
+    These commands write their outputs beside their inputs, and running them
+    with `cwd=EXAMPLE_DIR` left artifacts in the repository's shared example --
+    which `tests/integration/test_plasmid_golden_snapshot.py` copies wholesale.
+    The snapshot then passed on a clean checkout, failed on the run after a
+    full suite, and passed again once the directory was cleaned: an order
+    dependency on the previous invocation rather than on anything in the run.
+    """
+    if not EXAMPLE_DIR.is_dir():
+        pytest.skip("plasmid example not available")
+
+    workdir = tmp_path_factory.mktemp("example")
+    for entry in EXAMPLE_DIR.iterdir():
+        if entry.is_file():
+            shutil.copy2(entry, workdir)
+    return workdir
 
 
 def _run(args, cwd=None, timeout=120):
@@ -29,7 +51,7 @@ def _run(args, cwd=None, timeout=120):
 
 
 @pytest.fixture
-def rescore_output():
+def rescore_output(example_workdir):
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
     result = _run(
@@ -45,7 +67,7 @@ def rescore_output():
             "1.0",
             "--quiet",
         ],
-        cwd=str(EXAMPLE_DIR),
+        cwd=str(example_workdir),
     )
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -74,7 +96,7 @@ def test_rescore_per_target_is_dict(rescore_output):
         assert 0.0 <= val <= 1.0
 
 
-def test_rescore_extension_reach_reflects_polymerase():
+def test_rescore_extension_reach_reflects_polymerase(example_workdir):
     if not EXAMPLE_DIR.is_dir():
         pytest.skip()
     # phi29 -> 70000
@@ -90,7 +112,7 @@ def test_rescore_extension_reach_reflects_polymerase():
             "phi29",
             "--quiet",
         ],
-        cwd=str(EXAMPLE_DIR),
+        cwd=str(example_workdir),
     )
     assert r.returncode == 0
     phi = json.loads(r.stdout)
@@ -109,7 +131,7 @@ def test_rescore_extension_reach_reflects_polymerase():
             "63",
             "--quiet",
         ],
-        cwd=str(EXAMPLE_DIR),
+        cwd=str(example_workdir),
     )
     assert r.returncode == 0
     bst = json.loads(r.stdout)

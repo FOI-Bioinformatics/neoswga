@@ -35,6 +35,28 @@ class CoverageRegion:
         return hash((self.chromosome, self.start, self.end))
 
 
+def _deterministic_scan_order(fixed_primers, candidates, graph_primers) -> List[str]:
+    """The order the greedy loop considers primers in.
+
+    `graph.primers` is a set, and greedy selection keeps the first primer seen
+    at the best score -- so ties were broken by set iteration order, which
+    Python varies per process for strings. Four runs of the bundled example at
+    seed=42 gave four different sets: same first primer, different tie-break on
+    the second. No RNG is involved, which is why seeding never fixed it.
+
+    Input order rather than `sorted()`: the caller's list arrives ranked by the
+    scoring step, so preferring the earlier candidate on a tie respects that
+    ranking instead of substituting an alphabetical one.
+    """
+    seen = set()
+    order = []
+    for primer in list(fixed_primers) + list(candidates):
+        if primer in graph_primers and primer not in seen:
+            seen.add(primer)
+            order.append(primer)
+    return order
+
+
 def coverage_bin_size(bin_size: int, extension_reach: int) -> int:
     """Bin size that does not overstate what the polymerase reaches.
 
@@ -351,6 +373,8 @@ class DominatingSetOptimizer:
         for primer in fixed_primers:
             covered_regions.update(graph.primer_to_regions.get(primer, set()))
 
+        scan_order = _deterministic_scan_order(fixed_primers, candidates, graph.primers)
+
         if verbose and n_fixed > 0:
             coverage_so_far = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
             logger.info(f"  Fixed primer coverage: {coverage_so_far:.1%}")
@@ -365,7 +389,7 @@ class DominatingSetOptimizer:
             best_primer = None
             best_new_coverage = 0
 
-            for primer in graph.primers:
+            for primer in scan_order:
                 if primer in selected:
                     continue
 

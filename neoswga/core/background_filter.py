@@ -294,17 +294,15 @@ class BackgroundBloomFilter:
         return all(base in "ATCG" for base in kmer)
 
     def _generate_1mm_variants(self, seq: str) -> Set[str]:
-        """Generate all 1-mismatch variants of sequence"""
-        variants = set()
-        bases = ["A", "T", "C", "G"]
+        """All 1-mismatch variants of a sequence.
 
-        for i in range(len(seq)):
-            for base in bases:
-                if base != seq[i]:
-                    variant = seq[:i] + base + seq[i + 1 :]
-                    variants.add(variant)
+        Delegates so this and `mismatch_counts` cannot come to disagree about
+        what a mismatch neighbour is -- they are counting the same population
+        for the same reason, one probabilistically and one exactly.
+        """
+        from neoswga.core.mismatch_counts import one_mismatch_variants
 
-        return variants
+        return one_mismatch_variants(seq)
 
     def save(self, path: str):
         """Save Bloom filter to disk"""
