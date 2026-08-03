@@ -405,11 +405,21 @@ class DominatingSetOptimizer:
         coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
         uncovered = graph.regions - covered_regions
 
-        # Separate fixed and new primers in result
-        new_primers = [p for p in selected if p not in fixed_primers]
+        # Both lists come from `order`, not from `selected`.
+        #
+        # Returning `list(selected)` handed callers a set-ordered list, and
+        # Python randomises string hashing per process, so the order differed
+        # between runs of the same command. Stage-2 refinement breaks ties by
+        # position, so a different order gave a different primer set: the
+        # bundled example produced five different answers in five runs at
+        # seed=42. No RNG was involved, which is why seeding never helped --
+        # greedy selection is deterministic, and only the container forgot the
+        # order it happened in.
+        fixed_set = set(fixed_primers)
+        new_primers = [p for p in order if p not in fixed_set]
 
         result = {
-            "primers": list(selected),
+            "primers": list(order),
             "ordered_primers": order,
             "new_primers": new_primers,
             "fixed_primers": fixed_primers,
