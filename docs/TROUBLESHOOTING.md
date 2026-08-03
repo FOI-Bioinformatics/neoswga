@@ -326,7 +326,7 @@ memory-intensive.
 
 1. Use the Bloom filter for large backgrounds:
    ```bash
-   neoswga build-filter background_genome.fna ./
+   neoswga build-filter --genome background_genome.fna -o ./
    ```
    Then reference the filter in your pipeline run. The Bloom filter uses
    approximately 1% of the memory of a full k-mer table.
@@ -498,7 +498,7 @@ sequence homology.
 3. Build a Bloom filter for the background genome to improve background
    frequency estimates:
    ```bash
-   neoswga build-filter background_genome.fna ./
+   neoswga build-filter --genome background_genome.fna -o ./
    ```
 4. Consider using a longer primer length range (12-18 bp with EquiPhi29) for
    greater specificity.

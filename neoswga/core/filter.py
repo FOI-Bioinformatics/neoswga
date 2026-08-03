@@ -24,6 +24,12 @@ from neoswga.core.reaction_conditions import ReactionConditions, build_reaction_
 
 logger = logging.getLogger(__name__)
 
+# Expected number of sampled sites at the background threshold below which
+# the sampled index cannot distinguish 'rare' from 'absent'. Five is a floor,
+# not a precision claim: below it the estimate is dominated by whether a
+# single position happened to land in the sample.
+_MIN_RESOLVABLE_SAMPLED_SITES = 5.0
+
 # Module-level reaction conditions (lazily initialized)
 _reaction_conditions = None
 
@@ -119,6 +125,105 @@ def _scale_freq_threshold(
     return base_threshold * scale_factor
 
 
+def _warn_if_sample_too_sparse(sampled_index) -> None:
+    """Say so when the sampled index cannot resolve the gate's threshold.
+
+    `SampledGenomeIndex` stores every `sample_rate`-th position and extrapolates,
+    so it can only resolve counts that survive being divided by that rate. The
+    count at the background gate's threshold is `max_bg_freq * genome_size`:
+
+        human, 3 Gbp at 5e-6   ->  15000 sites, sampled ~150 times   resolvable
+        plasmid, 6 kb at 5e-6  ->   0.03 sites, sampled 0.0003 times  hopeless
+
+    Below resolution every primer estimates zero and passes, which is the same
+    silent under-filtering the old sentinel produced, reached by a different
+    route. Warned rather than raised: unlike a missing index the numbers here
+    are real, only too coarse, and a caller may know their background better
+    than this heuristic. Exact k-mer counting is the answer at these sizes, and
+    it is affordable precisely because the genome is small.
+    """
+    genome_size = getattr(sampled_index, "genome_size", 0) or 0
+    sample_rate = getattr(sampled_index, "sample_rate", 1) or 1
+    if genome_size <= 0:
+        return
+
+    lengths = getattr(parameter, "bg_seq_lengths", None) or [genome_size]
+    max_bg_freq = getattr(parameter, "max_bg_freq", None)
+    if not max_bg_freq:
+        return
+
+    threshold_sites = max_bg_freq * sum(lengths)
+    expected_sampled = threshold_sites / sample_rate
+
+    if expected_sampled < _MIN_RESOLVABLE_SAMPLED_SITES:
+        logger.warning(
+            f"Sampled index is too sparse to resolve the background threshold: "
+            f"max_bg_freq={max_bg_freq:g} over {sum(lengths):,} bp is "
+            f"{threshold_sites:.3g} sites, which sample_rate={sample_rate} sees "
+            f"{expected_sampled:.3g} times. Background counts will read near "
+            f"zero and most primers will pass. Use exact k-mer counting for a "
+            f"background this size, or rebuild the index with a lower sample rate."
+        )
+
+
+def _load_sampled_index(bloom_path: str):
+    """The sampled index that turns Bloom presence into a usable count.
+
+    A Bloom filter answers "is this k-mer in the background", not "how often".
+    The background gate downstream is a frequency test
+    (`bg_count / bg_total_length < max_bg_freq`), so this path used to
+    manufacture a stand-in count -- `bloom_max_bg_matches + 1`, 11 by default --
+    for every primer the filter reported present.
+
+    An absolute count fed to a frequency test inverts with scale. 11 over a
+    6 kb plasmid is 1.8e-3 and gets rejected; 11 over a 3 Gbp human background
+    is 3.7e-9 and passes any sane threshold. Since an absent primer scores 0,
+    which also passes, BOTH branches passed on a large background: the filter
+    did nothing whatsoever, silently, at exactly the scale Bloom exists for.
+    Every small-scale test of it passed, which is why it survived.
+
+    So the stand-in is gone. `SampledGenomeIndex` can answer the frequency
+    question -- `build-filter` already writes `bg_sampled.pkl` beside
+    `bg_bloom.pkl` -- and it is looked for there when `sampled_index_path` is
+    unset, because requiring a second undocumented setting is what put callers
+    on the sentinel branch to begin with. If no index can be found this raises,
+    which costs a user one clear error instead of a primer set screened against
+    nothing.
+    """
+    import os
+
+    from neoswga.core.background_filter import SampledGenomeIndex
+
+    configured = getattr(parameter, "sampled_index_path", None)
+    candidates = [configured] if configured else []
+
+    # Where `build-filter` puts it (cli/pipeline.py, background_filter.py:678).
+    directory = os.path.dirname(os.path.abspath(bloom_path))
+    candidates.append(os.path.join(directory, "bg_sampled.pkl"))
+    # And the matching name for a bloom file the user renamed.
+    stem = os.path.basename(bloom_path)
+    if "bloom" in stem:
+        candidates.append(os.path.join(directory, stem.replace("bloom", "sampled")))
+
+    for path in candidates:
+        if path and os.path.exists(path):
+            try:
+                index = SampledGenomeIndex.load(path)
+                logger.info(f"Using sampled index for background counts: {path}")
+                return index
+            except Exception as e:
+                logger.warning(f"Could not load sampled index {path}: {e}")
+
+    raise ValueError(
+        f"No sampled index found for Bloom background {bloom_path!r}. A Bloom "
+        f"filter reports presence, not frequency, and the background gate is a "
+        f"frequency test -- without counts this path cannot screen anything. "
+        f"Re-run 'neoswga build-filter' (it writes bg_sampled.pkl next to "
+        f"bg_bloom.pkl), or set 'sampled_index_path' in params.json, or drop "
+        f"the Bloom filter to use exact k-mer counts."
+    )
+
+
 def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str, int]:
     """
     Get background rates using a pre-built Bloom filter.
@@ -138,26 +243,15 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
         logger.info("Bloom filter: no primers to check")
         return {}
 
-    from neoswga.core.background_filter import BackgroundBloomFilter, BackgroundFilter
+    from neoswga.core.background_filter import BackgroundBloomFilter
 
     logger.info(f"Using Bloom filter for background filtering: {bloom_path}")
 
     # Load bloom filter
     bloom = BackgroundBloomFilter.load(bloom_path)
+    sampled_index = _load_sampled_index(bloom_path)
+    _warn_if_sample_too_sparse(sampled_index)
 
-    # Optional: load sampled index for count estimation
-    sampled_path = getattr(parameter, "sampled_index_path", None)
-    sampled_index = None
-    if sampled_path:
-        from neoswga.core.background_filter import SampledGenomeIndex
-
-        try:
-            sampled_index = SampledGenomeIndex.load(sampled_path)
-            logger.info(f"Using sampled index for count estimation: {sampled_path}")
-        except Exception as e:
-            logger.warning(f"Failed to load sampled index: {e}")
-
-    max_bg_matches = getattr(parameter, "bloom_max_bg_matches", 10)
     primer_to_count = {}
 
     total = len(primer_list)
@@ -166,16 +260,12 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
     for primer in primer_list:
         if bloom.contains(primer):
             bloom_hits += 1
-            # If we have sampled index, use it for count estimation
-            if sampled_index:
-                estimated_count = sampled_index.estimate_count(primer)
-                primer_to_count[primer] = estimated_count
-            else:
-                # Without sampled index, use max_bg_matches as indicator
-                # (primer is present, use threshold value)
-                primer_to_count[primer] = max_bg_matches + 1
+            primer_to_count[primer] = sampled_index.estimate_count(primer)
         else:
-            # Definitely not in background (no false negatives in Bloom filter)
+            # Definitely not in background: a Bloom filter has no false
+            # negatives, so absence is trustworthy and zero is an honest
+            # answer. Presence is not -- it carries no count, which is why the
+            # sampled index above is required rather than optional.
             primer_to_count[primer] = 0
 
     logger.info(

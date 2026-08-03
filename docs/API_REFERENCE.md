@@ -157,7 +157,7 @@ neoswga optimize -j params.json [options]
 Pre-build Bloom filter for large background genomes.
 
 ```bash
-neoswga build-filter <genome.fasta> <output_dir>
+neoswga build-filter --genome <genome.fasta> -o <output_dir>
 ```
 
 **Arguments:**

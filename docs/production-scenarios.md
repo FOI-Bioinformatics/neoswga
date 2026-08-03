@@ -81,17 +81,25 @@ human DNA in a clinical sample). Pre-build a Bloom filter once and reuse
 it across runs:
 
 ```bash
-neoswga build-filter GRCh38.fna ./bloom
+neoswga build-filter --genome GRCh38.fna -o ./bloom
 ```
 
 Add to params.json:
 ```json
 {
   "use_bloom_filter": true,
-  "bloom_filter_path": "./bloom/background.pkl",
-  "sampled_index_path": "./bloom/sampled.pkl"
+  "bloom_filter_path": "./bloom/bg_bloom.pkl",
+  "sampled_index_path": "./bloom/bg_sampled.pkl"
 }
 ```
+
+`build-filter` writes both files, and both are needed. A Bloom filter answers
+"is this k-mer present in the background", not "how often" — and the background
+gate is a frequency test — so the sampled index beside it supplies the counts.
+`sampled_index_path` can be omitted when the two files sit in the same
+directory, which is where `build-filter` puts them; it is found automatically.
+If no sampled index can be located the filter step stops with an error rather
+than screening against nothing.
 
 The Bloom filter estimates background k-mer counts without storing the
 full genome, trading a small false-positive rate for a large memory

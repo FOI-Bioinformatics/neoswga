@@ -237,13 +237,11 @@ def run_step2(args):
         use_bloom = getattr(args, "use_bloom_filter", False)
         bloom_path = getattr(args, "bloom_filter_path", None)
         sampled_path = getattr(args, "sampled_index_path", None)
-        bloom_max_bg = getattr(args, "bloom_max_bg_matches", 10)
 
         if use_bloom or bloom_path:
             parameter.use_bloom_filter = True
             parameter.bloom_filter_path = bloom_path
             parameter.sampled_index_path = sampled_path
-            parameter.bloom_max_bg_matches = bloom_max_bg
             if not args.quiet:
                 logger.info(f"Bloom filter enabled for background filtering")
                 if bloom_path:
@@ -1370,12 +1368,12 @@ def add_parsers(subparsers):
         type=str,
         help="Path to pre-built sampled index (.pkl) for count estimation",
     )
-    step2_bloom_group.add_argument(
-        "--bloom-max-bg-matches",
-        type=int,
-        default=10,
-        help="Maximum background matches via Bloom filter (default: 10)",
-    )
+    # --bloom-max-bg-matches was removed here. It configured the stand-in count
+    # this path emitted for any primer the Bloom filter reported present, and
+    # that stand-in is gone: an absolute count fed to a frequency gate inverts
+    # with genome size, so it silently disabled background filtering on exactly
+    # the large backgrounds Bloom exists for. Counts now come from the sampled
+    # index, which has a real answer, so there is nothing left to tune.
 
     # Exclusion Genome Filtering (zero-tolerance for contaminants)
     step2_excl_group = filter_parser.add_argument_group(
