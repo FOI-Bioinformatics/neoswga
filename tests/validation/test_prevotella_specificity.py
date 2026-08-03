@@ -209,17 +209,49 @@ needs_12mers = pytest.mark.skipif(
     reason="12-mer counts absent; run neoswga count-kmers with min_k=max_k=12",
 )
 
-# A set the pipeline itself produced from Prevotella against human chr21,
-# equiphi29 at 42 C. Fixed here rather than regenerated so the test does not
-# depend on a 108-second filter run.
-PIPELINE_12MERS = [
-    "CATCAACGATAA",
-    "CCCAGAACGATA",
-    "GCGTATCAACCA",
-    "GTCAAAGTCGAA",
-    "ACGAGTTACCAT",
-    "CAACACGCTTAC",
-]
+needs_length_series = pytest.mark.skipif(
+    not all((GENOMES / f"prevotella_{k}mer_all.txt").exists() for k in (10, 11, 12)),
+    reason="10/11/12-mer counts absent; run neoswga count-kmers at each length",
+)
+
+# Sets the pipeline itself produced from Prevotella against human chr21,
+# equiphi29 at 42 C, eight primers each, candidate pool 2000. Fixed here rather
+# than regenerated so the tests do not depend on a 2-minute filter run per
+# length. tests/validation/genomes/equiphi29_{k}mer.json reproduces them.
+PIPELINE_SETS = {
+    10: [
+        "AAGGGCGTTA",
+        "ACTCGTCAAC",
+        "AAGACGCCTA",
+        "ATGCTGACGA",
+        "CGAGTGCAAA",
+        "AGCGTATTGC",
+        "CAACTGACGA",
+        "ACCGATACCA",
+    ],
+    11: [
+        "ACGTAAGAACC",
+        "GGTACGATGGA",
+        "ATTAGGTGCGA",
+        "AACATCTTCGA",
+        "AAGCGTATGAC",
+        "ATCCTCGTTGA",
+        "GATATGACGGA",
+        "CACGAATCTGA",
+    ],
+    12: [
+        "CATCAACGATAA",
+        "CCCAGAACGATA",
+        "GCGTATCAACCA",
+        "TATGCGCTGCAA",
+        "GTCAAAGTCGAA",
+        "ACGAGTTACCAT",
+        "CAACACGCTTAC",
+        "CGTCAGTTTATC",
+    ],
+}
+
+PIPELINE_12MERS = PIPELINE_SETS[12]
 
 
 def _selectivity_curve(primers, temperatures):
@@ -256,22 +288,58 @@ def test_short_primers_do_not_respond_to_stringency_at_all(sets):
         ), f"{name} responded to stringency: {[round(v, 3) for v in curve]}"
 
 
-@needs_12mers
-def test_twelve_mers_do_respond_to_stringency():
+@needs_length_series
+@pytest.mark.parametrize("k", sorted(PIPELINE_SETS))
+def test_longer_primers_do_respond_to_stringency(k):
     """The design consequence, on the same target and background.
 
-    At 12 bases the foreground is dominated by exact matches and the background
-    by mismatched ones, so the two no longer share a composition and stringency
-    separates them. A set the pipeline produced moves 0.60 -> 1.23 across
-    38-50 C, where the published 8-mer sets move not at all.
+    At 10 bases and above the foreground is dominated by exact matches and the
+    background by mismatched ones, so the two no longer share a composition and
+    stringency separates them. Measured across 38-50 C:
 
-    This is what makes the additive lever a real control in the equiphi29
-    regime and not in phi29's 6-12mers.
+        k=10   0.53  0.61  0.68  0.71    1.36x
+        k=11   0.51  0.59  0.67  0.70    1.36x
+        k=12   0.59  0.66  0.78  0.88    1.51x
+
+    against 1.00x for the published 7-8mer sets. This is what makes the
+    additive lever a real control in the equiphi29 regime and not in phi29's
+    6-12mers.
     """
-    curve = _selectivity_curve(PIPELINE_12MERS, [38.0, 42.0, 46.0, 50.0])
+    curve = _selectivity_curve(PIPELINE_SETS[k], [38.0, 42.0, 46.0, 50.0])
 
-    assert curve == sorted(curve), f"not monotone in temperature: {curve}"
-    assert curve[-1] / curve[0] > 1.5, f"got {[round(v, 3) for v in curve]}"
+    assert curve == sorted(curve), f"k={k} not monotone in temperature: {curve}"
+    assert curve[-1] / curve[0] > 1.25, f"k={k} got {[round(v, 3) for v in curve]}"
+
+
+@needs_length_series
+def test_the_two_regimes_are_separated_by_a_clear_margin():
+    """The trend itself, stated as the thing that is actually robust.
+
+    The fold response is set-dependent -- a six-primer 12-mer set measured
+    2.05x where the eight-primer one measures 1.51x -- so no particular fold
+    value is worth pinning. What is stable is the gap: every set of 10-12mers
+    responds to stringency and every set of 7-8mers is flat to two decimal
+    places, with nothing in between. A change that narrowed this gap would mean
+    the length threshold had moved, which is the design-relevant fact.
+    """
+    published = json.loads(DATA.read_text())["sets"]
+    short_folds = []
+    for entry in published.values():
+        if max(len(p) for p in entry["primers"]) > 9:
+            continue
+        curve = _selectivity_curve(entry["primers"], [38.0, 50.0])
+        short_folds.append(curve[-1] / curve[0])
+
+    long_folds = [
+        _selectivity_curve(primers, [38.0, 50.0])[-1] / _selectivity_curve(primers, [38.0, 50.0])[0]
+        for primers in PIPELINE_SETS.values()
+    ]
+
+    assert short_folds, "no short-primer sets in the fixture"
+    assert min(long_folds) > max(short_folds) + 0.2, (
+        f"the regimes have merged: 7-8mers fold {[round(f, 3) for f in short_folds]}, "
+        f"10-12mers fold {[round(f, 3) for f in long_folds]}"
+    )
 
 
 @needs_12mers
@@ -293,3 +361,40 @@ def test_exact_counting_calls_this_set_perfectly_specific():
     conditions = ReactionConditions(temp=42.0, polymerase="equiphi29")
     weighted_bg = weighted_site_load(PIPELINE_12MERS, [str(BG_PREFIX)], conditions, 1)
     assert weighted_bg > 10, f"expected substantial near-match load; got {weighted_bg:.2f}"
+
+
+@needs_length_series
+def test_the_two_models_disagree_in_direction_where_both_have_data():
+    """The sharper version of the case above, with no zero to hide behind.
+
+    At k=11 and 12 the background has no exact matches at all, so the count
+    model reports perfect specificity from an empty denominator -- visibly
+    uninformative. At k=10 it has data: 442 foreground and 51 background sites,
+    a count selectivity near 9, which reads as a good design. Occupancy
+    weighting puts the same set below 1, on the other side of the decision
+    boundary, because 51 exact background sites are accompanied by a much
+    larger near-match population that a count does not see.
+
+    Both models are confident and they disagree about whether the set is
+    selective at all. That is the case for carrying the occupancy term.
+    """
+    from neoswga.core.base_optimizer import _selectivity_from_loads
+    from neoswga.core.mismatch_counts import mismatch_class_counts
+    from neoswga.core.occupancy import weighted_site_load
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    primers = PIPELINE_SETS[10]
+    exact_fg = sum(mismatch_class_counts(p, [str(FG_PREFIX)], 0)[0] for p in primers)
+    exact_bg = sum(mismatch_class_counts(p, [str(BG_PREFIX)], 0)[0] for p in primers)
+    assert exact_bg > 0, "the premise is that the count model has data here"
+
+    conditions = ReactionConditions(temp=42.0, polymerase="equiphi29")
+    occupancy = _selectivity_from_loads(
+        weighted_site_load(primers, [str(FG_PREFIX)], conditions, 1),
+        weighted_site_load(primers, [str(BG_PREFIX)], conditions, 1),
+    )
+
+    assert (
+        exact_fg / exact_bg > 2.0
+    ), f"count model should look favourable; got {exact_fg}/{exact_bg}"
+    assert occupancy < 1.0, f"occupancy should disagree; got {occupancy:.3f}"

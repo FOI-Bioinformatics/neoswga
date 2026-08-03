@@ -517,6 +517,45 @@ Usage Examples:
     print(guide)
 
 
+def _target_size_from_params(parameter, default=6):
+    """Resolve the requested set size from params.json, at optimize time.
+
+    `parameter.num_primers` carries a module-level default of 6 and is only
+    overwritten from params.json when `get_params()` runs -- which happens
+    lazily inside `optimize_step4`, *after* this command has already resolved
+    the target and passed it down as an explicit kwarg. So a params.json asking
+    for 8 primers silently got 6, and the completion check then compared the 6
+    it produced against the 8 it read later and reported "insufficient
+    candidates" for a pool that was never consulted at that size.
+
+    Reading the file here rather than waiting for `_json_data` keeps
+    params.json authoritative for the set size, which is what a user editing it
+    expects. `--num-primers` still wins; this is the no-flag path.
+    """
+    json_data = dict(getattr(parameter, "_json_data", None) or {})
+    if not json_data:
+        json_file = getattr(parameter, "json_file", None)
+        if json_file and os.path.isfile(json_file):
+            from neoswga.core.parameter import read_args_from_json
+
+            try:
+                json_data = read_args_from_json(json_file)
+            except (OSError, ValueError) as exc:
+                # get_params() will raise on this file in a moment with a much
+                # better message; do not pre-empt it with a partial failure.
+                logger.debug(f"Could not pre-read {json_file} for set size: {exc}")
+                json_data = {}
+
+    size = json_data.get("num_primers", json_data.get("target_set_size", default))
+    if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+        logger.warning(
+            f"Ignoring num_primers={size!r} from params.json: expected a "
+            f"positive integer. Using {default}."
+        )
+        return default
+    return size
+
+
 @params_command(merge=None)
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
@@ -559,10 +598,8 @@ def run_step4(args):
             parameter.num_primers = args.num_primers
             parameter.target_set_size = args.num_primers
             logger.info(f"Target primer count: {args.num_primers}")
-        elif not hasattr(parameter, "num_primers") or not parameter.num_primers:
-            # Try to read from JSON if loaded
-            json_data = getattr(parameter, "_json_data", {})
-            num_primers = json_data.get("num_primers", json_data.get("target_set_size", 6))
+        else:
+            num_primers = _target_size_from_params(parameter)
             parameter.num_primers = num_primers
             parameter.target_set_size = num_primers
 
