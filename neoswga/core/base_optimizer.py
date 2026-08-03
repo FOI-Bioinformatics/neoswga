@@ -21,6 +21,17 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Selectivity ratio that scores a full 1.0 on the normalised scale. Not a
+# threshold for a usable design -- it is the point past which more selectivity
+# stops earning score, chosen so the term discriminates across the range real
+# designs occupy rather than saturating inside it.
+SELECTIVITY_REFERENCE = 100.0
+
+# Stands in for unbounded selectivity when no background binding is
+# detected at all, so the value stays finite and serialisable. Same
+# convention as multi_genome_filter.MAX_ENRICHMENT.
+MAX_SELECTIVITY = 1e6
+
 
 class OptimizationStatus(Enum):
     """Status of optimization run."""
@@ -51,6 +62,27 @@ def json_safe(value: Any) -> Any:
     return value
 
 
+def _selectivity_from_loads(fg_load: float, bg_load: float) -> float:
+    """Selectivity from foreground and background binding loads.
+
+    The integer version guarded with `max(bg, 1)`, which is right for counts --
+    you cannot have a fraction of a site. Occupancy-weighted loads are floats,
+    and carrying that guard over silently divided by 1.0 whenever the
+    background load fell below it: a set with 0.3 effective background sites
+    reported a third of its true selectivity, and one with 0.0 reported the
+    foreground load as though it were a ratio.
+
+    A genuinely zero background load is unbounded selectivity, not a large
+    number. `MAX_SELECTIVITY` stands in so the value stays finite and
+    JSON-serialisable, following the same convention and for the same reason as
+    `multi_genome_filter.MAX_ENRICHMENT`: it means "no background binding was
+    detected", not "measured this well".
+    """
+    if bg_load <= 0:
+        return MAX_SELECTIVITY if fg_load > 0 else 0.0
+    return fg_load / bg_load
+
+
 @dataclass(frozen=True)
 class PrimerSetMetrics:
     """
@@ -65,9 +97,13 @@ class PrimerSetMetrics:
     coverage_uniformity: float  # Gini coefficient of gap sizes (lower is better)
 
     # Binding metrics
-    total_fg_sites: int  # Total binding sites in foreground
-    total_bg_sites: int  # Total binding sites in background
-    selectivity_ratio: float  # fg_sites / bg_sites (higher is better)
+    total_fg_sites: int  # Total exact-match binding sites in foreground
+    total_bg_sites: int  # Total exact-match binding sites in background
+    # Occupancy-weighted sites: each mismatch class weighted by how much of the
+    # time a duplex of that stability is actually bound under the configured
+    # conditions. Reported beside the raw counts so a reader can see both what
+    # was counted and what it was worth.
+    selectivity_ratio: float  # effective_fg / effective_bg (higher is better)
 
     # Thermodynamic metrics
     mean_tm: float  # Mean melting temperature
@@ -88,6 +124,14 @@ class PrimerSetMetrics:
     # so multi-genome runs can surface "target A 95% / target B 40%"
     # instead of a single aggregate. Empty dict in single-genome mode.
     per_target_coverage: Dict[str, float] = field(default_factory=dict)
+    effective_fg_sites: float = 0.0
+    effective_bg_sites: float = 0.0
+    # "occupancy" when conditions were applied, "exact" when the jellyfish
+    # count files needed for mismatch classes were unavailable and the metric
+    # fell back to counting perfect matches. Recorded rather than inferred:
+    # switching silently between two definitions of one number is exactly the
+    # failure this audit has met most often.
+    selectivity_mode: str = "exact"
 
     # Per-primer extension reach (bp) used to compute fg_coverage. Recorded
     # so the report can label "95% coverage at 3 kb reach" rather than
@@ -104,6 +148,11 @@ class PrimerSetMetrics:
             "total_fg_sites": self.total_fg_sites,
             "total_bg_sites": self.total_bg_sites,
             "selectivity_ratio": self.selectivity_ratio,
+            # Beside the raw counts, so a reader can see both what was counted
+            # and what it was worth under the configured conditions.
+            "effective_fg_sites": self.effective_fg_sites,
+            "effective_bg_sites": self.effective_bg_sites,
+            "selectivity_mode": self.selectivity_mode,
             "mean_tm": self.mean_tm,
             "tm_range": list(self.tm_range),
             "dimer_risk_score": self.dimer_risk_score,
@@ -196,8 +245,25 @@ class PrimerSetMetrics:
         # Coverage: already [0,1]
         cov = min(self.fg_coverage, 1.0)
 
-        # Selectivity: cap ratio at 100, normalize
-        sel = min(self.selectivity_ratio / 100.0, 1.0) if self.selectivity_ratio > 0 else 0.0
+        # Selectivity, on a log scale.
+        #
+        # This was `min(ratio / 100, 1.0)`, calibrated when selectivity was a
+        # count of exact matches -- ratios routinely exceeded 100 and saturated
+        # the cap, so the term behaved as a near-binary "good enough".
+        # Occupancy weighting counts near-match background load too, so ratios
+        # now land around 5-15 on the bundled example, where the same linear
+        # form contributes 0.05-0.15 of its weight and the term is effectively
+        # ignored instead. Saturating and vanishing are the same failure at
+        # opposite ends.
+        #
+        # A ratio spanning orders of magnitude wants a log scale: a design at
+        # SELECTIVITY_REFERENCE scores 1.0, and the term stays responsive
+        # across everything below it rather than being decided in the first or
+        # last few percent of the range.
+        sel = 0.0
+        if self.selectivity_ratio > 0:
+            sel = math.log10(1.0 + self.selectivity_ratio) / math.log10(1.0 + SELECTIVITY_REFERENCE)
+            sel = max(0.0, min(sel, 1.0))
 
         # Dimer safety: 1 - risk (lower risk is better)
         dimer_safe = 1.0 - min(self.dimer_risk_score, 1.0)
@@ -470,6 +536,11 @@ class OptimizerConfig:
     # fallback fired every time, because the field did not exist -- so a
     # params.json setting it had no effect anywhere.
     max_self_dimer_bp: int = 5
+    # Highest mismatch class counted when weighting background load. 0
+    # reproduces exact-match counting. 2 is affordable (405 lookups for a
+    # 10-mer) but rarely changes the ranking, since a two-mismatch duplex is
+    # mostly unbound at any usable stringency.
+    max_mismatches: int = 1
     min_tm: float = 20.0
     max_tm: float = 50.0
     verbose: bool = True
@@ -717,6 +788,57 @@ class BaseOptimizer(ABC):
             logger.warning(f"Failed to get positions for {primer}: {e}")
             return np.array([], dtype=np.int64)
 
+    def _effective_site_load(self, primers) -> Tuple[float, float, str]:
+        """Occupancy-weighted binding load for the foreground and background.
+
+        Each mismatch class is weighted by how much of the time a duplex of
+        that stability is actually bound under the configured conditions:
+
+            load = SUM_j n_j * theta(dH, Tm - j*penalty, T)
+
+        This is what lets an additive change specificity. Selectivity used to be
+        a ratio of exact-match counts, which contains no temperature and no free
+        energy, so no chemistry could move it for a fixed primer set. Raising
+        stringency drops occupancy faster for the mismatched background sites
+        than for perfect foreground ones, and the ratio rises.
+
+        Returns `(fg_load, bg_load, mode)`. `mode` is "exact" when the jellyfish
+        count files needed for mismatch classes are unavailable -- an oligo set
+        scanned straight from a FASTA, for instance -- in which case the caller
+        falls back to exact counting. That is reported rather than inferred,
+        because silently swapping between two definitions of one number is the
+        failure this codebase has produced most often.
+        """
+        from neoswga.core.mismatch_counts import mismatch_class_counts
+        from neoswga.core.occupancy import default_mismatch_penalty, mismatch_tm, site_occupancy
+        from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+
+        conditions = getattr(self, "conditions", None)
+        if conditions is None or not self.bg_prefixes:
+            return 0.0, 0.0, "exact"
+
+        max_mismatches = int(getattr(self.config, "max_mismatches", 1) or 0)
+        penalty = default_mismatch_penalty()
+        temp = conditions.temp
+
+        fg_load = bg_load = 0.0
+        for primer in primers:
+            try:
+                fg_classes = mismatch_class_counts(primer, self.fg_prefixes, max_mismatches)
+                bg_classes = mismatch_class_counts(primer, self.bg_prefixes, max_mismatches)
+            except (FileNotFoundError, OSError):
+                return 0.0, 0.0, "exact"
+
+            dh, _ds = calculate_enthalpy_entropy(primer)
+            tm = conditions.calculate_effective_tm(primer)
+
+            for distance, count in fg_classes.items():
+                fg_load += count * site_occupancy(dh, mismatch_tm(tm, distance, penalty), temp)
+            for distance, count in bg_classes.items():
+                bg_load += count * site_occupancy(dh, mismatch_tm(tm, distance, penalty), temp)
+
+        return fg_load, bg_load, "occupancy"
+
     def compute_metrics(
         self,
         primers: List[str],
@@ -777,7 +899,10 @@ class BaseOptimizer(ABC):
         # Selectivity
         total_fg = len(fg_positions)
         total_bg = len(bg_positions)
-        selectivity = total_fg / max(total_bg, 1)
+        effective_fg, effective_bg, selectivity_mode = self._effective_site_load(primers)
+        if selectivity_mode == "exact":
+            effective_fg, effective_bg = float(total_fg), float(total_bg)
+        selectivity = _selectivity_from_loads(effective_fg, effective_bg)
 
         # Tm calculation (simplified)
         tms = [self._estimate_tm(p) for p in primers]
@@ -809,6 +934,9 @@ class BaseOptimizer(ABC):
             total_fg_sites=total_fg,
             total_bg_sites=total_bg,
             selectivity_ratio=selectivity,
+            effective_fg_sites=effective_fg,
+            effective_bg_sites=effective_bg,
+            selectivity_mode=selectivity_mode,
             mean_tm=mean_tm,
             tm_range=tm_range,
             dimer_risk_score=dimer_risk,

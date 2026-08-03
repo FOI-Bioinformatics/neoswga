@@ -80,6 +80,83 @@ def _resolve_sources(args):
     return prefixes, genomes, lengths
 
 
+def _gap_statistics(cache, primers, prefixes, lengths, circular):
+    """Mean, max and Gini of the distances between binding sites.
+
+    The literature disagrees about which of these predicts SWGA success --
+    see docs/validation/published_primer_sets.md -- so all three are
+    reported rather than one being chosen.
+    """
+    import numpy as _np
+
+    gaps = []
+    for prefix, length in zip(prefixes, lengths):
+        pos = sorted({int(x) for primer in primers for x in cache.get_positions(prefix, primer)})
+        if len(pos) < 2:
+            continue
+        d = _np.diff(pos).tolist()
+        if circular:
+            d.append(length - pos[-1] + pos[0])  # wrap-around gap
+        gaps.extend(d)
+
+    if not gaps:
+        return 0.0, 0.0, 0.0
+
+    arr = _np.array(sorted(gaps), dtype=float)
+    n = len(arr)
+    gini = (
+        float((2.0 * _np.sum((_np.arange(1, n + 1)) * arr) / (n * arr.sum()) - (n + 1) / n))
+        if arr.sum() > 0
+        else 0.0
+    )
+    return float(arr.mean()), float(arr.max()), gini
+
+
+def _occupancy_selectivity(primers, fg_prefixes, bg_prefixes, conditions):
+    """Occupancy-weighted selectivity, matching what the optimizers report.
+
+    Kept beside the exact-count ratio rather than replacing it: this command
+    exists to evaluate an outside oligo set, and a reader comparing against a
+    published fg/bg figure needs the count as well as the weighted value. On a
+    set with no exact background matches the two disagree completely -- the
+    count says "no background binding" while this finds the near-match load
+    stringency can actually act on.
+
+    Returns None when the jellyfish count files are absent, which is the case
+    with `--genome` alone: positions are scanned straight from a FASTA and
+    there are no counts. Absent rather than silently substituted by the count
+    ratio, since they are different numbers.
+    """
+    from neoswga.core.mismatch_counts import mismatch_class_counts
+    from neoswga.core.occupancy import default_mismatch_penalty, mismatch_tm, site_occupancy
+    from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+
+    if not bg_prefixes:
+        return None
+
+    penalty = default_mismatch_penalty()
+    fg_load = bg_load = 0.0
+    try:
+        for primer in primers:
+            dh, _ds = calculate_enthalpy_entropy(primer)
+            tm = conditions.calculate_effective_tm(primer)
+            for source, is_foreground in ((fg_prefixes, True), (bg_prefixes, False)):
+                classes = mismatch_class_counts(primer, source, 1)
+                weighted = sum(
+                    n * site_occupancy(dh, mismatch_tm(tm, j, penalty), conditions.temp)
+                    for j, n in classes.items()
+                )
+                if is_foreground:
+                    fg_load += weighted
+                else:
+                    bg_load += weighted
+    except (FileNotFoundError, OSError):
+        logger.info("No k-mer count files available; reporting exact-match selectivity only.")
+        return None
+
+    return round(fg_load / bg_load, 4) if bg_load > 0 else None
+
+
 # Every other params-taking command carries this decorator; evaluate-set was
 # the one that did not. It validates the path and, critically, merges
 # `args.json_file` onto `parameter.json_file` -- which is what
@@ -187,6 +264,7 @@ def run_evaluate_set(args):
     # held in memory is expensive, and background specificity is a frequency
     # question the k-mer counts already answer.
     bg_per_primer = {}
+    occupancy_selectivity = None
     if bg_prefixes:
         scan_bg = bool(getattr(args, "scan_background", False)) and len(bg_genomes) == len(
             bg_prefixes
@@ -213,36 +291,16 @@ def run_evaluate_set(args):
     selectivity = None
     if bg_prefixes:
         selectivity = round(total_sites / total_bg_sites, 4) if total_bg_sites else None
+
+        occupancy_selectivity = _occupancy_selectivity(primers, prefixes, bg_prefixes, conditions)
     genome_bp = sum(lengths)
 
     # Gap statistics from the union of binding positions. Reported alongside
     # mean spacing because the two published benchmarks disagree about which of
     # the three predicts success - see docs/validation/.
-    import numpy as _np
-
-    gaps = []
-    for prefix, length in zip(prefixes, lengths):
-        pos = sorted({int(x) for primer in primers for x in cache.get_positions(prefix, primer)})
-        if len(pos) < 2:
-            continue
-        d = _np.diff(pos).tolist()
-        if not args.linear:
-            d.append(length - pos[-1] + pos[0])  # wrap-around gap
-        gaps.extend(d)
-
-    if gaps:
-        arr = _np.array(sorted(gaps), dtype=float)
-        n = len(arr)
-        mean_gap = float(arr.mean())
-        max_gap = float(arr.max())
-        # Gini of the gap distribution; 0 = perfectly even spacing.
-        gap_gini = (
-            float((2.0 * _np.sum((_np.arange(1, n + 1)) * arr) / (n * arr.sum()) - (n + 1) / n))
-            if arr.sum() > 0
-            else 0.0
-        )
-    else:
-        mean_gap = max_gap = gap_gini = 0.0
+    mean_gap, max_gap, gap_gini = _gap_statistics(
+        cache, primers, prefixes, lengths, circular=not args.linear
+    )
     result = {
         "primers": per_primer,
         "num_primers": len(primers),
@@ -252,6 +310,7 @@ def run_evaluate_set(args):
         "total_binding_sites": total_sites,
         "total_background_sites": total_bg_sites,
         "selectivity_ratio": selectivity,
+        "occupancy_selectivity_ratio": occupancy_selectivity,
         # The literature's dominant predictor of SWGA success: mean distance
         # between binding sites (Clarke 2017, Dwivedi-Yu 2023). Successful
         # published sets sit near 1 site per 2-5 kbp.
@@ -301,8 +360,17 @@ def _print_report(result):
         # "no background sites at all" is the best possible outcome, not a
         # missing measurement, so it gets said rather than left blank.
         print(
-            f"  Selectivity (fg/bg)  : "
-            + (f"{ratio:.2f}x" if ratio is not None else "no background binding")
+            f"  Selectivity (exact)  : "
+            + (f"{ratio:.2f}x" if ratio is not None else "no exact background matches")
+        )
+    occupancy_ratio = result.get("occupancy_selectivity_ratio")
+    if occupancy_ratio is not None:
+        # Shown separately because the two answer different questions, and on
+        # a set with no exact background matches they disagree completely: the
+        # count says "no background binding" while the weighted figure finds
+        # real near-match load that stringency can act on.
+        print(
+            f"  Selectivity (weighted): {occupancy_ratio:.2f}x  (near-matches, at reaction conditions)"
         )
     mbd = result["mean_binding_distance_bp"]
     if mbd:
