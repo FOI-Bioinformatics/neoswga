@@ -235,10 +235,25 @@ boundary is excluding poor amplifiers, so it stays.
 reject the best-amplifying primers are not Tm but the 3'-end and repeat
 heuristics: GC clamp (n=81, median 14.65x), 3' GGG/CCC (n=22, 31.10x),
 homopolymer run (n=3, 46.09x), against Tm which by then rejects the poor end
-(n=51, 2.04x). Neither swga 1.0 nor swga 2.0 applies these three. They are
-standard primer-design practice for specificity, and this benchmark has no
-off-target sites to measure specificity against, so it cannot adjudicate. Left
-in place and recorded.
+(n=51, 2.04x). Neither swga 1.0 nor swga 2.0 applies these three.
+
+**Scaling the GC clamp to primer length.** The clamp reads the last 5 bases,
+which is 83% of a 6-mer and 42% of a 12-mer — a rule from PCR design on
+18–25mers applied to sub-PCR primers. Two measurements bear on it. Rejection
+rates are flat across length (18–19% of random k-mers at every k from 6 to 12),
+so short primers are not being over-filtered. Redundancy does vary: 79% of the
+clamp's rejections at k=7 would already have failed the GC-content filter,
+against 28% at k=12 — so at short lengths it largely duplicates an existing
+filter, which is the argument for scaling.
+
+Scaling it makes the design worse. A window of `min(5, max(2, k//2))` newly
+admits 20 of the 141 measured primers, and their median amplification is
+**1.55x** against a pool median of 10.15x — only 4 of the 20 beat the pool, and
+12 are 7-mers. The fixed window earns its place at short lengths precisely by
+being the extra constraint that redundancy analysis makes it look like it is
+not. Kept, and the constants exposed as `gc_clamp_window`, `max_gc_in_clamp`
+and `max_homopolymer_run` so the conclusion can be re-tested without editing
+the source. Pinned by `tests/test_sequence_rule_configuration.py`.
 
 ## Specificity validation against Prevotella: a negative result, and why
 

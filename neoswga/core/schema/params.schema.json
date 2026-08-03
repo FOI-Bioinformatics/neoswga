@@ -448,6 +448,27 @@
       "maximum": 1.5,
       "default": 0.0,
       "description": "1,2-propanediol (M). GC-rich enhancer; ~5.4 C Tm depression per M (Horakova 2011). Typical 1 M."
+    },
+    "max_homopolymer_run": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 20,
+      "default": 5,
+      "description": "Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it."
+    },
+    "gc_clamp_window": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 12,
+      "default": 5,
+      "description": "Bases at the 3' end the GC clamp examines. Not scaled to primer length: scaling was measured against per-primer amplification data and admits worse amplifiers."
+    },
+    "max_gc_in_clamp": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 12,
+      "default": 3,
+      "description": "Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets."
     }
   }
 }

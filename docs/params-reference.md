@@ -46,6 +46,7 @@ neoswga schema --dump > params.schema.json
 | `fg_circular` | boolean | - | `True` | - |
 | `fg_seq_lengths` | array of integer | - | - | Per-genome foreground lengths in bp. Auto-computed if missing. |
 | `formamide_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |
+| `gc_clamp_window` | integer | min: 1; max: 12 | `5` | Bases at the 3' end the GC clamp examines. Not scaled to primer length: scaling was measured against per-primer amplification data and admits worse amplifiers. |
 | `gc_max` | number | min: 0.0; max: 1.0 | - | - |
 | `gc_min` | number | min: 0.0; max: 1.0 | - | - |
 | `gc_tolerance` | number | min: 0.0; max: 0.5 | `0.15` | - |
@@ -57,7 +58,9 @@ neoswga schema --dump > params.schema.json
 | `max_bg_freq` | number | min: 0.0; max: 1.0 | - | - |
 | `max_bl_freq` | number | min: 0.0; max: 1.0 | `0.0` | Maximum permissible blacklist frequency; 0 = zero tolerance. |
 | `max_dimer_bp` | integer | min: 1; max: 15 | - | - |
+| `max_gc_in_clamp` | integer | min: 0; max: 12 | `3` | Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets. |
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
+| `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
 | `max_k` | integer | min: 4; max: 30 | - | Maximum primer length (bp). Polymerase-aware default is used if absent. |
 | `max_primer` | integer | min: 1; max: 10000 | - | - |
 | `max_self_dimer_bp` | integer | min: 1; max: 15 | - | - |

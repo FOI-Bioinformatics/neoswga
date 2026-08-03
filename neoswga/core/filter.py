@@ -91,6 +91,9 @@ MIN_NUCLEOTIDE_COUNT_FOR_REPEAT = 5
 
 # Rule 3: Maximum G/C bases allowed in last 5 bases (GC clamp)
 MAX_GC_IN_LAST_5_BASES = 3
+# Bases at the 3' end the clamp looks at. See resolve_gc_clamp for why this
+# is not scaled to primer length.
+GC_CLAMP_WINDOW = 5
 
 # Rule 1: All 3 bases at 3' end cannot be G/C
 MAX_GC_AT_3PRIME_END = 2  # Max 2 of 3 bases can be G/C
@@ -313,12 +316,83 @@ def _count_gc(sequence: str) -> int:
     return sum(1 for base in sequence if base in "GC")
 
 
+def _configured_int(name: str, default: int, allow_zero: bool = False) -> int:
+    """An integer setting from `parameter`, or the default.
+
+    Type-checked rather than truthiness-checked. `neoswga.core.filter.parameter`
+    is replaced with a MagicMock in several test modules, and a MagicMock
+    answers every attribute with a truthy stub whose `int()` is 1 -- so a plain
+    `getattr(...) or default` silently resolved the GC clamp to a 1-base window
+    with a 1-base limit. The same guard rejects a string or None arriving from
+    a hand-edited params.json, where the failure would be a quietly different
+    filter rather than an error.
+    """
+    value = getattr(parameter, name, None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    value = int(value)
+    if value < 0 or (value == 0 and not allow_zero):
+        return default
+    return value
+
+
+def resolve_homopolymer_run() -> int:
+    """Longest run of one base a primer may contain, from configuration.
+
+    Was a module constant, with the rejection patterns derived from it once at
+    import -- so a configured value would have had no effect on them. Read per
+    call now; the default reproduces the hardcoded 5.
+    """
+    return _configured_int("max_homopolymer_run", MAX_HOMOPOLYMER_RUN)
+
+
+def resolve_gc_clamp() -> Tuple[int, int]:
+    """(window, max G/C) for the 3'-end clamp, from configuration.
+
+    The window is length-blind: five bases is 83% of a 6-mer and 42% of a
+    12-mer, and the rule comes from PCR design on 18-25mers. Scaling it to
+    primer length was measured and rejected -- against the only benchmark with
+    per-primer amplification, a scaled window newly admits primers amplifying
+    at a median of 1.55x where the pool median is 10.15x. The fixed window
+    earns its place at short lengths by acting as the extra constraint that a
+    redundancy analysis makes it look like it is not. Configurable so that
+    conclusion can be re-tested, with the default reproducing it.
+    """
+    return (
+        _configured_int("gc_clamp_window", GC_CLAMP_WINDOW),
+        _configured_int("max_gc_in_clamp", MAX_GC_IN_LAST_5_BASES, allow_zero=True),
+    )
+
+
+def _fails_gc_clamp(primer: str) -> bool:
+    """Whether the 3'-end GC clamp rejects this primer.
+
+    Carries the genome-GC adaptation with it: an AT-rich target (Plasmodium
+    ~25% GC) cannot supply a G/C in every primer's 3' end, and a GC-rich one
+    (Mycobacterium ~65%) cannot avoid it, so a fixed band would reject nearly
+    everything for both.
+    """
+    window, configured_max = resolve_gc_clamp()
+    observed = _count_gc(primer[-window:])
+
+    genome_gc = getattr(parameter, "genome_gc", None)
+    if genome_gc is not None and genome_gc < EXTREME_AT_GENOME_GC:
+        low, high = 0, configured_max
+    elif genome_gc is not None and genome_gc > EXTREME_GC_GENOME_GC:
+        low, high = 1, max(configured_max + 1, 4)
+    else:
+        low, high = 1, configured_max
+
+    if observed > high or observed < low:
+        logger.debug(f"GC clamp filter: {primer} GC_last{window}={observed} (allowed {low}-{high})")
+        return True
+    return False
+
+
 def _has_homopolymer_run(primer: str) -> bool:
     """Check if primer contains homopolymer runs exceeding threshold."""
-    for pattern in HOMOPOLYMER_PATTERNS:
-        if pattern in primer:
-            return True
-    return False
+    run = resolve_homopolymer_run()
+    return any(base * run in primer for base in "ACGT")
 
 
 def _has_dinucleotide_repeats(primer: str, nucleotide_counts: Counter[str]) -> bool:
@@ -393,28 +467,8 @@ def filter_extra(primer: str) -> bool:
         logger.debug(f"GC content filter: {primer} GC={gc_content:.1%}")
         return False
 
-    # Rule 3: GC clamp (last 5 bases)
-    # Adaptive based on genome GC content to avoid eliminating valid primers
-    # for AT-rich (e.g. Plasmodium ~25% GC) or GC-rich (e.g. Mycobacterium ~65% GC) targets
-    gc_in_last_5 = _count_gc(primer[-5:])
-    genome_gc = getattr(parameter, "genome_gc", None)
-    if genome_gc is not None and genome_gc < EXTREME_AT_GENOME_GC:
-        # AT-rich genome: allow 0 GC in last 5, reject >3
-        gc_clamp_min = 0
-        gc_clamp_max = MAX_GC_IN_LAST_5_BASES
-    elif genome_gc is not None and genome_gc > EXTREME_GC_GENOME_GC:
-        # GC-rich genome: allow up to 4 GC in last 5, require >=1 AT
-        gc_clamp_min = 1
-        gc_clamp_max = 4
-    else:
-        # Standard: 1-3 GC in last 5
-        gc_clamp_min = 1
-        gc_clamp_max = MAX_GC_IN_LAST_5_BASES
-    if gc_in_last_5 > gc_clamp_max or gc_in_last_5 < gc_clamp_min:
-        logger.debug(
-            f"GC clamp filter: {primer} GC_last5={gc_in_last_5} "
-            f"(allowed {gc_clamp_min}-{gc_clamp_max})"
-        )
+    # Rule 3: GC clamp at the 3' end, adapted to genome GC.
+    if _fails_gc_clamp(primer):
         return False
 
     # Rule 1: 3' end cannot have all 3 bases as G/C
