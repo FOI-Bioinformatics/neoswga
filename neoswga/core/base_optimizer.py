@@ -133,6 +133,24 @@ class PrimerSetMetrics:
     # failure this audit has met most often.
     selectivity_mode: str = "exact"
 
+    # Coverage weighted by how much of the time each site is actually bound
+    # under the configured conditions, beside the raw `fg_coverage` that counts
+    # every exact match as fully occupied.
+    #
+    # Phase 3 made selectivity occupancy-weighted and left coverage a count, so
+    # the two halves of the objective sat on different footings: a set could be
+    # rewarded for binding sites it does not occupy at the reaction temperature.
+    # The bias is not small and it is not uniform. Measured on Prevotella at
+    # equiphi29 42 C, a 10-mer set reports 52% coverage at mean occupancy 0.36
+    # while a 12-mer set reports 40% at 0.86 -- so the raw numbers rank them in
+    # the opposite order to the effective ones.
+    #
+    # This is also what connects additives to coverage. DMSO and betaine lower
+    # effective Tm, which moves every site down its occupancy curve; against a
+    # count-based coverage that cost is invisible, and a condition search would
+    # spend coverage it could not see it was spending.
+    effective_fg_coverage: float = 0.0
+
     # Per-primer extension reach (bp) used to compute fg_coverage. Recorded
     # so the report can label "95% coverage at 3 kb reach" rather than
     # leaving the granularity ambiguous. Defaults to the Phase 16 realistic
@@ -143,6 +161,9 @@ class PrimerSetMetrics:
         """Convert to dictionary for serialization."""
         return {
             "fg_coverage": self.fg_coverage,
+            # Same union of binding windows, weighted by how much of the time
+            # each site is bound under the configured conditions.
+            "effective_fg_coverage": self.effective_fg_coverage,
             "bg_coverage": self.bg_coverage,
             "coverage_uniformity": self.coverage_uniformity,
             "total_fg_sites": self.total_fg_sites,
@@ -840,14 +861,18 @@ class BaseOptimizer(ABC):
         if not primers:
             return PrimerSetMetrics.empty()
 
-        # Collect all positions
+        # Collect all positions. Kept per primer as well as pooled: the pooled
+        # list cannot say which primer put a site there, and occupancy is a
+        # per-primer property.
         fg_positions = []
         bg_positions = []
+        fg_positions_by_primer = {}
 
         for primer in primers:
             for prefix in self.fg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
                 fg_positions.extend(positions.tolist())
+                fg_positions_by_primer.setdefault(primer, []).extend(positions.tolist())
 
             for prefix in self.bg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
@@ -858,6 +883,9 @@ class BaseOptimizer(ABC):
 
         # Coverage
         fg_coverage = self._compute_coverage(fg_positions, self.fg_total_length)
+        effective_fg_coverage = self._compute_effective_coverage(
+            fg_positions_by_primer, self.fg_total_length
+        )
         bg_coverage = (
             self._compute_coverage(bg_positions, self.bg_total_length)
             if self.bg_total_length > 0
@@ -914,6 +942,7 @@ class BaseOptimizer(ABC):
 
         return PrimerSetMetrics(
             fg_coverage=fg_coverage,
+            effective_fg_coverage=effective_fg_coverage,
             bg_coverage=bg_coverage,
             coverage_uniformity=gap_gini,
             total_fg_sites=total_fg,
@@ -968,6 +997,69 @@ class BaseOptimizer(ABC):
             _mark_window(occupied, int(pos), extension_reach, total_length, circular)
 
         return float(occupied.sum()) / total_length
+
+    def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float:
+        """Coverage weighted by how much of the time each site is occupied.
+
+        `_compute_coverage` unions binding windows as booleans: a site either
+        covers its window or does not. That is the right question for "could
+        this primer reach here", and the wrong one for "will it". A primer whose
+        effective Tm sits well below the reaction temperature is mostly not
+        bound, and its sites contribute far less amplification than a count
+        implies.
+
+        Here a site covers its window with probability theta -- the same
+        two-state occupancy the selectivity metric uses -- so a base is covered
+        unless every site reaching it fails to bind:
+
+            P(covered at x) = 1 - PRODUCT over sites s reaching x of (1 - theta_s)
+
+        Independence across sites is an approximation. Sites on one template
+        molecule compete for polymerase and are not independent, so this reads
+        as an upper bound on what a single molecule does; across the many
+        molecules in a reaction it is the right shape.
+
+        Returns 0.0 when no reaction conditions are attached, since without them
+        there is no temperature at which to evaluate occupancy and a fabricated
+        number here would be indistinguishable from a measured one.
+        """
+        import numpy as np
+
+        from .coverage import _mark_window
+        from .occupancy import site_occupancy
+        from .thermodynamics import calculate_enthalpy_entropy
+
+        if not positions_by_primer or total_length == 0 or self.conditions is None:
+            return 0.0
+
+        extension_reach = self.config.extension_reach
+        circular = getattr(self.config, "fg_circular", False)
+        temp = self.conditions.temp
+
+        # Accumulate the probability that a base is NOT reached by anything.
+        not_covered = np.ones(total_length, dtype=np.float32)
+        window = np.zeros(total_length, dtype=bool)
+
+        for primer, positions in positions_by_primer.items():
+            if not positions:
+                continue
+            tm = self.conditions.calculate_effective_tm(primer)
+            dh, _ = calculate_enthalpy_entropy(primer)
+            theta = site_occupancy(dh, tm, temp)
+            if theta <= 0.0:
+                continue
+
+            # One primer's sites are marked together, then applied once. Marking
+            # per site would multiply (1 - theta) in for every overlapping window
+            # of the SAME primer, which understates coverage where a primer binds
+            # densely -- the windows overlap, the primer does not stack with
+            # itself.
+            window[:] = False
+            for pos in positions:
+                _mark_window(window, int(pos), extension_reach, total_length, circular)
+            not_covered[window] *= 1.0 - theta
+
+        return float((1.0 - not_covered).sum()) / total_length
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
         """Compute gaps between adjacent binding sites."""
