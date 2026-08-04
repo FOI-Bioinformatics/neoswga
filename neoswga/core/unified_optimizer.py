@@ -1026,6 +1026,21 @@ def save_results(
     summary_path = os.path.splitext(output_path)[0] + "_summary.json"
     try:
         summary = result.to_dict()
+        # Synthesis cost, itemised. Set size is the main lever on coverage, so
+        # "how many primers" is really "how many oligos will you buy"; without
+        # this the trade-off has a missing axis. Assumes the standard SWGA
+        # modification (two 3' PTO bonds against phi29's exonuclease), which is
+        # the largest single component for primers this short.
+        try:
+            from neoswga.core.oligo_cost import cost_per_coverage_point, set_cost
+
+            cost = set_cost(list(result.primers))
+            summary["synthesis_cost"] = cost.to_dict()
+            summary["synthesis_cost"]["usd_per_coverage_point"] = round(
+                cost_per_coverage_point(cost, result.metrics.fg_coverage), 2
+            )
+        except Exception as exc:  # never lose the result over a cost estimate
+            logger.debug(f"Could not estimate synthesis cost: {exc}")
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2, default=str)
         logger.info(f"Summary saved to {summary_path}")

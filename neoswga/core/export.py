@@ -822,8 +822,15 @@ class PrimerExporter:
         gcs = [calculate_gc(p) for p in self.primers]
         tms = [calculate_simple_tm(p) for p in self.primers]
 
-        # Estimate cost: approximately $5 per primer at 25nmol scale
-        estimated_cost = len(self.primers) * 5.0
+        # Cost from length and the modifications this set will actually be
+        # ordered with. The previous flat $5/primer ignored both, which for
+        # SWGA gets the composition backwards: two 3' PTO bonds cost more than
+        # all ten bases of a 10-mer, so the modification is the largest
+        # component rather than a rounding error.
+        from neoswga.core.oligo_cost import cost_from_modifications
+
+        cost = cost_from_modifications(self.primers, self.modifications)
+        estimated_cost = cost.total
 
         return {
             "num_primers": len(self.primers),
@@ -833,6 +840,9 @@ class PrimerExporter:
             "min_tm": min(tms),
             "max_tm": max(tms),
             "estimated_cost": estimated_cost,
+            # Itemised, because the split is the actionable part: for short
+            # SWGA primers the modification, not the sequence, drives the price.
+            "cost_breakdown": cost.to_dict(),
             "polymerase": self.polymerase,
             "temperature": self.temperature,
             "modification_profile": self.modifications.profile.value,
@@ -853,7 +863,11 @@ class PrimerExporter:
         print(f"  Tm range: {summary['min_tm']:.1f} - {summary['max_tm']:.1f} C")
         print(f"  Polymerase: {summary['polymerase']}")
         print(f"  Temperature: {summary['temperature']} C")
-        print(f"  Estimated cost: ${summary['estimated_cost']:.2f}")
+        breakdown = summary.get("cost_breakdown", {})
+        print(
+            f"  Estimated cost: ${summary['estimated_cost']:.2f}"
+            f" ({breakdown.get('modification_fraction', 0):.0%} modifications; estimate, not a quote)"
+        )
         print("-" * 50)
         print("  MODIFICATIONS")
         print(f"  Profile: {summary['modification_profile']}")

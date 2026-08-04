@@ -1,8 +1,9 @@
 """Tests for primer export functionality."""
 
-import pytest
-from pathlib import Path
 import tempfile
+from pathlib import Path
+
+import pytest
 
 
 class TestFastaExport:
@@ -257,8 +258,9 @@ class TestExportIntegration:
 
     def test_full_export_workflow(self, tmp_path):
         """Test complete export from results to all formats."""
-        from neoswga.core.export import PrimerExporter
         import json
+
+        from neoswga.core.export import PrimerExporter
 
         # Create realistic mock results
         results_dir = tmp_path / "results"
@@ -332,7 +334,15 @@ TTGGTTGGTTGG,0,0.847,0.78,0.12,6.5,15000,hybrid
         assert abs(summary["mean_gc"] - 0.467) < 0.01  # (0 + 1 + 0.4) / 3
         assert summary["min_tm"] == 20.0
         assert summary["max_tm"] == 40.0
-        assert summary["estimated_cost"] == 15.0  # 3 * $5
+        # Cost now reflects length and the modifications the set will be
+        # ordered with, not a flat $5/primer. Three 10-mers with the standard
+        # two 3' PTO bonds: 3 x (3.00 setup + 10 x 0.25 bases + 2 x 2.50 PTO)
+        # = $31.50. The PTO bonds cost twice what the bases do, which is the
+        # composition a length-blind estimate got wrong.
+        assert summary["estimated_cost"] == pytest.approx(31.50)
+        assert (
+            summary["cost_breakdown"]["modifications_usd"] > summary["cost_breakdown"]["bases_usd"]
+        )
 
 
 class TestPrimerModifications:
@@ -340,7 +350,7 @@ class TestPrimerModifications:
 
     def test_profile_standard(self):
         """Standard profile has 2 PTO bonds and no 5' block."""
-        from neoswga.core.export import PrimerModifications, ModificationProfile
+        from neoswga.core.export import ModificationProfile, PrimerModifications
 
         mods = PrimerModifications.from_profile("standard")
         assert mods.pto_bonds == 2
@@ -349,7 +359,7 @@ class TestPrimerModifications:
 
     def test_profile_low_input(self):
         """Low-input profile has 2 PTO bonds and C18 spacer."""
-        from neoswga.core.export import PrimerModifications, ModificationProfile
+        from neoswga.core.export import ModificationProfile, PrimerModifications
 
         mods = PrimerModifications.from_profile("low-input")
         assert mods.pto_bonds == 2
@@ -358,7 +368,7 @@ class TestPrimerModifications:
 
     def test_profile_none(self):
         """None profile has no modifications."""
-        from neoswga.core.export import PrimerModifications, ModificationProfile
+        from neoswga.core.export import ModificationProfile, PrimerModifications
 
         mods = PrimerModifications.from_profile("none")
         assert mods.pto_bonds == 0
@@ -374,7 +384,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_standard_idt(self):
         """Standard profile adds PTO bonds with IDT syntax."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications.from_profile("standard")
         result = apply_modifications("ATCGATCG", mods, vendor="idt")
@@ -383,7 +393,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_standard_longer_primer(self):
         """Standard profile on 12-mer primer."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications.from_profile("standard")
         result = apply_modifications("ATCGATCGATCG", mods, vendor="idt")
@@ -392,7 +402,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_low_input_idt(self):
         """Low-input profile adds C18 prefix and PTO bonds."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications.from_profile("low-input")
         result = apply_modifications("ATCGATCG", mods, vendor="idt")
@@ -401,7 +411,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_none(self):
         """None profile returns sequence unchanged."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications.from_profile("none")
         result = apply_modifications("ATCGATCG", mods, vendor="idt")
@@ -409,7 +419,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_generic_vendor(self):
         """Generic vendor uses bracket notation."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications.from_profile("low-input")
         result = apply_modifications("ATCGATCG", mods, vendor="generic")
@@ -418,7 +428,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_sigma_vendor(self):
         """Sigma uses IDT-compatible syntax."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications.from_profile("low-input")
         result = apply_modifications("ATCGATCG", mods, vendor="sigma")
@@ -427,7 +437,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_short_sequence(self):
         """Handle very short sequences gracefully."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications.from_profile("standard")
         # 4-mer with 2 PTO bonds - all bases get connected
@@ -436,7 +446,7 @@ class TestPrimerModifications:
 
     def test_apply_mods_custom_pto_count(self):
         """Custom PTO bond count."""
-        from neoswga.core.export import apply_modifications, PrimerModifications
+        from neoswga.core.export import PrimerModifications, apply_modifications
 
         mods = PrimerModifications(pto_bonds=3, five_prime_block=None)
         result = apply_modifications("ATCGATCG", mods, vendor="idt")
@@ -449,7 +459,7 @@ class TestExportWithModifications:
 
     def test_exporter_default_modifications(self):
         """Exporter uses standard modifications by default."""
-        from neoswga.core.export import PrimerExporter, ModificationProfile
+        from neoswga.core.export import ModificationProfile, PrimerExporter
 
         exporter = PrimerExporter(["ATCGATCG"])
         assert exporter.modifications.profile == ModificationProfile.STANDARD
@@ -509,8 +519,9 @@ class TestExportWithModifications:
 
     def test_full_export_with_modifications(self, tmp_path):
         """Full export workflow with modifications."""
-        from neoswga.core.export import PrimerExporter, PrimerModifications
         import json
+
+        from neoswga.core.export import PrimerExporter, PrimerModifications
 
         # Create mock results
         results_dir = tmp_path / "results"
