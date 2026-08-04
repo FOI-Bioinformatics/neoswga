@@ -638,6 +638,31 @@ def step1():
     return fg_seq_lengths, bg_seq_lengths
 
 
+def _rank_and_cut_candidates(gini_df, max_primer):
+    """Rank surviving primers and cut to `max_primer`, ties broken by abundance.
+
+    Ranking is by `ratio` = bg_count / fg_count ascending -- lowest background
+    load per foreground site first. That is the right primary key, but it is not
+    a total order, and for the designs this tool exists for it is barely an
+    order at all: whenever a primer is long enough to have no exact background
+    match, which is the whole equiphi29 regime, its ratio is 0/fg_count = 0.
+
+    Measured on Prevotella vs human chr21 at k=12, all 369,431 survivors tied at
+    exactly 0.0. The cut therefore kept an arbitrary 10,000 of them -- mean
+    foreground count 1.29, against 9.5 for the 10,000 most abundant, with only
+    10 primers in common between the two. Coverage is set by how many sites a
+    set binds, so that handed the optimizer single-site candidates and capped
+    coverage before optimization began: 7.6% at k=12, against 40.3% once the tie
+    is broken, with selectivity rising 0.69 -> 2.54 at the same time.
+
+    Within a tie on selectivity, more foreground binding is strictly better and
+    costs nothing. The Gini filter has already run at this point, so primers
+    whose sites are clustered in a repeat are gone and the abundance that
+    remains is spread across the genome.
+    """
+    return gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[:max_primer]
+
+
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -801,8 +826,7 @@ def step2(all_primers=None, validate_prerequisites=True):
     gini_df = gini_df.copy()
     gini_df["ratio"] = gini_df["bg_count"] / gini_df["fg_count"].replace(0, np.nan)
     gini_df["ratio"] = gini_df["ratio"].fillna(float("inf"))
-    # Sort ascending: lowest bg/fg ratio = best selectivity (keep best primers)
-    filtered_gini_df = gini_df.sort_values(by=["ratio"], ascending=True)[: parameter.max_primer]
+    filtered_gini_df = _rank_and_cut_candidates(gini_df, parameter.max_primer)
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")

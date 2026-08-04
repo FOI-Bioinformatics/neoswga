@@ -218,6 +218,13 @@ needs_length_series = pytest.mark.skipif(
 # equiphi29 at 42 C, eight primers each, candidate pool 2000. Fixed here rather
 # than regenerated so the tests do not depend on a 2-minute filter run per
 # length. tests/validation/genomes/equiphi29_{k}mer.json reproduces them.
+#
+# These postdate the candidate-cut tie-break fix (see
+# tests/test_candidate_pool_tiebreak.py). Before it, the k=11 and k=12 pools
+# were an arbitrary slice of primers that bound the target roughly once each,
+# and the sets built from them covered 12% and 8% of the genome at selectivity
+# below 1. Both length and pool quality had to be right before the stringency
+# lever showed its full size.
 PIPELINE_SETS = {
     10: [
         "AAGGGCGTTA",
@@ -230,24 +237,24 @@ PIPELINE_SETS = {
         "ACCGATACCA",
     ],
     11: [
-        "ACGTAAGAACC",
-        "GGTACGATGGA",
-        "ATTAGGTGCGA",
-        "AACATCTTCGA",
-        "AAGCGTATGAC",
-        "ATCCTCGTTGA",
-        "GATATGACGGA",
-        "CACGAATCTGA",
+        "GGGCGTTAGTA",
+        "CTCCTTTCGGA",
+        "AACTCGTCTAC",
+        "ACGATATGTGC",
+        "ACGATAAGGAG",
+        "AACGCCCAATT",
+        "ACGGAGGATTA",
+        "CGGAACTTACC",
     ],
     12: [
-        "CATCAACGATAA",
-        "CCCAGAACGATA",
-        "GCGTATCAACCA",
-        "TATGCGCTGCAA",
-        "GTCAAAGTCGAA",
-        "ACGAGTTACCAT",
-        "CAACACGCTTAC",
-        "CGTCAGTTTATC",
+        "AAAAGGGCGTTA",
+        "CGCCCTTTTGAA",
+        "CGGACAGCAATA",
+        "ACGAGTTGACAA",
+        "AAGGCTTAGCAC",
+        "TAACTTGACGTA",
+        "CACGATATGTGC",
+        "AAGGGCGTTAGT",
     ],
 }
 
@@ -298,8 +305,8 @@ def test_longer_primers_do_respond_to_stringency(k):
     stringency separates them. Measured across 38-50 C:
 
         k=10   0.53  0.61  0.68  0.71    1.36x
-        k=11   0.51  0.59  0.67  0.70    1.36x
-        k=12   0.59  0.66  0.78  0.88    1.51x
+        k=11   0.75  0.89  1.14  1.31    1.74x
+        k=12   2.00  2.35  3.54  6.05    3.03x
 
     against 1.00x for the published 7-8mer sets. This is what makes the
     additive lever a real control in the equiphi29 regime and not in phi29's
