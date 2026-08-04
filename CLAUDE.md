@@ -121,7 +121,7 @@ count-kmers            filter                 score                  optimize
 - `filter_stats.json`: Real per-stage filtering funnel counts (rendered in reports)
 - `step3_df.csv`: Primers with amplification prediction scores
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
-- `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, selectivity, ensemble_comparison, per_target_coverage, strand metrics)
+- `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity, effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics)
 - `*_positions.h5`: HDF5 files with primer binding positions
 
 ## CLI Commands

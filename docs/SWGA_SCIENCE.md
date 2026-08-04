@@ -225,6 +225,30 @@ Each pathway contributes to the overall predicted amplification efficiency.
 
 ## 5. Reaction Additives
 
+### 5.0 When additives can buy specificity at all
+
+Additives buy discrimination by lowering effective Tm, which pushes duplexes off
+their melting transition. That only separates a perfect site from a mismatched
+one where the duplex is *near* that transition. Far below Tm both populations
+are saturated and the occupancy terms cancel; far above, neither is bound.
+
+Two consequences, both measured in
+[docs/validation/additive_specificity.md](validation/additive_specificity.md):
+
+- **Primer length.** Sets of 7-8mers do not respond to stringency at all
+  (1.00x across 38-50 C), because every short k-mer is present thousands of
+  times in any large background and there is no rare perfect-match population
+  to protect. 10-12mers respond 1.4-3.0x.
+- **Reaction temperature.** The same 12-mer set gains 1.51x selectivity from
+  5% DMSO + 1 M betaine at equiphi29's 42 C, and 1.01x at phi29's 30 C. The
+  lever is a property of operating near Tm, not of the additive, and phi29's
+  temperature puts it out of reach.
+
+Stringency also costs coverage, by moving foreground sites down the same
+occupancy curve. That cost is affordable when primers melt above the reaction
+temperature (-9% coverage for +51% selectivity at k=12) and ruinous when they
+do not (-64% for +13% at k=10).
+
 ### 5.1 DMSO (Dimethyl Sulfoxide)
 
 **Mechanism**: DMSO destabilizes DNA secondary structure by disrupting hydrogen bonding and base stacking. It preferentially affects AT-rich regions and reduces the energy barrier for strand separation.

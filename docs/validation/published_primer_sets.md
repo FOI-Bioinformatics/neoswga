@@ -298,6 +298,11 @@ predicted ratios span under 2x across sets whose measured outcomes differ
 
 ### The consequence for design
 
+> Followed up end to end in [additive_specificity.md](additive_specificity.md), which measures the
+> length and temperature regimes where the additive lever exists, and records
+> two defects that had to be fixed before any of it was measurable.
+
+
 Sharper than the failed correlation: **additives cannot buy specificity for a
 set of 7–8mers.** Stringency works by discriminating a rare perfect-match
 population from a common mismatched one, and at that length the perfect matches
