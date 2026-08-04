@@ -166,6 +166,95 @@ def run_suggest(args):
 # =========================================================================
 
 
+def run_calibrate_reach(args):
+    """Estimate the per-primer coverage reach from real sequencing depth.
+
+    The reach decides both what coverage is reported and which primers get
+    selected, and neither published convention is measured: swga 2.0 uses
+    phi29's ~70 kb single-molecule processivity, and NeoSWGA's ~3 kb default is
+    derived from inter-primer spacings that designers chose. A BAM from an SWGA
+    run using these primers contains the answer, because depth falls away from
+    binding sites on the length scale of the reach.
+
+    Read-only. Prints the whole grid rather than one number, because a flat
+    optimum means the data cannot separate 3 kb from 20 kb and should not be
+    reported as though it could.
+    """
+    import json as json_module
+    import os
+
+    from neoswga.core import parameter
+    from neoswga.core import pipeline as core_pipeline
+    from neoswga.core.bam_coverage import compute_bam_depth, match_contigs
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.reach_calibration import fit_reach, format_reach_table
+
+    primers = collect_primers_from_args(
+        getattr(args, "primers", None),
+        getattr(args, "primers_file", None),
+        name="primer",
+    )
+
+    validate_params_json_file(args.json_file)
+    merge_args_to_parameter(args, parameter, ["json_file"])
+    core_pipeline._initialize()
+
+    fg_prefixes = core_pipeline.fg_prefixes
+    fg_seq_lengths = core_pipeline.fg_seq_lengths
+
+    aliases = {}
+    for item in getattr(args, "contig_alias", None) or []:
+        if "=" in item:
+            key, value = item.split("=", 1)
+            aliases[key] = value
+
+    import pysam  # noqa: F401  (surfaces the [bam] extra's absence early)
+
+    with pysam.AlignmentFile(args.bam, "rb") as bam:
+        contig_map = match_contigs(
+            list(bam.references),
+            list(bam.lengths),
+            fg_prefixes,
+            fg_seq_lengths,
+            aliases=aliases or None,
+        )
+    if not contig_map:
+        raise SystemExit(
+            f"No BAM contig could be matched to a foreground prefix. "
+            f"Map one explicitly with --contig-alias FG=BAMCONTIG."
+        )
+
+    # Fit on the longest matched contig: the estimate is a length-scale, and a
+    # short contig cannot distinguish reaches comparable to its own size.
+    prefix = max(contig_map, key=lambda p: fg_seq_lengths[fg_prefixes.index(p)])
+    contig = contig_map[prefix]
+    length = fg_seq_lengths[fg_prefixes.index(prefix)]
+
+    cache = PositionCache([prefix], list(dict.fromkeys(primers)))
+    positions = sorted(
+        {int(x) for p in primers for x in cache.get_positions(prefix, p, strand="both")}
+    )
+    if not positions:
+        raise SystemExit(
+            f"None of the {len(primers)} primers bind {prefix}. Reach cannot be "
+            f"fitted without binding sites; check the primers and params.json."
+        )
+
+    logger.info(f"Fitting reach on {prefix} ({contig}, {length:,} bp, {len(positions)} sites)")
+    depth = compute_bam_depth(args.bam, contig, length)
+    fit = fit_reach(depth, positions, contig=contig)
+
+    print(format_reach_table(fit))
+
+    output = getattr(args, "output", None)
+    if output:
+        os.makedirs(os.path.dirname(output) or ".", exist_ok=True)
+        with open(output, "w") as handle:
+            json_module.dump(fit.to_dict(), handle, indent=2)
+        logger.info(f"Wrote {output}")
+    return 0 if fit.informative else 1
+
+
 def run_analyze_coverage(args):
     """Read-only coverage-gap report from in-silico binding sites + optional BAM.
 
@@ -535,6 +624,35 @@ def run_design(args):
         sys.exit(1)
 
 
+def _add_calibrate_reach_parser(subparsers):
+    """Parser for `calibrate-reach`, extracted to keep `add_parsers` in budget."""
+    parser = subparsers.add_parser(
+        "calibrate-reach",
+        help="Estimate the per-primer coverage reach from real sequencing "
+        "depth (BAM), instead of assuming the polymerase default. Read-only.",
+    )
+    parser.add_argument("-j", "--json-file", required=True, help="Parameters JSON file")
+    parser.add_argument(
+        "--primers", nargs="+", help="Primers used in the reaction that produced the BAM."
+    )
+    parser.add_argument("--primers-file", help="File with those primers (one per line).")
+    parser.add_argument(
+        "--bam",
+        required=True,
+        help="BAM from an SWGA reaction using these primers, mapped to the "
+        "target genome. Requires the [bam] extra.",
+    )
+    parser.add_argument(
+        "--contig-alias",
+        action="append",
+        default=None,
+        metavar="FG=BAMCONTIG",
+        help="Map a foreground prefix/basename to a BAM contig. Repeatable.",
+    )
+    parser.add_argument("--output", "-o", help="Write the fit as JSON to this path.")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
+
+
 def add_parsers(subparsers):
     """Register this group's subcommands on the shared subparsers object.
 
@@ -653,6 +771,8 @@ def add_parsers(subparsers):
     # =========================================================================
     # ADVANCED: Optimize conditions
     # =========================================================================
+
+    _add_calibrate_reach_parser(subparsers)
 
     cov_parser = subparsers.add_parser(
         "analyze-coverage",

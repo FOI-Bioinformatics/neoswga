@@ -83,6 +83,33 @@ def _selectivity_from_loads(fg_load: float, bg_load: float) -> float:
     return fg_load / bg_load
 
 
+def _union_coverage(positions, total_length: int, reach: int, circular: bool) -> float:
+    """Fraction of a sequence within `reach` of any binding site.
+
+    Module-level and free of instance state because three call sites want it --
+    the selection reach, each reporting reach, and the circular-wrap tests that
+    duck-type an optimizer with only a `config`. Three implementations of one
+    quantity is how this codebase has produced disagreeing coverage numbers
+    before; one audit found three different semantics for "coverage" at once.
+    """
+    import numpy as np
+
+    from .coverage import _mark_window
+
+    if not positions or total_length == 0:
+        return 0.0
+
+    # On a circular target a single site whose window spans the whole sequence
+    # covers everything, and the marking loop cannot represent that.
+    if circular and 2 * reach >= total_length:
+        return 1.0
+
+    occupied = np.zeros(total_length, dtype=bool)
+    for pos in positions:
+        _mark_window(occupied, int(pos), reach, total_length, circular)
+    return float(occupied.sum()) / total_length
+
+
 @dataclass(frozen=True)
 class PrimerSetMetrics:
     """
@@ -151,6 +178,14 @@ class PrimerSetMetrics:
     # spend coverage it could not see it was spending.
     effective_fg_coverage: float = 0.0
 
+    # Raw coverage at several reaches, {reach_bp: fraction}, so the figure can
+    # be compared across tools that do not share a convention. swga 2.0 reports
+    # at phi29's ~70 kb processivity; NeoSWGA selects at the ~3 kb realistic
+    # per-primer reach. The same set measures 0.418 / 0.836 / ~1.0 at 3 / 10 /
+    # 70 kb, so a bare "coverage" number is not comparable to a published one.
+    # Reporting the curve costs ~1 ms per reach and removes the ambiguity.
+    coverage_by_reach: Dict[int, float] = field(default_factory=dict)
+
     # Per-primer extension reach (bp) used to compute fg_coverage. Recorded
     # so the report can label "95% coverage at 3 kb reach" rather than
     # leaving the granularity ambiguous. Defaults to the Phase 16 realistic
@@ -164,6 +199,9 @@ class PrimerSetMetrics:
             # Same union of binding windows, weighted by how much of the time
             # each site is bound under the configured conditions.
             "effective_fg_coverage": self.effective_fg_coverage,
+            # Keyed by reach in bp. Coverage is not comparable across reaches,
+            # and the published tools do not share a convention.
+            "coverage_by_reach": {str(k): v for k, v in self.coverage_by_reach.items()},
             "bg_coverage": self.bg_coverage,
             "coverage_uniformity": self.coverage_uniformity,
             "total_fg_sites": self.total_fg_sites,
@@ -901,6 +939,7 @@ class BaseOptimizer(ABC):
         effective_fg_coverage = self._compute_effective_coverage(
             fg_positions_by_primer, self.fg_total_length
         )
+        coverage_by_reach = self._compute_coverage_by_reach(fg_positions, self.fg_total_length)
         bg_coverage = (
             self._compute_coverage(bg_positions, self.bg_total_length)
             if self.bg_total_length > 0
@@ -958,6 +997,7 @@ class BaseOptimizer(ABC):
         return PrimerSetMetrics(
             fg_coverage=fg_coverage,
             effective_fg_coverage=effective_fg_coverage,
+            coverage_by_reach=coverage_by_reach,
             bg_coverage=bg_coverage,
             coverage_uniformity=gap_gini,
             total_fg_sites=total_fg,
@@ -991,27 +1031,43 @@ class BaseOptimizer(ABC):
         marking to :func:`coverage._mark_window` so this implementation
         stays in sync with :func:`coverage.compute_per_prefix_coverage`.
         """
-        import numpy as np
+        return _union_coverage(
+            positions,
+            total_length,
+            self.config.extension_reach,
+            getattr(self.config, "fg_circular", False),
+        )
 
-        from .coverage import _mark_window
+    def _compute_coverage_by_reach(self, positions, total_length: int) -> Dict[int, float]:
+        """Raw coverage at each reporting reach, plus the one used for selection.
+
+        Coverage is meaningless without the reach it was computed at, and the
+        published tools do not share a convention: swga 2.0 reports at phi29's
+        ~70 kb processivity, NeoSWGA selects at the ~3 kb realistic per-primer
+        reach. The same set measures 0.418 at 3 kb and ~1.0 at 70 kb, so a bare
+        coverage figure cannot be compared to a published one in either
+        direction. Reporting the curve settles that without either convention
+        having to move.
+
+        The selection reach is always included even when it is not one of the
+        standard reporting points, so `fg_coverage` can always be located on
+        this curve rather than appearing to come from nowhere.
+        """
+        from .coverage import REPORTING_REACHES
 
         if not positions or total_length == 0:
-            return 0.0
+            return {}
 
-        extension_reach = self.config.extension_reach
-        circular = getattr(self.config, "fg_circular", False)
+        reaches = sorted(set(REPORTING_REACHES) | {int(self.config.extension_reach)})
+        return {
+            reach: self._compute_coverage_at(positions, total_length, reach) for reach in reaches
+        }
 
-        # Full coverage short-circuit: on a circular target, a single
-        # binding site whose window spans the whole sequence covers
-        # everything.
-        if circular and 2 * extension_reach >= total_length:
-            return 1.0
-
-        occupied = np.zeros(total_length, dtype=bool)
-        for pos in positions:
-            _mark_window(occupied, int(pos), extension_reach, total_length, circular)
-
-        return float(occupied.sum()) / total_length
+    def _compute_coverage_at(self, positions, total_length: int, reach: int) -> float:
+        """Raw union coverage at an explicit reach."""
+        return _union_coverage(
+            positions, total_length, reach, getattr(self.config, "fg_circular", False)
+        )
 
     def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float:
         """Coverage weighted by how much of the time each site is occupied.

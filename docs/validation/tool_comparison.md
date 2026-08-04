@@ -27,7 +27,7 @@ scoring against wet-lab outcomes rather than against other tools.
 | Set formation | max-clique on compatibility graph | breadth-first greedy with drop-out | interval tiling | greedy set cover + network refinement; **clique also available** |
 | Set scoring | binding metrics | ridge regression fitted to observed coverage | coverage uniformity | `normalized_score`, hand-chosen weights |
 | Primer scoring | filters only | RF, 1500 trees / depth 50 | ML | RF, 100 trees / depth 15 |
-| Coverage reach | — | 70 kb (phi29 processivity) | — | 3 kb (realistic per-primer) |
+| Coverage reach | — | 70 kb (phi29 processivity) | — | 3 kb default, configurable, fittable from BAM depth; reported at 3/10/70 kb |
 | Heterodimer-free set | guaranteed by clique | pairwise check while growing | — | guaranteed by `--optimization-method clique`; penalised in the other four |
 | Refine an existing set | no | no | yes | yes (`expand-primers`, `analyze-coverage --bam`) |
 | Multi-genome / pan-target | no | no | no | yes |
@@ -38,14 +38,38 @@ scoring against wet-lab outcomes rather than against other tools.
 These are positions, not gaps. They are recorded here so the disagreement is explicit
 rather than silent.
 
-**Coverage reach: 3 kb, not 70 kb.** swga 2.0's `coverage_ratio` uses phi29's
-single-molecule processivity of ~70 kb as the per-primer reach. NeoSWGA separates the
-two quantities: `processivity_bp` (~70 kb) governs amplification-*network*
-connectivity, while `coverage_reach` (~3 kb, `coverage.polymerase_extension_reach`)
-governs set-cover selection and reported `fg_coverage`. One molecule can be extended
-70 kb; that is not the reach at which a primer reliably covers a genome in a
-multi-primer reaction. Conflating them overstates coverage by more than an order of
-magnitude.
+**Coverage reach: 3 kb by default, not 70 kb — and now configurable and
+measurable.** swga 2.0's `coverage_ratio` uses phi29's single-molecule processivity of
+~70 kb as the per-primer reach. NeoSWGA separates the two quantities:
+`processivity_bp` (~70 kb) governs amplification-*network* connectivity, while
+`coverage_reach` (~3 kb, `coverage.resolve_coverage_reach`) governs set-cover selection
+and reported `fg_coverage`. One molecule can be extended 70 kb; that is not the reach at
+which a primer reliably covers a genome in a multi-primer reaction. Conflating them
+overstates coverage by more than an order of magnitude.
+
+That position stands, but it was overstated as settled. **Neither convention is
+measured.** 70 kb is what one molecule *can* do, not what a product reaches before a
+neighbour's strand displacement truncates it; and the ~3 kb default is derived from the
+inter-primer *spacings* Clarke et al. (2017) and Dwivedi-Yu et al. (2023) designed for,
+which is a designer's choice rather than an observation. The difference is not academic
+— the same set measures:
+
+| reach | coverage |
+|---|---|
+| 3 kb | 0.418 |
+| 10 kb | 0.836 |
+| 70 kb | ~1.0 |
+
+Three changes follow. The reach is **configurable** (`coverage_reach` in params.json,
+`--coverage-reach`), because the right value is a property of the reaction rather than
+of the enzyme alone. Coverage is **reported at 3 / 10 / 70 kb** plus whichever reach was
+used for selection (`coverage_by_reach`), so a NeoSWGA figure can be placed beside a
+published one without either convention having to move. And `neoswga calibrate-reach
+--bam` **fits the reach to real sequencing depth**: if products reach R bases, depth
+falls away from binding sites on that length scale. It reports the whole grid and marks
+the result uninformative below a correlation floor, because a library with no
+primer-position signal would otherwise still yield a confident-looking number. No other
+SWGA tool estimates this from data.
 
 **No fitted set-level score.** swga 2.0 fits five set-level terms by ridge regression
 against measured 1x coverage (`freq_ratio` +0.321, `off_gap_gini` +0.281,

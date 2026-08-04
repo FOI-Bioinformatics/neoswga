@@ -661,13 +661,25 @@ def run_optimization(
     # Uses realistic per-primer reach (phi29 ~3 kb, equiphi29 ~4 kb), not
     # single-molecule processivity. See coverage.polymerase_extension_reach
     # for the Clarke 2017 / Dwivedi-Yu 2023 rationale.
+    # An explicit `coverage_reach` (params.json or --coverage-reach) overrides
+    # it. The right value is an empirical property of the reaction, and
+    # `neoswga calibrate-reach --bam` estimates it from sequencing depth.
     polymerase = kwargs.get("polymerase") or getattr(parameter, "polymerase", "phi29")
+    reach_override = kwargs.get("coverage_reach")
+    if reach_override is None:
+        reach_override = getattr(parameter, "coverage_reach", None)
     try:
-        from .coverage import polymerase_extension_reach
+        from .coverage import resolve_coverage_reach
 
-        extension_reach = polymerase_extension_reach(polymerase, coverage_metric="realistic")
-    except (ImportError, ValueError):
+        extension_reach = resolve_coverage_reach(polymerase, override=reach_override)
+    except ImportError:
         extension_reach = 3000  # phi29 realistic per-primer reach
+    if reach_override is not None and verbose:
+        logger.info(
+            f"Coverage reach: {extension_reach:,} bp (explicit; polymerase default "
+            f"would be used otherwise). Coverage figures are not comparable across "
+            f"different reaches."
+        )
 
     # Build optimizer config
     fg_circular = kwargs.get("fg_circular")

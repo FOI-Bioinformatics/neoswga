@@ -34,6 +34,7 @@ neoswga schema --dump > params.schema.json
 | `bl_seq_lengths` | array of integer | - | - | - |
 | `bloom_filter_path` | string or null | - | - | - |
 | `bsa_ug_ml` | number | min: 0.0; max: 400.0 | `0.0` | - |
+| `coverage_reach` | integer | min: 1 | - | Per-primer extension reach in bp used for set-cover selection and reported fg_coverage. Defaults to the polymerase's realistic per-primer reach (phi29 ~3000, equiphi29 ~4000). Coverage figures are not comparable across different reaches; swga 2.0 reports at ~70000. Estimate from sequencing depth with 'neoswga calibrate-reach --bam'. |
 | `cpus` | integer | min: 1; max: 128 | - | - |
 | `dmso_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |
 | `dntp_conc` | number | min: 0.0; max: 10.0 | `0.0` | Total dNTP concentration (mM, sum of all four). Chelates Mg2+ roughly 1:1, lowering free Mg2+. |
@@ -75,6 +76,8 @@ neoswga schema --dump > params.schema.json
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
 | `nh4_conc` | number | min: 0.0; max: 1000.0 | `0.0` | NH4+ concentration (mM). The standard phi29 buffer supplies 20 mM NH4+ as 10 mM (NH4)2SO4. |
 | `num_primers` | integer | min: 1; max: 50 | `6` | - |
+| `occupancy_ranking` | boolean | - | `True` | Rank filter candidates by occupancy-weighted background load rather than exact k-mer counts. Exact counts are 0 for every primer with no perfect background match, which leaves the ranking key undefined for most long primers. |
+| `occupancy_shortlist` | integer | min: 1 | `50000` | How many survivors to re-rank by occupancy. Taken by the exact-count key first, so nothing that key separates is discarded. |
 | `optimization_method` | string | one of: hybrid, dominating-set, network, background-aware, clique, ensemble, auto, all, hybrid-optimizer, two-stage, ds, set-cover, network-optimizer, tm-weighted, clinical, bg-aware, clique-dimer-free, dimer-free | `hybrid` | Optimizer to use. The five canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias. |
 | `peg_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
 | `polymerase` | string | one of: phi29, equiphi29, bst, bst3.0, bsu, klenow | `phi29` | - |

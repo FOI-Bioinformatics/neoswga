@@ -189,6 +189,42 @@ def polymerase_extension_reach(
         return default
 
 
+# Reaches at which coverage is reported alongside the one used for selection.
+#
+# Coverage is meaningless without the reach it was computed at, and the
+# published tools do not agree on one: swga 2.0's `coverage_ratio` uses phi29's
+# ~70 kb single-molecule processivity, while NeoSWGA selects on the ~3 kb
+# realistic per-primer reach. The same primer set scores 0.418 at 3 kb, 0.836 at
+# 10 kb and ~1.0 at 70 kb, so a bare "coverage" number cannot be compared across
+# tools at all. Reporting the curve rather than one point makes the comparison
+# possible without either convention having to be restated.
+REPORTING_REACHES = (3000, 10000, 70000)
+
+
+def resolve_coverage_reach(polymerase, override=None, default=3000):
+    """The reach used for set-cover selection and reported `fg_coverage`.
+
+    `override` is `params.json`'s `coverage_reach` or `--coverage-reach`. It
+    exists because the right value is an empirical property of the reaction --
+    how far a primer's product actually extends before a neighbour's strand
+    displacement truncates it -- and the literature the default rests on
+    reports inter-primer *spacing* chosen by designers, not measured reach.
+    `neoswga calibrate-reach --bam` estimates it from sequencing depth.
+
+    Without an override this returns the polymerase's realistic per-primer
+    reach, unchanged.
+    """
+    if override is not None:
+        if not isinstance(override, (int, float)) or isinstance(override, bool):
+            raise ValueError(
+                f"coverage_reach must be a positive number of base pairs, got {override!r}"
+            )
+        if override <= 0:
+            raise ValueError(f"coverage_reach must be positive, got {override}")
+        return int(override)
+    return polymerase_extension_reach(polymerase, default=default, coverage_metric="realistic")
+
+
 # Benchmark reference points, from the two published set-level datasets with
 # wet-lab outcomes. See docs/validation/published_primer_sets.md.
 #

@@ -134,6 +134,7 @@ COMMAND_GROUPS = [
             "analyze-dimers",
             "analyze-stability",
             "analyze-coverage",
+            "calibrate-reach",
             "evaluate-set",
         ],
     ),
@@ -262,6 +263,7 @@ from neoswga.cli.analysis import (  # noqa: E402,F401
 )
 from neoswga.cli.commands import (  # noqa: E402,F401
     run_analyze_coverage,
+    run_calibrate_reach,
     run_design,
     run_predict_efficiency,
     run_start,
@@ -358,6 +360,7 @@ def main():
         "analyze-dimers": run_analyze_dimers,
         "analyze-stability": run_analyze_stability,
         "analyze-coverage": run_analyze_coverage,
+        "calibrate-reach": run_calibrate_reach,
         "evaluate-set": run_evaluate_set,
         # Category 3: Orphaned pipeline features (now exposed!)
         "multi-genome": run_multi_genome,

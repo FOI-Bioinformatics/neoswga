@@ -783,6 +783,9 @@ def run_step4(args):
             application=getattr(args, "application", "balanced"),
             ensemble_methods=getattr(args, "ensemble_methods", None),
             ensemble_combine=getattr(args, "ensemble_combine", "best"),
+            # Explicit reach for coverage / set-cover selection. None leaves the
+            # polymerase default in place; see coverage.resolve_coverage_reach.
+            coverage_reach=getattr(args, "coverage_reach", None),
         )
 
         if results:
@@ -1635,6 +1638,16 @@ def add_parsers(subparsers):
         type=int,
         default=70000,
         help="Maximum Phi29 extension length in bp (default: 70000)",
+    )
+    opt_perf_group.add_argument(
+        "--coverage-reach",
+        type=int,
+        default=None,
+        help="Per-primer extension reach in bp for coverage and set-cover "
+        "selection (default: the polymerase's realistic reach, phi29 ~3000). "
+        "This is NOT --max-extension, which is the amplification-network "
+        "reach. Coverage figures are not comparable across different reaches; "
+        "estimate this from data with 'neoswga calibrate-reach --bam'.",
     )
 
     # Set Size & Application
