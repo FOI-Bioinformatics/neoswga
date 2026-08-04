@@ -186,6 +186,21 @@ class PrimerSetMetrics:
     # Reporting the curve costs ~1 ms per reach and removes the ambiguity.
     coverage_by_reach: Dict[int, float] = field(default_factory=dict)
 
+    # Coverage at the MEASURED product reach (~10 kb phi29), which is what a
+    # reader should be shown as "the" coverage of a design, and the reach it was
+    # computed at.
+    #
+    # Selection deliberately uses a shorter reach -- the design density that
+    # published successful sets have (2-5 kb spacing) -- because selecting at
+    # 10 kb would stop the greedy once the genome was covered at that reach and
+    # yield designs sparser than any set with measured wet-lab success. But
+    # reporting at the selection reach understates what is amplified, since
+    # strand displacement means a downstream primer does not truncate extension.
+    # Two questions, two numbers, both reported rather than one standing in for
+    # the other.
+    headline_coverage: float = 0.0
+    headline_reach: int = 0
+
     # Per-primer extension reach (bp) used to compute fg_coverage. Recorded
     # so the report can label "95% coverage at 3 kb reach" rather than
     # leaving the granularity ambiguous. Defaults to the Phase 16 realistic
@@ -202,6 +217,9 @@ class PrimerSetMetrics:
             # Keyed by reach in bp. Coverage is not comparable across reaches,
             # and the published tools do not share a convention.
             "coverage_by_reach": {str(k): v for k, v in self.coverage_by_reach.items()},
+            # Coverage at the measured product reach; see headline_reach.
+            "headline_coverage": self.headline_coverage,
+            "headline_reach": self.headline_reach,
             "bg_coverage": self.bg_coverage,
             "coverage_uniformity": self.coverage_uniformity,
             "total_fg_sites": self.total_fg_sites,
@@ -940,6 +958,10 @@ class BaseOptimizer(ABC):
             fg_positions_by_primer, self.fg_total_length
         )
         coverage_by_reach = self._compute_coverage_by_reach(fg_positions, self.fg_total_length)
+        headline_reach = self._product_reach()
+        headline_coverage = coverage_by_reach.get(headline_reach) or self._compute_coverage_at(
+            fg_positions, self.fg_total_length, headline_reach
+        )
         bg_coverage = (
             self._compute_coverage(bg_positions, self.bg_total_length)
             if self.bg_total_length > 0
@@ -998,6 +1020,8 @@ class BaseOptimizer(ABC):
             fg_coverage=fg_coverage,
             effective_fg_coverage=effective_fg_coverage,
             coverage_by_reach=coverage_by_reach,
+            headline_coverage=headline_coverage,
+            headline_reach=headline_reach,
             bg_coverage=bg_coverage,
             coverage_uniformity=gap_gini,
             total_fg_sites=total_fg,
@@ -1058,10 +1082,19 @@ class BaseOptimizer(ABC):
         if not positions or total_length == 0:
             return {}
 
-        reaches = sorted(set(REPORTING_REACHES) | {int(self.config.extension_reach)})
+        reaches = sorted(
+            set(REPORTING_REACHES) | {int(self.config.extension_reach), self._product_reach()}
+        )
         return {
             reach: self._compute_coverage_at(positions, total_length, reach) for reach in reaches
         }
+
+    def _product_reach(self) -> int:
+        """Measured product reach for this run's polymerase; see coverage.product_reach."""
+        from .coverage import product_reach
+
+        polymerase = getattr(self.conditions, "polymerase", None) if self.conditions else None
+        return product_reach(polymerase or "phi29")
 
     def _compute_coverage_at(self, positions, total_length: int, reach: int) -> float:
         """Raw union coverage at an explicit reach."""

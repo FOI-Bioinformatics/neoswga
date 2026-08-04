@@ -68,26 +68,32 @@ from neoswga.core.registry import views as _registry_views
 #     MDA). This is a property of the PRODUCT population after many rounds of
 #     priming + displacement, not of a single primer's reach.
 #
-# (3) Effective per-primer reach in a SWGA design — "how far downstream of
-#     each primer binding site does extension go before a neighbouring
-#     primer's extension displaces it?". Clarke et al. (2017) Bioinformatics
-#     (the swga toolkit) post-hoc filtered their M. tuberculosis candidate
-#     sets to mean inter-primer-site spacing <5 kb ("we ... selected only
-#     those sets whose mean distance between binding sites on the M.
+# (3) Inter-primer site SPACING in published designs: ~2-5 kb. Clarke et al.
+#     (2017) Bioinformatics (the swga toolkit) post-hoc filtered their M.
+#     tuberculosis candidate sets to mean spacing <5 kb ("we ... selected
+#     only those sets whose mean distance between binding sites on the M.
 #     tuberculosis genome was <5 kb"); Dwivedi-Yu et al. (2023) PLOS
-#     Comput Biol 19:e1010137 report SWGA primer sets on Prevotella
-#     melaninogenica with site densities of 1/2.0, 1/4.1, 1/4.9 kbp
-#     (successful) and 1/2.8, 1/5.0, 1/7.4 kbp (unsuccessful), placing
-#     practical SWGA designs in the 1/2-10 kbp density range. In dense
-#     SWGA the extension before displacement is bounded by this inter-
-#     site spacing: ~2-5 kb. THIS is the right number for the
-#     `fg_coverage` metric, which asks "what fraction of the target genome
-#     is within effective amplification reach of any primer in the set?".
+#     Comput Biol 19:e1010137 report Prevotella sets at densities of
+#     1/2.0, 1/4.1, 1/4.9 kbp (successful) and 1/2.8, 1/5.0, 1/7.4 kbp
+#     (unsuccessful).
 #
-# `typical_amplicon_length` below stores (3) — the per-primer effective
-# reach in a typical SWGA design. It is NOT the gel fragment size (that
-# is number (2), ~10 kb for phi29 MDA). Cite Clarke et al. (2017) and
-# Dwivedi-Yu et al. (2023), not Dean et al. (2002), for this field.
+#     These are DESIGN CHOICES about how densely to place primers, not
+#     measurements of how far extension goes. Earlier text here claimed
+#     "extension before displacement is bounded by this inter-site
+#     spacing", which inverts the mechanism: strand displacement is what
+#     lets phi29 continue THROUGH a downstream duplex rather than what
+#     stops it, so a downstream primer does not truncate extension -- it
+#     gets displaced. Product length is set by processivity and enzyme
+#     dissociation, i.e. by (1) and (2), not by (3).
+#
+# `typical_amplicon_length` below stores (3), and is therefore a
+# conservative SELECTION reach rather than a physical one. Selecting at a
+# shorter reach than the true one is defensible -- amplification bias grows
+# with distance from the primer, so denser designs amplify more evenly --
+# but it should be understood as conservatism, not as the reach. The
+# best-evidenced physical reach is (2), ~10 kb. Override per run with
+# `coverage_reach` / `--coverage-reach`, or fit it from sequencing depth
+# with `neoswga calibrate-reach --bam`.
 # ---------------------------------------------------------------------------
 
 # The table itself now lives in neoswga/core/registry/polymerases.py, which is the
@@ -127,30 +133,45 @@ def get_polymerase_processivity(polymerase: str) -> int:
 
 def get_typical_amplicon_length(polymerase: str) -> int:
     """
-    Get the effective per-primer reach for a polymerase in a dense SWGA
-    design — i.e. how far downstream of a primer binding site extension
-    proceeds on average before a neighbouring primer's extension truncates
-    it via strand displacement.
+    A deliberately conservative per-primer reach used for coverage and
+    set-cover selection. **It is a design-density target, not a measured
+    extension length**, and the distinction was previously blurred here.
 
-    This is NOT the gel fragment size of the amplified product (unselective
-    phi29 MDA gel bands peak near 10 kb per Dean et al. 2002 PNAS 99:5261
-    and Picher et al. 2016 Nat Commun 7:13296). It is NOT single-event
-    processivity (phi29 ~70 kb per Blanco et al. 1989). It is the reach
-    that matters for "what fraction of the target genome is within
-    amplification distance of the selected primer set?".
+    The earlier justification for this value said extension proceeds until
+    "a neighbouring primer's extension truncates it via strand
+    displacement". That inverts the mechanism. Strand displacement is what
+    lets phi29 continue *through* a downstream duplex -- it displaces the
+    nascent strand and keeps synthesising, which is the defining property
+    of MDA and the reason it yields long, hyperbranched product. A
+    downstream primer does not truncate a strand-displacing polymerase; it
+    gets displaced. Extension length is set by processivity and enzyme
+    dissociation, not by neighbour spacing.
 
-    Literature basis:
-    - Clarke et al. (2017) Bioinformatics 33:2071-2077 — the swga toolkit
-      paper filters their M. tuberculosis candidate primer sets to mean
-      inter-primer-site spacing <5 kb (post-hoc selection, not a toolkit
-      default); in that regime per-primer reach is spacing-bounded.
-    - Dwivedi-Yu et al. (2023) PLOS Comput Biol 19:e1010137 — published
-      Prevotella SWGA sets with site densities of 1 per 2.0, 4.1, 4.9
-      kbp (successful) and 1 per 2.8, 5.0, 7.4 kbp (unsuccessful),
-      placing practical SWGA designs in the 1/2-10 kbp range and
-      giving mean per-primer reach of 2-5 kb for successful sets.
+    What the literature actually measures, kept separate here:
 
-    Use this value for `fg_coverage` and `per_target_coverage`. Keep using
+    - **Product length ~10 kb.** Unselective phi29 MDA gel bands peak near
+      10 kb (Dean et al. 2002 PNAS 99:5261; Picher et al. 2016 Nat Commun
+      7:13296). This is the best-evidenced estimate of how far a primer's
+      product actually reaches.
+    - **Single-event processivity ~70 kb** (Blanco et al. 1989). What one
+      molecule *can* do, not what a typical product is. swga 2.0 uses this
+      as its coverage reach, which overstates coverage.
+    - **Inter-primer spacing 2-5 kb.** Clarke et al. (2017) Bioinformatics
+      33:2071 filter candidate sets to mean spacing <5 kb; Dwivedi-Yu et al.
+      (2023) PLOS Comput Biol 19:e1010137 report successful Prevotella sets
+      at 1 site per 2.0/4.1/4.9 kbp and unsuccessful ones at 1 per
+      2.8/5.0/7.4 kbp. **These are spacings designers chose, not reaches
+      anyone observed**, and they are where this function's value comes
+      from.
+
+    Selecting at a reach shorter than the physical one is defensible --
+    amplification bias grows with distance from the primer, so a denser
+    design amplifies more evenly -- but that is a deliberate conservatism
+    and is labelled as one here rather than presented as the reach.
+
+    Override with `coverage_reach` / `--coverage-reach`, or estimate the
+    reach for an actual reaction from sequencing depth with
+    `neoswga calibrate-reach --bam`. Keep using
     :func:`get_polymerase_processivity` for amplicon-network graph
     reachability, where the question is "could primer A and B connect via
     one extension event in principle?".
@@ -159,7 +180,8 @@ def get_typical_amplicon_length(polymerase: str) -> int:
         polymerase: Polymerase name ('phi29', 'equiphi29', 'bst', 'klenow')
 
     Returns:
-        Effective per-primer reach in base pairs (±1 kb uncertainty).
+        Conservative per-primer selection reach in base pairs. Measured
+        product length is roughly 3x this; see above.
 
     Example:
         >>> get_typical_amplicon_length('phi29')

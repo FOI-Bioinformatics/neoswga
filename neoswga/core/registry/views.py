@@ -35,6 +35,7 @@ def as_characteristics() -> Dict[str, dict]:
             "optimal_temp": spec.optimal_temp,
             "processivity": spec.processivity_bp,
             "typical_amplicon_length": spec.typical_amplicon_bp,
+            "product_length": spec.product_length_bp or spec.typical_amplicon_bp,
             "strand_displacement": spec.strand_displacement,
             "exonuclease": spec.exonuclease,
             "error_rate": spec.error_rate,

@@ -201,6 +201,35 @@ def polymerase_extension_reach(
 REPORTING_REACHES = (3000, 10000, 70000)
 
 
+def product_reach(polymerase, default=10000):
+    """Measured MDA product length -- the reach headline coverage is reported at.
+
+    Distinct from the *selection* reach (`resolve_coverage_reach`), and the two
+    are deliberately different because they answer different questions.
+
+    Selection uses the design density that published successful sets have (2-5
+    kb inter-primer spacing; Clarke 2017, Dwivedi-Yu 2023). Selecting at the
+    physical reach instead would stop the greedy once the genome was covered at
+    ~10 kb, producing designs sparser than any set with measured wet-lab
+    success.
+
+    Reporting uses what is actually amplified: unselective phi29 MDA product
+    peaks near 10 kb (Dean et al. 2002 PNAS 99:5261; Picher et al. 2016 Nat
+    Commun 7:13296). Reporting at the selection reach would understate coverage,
+    since strand displacement means a downstream primer does not truncate
+    extension -- it gets displaced -- so spacing does not bound product length.
+    """
+    try:
+        from .registry import views as _views
+
+        entry = _views.as_characteristics().get(str(polymerase).lower())
+        if entry:
+            return int(entry.get("product_length") or entry["typical_amplicon_length"])
+    except Exception:  # pragma: no cover - registry always present in practice
+        pass
+    return default
+
+
 def resolve_coverage_reach(polymerase, override=None, default=3000):
     """The reach used for set-cover selection and reported `fg_coverage`.
 

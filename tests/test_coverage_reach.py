@@ -23,8 +23,17 @@ chosen at another. Two changes follow:
 - coverage is reported at several reaches, so a NeoSWGA figure can be placed
   beside a published one without either convention having to move.
 
-The default is unchanged. Nothing here shifts a result unless a reach is asked
-for.
+Selection and reporting then split, because they are different questions.
+Selection keeps the design density published successful sets have (2-5 kb
+spacing) -- selecting at the physical reach would stop the greedy once the
+genome was covered at ~10 kb and yield designs sparser than any set with
+measured wet-lab success. Reporting uses the measured MDA product length
+(~10 kb; Dean 2002, Picher 2016), because reporting at the selection reach
+understates what is amplified: strand displacement means a downstream primer
+does not truncate extension, it gets displaced, so spacing does not bound
+product length.
+
+Which designs get selected is unchanged. What gets reported about them is not.
 """
 
 import numpy as np
@@ -177,3 +186,65 @@ def test_one_implementation_of_union_coverage(world):
     assert opt._compute_coverage(positions, GENOME) == pytest.approx(
         opt._compute_coverage_at(positions, GENOME, 7000)
     )
+
+
+# ----------------------------------------------------------------------
+# Selection reach and headline reach are different questions
+# ----------------------------------------------------------------------
+
+
+def test_headline_coverage_uses_the_measured_product_reach(world):
+    """Selection and reporting answer different questions and get different
+    numbers.
+
+    Selection uses the design density published successful sets have (2-5 kb
+    inter-primer spacing; Clarke 2017, Dwivedi-Yu 2023 successful Prevotella
+    sets at 2.0/4.1/4.9 kb). Selecting at the physical reach would stop the
+    greedy once the genome was covered at ~10 kb, yielding designs sparser than
+    any set with measured wet-lab success.
+
+    Reporting uses what is actually amplified: unselective phi29 MDA product
+    peaks near 10 kb (Dean 2002, Picher 2016). Reporting at the selection reach
+    understates it, because strand displacement means a downstream primer does
+    not truncate extension -- it gets displaced -- so spacing does not bound
+    product length.
+    """
+    m = metrics_at(world, 3000)
+
+    assert m.headline_reach == 10000
+    assert m.extension_reach == 3000
+    assert m.headline_coverage > m.fg_coverage
+    assert m.headline_coverage == pytest.approx(m.coverage_by_reach[10000])
+
+
+def test_the_headline_reach_is_on_the_reported_curve(world):
+    """A headline figure computed at a reach absent from the curve would read
+    as coming from nowhere."""
+    m = metrics_at(world, 4000)
+
+    assert m.headline_reach in m.coverage_by_reach
+
+
+def test_selection_reach_is_not_moved_by_the_headline(world):
+    """The whole point of separating them: reporting at 10 kb must not quietly
+    make the optimizer select at 10 kb, which would produce sparser designs."""
+    from neoswga.core.coverage import resolve_coverage_reach
+
+    for polymerase in ("phi29", "equiphi29"):
+        assert resolve_coverage_reach(polymerase) < 10000
+
+
+def test_product_reach_falls_back_rather_than_inventing_a_number():
+    """Only phi29 and equiphi29 have MDA product measurements. For an enzyme
+    without one, headline and selection coverage coincide -- which is honest
+    about the missing datum rather than scaling something plausible."""
+    from neoswga.core.coverage import product_reach, resolve_coverage_reach
+
+    assert product_reach("klenow") == resolve_coverage_reach("klenow")
+    assert product_reach("phi29") == 10000
+
+
+def test_an_unknown_polymerase_does_not_raise():
+    from neoswga.core.coverage import product_reach
+
+    assert product_reach("not-a-polymerase") > 0

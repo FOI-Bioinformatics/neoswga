@@ -62,10 +62,29 @@ class PolymeraseSpec:
     temp_warn_range: Tuple[float, float]
 
     # -- Reach -------------------------------------------------------------
+    # Three distinct quantities, ordered smallest to largest. Conflating them
+    # is the single most consequential modelling error available here: the same
+    # primer set scores 0.42 / 0.84 / ~1.0 coverage at 3 / 10 / 70 kb.
+    #
+    # typical_amplicon_bp: the DESIGN DENSITY published successful sets have
+    #   (2-5 kb inter-primer spacing). Used as the set-cover selection reach,
+    #   because designs at this density are the ones with measured wet-lab
+    #   success -- Dwivedi-Yu (2023) successful Prevotella sets sit at 2.0/4.1/
+    #   4.9 kb. It is NOT a measured extension length, despite the name.
+    # product_length_bp: MEASURED MDA product length (~10 kb for phi29; Dean
+    #   et al. 2002 PNAS 99:5261, Picher et al. 2016 Nat Commun 7:13296). The
+    #   best-evidenced answer to "how far does a primer's product reach", and
+    #   therefore what headline coverage is reported at.
     # processivity_bp: single-molecule maximum, used for amplification-network
-    #   reachability.
-    # typical_amplicon_bp: realistic per-primer reach in a dense SWGA design,
-    #   used for fg_coverage scoring. This is the smaller, coverage-relevant one.
+    #   reachability ("could A and B connect via one extension event?").
+    #
+    # Why selection uses the smallest and reporting the middle one: they answer
+    # different questions. Selecting at 10 kb would stop the greedy once the
+    # genome is covered at that reach, yielding ~10 kb spacing -- sparser than
+    # any published successful set. Reporting at 3 kb understates what is
+    # actually amplified. Strand displacement means a downstream primer does
+    # not truncate extension (it gets displaced), so spacing does not bound
+    # product length and the two must not be derived from each other.
     processivity_bp: int
     typical_amplicon_bp: int
     extension_rate_nt_s: float
@@ -96,6 +115,13 @@ class PolymeraseSpec:
     thermo_filter: bool
     primer_multiplier: float
 
+    # Measured MDA product length; see the Reach block above. 0 means "no
+    # measurement exists for this enzyme", and the accessor then falls back to
+    # the selection reach, so headline and selection coverage coincide rather
+    # than a number being invented for it. Declared here rather than beside the
+    # other reach fields only because it carries a default.
+    product_length_bp: int = 0
+
     # A distributive enzyme dissociates after a short run and re-binds, so its
     # effective reach over a long incubation exceeds its single-event
     # processivity. For those, typical_amplicon_bp > processivity_bp is correct
@@ -125,6 +151,9 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         temp_warn_range=(20.0, 40.0),
         processivity_bp=70000,
         typical_amplicon_bp=3000,
+        # Dean et al. 2002 PNAS 99:5261 and Picher et al. 2016 Nat Commun
+        # 7:13296: unselective phi29 MDA product peaks near 10 kb.
+        product_length_bp=10000,
         # Blanco et al. (1989) -- the same paper cited for the 70 kb
         # processivity -- reports ~53 nt/s; single-molecule work agrees at
         # ~50 nt/s. The previous 150 nt/s compressed every simulated timing ~3x.
@@ -156,6 +185,9 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         temp_warn_range=(40.0, 47.0),
         processivity_bp=80000,
         typical_amplicon_bp=4000,
+        # No separate measurement for equiphi29; inherits phi29's measured
+        # product length rather than being invented from its processivity.
+        product_length_bp=10000,
         extension_rate_nt_s=200,
         processivity_step=0.99875,
         strand_displacement=True,
@@ -185,6 +217,8 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         temp_warn_range=(55.0, 70.0),
         processivity_bp=2000,
         typical_amplicon_bp=1000,
+        # Not an MDA enzyme; product length is bounded by processivity.
+        product_length_bp=2000,
         extension_rate_nt_s=100,
         processivity_step=0.9512,
         strand_displacement=True,
@@ -317,6 +351,12 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
         # processivity plus moderate strand displacement is exactly why Klenow
         # cannot carry a sparse primer set.
         typical_amplicon_bp=500,
+        # Distributive: the enzyme re-binds and continues, so product length is
+        # not bounded by the 40 nt single-event processivity. No MDA product
+        # measurement exists for Klenow, so this equals the selection reach
+        # rather than being invented -- headline and selection coverage
+        # coincide for this enzyme, which is honest about the missing datum.
+        product_length_bp=500,
         distributive=True,
         extension_rate_nt_s=50,
         processivity_step=0.99005,
