@@ -405,3 +405,113 @@ def test_the_two_models_disagree_in_direction_where_both_have_data():
         exact_fg / exact_bg > 2.0
     ), f"count model should look favourable; got {exact_fg}/{exact_bg}"
     assert occupancy < 1.0, f"occupancy should disagree; got {occupancy:.3f}"
+
+
+# ----------------------------------------------------------------------
+# Why the platform is equiphi29 and not phi29
+# ----------------------------------------------------------------------
+
+
+@needs_12mers
+def test_additives_do_nothing_at_phi29_temperature_and_work_at_equiphi29():
+    """The project's premise, isolated to one variable.
+
+    Additives buy discrimination by pushing duplexes off their melting
+    transition, so they can only act where a duplex is near it. At 30 C a
+    12-mer melting near 42 C is far below its Tm: perfect and mismatched sites
+    are both saturated, the occupancy terms cancel in the ratio, and lowering Tm
+    by a few degrees moves neither. At 42 C the same duplex sits on the steep
+    part of the curve and the same additive separates them.
+
+    One primer set, both platforms, 5% DMSO + 1 M betaine:
+
+        phi29 30 C       selectivity 1.82 -> 1.84   (1.01x), coverage unchanged
+        equiphi29 42 C   selectivity 2.35 -> 3.54   (1.51x), coverage -9%
+
+    So the additive lever is a property of operating near Tm rather than of the
+    additive, and phi29's temperature puts it out of reach. That is the
+    argument for equiphi29 as the platform for additive-based specificity, and
+    it is measurable rather than assumed.
+
+    The coverage column matters too: at 30 C the additive costs nothing because
+    nothing was near its transition to lose, which is the same fact seen from
+    the other side.
+    """
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.dominating_set_adapter import DominatingSetAdapter
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    primers = PIPELINE_SETS[12]
+    cache = PositionCache([str(FG_PREFIX), str(BG_PREFIX)], primers)
+
+    def measure(**kw):
+        return DominatingSetAdapter(
+            position_cache=cache,
+            fg_prefixes=[str(FG_PREFIX)],
+            fg_seq_lengths=[3168282],
+            bg_prefixes=[str(BG_PREFIX)],
+            bg_seq_lengths=[46709983],
+            config=OptimizerConfig(target_set_size=len(primers)),
+            conditions=ReactionConditions(**kw),
+        ).compute_metrics(primers)
+
+    additive = dict(dmso_percent=5.0, betaine_m=1.0)
+    cold = measure(temp=30.0, polymerase="phi29")
+    cold_add = measure(temp=30.0, polymerase="phi29", **additive)
+    warm = measure(temp=42.0, polymerase="equiphi29")
+    warm_add = measure(temp=42.0, polymerase="equiphi29", **additive)
+
+    cold_gain = cold_add.selectivity_ratio / cold.selectivity_ratio
+    warm_gain = warm_add.selectivity_ratio / warm.selectivity_ratio
+
+    assert cold_gain < 1.05, f"additives moved phi29 at 30 C by {cold_gain:.2f}x"
+    assert warm_gain > 1.3, f"additives moved equiphi29 at 42 C by only {warm_gain:.2f}x"
+    assert warm_gain > cold_gain * 1.25
+
+
+@needs_12mers
+def test_the_additive_costs_coverage_only_where_it_buys_specificity():
+    """The other half of the same fact, and the reason the coverage term had to
+    become occupancy-weighted before this was visible at all.
+
+    Where an additive does nothing for specificity it also costs no coverage --
+    there was nothing near its transition either way. A count-based coverage
+    reports zero cost in both cases and so cannot tell the two apart.
+    """
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.dominating_set_adapter import DominatingSetAdapter
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    primers = PIPELINE_SETS[12]
+    cache = PositionCache([str(FG_PREFIX)], primers)
+
+    def measure(**kw):
+        return DominatingSetAdapter(
+            position_cache=cache,
+            fg_prefixes=[str(FG_PREFIX)],
+            fg_seq_lengths=[3168282],
+            bg_prefixes=[],
+            bg_seq_lengths=[],
+            config=OptimizerConfig(target_set_size=len(primers)),
+            conditions=ReactionConditions(**kw),
+        ).compute_metrics(primers)
+
+    additive = dict(dmso_percent=5.0, betaine_m=1.0)
+    cold, cold_add = measure(temp=30.0, polymerase="phi29"), measure(
+        temp=30.0, polymerase="phi29", **additive
+    )
+    warm, warm_add = measure(temp=42.0, polymerase="equiphi29"), measure(
+        temp=42.0, polymerase="equiphi29", **additive
+    )
+
+    # Raw coverage is blind to all of this and must stay put, which is the
+    # control that says the effect below is occupancy and not site selection.
+    assert cold.fg_coverage == warm.fg_coverage == warm_add.fg_coverage
+
+    cold_cost = 1.0 - cold_add.effective_fg_coverage / cold.effective_fg_coverage
+    warm_cost = 1.0 - warm_add.effective_fg_coverage / warm.effective_fg_coverage
+
+    assert cold_cost < 0.02, f"phi29 at 30 C lost {cold_cost:.1%} coverage to the additive"
+    assert warm_cost > cold_cost
