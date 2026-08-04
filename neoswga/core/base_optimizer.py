@@ -707,6 +707,9 @@ class BaseOptimizer(ABC):
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
         conditions=None,
+        background_profile=None,
+        background_profile_lengths=None,
+        background_aggregate: str = "worst-case",
         **_unused_kwargs,
     ):
         """
@@ -736,6 +739,16 @@ class BaseOptimizer(ABC):
         # use additive-aware Tm (network / integrated_quality_scorer) can read
         # self.conditions; others simply leave it as attached metadata.
         self.conditions = conditions
+
+        # Compositional background, used only when there are no background
+        # prefixes. A `HostProfile` (or a panel of them) supplies expected
+        # k-mer counts so metagenomic and unknown-host designs still have a
+        # selectivity term; see `_modelled_site_load`. Held as plain attributes
+        # rather than threaded through every subclass constructor, since only
+        # the metrics path reads them.
+        self.background_profile = background_profile
+        self.background_profile_lengths = background_profile_lengths
+        self.background_aggregate = background_aggregate
 
         # Computed properties
         self.fg_total_length = sum(fg_seq_lengths)
@@ -904,10 +917,14 @@ class BaseOptimizer(ABC):
         from neoswga.core.occupancy import weighted_site_load
 
         conditions = getattr(self, "conditions", None)
-        if conditions is None or not self.bg_prefixes:
+        if conditions is None:
             return 0.0, 0.0, "exact"
 
         max_mismatches = int(getattr(self.config, "max_mismatches", 1) or 0)
+
+        if not self.bg_prefixes:
+            return self._modelled_site_load(primers, conditions, max_mismatches)
+
         try:
             fg_load = weighted_site_load(primers, self.fg_prefixes, conditions, max_mismatches)
             bg_load = weighted_site_load(primers, self.bg_prefixes, conditions, max_mismatches)
@@ -915,6 +932,51 @@ class BaseOptimizer(ABC):
             return 0.0, 0.0, "exact"
 
         return fg_load, bg_load, "occupancy"
+
+    def _modelled_site_load(self, primers, conditions, max_mismatches):
+        """Background load from a compositional profile, when there is no genome.
+
+        Metagenomic SWGA has no host to design against, and dropping the
+        background makes every design report `MAX_SELECTIVITY` -- specificity
+        switched off rather than absent. A Markov profile of the expected
+        background supplies the missing term: expected k-mer counts follow from
+        a transition table rather than from a genome, and feed the same
+        occupancy weighting, so a modelled background is the same quantity as a
+        real one measured a different way.
+
+        Predicting real chr21 occupancy load for random 12-mers, the profile
+        reaches rho 0.888 fitted to the actual host and 0.701 fitted to an
+        unrelated organism -- so even a generic profile ranks background load
+        far better than the nothing it replaces.
+
+        Reports mode "modelled" rather than "occupancy", because a predicted
+        background must not be mistaken for a measured one.
+        """
+        profile = getattr(self, "background_profile", None)
+        if profile is None:
+            return 0.0, 0.0, "exact"
+
+        from neoswga.core.host_profile import aggregate_loads, expected_site_load
+        from neoswga.core.occupancy import weighted_site_load
+
+        try:
+            fg_load = weighted_site_load(primers, self.fg_prefixes, conditions, max_mismatches)
+        except (FileNotFoundError, OSError):
+            return 0.0, 0.0, "exact"
+
+        # A panel of candidate hosts is aggregated worst-case by default: one
+        # unknown host is drawn from it, so a set that is clean against one and
+        # filthy against another is not generic, and a mean would hide that.
+        profiles = profile if isinstance(profile, (list, tuple)) else [profile]
+        lengths = getattr(self, "background_profile_lengths", None) or [
+            getattr(p, "fitted_length", 0) or 3_000_000_000 for p in profiles
+        ]
+        mode = getattr(self, "background_aggregate", "worst-case")
+        loads = [
+            expected_site_load(primers, prof, length, conditions, max_mismatches)
+            for prof, length in zip(profiles, lengths)
+        ]
+        return fg_load, aggregate_loads(loads, mode), "modelled"
 
     def compute_metrics(
         self,

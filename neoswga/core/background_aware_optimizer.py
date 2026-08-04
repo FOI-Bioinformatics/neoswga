@@ -660,6 +660,10 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             bg_seq_lengths,
             config,
             conditions=conditions,
+            # Forward the rest so background_profile / aggregate reach
+            # BaseOptimizer. Dropping **kwargs here made a compositional
+            # background silently inert on every optimizer.
+            **kwargs,
         )
 
         # Delegate to HybridOptimizer with background pruning enabled

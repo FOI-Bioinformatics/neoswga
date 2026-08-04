@@ -250,6 +250,10 @@ class CliqueOptimizer(BaseOptimizer):
             bg_seq_lengths,
             config or CliqueOptimizerConfig(),
             conditions=conditions,
+            # Forward the rest so background_profile / aggregate reach
+            # BaseOptimizer. Dropping **kwargs here made a compositional
+            # background silently inert on every optimizer.
+            **kwargs,
         )
         # Extract clique-specific config
         if isinstance(config, CliqueOptimizerConfig):

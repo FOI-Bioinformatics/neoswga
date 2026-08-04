@@ -1293,6 +1293,10 @@ class NetworkBaseOptimizer(BaseOptimizer):
             bg_seq_lengths,
             config,
             conditions=conditions,
+            # Forward the rest so background_profile / aggregate reach
+            # BaseOptimizer. Dropping **kwargs here made a compositional
+            # background silently inert on every optimizer.
+            **kwargs,
         )
         self._network = NetworkOptimizer(
             position_cache=position_cache,
