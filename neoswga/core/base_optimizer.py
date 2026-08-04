@@ -263,8 +263,23 @@ class PrimerSetMetrics:
                 dimer_w = weights["dimer_w"]
                 evenness_w = weights["evenness_w"]
                 tm_w = weights["tm_w"]
-        # Coverage: already [0,1]
+        # Coverage: already [0,1].
+        #
+        # Prefer the occupancy-weighted figure when conditions were available to
+        # compute it. Selecting on the raw count rewards a set for reaching
+        # sites it does not occupy at the reaction temperature, and the bias is
+        # not uniform across candidates -- on Prevotella at equiphi29 42 C a
+        # 10-mer set reports 0.520 raw against 0.245 effective while a 12-mer
+        # set reports 0.403 against 0.387, so the two figures rank them in
+        # opposite orders. Optimizing the raw one also hides the coverage that
+        # additives cost, which is the lever this tool exists to use.
+        #
+        # Falls back to the raw figure when no conditions are attached, matching
+        # how `selectivity_mode` degrades: 0.0 means "not computed" here, not
+        # "nothing is covered".
         cov = min(self.fg_coverage, 1.0)
+        if self.effective_fg_coverage > 0.0:
+            cov = min(self.effective_fg_coverage, 1.0)
 
         # Selectivity, on a log scale.
         #

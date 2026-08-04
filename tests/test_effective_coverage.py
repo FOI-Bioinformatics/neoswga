@@ -200,3 +200,45 @@ def test_it_is_serialized_beside_the_raw_figure(world):
 
     assert "effective_fg_coverage" in payload
     assert "fg_coverage" in payload
+
+
+# ----------------------------------------------------------------------
+# It is what selection optimizes
+# ----------------------------------------------------------------------
+
+
+def test_the_score_moves_with_effective_coverage_not_raw(world):
+    """Wiring, checked at the boundary that matters.
+
+    Raw coverage cannot respond to conditions at all, so if `normalized_score`
+    were still reading it, two designs differing only in reaction temperature
+    would score identically on the coverage term and a condition search would
+    see the specificity gain with none of the coverage it costs.
+    """
+    only_coverage = dict(coverage_w=1.0, selectivity_w=0.0, dimer_w=0.0, evenness_w=0.0, tm_w=0.0)
+    cool = build(world, [world["stable"], world["weak"]], temp=38.0)
+    hot = build(world, [world["stable"], world["weak"]], temp=48.0)
+
+    assert cool.fg_coverage == hot.fg_coverage
+    assert cool.normalized_score(**only_coverage) > hot.normalized_score(**only_coverage)
+
+
+def test_the_score_falls_back_to_raw_coverage_without_conditions(world):
+    """0.0 means "not computed", not "nothing is covered". Treating the
+    sentinel as a measurement would score every conditionless run at zero
+    coverage and invert its ranking."""
+    cache = PositionCache([world["prefix"]], [world["stable"]])
+    metrics = DominatingSetAdapter(
+        position_cache=cache,
+        fg_prefixes=[world["prefix"]],
+        fg_seq_lengths=[GENOME],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=1, extension_reach=1000),
+        conditions=None,
+    ).compute_metrics([world["stable"]])
+
+    score = metrics.normalized_score(
+        coverage_w=1.0, selectivity_w=0.0, dimer_w=0.0, evenness_w=0.0, tm_w=0.0
+    )
+    assert score == pytest.approx(min(metrics.fg_coverage, 1.0))
