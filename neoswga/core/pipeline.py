@@ -659,8 +659,152 @@ def _rank_and_cut_candidates(gini_df, max_primer):
     costs nothing. The Gini filter has already run at this point, so primers
     whose sites are clustered in a repeat are gone and the abundance that
     remains is spread across the genome.
+
+    Breaking the tie on abundance recovers coverage but says nothing about
+    specificity, because `ratio` is still measured with exact counts. See
+    `_occupancy_ratio_column`, which measures the same quantity in a way that
+    discriminates.
     """
+    ranked = _rank_by_occupancy(gini_df, max_primer)
+    if ranked is not None:
+        return ranked
     return gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[:max_primer]
+
+
+# How many survivors to re-rank by occupancy. Ranking costs ~0.14 ms per primer
+# (measured, k=12, one foreground and one background prefix), so the full
+# 369,431-survivor set would add ~50 s to a filter step that takes ~2 min. The
+# shortlist is taken by the exact-count key first, so nothing that key can
+# already separate is discarded by it.
+DEFAULT_OCCUPANCY_SHORTLIST = 50_000
+
+
+def _rank_by_occupancy(gini_df, max_primer):
+    """Rank by occupancy-weighted background load per unit of foreground binding.
+
+    This is the *same* key as `ratio` -- background load per unit of foreground
+    binding, ascending -- measured against sites that are actually bound rather
+    than against exact matches only. It is a better measurement of the quantity
+    the original design chose, not a different objective.
+
+    Exact `bg_count` is 0 for every primer long enough to have no perfect
+    background match, which against a distant background is nearly all of them:
+    at k=12 on Prevotella vs human chr21, all 369,431 survivors scored exactly
+    0.0 and the key ordered nothing. The same candidates differ 664-fold in
+    occupancy-weighted background load (0.54 to 358.68) and 200-fold in
+    occupancy fg/bg ratio (0.057 to 11.6), all of it invisible to a count.
+
+    That signal is what separates a specific primer from an indiscriminate one,
+    and discarding it capped the design: a coverage-greedy over the
+    abundance-ranked pool reaches 0.975 coverage at 10 kb reach but selectivity
+    1.06, while the same greedy over an occupancy-clean pool holds 2.28.
+
+    Returns None when the ranking cannot be computed -- no reaction conditions,
+    no background, or missing jellyfish count files -- so the caller falls back
+    to the exact-count key deliberately rather than receiving a quietly
+    different number.
+    """
+    if "ratio" not in gini_df.columns or gini_df.empty:
+        return None
+    if getattr(parameter, "occupancy_ranking", True) is False:
+        logger.info("Occupancy ranking disabled; ranking candidates on exact counts.")
+        return None
+
+    conditions, bg_prefixes = _occupancy_ranking_inputs()
+    if conditions is None or not bg_prefixes:
+        return None
+
+    # Shortlist by the exact-count key first. Where that key discriminates --
+    # small backgrounds, short primers -- it is a real signal and leads; the
+    # occupancy pass then orders what it leaves tied.
+    shortlist_size = _configured_positive_int("occupancy_shortlist", DEFAULT_OCCUPANCY_SHORTLIST)
+    shortlist = gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[
+        : max(shortlist_size, max_primer)
+    ].copy()
+
+    fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
+    if not fg_prefixes:
+        return None
+
+    try:
+        occupancy_ratio = _occupancy_ratio_column(
+            [str(p).upper() for p in shortlist["primer"]],
+            fg_prefixes,
+            list(bg_prefixes),
+            conditions,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        logger.info(
+            f"Occupancy ranking unavailable ({exc}); ranking candidates on exact "
+            f"counts. Primers with no exact background match will be ordered by "
+            f"foreground abundance alone."
+        )
+        return None
+
+    shortlist["occupancy_ratio"] = occupancy_ratio
+    logger.info(
+        f"Ranked {len(shortlist):,} candidates by occupancy-weighted background "
+        f"load (median {shortlist['occupancy_ratio'].median():.3g}, "
+        f"best {shortlist['occupancy_ratio'].min():.3g})"
+    )
+    return shortlist.sort_values(by=["occupancy_ratio", "fg_count"], ascending=[True, False])[
+        :max_primer
+    ]
+
+
+def _occupancy_ranking_inputs():
+    """Reaction conditions and background prefixes, or (None, None).
+
+    Built here rather than threaded through `step2` because the filter's other
+    thermodynamic gates already read the same globals, and a second source of
+    reaction conditions in one step is how the two come to disagree.
+    """
+    bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
+    if not bg_prefixes:
+        return None, None
+    try:
+        from .reaction_conditions import build_reaction_conditions
+
+        return build_reaction_conditions(parameter), bg_prefixes
+    except (ImportError, ValueError, TypeError) as exc:
+        logger.debug(f"Could not build reaction conditions for occupancy ranking: {exc}")
+        return None, None
+
+
+def _occupancy_ratio_column(primers, fg_prefixes, bg_prefixes, conditions):
+    """Per-primer occupancy-weighted bg/fg load, ascending-is-better.
+
+    Mirrors `ratio` = bg_count / fg_count so the two keys agree in direction and
+    a reader comparing them is not comparing an ascending key with a descending
+    one. A primer that binds nothing in the foreground is worst, matching the
+    `float("inf")` the exact-count path assigns it.
+    """
+    from .occupancy import weighted_site_load
+
+    max_mismatches = _configured_positive_int("max_mismatches", 1)
+    ratios = []
+    for primer in primers:
+        fg_load = weighted_site_load([primer], fg_prefixes, conditions, max_mismatches)
+        if fg_load <= 0:
+            ratios.append(float("inf"))
+            continue
+        bg_load = weighted_site_load([primer], bg_prefixes, conditions, max_mismatches)
+        ratios.append(bg_load / fg_load)
+    return ratios
+
+
+def _configured_positive_int(name, default):
+    """Read a positive integer from the parameter module, ignoring nonsense.
+
+    Type-checked rather than truthiness-checked: several test modules replace
+    `pipeline.parameter` with a MagicMock, whose every attribute is a truthy
+    stub with `int(...) == 1`. A `getattr(...) or default` would silently
+    reconfigure the ranking to a one-primer shortlist.
+    """
+    value = getattr(parameter, name, None)
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return default
 
 
 def step2(all_primers=None, validate_prerequisites=True):
