@@ -18,6 +18,11 @@ from neoswga.cli._common import (
     setup_gpu_acceleration,
     validate_params_json_file,
 )
+from neoswga.cli._params_preread import (
+    apply_polymerase_choice,
+    polymerase_from_params,
+    target_size_from_params,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -230,8 +235,9 @@ def run_step2(args):
             ],
         )
 
-        # Polymerase
-        merge_args_to_parameter(args, parameter, ["polymerase"])
+        # Polymerase. A preset names one too, and both have to re-derive what
+        # the enzyme decides; see apply_polymerase_choice.
+        apply_polymerase_choice(parameter, args)
 
         # Bloom filter for large background genomes
         use_bloom = getattr(args, "use_bloom_filter", False)
@@ -517,43 +523,13 @@ Usage Examples:
     print(guide)
 
 
-def _target_size_from_params(parameter, default=6):
-    """Resolve the requested set size from params.json, at optimize time.
-
-    `parameter.num_primers` carries a module-level default of 6 and is only
-    overwritten from params.json when `get_params()` runs -- which happens
-    lazily inside `optimize_step4`, *after* this command has already resolved
-    the target and passed it down as an explicit kwarg. So a params.json asking
-    for 8 primers silently got 6, and the completion check then compared the 6
-    it produced against the 8 it read later and reported "insufficient
-    candidates" for a pool that was never consulted at that size.
-
-    Reading the file here rather than waiting for `_json_data` keeps
-    params.json authoritative for the set size, which is what a user editing it
-    expects. `--num-primers` still wins; this is the no-flag path.
-    """
-    json_data = dict(getattr(parameter, "_json_data", None) or {})
-    if not json_data:
-        json_file = getattr(parameter, "json_file", None)
-        if json_file and os.path.isfile(json_file):
-            from neoswga.core.parameter import read_args_from_json
-
-            try:
-                json_data = read_args_from_json(json_file)
-            except (OSError, ValueError) as exc:
-                # get_params() will raise on this file in a moment with a much
-                # better message; do not pre-empt it with a partial failure.
-                logger.debug(f"Could not pre-read {json_file} for set size: {exc}")
-                json_data = {}
-
-    size = json_data.get("num_primers", json_data.get("target_set_size", default))
-    if not isinstance(size, int) or isinstance(size, bool) or size < 1:
-        logger.warning(
-            f"Ignoring num_primers={size!r} from params.json: expected a "
-            f"positive integer. Using {default}."
-        )
-        return default
-    return size
+# Resolving a params.json value before `get_params()` has populated the
+# parameter globals. Both helpers live in `_params_preread` so the pattern stays
+# in one place -- the same defect has now been found twice in `run_step4`. They
+# are re-exported here because that is where the tests and callers reach for
+# them.
+_target_size_from_params = target_size_from_params
+_polymerase_from_params = polymerase_from_params
 
 
 @params_command(merge=None)
@@ -576,9 +552,9 @@ def run_step4(args):
         # Set json_file if provided
         merge_args_to_parameter(args, parameter, ["json_file"])
 
-        # Pass polymerase info to optimizer (use adapted value, not raw JSON,
-        # so GC-adaptive strategy recommendations are respected)
-        polymerase = getattr(parameter, "polymerase", "phi29")
+        # `--polymerase` wins, then params.json, then the adapted global. The
+        # flag is resolved there because this handler never merges it.
+        polymerase = _polymerase_from_params(parameter, args=args)
         if polymerase != "phi29":
             logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
@@ -639,10 +615,15 @@ def run_step4(args):
                     # Try to calculate from genome or use default
                     template_gc = json_data.get("fg_gc", 0.5)
 
-                # Get polymerase and create conditions
+                # Get polymerase and create conditions. The temperature default
+                # was `30.0 if polymerase == "phi29" else 42.0`, a two-way branch
+                # over six enzymes: bst and bst3.0 got 42 C, below the 50 C floor
+                # of their hard range, so `ReactionConditions` refused it and the
+                # model fell back to baseline effects behind a warning -- the
+                # set-size recommendation was then made with no chemistry in it.
                 polymerase = json_data.get("polymerase", "phi29")
                 reaction_temp = json_data.get(
-                    "reaction_temp", 30.0 if polymerase == "phi29" else 42.0
+                    "reaction_temp", parameter.default_reaction_temp(polymerase)
                 )
 
                 try:

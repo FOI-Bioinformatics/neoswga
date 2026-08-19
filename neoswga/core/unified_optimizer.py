@@ -816,15 +816,15 @@ def run_optimization(
         if result.primers and fg_prefixes:
             from dataclasses import replace as _dc_replace
 
-            from .coverage import (
-                compute_per_prefix_coverage,
-                polymerase_extension_reach,
-            )
+            from .coverage import compute_per_prefix_coverage
 
-            _ext = polymerase_extension_reach(
-                getattr(parameter, "polymerase", "phi29") or "phi29",
-                default=extension_reach,
-            )
+            # The reach resolved above, which honours `coverage_reach` from
+            # params.json or `--coverage-reach`. This used to call
+            # `polymerase_extension_reach` again and discard the override, so a
+            # run selected at 8 kb and reported at phi29's 3 kb default -- about
+            # a third of the coverage the set was actually chosen for, with
+            # nothing saying the two figures came from different assumptions.
+            _ext = extension_reach
             _coverage_extension = _ext
             _, per_target = compute_per_prefix_coverage(
                 cache=cache,

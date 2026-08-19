@@ -32,6 +32,7 @@ import random
 
 import pytest
 
+from neoswga.core import parameter
 from neoswga.core.param_validator import ParamValidator, ValidationLevel
 from neoswga.core.parameter import CURRENT_SCHEMA_VERSION, adaptive_gc_window, default_mg_conc
 from neoswga.core.wizard import SetupWizard, format_bp, run_wizard
@@ -246,10 +247,14 @@ def test_polymerase_override_changes_reaction_temp_and_tm_bounds(gc_rich_fasta):
     wizard.user_overrides["polymerase"] = "phi29"
     config = wizard.generate_config()
 
+    # Against the registry rather than repeated literals. The wizard used to
+    # carry its own `10.0 if phi29 else 20.0` / `45.0 if phi29 else 55.0`, which
+    # matched no enzyme's `primer_tm_range` -- and because an explicit key
+    # suppresses the polymerase-aware default in `get_params`, writing those
+    # numbers pinned a window nothing else in the tool agreed with.
     assert config["polymerase"] == "phi29"
-    assert config["reaction_temp"] == 30.0
-    assert config["min_tm"] == 10.0
-    assert config["max_tm"] == 45.0
+    assert config["reaction_temp"] == parameter.default_reaction_temp("phi29")
+    assert (config["min_tm"], config["max_tm"]) == parameter.default_tm_range("phi29")
 
 
 def test_kmer_range_override_is_respected(balanced_fasta):

@@ -27,6 +27,7 @@ from neoswga.core.parameter import (
     EXTREME_GC_GENOME_GC,
     adaptive_gc_window,
     default_mg_conc,
+    polymerase_defaults,
 )
 
 logger = logging.getLogger(__name__)
@@ -564,6 +565,7 @@ class SetupWizard:
         gc = self.target_stats["gc_content"]
         gc_tolerance = 0.15
         gc_min, gc_max = adaptive_gc_window(gc, gc_tolerance)
+        _poly_defaults = polymerase_defaults(polymerase)
 
         # Build config
         config = {
@@ -579,11 +581,13 @@ class SetupWizard:
             "data_dir": output_dir,
             # Genome characteristics
             "genome_gc": round(gc, 4),
-            # Polymerase and temperature (match temp to selected polymerase)
+            # Polymerase and temperature (match temp to selected polymerase).
+            # From the registry rather than a hand-written branch: the branch
+            # covered phi29, equiphi29 and bst, so a bst3.0 or bsu selection was
+            # written out at 30 C, which their hard ranges reject -- the wizard
+            # would emit a params.json the pipeline then refuses.
             "polymerase": polymerase,
-            "reaction_temp": (
-                42.0 if polymerase == "equiphi29" else (63.0 if polymerase == "bst" else 30.0)
-            ),
+            "reaction_temp": _poly_defaults["reaction_temp"],
             # Primer length
             "min_k": min_k,
             "max_k": max_k,
@@ -607,9 +611,13 @@ class SetupWizard:
             "max_bg_freq": 5e-6,
             "max_gini": 0.6,
             "max_primer": 500,
-            # Thermodynamic filters
-            "min_tm": 10.0 if polymerase == "phi29" else 20.0,
-            "max_tm": 45.0 if polymerase == "phi29" else 55.0,
+            # Thermodynamic filters. Also from the registry: a hardcoded
+            # 10-45 / 20-55 contradicted every enzyme's `primer_tm_range`, and
+            # writing the keys explicitly suppressed the polymerase-aware
+            # default in `get_params` -- the same mechanism as the zero-magnesium
+            # bug described above, with the same silence.
+            "min_tm": _poly_defaults["min_tm"],
+            "max_tm": _poly_defaults["max_tm"],
             "max_dimer_bp": 3,
             "max_self_dimer_bp": 4,
             # Optimization
@@ -686,7 +694,8 @@ class SetupWizard:
             print(f"Blacklist:        {bl_names}")
         print()
         print(f"Polymerase:       {polymerase.upper()}")
-        print(f"Temperature:      {self.recommended_temp if polymerase == 'equiphi29' else 30.0}C")
+        # The value actually written to params.json, not a second guess at it.
+        print(f"Temperature:      {polymerase_defaults(polymerase)['reaction_temp']}C")
         print(f"Primer length:    {min_k}-{max_k} bp")
         print()
         print("Next steps:")

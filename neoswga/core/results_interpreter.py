@@ -18,6 +18,38 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+def processivity_bonus(polymerase: str) -> float:
+    """How much an enzyme's reach is worth in the enrichment estimate.
+
+    This was `log2(processivity / 1000)`, which is negative below 1 kb. Klenow's
+    processivity is 40 bp and bsu's is 50 -- both correct, both distributive --
+    so the term went negative, the estimate went negative with it, and the
+    `max(1.0, ...)` floor downstream clamped every klenow and bsu design to
+    "no enrichment" whatever its primer set did. The floor hid the sign error
+    rather than containing it.
+
+    Anchoring the logarithm at the shortest reach in the registry keeps the term
+    positive and monotone in processivity, which is all the estimate needs from
+    it. The estimate remains a rough heuristic, not a prediction.
+    """
+    import math
+
+    from neoswga.core.reaction_conditions import get_polymerase_processivity
+    from neoswga.core.registry import views as _views
+
+    try:
+        processivity = get_polymerase_processivity(polymerase)
+    except (ValueError, KeyError):
+        logger.debug(
+            f"Unknown polymerase {polymerase!r}; using phi29 processivity "
+            f"for the enrichment estimate"
+        )
+        processivity = 70000
+
+    floor = min(_views.processivity_map().values())
+    return math.log2(2.0 * processivity / floor)
+
+
 class QualityRating(Enum):
     """Quality rating levels."""
 
@@ -427,24 +459,11 @@ class ResultsInterpreter:
             # get_polymerase_processivity raises on an unknown polymerase, but
             # this is a best-effort interpretation of an existing result, so keep
             # the previous phi29 fallback rather than failing the whole report.
-            from neoswga.core.reaction_conditions import get_polymerase_processivity
-
-            try:
-                processivity = get_polymerase_processivity(polymerase)
-            except (ValueError, KeyError):
-                logger.debug(
-                    f"Unknown polymerase {polymerase!r}; using phi29 processivity "
-                    f"for the enrichment estimate"
-                )
-                processivity = 70000
-            # Scale by log2 of processivity relative to typical genome regions
-            import math
-
-            processivity_bonus = math.log2(processivity / 1000.0)
+            bonus = processivity_bonus(polymerase)
 
             # Enrichment estimate: exponential scaling with primer count
             # Conservative estimate based on amplification factor and primer count
-            estimated_enrichment = mean_factor * len(primer_seqs) * processivity_bonus
+            estimated_enrichment = mean_factor * len(primer_seqs) * bonus
             # Cap at reasonable range
             estimated_enrichment = max(1.0, min(estimated_enrichment, 10000.0))
 

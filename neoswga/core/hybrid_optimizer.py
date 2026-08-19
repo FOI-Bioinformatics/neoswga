@@ -186,7 +186,7 @@ class HybridOptimizer:
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         bin_size: int = 10000,
-        max_extension: int = 70000,
+        max_extension: Optional[int] = None,
         coverage_reach: Optional[int] = None,
         uniformity_weight: float = 0.0,
         min_tm: Optional[float] = None,
@@ -241,10 +241,16 @@ class HybridOptimizer:
         # max_extension is the single-molecule processivity used for the Stage-2
         # amplification-NETWORK connectivity question ("can two primers connect
         # via one extension?").
-        if max_extension == 70000 and polymerase != "phi29":
-            self.max_extension = self.poly_config.max_extension
-        else:
-            self.max_extension = max_extension
+        #
+        # `None` means "not chosen" rather than the literal 70000 this used to
+        # test for. That was a sentinel-by-value: 70000 is phi29's processivity
+        # and a perfectly reasonable explicit argument, and a caller who passed
+        # it for bst had it silently replaced by 2000 -- a 35-fold change to the
+        # network reach, on the strength of a collision between a default and a
+        # real value.
+        self.max_extension = (
+            self.poly_config.max_extension if max_extension is None else max_extension
+        )
 
         # Explicit Tm window, when the caller configured one. Stage-0 screening
         # built its criteria from the polymerase preset alone, so a user who
@@ -1229,7 +1235,7 @@ class HybridBaseOptimizer(BaseOptimizer):
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
             bin_size=kwargs.get("bin_size", 10000),
-            max_extension=kwargs.get("max_extension", 70000),
+            max_extension=kwargs.get("max_extension"),
             # Stage-1 coverage selection uses the realistic reach resolved by
             # unified_optimizer (OptimizerConfig.extension_reach), so selection
             # and the scored metrics.fg_coverage share one coverage definition.

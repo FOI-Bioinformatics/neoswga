@@ -31,6 +31,21 @@ def run_start(args):
     run_workflow_selector()
 
 
+def _default_primer_length_for(polymerase: str) -> int:
+    """Midpoint of the enzyme's primer-length range, from the registry.
+
+    This read `get_polymerase_params(polymerase)["primer_length_range"]`, which
+    returns the *mechanistic enzyme* parameters and has never carried that key,
+    so `neoswga suggest --polymerase bst` exited 1 with "Missing required
+    parameter". The range lives in the registry, which is where `parameter`,
+    `param_validator` and the hybrid optimizer all read it.
+    """
+    from neoswga.core.registry import views as _views
+
+    low, high = _views.primer_length_ranges().get((polymerase or "").lower(), (6, 12))
+    return int((low + high) / 2)
+
+
 def run_suggest(args):
     """Suggest optimal reaction conditions"""
     genome_gc = args.genome_gc
@@ -119,15 +134,11 @@ def run_suggest(args):
     if use_optimizer or polymerase != "phi29" or optimize_for != "amplification":
         # Use new AdditiveOptimizer
         from neoswga.core.additive_optimizer import AdditiveOptimizer
-        from neoswga.core.mechanistic_params import get_polymerase_params
 
         # Determine primer length if not provided
         primer_length = args.primer_length
         if primer_length is None:
-            poly_params = get_polymerase_params(polymerase)
-            primer_length = int(
-                (poly_params["primer_length_range"][0] + poly_params["primer_length_range"][1]) / 2
-            )
+            primer_length = _default_primer_length_for(polymerase)
             logger.info(f"Using default primer length for {polymerase}: {primer_length}bp")
 
         # Default GC if not provided

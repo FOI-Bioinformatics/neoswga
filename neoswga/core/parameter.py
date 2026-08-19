@@ -130,6 +130,105 @@ def default_dtt_mm(polymerase: str) -> float:
     return DTT_DEFAULTS_MM.get((polymerase or "").lower(), DTT_DEFAULT_FALLBACK_MM)
 
 
+# The fields `get_params` fills in from the polymerase when the user has not set
+# them. Two paths change the enzyme after that has happened -- `filter --preset`
+# / `--polymerase`, and the GC-adaptive strategy -- and both used to leave these
+# behind, so a bst design was filtered through phi29's 20-50 C Tm window and
+# 6-12 bp length range. See `retune_for_polymerase`.
+POLYMERASE_DERIVED_FIELDS = (
+    "min_tm",
+    "max_tm",
+    "min_k",
+    "max_k",
+    "mg_conc",
+    "reaction_temp",
+    "dtt_mm",
+)
+
+# Populated by `get_params` with the subset of the above that the polymerase
+# actually supplied. Until then, assume all of them: a caller retuning before
+# any params.json has been read has nothing of the user's to preserve.
+polymerase_derived_fields = set(POLYMERASE_DERIVED_FIELDS)
+
+
+def _record_polymerase_derived(args, json_data) -> set:
+    """Which of `POLYMERASE_DERIVED_FIELDS` the user did not set themselves.
+
+    A value from params.json or from an explicit CLI flag is the user's and must
+    survive an enzyme change; anything else came from the registry and should
+    move with the enzyme.
+    """
+    return {
+        name
+        for name in POLYMERASE_DERIVED_FIELDS
+        if json_data.get(name) is None and getattr(args, name, None) is None
+    }
+
+
+def polymerase_defaults(polymerase: str) -> dict:
+    """Every `POLYMERASE_DERIVED_FIELDS` value for one enzyme."""
+    from neoswga.core.registry import views as _views
+
+    tm_low, tm_high = default_tm_range(polymerase)
+    k_low, k_high = _views.primer_length_ranges().get(polymerase, (6, 12))
+    return {
+        "min_tm": tm_low,
+        "max_tm": tm_high,
+        "min_k": k_low,
+        "max_k": k_high,
+        "mg_conc": default_mg_conc(polymerase),
+        "reaction_temp": default_reaction_temp(polymerase),
+        "dtt_mm": default_dtt_mm(polymerase),
+    }
+
+
+def mark_user_set(param, names) -> None:
+    """Record that `names` are the user's, so a retune leaves them alone.
+
+    `get_params` can only see the args object it was called with. A CLI handler
+    that merges `--min-tm` onto the parameter module afterwards has to say so,
+    or the next `retune_for_polymerase` will treat the value as a registry
+    default and overwrite it.
+    """
+    derived = set(getattr(param, "polymerase_derived_fields", POLYMERASE_DERIVED_FIELDS))
+    param.polymerase_derived_fields = derived - set(names)
+
+
+def retune_for_polymerase(param, new_polymerase: str) -> str:
+    """Change the enzyme on `param` and re-derive what the enzyme decides.
+
+    Only the fields the user left to the registry move; anything they pinned in
+    params.json or on the command line is left alone. Returns the canonical name
+    actually applied, which is the old one if `new_polymerase` is not a known
+    enzyme -- `param_validator` and `ReactionConditions` both report that far
+    better than this helper could, and applying half an enzyme change would be
+    worse than applying none.
+    """
+    from neoswga.core.registry.polymerases import resolve_polymerase_name
+
+    resolved = resolve_polymerase_name(new_polymerase)
+    current = getattr(param, "polymerase", "phi29")
+    if resolved is None:
+        logger.warning(
+            f"Ignoring polymerase={new_polymerase!r}: not a known enzyme. " f"Staying on {current}."
+        )
+        return current
+
+    param.polymerase = resolved
+    derived = getattr(param, "polymerase_derived_fields", None)
+    if derived is None:
+        derived = set(POLYMERASE_DERIVED_FIELDS)
+
+    changes = []
+    for name, value in polymerase_defaults(resolved).items():
+        if name in derived and getattr(param, name, None) != value:
+            setattr(param, name, value)
+            changes.append(f"{name}={value}")
+    if changes:
+        logger.info(f"Retuned for {resolved}: {', '.join(changes)}")
+    return resolved
+
+
 def default_reaction_temp(polymerase: str) -> float:
     """
     Return the optimal reaction temperature (deg C) for a polymerase.
@@ -997,15 +1096,13 @@ def get_params(args):
 
     primer_conc = data.get("primer_conc", 0.5e-6)
 
-    # Auto-set reaction temperature based on polymerase if not specified
-    from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
-
-    if "reaction_temp" in data and data["reaction_temp"] is not None:
+    # Auto-set reaction temperature based on polymerase if not specified.
+    # `default_reaction_temp` reads the same registry view this block used to
+    # index by hand, and is what `retune_for_polymerase` and the wizard call.
+    if data.get("reaction_temp") is not None:
         reaction_temp = data["reaction_temp"]
-    elif polymerase.lower() in POLYMERASE_CHARACTERISTICS:
-        reaction_temp = POLYMERASE_CHARACTERISTICS[polymerase.lower()]["optimal_temp"]
     else:
-        reaction_temp = 30.0  # Default to phi29 temperature
+        reaction_temp = default_reaction_temp(polymerase)
 
     # Reaction-chemistry parameters (all optional). Driven by
     # REACTION_PARAM_DEFAULTS so a new additive needs one edit, not seven.
@@ -1021,6 +1118,8 @@ def get_params(args):
     _reaction_defaults["dtt_mm"] = default_dtt_mm(polymerase)
     for _name, _default in _reaction_defaults.items():
         _g[_name] = data.get(_name, _default)
+
+    _g["polymerase_derived_fields"] = _record_polymerase_derived(args, _json_data)
 
     # Store all reaction parameters in data dict
     data["polymerase"] = polymerase
