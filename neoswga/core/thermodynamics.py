@@ -1117,46 +1117,12 @@ def calculate_wallace_tm_batch(sequences: List[str]) -> np.ndarray:
 # ========================================
 
 
-def get_reaction_conditions_from_params() -> "ReactionConditions":
-    """
-    Create a ReactionConditions object from the current parameter module settings.
-
-    This helper bridges the parameter module with the ReactionConditions class,
-    allowing thermodynamic calculations to use the reaction conditions specified
-    in params.json.
-
-    Returns:
-        ReactionConditions object configured with current parameter settings
-    """
-    import neoswga.core.parameter as parameter
-    from neoswga.core.reaction_conditions import ReactionConditions
-
-    # Get reaction temperature, defaulting to polymerase optimal temp
-    reaction_temp = getattr(parameter, "reaction_temp", None)
-    polymerase = getattr(parameter, "polymerase", "phi29")
-
-    # Auto-set temperature based on polymerase if not specified
-    if reaction_temp is None:
-        from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
-
-        if polymerase.lower() in POLYMERASE_CHARACTERISTICS:
-            reaction_temp = POLYMERASE_CHARACTERISTICS[polymerase.lower()]["optimal_temp"]
-        else:
-            reaction_temp = 30.0  # Default to phi29 temperature
-
-    return ReactionConditions(
-        temp=reaction_temp,
-        na_conc=getattr(parameter, "na_conc", 50.0),
-        mg_conc=getattr(parameter, "mg_conc", 2.0),
-        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-        betaine_m=getattr(parameter, "betaine_m", 0.0),
-        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-        urea_m=getattr(parameter, "urea_m", 0.0),
-        tmac_m=getattr(parameter, "tmac_m", 0.0),
-        polymerase=polymerase,
-    )
+# `get_reaction_conditions_from_params` lived here and had no callers. It
+# hand-listed ten of ReactionConditions' twenty fields -- dropping
+# propanediol, glycerol, PEG, BSA, SSB and every buffer species -- and
+# defaulted magnesium to 2.0 mM, retired when the model was recalibrated for
+# isothermal amplification. Use `reaction_conditions.build_reaction_conditions`,
+# which reads the field list off the constructor so it cannot drift.
 
 
 if __name__ == "__main__":
