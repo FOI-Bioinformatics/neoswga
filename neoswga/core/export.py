@@ -510,15 +510,36 @@ Final concentration in reaction: 200 nM each primer.
 """
 
 
+# Every additive the schema accepts, with the unit it is quoted in at the bench.
+# The protocol carried three of these, so a design optimized with urea and TMAC
+# produced a protocol reading "No additives" -- a reaction that is not the one
+# the primers were selected under. Keep in step with
+# `parameter.REACTION_PARAM_DEFAULTS`;
+# `tests/test_protocol_export_carries_every_additive.py` pins it.
+PROTOCOL_ADDITIVES = (
+    ("betaine_m", "Betaine", "M"),
+    ("dmso_percent", "DMSO", "%"),
+    ("trehalose_m", "Trehalose", "M"),
+    ("formamide_percent", "Formamide", "%"),
+    ("ethanol_percent", "Ethanol", "%"),
+    ("urea_m", "Urea", "M"),
+    ("tmac_m", "TMAC", "M"),
+    ("propanediol_m", "1,2-propanediol", "M"),
+    ("glycerol_percent", "Glycerol", "%"),
+    ("peg_percent", "PEG", "%"),
+    ("bsa_ug_ml", "BSA", "ug/mL"),
+)
+
+_PROTOCOL_ADDITIVE_NAMES = frozenset(name for name, _, _ in PROTOCOL_ADDITIVES)
+
+
 def generate_protocol(
     primers: List[str],
     polymerase: str = "phi29",
     temperature: float = 30.0,
     duration: float = 16.0,
-    mg_conc: float = 2.5,
-    betaine_m: float = 0.0,
-    dmso_percent: float = 0.0,
-    trehalose_m: float = 0.0,
+    mg_conc: Optional[float] = None,
+    **additives,
 ) -> str:
     """
     Generate wet-lab protocol markdown.
@@ -528,14 +549,23 @@ def generate_protocol(
         polymerase: Polymerase name.
         temperature: Reaction temperature (C).
         duration: Reaction duration (hours).
-        mg_conc: Mg2+ concentration (mM).
-        betaine_m: Betaine concentration (M).
-        dmso_percent: DMSO percentage.
-        trehalose_m: Trehalose concentration (M).
+        mg_conc: Mg2+ concentration (mM). None means this polymerase's standard
+            buffer. The old default was 2.5 mM -- a PCR concentration, retired
+            from the model along with its mis-attributed citation, and a quarter
+            of the phi29 buffer's magnesium.
+        **additives: Any key named in `PROTOCOL_ADDITIVES`.
 
     Returns:
         Protocol as markdown string.
     """
+    from neoswga.core.parameter import default_mg_conc
+
+    if mg_conc is None:
+        mg_conc = default_mg_conc(polymerase)
+
+    unknown = sorted(set(additives) - _PROTOCOL_ADDITIVE_NAMES)
+    if unknown:
+        raise TypeError(f"generate_protocol got unexpected keyword arguments: {unknown}")
     # Build primer table
     table_rows = []
     for i, primer in enumerate(primers, 1):
@@ -545,15 +575,14 @@ def generate_protocol(
     primer_table = "\n".join(table_rows)
 
     # Build additives section
-    additives = []
-    if betaine_m > 0:
-        additives.append(f"- **Betaine:** {betaine_m} M")
-    if dmso_percent > 0:
-        additives.append(f"- **DMSO:** {dmso_percent}%")
-    if trehalose_m > 0:
-        additives.append(f"- **Trehalose:** {trehalose_m} M")
+    lines = []
+    for name, label, unit in PROTOCOL_ADDITIVES:
+        value = additives.get(name, 0.0) or 0.0
+        if value > 0:
+            separator = "" if unit == "%" else " "
+            lines.append(f"- **{label}:** {value}{separator}{unit}")
 
-    additives_section = "\n".join(additives) if additives else "- No additives"
+    additives_section = "\n".join(lines) if lines else "- No additives"
 
     return PROTOCOL_TEMPLATE.format(
         date=datetime.now().strftime("%Y-%m-%d"),
@@ -625,11 +654,9 @@ class PrimerExporter:
         primers: List[str],
         polymerase: str = "phi29",
         temperature: float = 30.0,
-        betaine_m: float = 0.0,
-        dmso_percent: float = 0.0,
-        trehalose_m: float = 0.0,
-        mg_conc: float = 2.5,
+        mg_conc: Optional[float] = None,
         modifications: Optional[PrimerModifications] = None,
+        **additives,
     ):
         """
         Initialize exporter with primers and reaction conditions.
@@ -638,20 +665,33 @@ class PrimerExporter:
             primers: List of primer sequences
             polymerase: Polymerase type
             temperature: Reaction temperature (C)
-            betaine_m: Betaine concentration (M)
-            dmso_percent: DMSO percentage
-            trehalose_m: Trehalose concentration (M)
-            mg_conc: Mg2+ concentration (mM)
+            mg_conc: Mg2+ concentration (mM). None means this polymerase's
+                standard buffer; see `generate_protocol`.
             modifications: Primer modification config (default: standard profile)
+            **additives: Any key named in `PROTOCOL_ADDITIVES`
         """
+        from neoswga.core.parameter import default_mg_conc
+
+        unknown = sorted(set(additives) - _PROTOCOL_ADDITIVE_NAMES)
+        if unknown:
+            raise TypeError(f"PrimerExporter got unexpected keyword arguments: {unknown}")
+
         self.primers = primers
         self.polymerase = polymerase
         self.temperature = temperature
-        self.betaine_m = betaine_m
-        self.dmso_percent = dmso_percent
-        self.trehalose_m = trehalose_m
-        self.mg_conc = mg_conc
+        self.mg_conc = default_mg_conc(polymerase) if mg_conc is None else mg_conc
+        self.additives = {
+            name: additives.get(name, 0.0) or 0.0 for name in _PROTOCOL_ADDITIVE_NAMES
+        }
         self.modifications = modifications or PrimerModifications.from_profile("standard")
+
+    def __getattr__(self, name):
+        # The three additives that used to be attributes stay readable, so
+        # existing callers and reports are not broken by the widening.
+        additives = self.__dict__.get("additives")
+        if additives is not None and name in additives:
+            return additives[name]
+        raise AttributeError(name)
 
     @classmethod
     def from_results_dir(
@@ -687,18 +727,25 @@ class PrimerExporter:
         if not primers:
             raise ValueError("No primers found in step4 results")
 
-        # Load reaction conditions from params.json if available
+        # Load reaction conditions from params.json if available. Every additive
+        # the protocol can print is read, not the three it used to be: the
+        # design was optimized under all of them, and a protocol that omits one
+        # describes a different reaction.
         kwargs = {}
         params_path = params_file or (results_path / "params.json")
         if Path(params_path).exists():
+            from neoswga.core.parameter import default_reaction_temp
+
             with open(params_path, "r") as f:
                 params = json.load(f)
-                kwargs["polymerase"] = params.get("polymerase", "phi29")
-                kwargs["temperature"] = params.get("reaction_temp", 30.0)
-                kwargs["betaine_m"] = params.get("betaine_m", 0.0)
-                kwargs["dmso_percent"] = params.get("dmso_percent", 0.0)
-                kwargs["trehalose_m"] = params.get("trehalose_m", 0.0)
-                kwargs["mg_conc"] = params.get("mg_conc", 2.5)
+            polymerase = params.get("polymerase", "phi29")
+            kwargs["polymerase"] = polymerase
+            kwargs["temperature"] = params.get("reaction_temp", default_reaction_temp(polymerase))
+            # None here means "this polymerase's buffer", resolved in __init__.
+            kwargs["mg_conc"] = params.get("mg_conc")
+            for name in _PROTOCOL_ADDITIVE_NAMES:
+                if name in params:
+                    kwargs[name] = params[name]
 
         return cls(primers, **kwargs)
 
@@ -714,19 +761,23 @@ class PrimerExporter:
         ]
         export_to_vendor_csv(modified_primers, output_path, vendor=vendor, **kwargs)
 
-    def export_protocol(self, output_path: str, **kwargs) -> None:
-        """Export wet-lab protocol."""
-        # Use instance conditions as defaults
-        protocol_kwargs = {
+    def _protocol_kwargs(self, **overrides):
+        kwargs = {
             "polymerase": self.polymerase,
             "temperature": self.temperature,
-            "betaine_m": self.betaine_m,
-            "dmso_percent": self.dmso_percent,
-            "trehalose_m": self.trehalose_m,
             "mg_conc": self.mg_conc,
+            **self.additives,
         }
-        protocol_kwargs.update(kwargs)
-        export_protocol(self.primers, output_path, **protocol_kwargs)
+        kwargs.update(overrides)
+        return kwargs
+
+    def generate_protocol(self, **kwargs) -> str:
+        """Wet-lab protocol markdown for this design's conditions."""
+        return generate_protocol(self.primers, **self._protocol_kwargs(**kwargs))
+
+    def export_protocol(self, output_path: str, **kwargs) -> None:
+        """Export wet-lab protocol."""
+        export_protocol(self.primers, output_path, **self._protocol_kwargs(**kwargs))
 
     def export_bed(
         self,
