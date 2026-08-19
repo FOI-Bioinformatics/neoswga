@@ -330,13 +330,13 @@
     "num_primers": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 50,
+      "maximum": 200,
       "default": 6
     },
     "target_set_size": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 50
+      "maximum": 200
     },
     "iterations": {
       "type": "integer",

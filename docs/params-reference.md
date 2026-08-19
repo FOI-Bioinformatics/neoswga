@@ -75,7 +75,7 @@ neoswga schema --dump > params.schema.json
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
 | `nh4_conc` | number | min: 0.0; max: 1000.0 | `0.0` | NH4+ concentration (mM). The standard phi29 buffer supplies 20 mM NH4+ as 10 mM (NH4)2SO4. |
-| `num_primers` | integer | min: 1; max: 50 | `6` | - |
+| `num_primers` | integer | min: 1; max: 200 | `6` | - |
 | `occupancy_ranking` | boolean | - | `True` | Rank filter candidates by occupancy-weighted background load rather than exact k-mer counts. Exact counts are 0 for every primer with no perfect background match, which leaves the ranking key undefined for most long primers. |
 | `occupancy_shortlist` | integer | min: 1 | `50000` | How many survivors to re-rank by occupancy. Taken by the exact-count key first, so nothing that key separates is discarded. |
 | `optimization_method` | string | one of: hybrid, dominating-set, network, background-aware, clique, ensemble, auto, all, hybrid-optimizer, two-stage, ds, set-cover, network-optimizer, tm-weighted, clinical, bg-aware, clique-dimer-free, dimer-free | `hybrid` | Optimizer to use. The five canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias. |
@@ -90,7 +90,7 @@ neoswga schema --dump > params.schema.json
 | `selection_metric` | string | one of: deterministic, random, stochastic | - | - |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
 | `ssb` | boolean | - | `False` | Single-stranded binding protein present. Previously accepted by the CLI but absent from this schema. |
-| `target_set_size` | integer | min: 1; max: 50 | - | - |
+| `target_set_size` | integer | min: 1; max: 200 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
 | `top_set_count` | integer | min: 1; max: 100 | - | - |
 | `trehalose_m` | number | min: 0.0; max: 1.0 | `0.0` | - |
