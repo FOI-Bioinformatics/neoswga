@@ -210,12 +210,19 @@ class AdditiveOptimizer:
         conditions = rec.to_conditions()
     """
 
-    # Additive search ranges (based on literature)
+    # Additive search ranges (based on literature).
+    #
+    # The magnesium grid was [1.5, 2.0, 2.5, 3.0, 4.0] -- PCR concentrations.
+    # Every value sat at or below the mechanistic model's `mg_low_threshold`
+    # (4.0 mM), so the search could not reach `mg_optimal` (10.0 mM) however
+    # long it ran and returned whichever deficient value scored least badly.
+    # The band below spans the model's usable range and brackets the standard
+    # phi29 buffer, which is what the registry and every preset apply.
     SEARCH_RANGES = {
         "dmso_percent": [0.0, 2.0, 4.0, 5.0, 6.0, 8.0],
         "betaine_m": [0.0, 0.5, 1.0, 1.5, 2.0],
         "trehalose_m": [0.0, 0.1, 0.2, 0.3, 0.5],
-        "mg_conc": [1.5, 2.0, 2.5, 3.0, 4.0],
+        "mg_conc": [4.0, 6.0, 8.0, 10.0, 12.0, 15.0],
     }
 
     # Quick search for faster optimization
@@ -223,7 +230,7 @@ class AdditiveOptimizer:
         "dmso_percent": [0.0, 3.0, 5.0],
         "betaine_m": [0.0, 1.0, 1.5],
         "trehalose_m": [0.0, 0.2],
-        "mg_conc": [2.5],
+        "mg_conc": [8.0, 10.0, 12.0],
     }
 
     # Constraints based on polymerase

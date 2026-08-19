@@ -252,7 +252,7 @@ class ReactionConditions:
         k_conc: float = 0.0,
         nh4_conc: float = 0.0,
         dntp_conc: float = 0.0,
-        dtt_mm: float = 0.0,
+        dtt_mm: Optional[float] = None,
         ssb: bool = False,
         polymerase: str = "phi29",
     ):
@@ -311,8 +311,18 @@ class ReactionConditions:
         # Total dNTP (sum of all four) in mM. Chelates Mg2+ ~1:1, so free Mg2+
         # is below nominal total (von Ahsen et al. 2001 Clin Chem 47:1956).
         self.dntp_conc = dntp_conc
-        # DTT is in every phi29 buffer at 1-4 mM. Recorded for protocol export
-        # and completeness; it has no melting-temperature term.
+        # DTT is in every phi29 buffer at 1-4 mM. It has no melting-temperature
+        # term, but MechanisticModel scores it as a *deficiency penalty*, so a
+        # literal 0.0 default read as a DTT-free reaction and cost 20% of
+        # stability at every site that built conditions directly rather than
+        # through get_params -- all eleven presets among them. Same resolution
+        # as mg_conc: None means this polymerase's standard buffer, an explicit
+        # value (including 0.0) is honoured. Resolved after self.polymerase so
+        # the lookup is polymerase-aware.
+        if dtt_mm is None:
+            from .parameter import default_dtt_mm
+
+            dtt_mm = default_dtt_mm(self.polymerase)
         self.dtt_mm = dtt_mm
 
         # Validate inputs
@@ -465,47 +475,14 @@ class ReactionConditions:
             - At lower concentrations: partial equalization proportional to conc.
             - Wallace rule: dTm/d(gc_fraction) = 2*length (length-dependent)
         """
-        # Calculate deviation from balanced (50%) GC content
-        # GC-rich (>50%): positive deviation, normally higher Tm
-        # AT-rich (<50%): negative deviation, normally lower Tm
-        gc_deviation = gc_content - 0.5
+        # Both Tm paths share one implementation. They used to carry their own,
+        # and disagreed on the dose response as well as on how two equalisers
+        # compose -- so the same reaction gave two Tm values depending on which
+        # path a caller took. See `additives.equalization_factor`.
+        from .additives import equalization_factor, gc_equalization_correction
 
-        # Equalization factors (fraction of full effect, capped at 1.0)
-        # TMAC: full equalization at 3M (Melchior & von Hippel 1973)
-        tmac_factor = min(1.0, self.tmac_m / 3.0)
-
-        # Betaine: full equalization at 5.2M (Rees et al. 1993)
-        betaine_factor = min(1.0, self.betaine_m / 5.2)
-
-        # Combined equalization using multiplicative model
-        # Each additive independently contributes to GC equalization.
-        # Combined effect: 1 - (1 - tmac_factor) * (1 - betaine_factor)
-        # Example: 50% TMAC effect + 50% betaine effect = 75% combined (not 50%)
-        # This prevents double-counting while allowing synergy.
-        equalization_factor = 1.0 - (1.0 - tmac_factor) * (1.0 - betaine_factor)
-
-        # The GC-dependent Tm difference from Wallace rule:
-        # For a primer of length L with GC fraction f:
-        #   Tm = 2*(AT pairs) + 4*(GC pairs)
-        #      = 2*L*(1-f) + 4*L*f
-        #      = 2L + 2Lf
-        #   dTm/df = 2L
-        #
-        # So the GC-dependent component scales linearly with primer length.
-        # For a 10bp primer: scale = 20
-        # For a 6bp primer: scale = 12
-        # For an 18bp primer: scale = 36
-        #
-        # This length-dependent scaling is important for accurate corrections
-        # across the range of SWGA primer lengths (6-18bp).
-        scale_factor = 2.0 * primer_length
-
-        # We apply a correction that moves Tm towards balanced
-        # GC-rich sequences get negative correction (reduce Tm)
-        # AT-rich sequences get positive correction (increase Tm)
-        gc_correction = -scale_factor * gc_deviation * equalization_factor
-
-        return gc_correction
+        factor = equalization_factor(betaine=self.betaine_m, tmac=self.tmac_m)
+        return gc_equalization_correction(gc_content, primer_length, factor)
 
     def adjust_tm(
         self,

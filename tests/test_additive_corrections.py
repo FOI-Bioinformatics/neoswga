@@ -404,13 +404,29 @@ class TestTMACCorrections:
         assert corr_70 < corr_50
 
     def test_tmac_at_practical_concentrations(self):
-        """TMAC at practical concentrations should show measurable effect."""
+        """TMAC at practical concentrations lowers Tm, by a little.
+
+        This used to require more than 0.5 C at 0.1 M, which the model met only
+        through a 10x rescaling of the concentration before the dose-response
+        sigmoid: 0.1 M was treated as delivering half of full GC equalisation.
+        Its own citation says otherwise -- Melchior & von Hippel (1973) put full
+        equalisation at 3 M, so 0.1 M is 3% of the way there, not 50%. The same
+        sigmoid was not anchored at zero and gave 12% equalisation from no TMAC
+        at all.
+
+        With the dose response tied to the cited concentration, the honest
+        expectation at 0.1 M is a few tenths of a degree. TMAC is used at
+        0.01-0.05 M as a PCR enhancer, and on this model its GC-equalising
+        contribution there is small; anyone needing a larger modelled effect
+        needs a source for a non-linear dose response, and there is not one in
+        the tree.
+        """
         cond_0 = ReactionConditions(temp=30, tmac_m=0)
         cond_01 = ReactionConditions(temp=30, tmac_m=0.1)
 
         seq_gc = "GCGCGCGCGC"
         reduction = cond_0.calculate_effective_tm(seq_gc) - cond_01.calculate_effective_tm(seq_gc)
-        assert reduction > 0.5
+        assert 0.2 < reduction < 1.0
 
     def test_recalibrated_tmac_coefficient(self):
         """TMAC uses recalibrated coefficient."""

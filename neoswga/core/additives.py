@@ -38,6 +38,63 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 # =============================================================================
+# GC equalization, shared by both Tm paths
+# =============================================================================
+
+# Concentration at which each isostabilising agent removes the whole
+# GC-dependence of duplex stability.
+#   TMAC 3.0 M   -- Melchior & von Hippel (1973) PNAS 70:298
+#   Betaine 5.2 M -- Rees et al. (1993) Biochemistry 32:137
+FULL_EQUALIZATION_M = {"betaine": 5.2, "tmac": 3.0}
+EQUALIZING_ADDITIVES = frozenset(FULL_EQUALIZATION_M)
+
+
+def equalization_factor(betaine: float = 0.0, tmac: float = 0.0) -> float:
+    """Fraction of a primer's GC-dependent Tm removed by isostabilising agents.
+
+    Two things were wrong before, and they are one thing seen twice.
+
+    `ArrheniusTmCorrector` gave betaine and TMAC an independent full-magnitude
+    term each and *summed* them, so two agents could between them remove more
+    than the whole GC deviation -- driving Tm past the 50%-GC baseline and out
+    the other side, which is not what an isostabilising agent does. Measured at
+    GC 0.75 on a 12-mer with both at their caps: -5.792 C against a -6.0 C
+    physical ceiling, inside the bound only by the accident of where the caps
+    sit. The right composition is the fraction *not* removed by either,
+    ``1 - (1-b)(1-t)``, which is what `ReactionConditions` already used.
+
+    The two paths also disagreed on the dose response: a sigmoid centred at
+    ``gc_equalization_conc / 3`` (1.73 M betaine, undocumented and unsourced)
+    against a linear ramp to the literature full-equalisation concentration.
+    They differ by 43% at 1.5 M betaine -- the same reaction, two Tm values,
+    depending on which path a caller took. The linear ramp is kept because it is
+    the one anchored to a measurement; the sigmoid overstates equalisation at
+    the 0.5-1.5 M concentrations protocols actually use.
+
+    Args:
+        betaine: Betaine concentration (M).
+        tmac: TMAC concentration (M).
+
+    Returns:
+        Fraction in [0, 1].
+    """
+    remaining = 1.0
+    for name, conc in (("betaine", betaine), ("tmac", tmac)):
+        if conc > 0:
+            remaining *= 1.0 - min(1.0, conc / FULL_EQUALIZATION_M[name])
+    return 1.0 - remaining
+
+
+def gc_equalization_correction(gc_content: float, primer_length: int, factor: float) -> float:
+    """Tm shift from equalising `factor` of a primer's GC deviation.
+
+    The Wallace slope dTm/d(gc fraction) is ``2 * length``, so the shift moves a
+    GC-rich primer down and an AT-rich primer up, toward the 50%-GC baseline.
+    """
+    return -2.0 * primer_length * (gc_content - 0.5) * factor
+
+
+# =============================================================================
 # Arrhenius-Based Tm Correction Calculator
 # =============================================================================
 
@@ -178,21 +235,11 @@ class ArrheniusTmCorrector:
         Returns:
             Additional Tm correction for GC effect
         """
-        gc_deviation = gc_content - 0.5
+        if additive in EQUALIZING_ADDITIVES:
+            factor = equalization_factor(**{additive: concentration})
+            return gc_equalization_correction(gc_content, primer_length, factor)
 
-        if additive in ("betaine", "tmac"):
-            # GC equalization effect
-            eq_conc = params.get("gc_equalization_conc", 5.0)
-            # Sigmoid equalization factor
-            equalization = self._sigmoid(concentration, eq_conc / 3.0, 1.5)
-
-            # Length-dependent scaling (Wallace rule: dTm/d(gc) = 2*length)
-            scale = 2.0 * primer_length
-
-            # Correction moves Tm towards 50% GC
-            return -scale * gc_deviation * equalization
-
-        elif additive == "urea":
+        if additive == "urea":
             # Preferential GC destabilization
             gc_preference = params.get("gc_preference", 1.3)
 
@@ -225,11 +272,25 @@ class ArrheniusTmCorrector:
             Total Tm correction in degrees Celsius
         """
         total = 0.0
+        equalisers = {}
+
         for additive, concentration in additives.items():
-            if concentration > 0:
-                total += self.calculate_correction(
-                    additive, concentration, gc_content, primer_length
-                )
+            if concentration <= 0:
+                continue
+            name = additive.lower()
+            if name in EQUALIZING_ADDITIVES:
+                # The GC term is composed across all equalisers below, not
+                # summed here -- see `equalization_factor`. Take the uniform
+                # part at 50% GC, where the GC term is zero by construction.
+                equalisers[name] = concentration
+                total += self.calculate_correction(name, concentration, 0.5, primer_length)
+            else:
+                total += self.calculate_correction(name, concentration, gc_content, primer_length)
+
+        if equalisers:
+            total += gc_equalization_correction(
+                gc_content, primer_length, equalization_factor(**equalisers)
+            )
         return total
 
     def get_temperature_sensitivity(self, additive: str) -> float:
@@ -580,44 +641,23 @@ class AdditiveConcentrations:
             - Rees et al. (1993): Betaine full equalization at 5.2M
             - Melchior & von Hippel (1973): TMAC full equalization at 3M
         """
-        # Import sigmoid parameters from mechanistic model
-        try:
-            from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
-
-            params = MECHANISTIC_MODEL_PARAMS["tm"]
-            betaine_midpoint = params["betaine_gc_midpoint"]
-            betaine_steepness = params["betaine_gc_steepness"]
-            tmac_midpoint = params["tmac_gc_midpoint"]
-            tmac_steepness = params["tmac_gc_steepness"]
-        except ImportError:
-            # Fallback to default values if mechanistic_params not available
-            betaine_midpoint = 1.5
-            betaine_steepness = 1.5
-            tmac_midpoint = 1.0
-            tmac_steepness = 2.0
-
-        # Deviation from balanced GC
-        gc_deviation = gc_content - 0.5
-
-        # Sigmoid equalization factors (not linear!)
-        # Sigmoid: 1 / (1 + exp(-steepness * (x - midpoint)))
-        betaine_factor = self._sigmoid(self.betaine_m, betaine_midpoint, betaine_steepness)
-
-        # TMAC has stronger effect per M, scale for practical 0-0.1M range
-        tmac_factor = self._sigmoid(self.tmac_m * 10, tmac_midpoint, tmac_steepness)
-
-        # Combined equalization (multiplicative model)
-        # Each additive independently contributes to GC equalization
-        equalization_factor = 1.0 - (1.0 - betaine_factor) * (1.0 - tmac_factor)
-
-        # Length-dependent scaling from Wallace rule
-        # dTm/d(gc_fraction) = 2 * length
-        scale_factor = 2.0 * primer_length
-
-        # Correction moves Tm towards balanced
-        # GC-rich: negative correction (reduce Tm)
-        # AT-rich: positive correction (increase Tm)
-        return -scale_factor * gc_deviation * equalization_factor
+        # This was a third copy of the equalisation model, and the worst of the
+        # three. Its sigmoids were not anchored at zero -- with no isostabilising
+        # agent present at all, `sigmoid(0, 1.5, 1.5)` and `sigmoid(0, 1.0, 2.0)`
+        # gave 9.5% and 11.9% equalisation, so an empty
+        # `AdditiveConcentrations()` shifted a GC-rich 12-mer's Tm by -1.95 C.
+        # It also rescaled TMAC by 10x, making 0.1 M deliver half of full
+        # equalisation where its own cited source (3 M, Melchior & von Hippel
+        # 1973) implies 3%.
+        #
+        # `ReactionConditions` never took this path with zero additives, so no
+        # shipped Tm carried the zero-point error, but the class is public and
+        # its own docstring demonstrates calling it directly.
+        return gc_equalization_correction(
+            gc_content,
+            primer_length,
+            equalization_factor(betaine=self.betaine_m, tmac=self.tmac_m),
+        )
 
     @staticmethod
     def _sigmoid(x: float, midpoint: float, steepness: float) -> float:

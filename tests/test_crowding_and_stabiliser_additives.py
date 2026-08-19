@@ -180,6 +180,63 @@ def test_unset_dtt_means_the_standard_buffer_not_zero():
     assert default_dtt_mm("something-unknown") > 0.0, "fallback must not be zero"
 
 
+def test_a_bare_reaction_conditions_carries_the_buffer_dtt():
+    """`default_dtt_mm` only protected the `get_params` path.
+
+    The constructor defaulted `dtt_mm` to 0.0, and `MechanisticModel` scores
+    anything below `default_dtt_mm(polymerase)` as a deficiency -- so every one
+    of the ~35 sites that build `ReactionConditions` directly, including all
+    eleven presets and every case in `model_validation.py`, took a 20% stability
+    penalty for a reductant nobody had left out. Measured before the fix:
+    `stability_factor` 0.8 against 1.0.
+
+    Same resolution as `mg_conc`: None means "this polymerase's standard
+    buffer", and an explicit value is still honoured, including an explicit 0.0.
+    """
+    from neoswga.core.parameter import default_dtt_mm
+    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.registry.polymerases import POLYMERASES
+
+    for polymerase, spec in POLYMERASES.items():
+        bare = ReactionConditions(temp=spec.optimal_temp, polymerase=polymerase)
+        assert bare.dtt_mm == default_dtt_mm(polymerase), polymerase
+
+    assert effects().stability_factor == pytest.approx(1.0)
+
+
+def test_an_explicit_zero_dtt_is_still_a_dtt_free_reaction():
+    """The default must not make the parameter unusable: someone modelling a
+    reaction that genuinely lacks DTT has to be able to say so."""
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    assert ReactionConditions(temp=30.0, polymerase="phi29", dtt_mm=0.0).dtt_mm == 0.0
+    assert effects(dtt_mm=0.0).stability_factor < 1.0
+
+
+def test_every_preset_carries_its_buffer_dtt():
+    """A preset used to flatten `dtt_mm` to 0.0 explicitly, which suppressed the
+    default exactly the way the old zero-magnesium wizard bug worked."""
+    from neoswga.cli._common import load_preset_conditions
+    from neoswga.core.parameter import default_dtt_mm
+
+    for name in (
+        "standard_phi29",
+        "enhanced_equiphi29",
+        "high_gc_genome",
+        "long_primers_15mer",
+        "q_solution",
+        "gc_melt",
+        "crude_sample",
+        "low_temp",
+        "bst",
+        "klenow",
+        "extreme_gc",
+    ):
+        preset = load_preset_conditions(name)
+        expected = default_dtt_mm(preset.get("polymerase", "phi29"))
+        assert preset.get("dtt_mm") == expected, name
+
+
 def test_a_params_file_without_dtt_predicts_as_before(tmp_path):
     """The regression this default exists to prevent: an unchanged params.json
     must produce an unchanged prediction."""
