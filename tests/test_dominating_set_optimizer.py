@@ -274,9 +274,14 @@ class TestDominatingSetOptimizer:
 
         result = simple_optimizer.optimize_greedy(candidates, max_primers=10, verbose=False)
 
-        # Should achieve full coverage
-        assert result["coverage"] == 1.0
+        # `coverage` is the fraction of the GENOME. It used to be the fraction
+        # of the bins some candidate could reach, which is 1.0 whenever the
+        # greedy exhausts its pool -- however little of the target that pool
+        # touches. `reachable_coverage` keeps the old quantity, which is what
+        # this test was actually asserting.
+        assert result["reachable_coverage"] == 1.0
         assert result["uncovered_regions"] == 0
+        assert result["coverage"] == pytest.approx(0.6)
 
     def test_optimize_greedy_respects_max_primers(self, simple_optimizer):
         """Test that greedy respects max_primers limit."""
@@ -359,8 +364,10 @@ class TestDominatingSetIntegration:
         candidates = ["ATCGATCG", "GCTAGCTA", "AAATTTCCC"]
         result = optimizer.optimize_greedy(candidates, max_primers=5, verbose=False)
 
-        # Should cover all regions
-        assert result["coverage"] == 1.0
+        # Should cover all regions it can reach. `coverage` is now the fraction
+        # of the genome, which these three primers do not saturate.
+        assert result["reachable_coverage"] == 1.0
+        assert result["coverage"] == pytest.approx(0.9)
         # All 3 primers needed (they cover non-overlapping regions)
         assert result["n_primers"] == 3
 
@@ -435,8 +442,15 @@ class TestEdgeCases:
         result = optimizer.optimize_greedy(["PRIMER1"], max_primers=5, verbose=False)
 
         # Should handle large positions correctly
+        # `coverage` is the fraction of the GENOME. It used to be the fraction
+        # of the bins some candidate could reach, which is 1.0 whenever the
+        # greedy exhausts its pool -- however little of the target that pool
+        # touches. `reachable_coverage` keeps the old quantity, which is what
+        # this test was actually asserting.
         assert result["total_regions"] == 4
-        assert result["coverage"] == 1.0
+        assert result["reachable_coverage"] == 1.0
+        # Four sites at a 100 kb bin on a 5 Mb genome: 4 of 50 bins.
+        assert result["coverage"] == pytest.approx(0.08)
 
     def test_multiple_genomes(self):
         """Test with multiple target genomes."""
@@ -461,8 +475,15 @@ class TestEdgeCases:
         result = optimizer.optimize_greedy(["PRIMER1"], max_primers=5, verbose=False)
 
         # Should cover regions in both genomes
+        # `coverage` is the fraction of the GENOME. It used to be the fraction
+        # of the bins some candidate could reach, which is 1.0 whenever the
+        # greedy exhausts its pool -- however little of the target that pool
+        # touches. `reachable_coverage` keeps the old quantity, which is what
+        # this test was actually asserting.
         assert result["total_regions"] == 4  # 2 bins in each genome
-        assert result["coverage"] == 1.0
+        assert result["reachable_coverage"] == 1.0
+        # 4 reachable bins of 8 in the two genomes (5 + 3 at a 1 kb bin).
+        assert result["coverage"] == pytest.approx(0.5)
 
 
 if __name__ == "__main__":

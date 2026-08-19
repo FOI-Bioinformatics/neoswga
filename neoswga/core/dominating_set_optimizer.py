@@ -278,6 +278,24 @@ class DominatingSetOptimizer:
                 f"{extension_reach:,} bp extension reach"
             )
 
+    def _total_bins(self) -> int:
+        """Bins in the genome, not bins some candidate happens to reach.
+
+        `BipartiteGraph.regions` only gains a bin when a candidate covers it, so
+        `len(covered) / len(graph.regions)` is the fraction of the *reachable*
+        genome -- a number that rises as the pool narrows. A pool touching a
+        tenth of the target and covering all of it scored 1.000, which became
+        `score` and passed a 0.95 SUCCESS gate. Dividing by this instead makes
+        coverage a property of the genome, which is what every consumer of the
+        number assumes it already was.
+        """
+        return sum((length + self.bin_size - 1) // self.bin_size for length in self.fg_seq_lengths)
+
+    def _genome_fraction(self, covered_regions) -> float:
+        """Covered bins as a fraction of the genome. See `_total_bins`."""
+        total = self._total_bins()
+        return len(covered_regions) / total if total else 0.0
+
     def optimize_greedy(
         self,
         candidates: List[str],
@@ -354,8 +372,12 @@ class DominatingSetOptimizer:
                         reverse_positions=rv if len(rv) > 0 else None,
                     )
 
+        total_bins = self._total_bins()
         if verbose:
-            logger.info(f"Graph: {len(graph.primers)} primers, {len(graph.regions)} regions")
+            logger.info(
+                f"Graph: {len(graph.primers)} primers, {len(graph.regions)} regions "
+                f"of {total_bins} genome bins"
+            )
 
         # Greedy set cover - start with fixed primers' coverage.
         #
@@ -376,7 +398,7 @@ class DominatingSetOptimizer:
         scan_order = _deterministic_scan_order(fixed_primers, candidates, graph.primers)
 
         if verbose and n_fixed > 0:
-            coverage_so_far = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
+            coverage_so_far = self._genome_fraction(covered_regions)
             logger.info(f"  Fixed primer coverage: {coverage_so_far:.1%}")
 
         for iteration in range(max_primers):
@@ -410,12 +432,12 @@ class DominatingSetOptimizer:
             covered_regions.update(graph.primer_to_regions[best_primer])
 
             if verbose and (iteration + 1) % 5 == 0:
-                coverage = len(covered_regions) / len(graph.regions)
+                coverage = self._genome_fraction(covered_regions)
                 logger.info(f"  {iteration + 1} primers: {coverage:.1%} coverage")
 
             # Check if coverage target is met
             if min_coverage is not None and graph.regions:
-                current_coverage = len(covered_regions) / len(graph.regions)
+                current_coverage = self._genome_fraction(covered_regions)
                 if current_coverage >= min_coverage:
                     if verbose:
                         logger.info(
@@ -426,7 +448,8 @@ class DominatingSetOptimizer:
                     break
 
         # Final statistics
-        coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
+        coverage = self._genome_fraction(covered_regions)
+        reachable_coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
         uncovered = graph.regions - covered_regions
 
         # Both lists come from `order`, not from `selected`.
@@ -451,6 +474,8 @@ class DominatingSetOptimizer:
             "n_new": len(new_primers),
             "n_fixed": n_fixed,
             "coverage": coverage,
+            # Well above `coverage`: the pool cannot reach the rest of the genome.
+            "reachable_coverage": reachable_coverage,
             "covered_regions": len(covered_regions),
             "total_regions": len(graph.regions),
             "uncovered_regions": len(uncovered),
@@ -543,12 +568,15 @@ class DominatingSetOptimizer:
             for primer in selected:
                 covered_regions.update(graph.primer_to_regions.get(primer, set()))
 
-            coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
+            total_bins = self._total_bins()
+            coverage = len(covered_regions) / total_bins if total_bins else 0.0
+            reachable = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
 
             result = {
                 "primers": selected,
                 "n_primers": len(selected),
                 "coverage": coverage,
+                "reachable_coverage": reachable,
                 "covered_regions": len(covered_regions),
                 "total_regions": len(graph.regions),
                 "optimal": True,
