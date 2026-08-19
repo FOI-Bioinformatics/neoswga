@@ -113,6 +113,27 @@ def _scale_freq_threshold(
     primer may have thousands. This function adjusts the threshold so that
     long primers are not eliminated by thresholds calibrated for short ones.
 
+    That argument is about the foreground FLOOR (`min_fg_freq`) and is right:
+    an unscaled 1e-5 floor demands 31.7 sites on a 3.2 Mb target, which almost
+    no 12-mer has, so without this every long primer would be rejected.
+
+    It is also applied to the background CEILING (`max_bg_freq`), where the
+    argument does not carry: the harm from a background site does not depend on
+    primer length. A 12-mer with ten host sites primes the host ten times,
+    exactly as a 10-mer with ten does. Scaling the ceiling therefore reinterprets
+    the parameter at every length -- on chr21, 5e-7 admits 23.35 sites at k=10,
+    1.46 at k=12 and 0.09 at k=14, so from k=13 the gate means "zero exact
+    background matches" and stops responding to the parameter.
+
+    Measured cost on the Prevotella 12-mer pool: of 573,182 candidates the
+    configured ceiling admits, the scaled one keeps 143,224 -- 75% discarded,
+    and not for quality (median 2 foreground sites either way).
+
+    Whether the ceiling should scale is a genuine trade-off, since admitting
+    primers with more host sites raises coverage and lowers selectivity, and it
+    is deliberately not settled here. What is not optional is that the applied
+    threshold be visible: see `describe_freq_gate` and `log_freq_gates`.
+
     Args:
         base_threshold: Frequency threshold calibrated for reference_k-mers
         primer_length: Actual primer length
@@ -126,6 +147,61 @@ def _scale_freq_threshold(
     length_diff = reference_k - primer_length
     scale_factor = 4.0**length_diff  # e.g. 4^(-5) = 1/1024 for 15bp
     return base_threshold * scale_factor
+
+
+def describe_freq_gate(base_threshold: float, primer_length: int, genome_length: int) -> dict:
+    """What a frequency gate actually admits, in sites.
+
+    A frequency is not a quantity anyone can reason about against a params.json
+    value; a site count is. `degenerate` marks a ceiling that has fallen below
+    one site, where the gate means "zero exact matches" and no value of the
+    parameter in its documented range loosens it.
+    """
+    scaled = _scale_freq_threshold(base_threshold, primer_length)
+    sites = scaled * genome_length
+    return {
+        "configured": base_threshold,
+        "scaled": scaled,
+        "sites": sites,
+        "degenerate": sites < 1.0,
+    }
+
+
+def log_freq_gates(
+    primer_length: int,
+    min_fg_freq: float,
+    max_bg_freq: float,
+    fg_length: int,
+    bg_length: int,
+) -> None:
+    """Report the thresholds a run is really applying, once per primer length.
+
+    The length scaling was invisible: nothing printed the applied value, so a
+    user comparing params.json against the result had no way to see that
+    `max_bg_freq: 5e-07` had become 3.13e-08 at k=12.
+    """
+    fg = describe_freq_gate(min_fg_freq, primer_length, fg_length)
+    bg = describe_freq_gate(max_bg_freq, primer_length, bg_length) if bg_length else None
+
+    message = (
+        f"k={primer_length} frequency gates: min_fg_freq {fg['configured']:.3g} "
+        f"-> {fg['scaled']:.3g} (>= {fg['sites']:.2f} foreground sites)"
+    )
+    if bg is not None:
+        message += (
+            f"; max_bg_freq {bg['configured']:.3g} -> {bg['scaled']:.3g} "
+            f"(< {bg['sites']:.2f} background sites)"
+        )
+    logger.info(message)
+
+    if bg is not None and bg["degenerate"]:
+        logger.warning(
+            f"At k={primer_length} the background gate admits only primers with "
+            f"zero exact background matches ({bg['sites']:.2f} sites). "
+            f"max_bg_freq={bg['configured']:.3g} is scaled by 4^(10-{primer_length}) "
+            f"and no value in its documented range loosens this. Raise it by that "
+            f"factor if you meant to allow background binding at this length."
+        )
 
 
 def _warn_if_sample_too_sparse(sampled_index) -> None:
@@ -544,6 +620,16 @@ def get_all_rates(
             _threshold_cache[primer_len] = (
                 _scale_freq_threshold(parameter.min_fg_freq, primer_len),
                 _scale_freq_threshold(parameter.max_bg_freq, primer_len),
+            )
+            # Once per length, say what is actually being applied. The scaling
+            # silently divides both gates by 4^(k-10), and at k>=13 the
+            # background ceiling falls below one site.
+            log_freq_gates(
+                primer_length=primer_len,
+                min_fg_freq=parameter.min_fg_freq,
+                max_bg_freq=parameter.max_bg_freq,
+                fg_length=fg_total_length,
+                bg_length=bg_total_length,
             )
         scaled_min_fg, scaled_max_bg = _threshold_cache[primer_len]
         fg_count = primer_to_fg_count.get(primer, None)
