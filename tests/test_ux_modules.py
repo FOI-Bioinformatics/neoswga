@@ -205,14 +205,19 @@ class TestResultsInterpreter:
         """Test rating where lower is better (like Gini index)."""
         from neoswga.core.results_interpreter import UNIFORMITY_THRESHOLDS
 
-        # Lower Gini is better
-        assert (
-            rate_metric(0.2, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.EXCELLENT
-        )
-        assert (
-            rate_metric(0.5, UNIFORMITY_THRESHOLDS, lower_is_better=True)
-            == QualityRating.ACCEPTABLE
-        )
+        # Lower Gini is better. Own scale rather than the shipped constants:
+        # this tests `rate_metric`'s banding, and binding it to the calibrated
+        # thresholds made recalibrating them break a test of the arithmetic.
+        # The shipped numbers are pinned by
+        # tests/test_quality_thresholds_are_calibrated.py.
+        bands = {
+            QualityRating.EXCELLENT: 0.3,
+            QualityRating.GOOD: 0.45,
+            QualityRating.ACCEPTABLE: 0.6,
+            QualityRating.POOR: 0.75,
+        }
+        assert rate_metric(0.2, bands, lower_is_better=True) == QualityRating.EXCELLENT
+        assert rate_metric(0.5, bands, lower_is_better=True) == QualityRating.ACCEPTABLE
         assert (
             rate_metric(0.9, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.CRITICAL
         )

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
+from neoswga.core import quality_thresholds as _thresholds
 from neoswga.core.report.metrics import PipelineMetrics
 
 logger = logging.getLogger(__name__)
@@ -61,44 +62,25 @@ class QualityAssessment:
     considerations: List[str]
 
 
-# Thresholds for each metric (values that achieve each rating level)
-COVERAGE_THRESHOLDS = {
-    "excellent": 0.95,
-    "good": 0.85,
-    "acceptable": 0.70,
-    "poor": 0.50,
-}
+# Thresholds for each metric (values that achieve each rating level).
+#
+# Derived from `core.quality_thresholds` rather than restated here. This module
+# and `results_interpreter` each carried their own copy and drifted: enrichment
+# "excellent" was 500x here against 200x there, so `neoswga report` and
+# `neoswga interpret` could grade one result differently. Both copies were also
+# miscalibrated -- every published set in the validation suite, including the
+# 120x winner, graded "poor" or "critical" on uniformity.
+COVERAGE_THRESHOLDS = dict(_thresholds.COVERAGE)
+ENRICHMENT_THRESHOLDS = dict(_thresholds.ENRICHMENT)
 
-ENRICHMENT_THRESHOLDS = {
-    "excellent": 500.0,
-    "good": 100.0,
-    "acceptable": 50.0,
-    "poor": 20.0,
-}
+# Uniformity is measured by Gini (lower is better); this module reports
+# `1 - Gini` as a uniformity score, so the shared Gini scale is inverted here.
+UNIFORMITY_THRESHOLDS = _thresholds.as_uniformity_score(_thresholds.GINI)
 
-# Uniformity is measured by Gini (lower is better)
-# We report 1-Gini as "uniformity score"
-UNIFORMITY_THRESHOLDS = {
-    "excellent": 0.85,  # Gini < 0.15
-    "good": 0.70,  # Gini < 0.30
-    "acceptable": 0.55,  # Gini < 0.45
-    "poor": 0.40,  # Gini < 0.60
-}
-
-TM_RANGE_THRESHOLDS = {
-    "excellent": 3.0,
-    "good": 5.0,
-    "acceptable": 8.0,
-    "poor": 12.0,
-}
+TM_RANGE_THRESHOLDS = dict(_thresholds.TM_RANGE)
 
 # Dimer risk thresholds (lower is better)
-DIMER_THRESHOLDS = {
-    "excellent": 0.1,
-    "good": 0.2,
-    "acceptable": 0.35,
-    "poor": 0.5,
-}
+DIMER_THRESHOLDS = dict(_thresholds.DIMER_RISK)
 
 
 def _safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:

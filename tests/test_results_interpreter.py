@@ -103,32 +103,42 @@ class TestRateMetric:
     def test_higher_is_better_boundary_excellent(self):
         assert rate_metric(0.95, COVERAGE_THRESHOLDS) == QualityRating.EXCELLENT
 
-    # Uniformity thresholds (lower is better): EXCELLENT <= 0.3, GOOD <= 0.45, etc.
+    # `rate_metric` is a pure banding function, so these use their own scale.
+    # Binding it to the shipped constants meant recalibrating the thresholds
+    # broke tests of the arithmetic, which is the wrong coupling: the shipped
+    # numbers are pinned by tests/test_quality_thresholds_are_calibrated.py.
+    LOWER_IS_BETTER = {
+        QualityRating.EXCELLENT: 0.3,
+        QualityRating.GOOD: 0.45,
+        QualityRating.ACCEPTABLE: 0.6,
+        QualityRating.POOR: 0.75,
+    }
+
     def test_lower_is_better_excellent(self):
         assert (
-            rate_metric(0.2, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.EXCELLENT
+            rate_metric(0.2, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.EXCELLENT
         )
 
     def test_lower_is_better_good(self):
-        assert rate_metric(0.4, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.GOOD
+        assert rate_metric(0.4, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.GOOD
 
     def test_lower_is_better_acceptable(self):
         assert (
-            rate_metric(0.55, UNIFORMITY_THRESHOLDS, lower_is_better=True)
+            rate_metric(0.55, self.LOWER_IS_BETTER, lower_is_better=True)
             == QualityRating.ACCEPTABLE
         )
 
     def test_lower_is_better_poor(self):
-        assert rate_metric(0.7, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.POOR
+        assert rate_metric(0.7, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.POOR
 
     def test_lower_is_better_critical(self):
         assert (
-            rate_metric(0.9, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.CRITICAL
+            rate_metric(0.9, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.CRITICAL
         )
 
     def test_lower_is_better_boundary_excellent(self):
         assert (
-            rate_metric(0.3, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.EXCELLENT
+            rate_metric(0.3, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.EXCELLENT
         )
 
     # Enrichment thresholds
@@ -136,7 +146,8 @@ class TestRateMetric:
         assert rate_metric(250, ENRICHMENT_THRESHOLDS) == QualityRating.EXCELLENT
 
     def test_enrichment_critical(self):
-        assert rate_metric(5, ENRICHMENT_THRESHOLDS) == QualityRating.CRITICAL
+        # Below the "poor" bar of 2x, which is where the published failures sat.
+        assert rate_metric(1.5, ENRICHMENT_THRESHOLDS) == QualityRating.CRITICAL
 
     # Dimer score thresholds (lower is better)
     def test_dimer_excellent(self):
@@ -252,7 +263,9 @@ class TestResultsInterpreter:
         report = ResultsInterpreter(str(tmp_path)).analyze()
         uni = [a for a in report.assessments if a.name == "Binding Uniformity"]
         assert len(uni) == 1
-        assert uni[0].rating == QualityRating.ACCEPTABLE
+        # Gini 0.55 sits just inside the "good" band, whose 0.56 bar is the cut
+        # between the Prevotella sets that worked and the four that did not.
+        assert uni[0].rating == QualityRating.GOOD
 
     def test_dimer_assessment(self, tmp_path):
         rows = _make_primer_rows(dimer_score=0.4)

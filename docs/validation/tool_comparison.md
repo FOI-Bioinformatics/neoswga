@@ -27,7 +27,7 @@ scoring against wet-lab outcomes rather than against other tools.
 | Set formation | max-clique on compatibility graph | breadth-first greedy with drop-out | interval tiling | greedy set cover + network refinement; **clique also available** |
 | Set scoring | binding metrics | ridge regression fitted to observed coverage | coverage uniformity | `normalized_score`, hand-chosen weights |
 | Primer scoring | filters only | RF, 1500 trees / depth 50 | ML | RF, 100 trees / depth 15 |
-| Coverage reach | — | 70 kb (phi29 processivity) | — | 3 kb default, configurable, fittable from BAM depth; reported at 3/10/70 kb |
+| Coverage reach | — | 70 kb (phi29 processivity) | — | **3 kb, fitted to a measured outcome (3.0-6.2 kb band)**; configurable, also fittable from BAM depth; reported at 3/10/70 kb |
 | Heterodimer-free set | guaranteed by clique | pairwise check while growing | — | guaranteed by `--optimization-method clique`; penalised in the other four |
 | Refine an existing set | no | no | yes | yes (`expand-primers`, `analyze-coverage --bam`) |
 | Multi-genome / pan-target | no | no | no | yes |
@@ -47,8 +47,15 @@ and reported `fg_coverage`. One molecule can be extended 70 kb; that is not the 
 which a primer reliably covers a genome in a multi-primer reaction. Conflating them
 overstates coverage by more than an order of magnitude.
 
-That position stands, but it was overstated as settled. **Neither convention is
-measured.** 70 kb is what one molecule *can* do, not what a product reaches before a
+That position stands, and one half of it is now measured -- see
+[reach_calibration.md](reach_calibration.md). Fitting the reach to Clarke et
+al.'s (2017) *Wolbachia* outcome, the one published set with a quantitative
+breadth figure, puts it at **3.0-6.2 kb**. The 3 kb selection default sits at
+the bottom of that range and is corroborated; the 10 kb reporting reach is
+outside it. What follows was written before that measurement and is left
+because the reasoning still holds for the reporting convention:
+
+**Neither convention was measured.** 70 kb is what one molecule *can* do, not what a product reaches before a
 neighbour's strand displacement truncates it; and the ~3 kb default is derived from the
 inter-primer *spacings* Clarke et al. (2017) and Dwivedi-Yu et al. (2023) designed for,
 which is a designer's choice rather than an observation. The difference is not academic
@@ -80,7 +87,7 @@ far too small a sample to fit weights on without overfitting to them. Hand-chose
 weights that can be argued from mechanism are more honest at this sample size than
 fitted weights that cannot be validated out of sample.
 
-## What this audit changed
+## What the 2026-08-02 audit changed
 
 **Coverage was binned more coarsely than the polymerase reaches.**
 `BipartiteGraph.add_primer_coverage` marks a bin covered when any part of it is within
@@ -157,8 +164,50 @@ as 0.1% coverage. The minimisation pass uses `optimizer.compute_metrics` instead
 selection, trimming and reporting all share the figure written to
 `step4_improved_df_summary.json`.
 
+## What the 2026-08-19 audit changed
+
+**The reach is calibrated.** Previously an assumption on both sides; now fitted
+to a measured outcome at 3.0-6.2 kb, with the site-finding validated against
+the paper's own statistics for three of five sets. Full write-up and the two
+sets that do not reconcile: [reach_calibration.md](reach_calibration.md). No
+other SWGA tool publishes a fitted reach, and swga 2.0's `coverage_ratio` uses
+70 kb -- at which almost any set scores ~1.0, so a comparison at that reach
+carries little information.
+
+**Coverage was six quantities.** Three of them were compared against a 0.95
+threshold as if they meant the same thing. `DominatingSetOptimizer` divided
+covered bins by the bins the *candidate pool* could reach, so a design covering
+a tenth of the target scored 1.000 and reported SUCCESS; that number was also
+its `score` and its stop condition. `expand-primers` measured bin occupancy
+rather than coverage, its value set by `bin_size` rather than the polymerase.
+Neither has a counterpart in swga 1.0 or 2.0, which compute one coverage
+definition each.
+
+**The set-size ceiling was below the measured requirement.** swga 1.0 and 2.0
+impose no cap; NeoSWGA's schema capped `num_primers` at 50 while a >95% design
+on a 3.2 Mb target needs 31-96 primers inside the calibrated reach band. Raised
+to 200. The `--auto-size` ceiling of 20 is deliberately not raised: the estimator
+behind it is genome-independent (`genome_length` cancels out), so at every SWGA
+primer length the clamp is the whole answer.
+
+**The quality grades were uncalibrated and self-inconsistent.** `report` and
+`interpret` carried separate threshold tables that had drifted -- enrichment
+"excellent" was 500x in one and 200x in the other -- and both were set above
+anything ever published. Every set in the seven-dataset benchmark suite,
+including the 120-fold *Prevotella* winner, graded "poor" or "critical" on
+binding evenness. Both now read one table calibrated against that suite, and the
+evenness grade is documented as descriptive rather than predictive, consistent
+with the position below on not folding these statistics into a single score.
+
+Neither swga 1.0 nor swga 2.0 grades a design at all, so this is a NeoSWGA-only
+surface and correspondingly the one with least external calibration.
+
 ## Gaps not closed
 
+- **`off_gap_gini` is still not computed**, and the reach calibration does not
+  change that: it carries the second-largest weight in swga 2.0's fitted model
+  and is the one predictor NeoSWGA cannot produce. Reporting it is worthwhile;
+  folding it into `normalized_score` is not, on the sample size available.
 - **No interval tiling.** COATswga's uniformity approach has no counterpart here.
   `tiling_optimizer.py` was deleted in the same commit as the clique optimizer and
   could be restored the same way.

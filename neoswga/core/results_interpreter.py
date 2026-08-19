@@ -15,6 +15,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from neoswga.core import quality_thresholds as _thresholds
+
 logger = logging.getLogger(__name__)
 
 
@@ -85,34 +87,40 @@ class ResultsReport:
     enrichment_estimate: Optional[Dict[str, Any]] = None
 
 
-# Thresholds for quality ratings
-COVERAGE_THRESHOLDS = {
-    QualityRating.EXCELLENT: 0.95,
-    QualityRating.GOOD: 0.85,
-    QualityRating.ACCEPTABLE: 0.70,
-    QualityRating.POOR: 0.50,
-}
+def _blurb(thresholds, fmt):
+    """The threshold line printed under a metric, built from the numbers used.
 
-ENRICHMENT_THRESHOLDS = {
-    QualityRating.EXCELLENT: 200.0,
-    QualityRating.GOOD: 100.0,
-    QualityRating.ACCEPTABLE: 50.0,
-    QualityRating.POOR: 20.0,
-}
+    It was a hand-written string, so it kept saying ">200x excellent" after the
+    table it described had moved.
+    """
+    return ", ".join(
+        f">{fmt.format(thresholds[label])} {label}" for label in ("excellent", "good", "acceptable")
+    )
 
-UNIFORMITY_THRESHOLDS = {  # Gini index (lower is better)
-    QualityRating.EXCELLENT: 0.3,
-    QualityRating.GOOD: 0.45,
-    QualityRating.ACCEPTABLE: 0.6,
-    QualityRating.POOR: 0.75,
-}
 
-DIMER_SCORE_THRESHOLDS = {  # Lower is better
-    QualityRating.EXCELLENT: 0.1,
-    QualityRating.GOOD: 0.2,
-    QualityRating.ACCEPTABLE: 0.35,
-    QualityRating.POOR: 0.5,
-}
+def _by_rating(thresholds):
+    """Shared string-keyed thresholds, keyed by QualityRating for this module.
+
+    Derived rather than restated: this module and `report/quality.py` each kept
+    their own copy and drifted to 200x against 500x at "excellent", so the two
+    commands graded one result differently.
+    """
+    return {
+        QualityRating.EXCELLENT: thresholds["excellent"],
+        QualityRating.GOOD: thresholds["good"],
+        QualityRating.ACCEPTABLE: thresholds["acceptable"],
+        QualityRating.POOR: thresholds["poor"],
+    }
+
+
+# Thresholds for quality ratings, all from the shared calibrated source.
+COVERAGE_THRESHOLDS = _by_rating(_thresholds.COVERAGE)
+
+ENRICHMENT_THRESHOLDS = _by_rating(_thresholds.ENRICHMENT)
+
+UNIFORMITY_THRESHOLDS = _by_rating(_thresholds.GINI)  # Gini index (lower is better)
+
+DIMER_SCORE_THRESHOLDS = _by_rating(_thresholds.DIMER_RISK)  # Lower is better
 
 
 def rate_metric(
@@ -206,7 +214,7 @@ class ResultsInterpreter:
                     rating=rating,
                     unit="%",
                     context=f"Percentage of target genome covered by primer binding",
-                    threshold_info=f">95% excellent, >85% good, >70% acceptable",
+                    threshold_info=_blurb(_thresholds.COVERAGE, "{:.0%}"),
                 )
             )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
@@ -223,7 +231,7 @@ class ResultsInterpreter:
                     rating=rating,
                     unit="x",
                     context="Expected fold-enrichment of target vs background",
-                    threshold_info=">200x excellent, >100x good, >50x acceptable",
+                    threshold_info=_blurb(_thresholds.ENRICHMENT, "{:.0f}x"),
                 )
             )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
