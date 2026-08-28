@@ -286,8 +286,9 @@ The design problem here is minimising host load, not eliminating it, and a
 parameter set that asks for elimination will not fail loudly.
 
 **`total_bg_sites: 0` was two artefacts at once.** The sets above report no
-exact background site. Against hg38 the 32-primer set has **672**, with every
-one of its 32 primers present, a median of 18 sites and a maximum of 63.
+exact background site. The 32-primer set as designed against chr21 in fact has
+**672** in hg38, with every one of its 32 primers present, a median of 18 sites
+and a maximum of 63.
 Counting against 1.5% of the host is one cause. The other was a defect:
 position scanning silently returned nothing for any sequence longer than
 `2**31` bases, so until 28cc03b supplying the whole genome would still have
@@ -315,23 +316,41 @@ mean occupancy 0.79. The claim that stringency is affordable when the primers
 melt above the reaction temperature was right; the number offered in support of
 it was not.
 
+That one also moved the designs. `normalized_score` carries a Tm-uniformity
+term reading the spread within a set, and Wallace quantises 12-mers into 2 C
+steps, so the spread was nearly constant across candidate sets and the term
+carried almost no information. Re-running the chr21 design with the real spread
+returns a different set, better on **both** axes at once -- effective coverage
+0.481 -> 0.545 and selectivity 2.91 -> 3.23. Improvement on both halves of a
+trade-off is the signature of a distorted objective rather than a frontier, the
+same reading applied to the candidate-cut defect above.
+
 ### What is achievable against the real host
 
 With candidates restricted to those abundant enough to carry coverage
 (foreground count >= 5), the host ceiling becomes the binding constraint. Two
 27-primer designs, differing only in that ceiling:
 
-| host sites allowed | effective coverage | `selectivity_density` | measured host sites | max gap |
+| host sites allowed | effective coverage | `selectivity_density` | `total_bg_sites` | max gap |
 |---|---|---|---|---|
-| <= 20 | 0.352 | 31.1x | 356 | 144 kb |
-| <= 50 | **0.654** | 24.4x | 860 | **62 kb** |
+| <= 20 | 0.328 | **36.4x** | 200 | 115 kb |
+| <= 50 | **0.650** | 25.4x | 546 | 105 kb |
 
-Tightening from 50 to 20 halves the host load, and halves the coverage while
-tripling the largest gap. Since max_gap is the one statistic with a measured
-correlation to enrichment in
+Both were re-run after 28cc03b, so `total_bg_sites` is measured rather than the
+0 the empty position index used to report. The fix changes the designs and not
+only the numbers: with a real background the optimizer sees `bg_coverage`, and
+both sets differ from the ones the same parameters produced before it.
+
+Tightening from 50 to 20 more than halves the host load and buys 43% more
+density selectivity, at half the coverage. The gap penalty that made this an
+easy call on the pre-fix designs largely disappeared once the background was
+real -- 115 kb against 105 kb rather than 144 against 62 -- so the choice is now
+a straight coverage-against-specificity trade rather than one design dominating.
+Since max_gap is the one statistic with a measured correlation to enrichment in
 [published_primer_sets.md](published_primer_sets.md#specificity-validation-against-prevotella-a-negative-result-and-why)
-(rho -0.83), the looser ceiling is the better design of the two despite the
-worse specificity figure. Neither has been run in a reaction.
+(rho -0.83), and the two are now close on it, the looser ceiling remains the
+better choice where coverage matters and the tighter one where host carry-over
+does. Neither has been run in a reaction.
 
 Pushing the ceiling to zero reproduces the coverage ceiling documented above by
 a new route: a gate admitting under 1.26 host sites leaves 1,627 candidates

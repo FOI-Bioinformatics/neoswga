@@ -542,13 +542,36 @@ with h5py.File('positions.h5', 'r') as f:
 
 ## Known Issues
 
-1. **Large background genomes**: Use `neoswga build-filter` to pre-build a Bloom filter for human genome.
+1. **Large background genomes**: Use `neoswga build-filter` to pre-build a Bloom filter for human genome. Note this is not always needed: at k=12 exact jellyfish counting of the whole human genome costs about 7 minutes and a 138 MB table (8,368,418 canonical 12-mers), which is well within reach. The Bloom path matters at longer k, where the count table stops being small. Measure before reaching for it -- the sampled-index path has its own resolution trap (see `_warn_if_sample_too_sparse`).
 
 2. **sklearn compatibility**: The RF model ships in skops format (version-tolerant, no arbitrary-code deserialization), so minor sklearn upgrades no longer require retraining. A major sklearn upgrade may still warrant re-validating the model.
 
 3. **Memory usage**: The filter command loads all background k-mers into memory. Use Bloom filter for large backgrounds.
 
 4. **PositionCache strand parameter**: Uses 'forward', 'reverse', 'both' (not '+' or '-').
+
+5. **pyahocorasick silently finds nothing past 2 Gb** (upstream, unfixed): `Automaton.iter()`
+   indexes with a 32-bit int, so for a string longer than `2**31 - 1` its scan loop never runs.
+   It yields nothing, raises nothing and warns nothing. Verified on **2.3.1, the latest release
+   as of 2026-08**, with the needle planted at offset 1000: length `2**31 - 10` finds it,
+   `2**31 + 10` does not. Not found in the upstream tracker; re-check on upgrade before
+   assuming it is fixed.
+
+   `string_search.MAX_SCAN_CHUNK` (2**30) works around this by scanning in overlapping windows,
+   so this is **load-bearing, not defensive** -- removing the chunking silently breaks any
+   background above 2.147 Gb, which includes human (3.1 Gb) and mouse (2.7 Gb).
+
+   Symptom before the fix: `total_bg_sites` and `bg_coverage` read 0 for a whole-genome host,
+   which is indistinguishable downstream from a perfectly specific primer set. A 27-primer panel
+   scored 0 against hg38 where the jellyfish counts put the true figure at 860.
+
+6. **A partial background is not a specific design**: `selectivity_ratio` is a ratio of counts
+   with no genome length in it, so it moves with how much background sequence you supply --
+   about 66x between human chr21 and whole hg38, with nothing about the primers changed. Read
+   `selectivity_density` (added beside it) when comparing designs scored against different
+   backgrounds. At k=12 note that 99.7% of all canonical 12-mers occur in the human genome, so
+   a gate demanding zero host sites returns a single-site candidate pool rather than failing.
+   See [docs/validation/additive_specificity.md](docs/validation/additive_specificity.md#the-background-was-one-chromosome-and-that-mattered).
 
 ## Package Structure
 
