@@ -329,28 +329,38 @@ same reading applied to the candidate-cut defect above.
 
 With candidates restricted to those abundant enough to carry coverage
 (foreground count >= 5), the host ceiling becomes the binding constraint. Two
-27-primer designs, differing only in that ceiling:
+32-primer designs, differing only in that ceiling:
 
-| host sites allowed | effective coverage | `selectivity_density` | `total_bg_sites` | max gap |
-|---|---|---|---|---|
-| <= 20 | 0.328 | **36.4x** | 200 | 115 kb |
-| <= 50 | **0.650** | 25.4x | 546 | 105 kb |
+| host sites allowed | candidate pool | effective coverage | `selectivity_density` | `total_bg_sites` | max gap |
+|---|---|---|---|---|---|
+| <= 20 | 46 | 0.334 | **33.1x** | 246 | 115 kb |
+| <= 50 | 366 | **0.669** | 24.1x | 654 | **66 kb** |
+
+The candidate-pool column is the more useful number of the two rows. At the
+tight ceiling only 46 candidates clear it, so a 32-primer set is drawing almost
+the whole pool and set size has stopped being a lever: raising it from 27 to 32
+moved effective coverage 0.328 -> 0.334 and left max_gap untouched. At the
+loose ceiling the same change bought 0.650 -> 0.669 and nearly halved the
+largest gap, 105 kb -> 66 kb.
+
+So the two gates fail differently, and only one of them is short of primers.
+That matters for reading the completion check, which used to attribute any
+shortfall to insufficient candidates: at <= 20 that diagnosis would have been
+right, and at <= 50 it would have sent the operator to loosen filters that were
+not the constraint.
 
 Both were re-run after 28cc03b, so `total_bg_sites` is measured rather than the
 0 the empty position index used to report. The fix changes the designs and not
 only the numbers: with a real background the optimizer sees `bg_coverage`, and
 both sets differ from the ones the same parameters produced before it.
 
-Tightening from 50 to 20 more than halves the host load and buys 43% more
-density selectivity, at half the coverage. The gap penalty that made this an
-easy call on the pre-fix designs largely disappeared once the background was
-real -- 115 kb against 105 kb rather than 144 against 62 -- so the choice is now
-a straight coverage-against-specificity trade rather than one design dominating.
+Tightening from 50 to 20 cuts the host load to 38% and buys 37% more density
+selectivity, at half the coverage and with nearly twice the largest gap.
 Since max_gap is the one statistic with a measured correlation to enrichment in
 [published_primer_sets.md](published_primer_sets.md#specificity-validation-against-prevotella-a-negative-result-and-why)
-(rho -0.83), and the two are now close on it, the looser ceiling remains the
-better choice where coverage matters and the tighter one where host carry-over
-does. Neither has been run in a reaction.
+(rho -0.83), and the loose ceiling is now ahead on it as well as on coverage,
+it is the better design unless host carry-over is the binding constraint.
+Neither has been run in a reaction.
 
 Pushing the ceiling to zero reproduces the coverage ceiling documented above by
 a new route: a gate admitting under 1.26 host sites leaves 1,627 candidates
