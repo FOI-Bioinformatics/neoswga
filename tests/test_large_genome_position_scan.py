@@ -26,7 +26,15 @@ its start falls in so the overlap does not double-count.
 
 import pytest
 
-from neoswga.core import string_search
+# The chunked scan exists only on the pyahocorasick path; `neoswga[fast]`
+# supplies it and `string_search` degrades to a per-k Python scan without it.
+# That fallback indexes with Python ints and has no 2**31 limit, so there is
+# nothing here to test when the package is absent -- and calling
+# `get_all_positions_multi_k` anyway raises NameError, which is how this file
+# failed on the one CI runner that had no wheel for it.
+pytest.importorskip("ahocorasick")
+
+from neoswga.core import string_search  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
