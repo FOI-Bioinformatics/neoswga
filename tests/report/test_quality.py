@@ -399,3 +399,38 @@ class TestEdgeCases:
         # abs(-12.0) / 10.0 = 1.2, capped to 1.0
         assert dimer_comp.raw_value == 1.0
         assert dimer_comp.rating == "Critical"
+
+
+class TestUniformityUsesTheMeasuredSetGini:
+    """Uniformity must be graded on the set-level Gini the optimizer measured.
+
+    The thresholds in `quality_thresholds.GINI` are read off published SETS
+    (0.533 to 0.712 across the whole validation suite). Grading the worst
+    individual primer's Gini against them compares two different quantities,
+    and the worst primer in a set is always worse than the set.
+    """
+
+    def _metrics(self, measured_gini, max_gini):
+        return PipelineMetrics(
+            results_dir="/tmp",
+            generated_at="now",
+            coverage=CoverageMetrics(overall_coverage=0.52),
+            specificity=SpecificityMetrics(enrichment_ratio=790.0),
+            thermodynamics=ThermodynamicMetrics(mean_tm=53.0, min_tm=48.0, max_tm=56.0),
+            uniformity=UniformityMetrics(
+                mean_gini=0.60, max_gini=max_gini, measured_gini=measured_gini
+            ),
+        )
+
+    def _uniformity(self, assessment):
+        return next(c for c in assessment.components if c.name == "Uniformity")
+
+    def test_measured_gini_is_preferred_over_worst_primer(self):
+        assessment = calculate_quality_grade(self._metrics(0.5306, 0.66))
+
+        assert self._uniformity(assessment).raw_value == pytest.approx(1 - 0.5306)
+
+    def test_falls_back_to_primer_gini_when_unmeasured(self):
+        assessment = calculate_quality_grade(self._metrics(None, 0.66))
+
+        assert self._uniformity(assessment).raw_value == pytest.approx(1 - 0.66)

@@ -85,6 +85,7 @@ def write_manifest(
     input_files: Optional[List[str]] = None,
     seed: Optional[int] = None,
     extra: Optional[Dict[str, Any]] = None,
+    effective_conditions: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     """Append a step entry to ``<data_dir>/run_manifest.json``.
 
@@ -97,6 +98,13 @@ def write_manifest(
         input_files: Paths to checksum. Missing paths are skipped silently.
         seed: Resolved RNG seed used for this step.
         extra: Step-specific fields to merge into the entry.
+        effective_conditions: The reaction conditions this step actually ran
+            under, after any run-time adjustment. ``resolved_params`` is a copy
+            of params.json, so on its own it does not describe the reaction:
+            the GC-adaptive strategy sets betaine and DMSO from the target's GC
+            and neither appears in the file. Recording them is what lets
+            ``export`` and ``report`` state a Tm corrected for the buffer the
+            design was optimized under.
 
     Returns:
         The manifest path on success, or ``None`` if writing was skipped or
@@ -136,6 +144,7 @@ def write_manifest(
         "seed": seed,
         "params_path": params_path,
         "resolved_params": resolved_params,
+        "effective_conditions": effective_conditions,
         "input_checksums": input_checksums,
     }
     if extra:
@@ -162,3 +171,31 @@ def write_manifest(
 
     logger.info(f"Run manifest updated: {manifest_path}")
     return manifest_path
+
+
+def read_effective_conditions(data_dir: str) -> Optional[Dict[str, Any]]:
+    """The reaction conditions the most recent step recorded, if any.
+
+    `export` and `report` otherwise reconstruct conditions from params.json,
+    which omits anything the run decided for itself -- so they reported a Tm
+    corrected for a different buffer than the one the design was optimized
+    under. The latest step wins: later steps run under the same resolved
+    parameters, and a rerun should not be read through an older reaction.
+    """
+    manifest_path = os.path.join(data_dir, MANIFEST_FILENAME)
+    if not os.path.exists(manifest_path):
+        return None
+    try:
+        with open(manifest_path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.debug(f"Could not read manifest for conditions: {e}")
+        return None
+
+    steps = data.get("steps") if isinstance(data, dict) else None
+    if not isinstance(steps, list):
+        return None
+    for entry in reversed(steps):
+        if isinstance(entry, dict) and isinstance(entry.get("effective_conditions"), dict):
+            return entry["effective_conditions"]
+    return None

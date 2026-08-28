@@ -321,9 +321,9 @@ TTGGTTGGTTGG,0,0.847,0.78,0.12,6.5,15000,hybrid
 
         # Known primers with calculable properties
         primers = [
-            "AAAAAAAAAA",  # 10-mer, 0% GC, Tm = 20
-            "GGGGGGGGGG",  # 10-mer, 100% GC, Tm = 40
-            "ATCGATCGAT",  # 10-mer, 40% GC, Tm = 28
+            "AAAAAAAAAA",  # 10-mer, 0% GC
+            "GGGGGGGGGG",  # 10-mer, 100% GC
+            "ATCGATCGAT",  # 10-mer, 40% GC
         ]
 
         exporter = PrimerExporter(primers)
@@ -332,8 +332,15 @@ TTGGTTGGTTGG,0,0.847,0.78,0.12,6.5,15000,hybrid
         assert summary["num_primers"] == 3
         assert summary["mean_length"] == 10.0
         assert abs(summary["mean_gc"] - 0.467) < 0.01  # (0 + 1 + 0.4) / 3
-        assert summary["min_tm"] == 20.0
-        assert summary["max_tm"] == 40.0
+        # Tm is the nearest-neighbour value under this exporter's conditions,
+        # not the Wallace rule that used to put these at exactly 20/40 C.
+        conditions = exporter.conditions()
+        expected = [conditions.calculate_effective_tm(p) for p in primers]
+        assert summary["min_tm"] == pytest.approx(min(expected))
+        assert summary["max_tm"] == pytest.approx(max(expected))
+        # AT-only still melts below GC-only; the ordering is what the old
+        # constants were really asserting.
+        assert summary["min_tm"] < summary["max_tm"]
         # Cost now reflects length and the modifications the set will be
         # ordered with, not a flat $5/primer. Three 10-mers with the standard
         # two 3' PTO bonds: 3 x (3.00 setup + 10 x 0.25 bases + 2 x 2.50 PTO)
@@ -583,3 +590,136 @@ class TestExportCLIModifications:
         assert args.modifications == "standard"
         assert args.no_modifications is False
         assert args.pto_bonds is None
+
+
+class TestExportTmUsesReactionConditions:
+    """Exported Tm must be the nearest-neighbour value under the reaction
+    conditions, not the Wallace rule.
+
+    The Wallace rule (2*AT + 4*GC) carries no term for temperature, salt,
+    magnesium or additives, so it disagreed with the Tm every other part of
+    the pipeline uses for the same primer at the same moment.
+    """
+
+    def _exporter_and_conditions(self):
+        from neoswga.core.export import PrimerExporter
+        from neoswga.core.reaction_conditions import ReactionConditions
+
+        primers = ["CGGCGACGATGC", "CGACGACATCGA"]
+        exporter = PrimerExporter(primers, polymerase="equiphi29", temperature=42.0, betaine_m=2.0)
+        conditions = ReactionConditions(
+            temp=42.0,
+            polymerase="equiphi29",
+            mg_conc=exporter.mg_conc,
+            betaine_m=2.0,
+        )
+        return primers, exporter, conditions
+
+    def test_summary_tm_matches_nearest_neighbour_under_conditions(self):
+        primers, exporter, conditions = self._exporter_and_conditions()
+        expected = [conditions.calculate_effective_tm(p) for p in primers]
+
+        summary = exporter.get_summary()
+
+        assert summary["min_tm"] == pytest.approx(min(expected), abs=0.05)
+        assert summary["max_tm"] == pytest.approx(max(expected), abs=0.05)
+        assert summary["mean_tm"] == pytest.approx(sum(expected) / len(expected), abs=0.05)
+
+    def test_reported_tm_sits_above_the_reaction_temperature(self):
+        """The one question an equiphi29 12-mer design has to answer.
+
+        Wallace put these primers at 38-42 C against a 42 C reaction, which
+        reads as "will not bind". The salt- and betaine-corrected values are
+        well above it.
+        """
+        _, exporter, _ = self._exporter_and_conditions()
+
+        summary = exporter.get_summary()
+
+        assert summary["min_tm"] > 42.0
+
+    def test_fasta_header_tm_matches_the_summary(self):
+        """The Tm written into the order file is the same quantity."""
+        import re
+        import tempfile
+        from pathlib import Path
+
+        primers, exporter, conditions = self._exporter_and_conditions()
+        with tempfile.NamedTemporaryFile(suffix=".fasta", delete=False) as f:
+            out = f.name
+
+        exporter.export_fasta(out, include_metadata=True)
+        content = Path(out).read_text()
+        Path(out).unlink()
+
+        tms = [float(m) for m in re.findall(r"Tm=([0-9.]+)C", content)]
+        expected = [conditions.calculate_effective_tm(p) for p in primers]
+        assert tms == pytest.approx(expected, abs=0.05)
+
+
+class TestExportPrefersTheRecordedReactionConditions:
+    """params.json is not the reaction.
+
+    The GC-adaptive strategy sets betaine from the target's GC at run time, so
+    a design optimized in 2 M betaine has no betaine in the file the user
+    wrote. Exporting from params.json alone corrected the Tm for a buffer the
+    design never saw -- 52-61 C against the optimizer's own 48.8-56.2 C on the
+    same twelve primers.
+    """
+
+    def _results_dir(self, tmp_path, with_manifest):
+        import json
+
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        (tmp_path / "step4_improved_df.csv").write_text("primer\nCGGCGACGATGC\nCGACGACATCGA\n")
+        (tmp_path / "params.json").write_text(
+            json.dumps({"polymerase": "equiphi29", "reaction_temp": 42.0})
+        )
+        if with_manifest:
+            (tmp_path / "run_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "steps": [
+                            {
+                                "step": "optimize",
+                                "effective_conditions": {
+                                    "polymerase": "equiphi29",
+                                    "reaction_temp": 42.0,
+                                    "mg_conc": 10.0,
+                                    "betaine_m": 2.0,
+                                },
+                            }
+                        ]
+                    }
+                )
+            )
+        return tmp_path
+
+    def test_betaine_from_the_manifest_is_applied(self, tmp_path):
+        from neoswga.core.export import PrimerExporter
+
+        exporter = PrimerExporter.from_results_dir(str(self._results_dir(tmp_path, True)))
+
+        assert exporter.additives["betaine_m"] == 2.0
+
+    def test_recorded_conditions_change_the_exported_tm(self, tmp_path):
+        """Betaine lowers Tm, so the recorded reaction must report lower."""
+        from neoswga.core.export import PrimerExporter
+
+        with_manifest = PrimerExporter.from_results_dir(
+            str(self._results_dir(tmp_path / "a", True))
+        ).get_summary()
+        without = PrimerExporter.from_results_dir(
+            str(self._results_dir(tmp_path / "b", False))
+        ).get_summary()
+
+        assert with_manifest["mean_tm"] < without["mean_tm"]
+
+    def test_params_json_still_used_without_a_manifest(self, tmp_path):
+        from neoswga.core.export import PrimerExporter
+
+        exporter = PrimerExporter.from_results_dir(str(self._results_dir(tmp_path, False)))
+
+        assert exporter.polymerase == "equiphi29"
+        assert exporter.temperature == 42.0
+        assert exporter.additives["betaine_m"] == 0.0

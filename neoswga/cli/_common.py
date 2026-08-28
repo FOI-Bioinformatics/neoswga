@@ -626,6 +626,26 @@ def _apply_seed(args):
     logger.info(f"Random seed set to {seed} for reproducibility")
 
 
+def _effective_conditions(parameter):
+    """The reaction the run is actually using, read off the parameter module.
+
+    params.json is not the answer: `retune_for_polymerase` and the GC-adaptive
+    strategy both write back here, so a GC-rich target designed with 2 M
+    betaine leaves no trace in the file the user wrote. Snapshotting the
+    resolved state is what lets `export` and `report` correct a Tm for the
+    buffer the design was optimized under instead of a different one.
+    """
+    from neoswga.core.parameter import REACTION_PARAM_DEFAULTS
+
+    fields = ("polymerase", "reaction_temp", "na_conc", "mg_conc", *REACTION_PARAM_DEFAULTS)
+    conditions = {}
+    for name in fields:
+        value = getattr(parameter, name, None)
+        if value is not None:
+            conditions[name] = value
+    return conditions or None
+
+
 def _record_run_manifest(step: str, args, parameter, input_files=None):
     """Best-effort wrapper around run_manifest.write_manifest.
 
@@ -636,6 +656,7 @@ def _record_run_manifest(step: str, args, parameter, input_files=None):
         from neoswga.core.run_manifest import write_manifest
 
         write_manifest(
+            effective_conditions=_effective_conditions(parameter),
             step=step,
             data_dir=getattr(parameter, "data_dir", None),
             params_path=getattr(args, "json_file", None),

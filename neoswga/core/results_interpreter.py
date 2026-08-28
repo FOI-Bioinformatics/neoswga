@@ -544,7 +544,15 @@ class ResultsInterpreter:
         if report.assessments:
             print("\n--- Metrics ---")
             for assessment in report.assessments:
-                print(f"\n{assessment.name}: {assessment.value:.2f}{assessment.unit}")
+                # `value` is the fraction the thresholds are stated in, so a
+                # "%" metric has to be scaled to print. Gluing "%" onto
+                # `:.2f` reported a fully covered genome as "1.00%" under a
+                # line reading ">95% excellent".
+                if assessment.unit == "%":
+                    shown = f"{assessment.value:.1%}"
+                else:
+                    shown = f"{assessment.value:.2f}{assessment.unit}"
+                print(f"\n{assessment.name}: {shown}")
                 print(f"  Rating: {assessment.rating.value}")
                 print(f"  Context: {assessment.context}")
                 print(f"  Thresholds: {assessment.threshold_info}")

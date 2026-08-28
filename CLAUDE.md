@@ -124,6 +124,13 @@ count-kmers            filter                 score                  optimize
 - `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
   effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics)
 - `*_positions.h5`: HDF5 files with primer binding positions
+- `run_manifest.json`: One appended entry per step (version, git SHA, seed, input
+  checksums, CLI invocation). `resolved_params` is a copy of params.json;
+  `effective_conditions` is the reaction the step actually ran under, which is
+  not the same thing — `retune_for_polymerase` and the GC-adaptive strategy set
+  the polymerase, temperature and additives at run time and never write back to
+  the file. `export` and `report` read `effective_conditions` in preference to
+  params.json, which is what makes their Tm agree with the optimizer's.
 
 ## CLI Commands
 
@@ -190,7 +197,7 @@ neoswga start
 neoswga init --genome target.fna [--background host.fna] [-o params.json]
 
 # Validate params.json before running pipeline
-neoswga validate-params -j params.json
+neoswga validate params -j params.json
 
 # Suggest optimal reaction conditions
 neoswga suggest --genome-gc 0.65 --primer-length 15
@@ -215,8 +222,11 @@ neoswga report -d results/ --check                # Validate only, don't generat
 # --interactive adds Plotly charts on top of the static sections.
 
 # Validate mechanistic model against expected behavior
-neoswga validate-model               # Run all validation tests
-neoswga validate-model --output-json  # Output results as JSON
+neoswga validate model               # Run all validation tests
+neoswga validate model --output-json  # Output results as JSON
+
+# The hyphenated forms (validate-params, validate-model) still run but warn:
+# the subcommands are `neoswga validate {install,params,model}`.
 ```
 
 ### Optimization with Mechanistic Model

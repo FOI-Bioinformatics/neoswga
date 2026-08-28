@@ -280,8 +280,18 @@ def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
     )
 
     # Uniformity (20%)
-    # Convert Gini to uniformity score (1 - Gini)
-    gini = metrics.uniformity.max_gini if metrics.uniformity else 0.5
+    # Convert Gini to uniformity score (1 - Gini).
+    #
+    # Prefer the set-level Gini the optimizer measured. UNIFORMITY_THRESHOLDS
+    # is derived from `quality_thresholds.GINI`, which is read off published
+    # SETS; `max_gini` is the worst single primer in the set, which is a
+    # different quantity and always the more pessimistic one.
+    gini = 0.5
+    if metrics.uniformity:
+        if metrics.uniformity.measured_gini is not None:
+            gini = metrics.uniformity.measured_gini
+        else:
+            gini = metrics.uniformity.max_gini
     uniformity = 1.0 - gini
     rating, score = _rate_value(uniformity, UNIFORMITY_THRESHOLDS)
     components.append(

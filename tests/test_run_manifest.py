@@ -137,3 +137,83 @@ def test_reproducibility_fingerprint_stable(tmp_path):
         }
 
     assert fingerprint(runs[0]) == fingerprint(runs[1])
+
+
+# ---------------------------------------------------------------------------
+# `resolved_params` is a verbatim copy of params.json, so the buffer the run
+# actually used was never recorded. The GC-adaptive strategy sets betaine and
+# DMSO at run time from the target's GC, and neither appears in params.json --
+# so a reader of the manifest, or `export`/`report` reconstructing conditions
+# from it, gets a different reaction than the one that produced the design.
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_records_the_conditions_the_run_used(tmp_path):
+    out = rm.write_manifest(
+        step="filter",
+        data_dir=str(tmp_path),
+        effective_conditions={"polymerase": "equiphi29", "reaction_temp": 42.0, "betaine_m": 2.0},
+    )
+
+    with open(out) as f:
+        entry = json.load(f)["steps"][0]
+
+    assert entry["effective_conditions"]["betaine_m"] == 2.0
+    assert entry["effective_conditions"]["polymerase"] == "equiphi29"
+
+
+def test_effective_conditions_absent_when_not_supplied(tmp_path):
+    out = rm.write_manifest(step="filter", data_dir=str(tmp_path))
+
+    with open(out) as f:
+        entry = json.load(f)["steps"][0]
+
+    assert entry["effective_conditions"] is None
+
+
+def test_read_effective_conditions_returns_the_latest(tmp_path):
+    rm.write_manifest(
+        step="filter",
+        data_dir=str(tmp_path),
+        effective_conditions={"polymerase": "phi29", "betaine_m": 0.0},
+    )
+    rm.write_manifest(
+        step="optimize",
+        data_dir=str(tmp_path),
+        effective_conditions={"polymerase": "equiphi29", "betaine_m": 2.0},
+    )
+
+    assert rm.read_effective_conditions(str(tmp_path)) == {
+        "polymerase": "equiphi29",
+        "betaine_m": 2.0,
+    }
+
+
+def test_read_effective_conditions_without_manifest_is_none(tmp_path):
+    assert rm.read_effective_conditions(str(tmp_path)) is None
+
+
+def test_record_run_manifest_snapshots_the_effective_parameter_state(tmp_path):
+    """The betaine the GC-adaptive strategy chose is in the parameter module,
+    not in params.json, and this is the only place holding both."""
+    from types import SimpleNamespace
+
+    from neoswga.cli._common import _record_run_manifest
+
+    parameter = SimpleNamespace(
+        data_dir=str(tmp_path),
+        polymerase="equiphi29",
+        reaction_temp=42.0,
+        na_conc=50.0,
+        mg_conc=10.0,
+        betaine_m=2.0,
+        dmso_percent=0.0,
+    )
+    _record_run_manifest("filter", SimpleNamespace(json_file=None, seed=7), parameter)
+
+    conditions = rm.read_effective_conditions(str(tmp_path))
+    assert conditions is not None
+    assert conditions["betaine_m"] == 2.0
+    assert conditions["polymerase"] == "equiphi29"
+    assert conditions["reaction_temp"] == 42.0
+    assert conditions["mg_conc"] == 10.0
