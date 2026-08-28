@@ -15,10 +15,10 @@ from neoswga.cli._common import (
     load_preset_conditions,
     merge_args_to_parameter,
     params_command,
+    set_size_shortfall_advice,
     setup_gpu_acceleration,
     validate_params_json_file,
 )
-from neoswga.cli._common import set_size_shortfall_advice
 from neoswga.cli._params_preread import (
     apply_polymerase_choice,
     polymerase_from_params,
