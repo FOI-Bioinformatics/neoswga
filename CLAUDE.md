@@ -554,8 +554,18 @@ with h5py.File('positions.h5', 'r') as f:
    indexes with a 32-bit int, so for a string longer than `2**31 - 1` its scan loop never runs.
    It yields nothing, raises nothing and warns nothing. Verified on **2.3.1, the latest release
    as of 2026-08**, with the needle planted at offset 1000: length `2**31 - 10` finds it,
-   `2**31 + 10` does not. Not found in the upstream tracker; re-check on upgrade before
-   assuming it is fixed.
+   `2**31 + 10` does not. Not found in the upstream tracker.
+
+   The re-check is automated rather than left to memory. `tests/test_pyahocorasick_limit_canary.py`
+   fails as soon as the installed version leaves the set that has actually been measured, and
+   names the command that re-measures it:
+
+   ```bash
+   NEOSWGA_VERIFY_AHOCORASICK_LIMIT=1 pytest tests/test_pyahocorasick_limit_canary.py -k still_present
+   ```
+
+   That run allocates over 2 GB, so it is opt-in. If the limit is gone, the chunking is still
+   correct but no longer load-bearing, and keeping or dropping it is a deliberate choice.
 
    `string_search.MAX_SCAN_CHUNK` (2**30) works around this by scanning in overlapping windows,
    so this is **load-bearing, not defensive** -- removing the chunking silently breaks any
