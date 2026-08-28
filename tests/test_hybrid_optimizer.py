@@ -23,10 +23,10 @@ from neoswga.core.hybrid_optimizer import (
     _get_polymerase_config,
 )
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
+
 
 def _make_mock_cache(positions_map=None):
     """Create a mock PositionCache with configurable position data.
@@ -39,14 +39,14 @@ def _make_mock_cache(positions_map=None):
     cache = Mock()
     positions_map = positions_map or {}
 
-    def get_positions(prefix, primer, strand='both'):
+    def get_positions(prefix, primer, strand="both"):
         key = (prefix, primer, strand)
         if key in positions_map:
             return positions_map[key]
         # Default: return deterministic positions based on primer hash
-        if strand == 'both':
-            fwd = get_positions(prefix, primer, 'forward')
-            rev = get_positions(prefix, primer, 'reverse')
+        if strand == "both":
+            fwd = get_positions(prefix, primer, "forward")
+            rev = get_positions(prefix, primer, "reverse")
             return np.concatenate([fwd, rev])
         # Use hash to generate reproducible positions
         h = hash((primer, strand)) % 10000
@@ -58,10 +58,10 @@ def _make_mock_cache(positions_map=None):
 
 def _make_primers(n=20):
     """Generate n deterministic primer sequences."""
-    bases = 'ACGT'
+    bases = "ACGT"
     primers = []
     for i in range(n):
-        seq = ''
+        seq = ""
         val = i
         for _ in range(8):
             seq += bases[val % 4]
@@ -74,12 +74,13 @@ def _make_primers(n=20):
 # PolymeraseConfig Tests
 # =============================================================================
 
+
 class TestPolymeraseConfig:
     """Tests for PolymeraseConfig and presets."""
 
     def test_phi29_preset_defaults(self):
         """Test that phi29 preset has expected defaults."""
-        config = POLYMERASE_PRESETS['phi29']
+        config = POLYMERASE_PRESETS["phi29"]
 
         assert config.max_extension == 70000
         assert config.thermo_filter is False
@@ -88,7 +89,7 @@ class TestPolymeraseConfig:
 
     def test_equiphi29_preset(self):
         """Test that equiphi29 preset has higher temperature and thermo filter."""
-        config = POLYMERASE_PRESETS['equiphi29']
+        config = POLYMERASE_PRESETS["equiphi29"]
 
         assert config.max_extension == 80000
         assert config.thermo_filter is True
@@ -98,35 +99,52 @@ class TestPolymeraseConfig:
         assert config.max_primer_tm == 62.0
 
     def test_bst_preset(self):
-        """Test that bst preset has thermostable settings."""
-        config = POLYMERASE_PRESETS['bst']
+        """Test that bst preset has thermostable settings.
 
-        assert config.max_extension == 10000
+        max_extension was 10000 while bst processivity is 2000 - a network
+        reach the enzyme cannot achieve. It now derives from processivity_bp.
+        reaction_temp was 60.0 against an advertised 63.0 optimum; collapsed.
+        """
+        config = POLYMERASE_PRESETS["bst"]
+
+        assert config.max_extension == 2000
         assert config.thermo_filter is True
-        assert config.reaction_temp == 60.0
+        assert config.reaction_temp == 63.0
         assert config.min_primer_tm == 50.0
 
     def test_klenow_preset(self):
-        """Test that klenow preset has lower processivity."""
-        config = POLYMERASE_PRESETS['klenow']
+        """Test that klenow preset has lower processivity.
 
-        assert config.max_extension == 5000
+        max_extension was 5000 against a corrected 40 nt processivity - Klenow
+        is distributive. It now derives from processivity_bp.
+        """
+        config = POLYMERASE_PRESETS["klenow"]
+
+        assert config.max_extension == 40
         assert config.thermo_filter is False
         assert config.reaction_temp == 37.0
 
     def test_all_presets_present(self):
-        """Test that all expected polymerase presets are defined."""
-        expected = {'phi29', 'equiphi29', 'bst', 'klenow'}
-        assert set(POLYMERASE_PRESETS.keys()) == expected
+        """Presets must cover the registry, and never lose the original four.
+
+        This was an exact-set equality, which made adding any polymerase a test
+        failure rather than a one-line registry edit. Split into the two things
+        it was actually protecting: agreement with the registry (the real
+        invariant) and a floor under the four that shipped originally.
+        """
+        from neoswga.core.registry import POLYMERASES
+
+        assert set(POLYMERASE_PRESETS) == set(POLYMERASES)
+        assert {"phi29", "equiphi29", "bst", "klenow"} <= set(POLYMERASE_PRESETS)
 
     def test_get_polymerase_config_known(self):
         """Test that known polymerase names return correct config."""
-        config = _get_polymerase_config('equiphi29')
+        config = _get_polymerase_config("equiphi29")
         assert config.reaction_temp == 42.0
 
     def test_get_polymerase_config_unknown_falls_back(self):
         """Test that unknown polymerase falls back to phi29."""
-        config = _get_polymerase_config('unknown_enzyme')
+        config = _get_polymerase_config("unknown_enzyme")
         assert config.max_extension == 70000
         assert config.reaction_temp == 30.0
 
@@ -134,6 +152,7 @@ class TestPolymeraseConfig:
 # =============================================================================
 # HybridOptimizer Initialization Tests
 # =============================================================================
+
 
 class TestHybridOptimizerInit:
     """Tests for HybridOptimizer initialization."""
@@ -144,15 +163,15 @@ class TestHybridOptimizerInit:
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
             bin_size=10000,
         )
 
-        assert optimizer.polymerase == 'phi29'
+        assert optimizer.polymerase == "phi29"
         assert optimizer.max_extension == 70000
         assert optimizer.bin_size == 10000
-        assert optimizer.fg_prefixes == ['genome1']
+        assert optimizer.fg_prefixes == ["genome1"]
         assert optimizer.fg_seq_lengths == [100000]
         assert optimizer.bg_prefixes == []
         assert optimizer.bg_seq_lengths == []
@@ -164,13 +183,13 @@ class TestHybridOptimizerInit:
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
-            polymerase='equiphi29',
+            polymerase="equiphi29",
             genome_gc_content=0.70,
         )
 
-        assert optimizer.polymerase == 'equiphi29'
+        assert optimizer.polymerase == "equiphi29"
         # equiphi29 overrides default max_extension
         assert optimizer.max_extension == 80000
         # GC-rich genome widens max_gc acceptance
@@ -182,9 +201,9 @@ class TestHybridOptimizerInit:
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
-            polymerase='equiphi29',
+            polymerase="equiphi29",
             genome_gc_content=0.30,
         )
 
@@ -197,9 +216,9 @@ class TestHybridOptimizerInit:
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
-            polymerase='bst',
+            polymerase="bst",
             max_extension=50000,
         )
 
@@ -212,9 +231,9 @@ class TestHybridOptimizerInit:
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
-            bg_prefixes=['bg_genome'],
+            bg_prefixes=["bg_genome"],
             bg_seq_lengths=[3000000],
             background_pruning=True,
             background_weight=3.0,
@@ -224,7 +243,7 @@ class TestHybridOptimizerInit:
         assert optimizer.background_pruning is True
         assert optimizer.background_weight == 3.0
         assert optimizer.min_coverage_threshold == 0.90
-        assert optimizer.bg_prefixes == ['bg_genome']
+        assert optimizer.bg_prefixes == ["bg_genome"]
         assert optimizer.bg_seq_lengths == [3000000]
 
     def test_init_no_gc_adjustment_without_thermo_filter(self):
@@ -233,9 +252,9 @@ class TestHybridOptimizerInit:
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
-            polymerase='phi29',
+            polymerase="phi29",
             genome_gc_content=0.70,
         )
 
@@ -247,6 +266,7 @@ class TestHybridOptimizerInit:
 # Optimization Tests
 # =============================================================================
 
+
 class TestHybridOptimization:
     """Tests for the optimize method."""
 
@@ -256,7 +276,7 @@ class TestHybridOptimization:
         cache = _make_mock_cache()
         return HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
             bin_size=10000,
         )
@@ -355,6 +375,7 @@ class TestHybridOptimization:
 # Edge Cases
 # =============================================================================
 
+
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
@@ -364,7 +385,7 @@ class TestEdgeCases:
         cache = _make_mock_cache()
         return HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
             bin_size=10000,
         )
@@ -425,6 +446,7 @@ class TestEdgeCases:
 # Background Pruning Tests
 # =============================================================================
 
+
 class TestBackgroundPruning:
     """Tests for the background pruning stage."""
 
@@ -437,28 +459,26 @@ class TestBackgroundPruning:
         for primer in primers:
             # Foreground: spread across genome
             h = hash(primer) % 10000
-            positions_map[('genome1', primer, 'forward')] = np.array(
+            positions_map[("genome1", primer, "forward")] = np.array(
                 [h, h + 10000, h + 20000], dtype=np.int32
             )
-            positions_map[('genome1', primer, 'reverse')] = np.array(
+            positions_map[("genome1", primer, "reverse")] = np.array(
                 [h + 5000, h + 15000], dtype=np.int32
             )
             # Background: some primers have many bg sites
-            bg_count = (hash(primer) % 50)
-            positions_map[('bg_genome', primer, 'forward')] = np.arange(
+            bg_count = hash(primer) % 50
+            positions_map[("bg_genome", primer, "forward")] = np.arange(
                 0, bg_count * 1000, 1000, dtype=np.int32
             )
-            positions_map[('bg_genome', primer, 'reverse')] = np.array(
-                [], dtype=np.int32
-            )
+            positions_map[("bg_genome", primer, "reverse")] = np.array([], dtype=np.int32)
 
         cache = _make_mock_cache(positions_map)
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
-            bg_prefixes=['bg_genome'],
+            bg_prefixes=["bg_genome"],
             bg_seq_lengths=[3000000],
             background_pruning=True,
             background_weight=2.0,
@@ -481,7 +501,7 @@ class TestBackgroundPruning:
 
         optimizer = HybridOptimizer(
             position_cache=cache,
-            fg_prefixes=['genome1'],
+            fg_prefixes=["genome1"],
             fg_seq_lengths=[100000],
         )
 
@@ -492,17 +512,18 @@ class TestBackgroundPruning:
 # HybridResult Tests
 # =============================================================================
 
+
 class TestHybridResult:
     """Tests for HybridResult dataclass."""
 
     def test_str_representation(self):
         """Test string representation of HybridResult."""
         result = HybridResult(
-            primers=['ATCGATCG', 'GCTAGCTA'],
-            stage1_primers=['ATCGATCG', 'GCTAGCTA', 'AAATTTCCC'],
+            primers=["ATCGATCG", "GCTAGCTA"],
+            stage1_primers=["ATCGATCG", "GCTAGCTA", "AAATTTCCC"],
             stage1_coverage=0.85,
             stage1_regions_covered=8,
-            stage2_primers=['ATCGATCG', 'GCTAGCTA'],
+            stage2_primers=["ATCGATCG", "GCTAGCTA"],
             stage2_connectivity=0.45,
             stage2_predicted_amplification=12.5,
             stage2_largest_component=5,
@@ -513,9 +534,9 @@ class TestHybridResult:
         )
 
         s = str(result)
-        assert 'Final primers: 2' in s
-        assert '80.0%' in s
-        assert '12.5' in s
+        assert "Final primers: 2" in s
+        assert "80.0%" in s
+        assert "12.5" in s
 
     def test_str_with_simulation(self):
         """Test string representation includes simulation data when present."""
@@ -526,11 +547,11 @@ class TestHybridResult:
         sim_fitness.fitness_score = 0.82
 
         result = HybridResult(
-            primers=['ATCGATCG'],
-            stage1_primers=['ATCGATCG'],
+            primers=["ATCGATCG"],
+            stage1_primers=["ATCGATCG"],
             stage1_coverage=0.85,
             stage1_regions_covered=8,
-            stage2_primers=['ATCGATCG'],
+            stage2_primers=["ATCGATCG"],
             stage2_connectivity=0.45,
             stage2_predicted_amplification=12.5,
             stage2_largest_component=5,
@@ -542,9 +563,9 @@ class TestHybridResult:
         )
 
         s = str(result)
-        assert 'Simulation' in s
-        assert '0.820' in s
+        assert "Simulation" in s
+        assert "0.820" in s
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -42,7 +42,6 @@ from neoswga.core.reaction_conditions import (
     get_standard_conditions,
 )
 
-
 # =============================================================================
 # Tm Calculation
 # =============================================================================
@@ -76,8 +75,7 @@ class TestTmCalculation:
         tm_mixed = calculate_tm_with_salt(mixed, na_conc=50)
 
         assert tm_gc > tm_mixed > tm_at, (
-            f"Expected Tm order: GC ({tm_gc:.1f}) > mixed ({tm_mixed:.1f}) "
-            f"> AT ({tm_at:.1f})"
+            f"Expected Tm order: GC ({tm_gc:.1f}) > mixed ({tm_mixed:.1f}) " f"> AT ({tm_at:.1f})"
         )
 
     def test_longer_sequence_higher_tm(self):
@@ -147,9 +145,7 @@ class TestLiteratureValidation:
         ("AATTAATT", 50, -8.3, 5.0, "NN + Owczarzy entropy correction - extreme AT"),
     ]
 
-    @pytest.mark.parametrize(
-        "seq,na_mm,expected_tm,tolerance,source", TM_REFERENCE_DATA
-    )
+    @pytest.mark.parametrize("seq,na_mm,expected_tm,tolerance,source", TM_REFERENCE_DATA)
     def test_tm_within_tolerance(self, seq, na_mm, expected_tm, tolerance, source):
         """Verify calculated Tm is within acceptable tolerance of reference value."""
         calculated_tm = calculate_tm_with_salt(seq, na_conc=na_mm, mg_conc=0)
@@ -302,8 +298,7 @@ class TestBatchOperations:
         individual_tms = [calculate_tm_with_salt(seq) for seq in sequences]
         for i, seq in enumerate(sequences):
             assert abs(batch_tms[i] - individual_tms[i]) < 0.1, (
-                f"Mismatch for {seq}: batch={batch_tms[i]}, "
-                f"individual={individual_tms[i]}"
+                f"Mismatch for {seq}: batch={batch_tms[i]}, " f"individual={individual_tms[i]}"
             )
 
     def test_batch_tm_custom_salt(self):
@@ -331,8 +326,7 @@ class TestBatchOperations:
         """Test batch Tm with 100 random sequences."""
         np.random.seed(42)
         sequences = [
-            "".join(np.random.choice(list("ATCG"), np.random.randint(8, 15)))
-            for _ in range(100)
+            "".join(np.random.choice(list("ATCG"), np.random.randint(8, 15))) for _ in range(100)
         ]
         tms = calculate_tm_batch(sequences)
         assert len(tms) == 100
@@ -372,7 +366,7 @@ class TestBatchOperations:
     def test_batch_wallace_multiple(self):
         """Test Wallace Tm batch with known values."""
         tms = calculate_wallace_tm_batch(["AAAA", "GGGG", "ATCG"])
-        assert tms[0] == 8.0   # 4*2
+        assert tms[0] == 8.0  # 4*2
         assert tms[1] == 16.0  # 4*4
         assert tms[2] == 12.0  # 2*2 + 2*4
 
@@ -405,9 +399,7 @@ class TestBatchOperations:
 
     def test_batch_extreme_gc(self):
         """Test batch with extreme GC content."""
-        gc_values = calculate_gc_batch(
-            ["AAAAAAAAAA", "ATATATATAT", "GCGCGCGCGC", "CCCCCCCCCC"]
-        )
+        gc_values = calculate_gc_batch(["AAAAAAAAAA", "ATATATATAT", "GCGCGCGCGC", "CCCCCCCCCC"])
         assert gc_values[0] == 0.0
         assert gc_values[1] == 0.0
         assert gc_values[2] == 1.0
@@ -426,8 +418,7 @@ class TestBatchPerformance:
         """Test that batch calculation is not significantly slower than a loop."""
         np.random.seed(42)
         sequences = [
-            "".join(np.random.choice(list("ATCG"), np.random.randint(8, 12)))
-            for _ in range(50)
+            "".join(np.random.choice(list("ATCG"), np.random.randint(8, 12))) for _ in range(50)
         ]
 
         start = time.time()
@@ -583,8 +574,16 @@ class TestNearestNeighborParameters:
     def test_canonical_stacks_present(self):
         """All 10 canonical SantaLucia stacks should be present."""
         canonical = [
-            "AA/TT", "AT/TA", "TA/AT", "CA/GT", "GT/CA",
-            "CT/GA", "GA/CT", "CG/GC", "GC/CG", "GG/CC",
+            "AA/TT",
+            "AT/TA",
+            "TA/AT",
+            "CA/GT",
+            "GT/CA",
+            "CT/GA",
+            "GA/CT",
+            "CG/GC",
+            "GC/CG",
+            "GG/CC",
         ]
         for stack in canonical:
             assert stack in ENTHALPY_NN
@@ -629,9 +628,7 @@ class TestEdgeCases:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             calculate_tm_with_salt("ATCGATNCG")
-            assert any(
-                "ambiguous" in str(warning.message).lower() for warning in w
-            )
+            assert any("ambiguous" in str(warning.message).lower() for warning in w)
 
     def test_has_ambiguous_bases(self):
         """Test has_ambiguous_bases detection."""

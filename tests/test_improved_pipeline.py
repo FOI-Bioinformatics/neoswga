@@ -15,10 +15,10 @@ from neoswga.core.improved_pipeline import (
     migrate_from_old_pipeline,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _write_fasta(path, sequences):
     """Write a multi-sequence FASTA file.
@@ -57,6 +57,7 @@ def _mock_network_optimizer():
 # PipelineConfig
 # ---------------------------------------------------------------------------
 
+
 class TestPipelineConfig:
 
     def test_defaults(self):
@@ -92,6 +93,7 @@ class TestPipelineConfig:
 # ImprovedPipeline init
 # ---------------------------------------------------------------------------
 
+
 class TestImprovedPipelineInit:
 
     def test_default_config(self):
@@ -108,6 +110,7 @@ class TestImprovedPipelineInit:
 # ---------------------------------------------------------------------------
 # _get_genome_lengths
 # ---------------------------------------------------------------------------
+
 
 class TestGetGenomeLengths:
 
@@ -130,6 +133,7 @@ class TestGetGenomeLengths:
 # design_primers — optimizer routing
 # ---------------------------------------------------------------------------
 
+
 class TestDesignPrimersRouting:
     """ImprovedPipeline always uses NetworkOptimizer after the optimizer trim."""
 
@@ -147,10 +151,15 @@ class TestDesignPrimersRouting:
         )
         pipeline = ImprovedPipeline(cfg)
 
-        with patch("neoswga.core.improved_pipeline.PositionCache",
-                   return_value=_mock_position_cache()), \
-             patch("neoswga.core.improved_pipeline.NetworkOptimizer",
-                   return_value=_mock_network_optimizer()) as net_cls:
+        with (
+            patch(
+                "neoswga.core.improved_pipeline.PositionCache", return_value=_mock_position_cache()
+            ),
+            patch(
+                "neoswga.core.improved_pipeline.NetworkOptimizer",
+                return_value=_mock_network_optimizer(),
+            ) as net_cls,
+        ):
             result = pipeline.design_primers(
                 fg_genome_path=genome_fasta,
                 fg_prefixes=["fg_prefix"],
@@ -172,10 +181,14 @@ class TestDesignPrimersRouting:
         )
         pipeline = ImprovedPipeline(cfg)
 
-        with patch("neoswga.core.improved_pipeline.PositionCache"), \
-             patch("neoswga.core.improved_pipeline.NetworkOptimizer",
-                   return_value=_mock_network_optimizer()), \
-             patch("neoswga.core.improved_pipeline.AdaptiveFilterPipeline") as af_cls:
+        with (
+            patch("neoswga.core.improved_pipeline.PositionCache"),
+            patch(
+                "neoswga.core.improved_pipeline.NetworkOptimizer",
+                return_value=_mock_network_optimizer(),
+            ),
+            patch("neoswga.core.improved_pipeline.AdaptiveFilterPipeline") as af_cls,
+        ):
             result = pipeline.design_primers(
                 fg_genome_path=genome_fasta,
                 fg_prefixes=["fg"],
@@ -202,18 +215,23 @@ class TestDesignPrimersRouting:
 # migrate_from_old_pipeline
 # ---------------------------------------------------------------------------
 
+
 class TestMigrateFromOldPipeline:
 
     def test_creates_output_file(self, tmp_path):
         old_json = tmp_path / "old_params.json"
-        old_json.write_text(json.dumps({
-            "fg_genomes": ["target.fna"],
-            "bg_genomes": ["host.fna"],
-            "fg_prefixes": ["data/target"],
-            "bg_prefixes": ["data/host"],
-            "data_dir": "data/",
-            "max_sets": 8,
-        }))
+        old_json.write_text(
+            json.dumps(
+                {
+                    "fg_genomes": ["target.fna"],
+                    "bg_genomes": ["host.fna"],
+                    "fg_prefixes": ["data/target"],
+                    "bg_prefixes": ["data/host"],
+                    "data_dir": "data/",
+                    "max_sets": 8,
+                }
+            )
+        )
 
         new_json = tmp_path / "new_params.json"
         migrate_from_old_pipeline(str(old_json), str(new_json))
@@ -227,11 +245,15 @@ class TestMigrateFromOldPipeline:
 
     def test_preserves_prefixes(self, tmp_path):
         old_json = tmp_path / "old.json"
-        old_json.write_text(json.dumps({
-            "fg_genomes": ["t.fna"],
-            "fg_prefixes": ["data/t"],
-            "data_dir": "data/",
-        }))
+        old_json.write_text(
+            json.dumps(
+                {
+                    "fg_genomes": ["t.fna"],
+                    "fg_prefixes": ["data/t"],
+                    "data_dir": "data/",
+                }
+            )
+        )
 
         new_json = tmp_path / "new.json"
         migrate_from_old_pipeline(str(old_json), str(new_json))

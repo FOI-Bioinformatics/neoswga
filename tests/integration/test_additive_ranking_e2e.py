@@ -19,13 +19,13 @@ from pathlib import Path
 
 import pytest
 
-
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plasmid_example"
 
 
 def _reset_pipeline_state(params_file):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
+
     pipeline_mod._initialized = False
     pipeline_mod.fg_prefixes = None
     pipeline_mod.bg_prefixes = None
@@ -62,13 +62,14 @@ def _run_filter_and_score(workdir, params_file):
     """Run through step2 and step3 so optimize has candidates."""
     _reset_pipeline_state(str(params_file))
     from neoswga.core.pipeline import step2, step3
+
     step2()
     step3()
 
 
-def _build_reaction_conditions(betaine_m=0.0, dmso_percent=0.0,
-                               polymerase="phi29", temp=30.0):
+def _build_reaction_conditions(betaine_m=0.0, dmso_percent=0.0, polymerase="phi29", temp=30.0):
     from neoswga.core.reaction_conditions import ReactionConditions
+
     return ReactionConditions(
         temp=temp,
         polymerase=polymerase,
@@ -85,14 +86,17 @@ def test_additives_reach_network_optimizer_via_unified(tmp_path, monkeypatch):
     matching betaine_m. This guards the Phase 7A plumbing at the seam where
     the previous round's fix was dark code."""
     # Build a minimal plasmid workdir
-    params_file = _build_scenario(tmp_path, {
-        "polymerase": "phi29",
-        "reaction_temp": 30.0,
-        "betaine_m": 1.5,
-        "dmso_percent": 5.0,
-        "min_k": 8,
-        "max_k": 10,
-    })
+    params_file = _build_scenario(
+        tmp_path,
+        {
+            "polymerase": "phi29",
+            "reaction_temp": 30.0,
+            "betaine_m": 1.5,
+            "dmso_percent": 5.0,
+            "min_k": 8,
+            "max_k": 10,
+        },
+    )
     os.chdir(tmp_path)
     _run_filter_and_score(tmp_path, params_file)
 
@@ -101,6 +105,7 @@ def test_additives_reach_network_optimizer_via_unified(tmp_path, monkeypatch):
     captured = {}
 
     from neoswga.core import unified_optimizer
+
     orig_create = unified_optimizer.OptimizerFactory.create
 
     def spy_create(*args, **kwargs):
@@ -113,6 +118,7 @@ def test_additives_reach_network_optimizer_via_unified(tmp_path, monkeypatch):
 
     _reset_pipeline_state(str(params_file))
     from neoswga.core.unified_optimizer import optimize_step4
+
     optimize_step4(optimization_method="hybrid", verbose=False)
 
     assert "optimizer" in captured, "optimize_step4 did not create an optimizer"
@@ -123,9 +129,9 @@ def test_additives_reach_network_optimizer_via_unified(tmp_path, monkeypatch):
         "dark code until this is fixed."
     )
     # The conditions object must reflect the user's params.json
-    assert abs(conditions.betaine_m - 1.5) < 1e-6, (
-        f"betaine_m should propagate; got {conditions.betaine_m}"
-    )
+    assert (
+        abs(conditions.betaine_m - 1.5) < 1e-6
+    ), f"betaine_m should propagate; got {conditions.betaine_m}"
     assert abs(conditions.dmso_percent - 5.0) < 1e-6
 
 
@@ -142,16 +148,20 @@ def test_network_optimizer_tm_changes_with_additives():
 
     opt_plain = NetworkOptimizer(
         position_cache=None,
-        fg_prefixes=[], bg_prefixes=[],
-        fg_seq_lengths=[], bg_seq_lengths=[],
+        fg_prefixes=[],
+        bg_prefixes=[],
+        fg_seq_lengths=[],
+        bg_seq_lengths=[],
         reaction_temp=30.0,
         tm_weight=1.0,
         conditions=plain,
     )
     opt_betaine = NetworkOptimizer(
         position_cache=None,
-        fg_prefixes=[], bg_prefixes=[],
-        fg_seq_lengths=[], bg_seq_lengths=[],
+        fg_prefixes=[],
+        bg_prefixes=[],
+        fg_seq_lengths=[],
+        bg_seq_lengths=[],
         reaction_temp=30.0,
         tm_weight=1.0,
         conditions=with_betaine,
@@ -163,9 +173,7 @@ def test_network_optimizer_tm_changes_with_additives():
 
     # 1.5 M betaine should lower Tm by roughly 1.2 * 1.5 ~ 1.8 C at 50% GC
     delta = tm_plain - tm_betaine
-    assert delta > 0.5, (
-        f"Expected betaine 1.5 M to lower Tm by ~1+ C; got delta={delta:.2f}"
-    )
+    assert delta > 0.5, f"Expected betaine 1.5 M to lower Tm by ~1+ C; got delta={delta:.2f}"
 
 
 @pytest.mark.integration
@@ -174,12 +182,15 @@ def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path):
     """The outer HybridOptimizerFactory wrapper must forward conditions to
     its inner HybridOptimizer, which must forward them to the inner
     NetworkOptimizer."""
-    params_file = _build_scenario(tmp_path, {
-        "polymerase": "phi29",
-        "betaine_m": 1.0,
-        "min_k": 8,
-        "max_k": 10,
-    })
+    params_file = _build_scenario(
+        tmp_path,
+        {
+            "polymerase": "phi29",
+            "betaine_m": 1.0,
+            "min_k": 8,
+            "max_k": 10,
+        },
+    )
     os.chdir(tmp_path)
     _run_filter_and_score(tmp_path, params_file)
 
@@ -190,6 +201,7 @@ def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path):
 
     # Collect candidates from step2 output
     import pandas as pd
+
     step2_csv = tmp_path / "step2_df.csv"
     candidates = pd.read_csv(step2_csv)["primer"].astype(str).tolist()[:20]
     if not candidates:
@@ -197,6 +209,7 @@ def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path):
 
     # Run hybrid and spy on the created optimizer
     from neoswga.core import unified_optimizer
+
     created = {}
     orig_create = unified_optimizer.OptimizerFactory.create
 

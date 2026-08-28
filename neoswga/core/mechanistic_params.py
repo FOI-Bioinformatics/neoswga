@@ -20,10 +20,11 @@ References:
     - Hutton (1977) NAR 4:3537-3555 (urea)
     - Melchior & von Hippel (1973) PNAS 70:298-302 (TMAC)
     - Blanco et al. (1989) JBC 264:8935-8940 (phi29 processivity)
-    - Rahman et al. (2014) PLoS One 9:e112515 (Mg optimization)
 """
 
 from typing import Any, Dict, Tuple
+
+from neoswga.core.registry import views as _registry_views
 
 # =============================================================================
 # Additive Tm Correction Parameters (Arrhenius-based)
@@ -114,6 +115,23 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         "gc_equalization_conc": 3.0,  # M for full GC independence (Melchior 1973)
         "description": "Equalizes AT/GC Tm, isostabilizing agent",
     },
+    "propanediol": {
+        # 1,2-propanediol. Horakova et al. (2011) BMC Biotechnol 11:41 measured
+        # 4.9-5.9 C of Tm depression at 1 M on a 45.5% GC short duplex; -5.4 is
+        # the midpoint. Working range 0.5-1.5 M, 1 M typical.
+        #
+        # Added because it is one of the few GC-rich enhancers with a published
+        # numeric Tm coefficient. Ethylene glycol and sulfolane are frequently
+        # recommended alongside it and are deliberately NOT included: neither has
+        # a coefficient we could source, and inventing one is exactly the failure
+        # mode this codebase has been cleaning up.
+        "ref_coef": -5.4,  # C per M (Horakova 2011 midpoint)
+        "ref_temp": 310.15,  # K (37C)
+        "activation_energy": 2000.0,  # J/mol (ESTIMATED; no multi-temp data)
+        "max_concentration": 1.5,  # M
+        "gc_dependent": False,
+        "description": "GC-rich enhancer; strong Tm depression per mole",
+    },
     "ethanol": {
         "ref_coef": -0.4,  # C per % (Cheng 1994)
         "ref_temp": 310.15,  # K (37C)
@@ -136,6 +154,7 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         "formamide_coef": -0.65,  # C per %, Blake 1996
         "trehalose_coef": -3.0,  # C per M, midpoint of Spiess 2004 range
         "ethanol_coef": -0.4,  # C per %, Cheng 1994
+        "propanediol_coef": -5.4,  # C per M, Horakova 2011 (BMC Biotechnol 11:41)
         "betaine_uniform_coef": -1.2,  # C per M, avg of Rees 1993 / Henke 1997
         "urea_coef": -2.5,  # C per M, Lesnick 1995 (short oligos)
         "tmac_uniform_coef": -0.5,  # C per M, Melchior 1973
@@ -165,53 +184,10 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
     # Pathway 3: Enzyme activity modifiers
     # How conditions affect polymerase performance
     "enzyme": {
-        # Phi29 polymerase characteristics
-        "phi29": {
-            "optimal_temp": 30.0,  # C
-            "processivity": 70000,  # bp, Blanco 1989
-            "processivity_step": 0.99857,  # Per 100bp step for stochastic model
-            "extension_rate": 150,  # nt/s at optimal temp (median of 100-170 range)
-            # EMPIRICAL: no single primary-literature value for phi29 DMSO
-            # tolerance. 5% is the practical upper bound in common vendor
-            # protocols (NEB, Epicentre) above which yield drops sharply; the
-            # mild (0.02) / steep (0.12) coefficients are fit to reproduce
-            # that drop in the mechanistic model rather than measured directly.
-            # Verify against in-house titration before publishing absolute
-            # amplification predictions; relative rankings remain valid.
-            "dmso_threshold": 5.0,  # % before steep inhibition
-            "dmso_mild_coef": 0.02,  # activity reduction per % below threshold
-            "dmso_steep_coef": 0.12,  # activity reduction per % above threshold
-        },
-        # EquiPhi29 (thermostable variant)
-        "equiphi29": {
-            "optimal_temp": 42.0,
-            "processivity": 80000,
-            "processivity_step": 0.99875,  # Per 100bp step for stochastic model
-            "extension_rate": 200,  # nt/s (thermally enhanced)
-            "dmso_threshold": 4.0,  # slightly less tolerant
-            "dmso_mild_coef": 0.025,
-            "dmso_steep_coef": 0.15,
-        },
-        # Bst polymerase
-        "bst": {
-            "optimal_temp": 63.0,
-            "processivity": 2000,
-            "processivity_step": 0.9512,  # Per 100bp step for stochastic model
-            "extension_rate": 100,
-            "dmso_threshold": 3.0,
-            "dmso_mild_coef": 0.03,
-            "dmso_steep_coef": 0.18,
-        },
-        # Klenow fragment
-        "klenow": {
-            "optimal_temp": 37.0,
-            "processivity": 10000,
-            "processivity_step": 0.99005,  # Per 100bp step for stochastic model
-            "extension_rate": 50,
-            "dmso_threshold": 5.0,
-            "dmso_mild_coef": 0.02,
-            "dmso_steep_coef": 0.10,
-        },
+        # Per-polymerase values come from the registry (single source of truth);
+        # the shared additive/Mg keys below stay here because they are not
+        # per-enzyme. See neoswga/core/registry/polymerases.py.
+        **_registry_views.mechanistic_enzyme_params(),
         # Betaine effect: enhancement at low conc, inhibition at high
         # EMPIRICAL: peak at 1 M is an operating-point choice, not a measurement.
         # Rees et al. (1993) reported ~5.2 M for full AT/GC Tm equalization, but
@@ -225,13 +201,50 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         "betaine_inhibition_coef": 0.15,  # processivity reduction per M excess
         # Formamide is always inhibitory
         "formamide_coef": 0.06,  # activity reduction per %
-        # Mg2+ optimum
-        "mg_optimal": 2.5,  # mM optimal concentration
-        "mg_low_threshold": 1.0,  # mM below which activity drops
-        "mg_high_threshold": 6.0,  # mM above which activity drops
+        # Mg2+ optimum, calibrated for strand-displacing ISOTHERMAL amplification.
+        #
+        # The previous values (optimal 2.5, high threshold 6.0) were PCR figures,
+        # and were attributed to "Rahman et al. (2014) PLoS One 9:e112515". That
+        # attribution is wrong twice over: the DOI belongs to an unrelated rice
+        # chromatin-remodelling paper, and the actual Rahman 2014 (Anwer Khan
+        # Modern Medical College Journal 4(1):30-36) is a general PCR review --
+        # not an authority for isothermal strand-displacement chemistry.
+        #
+        # The effect was self-contradictory: the pipeline's own polymerase
+        # defaults use 10 mM, the vendor-recommended concentration, and the model
+        # then penalised that default as excessive magnesium.
+        #
+        # Standard phi29 buffer is 10 mM MgCl2 with 10 mM (NH4)2SO4 and 4 mM DTT
+        # (Thermo phi29 manual MAN0030290; NEB phi29 buffer). Bst runs nearer
+        # 8 mM. The band below is wide because dNTPs chelate Mg2+ roughly 1:1, so
+        # free Mg2+ sits several mM under the nominal total.
+        "mg_optimal": 10.0,  # mM, vendor-recommended for phi29-family MDA
+        "mg_low_threshold": 4.0,  # mM below which activity drops
+        "mg_high_threshold": 15.0,  # mM above which activity drops
         # Glycerol: stabilizes enzyme but slows it
         "glycerol_stability": 0.02,  # stability increase per %
         "glycerol_speed_penalty": 0.02,  # speed reduction per %
+        # BSA: blocks adsorption of polymerase to vessel surfaces and
+        # sequesters inhibitors, keeping enzyme in solution. Standard phi29
+        # protocols use 0.1-0.2 mg/mL. Saturating by mechanism -- once the
+        # surfaces are blocked, more protein does nothing -- so this is a
+        # hyperbolic gain, not a per-unit coefficient. A linear term would let
+        # 400 ug/mL dominate every other consideration.
+        "bsa_stability_max": 0.15,  # EMPIRICAL max stability gain
+        "bsa_half_saturation": 50.0,  # EMPIRICAL ug/mL for half-maximal gain
+        # DTT: keeps the polymerase's cysteine thiols reduced. Standard phi29
+        # buffer is 4 mM (NEB / Thermo). This is a DEFICIENCY penalty, not a
+        # dose-response: below the standard, activity is lost over a long
+        # isothermal incubation; above it there is no further benefit, and
+        # modelling excess as beneficial would invite adding more for nothing.
+        # `parameter.default_dtt_mm` supplies the buffer value when params.json
+        # is silent, so an unset field is not read as a DTT-free reaction.
+        "dtt_deficit_penalty": 0.20,  # EMPIRICAL max stability loss at 0 mM
+        # PEG viscosity: above the crowding plateau the solution is thick
+        # enough to slow strand displacement. This is what makes PEG
+        # non-monotonic and gives the model an interior optimum instead of
+        # "more is better".
+        "peg_speed_penalty": 0.015,  # EMPIRICAL speed loss per % above plateau
         # Temperature activity coefficient
         "temp_activity_coef": 0.03,  # activity reduction per C from optimal
     },
@@ -249,6 +262,14 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
         "dmso_koff_penalty": 0.03,  # koff increase per %
         # SSB (single-stranded binding protein) effect
         "ssb_kon_multiplier": 2.0,  # SSB doubles kon
+        # PEG: macromolecular crowding. Excluded volume raises the effective
+        # concentration of macromolecules and accelerates association
+        # (Zimmerman & Minton 1993, Annu Rev Biophys Biomol Struct 22:27-65).
+        # Standard in phi29 rolling-circle protocols at 5-10% PEG-8000. The
+        # excluded-volume effect is bounded, so the kon gain plateaus; past
+        # that, "peg_speed_penalty" in the enzyme pathway takes over.
+        "peg_kon_boost": 0.06,  # EMPIRICAL kon increase per % up to the plateau
+        "peg_saturation": 8.0,  # EMPIRICAL %, where the crowding benefit levels off
         # Temperature effect on koff
         "koff_temp_coef": 0.1,  # koff increase per C above optimal
     },

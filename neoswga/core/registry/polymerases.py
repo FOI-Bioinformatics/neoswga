@@ -1,0 +1,418 @@
+"""Single source of truth for polymerase characteristics.
+
+Before this module, polymerase facts were spread across ~20 hardcoded tables in
+``reaction_conditions``, ``mechanistic_params``, ``hybrid_optimizer``,
+``param_validator``, ``parameter``, ``condition_suggester``,
+``additive_optimizer``, ``results_interpreter``, the JSON schema and five argparse
+``choices=`` lists. They had already drifted.
+
+Two design rules make this a faithful refactor rather than a silent science change:
+
+1. **Distinct concepts get distinct fields, seeded verbatim.** Several tables
+   disagreed *because they meant different things*, not because one was stale.
+   Three temperature bands (vendor-optimal / hard-reject / warn), two reach
+   quantities (per-primer coverage reach vs single-molecule processivity), and
+   three primer-length notions (design range / scalar default / additive-optimizer
+   base) are all kept apart. Collapsing them would re-rank primer sets.
+
+2. **Genuine contradictions are recorded, not quietly fixed.** Where the old tables
+   are mutually impossible, the values are still seeded as-is and the conflict is
+   asserted in ``tests/test_registry_invariants.py`` as a strict xfail. See
+   ``INCONSISTENCIES.md``. Fixing them changes optimizer output and belongs in a
+   separate change with integration baselines regenerated deliberately.
+
+This module is deliberately stdlib-only: ``param_validator``, the argparse
+``choices=`` lists and the schema renderer all import it, and none of them should
+have to pull in numpy/scipy just to learn the polymerase names.
+"""
+
+from dataclasses import dataclass, field
+from typing import Dict, Mapping, Optional, Tuple
+
+__all__ = [
+    "PolymeraseSpec",
+    "POLYMERASES",
+    "get_polymerase",
+    "polymerase_names",
+    "resolve_polymerase_name",
+]
+
+
+@dataclass(frozen=True)
+class PolymeraseSpec:
+    """Everything the codebase knows about one polymerase.
+
+    Field groups are documented where two similar-looking numbers are genuinely
+    different quantities -- that distinction is the whole point of this dataclass.
+    """
+
+    key: str
+    display_name: str
+    description: str
+
+    # -- Thermal -----------------------------------------------------------
+    # THREE different bands. They are not redundant:
+    #   optimal_temp        single best operating temperature
+    #   temp_optimal_range  vendor-recommended band (POLYMERASE_CHARACTERISTICS)
+    #   temp_hard_range     outside this, ReactionConditions raises (_validate)
+    #   temp_warn_range     outside this, param_validator warns
+    optimal_temp: float
+    temp_optimal_range: Tuple[float, float]
+    temp_hard_range: Tuple[float, float]
+    temp_warn_range: Tuple[float, float]
+
+    # -- Reach -------------------------------------------------------------
+    # Three distinct quantities, ordered smallest to largest. Conflating them
+    # is the single most consequential modelling error available here: the same
+    # primer set scores 0.42 / 0.84 / ~1.0 coverage at 3 / 10 / 70 kb.
+    #
+    # typical_amplicon_bp: the DESIGN DENSITY published successful sets have
+    #   (2-5 kb inter-primer spacing). Used as the set-cover selection reach,
+    #   because designs at this density are the ones with measured wet-lab
+    #   success -- Dwivedi-Yu (2023) successful Prevotella sets sit at 2.0/4.1/
+    #   4.9 kb. It is NOT a measured extension length, despite the name.
+    # product_length_bp: MEASURED MDA product length (~10 kb for phi29; Dean
+    #   et al. 2002 PNAS 99:5261, Picher et al. 2016 Nat Commun 7:13296). The
+    #   best-evidenced answer to "how far does a primer's product reach", and
+    #   therefore what headline coverage is reported at.
+    # processivity_bp: single-molecule maximum, used for amplification-network
+    #   reachability ("could A and B connect via one extension event?").
+    #
+    # Why selection uses the smallest and reporting the middle one: they answer
+    # different questions. Selecting at 10 kb would stop the greedy once the
+    # genome is covered at that reach, yielding ~10 kb spacing -- sparser than
+    # any published successful set. Reporting at 3 kb understates what is
+    # actually amplified. Strand displacement means a downstream primer does
+    # not truncate extension (it gets displaced), so spacing does not bound
+    # product length and the two must not be derived from each other.
+    processivity_bp: int
+    typical_amplicon_bp: int
+    extension_rate_nt_s: float
+    processivity_step: float
+
+    # -- Chemistry ---------------------------------------------------------
+    strand_displacement: bool
+    exonuclease: str  # "3to5" | "none"
+    error_rate: float
+    mg_default_mm: float
+
+    # -- Primer design guidance -------------------------------------------
+    # THREE different notions, all previously separate tables:
+    #   primer_length_range      design k-mer window (min_k, max_k)
+    #   default_primer_length    single scalar default (cli/commands.py)
+    #   additive_opt_base_length additive-optimizer base length
+    primer_length_range: Tuple[int, int]
+    default_primer_length: int
+    additive_opt_base_length: int
+    primer_tm_range: Tuple[float, float]
+    gc_range: Tuple[float, float]
+
+    # -- Optimizer / preset knobs -----------------------------------------
+    # preset_reaction_temp is the operating temperature hybrid_optimizer and
+    # additive_optimizer use. It equals optimal_temp for every polymerase except
+    # bst (60.0 vs 63.0) -- another seeded-verbatim divergence.
+    preset_reaction_temp: float
+    thermo_filter: bool
+    primer_multiplier: float
+
+    # Measured MDA product length; see the Reach block above. 0 means "no
+    # measurement exists for this enzyme", and the accessor then falls back to
+    # the selection reach, so headline and selection coverage coincide rather
+    # than a number being invented for it. Declared here rather than beside the
+    # other reach fields only because it carries a default.
+    product_length_bp: int = 0
+
+    # A distributive enzyme dissociates after a short run and re-binds, so its
+    # effective reach over a long incubation exceeds its single-event
+    # processivity. For those, typical_amplicon_bp > processivity_bp is correct
+    # rather than a contradiction, and the invariant tests treat them separately.
+    distributive: bool = False
+
+    additive_limits: Mapping[str, float] = field(default_factory=dict)
+    dmso_response: Mapping[str, float] = field(default_factory=dict)
+
+    aliases: Tuple[str, ...] = ()
+    references: Tuple[str, ...] = ()
+
+    @property
+    def temp_range(self) -> Tuple[float, float]:
+        """Back-compat alias for the vendor-optimal band."""
+        return self.temp_optimal_range
+
+
+POLYMERASES: Dict[str, PolymeraseSpec] = {
+    "phi29": PolymeraseSpec(
+        key="phi29",
+        display_name="Phi29 DNA Polymerase",
+        description="High-fidelity, high-processivity polymerase for MDA/SWGA",
+        optimal_temp=30.0,
+        temp_optimal_range=(30.0, 40.0),
+        temp_hard_range=(20.0, 40.0),
+        temp_warn_range=(20.0, 40.0),
+        processivity_bp=70000,
+        typical_amplicon_bp=3000,
+        # Dean et al. 2002 PNAS 99:5261 and Picher et al. 2016 Nat Commun
+        # 7:13296: unselective phi29 MDA product peaks near 10 kb.
+        product_length_bp=10000,
+        # Blanco et al. (1989) -- the same paper cited for the 70 kb
+        # processivity -- reports ~53 nt/s; single-molecule work agrees at
+        # ~50 nt/s. The previous 150 nt/s compressed every simulated timing ~3x.
+        extension_rate_nt_s=53,
+        processivity_step=0.99857,
+        strand_displacement=True,
+        exonuclease="3to5",
+        error_rate=1e-6,
+        mg_default_mm=10.0,
+        primer_length_range=(6, 12),
+        default_primer_length=9,
+        additive_opt_base_length=12,
+        primer_tm_range=(20.0, 50.0),
+        gc_range=(0.25, 0.75),
+        preset_reaction_temp=30.0,
+        thermo_filter=False,
+        primer_multiplier=1.0,
+        additive_limits={"dmso_percent": 8.0, "betaine_m": 2.5},
+        dmso_response={"threshold": 5.0, "mild_coef": 0.02, "steep_coef": 0.12},
+        references=("Blanco et al. (1989) JBC 264:8935",),
+    ),
+    "equiphi29": PolymeraseSpec(
+        key="equiphi29",
+        display_name="EquiPhi29 DNA Polymerase",
+        description="Thermostable phi29 variant for higher specificity",
+        optimal_temp=42.0,
+        temp_optimal_range=(42.0, 45.0),
+        temp_hard_range=(30.0, 50.0),
+        temp_warn_range=(40.0, 47.0),
+        processivity_bp=80000,
+        typical_amplicon_bp=4000,
+        # No separate measurement for equiphi29; inherits phi29's measured
+        # product length rather than being invented from its processivity.
+        product_length_bp=10000,
+        extension_rate_nt_s=200,
+        processivity_step=0.99875,
+        strand_displacement=True,
+        exonuclease="3to5",
+        error_rate=1e-6,
+        mg_default_mm=10.0,
+        primer_length_range=(10, 18),
+        default_primer_length=15,
+        additive_opt_base_length=15,
+        primer_tm_range=(37.0, 62.0),
+        gc_range=(0.25, 0.75),
+        preset_reaction_temp=42.0,
+        thermo_filter=True,
+        primer_multiplier=0.85,
+        additive_limits={"dmso_percent": 6.0, "betaine_m": 2.0},
+        dmso_response={"threshold": 4.0, "mild_coef": 0.025, "steep_coef": 0.15},
+        references=("Thermo Scientific EquiPhi29 manual MAN0030288",),
+    ),
+    "bst": PolymeraseSpec(
+        key="bst",
+        display_name="Bst 2.0 DNA Polymerase, Large Fragment",
+        description="LAMP-compatible, high-temperature isothermal amplification",
+        aliases=("bst2.0", "bst2"),
+        optimal_temp=63.0,
+        temp_optimal_range=(60.0, 65.0),
+        temp_hard_range=(50.0, 72.0),
+        temp_warn_range=(55.0, 70.0),
+        processivity_bp=2000,
+        typical_amplicon_bp=1000,
+        # Not an MDA enzyme; product length is bounded by processivity.
+        product_length_bp=2000,
+        extension_rate_nt_s=100,
+        processivity_step=0.9512,
+        strand_displacement=True,
+        exonuclease="none",
+        error_rate=1e-4,
+        mg_default_mm=8.0,
+        primer_length_range=(15, 25),
+        default_primer_length=20,
+        additive_opt_base_length=18,
+        primer_tm_range=(50.0, 75.0),
+        gc_range=(0.25, 0.75),
+        # Collapsed to optimal_temp. hybrid_optimizer and additive_optimizer
+        # ran bst at 60.0 while the rest of the codebase advertised 63.0, with
+        # no comment explaining the 3 C difference; nothing else diverged this
+        # way, so it read as drift rather than a deliberate operating point.
+        preset_reaction_temp=63.0,
+        thermo_filter=True,
+        primer_multiplier=1.0,
+        additive_limits={"dmso_percent": 5.0, "betaine_m": 1.5},
+        dmso_response={"threshold": 3.0, "mild_coef": 0.03, "steep_coef": 0.18},
+        references=("Notomi et al. (2000) NAR 28:e63",),
+    ),
+    "bst3.0": PolymeraseSpec(
+        key="bst3.0",
+        display_name="Bst 3.0 DNA Polymerase",
+        description="Faster, more robust Bst variant with a wider thermal window",
+        aliases=("bst3",),
+        # NEB gives Bst 3.0 a 60-72 C window against Bst 2.0's 65 C optimum, and
+        # describes it as the fastest and most robust option for isothermal
+        # methods such as LAMP. That temperature difference is the sourced,
+        # substantive distinction between the two.
+        optimal_temp=68.0,
+        temp_optimal_range=(60.0, 72.0),
+        temp_hard_range=(50.0, 75.0),
+        temp_warn_range=(58.0, 73.0),
+        # Processivity, reach, rate and additive tolerance are SHARED with Bst
+        # 2.0 rather than differentiated: NEB publishes no separate figures, and
+        # inventing a difference would be worse than admitting there is no
+        # evidence for one.
+        processivity_bp=2000,
+        typical_amplicon_bp=1000,
+        extension_rate_nt_s=100,
+        processivity_step=0.9512,
+        strand_displacement=True,
+        exonuclease="none",
+        error_rate=1e-4,
+        mg_default_mm=8.0,
+        primer_length_range=(15, 25),
+        default_primer_length=20,
+        additive_opt_base_length=18,
+        primer_tm_range=(50.0, 78.0),
+        gc_range=(0.25, 0.75),
+        preset_reaction_temp=68.0,
+        thermo_filter=True,
+        primer_multiplier=1.0,
+        additive_limits={"dmso_percent": 5.0, "betaine_m": 1.5},
+        dmso_response={"threshold": 3.0, "mild_coef": 0.03, "steep_coef": 0.18},
+        references=("NEB Bst 3.0 product documentation",),
+    ),
+    "bsu": PolymeraseSpec(
+        key="bsu",
+        display_name="Bsu DNA Polymerase, Large Fragment",
+        description="Mesophilic strand-displacing polymerase; the low-temperature "
+        "alternative to Klenow with genuine strand displacement",
+        aliases=("bsu-lf", "bsu_large_fragment"),
+        # SOURCED (NEB M0330 / Watchmaker datasheet): optimal 37 C, usable
+        # 25-50 C depending on application; heat-inactivated at 75 C for 20 min;
+        # lacks BOTH 5'->3' and 3'->5' exonuclease; strand-displacing, and used
+        # for RPA and other isothermal amplification.
+        optimal_temp=37.0,
+        temp_optimal_range=(25.0, 50.0),
+        temp_hard_range=(20.0, 55.0),
+        temp_warn_range=(25.0, 50.0),
+        # NOT PUBLISHED. Neither NEB nor Watchmaker states a processivity for
+        # Bsu LF. This value is INFERRED, not sourced: Bsu large fragment is the
+        # B. subtilis Pol I large fragment, structurally the counterpart of the
+        # E. coli Pol I large fragment (Klenow), which is distributive at 5-40 nt.
+        # Treat it as an order-of-magnitude placeholder and do not cite it.
+        processivity_bp=50,
+        # Effective reach is set above Klenow's 500 bp because Bsu is described
+        # as strand-displacing and is used for RPA, which requires real
+        # displacement activity - Klenow's is only moderate. Also an estimate.
+        typical_amplicon_bp=1000,
+        extension_rate_nt_s=50,
+        processivity_step=0.99005,
+        strand_displacement=True,
+        exonuclease="none",
+        error_rate=1e-4,
+        # SOURCED: recommended buffer is 10 mM MgCl2, 50 mM NaCl, 1 mM DTT,
+        # 10 mM Tris-HCl pH 7.9.
+        mg_default_mm=10.0,
+        primer_length_range=(8, 15),
+        default_primer_length=12,
+        additive_opt_base_length=12,
+        primer_tm_range=(20.0, 55.0),
+        gc_range=(0.25, 0.75),
+        preset_reaction_temp=37.0,
+        thermo_filter=False,
+        primer_multiplier=1.0,
+        distributive=True,
+        additive_limits={"dmso_percent": 10.0, "betaine_m": 2.0},
+        dmso_response={"threshold": 5.0, "mild_coef": 0.02, "steep_coef": 0.10},
+        references=(
+            "NEB M0330 Bsu DNA Polymerase, Large Fragment",
+            "Watchmaker Genomics Bsu DNA Polymerase Large Fragment datasheet",
+        ),
+    ),
+    "klenow": PolymeraseSpec(
+        key="klenow",
+        display_name="Klenow Fragment (exo-)",
+        description="Budget-friendly alternative with moderate processivity",
+        optimal_temp=37.0,
+        temp_optimal_range=(25.0, 40.0),
+        temp_hard_range=(25.0, 40.0),
+        # Narrowed to sit inside temp_hard_range. It was (20.0, 42.0), so a
+        # klenow run at 41 C passed validate-params cleanly and then raised
+        # inside ReactionConditions.__init__ -- the validator's whole job is to
+        # catch that before the run starts.
+        temp_warn_range=(25.0, 40.0),
+        # Klenow is DISTRIBUTIVE: it dissociates after ~5-40 nt. 42 nt was
+        # measured directly by single-molecule nanocircuit recording (JACS 2013,
+        # PMC3738269). The previous 10000 bp value cited Bambara et al. (1978),
+        # which does not support it, and overstated reach by ~250x.
+        processivity_bp=40,
+        # Effective per-primer reach is NOT bounded by single-event processivity
+        # for a distributive enzyme -- the polymerase re-binds and continues, so
+        # over a long isothermal incubation synthesis extends well past 40 nt.
+        # 500 bp is a conservative estimate for a multi-primer reaction, not a
+        # measurement; it is deliberately far below phi29's 3000 bp because low
+        # processivity plus moderate strand displacement is exactly why Klenow
+        # cannot carry a sparse primer set.
+        typical_amplicon_bp=500,
+        # Distributive: the enzyme re-binds and continues, so product length is
+        # not bounded by the 40 nt single-event processivity. No MDA product
+        # measurement exists for Klenow, so this equals the selection reach
+        # rather than being invented -- headline and selection coverage
+        # coincide for this enzyme, which is honest about the missing datum.
+        product_length_bp=500,
+        distributive=True,
+        extension_rate_nt_s=50,
+        processivity_step=0.99005,
+        strand_displacement=True,
+        exonuclease="none",
+        error_rate=1e-4,
+        mg_default_mm=10.0,
+        primer_length_range=(8, 15),
+        default_primer_length=12,
+        additive_opt_base_length=12,
+        primer_tm_range=(20.0, 55.0),
+        gc_range=(0.25, 0.75),
+        preset_reaction_temp=37.0,
+        thermo_filter=False,
+        primer_multiplier=1.0,
+        additive_limits={"dmso_percent": 10.0, "betaine_m": 2.0},
+        dmso_response={"threshold": 5.0, "mild_coef": 0.02, "steep_coef": 0.10},
+        references=("Bambara et al. (1978) JBC 253:413",),
+    ),
+}
+
+
+_ALIAS_INDEX: Dict[str, str] = {
+    alias.lower(): spec.key for spec in POLYMERASES.values() for alias in spec.aliases
+}
+
+
+def polymerase_names() -> list:
+    """Canonical polymerase keys, in registry order (schema/CLI choices order)."""
+    return list(POLYMERASES)
+
+
+def resolve_polymerase_name(name: Optional[str]) -> Optional[str]:
+    """Map a name or alias to its canonical key, or None if unknown."""
+    if not name:
+        return None
+    lowered = name.lower()
+    if lowered in POLYMERASES:
+        return lowered
+    return _ALIAS_INDEX.get(lowered)
+
+
+def get_polymerase(name: Optional[str], default: Optional[str] = None) -> PolymeraseSpec:
+    """Look up a polymerase spec by name or alias.
+
+    Args:
+        name: Polymerase name or alias.
+        default: Fallback key used when ``name`` is unknown. When None, an
+            unknown name raises -- matching ``ReactionConditions._validate``.
+
+    Raises:
+        ValueError: If ``name`` is unknown and no ``default`` was given.
+    """
+    resolved = resolve_polymerase_name(name)
+    if resolved is not None:
+        return POLYMERASES[resolved]
+    if default is not None:
+        return POLYMERASES[default]
+    raise ValueError(f"Unknown polymerase '{name}'. Use: {', '.join(POLYMERASES)}")

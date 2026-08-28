@@ -34,9 +34,12 @@ neoswga schema --dump > params.schema.json
 | `bl_seq_lengths` | array of integer | - | - | - |
 | `bloom_filter_path` | string or null | - | - | - |
 | `bsa_ug_ml` | number | min: 0.0; max: 400.0 | `0.0` | - |
+| `coverage_reach` | integer | min: 1 | - | Per-primer extension reach in bp used for set-cover selection and reported fg_coverage. Defaults to the polymerase's realistic per-primer reach (phi29 ~3000, equiphi29 ~4000). Coverage figures are not comparable across different reaches; swga 2.0 reports at ~70000. Estimate from sequencing depth with 'neoswga calibrate-reach --bam'. |
 | `cpus` | integer | min: 1; max: 128 | - | - |
 | `dmso_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |
+| `dntp_conc` | number | min: 0.0; max: 10.0 | `0.0` | Total dNTP concentration (mM, sum of all four). Chelates Mg2+ roughly 1:1, lowering free Mg2+. |
 | `drop_iterations` | integer | min: 0; max: 100 | - | - |
+| `dtt_mm` | number | min: 0.0; max: 20.0 | `0.0` | DTT concentration (mM). Recorded for protocol completeness; no melting-temperature term. |
 | `ethanol_percent` | number | min: 0.0; max: 5.0 | `0.0` | - |
 | `excl_genomes` | array of string | - | - | Zero-tolerance exclusion genomes (e.g., mtDNA). |
 | `excl_prefixes` | array of string | - | - | - |
@@ -44,17 +47,21 @@ neoswga schema --dump > params.schema.json
 | `fg_circular` | boolean | - | `True` | - |
 | `fg_seq_lengths` | array of integer | - | - | Per-genome foreground lengths in bp. Auto-computed if missing. |
 | `formamide_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |
+| `gc_clamp_window` | integer | min: 1; max: 12 | `5` | Bases at the 3' end the GC clamp examines. Not scaled to primer length: scaling was measured against per-primer amplification data and admits worse amplifiers. |
 | `gc_max` | number | min: 0.0; max: 1.0 | - | - |
 | `gc_min` | number | min: 0.0; max: 1.0 | - | - |
 | `gc_tolerance` | number | min: 0.0; max: 0.5 | `0.15` | - |
 | `genome_gc` | number | min: 0.0; max: 1.0 | - | - |
 | `glycerol_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
 | `iterations` | integer | min: 1; max: 100 | `8` | - |
+| `k_conc` | number | min: 0.0; max: 1000.0 | `0.0` | K+ concentration (mM). Sums with na_conc and nh4_conc into ionic strength. |
 | `long_primer_mode` | boolean | - | `False` | - |
 | `max_bg_freq` | number | min: 0.0; max: 1.0 | - | - |
 | `max_bl_freq` | number | min: 0.0; max: 1.0 | `0.0` | Maximum permissible blacklist frequency; 0 = zero tolerance. |
 | `max_dimer_bp` | integer | min: 1; max: 15 | - | - |
+| `max_gc_in_clamp` | integer | min: 0; max: 12 | `3` | Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets. |
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
+| `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
 | `max_k` | integer | min: 4; max: 30 | - | Maximum primer length (bp). Polymerase-aware default is used if absent. |
 | `max_primer` | integer | min: 1; max: 10000 | - | - |
 | `max_self_dimer_bp` | integer | min: 1; max: 15 | - | - |
@@ -67,18 +74,23 @@ neoswga schema --dump > params.schema.json
 | `min_sample_count` | integer | min: 1 | - | - |
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
-| `num_primers` | integer | min: 1; max: 50 | `6` | - |
-| `optimization_method` | string | one of: hybrid, greedy, network, genetic, milp, dominating-set, background-aware, moea | - | - |
+| `nh4_conc` | number | min: 0.0; max: 1000.0 | `0.0` | NH4+ concentration (mM). The standard phi29 buffer supplies 20 mM NH4+ as 10 mM (NH4)2SO4. |
+| `num_primers` | integer | min: 1; max: 200 | `6` | - |
+| `occupancy_ranking` | boolean | - | `True` | Rank filter candidates by occupancy-weighted background load rather than exact k-mer counts. Exact counts are 0 for every primer with no perfect background match, which leaves the ranking key undefined for most long primers. |
+| `occupancy_shortlist` | integer | min: 1 | `50000` | How many survivors to re-rank by occupancy. Taken by the exact-count key first, so nothing that key separates is discarded. |
+| `optimization_method` | string | one of: hybrid, dominating-set, network, background-aware, clique, ensemble, auto, all, hybrid-optimizer, two-stage, ds, set-cover, network-optimizer, tm-weighted, clinical, bg-aware, clique-dimer-free, dimer-free | `hybrid` | Optimizer to use. The five canonical methods, the virtual 'ensemble' runner (aliases 'auto'/'all'), or a registered optimizer alias. |
 | `peg_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
-| `polymerase` | string | one of: phi29, equiphi29, bst, klenow | `phi29` | - |
+| `polymerase` | string | one of: phi29, equiphi29, bst, bst3.0, bsu, klenow | `phi29` | - |
 | `primer_conc` | number | min: 1e-09; max: 0.0001 | `5e-07` | - |
+| `propanediol_m` | number | min: 0.0; max: 1.5 | `0.0` | 1,2-propanediol (M). GC-rich enhancer; ~5.4 C Tm depression per M (Horakova 2011). Typical 1 M. |
 | `reaction_temp` | number | min: 20.0; max: 70.0 | - | - |
 | `retries` | integer | min: 0; max: 100 | - | - |
 | `sample_rate` | number or null | min: 0.001; max: 1.0 | - | - |
-| `schema_version` | integer | min: 1; max: 1 | `1` | Version of this schema the file was written for. |
+| `schema_version` | integer | min: 1; max: 2 | `2` | Version of this schema the file was written for. Version 2 corrected several scientific constants (Klenow processivity, phi29 extension rate, the Mg2+ activity model, the AG/TC nearest-neighbour parameter) and changed the mg_conc default from 0.0 to the polymerase buffer value; a v1 file still runs but produces different numbers. |
 | `selection_metric` | string | one of: deterministic, random, stochastic | - | - |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
-| `target_set_size` | integer | min: 1; max: 50 | - | - |
+| `ssb` | boolean | - | `False` | Single-stranded binding protein present. Previously accepted by the CLI but absent from this schema. |
+| `target_set_size` | integer | min: 1; max: 200 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
 | `top_set_count` | integer | min: 1; max: 100 | - | - |
 | `trehalose_m` | number | min: 0.0; max: 1.0 | `0.0` | - |

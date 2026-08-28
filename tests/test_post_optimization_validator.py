@@ -6,14 +6,20 @@ sanity checker that catches silent failures an optimizer can return
 import pytest
 
 from neoswga.core.base_optimizer import (
-    OptimizationResult, OptimizationStatus, PrimerSetMetrics,
+    OptimizationResult,
+    OptimizationStatus,
+    PrimerSetMetrics,
 )
 
 
 def _make_result(primers, status=OptimizationStatus.SUCCESS, **metric_overrides):
     metrics = PrimerSetMetrics.empty()
     for k, v in metric_overrides.items():
-        object.__setattr__(metrics, k, v) if hasattr(metrics, "__dataclass_fields__") else setattr(metrics, k, v)
+        (
+            object.__setattr__(metrics, k, v)
+            if hasattr(metrics, "__dataclass_fields__")
+            else setattr(metrics, k, v)
+        )
     return OptimizationResult(
         primers=tuple(primers),
         score=1.0,
@@ -52,8 +58,7 @@ def test_validate_flags_size_mismatch_as_error_on_success():
 
 
 def test_validate_downgrades_size_mismatch_to_warning_on_partial():
-    r = _make_result(["ATCG", "GCTA"], status=OptimizationStatus.PARTIAL,
-                     fg_coverage=0.5)
+    r = _make_result(["ATCG", "GCTA"], status=OptimizationStatus.PARTIAL, fg_coverage=0.5)
     report = r.validate(target_size=4)
     issues = [i for i in report["issues"] if i["code"] == "set_size_mismatch"]
     assert issues and issues[0]["level"] == "warning"
@@ -85,7 +90,9 @@ def test_per_target_coverage_below_threshold_warning(monkeypatch):
     # Inject per_target_coverage on metrics
     object.__setattr__(r.metrics, "per_target_coverage", {"target_a": 0.95, "target_b": 0.35})
     report = r.validate(
-        target_size=2, min_coverage=0.5, min_per_target_coverage=0.50,
+        target_size=2,
+        min_coverage=0.5,
+        min_per_target_coverage=0.50,
     )
     codes = [i["code"] for i in report["issues"]]
     assert "per_target_coverage_below_threshold" in codes

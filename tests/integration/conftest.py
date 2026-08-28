@@ -22,6 +22,7 @@ def reset_pipeline_state():
     stale k-mer files. The fixture returns a callable so tests can
     re-reset between sequential stages with the same params file.
     """
+
     def _reset(params_file: str) -> None:
         import neoswga.core.pipeline as pipeline_mod
         from neoswga.core import parameter

@@ -44,6 +44,7 @@ from neoswga.core.additive_interactions import (
     get_default_registry,
 )
 from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS, get_polymerase_params
+from neoswga.core.parameter import default_dtt_mm
 
 if TYPE_CHECKING:
     from neoswga.core.reaction_conditions import ReactionConditions
@@ -183,8 +184,21 @@ class MechanisticModel:
         effective_extension = enzyme["speed_factor"] * enzyme["processivity_factor"]
 
         # Overall amplification factor
-        # Product of binding efficiency, extension efficiency, and accessibility
-        amplification = effective_binding * effective_extension * accessibility
+        # Product of binding efficiency, extension efficiency, accessibility,
+        # and enzyme stability.
+        #
+        # `stability_factor` used to be computed, reported and then left out of
+        # this product, so every term that acts through enzyme stability --
+        # glycerol, BSA, DTT -- could not reach the number the whole model is
+        # judged on. Over a multi-hour isothermal incubation, how much
+        # polymerase is still active is not a detail.
+        #
+        # Including it is neutral where nothing sets a stabiliser: the factor
+        # is exactly 1.0 at defaults (DTT defaults to the vendor buffer value,
+        # so its deficit term is zero), so existing predictions are unchanged.
+        amplification = (
+            effective_binding * effective_extension * accessibility * enzyme["stability_factor"]
+        )
         amplification = max(0.0, min(1.0, amplification))
 
         return MechanisticEffects(
@@ -488,6 +502,32 @@ class MechanisticModel:
         stability *= 1 + p["glycerol_stability"] * glycerol
         speed *= 1 - p["glycerol_speed_penalty"] * glycerol
 
+        # BSA: blocks adsorption to vessel surfaces and sequesters inhibitors.
+        # Saturating by mechanism -- once the surfaces are blocked, more
+        # protein does nothing -- so a hyperbolic gain rather than a per-unit
+        # coefficient, which would let 400 ug/mL swamp every other term.
+        bsa = c.bsa_ug_ml
+        if bsa > 0:
+            stability *= 1 + p["bsa_stability_max"] * bsa / (bsa + p["bsa_half_saturation"])
+
+        # DTT: a deficiency penalty, not a dose-response. Below the vendor
+        # buffer value the polymerase's thiols oxidise over a long isothermal
+        # incubation; above it there is nothing further to gain.
+        # `parameter.default_dtt_mm` is what keeps an unset field from being
+        # read as a DTT-free reaction.
+        dtt_optimal = default_dtt_mm(c.polymerase)
+        if dtt_optimal > 0 and c.dtt_mm < dtt_optimal:
+            deficit = (dtt_optimal - c.dtt_mm) / dtt_optimal
+            stability *= 1 - p["dtt_deficit_penalty"] * deficit
+
+        # PEG above the crowding plateau: the solution is viscous enough to
+        # slow strand displacement. Paired with the kon gain in the kinetics
+        # pathway, this is what gives PEG an interior optimum instead of
+        # "more is better".
+        peg_plateau = self.params["kinetics"]["peg_saturation"]
+        if c.peg_percent > peg_plateau:
+            speed *= 1 - p["peg_speed_penalty"] * (c.peg_percent - peg_plateau)
+
         # DMSO-Mg chelation (kept here due to inverse Mg relationship)
         # High DMSO chelates Mg2+, but effect decreases as Mg increases
         interactions = self.params["interactions"]
@@ -549,6 +589,16 @@ class MechanisticModel:
         # SSB dramatically increases kon
         if c.ssb:
             kon_factor *= p["ssb_kon_multiplier"]
+
+        # PEG: macromolecular crowding raises effective concentrations and so
+        # accelerates association (Zimmerman & Minton 1993). Excluded volume is
+        # bounded, so the gain plateaus; modelling it as unbounded would make
+        # 15% PEG look like the best possible reaction, the opposite of what
+        # protocols say. Past the plateau the enzyme pathway's viscosity term
+        # takes over.
+        if c.peg_percent > 0:
+            crowding = min(c.peg_percent, p["peg_saturation"])
+            kon_factor *= 1 + p["peg_kon_boost"] * crowding
 
         # koff: depends on Tm vs reaction temp
         if delta > 0:

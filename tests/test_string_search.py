@@ -21,15 +21,14 @@ from neoswga.core.string_search import (
 )
 from neoswga.core.thermodynamics import reverse_complement
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 SIMPLE_GENOME = "ATCGATCGATCG"  # 12 bp, "ATCG" at positions 0, 4, 8
-REPEAT_GENOME = "AAAAAAAAAA"    # 10 bp, all A
+REPEAT_GENOME = "AAAAAAAAAA"  # 10 bp, all A
 NO_MATCH_GENOME = "TTTTTTTTTT"  # 10 bp, no ATCG match
-MIXED_GENOME = "ATCGNNNATCG"   # 11 bp with ambiguous bases
+MIXED_GENOME = "ATCGNNNATCG"  # 11 bp with ambiguous bases
 
 
 @pytest.fixture(autouse=True)
@@ -52,6 +51,7 @@ def _patch_genome(sequence: str):
 # get_all_positions_per_k -- basic behaviour
 # ---------------------------------------------------------------------------
 
+
 class TestGetAllPositionsPerK:
     """Tests for the per-k sliding-window search."""
 
@@ -64,9 +64,7 @@ class TestGetAllPositionsPerK:
     def test_multiple_kmers(self):
         """Search for several k-mers simultaneously."""
         with _patch_genome(SIMPLE_GENOME):
-            result = get_all_positions_per_k(
-                ["ATCG", "TCGA", "CGAT"], "dummy.fna", circular=False
-            )
+            result = get_all_positions_per_k(["ATCG", "TCGA", "CGAT"], "dummy.fna", circular=False)
         assert result["ATCG"] == [0, 4, 8]
         assert result["TCGA"] == [1, 5]
         assert result["CGAT"] == [2, 6]
@@ -93,9 +91,7 @@ class TestGetAllPositionsPerK:
         """A k-mer longer than the genome should produce no matches."""
         short_genome = "ATCG"
         with _patch_genome(short_genome):
-            result = get_all_positions_per_k(
-                ["ATCGATCG"], "dummy.fna", circular=False
-            )
+            result = get_all_positions_per_k(["ATCGATCG"], "dummy.fna", circular=False)
         assert result["ATCGATCG"] == []
 
     def test_kmer_equals_genome(self):
@@ -126,6 +122,7 @@ class TestGetAllPositionsPerK:
 # Circular genome handling
 # ---------------------------------------------------------------------------
 
+
 class TestCircularGenome:
     """Tests for circular (wrap-around) genome searches."""
 
@@ -154,6 +151,7 @@ class TestCircularGenome:
 # Reverse complement searches
 # ---------------------------------------------------------------------------
 
+
 class TestReverseComplementSearch:
     """Verify that reverse-complement primers are found correctly."""
 
@@ -170,9 +168,7 @@ class TestReverseComplementSearch:
         primer = "ATCG"
         rc = reverse_complement(primer)
         with _patch_genome(SIMPLE_GENOME):
-            result = get_all_positions_per_k(
-                [primer, rc], "dummy.fna", circular=False
-            )
+            result = get_all_positions_per_k([primer, rc], "dummy.fna", circular=False)
         assert result[primer] == [0, 4, 8]
         assert result[rc] == [2, 6]
 
@@ -190,6 +186,7 @@ class TestReverseComplementSearch:
 # Aho-Corasick multi-k search
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.skipif(
     not AHOCORASICK_AVAILABLE,
     reason="pyahocorasick not installed",
@@ -204,9 +201,7 @@ class TestAhoCorasickMultiK:
             3: ["ATC", "TCG"],
         }
         with _patch_genome(SIMPLE_GENOME):
-            result = get_all_positions_multi_k(
-                primer_lists_by_k, "dummy.fna", circular=False
-            )
+            result = get_all_positions_multi_k(primer_lists_by_k, "dummy.fna", circular=False)
         assert result["ATCG"] == [0, 4, 8]
         assert result["CGAT"] == [2, 6]
         assert result["ATC"] == [0, 4, 8]
@@ -216,9 +211,7 @@ class TestAhoCorasickMultiK:
         """Multi-k search with no hits should return empty lists."""
         primer_lists_by_k = {4: ["GGGG"]}
         with _patch_genome(SIMPLE_GENOME):
-            result = get_all_positions_multi_k(
-                primer_lists_by_k, "dummy.fna", circular=False
-            )
+            result = get_all_positions_multi_k(primer_lists_by_k, "dummy.fna", circular=False)
         assert result["GGGG"] == []
 
     def test_multi_k_circular(self):
@@ -226,9 +219,7 @@ class TestAhoCorasickMultiK:
         genome = "CGATCGAT"
         primer_lists_by_k = {4: ["ATCG"]}
         with _patch_genome(genome):
-            result = get_all_positions_multi_k(
-                primer_lists_by_k, "dummy.fna", circular=True
-            )
+            result = get_all_positions_multi_k(primer_lists_by_k, "dummy.fna", circular=True)
         assert 2 in result["ATCG"]
         assert 6 in result["ATCG"]
 
@@ -236,6 +227,7 @@ class TestAhoCorasickMultiK:
 # ---------------------------------------------------------------------------
 # Aho-Corasick vs per-k equivalence
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.skipif(
     not AHOCORASICK_AVAILABLE,
@@ -269,18 +261,19 @@ class TestAhoCorasickEquivalence:
             )
 
         for primer in primers_4:
-            assert sorted(multi_k[primer]) == sorted(per_k_4[primer]), (
-                f"Mismatch for {primer} in genome={genome!r}, circular={circular}"
-            )
+            assert sorted(multi_k[primer]) == sorted(
+                per_k_4[primer]
+            ), f"Mismatch for {primer} in genome={genome!r}, circular={circular}"
         for primer in primers_3:
-            assert sorted(multi_k[primer]) == sorted(per_k_3[primer]), (
-                f"Mismatch for {primer} in genome={genome!r}, circular={circular}"
-            )
+            assert sorted(multi_k[primer]) == sorted(
+                per_k_3[primer]
+            ), f"Mismatch for {primer} in genome={genome!r}, circular={circular}"
 
 
 # ---------------------------------------------------------------------------
 # Genome cache
 # ---------------------------------------------------------------------------
+
 
 class TestGenomeCache:
     """Tests for the module-level genome sequence cache."""
@@ -325,6 +318,7 @@ class TestGenomeCache:
 # write_to_h5py
 # ---------------------------------------------------------------------------
 
+
 class TestWriteToH5py:
     """Tests for HDF5 output writing."""
 
@@ -333,12 +327,14 @@ class TestWriteToH5py:
         prefix = str(tmp_path / "test")
         write_to_h5py({}, prefix)
         import os
+
         # No file should be created
         assert not any(f.endswith(".h5") for f in os.listdir(tmp_path))
 
     def test_write_and_read_back(self, tmp_path):
         """Positions written to HDF5 should be recoverable."""
         import h5py
+
         prefix = str(tmp_path / "test")
         kmer_dict = {"ATCG": [0, 4, 8], "CGAT": [2, 6]}
         # Create the file first (write_to_h5py opens in r+ mode)
@@ -353,6 +349,7 @@ class TestWriteToH5py:
     def test_overwrite_existing_dataset(self, tmp_path):
         """Overwriting an existing dataset should update the values."""
         import h5py
+
         prefix = str(tmp_path / "test")
         h5_path = prefix + "_4mer_positions.h5"
         # Write initial data

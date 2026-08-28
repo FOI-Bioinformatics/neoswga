@@ -17,7 +17,7 @@ def _make_adaptive_params(betaine=1.5, dmso=5.0):
     return GCAdaptiveParameters(
         genome_class=GenomeClass.GC_RICH,
         gc_content=0.70,
-        recommended_polymerase='equiphi29',
+        recommended_polymerase="equiphi29",
         kmer_range=(12, 18),
         optimal_kmer=15,
         reaction_temp=42.0,
@@ -40,15 +40,15 @@ def _make_adaptive_params(betaine=1.5, dmso=5.0):
 class TestGCAdaptiveDefaults:
     """Tests for _apply_gc_adaptive_defaults in pipeline.py."""
 
-    @patch('neoswga.core.gc_adaptive_strategy.GCAdaptiveStrategy')
-    @patch('neoswga.core.pipeline.parameter')
+    @patch("neoswga.core.gc_adaptive_strategy.GCAdaptiveStrategy")
+    @patch("neoswga.core.pipeline.parameter")
     def test_betaine_and_dmso_applied(self, mock_param, MockStrategy):
         """Verify betaine_concentration and dmso_concentration are read correctly."""
         from neoswga.core.pipeline import _apply_gc_adaptive_defaults
 
         # Set up mock parameter module
         mock_param.genome_gc = 0.70
-        mock_param.polymerase = 'phi29'
+        mock_param.polymerase = "phi29"
         mock_param.reaction_temp = None
         mock_param.betaine_m = 0.0
         mock_param.dmso_percent = 0.0
@@ -64,14 +64,14 @@ class TestGCAdaptiveDefaults:
         assert mock_param.betaine_m == 1.5
         assert mock_param.dmso_percent == 5.0
 
-    @patch('neoswga.core.gc_adaptive_strategy.GCAdaptiveStrategy')
-    @patch('neoswga.core.pipeline.parameter')
+    @patch("neoswga.core.gc_adaptive_strategy.GCAdaptiveStrategy")
+    @patch("neoswga.core.pipeline.parameter")
     def test_zero_concentrations_not_applied(self, mock_param, MockStrategy):
         """When adaptive params have zero concentrations, values stay at zero."""
         from neoswga.core.pipeline import _apply_gc_adaptive_defaults
 
         mock_param.genome_gc = 0.70
-        mock_param.polymerase = 'phi29'
+        mock_param.polymerase = "phi29"
         mock_param.reaction_temp = None
         mock_param.betaine_m = 0.0
         mock_param.dmso_percent = 0.0
@@ -94,5 +94,5 @@ class TestGCAdaptiveDefaults:
         assert params.betaine_concentration == 1.0
         assert params.dmso_concentration == 3.0
         # The old incorrect names must not exist
-        assert not hasattr(params, 'betaine_m')
-        assert not hasattr(params, 'dmso_percent')
+        assert not hasattr(params, "betaine_m")
+        assert not hasattr(params, "dmso_percent")

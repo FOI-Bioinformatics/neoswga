@@ -193,7 +193,7 @@ Try relaxing constraints:
 
 Use Bloom filter for large backgrounds:
 ```bash
-neoswga build-filter human_genome.fasta ./filters/
+neoswga build-filter --genome human_genome.fasta -o ./filters/
 # Then add to params.json:
 # "background_bloom_path": "./filters/background_bloom.pkl"
 ```

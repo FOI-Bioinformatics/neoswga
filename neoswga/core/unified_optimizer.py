@@ -120,6 +120,7 @@ def _ensure_optimizers_registered():
         # Import optimizer modules to trigger factory registration
         try:
             from . import background_aware_optimizer  # Clinical/background-aware
+            from . import clique_optimizer  # Structurally dimer-free sets
             from . import dominating_set_adapter  # Graph-based set cover
             from . import hybrid_optimizer  # Two-stage hybrid
             from . import network_optimizer  # Network connectivity
@@ -350,6 +351,144 @@ def _run_ensemble(
     return _dc_replace(winner, ensemble_comparison=tuple(rows))
 
 
+def _build_optimizer_config(target_size, verbose, extension_reach, fg_circular, kwargs):
+    """Populate every configurable field, not just the ones a caller passes.
+
+    This used to set five fields and leave the rest at their dataclass
+    defaults, so `max_dimer_bp`, `max_self_dimer_bp`, `min_tm` and `max_tm`
+    never arrived however params.json configured them -- every optimizer read
+    the default instead.
+
+    It mattered most on the clique optimizer, where the effect was a broken
+    guarantee rather than a shifted score. A params.json asking for
+    max_dimer_bp=3 got the default 4, which is LOOSER, so the compatibility
+    graph gained edges and the returned "dimer-free" clique could contain a
+    pair that dimerises at 3. The opposite direction would have been harmless
+    -- a clique in a sparser graph is still a clique in a denser one -- which
+    is why this only ever failed one way, and why unit tests that build the
+    config themselves never saw it.
+
+    Precedence: explicit kwarg, then the `parameter` global, then the default.
+    """
+
+    def pick(name, default):
+        value = kwargs.get(name)
+        if value is None:
+            value = getattr(parameter, name, None)
+        return default if value is None else value
+
+    return OptimizerConfig(
+        target_set_size=target_size,
+        max_iterations=kwargs.get("max_iterations", 100),
+        verbose=verbose,
+        extension_reach=extension_reach,
+        fg_circular=fg_circular,
+        max_dimer_bp=pick("max_dimer_bp", 4),
+        max_self_dimer_bp=pick("max_self_dimer_bp", 5),
+        min_tm=pick("min_tm", 20.0),
+        max_tm=pick("max_tm", 50.0),
+    )
+
+
+def _collect_forbidden_primers(candidates, verbose: bool) -> list:
+    """Candidates that exceed the blacklist frequency ceiling.
+
+    Phase 15C library-level guard. The validator used to receive
+    forbidden_primers=None, so library callers who bypassed the swap-primer CLI
+    could silently inject blacklist candidates. Cross-checks the pool against
+    params.bl_prefixes with the same helper the filter step uses, and hands the
+    hits to validate() so any that reached the selected set are flagged.
+    """
+    bl_prefixes_list = list(getattr(parameter, "bl_prefixes", []) or [])
+    bl_lengths_list = list(getattr(parameter, "bl_seq_lengths", []) or [])
+    if not (bl_prefixes_list and bl_lengths_list and candidates):
+        return []
+
+    try:
+        from .pipeline import _filter_blacklist_penalty
+
+        max_bl = getattr(parameter, "max_bl_freq", 0.0) or 0.0
+        _mask, freqs = _filter_blacklist_penalty(
+            list(candidates), bl_prefixes_list, bl_lengths_list, max_bl_freq=max_bl
+        )
+        forbidden = [p for p, f in zip(candidates, freqs) if f > max_bl]
+        if forbidden and verbose:
+            logger.warning(
+                f"Library blacklist guard: {len(forbidden)} candidate(s) exceed "
+                f"max_bl_freq={max_bl}; validator will flag any that reached the set."
+            )
+        return forbidden
+    except Exception as e:
+        logger.debug(f"library blacklist guard skipped ({e})")
+        return []
+
+
+def _minimize_primer_count(result, optimizer, target_coverage: float, verbose: bool):
+    """Trim a selected set to the fewest primers still meeting a coverage target.
+
+    Repeatedly drops whichever primer costs the least coverage, for as long as
+    what remains still clears `target_coverage`. This is deliberately a
+    post-process rather than a selection criterion: the optimizer picks the best
+    set it can at the requested size, and this asks separately whether a smaller
+    subset would still do the job.
+
+    Coverage is measured with `optimizer.compute_metrics`, the same base-level
+    figure written to `step4_improved_df_summary.json`. That matters more than
+    it looks. `MinimalPrimerSelector`, the module apparently written for this
+    job and never called by anything, counts `covered_positions` as the set of
+    binding-site COORDINATES -- so a primer covers as many bases as it has
+    sites, and extension is ignored entirely. On a 30 kb genome, 30 sites reads
+    as 0.1% coverage and no target is ever reachable. Using it here would have
+    given the flag a criterion that cannot fire. One coverage semantics, and it
+    is the reported one.
+
+    Guarded in both directions: a trimmed set is accepted only if it is
+    genuinely smaller and still clears the target, so the flag can shrink a set
+    but never silently degrade one.
+    """
+    from dataclasses import replace as _replace
+
+    try:
+        current = list(result.primers)
+        if len(current) < 2:
+            return result
+
+        best_metrics = None
+        while len(current) > 1:
+            candidate_drops = []
+            for primer in current:
+                remaining = [p for p in current if p != primer]
+                metrics = optimizer.compute_metrics(remaining)
+                if metrics.fg_coverage >= target_coverage:
+                    candidate_drops.append((metrics.fg_coverage, primer, remaining, metrics))
+
+            if not candidate_drops:
+                break
+
+            # Drop the primer whose removal leaves the most coverage standing.
+            _cov, _primer, remaining, metrics = max(candidate_drops, key=lambda d: d[0])
+            current, best_metrics = remaining, metrics
+
+        if len(current) >= len(result.primers):
+            if verbose:
+                logger.info(
+                    f"--minimize-primers: no smaller subset holds "
+                    f"{target_coverage:.0%} coverage; keeping {len(result.primers)}."
+                )
+            return result
+
+        if verbose:
+            logger.info(
+                f"--minimize-primers: {len(result.primers)} -> {len(current)} primers "
+                f"at {best_metrics.fg_coverage:.1%} coverage (target {target_coverage:.0%})."
+            )
+        return _replace(result, primers=tuple(current), metrics=best_metrics)
+
+    except Exception as e:
+        logger.warning(f"--minimize-primers skipped ({e}); keeping the full set.")
+        return result
+
+
 def run_optimization(
     method: str = "hybrid",
     candidates: Optional[List[str]] = None,
@@ -434,21 +573,9 @@ def run_optimization(
     _conditions_init_error: str = ""
     if conditions is None:
         try:
-            from .reaction_conditions import ReactionConditions
+            from .reaction_conditions import build_reaction_conditions
 
-            conditions = ReactionConditions(
-                temp=getattr(parameter, "reaction_temp", None) or 30.0,
-                polymerase=getattr(parameter, "polymerase", "phi29"),
-                na_conc=getattr(parameter, "na_conc", 50.0),
-                mg_conc=getattr(parameter, "mg_conc", 10.0),
-                dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-                betaine_m=getattr(parameter, "betaine_m", 0.0),
-                trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-                formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-                ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-                urea_m=getattr(parameter, "urea_m", 0.0),
-                tmac_m=getattr(parameter, "tmac_m", 0.0),
-            )
+            conditions = build_reaction_conditions()
         except (ValueError, TypeError, KeyError) as e:
             _conditions_init_error = str(e)
             logger.error(
@@ -534,25 +661,47 @@ def run_optimization(
     # Uses realistic per-primer reach (phi29 ~3 kb, equiphi29 ~4 kb), not
     # single-molecule processivity. See coverage.polymerase_extension_reach
     # for the Clarke 2017 / Dwivedi-Yu 2023 rationale.
+    # An explicit `coverage_reach` (params.json or --coverage-reach) overrides
+    # it. The right value is an empirical property of the reaction, and
+    # `neoswga calibrate-reach --bam` estimates it from sequencing depth.
     polymerase = kwargs.get("polymerase") or getattr(parameter, "polymerase", "phi29")
+    reach_override = kwargs.get("coverage_reach")
+    if reach_override is None:
+        reach_override = getattr(parameter, "coverage_reach", None)
     try:
-        from .coverage import polymerase_extension_reach
+        from .coverage import resolve_coverage_reach
 
-        extension_reach = polymerase_extension_reach(polymerase, coverage_metric="realistic")
-    except (ImportError, ValueError):
+        extension_reach = resolve_coverage_reach(polymerase, override=reach_override)
+    except ImportError:
         extension_reach = 3000  # phi29 realistic per-primer reach
+    if reach_override is not None and verbose:
+        logger.info(
+            f"Coverage reach: {extension_reach:,} bp (explicit; polymerase default "
+            f"would be used otherwise). Coverage figures are not comparable across "
+            f"different reaches."
+        )
 
     # Build optimizer config
     fg_circular = kwargs.get("fg_circular")
     if fg_circular is None:
         fg_circular = bool(getattr(parameter, "fg_circular", False))
-    config = OptimizerConfig(
-        target_set_size=target_size,
-        max_iterations=kwargs.get("max_iterations", 100),
+
+    config = _build_optimizer_config(
+        target_size=target_size,
         verbose=verbose,
         extension_reach=extension_reach,
         fg_circular=fg_circular,
+        kwargs=kwargs,
     )
+
+    # Popped rather than read off `config`: these arrive as kwargs, and the
+    # `OptimizerConfig` built here has no field for them -- `minimize_primers`
+    # lives on the separate `OptimizationConfig` used by
+    # run_optimization_from_config. Reading them from the wrong object is how
+    # they came to be set, forwarded, and never acted on. Popping also keeps
+    # them out of the optimizer constructors, which have no use for them.
+    _minimize_primers = bool(kwargs.pop("minimize_primers", False))
+    _target_coverage = float(kwargs.pop("target_coverage", 0.70) or 0.70)
 
     # By this point `conditions` is either a valid object or None (with
     # `_conditions_init_error` populated for validator-banner reporting
@@ -639,6 +788,23 @@ def run_optimization(
         with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
             result = optimizer.optimize(candidates, target_size)
 
+    # --minimize-primers / --target-coverage post-processing.
+    #
+    # Both flags were reaching this function and going no further: they were
+    # stored on OptimizationConfig, forwarded through **kwargs, and read by no
+    # optimizer. `MinimalPrimerSelector` -- which exists precisely to trim a set
+    # to the smallest one still meeting a coverage target -- had no callers
+    # anywhere outside its own module. So `--minimize-primers` did nothing,
+    # which also made the default path look like it was minimising when the
+    # real cause was the coverage-binning bug in dominating_set_optimizer.
+    if _minimize_primers and result.primers:
+        result = _minimize_primer_count(
+            result=result,
+            optimizer=optimizer,
+            target_coverage=_target_coverage,
+            verbose=verbose,
+        )
+
     # Phase 15A: populate per_target_coverage on the result so multi-
     # target runs surface "target A 95% / target B 40%" instead of one
     # aggregate. Computed in the caller (here) rather than in every
@@ -650,15 +816,15 @@ def run_optimization(
         if result.primers and fg_prefixes:
             from dataclasses import replace as _dc_replace
 
-            from .coverage import (
-                compute_per_prefix_coverage,
-                polymerase_extension_reach,
-            )
+            from .coverage import compute_per_prefix_coverage
 
-            _ext = polymerase_extension_reach(
-                getattr(parameter, "polymerase", "phi29") or "phi29",
-                default=extension_reach,
-            )
+            # The reach resolved above, which honours `coverage_reach` from
+            # params.json or `--coverage-reach`. This used to call
+            # `polymerase_extension_reach` again and discard the override, so a
+            # run selected at 8 kb and reported at phi29's 3 kb default -- about
+            # a third of the coverage the set was actually chosen for, with
+            # nothing saying the two figures came from different assumptions.
+            _ext = extension_reach
             _coverage_extension = _ext
             _, per_target = compute_per_prefix_coverage(
                 cache=cache,
@@ -708,35 +874,7 @@ def run_optimization(
     # written to data_dir/step4_improved_df_validation.json and logged here
     # so downstream CSV consumers can trust the output shape.
     try:
-        # Phase 15C library-level blacklist guard. Previously the validator
-        # received forbidden_primers=None; library callers who bypassed the
-        # swap-primer CLI could therefore silently inject blacklist
-        # candidates. Now we cross-check the candidate pool against
-        # params.bl_prefixes using the same helper the filter step uses,
-        # and pass the hits as forbidden primers to validate().
-        forbidden: list = []
-        bl_prefixes_list = list(getattr(parameter, "bl_prefixes", []) or [])
-        bl_lengths_list = list(getattr(parameter, "bl_seq_lengths", []) or [])
-        if bl_prefixes_list and bl_lengths_list and candidates:
-            try:
-                from .pipeline import _filter_blacklist_penalty
-
-                max_bl = getattr(parameter, "max_bl_freq", 0.0) or 0.0
-                _mask, _freqs = _filter_blacklist_penalty(
-                    list(candidates),
-                    bl_prefixes_list,
-                    bl_lengths_list,
-                    max_bl_freq=max_bl,
-                )
-                forbidden = [p for p, f in zip(candidates, _freqs) if f > max_bl]
-                if forbidden and verbose:
-                    logger.warning(
-                        f"Library blacklist guard: {len(forbidden)} "
-                        f"candidate(s) exceed max_bl_freq={max_bl}; "
-                        f"validator will flag any that reached the selected set."
-                    )
-            except Exception as e:
-                logger.debug(f"library blacklist guard skipped ({e})")
+        forbidden = _collect_forbidden_primers(candidates, verbose)
 
         validation = result.validate(
             target_size=target_size,
@@ -888,6 +1026,21 @@ def save_results(
     summary_path = os.path.splitext(output_path)[0] + "_summary.json"
     try:
         summary = result.to_dict()
+        # Synthesis cost, itemised. Set size is the main lever on coverage, so
+        # "how many primers" is really "how many oligos will you buy"; without
+        # this the trade-off has a missing axis. Assumes the standard SWGA
+        # modification (two 3' PTO bonds against phi29's exonuclease), which is
+        # the largest single component for primers this short.
+        try:
+            from neoswga.core.oligo_cost import cost_per_coverage_point, set_cost
+
+            cost = set_cost(list(result.primers))
+            summary["synthesis_cost"] = cost.to_dict()
+            summary["synthesis_cost"]["usd_per_coverage_point"] = round(
+                cost_per_coverage_point(cost, result.metrics.fg_coverage), 2
+            )
+        except Exception as exc:  # never lose the result over a cost estimate
+            logger.debug(f"Could not estimate synthesis cost: {exc}")
         with open(summary_path, "w") as f:
             json.dump(summary, f, indent=2, default=str)
         logger.info(f"Summary saved to {summary_path}")

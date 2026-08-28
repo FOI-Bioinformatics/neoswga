@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -23,6 +22,7 @@ EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 def _reset_pipeline_state(params_file):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
+
     pipeline_mod._initialized = False
     pipeline_mod.fg_prefixes = None
     pipeline_mod.bg_prefixes = None
@@ -81,6 +81,7 @@ def test_run_optimization_flags_blacklist_candidates(plasmid_with_aliased_blackl
     _reset_pipeline_state(str(params_file))
 
     from neoswga.core.pipeline import step2, step3
+
     step2()
     step3()
 
@@ -89,9 +90,11 @@ def test_run_optimization_flags_blacklist_candidates(plasmid_with_aliased_blackl
     # the forbidden list is empty only when every candidate passes the
     # filter helper, but the code path runs.
     from neoswga.core.unified_optimizer import optimize_step4
+
     _reset_pipeline_state(str(params_file))
     primer_sets, _, _ = optimize_step4(
-        optimization_method="hybrid", verbose=False,
+        optimization_method="hybrid",
+        verbose=False,
     )
 
     # Validation artefact should exist
@@ -112,6 +115,7 @@ def test_library_caller_with_explicit_blacklist_candidate(plasmid_with_aliased_b
     os.chdir(tmpdir)
     _reset_pipeline_state(str(params_file))
     from neoswga.core.pipeline import step2, step3
+
     step2()
     step3()
 
@@ -136,6 +140,7 @@ def test_library_caller_with_explicit_blacklist_candidate(plasmid_with_aliased_b
 
     # Combine real step3 primers with the blacklist one
     import pandas as pd
+
     step3_csv = tmpdir / "step3_df.csv"
     step3_df = pd.read_csv(step3_csv, index_col=0) if step3_csv.is_file() else pd.DataFrame()
     candidates = list(step3_df.index.astype(str).tolist())[:10]

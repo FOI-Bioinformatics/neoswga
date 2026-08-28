@@ -51,6 +51,19 @@ _ALLOWED_CLASSES = {
         ("numpy", "ndarray"),
         ("numpy", "dtype"),
         ("numpy.core.multiarray", "_reconstruct"),
+        # A pybloom filter stores its bit storage and the hash constructor it
+        # was built with, so loading one needs these three as well. Without
+        # them `build-filter` wrote a file that could never be read back --
+        # save() succeeded and load() always raised.
+        #
+        # All three are inert data primitives, not arbitrary callables:
+        # `openssl_sha256` is a hash constructor returning a hash object,
+        # `bitarray` is the bit storage type, and `_bitarray_reconstructor` is
+        # bitarray's own unpickling helper. None can execute caller-supplied
+        # code, which is the property this allowlist exists to enforce.
+        ("_hashlib", "openssl_sha256"),
+        ("bitarray", "bitarray"),
+        ("bitarray._bitarray", "_bitarray_reconstructor"),
     },
 }
 

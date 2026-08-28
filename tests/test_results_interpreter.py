@@ -17,10 +17,10 @@ from neoswga.core.results_interpreter import (
     DIMER_SCORE_THRESHOLDS,
 )
 
-
 # ---------------------------------------------------------------------------
 # QualityRating enum
 # ---------------------------------------------------------------------------
+
 
 class TestQualityRating:
     def test_enum_values(self):
@@ -37,6 +37,7 @@ class TestQualityRating:
 # ---------------------------------------------------------------------------
 # Dataclass construction
 # ---------------------------------------------------------------------------
+
 
 class TestDataclasses:
     def test_metric_assessment_creation(self):
@@ -81,6 +82,7 @@ class TestDataclasses:
 # rate_metric (higher-is-better and lower-is-better)
 # ---------------------------------------------------------------------------
 
+
 class TestRateMetric:
     # Coverage thresholds: EXCELLENT >= 0.95, GOOD >= 0.85, ACCEPTABLE >= 0.70, POOR >= 0.50
     def test_higher_is_better_excellent(self):
@@ -101,35 +103,58 @@ class TestRateMetric:
     def test_higher_is_better_boundary_excellent(self):
         assert rate_metric(0.95, COVERAGE_THRESHOLDS) == QualityRating.EXCELLENT
 
-    # Uniformity thresholds (lower is better): EXCELLENT <= 0.3, GOOD <= 0.45, etc.
+    # `rate_metric` is a pure banding function, so these use their own scale.
+    # Binding it to the shipped constants meant recalibrating the thresholds
+    # broke tests of the arithmetic, which is the wrong coupling: the shipped
+    # numbers are pinned by tests/test_quality_thresholds_are_calibrated.py.
+    LOWER_IS_BETTER = {
+        QualityRating.EXCELLENT: 0.3,
+        QualityRating.GOOD: 0.45,
+        QualityRating.ACCEPTABLE: 0.6,
+        QualityRating.POOR: 0.75,
+    }
+
     def test_lower_is_better_excellent(self):
-        assert rate_metric(0.2, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.EXCELLENT
+        assert (
+            rate_metric(0.2, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.EXCELLENT
+        )
 
     def test_lower_is_better_good(self):
-        assert rate_metric(0.4, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.GOOD
+        assert rate_metric(0.4, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.GOOD
 
     def test_lower_is_better_acceptable(self):
-        assert rate_metric(0.55, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.ACCEPTABLE
+        assert (
+            rate_metric(0.55, self.LOWER_IS_BETTER, lower_is_better=True)
+            == QualityRating.ACCEPTABLE
+        )
 
     def test_lower_is_better_poor(self):
-        assert rate_metric(0.7, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.POOR
+        assert rate_metric(0.7, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.POOR
 
     def test_lower_is_better_critical(self):
-        assert rate_metric(0.9, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.CRITICAL
+        assert (
+            rate_metric(0.9, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.CRITICAL
+        )
 
     def test_lower_is_better_boundary_excellent(self):
-        assert rate_metric(0.3, UNIFORMITY_THRESHOLDS, lower_is_better=True) == QualityRating.EXCELLENT
+        assert (
+            rate_metric(0.3, self.LOWER_IS_BETTER, lower_is_better=True) == QualityRating.EXCELLENT
+        )
 
     # Enrichment thresholds
     def test_enrichment_excellent(self):
         assert rate_metric(250, ENRICHMENT_THRESHOLDS) == QualityRating.EXCELLENT
 
     def test_enrichment_critical(self):
-        assert rate_metric(5, ENRICHMENT_THRESHOLDS) == QualityRating.CRITICAL
+        # Below the "poor" bar of 2x, which is where the published failures sat.
+        assert rate_metric(1.5, ENRICHMENT_THRESHOLDS) == QualityRating.CRITICAL
 
     # Dimer score thresholds (lower is better)
     def test_dimer_excellent(self):
-        assert rate_metric(0.05, DIMER_SCORE_THRESHOLDS, lower_is_better=True) == QualityRating.EXCELLENT
+        assert (
+            rate_metric(0.05, DIMER_SCORE_THRESHOLDS, lower_is_better=True)
+            == QualityRating.EXCELLENT
+        )
 
     def test_dimer_poor(self):
         assert rate_metric(0.45, DIMER_SCORE_THRESHOLDS, lower_is_better=True) == QualityRating.POOR
@@ -138,6 +163,7 @@ class TestRateMetric:
 # ---------------------------------------------------------------------------
 # Helper: create a step4 CSV file with controllable columns
 # ---------------------------------------------------------------------------
+
 
 def _write_step4_csv(path, rows):
     """Write a step4_improved_df.csv with given rows (list of dicts)."""
@@ -163,20 +189,23 @@ def _make_primer_rows(
     """Generate n primer rows with sensible defaults."""
     rows = []
     for i in range(n):
-        rows.append({
-            "primer": f"{primer_prefix}{i:02d}"[-len(primer_prefix):],
-            "fg_freq": str(fg_freq),
-            "bg_freq": str(bg_freq),
-            "gini": str(gini),
-            "dimer_score": str(dimer_score),
-            "coverage": str(coverage),
-        })
+        rows.append(
+            {
+                "primer": f"{primer_prefix}{i:02d}"[-len(primer_prefix) :],
+                "fg_freq": str(fg_freq),
+                "bg_freq": str(bg_freq),
+                "gini": str(gini),
+                "dimer_score": str(dimer_score),
+                "coverage": str(coverage),
+            }
+        )
     return rows
 
 
 # ---------------------------------------------------------------------------
 # ResultsInterpreter with synthetic data
 # ---------------------------------------------------------------------------
+
 
 class TestResultsInterpreter:
     def test_analyze_with_step4(self, tmp_path):
@@ -234,7 +263,9 @@ class TestResultsInterpreter:
         report = ResultsInterpreter(str(tmp_path)).analyze()
         uni = [a for a in report.assessments if a.name == "Binding Uniformity"]
         assert len(uni) == 1
-        assert uni[0].rating == QualityRating.ACCEPTABLE
+        # Gini 0.55 sits just inside the "good" band, whose 0.56 bar is the cut
+        # between the Prevotella sets that worked and the four that did not.
+        assert uni[0].rating == QualityRating.GOOD
 
     def test_dimer_assessment(self, tmp_path):
         rows = _make_primer_rows(dimer_score=0.4)
@@ -246,16 +277,18 @@ class TestResultsInterpreter:
         assert dim[0].rating == QualityRating.POOR
 
     def test_overall_excellent(self, tmp_path):
-        rows = _make_primer_rows(coverage=0.98, gini=0.2, dimer_score=0.05,
-                                 fg_freq=1e-2, bg_freq=1e-5)
+        rows = _make_primer_rows(
+            coverage=0.98, gini=0.2, dimer_score=0.05, fg_freq=1e-2, bg_freq=1e-5
+        )
         _write_step4_csv(tmp_path / "step4_improved_df.csv", rows)
 
         report = ResultsInterpreter(str(tmp_path)).analyze()
         assert report.overall_rating == QualityRating.EXCELLENT
 
     def test_overall_poor(self, tmp_path):
-        rows = _make_primer_rows(coverage=0.40, gini=0.8, dimer_score=0.6,
-                                 fg_freq=1e-5, bg_freq=1e-5)
+        rows = _make_primer_rows(
+            coverage=0.40, gini=0.8, dimer_score=0.6, fg_freq=1e-5, bg_freq=1e-5
+        )
         _write_step4_csv(tmp_path / "step4_improved_df.csv", rows)
 
         report = ResultsInterpreter(str(tmp_path)).analyze()
@@ -284,22 +317,30 @@ class TestResultsInterpreter:
 # Recommendation generation
 # ---------------------------------------------------------------------------
 
+
 class TestRecommendations:
     def test_excellent_recommendation(self, tmp_path):
-        rows = _make_primer_rows(coverage=0.98, gini=0.2, dimer_score=0.05,
-                                 fg_freq=1e-2, bg_freq=1e-5)
+        rows = _make_primer_rows(
+            coverage=0.98, gini=0.2, dimer_score=0.05, fg_freq=1e-2, bg_freq=1e-5
+        )
         _write_step4_csv(tmp_path / "step4_improved_df.csv", rows)
 
         report = ResultsInterpreter(str(tmp_path)).analyze()
-        assert "synthesis" in report.recommendation.lower() or "ready" in report.recommendation.lower()
+        assert (
+            "synthesis" in report.recommendation.lower() or "ready" in report.recommendation.lower()
+        )
 
     def test_critical_recommendation(self, tmp_path):
-        rows = _make_primer_rows(coverage=0.10, gini=0.9, dimer_score=0.8,
-                                 fg_freq=1e-6, bg_freq=1e-5)
+        rows = _make_primer_rows(
+            coverage=0.10, gini=0.9, dimer_score=0.8, fg_freq=1e-6, bg_freq=1e-5
+        )
         _write_step4_csv(tmp_path / "step4_improved_df.csv", rows)
 
         report = ResultsInterpreter(str(tmp_path)).analyze()
-        assert "not proceed" in report.recommendation.lower() or "issues" in report.recommendation.lower()
+        assert (
+            "not proceed" in report.recommendation.lower()
+            or "issues" in report.recommendation.lower()
+        )
 
     def test_next_steps_not_empty(self, tmp_path):
         rows = _make_primer_rows()
@@ -312,6 +353,7 @@ class TestRecommendations:
 # ---------------------------------------------------------------------------
 # print_report (capsys)
 # ---------------------------------------------------------------------------
+
 
 class TestPrintReport:
     def test_print_report_does_not_crash(self, tmp_path, capsys):
@@ -367,6 +409,7 @@ class TestPrintReport:
 # interpret_results convenience function
 # ---------------------------------------------------------------------------
 
+
 class TestInterpretResults:
     def test_interpret_results_verbose(self, tmp_path, capsys):
         rows = _make_primer_rows()
@@ -390,6 +433,7 @@ class TestInterpretResults:
 # ---------------------------------------------------------------------------
 # Graceful handling of edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestEdgeCases:
     def test_empty_csv_file(self, tmp_path):

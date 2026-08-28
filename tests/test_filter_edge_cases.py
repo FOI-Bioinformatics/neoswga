@@ -1,4 +1,5 @@
 """Test edge cases in filter module."""
+
 import pytest
 
 

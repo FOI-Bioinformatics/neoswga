@@ -70,6 +70,15 @@ def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:
         return min(1.0, max_run / max_bp) if max_run >= max_bp else 0.0
 
 
+# Amplification-prediction shape. Below the crossover a connected component is
+# too small to branch and growth is linear in its size; above it, branching makes
+# growth exponential. The exponential branch is anchored to the linear one at the
+# crossover so the prediction is continuous and monotone -- see
+# AmplificationNetwork.predict_amplification_fold.
+_LINEAR_COMPONENT_LIMIT = 10
+_LINEAR_FOLD_PER_SITE = 5
+
+
 @dataclass(slots=True)
 class BindingSite:
     """Primer binding site"""
@@ -345,13 +354,29 @@ class AmplificationNetwork:
         """
         largest = self.largest_component_size()
 
-        if largest < 10:
-            # Too small for exponential
-            return largest * 5  # Linear growth
+        if largest < _LINEAR_COMPONENT_LIMIT:
+            # Below the crossover a component is too small to branch, so growth
+            # is linear in the number of connected sites.
+            return largest * _LINEAR_FOLD_PER_SITE
 
-        # Exponential scaling with saturation
-        exponent = min(largest / 10.0, 20.0)
-        return 2**exponent
+        # Exponential above the crossover, ANCHORED to the linear branch so the
+        # two meet.
+        #
+        # These were previously independent: `largest * 5` below 10 and
+        # `2 ** (largest / 10)` at or above it. They do not meet -- 9 sites
+        # predicted 45-fold and 10 sites predicted 2-fold, a 22x drop -- and the
+        # exponential did not regain 45 until a component of 55. So every
+        # network with a largest component between 10 and 54 was predicted to
+        # amplify LESS than one with 9, which inverts the quantity over its most
+        # common range.
+        #
+        # That matters beyond reporting: background_aware_optimizer ranks
+        # candidate sets on this value, so a better-connected network scored
+        # worse. Anchoring keeps both intents -- linear for small components,
+        # exponential for large -- while making the function monotone.
+        anchor = (_LINEAR_COMPONENT_LIMIT - 1) * _LINEAR_FOLD_PER_SITE
+        exponent = min((largest - _LINEAR_COMPONENT_LIMIT + 1) / 10.0, 20.0)
+        return anchor * 2**exponent
 
     def predict_amplification_fold_weighted(
         self, primer_tms: Dict[str, float], reaction_temp: float
@@ -1268,6 +1293,10 @@ class NetworkBaseOptimizer(BaseOptimizer):
             bg_seq_lengths,
             config,
             conditions=conditions,
+            # Forward the rest so background_profile / aggregate reach
+            # BaseOptimizer. Dropping **kwargs here made a compositional
+            # background silently inert on every optimizer.
+            **kwargs,
         )
         self._network = NetworkOptimizer(
             position_cache=position_cache,

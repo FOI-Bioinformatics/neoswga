@@ -1,0 +1,81 @@
+{
+ "source": {
+  "citation": "Leichty AR, Brisson D (2014) Selective whole genome amplification for resequencing target microbial species from complex natural samples. Genetics 198(2):473-481.",
+  "doi": "10.1534/genetics.114.165498",
+  "tables": "Table S1 (primer sequences); Tables 1-2 and Results for outcomes",
+  "notes": "The original SWGA paper. Primers were selected by a PERL script on target/background k-mer frequency ratio with a Tm cutoff, before the swga toolkit existed - so evenness was never a design criterion here. SR2 is the two least-permissive primers of SR1; Clarke et al. (2017) later benchmarked SR2 as 'Leichty and Brisson 2014'."
+ },
+ "sets": {
+  "B31-BL21": {
+   "primers": [
+    "ATTTTTTTATTT",
+    "TTTATTATTTTT",
+    "TTTTAAAATTTT",
+    "TTTAATATTTTT",
+    "TTTTTAAATTTT",
+    "TTTTTAATTTTT",
+    "TATTTTTTTATT",
+    "TTTTATTATTTT",
+    "TAATATTTTTTT",
+    "TTTTAATATTTT",
+    "TTTAAAATTTTT",
+    "AATATTTTTTTT",
+    "TTTTTAATTTTA",
+    "TTTTTTAAAATT",
+    "TTTTTTGATTTT",
+    "TTAATATTTTTT",
+    "ATTTTTTTTATT",
+    "TTTTTATTATTT",
+    "AAATTTTTTATT",
+    "TTTTTTTAAATT"
+   ],
+   "target": "Borrelia burgdorferi B31",
+   "background": "Escherichia coli BL21",
+   "outcome": {
+    "fold_target": ">1e5",
+    "fold_background": "<6.7",
+    "note": "Amplification of B. burgdorferi orders of magnitude greater than E. coli across 1:2 to 1:2000 starting ratios; target dominated post-SWGA.",
+    "effective": true
+   }
+  },
+  "SR1": {
+   "primers": [
+    "TCATACCGC",
+    "ATCCCGCTA",
+    "CCGCTAACA",
+    "CGTCATACC",
+    "TGTCATTCCA",
+    "CGGTATGAC",
+    "AACCGTCAT",
+    "CGATTCATTC",
+    "ATCCAAGTAG",
+    "CGGTATCTC"
+   ],
+   "target": "Wolbachia pipientis",
+   "background": "Drosophila melanogaster",
+   "outcome": {
+    "note": "Substantial amplification of W. pipientis with limited D. melanogaster amplification.",
+    "effective": true,
+    "more_selective_than": null
+   }
+  },
+  "SR2": {
+   "primers": [
+    "ATCCAAGTAG",
+    "CGGTATCTC"
+   ],
+   "target": "Wolbachia pipientis",
+   "background": "Drosophila melanogaster",
+   "outcome": {
+    "fold_target": 1264.0,
+    "fold_background": 9.0,
+    "selectivity": 140.0,
+    "pct_reads_on_target_max": 70.0,
+    "pct_reads_unamplified": "2.4-8.8",
+    "note": "The two least-permissive primers of SR1. Further decreased D. melanogaster amplification; with restriction digest reached 1264-fold target vs 9-fold background (~140x selective) and up to 70% of reads on target against 2.4-8.8% unamplified.",
+    "effective": true,
+    "more_selective_than": "SR1"
+   }
+  }
+ }
+}

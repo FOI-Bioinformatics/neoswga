@@ -49,6 +49,7 @@ def test_empty_step3_csv_returns_failure(tmp_path, monkeypatch):
 
     # Stub parameter.data_dir to the tmp path.
     from neoswga.core import parameter as param_mod
+
     monkeypatch.setattr(param_mod, "data_dir", str(data_dir), raising=False)
 
     result = run_optimization(

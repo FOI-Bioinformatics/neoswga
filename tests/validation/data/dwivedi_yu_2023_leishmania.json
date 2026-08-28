@@ -1,0 +1,121 @@
+{
+  "source": {
+    "citation": "Dwivedi-Yu T, Baniecki ML, Toh E, et al. (2023) Selective whole-genome amplification reveals population genetics of Leishmania braziliensis directly from patient skin biopsies. PLOS Pathogens 19(3):e1011230.",
+    "doi": "10.1371/journal.ppat.1011230",
+    "pmcid": "PMC10063166",
+    "tables": "S1 Table (ppat.1011230.s004.xlsx): sheet 1 gives all 23 primers with set membership, sheet 2 gives the four assembled sets. Outcomes quoted from Results.",
+    "target": "Leishmania braziliensis MHOM/BR/75/M2904 2019",
+    "backgrounds": [
+      "human",
+      "Staphylococcus aureus",
+      "Streptococcus pyogenes"
+    ],
+    "designed_with": "swga2.0 (machine-learning primer selection)",
+    "polymerase": "phi29",
+    "reaction": "16-hour isothermal amplification at room temperature",
+    "notes": "Outcomes are categorical - the paper reports which sets worked, not a per-set enrichment figure. PS1 and PS4 reached >=60% parasite-mapping reads from 1% and 0.1% starting parasite DNA; PS2 and PS3 'performed more poorly on synthetic samples' and were only used in nested second-round reactions after PS1 or PS4. Across 66 patient samples the workflow succeeded on 18 (27%), with median 86.6% of the genome at >=10x and 38x median coverage. This is the only set in the suite designed against MULTIPLE backgrounds, and the only one using 8-mers against a GC-rich (~60%) target."
+  },
+  "candidate_pool": [
+    "CCGATACG",
+    "CGAAAACG",
+    "CGAAGTCG",
+    "CGACTACG",
+    "CGACTTCG",
+    "CGAGAACG",
+    "CGATAACG",
+    "CGATACCG",
+    "CGATACGA",
+    "CGATAGCG",
+    "CGCTATCG",
+    "CGGATACG",
+    "CGGTAACG",
+    "CGGTATCG",
+    "CGTAACGG",
+    "CGTAGTCG",
+    "CGTATCGG",
+    "CGTCGTAG",
+    "CGTTACCG",
+    "CGTTCTCG",
+    "CTACGACG",
+    "TACGACGA",
+    "TCGTCGTA"
+  ],
+  "sets": {
+    "PS1": {
+      "primers": [
+        "CCGATACG",
+        "CGACTACG",
+        "CGACTTCG",
+        "CGATACCG",
+        "CGATAGCG",
+        "CGGATACG",
+        "CGTTACCG",
+        "CGTTCTCG",
+        "CTACGACG",
+        "TACGACGA"
+      ],
+      "outcome": {
+        "effective": true,
+        "tier": "effective",
+        "note": "reached >=60% parasite reads from 1% and 0.1% input"
+      }
+    },
+    "PS2": {
+      "primers": [
+        "CGAAAACG",
+        "CGAAGTCG",
+        "CGAGAACG",
+        "CGCTATCG",
+        "CGGTAACG",
+        "CGGTATCG",
+        "CGTAGTCG",
+        "CGTATCGG",
+        "CGTCGTAG",
+        "TCGTCGTA"
+      ],
+      "outcome": {
+        "effective": false,
+        "tier": "poor",
+        "note": "performed more poorly on synthetic samples; used only in nested second-round reactions"
+      }
+    },
+    "PS3": {
+      "primers": [
+        "CGAAAACG",
+        "CGAAGTCG",
+        "CGAGAACG",
+        "CGATAACG",
+        "CGATACCG",
+        "CGATAGCG",
+        "CGTAACGG",
+        "CGTAGTCG",
+        "CGTCGTAG",
+        "TCGTCGTA"
+      ],
+      "outcome": {
+        "effective": false,
+        "tier": "poor",
+        "note": "performed more poorly on synthetic samples; used only in nested second-round reactions"
+      }
+    },
+    "PS4": {
+      "primers": [
+        "CCGATACG",
+        "CGAAAACG",
+        "CGACTACG",
+        "CGAGAACG",
+        "CGATAACG",
+        "CGATACCG",
+        "CGATACGA",
+        "CGATAGCG",
+        "CTACGACG",
+        "TACGACGA"
+      ],
+      "outcome": {
+        "effective": true,
+        "tier": "effective",
+        "note": "reached >=60% parasite reads from 1% and 0.1% input"
+      }
+    }
+  }
+}

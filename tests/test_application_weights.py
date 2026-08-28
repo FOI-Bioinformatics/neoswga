@@ -45,13 +45,11 @@ def test_clinical_penalises_low_selectivity():
     high_sel = _metrics(fg_cov=0.90, selectivity=100.0, dimer=0.1)
     low_sel = _metrics(fg_cov=0.90, selectivity=10.0, dimer=0.1)
 
-    clinical_delta = (
-        high_sel.normalized_score(application="clinical")
-        - low_sel.normalized_score(application="clinical")
+    clinical_delta = high_sel.normalized_score(application="clinical") - low_sel.normalized_score(
+        application="clinical"
     )
-    meta_delta = (
-        high_sel.normalized_score(application="metagenomics")
-        - low_sel.normalized_score(application="metagenomics")
+    meta_delta = high_sel.normalized_score(application="metagenomics") - low_sel.normalized_score(
+        application="metagenomics"
     )
 
     assert clinical_delta > meta_delta, (
@@ -73,9 +71,9 @@ def test_metagenomics_favours_coverage():
     clinical_B = B.normalized_score(application="clinical")
 
     assert meta_A > meta_B, f"meta should prefer high-coverage A; got {meta_A} vs {meta_B}"
-    assert clinical_B > clinical_A, (
-        f"clinical should prefer high-selectivity B; got clinical_A={clinical_A}, clinical_B={clinical_B}"
-    )
+    assert (
+        clinical_B > clinical_A
+    ), f"clinical should prefer high-selectivity B; got clinical_A={clinical_A}, clinical_B={clinical_B}"
 
 
 def test_discovery_weights_emphasize_coverage():

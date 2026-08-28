@@ -12,26 +12,40 @@ import math
 
 import pytest
 
-
 # ----------------------------------------------------------------------
 # SantaLucia 1998 NN parameters (Table 1, PNAS 95:1460-1465)
 # ----------------------------------------------------------------------
 
 # Keys are "XY/X'Y'" where X'Y' is the reverse-complement (SantaLucia 1998 Table 1).
 SANTALUCIA_NN_DH = {
-    "AA/TT": -7.9, "AT/TA": -7.2, "TA/AT": -7.2,
-    "CA/GT": -8.5, "GT/CA": -8.4, "CT/GA": -7.8, "GA/CT": -8.2,
-    "CG/GC": -10.6, "GC/CG": -9.8, "GG/CC": -8.0,
+    "AA/TT": -7.9,
+    "AT/TA": -7.2,
+    "TA/AT": -7.2,
+    "CA/GT": -8.5,
+    "GT/CA": -8.4,
+    "CT/GA": -7.8,
+    "GA/CT": -8.2,
+    "CG/GC": -10.6,
+    "GC/CG": -9.8,
+    "GG/CC": -8.0,
 }
 SANTALUCIA_NN_DS = {
-    "AA/TT": -22.2, "AT/TA": -20.4, "TA/AT": -21.3,
-    "CA/GT": -22.7, "GT/CA": -22.4, "CT/GA": -21.0, "GA/CT": -22.2,
-    "CG/GC": -27.2, "GC/CG": -24.4, "GG/CC": -19.9,
+    "AA/TT": -22.2,
+    "AT/TA": -20.4,
+    "TA/AT": -21.3,
+    "CA/GT": -22.7,
+    "GT/CA": -22.4,
+    "CT/GA": -21.0,
+    "GA/CT": -22.2,
+    "CG/GC": -27.2,
+    "GC/CG": -24.4,
+    "GG/CC": -19.9,
 }
 
 
 def test_santalucia_nn_enthalpy_matches_table_1():
     from neoswga.core import thermodynamics as td
+
     nn = td.ENTHALPY_NN
     for pair, expected in SANTALUCIA_NN_DH.items():
         assert abs(nn[pair] - expected) < 1e-6, (
@@ -42,6 +56,7 @@ def test_santalucia_nn_enthalpy_matches_table_1():
 
 def test_santalucia_nn_entropy_matches_table_1():
     from neoswga.core import thermodynamics as td
+
     nn = td.ENTROPY_NN
     for pair, expected in SANTALUCIA_NN_DS.items():
         assert abs(nn[pair] - expected) < 1e-6, (
@@ -54,14 +69,57 @@ def test_santalucia_nn_entropy_matches_table_1():
 # Owczarzy 2004 salt correction coefficient
 # ----------------------------------------------------------------------
 
+
+def test_nn_reverse_complement_entries_are_self_consistent():
+    """Every non-canonical NN key must carry its reverse-complement's values.
+
+    A stack "XY/WZ" and its reverse complement describe the same duplex read
+    from the other end, so they are thermodynamically identical. The tables
+    carry the RC entries purely to avoid computing reverse complements at
+    lookup time, which means a mis-assigned RC entry is a silent Tm error for
+    every primer containing that dinucleotide. The two tests above only cover
+    the 10 canonical stacks, so they cannot catch it.
+    """
+    from neoswga.core import thermodynamics as td
+
+    complement = {"A": "T", "T": "A", "C": "G", "G": "C"}
+
+    def revcomp(seq):
+        return "".join(complement[b] for b in reversed(seq))
+
+    for table, name in ((td.ENTHALPY_NN, "ENTHALPY_NN"), (td.ENTROPY_NN, "ENTROPY_NN")):
+        for key, value in table.items():
+            top, bottom = key.split("/")
+            # The bottom strand is written 3'->5', so it is the plain complement.
+            assert bottom == "".join(complement[b] for b in top), (
+                f"{name}['{key}'] is malformed: bottom strand is not the "
+                f"complement of the top strand"
+            )
+            rc_key = f"{revcomp(top)}/{''.join(complement[b] for b in revcomp(top))}"
+            assert rc_key in table, f"{name} is missing the RC partner '{rc_key}' of '{key}'"
+            assert abs(table[rc_key] - value) < 1e-6, (
+                f"{name}['{key}']={value} disagrees with its reverse complement "
+                f"{name}['{rc_key}']={table[rc_key]}. revcomp({top}) is "
+                f"{revcomp(top)}, so these two stacks describe the same duplex "
+                f"and must be equal."
+            )
+
+
+def test_nn_tables_have_identical_keys():
+    """ENTHALPY_NN and ENTROPY_NN must describe the same set of stacks."""
+    from neoswga.core import thermodynamics as td
+
+    assert set(td.ENTHALPY_NN) == set(td.ENTROPY_NN)
+
+
 def test_owczarzy_entropy_salt_coefficient():
     """Owczarzy 2004 coefficient 0.368 must match Biochemistry 43:3537."""
     import inspect
     from neoswga.core import thermodynamics as td
+
     source = inspect.getsource(td)
     assert "0.368" in source, (
-        "Owczarzy 2004 entropy salt coefficient 0.368 should appear in "
-        "thermodynamics.py"
+        "Owczarzy 2004 entropy salt coefficient 0.368 should appear in " "thermodynamics.py"
     )
 
 
@@ -80,12 +138,11 @@ ADDITIVE_COEFFS_37C = {
 }
 
 
-@pytest.mark.parametrize("key,expected_value", [
-    (k, v[0]) for k, v in ADDITIVE_COEFFS_37C.items()
-])
+@pytest.mark.parametrize("key,expected_value", [(k, v[0]) for k, v in ADDITIVE_COEFFS_37C.items()])
 def test_additive_coefficient_at_37c(key, expected_value):
     """Each additive's reference Tm coefficient must match its citation."""
     from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
+
     tm_params = MECHANISTIC_MODEL_PARAMS["tm"]
     actual = tm_params[key]
     assert abs(actual - expected_value) < 1e-6, (
@@ -99,35 +156,47 @@ def test_additive_coefficient_at_37c(key, expected_value):
 # Polymerase characteristics — primary literature
 # ----------------------------------------------------------------------
 
+
 def test_phi29_processivity_matches_blanco_1989():
     """phi29 processivity 70,000 bp per Blanco 1989 JBC 264:8935."""
     from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
+
     assert POLYMERASE_CHARACTERISTICS["phi29"]["processivity"] == 70_000
 
 
 def test_equiphi29_processivity_vendor_data():
     from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
+
     assert POLYMERASE_CHARACTERISTICS["equiphi29"]["processivity"] == 80_000
 
 
 def test_bst_processivity_matches_notomi_2000():
     from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
+
     assert POLYMERASE_CHARACTERISTICS["bst"]["processivity"] == 2_000
 
 
-def test_klenow_processivity_matches_bambara_1978():
+def test_klenow_processivity_is_distributive():
     from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
-    assert POLYMERASE_CHARACTERISTICS["klenow"]["processivity"] == 10_000
+
+    # Corrected 2026-07: Klenow is distributive, 5-40 nt (42 nt measured,
+    # JACS 2013 PMC3738269). The former 10_000 bp cited Bambara 1978, which
+    # does not support it.
+    assert POLYMERASE_CHARACTERISTICS["klenow"]["processivity"] == 40
 
 
-@pytest.mark.parametrize("polymerase,expected_temp", [
-    ("phi29", 30.0),
-    ("equiphi29", 42.0),
-    ("bst", 63.0),
-    ("klenow", 37.0),
-])
+@pytest.mark.parametrize(
+    "polymerase,expected_temp",
+    [
+        ("phi29", 30.0),
+        ("equiphi29", 42.0),
+        ("bst", 63.0),
+        ("klenow", 37.0),
+    ],
+)
 def test_polymerase_optimal_temperatures(polymerase, expected_temp):
     from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
+
     assert POLYMERASE_CHARACTERISTICS[polymerase]["optimal_temp"] == expected_temp
 
 
@@ -135,10 +204,12 @@ def test_polymerase_optimal_temperatures(polymerase, expected_temp):
 # Empirical tuning parameters — bounded sanity checks
 # ----------------------------------------------------------------------
 
+
 def test_phi29_dmso_threshold_in_sensible_range():
     """phi29 DMSO threshold is empirical; assert it stays within the
     practitioner-accepted 4-6% window."""
     from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
+
     threshold = MECHANISTIC_MODEL_PARAMS["enzyme"]["phi29"]["dmso_threshold"]
     assert 4.0 <= threshold <= 6.0
 
@@ -146,21 +217,41 @@ def test_phi29_dmso_threshold_in_sensible_range():
 def test_betaine_peak_in_operating_range():
     """Betaine peak enhancement is empirical; assert 0.5-2 M operating range."""
     from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
+
     peak = MECHANISTIC_MODEL_PARAMS["enzyme"]["betaine_peak"]
     assert 0.5 <= peak <= 2.0
 
 
-def test_mg_optimal_consistent_with_rahman_2014():
-    """Mg2+ optimum should be in the 2-3 mM range for balanced GC targets,
-    per Rahman et al. (2014) PLoS One 9:e112515."""
+def test_mg_optimal_matches_isothermal_buffer():
+    """Mg2+ optimum must reflect strand-displacing isothermal amplification.
+
+    This test previously asserted a 2-3 mM PCR range citing "Rahman et al.
+    (2014) PLoS One 9:e112515". That attribution is wrong twice: the DOI is an
+    unrelated rice paper, and the real Rahman 2014 (Anwer Khan Modern Medical
+    College Journal 4(1):30-36) is a general PCR review, not a source for
+    isothermal chemistry.
+
+    Standard phi29 buffer is 10 mM MgCl2 (Thermo MAN0030290, NEB phi29 buffer),
+    which is also what the pipeline's own polymerase defaults use - so the old
+    value made the model penalise its own default configuration.
+    """
     from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
-    mg_opt = MECHANISTIC_MODEL_PARAMS["enzyme"]["mg_optimal"]
-    assert 2.0 <= mg_opt <= 3.0
+    from neoswga.core.registry import POLYMERASES
+
+    enzyme = MECHANISTIC_MODEL_PARAMS["enzyme"]
+    assert 8.0 <= enzyme["mg_optimal"] <= 12.0
+
+    # The model must not penalise any polymerase's own default concentration.
+    for key, spec in POLYMERASES.items():
+        assert (
+            enzyme["mg_low_threshold"] <= spec.mg_default_mm <= enzyme["mg_high_threshold"]
+        ), f"{key}: default {spec.mg_default_mm} mM Mg2+ falls outside the model's usable band"
 
 
 # ----------------------------------------------------------------------
 # Dose-response sanity: applied additive shifts Tm by the expected amount
 # ----------------------------------------------------------------------
+
 
 def test_dmso_5pct_shifts_tm_by_roughly_minus_2_75():
     """5% DMSO on a 50% GC primer should lower Tm by about -2.75 C
@@ -177,6 +268,7 @@ def test_dmso_5pct_shifts_tm_by_roughly_minus_2_75():
 def test_betaine_1m_shifts_tm_by_about_minus_1_2():
     """1 M betaine at 50 % GC should lower Tm by ~-1.2 C."""
     from neoswga.core.reaction_conditions import ReactionConditions
+
     cond = ReactionConditions(temp=37.0, polymerase="phi29", betaine_m=1.0)
     shift = cond.calculate_tm_correction(gc_content=0.5, primer_length=12)
     assert -1.7 <= shift <= -0.7, f"1 M betaine Tm shift out of range: got {shift}"
@@ -185,6 +277,7 @@ def test_betaine_1m_shifts_tm_by_about_minus_1_2():
 def test_formamide_10pct_shifts_tm_by_about_minus_6_5():
     """10 % formamide should lower Tm by ~-6.5 C (10 * 0.65)."""
     from neoswga.core.reaction_conditions import ReactionConditions
+
     cond = ReactionConditions(temp=37.0, polymerase="phi29", formamide_percent=10.0)
     shift = cond.calculate_tm_correction(gc_content=0.5, primer_length=12)
     assert -7.5 <= shift <= -5.5, f"10 % formamide Tm shift out of range: got {shift}"

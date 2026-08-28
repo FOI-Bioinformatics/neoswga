@@ -12,8 +12,7 @@ import tempfile
 import pytest
 import pandas as pd
 
-
-EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), '..', '..', 'examples', 'plasmid_example')
+EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "plasmid_example")
 
 
 def _reset_pipeline_state(params_file):
@@ -44,7 +43,7 @@ def blacklist_workdir():
     if not os.path.isdir(EXAMPLE_DIR):
         pytest.skip("Plasmid example data not available")
 
-    tmpdir = tempfile.mkdtemp(prefix='neoswga_bl_scenario_')
+    tmpdir = tempfile.mkdtemp(prefix="neoswga_bl_scenario_")
     for fname in os.listdir(EXAMPLE_DIR):
         src = os.path.join(EXAMPLE_DIR, fname)
         if os.path.isfile(src):
@@ -53,29 +52,29 @@ def blacklist_workdir():
     # Create bl_pLTR_{k}mer_all.txt symlinks to the existing pLTR k-mer files
     # so the blacklist path has data to read without re-running jellyfish.
     for k in range(6, 13):
-        src = os.path.join(tmpdir, f'pLTR_{k}mer_all.txt')
+        src = os.path.join(tmpdir, f"pLTR_{k}mer_all.txt")
         if os.path.isfile(src):
-            dst = os.path.join(tmpdir, f'bl_pLTR_{k}mer_all.txt')
+            dst = os.path.join(tmpdir, f"bl_pLTR_{k}mer_all.txt")
             if not os.path.exists(dst):
                 shutil.copy2(src, dst)
 
     # Rewrite params.json: remove background, add blacklist pointing at pLTR
-    params_path = os.path.join(tmpdir, 'params.json')
+    params_path = os.path.join(tmpdir, "params.json")
     with open(params_path) as fh:
         params_data = json.load(fh)
 
     # Keep pLTR as blacklist; remove it from background
-    params_data['bg_genomes'] = []
-    params_data['bg_prefixes'] = []
-    params_data['bg_seq_lengths'] = []
-    params_data['bl_genomes'] = [os.path.join(tmpdir, 'pLTR.fasta')]
-    params_data['bl_prefixes'] = [os.path.join(tmpdir, 'bl_pLTR')]
-    params_data['bl_seq_lengths'] = [6258]
-    params_data['max_bl_freq'] = 0.0  # zero tolerance
-    params_data.setdefault('min_amp_pred', 0.0)
-    params_data.setdefault('schema_version', 1)
+    params_data["bg_genomes"] = []
+    params_data["bg_prefixes"] = []
+    params_data["bg_seq_lengths"] = []
+    params_data["bl_genomes"] = [os.path.join(tmpdir, "pLTR.fasta")]
+    params_data["bl_prefixes"] = [os.path.join(tmpdir, "bl_pLTR")]
+    params_data["bl_seq_lengths"] = [6258]
+    params_data["max_bl_freq"] = 0.0  # zero tolerance
+    params_data.setdefault("min_amp_pred", 0.0)
+    params_data.setdefault("schema_version", 1)
 
-    with open(params_path, 'w') as fh:
+    with open(params_path, "w") as fh:
         json.dump(params_data, fh, indent=2)
 
     original_cwd = os.getcwd()
@@ -89,20 +88,21 @@ def blacklist_workdir():
 @pytest.mark.slow
 def test_blacklist_filter_runs_end_to_end(blacklist_workdir):
     """Filter step completes with blacklist active and produces output."""
-    params_file = os.path.join(blacklist_workdir, 'params.json')
+    params_file = os.path.join(blacklist_workdir, "params.json")
     _reset_pipeline_state(params_file)
 
     from neoswga.core.pipeline import step2
+
     df = step2()
 
-    step2_csv = os.path.join(blacklist_workdir, 'step2_df.csv')
+    step2_csv = os.path.join(blacklist_workdir, "step2_df.csv")
     assert os.path.exists(step2_csv), "step2_df.csv was not created"
     assert len(df) >= 0, "step2 should complete without crash"
     # If any primers survived, they should have bl_freq 0 or missing
-    if 'bl_freq' in df.columns and len(df) > 0:
-        assert (df['bl_freq'] <= 1e-9).all(), (
-            "With max_bl_freq=0.0, every surviving primer must have bl_freq ~0"
-        )
+    if "bl_freq" in df.columns and len(df) > 0:
+        assert (
+            df["bl_freq"] <= 1e-9
+        ).all(), "With max_bl_freq=0.0, every surviving primer must have bl_freq ~0"
 
 
 @pytest.mark.integration
@@ -116,23 +116,24 @@ def test_blacklist_rejects_common_primers(blacklist_workdir):
     more, since pLTR shares k-mers with pcDNA).
     """
     # First run: no blacklist (match against plain foreground)
-    params_file = os.path.join(blacklist_workdir, 'params.json')
+    params_file = os.path.join(blacklist_workdir, "params.json")
     with open(params_file) as fh:
         bl_params = json.load(fh)
 
     # Save counts under blacklist
     _reset_pipeline_state(params_file)
     from neoswga.core.pipeline import step2
+
     df_with_bl = step2()
     count_with_bl = len(df_with_bl)
 
     # Second run: disable blacklist
     no_bl_params = dict(bl_params)
-    no_bl_params['bl_genomes'] = []
-    no_bl_params['bl_prefixes'] = []
-    no_bl_params['bl_seq_lengths'] = []
-    no_bl_params_file = os.path.join(blacklist_workdir, 'params_no_bl.json')
-    with open(no_bl_params_file, 'w') as fh:
+    no_bl_params["bl_genomes"] = []
+    no_bl_params["bl_prefixes"] = []
+    no_bl_params["bl_seq_lengths"] = []
+    no_bl_params_file = os.path.join(blacklist_workdir, "params_no_bl.json")
+    with open(no_bl_params_file, "w") as fh:
         json.dump(no_bl_params, fh)
 
     _reset_pipeline_state(no_bl_params_file)

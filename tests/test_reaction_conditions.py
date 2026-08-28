@@ -14,7 +14,7 @@ from neoswga.core.reaction_conditions import (
     ReactionConditions,
     get_q_solution_equivalent,
     get_gc_melt_conditions,
-    get_crude_sample_conditions
+    get_crude_sample_conditions,
 )
 
 
@@ -40,8 +40,8 @@ class TestNewAdditives(unittest.TestCase):
         """Test glycerol above maximum raises error."""
         with self.assertRaises(ValueError) as context:
             ReactionConditions(glycerol_percent=20.0)
-        self.assertIn('Glycerol', str(context.exception))
-        self.assertIn('15', str(context.exception))
+        self.assertIn("Glycerol", str(context.exception))
+        self.assertIn("15", str(context.exception))
 
     def test_glycerol_negative(self):
         """Test negative glycerol raises error."""
@@ -67,8 +67,8 @@ class TestNewAdditives(unittest.TestCase):
         """Test BSA above maximum raises error."""
         with self.assertRaises(ValueError) as context:
             ReactionConditions(bsa_ug_ml=500.0)
-        self.assertIn('BSA', str(context.exception))
-        self.assertIn('400', str(context.exception))
+        self.assertIn("BSA", str(context.exception))
+        self.assertIn("400", str(context.exception))
 
     def test_bsa_negative(self):
         """Test negative BSA raises error."""
@@ -94,8 +94,8 @@ class TestNewAdditives(unittest.TestCase):
         """Test PEG above maximum raises error."""
         with self.assertRaises(ValueError) as context:
             ReactionConditions(peg_percent=20.0)
-        self.assertIn('PEG', str(context.exception))
-        self.assertIn('15', str(context.exception))
+        self.assertIn("PEG", str(context.exception))
+        self.assertIn("15", str(context.exception))
 
     def test_peg_negative(self):
         """Test negative PEG raises error."""
@@ -122,8 +122,8 @@ class TestNewAdditives(unittest.TestCase):
         """Test ethanol above maximum raises error."""
         with self.assertRaises(ValueError) as context:
             ReactionConditions(ethanol_percent=6.0)
-        self.assertIn('Ethanol', str(context.exception))
-        self.assertIn('5', str(context.exception))
+        self.assertIn("Ethanol", str(context.exception))
+        self.assertIn("5", str(context.exception))
 
     def test_ethanol_negative(self):
         """Test negative ethanol raises error."""
@@ -150,8 +150,8 @@ class TestNewAdditives(unittest.TestCase):
         """Test urea above maximum raises error."""
         with self.assertRaises(ValueError) as context:
             ReactionConditions(urea_m=2.5)
-        self.assertIn('Urea', str(context.exception))
-        self.assertIn('2.0', str(context.exception))
+        self.assertIn("Urea", str(context.exception))
+        self.assertIn("2.0", str(context.exception))
 
     def test_urea_negative(self):
         """Test negative urea raises error."""
@@ -178,8 +178,8 @@ class TestNewAdditives(unittest.TestCase):
         """Test TMAC above maximum raises error."""
         with self.assertRaises(ValueError) as context:
             ReactionConditions(tmac_m=0.2)
-        self.assertIn('TMAC', str(context.exception))
-        self.assertIn('0.1', str(context.exception))
+        self.assertIn("TMAC", str(context.exception))
+        self.assertIn("0.1", str(context.exception))
 
     def test_tmac_negative(self):
         """Test negative TMAC raises error."""
@@ -206,8 +206,8 @@ class TestNewAdditives(unittest.TestCase):
         """Test formamide above maximum raises error."""
         with self.assertRaises(ValueError) as context:
             ReactionConditions(formamide_percent=15.0)
-        self.assertIn('Formamide', str(context.exception))
-        self.assertIn('10', str(context.exception))
+        self.assertIn("Formamide", str(context.exception))
+        self.assertIn("10", str(context.exception))
 
     def test_formamide_negative(self):
         """Test negative formamide raises error."""
@@ -314,7 +314,7 @@ class TestCommercialPresets(unittest.TestCase):
         self.assertEqual(conditions.betaine_m, 1.5)
         self.assertEqual(conditions.glycerol_percent, 10.0)
         self.assertEqual(conditions.bsa_ug_ml, 200.0)
-        self.assertEqual(conditions.polymerase, 'equiphi29')
+        self.assertEqual(conditions.polymerase, "equiphi29")
 
     def test_gc_melt_preset(self):
         """Test GC-Melt preset."""
@@ -324,7 +324,7 @@ class TestCommercialPresets(unittest.TestCase):
         self.assertEqual(conditions.dmso_percent, 5.0)
         self.assertEqual(conditions.betaine_m, 2.0)
         self.assertEqual(conditions.trehalose_m, 0.5)
-        self.assertEqual(conditions.polymerase, 'equiphi29')
+        self.assertEqual(conditions.polymerase, "equiphi29")
 
     def test_crude_sample_preset(self):
         """Test crude sample preset."""
@@ -335,7 +335,7 @@ class TestCommercialPresets(unittest.TestCase):
         self.assertEqual(conditions.glycerol_percent, 10.0)
         self.assertEqual(conditions.bsa_ug_ml, 400.0)
         self.assertEqual(conditions.peg_percent, 5.0)
-        self.assertEqual(conditions.polymerase, 'phi29')
+        self.assertEqual(conditions.polymerase, "phi29")
 
     def test_presets_are_valid(self):
         """Test that all presets pass validation."""
@@ -355,11 +355,7 @@ class TestCombinedAdditives(unittest.TestCase):
 
     def test_all_new_additives(self):
         """Test using glycerol, BSA, and PEG together."""
-        conditions = ReactionConditions(
-            glycerol_percent=10.0,
-            bsa_ug_ml=200.0,
-            peg_percent=5.0
-        )
+        conditions = ReactionConditions(glycerol_percent=10.0, bsa_ug_ml=200.0, peg_percent=5.0)
 
         self.assertEqual(conditions.glycerol_percent, 10.0)
         self.assertEqual(conditions.bsa_ug_ml, 200.0)
@@ -369,12 +365,12 @@ class TestCombinedAdditives(unittest.TestCase):
         """Test new additives with existing ones."""
         conditions = ReactionConditions(
             temp=42.0,
-            polymerase='equiphi29',  # equiphi29 supports 40-50C
+            polymerase="equiphi29",  # equiphi29 supports 40-50C
             betaine_m=1.5,
             dmso_percent=5.0,
             glycerol_percent=10.0,
             bsa_ug_ml=300.0,
-            peg_percent=5.0
+            peg_percent=5.0,
         )
 
         # Old additives
@@ -395,7 +391,7 @@ class TestCombinedAdditives(unittest.TestCase):
             formamide_percent=5.0,
             glycerol_percent=15.0,
             bsa_ug_ml=400.0,
-            peg_percent=15.0
+            peg_percent=15.0,
         )
 
         # Should all be at max
@@ -427,16 +423,13 @@ class TestBackwardCompatibility(unittest.TestCase):
         """Test that existing condition creation still works."""
         # This should work exactly as before
         conditions = ReactionConditions(
-            temp=42.0,
-            betaine_m=1.5,
-            dmso_percent=5.0,
-            polymerase='equiphi29'
+            temp=42.0, betaine_m=1.5, dmso_percent=5.0, polymerase="equiphi29"
         )
 
         self.assertEqual(conditions.temp, 42.0)
         self.assertEqual(conditions.betaine_m, 1.5)
         self.assertEqual(conditions.dmso_percent, 5.0)
-        self.assertEqual(conditions.polymerase, 'equiphi29')
+        self.assertEqual(conditions.polymerase, "equiphi29")
 
 
 class TestEdgeCases(unittest.TestCase):
@@ -444,11 +437,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_zero_additives(self):
         """Test all additives set to zero."""
-        conditions = ReactionConditions(
-            glycerol_percent=0.0,
-            bsa_ug_ml=0.0,
-            peg_percent=0.0
-        )
+        conditions = ReactionConditions(glycerol_percent=0.0, bsa_ug_ml=0.0, peg_percent=0.0)
 
         self.assertEqual(conditions.glycerol_percent, 0.0)
         self.assertEqual(conditions.bsa_ug_ml, 0.0)
@@ -456,11 +445,7 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_fractional_values(self):
         """Test fractional additive values."""
-        conditions = ReactionConditions(
-            glycerol_percent=7.5,
-            bsa_ug_ml=150.5,
-            peg_percent=2.5
-        )
+        conditions = ReactionConditions(glycerol_percent=7.5, bsa_ug_ml=150.5, peg_percent=2.5)
 
         self.assertEqual(conditions.glycerol_percent, 7.5)
         self.assertEqual(conditions.bsa_ug_ml, 150.5)
@@ -512,7 +497,7 @@ class TestParameterConsistency(unittest.TestCase):
         gc_melt = get_gc_melt_conditions()
         crude = get_crude_sample_conditions()
 
-        valid_polymerases = ['phi29', 'equiphi29', 'bst', 'klenow']
+        valid_polymerases = ["phi29", "equiphi29", "bst", "klenow"]
 
         self.assertIn(q_sol.polymerase, valid_polymerases)
         self.assertIn(gc_melt.polymerase, valid_polymerases)
@@ -526,7 +511,7 @@ class TestDocumentation(unittest.TestCase):
         """Test that optimize_mg_concentration has docstring."""
         conditions = ReactionConditions()
         self.assertIsNotNone(conditions.optimize_mg_concentration.__doc__)
-        self.assertIn('genome', conditions.optimize_mg_concentration.__doc__.lower())
+        self.assertIn("genome", conditions.optimize_mg_concentration.__doc__.lower())
 
     def test_preset_functions_have_docstrings(self):
         """Test that preset functions have docstrings."""
@@ -535,5 +520,5 @@ class TestDocumentation(unittest.TestCase):
         self.assertIsNotNone(get_crude_sample_conditions.__doc__)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

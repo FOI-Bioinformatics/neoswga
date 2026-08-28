@@ -61,9 +61,7 @@ def test_load_validation_report_parses_issues(tmp_path):
             },
         ],
     }
-    (tmp_path / "step4_improved_df_validation.json").write_text(
-        json.dumps(payload)
-    )
+    (tmp_path / "step4_improved_df_validation.json").write_text(json.dumps(payload))
     issues, ok = _load_validation_report(tmp_path)
     assert ok is False
     assert len(issues) == 2
@@ -93,35 +91,39 @@ def test_executive_summary_without_issues_has_no_banner():
 def test_executive_summary_renders_per_target_warning():
     """per_target_coverage_below_threshold must be user-visible: the
     issue code, the human label, and the warning CSS class."""
-    issues = [{
-        "level": "warning",
-        "code": "per_target_coverage_below_threshold",
-        "detail": "1 target(s) below 0.50: {'pcDNA': 0.35}",
-    }]
+    issues = [
+        {
+            "level": "warning",
+            "code": "per_target_coverage_below_threshold",
+            "detail": "1 target(s) below 0.50: {'pcDNA': 0.35}",
+        }
+    ]
     m = _metrics_with(issues)
     q = calculate_quality_grade(m)
     html = render_executive_summary(create_executive_summary(m, q))
-    assert 'validation-banner level-warning' in html
-    assert 'per_target_coverage_below_threshold' in html
-    assert 'One or more targets below coverage threshold' in html
-    assert 'pcDNA' in html
-    assert 'Validation warnings' in html
+    assert "validation-banner level-warning" in html
+    assert "per_target_coverage_below_threshold" in html
+    assert "One or more targets below coverage threshold" in html
+    assert "pcDNA" in html
+    assert "Validation warnings" in html
 
 
 def test_executive_summary_renders_error_banner():
     """An error-level issue (e.g. duplicate primers) must get the
     error-styled banner and a stronger heading, not a warning banner."""
-    issues = [{
-        "level": "error",
-        "code": "duplicate_primers",
-        "detail": "1 duplicate primer(s): ['ACGTACGT']",
-    }]
+    issues = [
+        {
+            "level": "error",
+            "code": "duplicate_primers",
+            "detail": "1 duplicate primer(s): ['ACGTACGT']",
+        }
+    ]
     m = _metrics_with(issues)
     q = calculate_quality_grade(m)
     html = render_executive_summary(create_executive_summary(m, q))
-    assert 'validation-banner level-error' in html
-    assert 'Validation errors' in html
-    assert 'Duplicate primers in set' in html
+    assert "validation-banner level-error" in html
+    assert "Validation errors" in html
+    assert "Duplicate primers in set" in html
 
 
 def test_executive_summary_mixed_issues_use_error_class():
@@ -129,26 +131,25 @@ def test_executive_summary_mixed_issues_use_error_class():
     error style (the higher-severity signal wins)."""
     issues = [
         {"level": "warning", "code": "set_size_mismatch", "detail": "5 vs 6"},
-        {"level": "error", "code": "blacklist_primer_in_set",
-         "detail": "blacklist AAAA"},
+        {"level": "error", "code": "blacklist_primer_in_set", "detail": "blacklist AAAA"},
     ]
     m = _metrics_with(issues)
     q = calculate_quality_grade(m)
     html = render_executive_summary(create_executive_summary(m, q))
-    assert 'level-error' in html
-    assert 'level-warning' not in html.split('validation-banner')[1].split(
-        '</div>'
-    )[0]
+    assert "level-error" in html
+    assert "level-warning" not in html.split("validation-banner")[1].split("</div>")[0]
 
 
 def test_technical_report_also_surfaces_issues():
     """Both entry points (executive + technical) must render the banner;
     users pick one based on interactive/non-interactive mode."""
-    issues = [{
-        "level": "warning",
-        "code": "per_target_coverage_below_threshold",
-        "detail": "target_b: 0.40",
-    }]
+    issues = [
+        {
+            "level": "warning",
+            "code": "per_target_coverage_below_threshold",
+            "detail": "target_b: 0.40",
+        }
+    ]
     m = _metrics_with(issues)
     q = calculate_quality_grade(m)
     data = TechnicalReportData(
@@ -157,9 +158,9 @@ def test_technical_report_also_surfaces_issues():
         quality=q,
     )
     html = render_technical_report(data)
-    assert 'validation-banner level-warning' in html
-    assert 'per_target_coverage_below_threshold' in html
-    assert 'target_b' in html
+    assert "validation-banner level-warning" in html
+    assert "per_target_coverage_below_threshold" in html
+    assert "target_b" in html
 
 
 def test_collect_pipeline_metrics_loads_validation(tmp_path):
@@ -170,15 +171,15 @@ def test_collect_pipeline_metrics_loads_validation(tmp_path):
         "optimizer": "hybrid",
         "num_primers": 6,
         "ok": False,
-        "issues": [{
-            "level": "warning",
-            "code": "coverage_below_threshold",
-            "detail": "fg_coverage=0.40 < min_coverage=0.50",
-        }],
+        "issues": [
+            {
+                "level": "warning",
+                "code": "coverage_below_threshold",
+                "detail": "fg_coverage=0.40 < min_coverage=0.50",
+            }
+        ],
     }
-    (tmp_path / "step4_improved_df_validation.json").write_text(
-        json.dumps(payload)
-    )
+    (tmp_path / "step4_improved_df_validation.json").write_text(json.dumps(payload))
     # Minimal step4_df so collect_pipeline_metrics loads primers (but our
     # banner test only needs validation_issues populated).
     (tmp_path / "step4_improved_df.csv").write_text(

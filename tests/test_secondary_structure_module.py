@@ -11,24 +11,29 @@ Tests all functionality including:
 - Structure-based filtering
 """
 
-import unittest
-import numpy as np
 import logging
+import unittest
 
+import numpy as np
+
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.secondary_structure import (
-    loop_penalty,
-    bulge_penalty,
     StructurePrediction,
+    bulge_penalty,
+    calculate_dimer_matrix,
+    check_hairpins,
     check_heterodimer,
     check_homodimer,
-    check_hairpins,
-    calculate_dimer_matrix,
     filter_primers_by_structure,
+    loop_penalty,
 )
-from neoswga.core.reaction_conditions import ReactionConditions
 
-# Suppress logging during tests
-logging.disable(logging.CRITICAL)
+# NOTE: this module used to call logging.disable(logging.CRITICAL) here.
+# That runs at COLLECTION time, before any test executes, and disables
+# logging process-wide for the rest of the session -- silently voiding
+# every log-based assertion in the suite. pytest already captures log
+# output and shows it only for failing tests, so the noise it was meant
+# to suppress was never a problem.
 
 
 class TestLoopPenalty(unittest.TestCase):
@@ -133,31 +138,31 @@ class TestStructurePrediction(unittest.TestCase):
     def test_initialization_with_conditions(self):
         """Test initialization with custom conditions."""
         # Use equiphi29 polymerase for 42C (phi29 only valid 20-40C)
-        conditions = ReactionConditions(temp=42.0, polymerase='equiphi29')
+        conditions = ReactionConditions(temp=42.0, polymerase="equiphi29")
         predictor = StructurePrediction(conditions)
         self.assertEqual(predictor.conditions.temp, 42.0)
 
     def test_is_complementary_at(self):
         """Test A-T complementarity."""
-        self.assertTrue(self.predictor.is_complementary('A', 'T'))
-        self.assertTrue(self.predictor.is_complementary('T', 'A'))
+        self.assertTrue(self.predictor.is_complementary("A", "T"))
+        self.assertTrue(self.predictor.is_complementary("T", "A"))
 
     def test_is_complementary_gc(self):
         """Test G-C complementarity."""
-        self.assertTrue(self.predictor.is_complementary('G', 'C'))
-        self.assertTrue(self.predictor.is_complementary('C', 'G'))
+        self.assertTrue(self.predictor.is_complementary("G", "C"))
+        self.assertTrue(self.predictor.is_complementary("C", "G"))
 
     def test_is_complementary_false(self):
         """Test non-complementary pairs."""
-        self.assertFalse(self.predictor.is_complementary('A', 'A'))
-        self.assertFalse(self.predictor.is_complementary('G', 'G'))
-        self.assertFalse(self.predictor.is_complementary('A', 'C'))
-        self.assertFalse(self.predictor.is_complementary('G', 'T'))
+        self.assertFalse(self.predictor.is_complementary("A", "A"))
+        self.assertFalse(self.predictor.is_complementary("G", "G"))
+        self.assertFalse(self.predictor.is_complementary("A", "C"))
+        self.assertFalse(self.predictor.is_complementary("G", "T"))
 
     def test_is_complementary_lowercase(self):
         """Test case-insensitive complementarity."""
-        self.assertTrue(self.predictor.is_complementary('a', 'T'))
-        self.assertTrue(self.predictor.is_complementary('g', 'c'))
+        self.assertTrue(self.predictor.is_complementary("a", "T"))
+        self.assertTrue(self.predictor.is_complementary("g", "c"))
 
 
 class TestHeterodimer(unittest.TestCase):
@@ -169,42 +174,42 @@ class TestHeterodimer(unittest.TestCase):
 
     def test_strong_heterodimer_match(self):
         """Test prediction for fully complementary sequences."""
-        seq1 = 'ATCGATCGATCG'
-        seq2 = 'CGATCGATCGAT'  # Reverse complement of seq1
+        seq1 = "ATCGATCGATCG"
+        seq2 = "CGATCGATCGAT"  # Reverse complement of seq1
 
         result = check_heterodimer(seq1, seq2, self.conditions)
 
-        self.assertIn('energy', result)
-        self.assertIn('tm', result)
-        self.assertIn('forms_dimer', result)
-        self.assertIn('severity', result)
+        self.assertIn("energy", result)
+        self.assertIn("tm", result)
+        self.assertIn("forms_dimer", result)
+        self.assertIn("severity", result)
         # Result should be a valid dict (energy may be inf if no strong match found)
-        self.assertIsInstance(result['energy'], (int, float))
+        self.assertIsInstance(result["energy"], (int, float))
 
     def test_weak_heterodimer(self):
         """Test prediction for non-complementary sequences."""
-        seq1 = 'AAAAAAAAAA'
-        seq2 = 'AAAAAAAAAA'  # Not complementary to itself
+        seq1 = "AAAAAAAAAA"
+        seq2 = "AAAAAAAAAA"  # Not complementary to itself
 
         result = check_heterodimer(seq1, seq2, self.conditions)
 
         # Weak match should have higher (less negative) energy
         # And lower severity
-        self.assertLess(result['severity'], 1.0)
+        self.assertLess(result["severity"], 1.0)
 
     def test_heterodimer_result_structure(self):
         """Test that result contains all expected keys."""
-        result = check_heterodimer('ATCGATCG', 'GCTAGCTA', self.conditions)
+        result = check_heterodimer("ATCGATCG", "GCTAGCTA", self.conditions)
 
-        expected_keys = ['energy', 'tm', 'forms_dimer', 'severity', 'binding_length']
+        expected_keys = ["energy", "tm", "forms_dimer", "severity", "binding_length"]
         for key in expected_keys:
             self.assertIn(key, result)
 
     def test_heterodimer_severity_range(self):
         """Test that severity is in [0, 1] range."""
-        result = check_heterodimer('ATCGATCGATCG', 'CGATCGATCGAT', self.conditions)
-        self.assertGreaterEqual(result['severity'], 0.0)
-        self.assertLessEqual(result['severity'], 1.0)
+        result = check_heterodimer("ATCGATCGATCG", "CGATCGATCGAT", self.conditions)
+        self.assertGreaterEqual(result["severity"], 0.0)
+        self.assertLessEqual(result["severity"], 1.0)
 
 
 class TestHomodimer(unittest.TestCase):
@@ -217,31 +222,31 @@ class TestHomodimer(unittest.TestCase):
     def test_self_complementary_sequence(self):
         """Test homodimer for self-complementary sequence."""
         # Palindrome: GAATTC (EcoRI site) - use longer for DP algorithm
-        seq = 'GCGAATTCGC'  # Self-complementary longer sequence
+        seq = "GCGAATTCGC"  # Self-complementary longer sequence
         result = check_homodimer(seq, self.conditions)
 
-        self.assertIn('energy', result)
+        self.assertIn("energy", result)
         # Result should be a valid dict
-        self.assertIsInstance(result['energy'], (int, float))
+        self.assertIsInstance(result["energy"], (int, float))
 
     def test_non_self_complementary(self):
         """Test homodimer for non-self-complementary sequence."""
         # All A - cannot self-pair
-        seq = 'AAAAAAAAAA'
+        seq = "AAAAAAAAAA"
         result = check_homodimer(seq, self.conditions)
 
         # Should have weaker (less negative or positive) energy
-        self.assertIsNotNone(result['energy'])
+        self.assertIsNotNone(result["energy"])
 
     def test_homodimer_uses_same_sequence_twice(self):
         """Verify homodimer calls heterodimer with same sequence."""
-        seq = 'ATCGATCG'
+        seq = "ATCGATCG"
         homo_result = check_homodimer(seq, self.conditions)
         hetero_result = check_heterodimer(seq, seq, self.conditions)
 
         # Results should be identical
-        self.assertAlmostEqual(homo_result['energy'], hetero_result['energy'], places=5)
-        self.assertAlmostEqual(homo_result['severity'], hetero_result['severity'], places=5)
+        self.assertAlmostEqual(homo_result["energy"], hetero_result["energy"], places=5)
+        self.assertAlmostEqual(homo_result["severity"], hetero_result["severity"], places=5)
 
 
 class TestHairpin(unittest.TestCase):
@@ -254,7 +259,7 @@ class TestHairpin(unittest.TestCase):
     def test_hairpin_palindrome(self):
         """Test hairpin detection for palindromic sequence."""
         # Sequence with potential hairpin: GCGC...loop...GCGC
-        seq = 'GCGCAAAAGCGC'  # Stem-loop structure
+        seq = "GCGCAAAAGCGC"  # Stem-loop structure
         result = check_hairpins(seq, self.conditions)
 
         # Should find at least one hairpin
@@ -262,18 +267,18 @@ class TestHairpin(unittest.TestCase):
 
     def test_hairpin_result_structure(self):
         """Test that hairpin results contain expected keys."""
-        seq = 'GCGCAAAAGCGC'
+        seq = "GCGCAAAAGCGC"
         result = check_hairpins(seq, self.conditions)
 
         if result:  # If hairpins found
             hairpin = result[0]
-            expected_keys = ['position', 'loop_size', 'stem_length', 'energy', 'tm', 'stable']
+            expected_keys = ["position", "loop_size", "stem_length", "energy", "tm", "stable"]
             for key in expected_keys:
                 self.assertIn(key, hairpin)
 
     def test_hairpin_short_sequence(self):
         """Test hairpin for sequence too short to form hairpin."""
-        seq = 'ATCG'  # Too short for min 3bp stem + 3nt loop
+        seq = "ATCG"  # Too short for min 3bp stem + 3nt loop
         result = check_hairpins(seq, self.conditions)
 
         # Should return empty list (no hairpins possible)
@@ -281,12 +286,12 @@ class TestHairpin(unittest.TestCase):
 
     def test_hairpin_sorted_by_energy(self):
         """Test that hairpins are sorted by energy (most stable first)."""
-        seq = 'GCGATCGCAAAAGCGATCGC'  # Longer sequence with multiple potential hairpins
+        seq = "GCGATCGCAAAAGCGATCGC"  # Longer sequence with multiple potential hairpins
         result = check_hairpins(seq, self.conditions)
 
         if len(result) > 1:
             # Energies should be in ascending order (most negative first)
-            energies = [h['energy'] for h in result]
+            energies = [h["energy"] for h in result]
             self.assertEqual(energies, sorted(energies))
 
 
@@ -299,8 +304,8 @@ class TestThreePrimeExtensionRisk(unittest.TestCase):
 
     def test_high_risk_complementary_3prime(self):
         """Test high risk for fully complementary 3' ends."""
-        seq1 = 'AAAAAAATCG'
-        seq2 = 'AAAAAAATCG'  # Same sequence - 3' ends are AT-CG
+        seq1 = "AAAAAAATCG"
+        seq2 = "AAAAAAATCG"  # Same sequence - 3' ends are AT-CG
         risk = self.predictor.check_3prime_extension_risk(seq1, seq2)
 
         self.assertGreaterEqual(risk, 0.0)
@@ -308,8 +313,8 @@ class TestThreePrimeExtensionRisk(unittest.TestCase):
 
     def test_low_risk_non_complementary(self):
         """Test low risk for non-complementary 3' ends."""
-        seq1 = 'ATCGATCGAA'  # Ends in AA
-        seq2 = 'GCTAGCTAGG'  # Ends in GG (not complementary to AA)
+        seq1 = "ATCGATCGAA"  # Ends in AA
+        seq2 = "GCTAGCTAGG"  # Ends in GG (not complementary to AA)
         risk = self.predictor.check_3prime_extension_risk(seq1, seq2)
 
         # Non-complementary should have low risk
@@ -318,9 +323,9 @@ class TestThreePrimeExtensionRisk(unittest.TestCase):
     def test_risk_range(self):
         """Test that risk is always in [0, 1] range."""
         test_pairs = [
-            ('ATCGATCG', 'GCTAGCTA'),
-            ('AAAAAAAAAA', 'TTTTTTTTTT'),
-            ('GCGCGCGCGC', 'CGCGCGCGCG'),
+            ("ATCGATCG", "GCTAGCTA"),
+            ("AAAAAAAAAA", "TTTTTTTTTT"),
+            ("GCGCGCGCGC", "CGCGCGCGCG"),
         ]
 
         for seq1, seq2 in test_pairs:
@@ -335,7 +340,7 @@ class TestDimerMatrix(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.conditions = ReactionConditions(temp=30.0, na_conc=50.0)
-        self.primers = ['ATCGATCG', 'GCTAGCTA', 'AATTAATT']
+        self.primers = ["ATCGATCG", "GCTAGCTA", "AATTAATT"]
 
     def test_matrix_shape(self):
         """Test that matrix has correct shape."""
@@ -358,7 +363,7 @@ class TestDimerMatrix(unittest.TestCase):
         # Diagonal should contain homodimer severities
         for i, primer in enumerate(self.primers):
             homo_result = check_homodimer(primer, self.conditions)
-            self.assertAlmostEqual(matrix[i, i], homo_result['severity'], places=5)
+            self.assertAlmostEqual(matrix[i, i], homo_result["severity"], places=5)
 
     def test_matrix_values_range(self):
         """Test that all matrix values are in [0, 1]."""
@@ -369,7 +374,7 @@ class TestDimerMatrix(unittest.TestCase):
 
     def test_matrix_single_primer(self):
         """Test matrix for single primer."""
-        matrix = calculate_dimer_matrix(['ATCGATCG'], self.conditions)
+        matrix = calculate_dimer_matrix(["ATCGATCG"], self.conditions)
 
         self.assertEqual(matrix.shape, (1, 1))
 
@@ -383,7 +388,7 @@ class TestFilterByStructure(unittest.TestCase):
 
     def test_filter_returns_list(self):
         """Test that filter returns a list."""
-        primers = ['ATCGATCG', 'GCTAGCTA']
+        primers = ["ATCGATCG", "GCTAGCTA"]
         result = filter_primers_by_structure(primers, conditions=self.conditions)
 
         self.assertIsInstance(result, list)
@@ -396,17 +401,13 @@ class TestFilterByStructure(unittest.TestCase):
     def test_filter_respects_hairpin_threshold(self):
         """Test that filter respects hairpin Tm threshold."""
         # Low threshold should filter more
-        primers = ['GCGCAAAAGCGC', 'ATCGATCG']
+        primers = ["GCGCAAAAGCGC", "ATCGATCG"]
 
         result_strict = filter_primers_by_structure(
-            primers,
-            max_hairpin_tm=10.0,  # Very strict
-            conditions=self.conditions
+            primers, max_hairpin_tm=10.0, conditions=self.conditions  # Very strict
         )
         result_lenient = filter_primers_by_structure(
-            primers,
-            max_hairpin_tm=60.0,  # Very lenient
-            conditions=self.conditions
+            primers, max_hairpin_tm=60.0, conditions=self.conditions  # Very lenient
         )
 
         # Lenient should pass same or more primers
@@ -414,17 +415,13 @@ class TestFilterByStructure(unittest.TestCase):
 
     def test_filter_respects_dimer_threshold(self):
         """Test that filter respects self-dimer severity threshold."""
-        primers = ['ATCGATCG', 'GCTAGCTA']
+        primers = ["ATCGATCG", "GCTAGCTA"]
 
         result_strict = filter_primers_by_structure(
-            primers,
-            max_self_dimer_severity=0.1,  # Very strict
-            conditions=self.conditions
+            primers, max_self_dimer_severity=0.1, conditions=self.conditions  # Very strict
         )
         result_lenient = filter_primers_by_structure(
-            primers,
-            max_self_dimer_severity=0.9,  # Very lenient
-            conditions=self.conditions
+            primers, max_self_dimer_severity=0.9, conditions=self.conditions  # Very lenient
         )
 
         # Lenient should pass same or more primers
@@ -440,19 +437,19 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_short_sequence_heterodimer(self):
         """Test heterodimer with very short sequences."""
-        result = check_heterodimer('AT', 'TA', self.conditions)
+        result = check_heterodimer("AT", "TA", self.conditions)
         self.assertIsInstance(result, dict)
-        self.assertIn('energy', result)
+        self.assertIn("energy", result)
 
     def test_single_base_sequence(self):
         """Test with single base sequence."""
-        result = check_heterodimer('A', 'T', self.conditions)
+        result = check_heterodimer("A", "T", self.conditions)
         self.assertIsInstance(result, dict)
 
     def test_empty_sequence(self):
         """Test with empty sequence."""
         try:
-            result = check_heterodimer('', '', self.conditions)
+            result = check_heterodimer("", "", self.conditions)
             # If it returns, check structure
             self.assertIsInstance(result, dict)
         except (ValueError, IndexError):
@@ -460,16 +457,16 @@ class TestEdgeCases(unittest.TestCase):
 
     def test_different_length_sequences(self):
         """Test heterodimer with different length sequences."""
-        result = check_heterodimer('ATCGATCGATCG', 'AT', self.conditions)
+        result = check_heterodimer("ATCGATCGATCG", "AT", self.conditions)
         self.assertIsInstance(result, dict)
-        self.assertIn('energy', result)
+        self.assertIn("energy", result)
 
     def test_all_one_base_sequence(self):
         """Test with sequence of all one base."""
-        result = check_homodimer('AAAAAAAAAA', self.conditions)
+        result = check_homodimer("AAAAAAAAAA", self.conditions)
         self.assertIsInstance(result, dict)
 
-        result = check_homodimer('CCCCCCCCCC', self.conditions)
+        result = check_homodimer("CCCCCCCCCC", self.conditions)
         self.assertIsInstance(result, dict)
 
 
@@ -479,10 +476,10 @@ class TestIntegration(unittest.TestCase):
     def test_full_workflow(self):
         """Test complete workflow from prediction to filtering."""
         primers = [
-            'ATCGATCGATCG',  # Balanced
-            'GCGCGCGCGCGC',  # High GC, potential for strong structures
-            'AAAAAAAAAAAA',  # All A
-            'GCTAGCTAGCTA',  # Another balanced
+            "ATCGATCGATCG",  # Balanced
+            "GCGCGCGCGCGC",  # High GC, potential for strong structures
+            "AAAAAAAAAAAA",  # All A
+            "GCTAGCTAGCTA",  # Another balanced
         ]
 
         conditions = ReactionConditions(temp=30.0, na_conc=50.0)
@@ -505,5 +502,5 @@ class TestIntegration(unittest.TestCase):
         self.assertLessEqual(len(filtered), len(primers))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

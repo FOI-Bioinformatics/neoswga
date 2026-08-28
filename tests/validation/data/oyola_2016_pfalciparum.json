@@ -1,0 +1,49 @@
+{
+  "source": {
+    "citation": "Oyola SO, Ariani CV, Hamilton WL, et al. (2016) Whole genome sequencing of Plasmodium falciparum from dried blood spots using selective whole genome amplification. Malaria Journal 15:597.",
+    "doi": "10.1186/s12936-016-1641-7",
+    "pmcid": "PMC5175302",
+    "tables": "Table S1 (Additional file 1, slide 5 of 12936_2016_1641_MOESM1_ESM.pptx) gives the Probe_10 sequences. Sequences for primers 11-28 were never published, so Probe_20 and Probe_28 cannot be reconstructed.",
+    "target": "Plasmodium falciparum (genome GC approx. 0.19)",
+    "backgrounds": [
+      "human"
+    ],
+    "designed_with": "a published PERL script selecting up to 100 8-12mers with predicted Tm <= 30 C, ranked by desired/contaminating (P. falciparum vs human) k-mer frequency ratio",
+    "polymerase": "phi29",
+    "reaction": "30 units phi29, stepdown from 35 C to 30 C over 16 h then 65 C for 15 min, 2.5 uM each primer, >=5 ng input, 50 uL",
+    "modification": "one 3' phosphorothioate bond per primer (written '*' in the source table, stripped here)",
+    "notes": "Three NESTED pools were compared on mock samples - Probe_10 (first 10 primers), Probe_20 (first 20), Probe_28 (all 28). Probe_10 was chosen for all subsequent work on yield and cost, so the smallest of three nested pools won. This independently replicates the nested-set result in Leichty and Brisson (2014), where the 2-primer SR2 beat the 10-primer SR1 it was drawn from. Only Probe_10's sequences were published, so the comparison is recorded but the losing pools cannot be scored. Outcome: >18-fold enrichment of parasite DNA; 73.2% (sd 4.4, N=5) of reads mapped to P. falciparum against <1% for standard WGA. Applied to 156 malaria patients including 120 paired dried-blood-spot / venous-blood samples, >99% SNP concordance. Parasitaemia threshold for >=5x coverage over 50% of the genome was 0.03%."
+  },
+  "sets": {
+    "Probe_10": {
+      "primers": [
+        "ATATATATATA",
+        "TATATATATATT",
+        "TATATATATAA",
+        "TAATATATAT",
+        "TATATATATTT",
+        "ATTATTATTAT",
+        "TAATAATAATA",
+        "AAAAAAAAAAAA",
+        "AATAATAATAA",
+        "TATTATATAT"
+      ],
+      "outcome": {
+        "effective": true,
+        "tier": "effective",
+        "nested_in": [
+          "Probe_20",
+          "Probe_28"
+        ],
+        "chosen_over": [
+          "Probe_20",
+          "Probe_28"
+        ],
+        "fold_enrichment": 18.0,
+        "percent_reads_on_target": 73.2,
+        "percent_reads_on_target_control": 1.0,
+        "note": "smallest of three nested pools; chosen on yield and cost"
+      }
+    }
+  }
+}

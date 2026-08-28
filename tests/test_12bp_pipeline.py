@@ -161,6 +161,7 @@ class Test12bpPipelineParams:
     def test_params_valid_json(self, params_path):
         """params.json should be valid JSON."""
         import json
+
         with open(params_path) as f:
             params = json.load(f)
         assert isinstance(params, dict)
@@ -168,6 +169,7 @@ class Test12bpPipelineParams:
     def test_bloom_filter_enabled(self, params_path):
         """Bloom filter should be enabled for performance."""
         import json
+
         with open(params_path) as f:
             params = json.load(f)
 
@@ -178,6 +180,7 @@ class Test12bpPipelineParams:
     def test_kmer_length_correct(self, params_path):
         """K-mer length should be 12bp."""
         import json
+
         with open(params_path) as f:
             params = json.load(f)
 

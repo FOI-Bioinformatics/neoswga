@@ -47,7 +47,8 @@ def test_expand_dominating_set_passes_extension_reach_to_optimizer():
             return {"new_primers": [], "coverage": 0.0}
 
     with patch(
-        "neoswga.core.dominating_set_optimizer.DominatingSetOptimizer", FakeOptimizer,
+        "neoswga.core.dominating_set_optimizer.DominatingSetOptimizer",
+        FakeOptimizer,
     ):
         # _expand_dominating_set is the path through which PrimerExpander
         # constructs the optimizer; call it directly with empty inputs.

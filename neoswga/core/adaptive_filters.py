@@ -13,6 +13,8 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from neoswga.core.parameter import EXTREME_AT_GENOME_GC, EXTREME_GC_GENOME_GC
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +65,17 @@ class AdaptiveGCFilter:
         # Compute adaptive bounds
         self.gc_min = max(0.20, genome_gc - tolerance)
         self.gc_max = min(0.80, genome_gc + tolerance)
+
+        # Release the bound on the matching side for compositionally extreme
+        # targets. Without this the "adaptive" window can exclude the genome's
+        # own average composition -- at 0.19 GC the old floor of 0.20 did
+        # exactly that -- and it rejects the zero-GC primers that published
+        # sets actually used against AT-rich targets. Same thresholds as the
+        # main filter path, from parameter, so the two cannot drift.
+        if genome_gc < EXTREME_AT_GENOME_GC:
+            self.gc_min = 0.0
+        elif genome_gc > EXTREME_GC_GENOME_GC:
+            self.gc_max = 1.0
 
         logger.info(
             f"Adaptive GC filter: genome={genome_gc:.3f}, "
@@ -226,16 +239,37 @@ class GCClampFilter:
     GC clamp promotes specific binding, but excessive GC can cause problems.
     """
 
-    def __init__(self, min_gc_in_last5: int = 1, max_gc_in_last5: int = 3):
+    def __init__(
+        self,
+        min_gc_in_last5: int = 1,
+        max_gc_in_last5: int = 3,
+        genome_gc: Optional[float] = None,
+    ):
         """
         Initialize GC clamp filter.
 
         Args:
             min_gc_in_last5: Minimum G/C in last 5 bases (default 1)
             max_gc_in_last5: Maximum G/C in last 5 bases (default 3)
+            genome_gc: Target genome GC (0.0-1.0). When supplied and the target
+                is AT-rich, the minimum is waived -- see below.
+
+        A GC clamp is standard PCR primer-design practice, imported here from
+        that setting. It does not transfer to SWGA against an AT-rich target:
+        a primer with no G or C cannot satisfy it at any threshold, yet such
+        primers are what published sets used. Oyola et al. (2016) amplified
+        P. falciparum with ten zero-GC primers and Leichty and Brisson (2014)
+        did the same for Borrelia. Passing `genome_gc` waives the minimum on
+        those targets, matching what filter.filter_extra already does; leaving
+        it None preserves the previous unconditional behaviour.
         """
-        self.min_gc = min_gc_in_last5
+        self.genome_gc = genome_gc
         self.max_gc = max_gc_in_last5
+
+        if genome_gc is not None and genome_gc < EXTREME_AT_GENOME_GC:
+            self.min_gc = 0
+        else:
+            self.min_gc = min_gc_in_last5
 
     def passes(self, primer: str) -> bool:
         """Check GC clamp"""
@@ -296,7 +330,7 @@ class AdaptiveFilterPipeline:
         self.gc_filter = AdaptiveGCFilter(genome_gc, tolerance=gc_tolerance)
         self.tm_filter = ThermodynamicFilter(reaction_temp, na_conc)
         self.repeat_filter = RepeatFilter(max_homopolymer=5, max_dinuc_repeat=5)
-        self.clamp_filter = GCClampFilter(min_gc_in_last5=1, max_gc_in_last5=3)
+        self.clamp_filter = GCClampFilter(min_gc_in_last5=1, max_gc_in_last5=3, genome_gc=genome_gc)
 
         self.filters = {
             "gc": self.gc_filter,

@@ -47,7 +47,9 @@ def test_swap_primer_never_worsens_mean_severity():
     analyzer = _analyzer()
     before, _, _ = analyzer.analyze_primer_set(initial_set, verbose=False)
     improved, after = analyzer.optimize_set_greedy(
-        initial_set, CLEAN_POOL, max_iterations=3,
+        initial_set,
+        CLEAN_POOL,
+        max_iterations=3,
     )
     assert after.mean_severity <= before.mean_severity + 1e-6, (
         f"swap must not increase mean severity: before={before.mean_severity:.4f}, "
@@ -60,7 +62,9 @@ def test_swap_primer_preserves_set_size():
     initial_set = list(DIMER_HEAVY_SET)
     analyzer = _analyzer()
     improved, _ = analyzer.optimize_set_greedy(
-        initial_set, CLEAN_POOL, max_iterations=3,
+        initial_set,
+        CLEAN_POOL,
+        max_iterations=3,
     )
     assert len(improved) == len(initial_set)
 

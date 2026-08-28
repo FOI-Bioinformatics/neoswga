@@ -25,7 +25,7 @@ class MockPositionCache:
         """
         self._positions = positions_dict or {}
 
-    def get_positions(self, prefix, primer, strand='both'):
+    def get_positions(self, prefix, primer, strand="both"):
         """Return mock positions."""
         key = (prefix, primer, strand)
         if key in self._positions:
@@ -47,18 +47,14 @@ def mock_cache():
 @pytest.fixture
 def standard_conditions():
     """Standard phi29 conditions."""
-    return ReactionConditions(temp=30.0, polymerase='phi29', mg_conc=2.5)
+    return ReactionConditions(temp=30.0, polymerase="phi29", mg_conc=2.5)
 
 
 @pytest.fixture
 def enhanced_conditions():
     """Enhanced EquiPhi29 conditions."""
     return ReactionConditions(
-        temp=42.0,
-        polymerase='equiphi29',
-        mg_conc=2.5,
-        dmso_percent=5.0,
-        betaine_m=1.0
+        temp=42.0, polymerase="equiphi29", mg_conc=2.5, dmso_percent=5.0, betaine_m=1.0
     )
 
 
@@ -69,8 +65,8 @@ class TestNetworkOptimizerMechanisticInit:
         """Initialize without conditions (mechanistic disabled)."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
         )
@@ -83,8 +79,8 @@ class TestNetworkOptimizerMechanisticInit:
         """Initialize with conditions but zero weight (mechanistic disabled)."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
@@ -98,8 +94,8 @@ class TestNetworkOptimizerMechanisticInit:
         """Initialize with conditions and weight (mechanistic enabled)."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
@@ -114,8 +110,8 @@ class TestNetworkOptimizerMechanisticInit:
         """Test template_gc parameter is stored."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
@@ -133,45 +129,45 @@ class TestMechanisticScoreCalculation:
         """Score should be 1.0 when model is disabled."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
         )
 
-        score = optimizer._calculate_mechanistic_score('ATCGATCG')
+        score = optimizer._calculate_mechanistic_score("ATCGATCG")
         assert score == 1.0
 
     def test_mechanistic_score_with_model(self, mock_cache, standard_conditions):
         """Score should be between 0 and 1 when model is enabled."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
             mechanistic_weight=0.3,
         )
 
-        score = optimizer._calculate_mechanistic_score('ATCGATCGATCG')
+        score = optimizer._calculate_mechanistic_score("ATCGATCGATCG")
         assert 0.0 <= score <= 1.0
 
     def test_longer_primers_may_have_different_score(self, mock_cache, enhanced_conditions):
         """Different primer lengths may have different mechanistic scores."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=enhanced_conditions,
             mechanistic_weight=0.3,
         )
 
-        score_8mer = optimizer._calculate_mechanistic_score('ATCGATCG')
-        score_12mer = optimizer._calculate_mechanistic_score('ATCGATCGATCG')
-        score_16mer = optimizer._calculate_mechanistic_score('ATCGATCGATCGATCG')
+        score_8mer = optimizer._calculate_mechanistic_score("ATCGATCG")
+        score_12mer = optimizer._calculate_mechanistic_score("ATCGATCGATCG")
+        score_16mer = optimizer._calculate_mechanistic_score("ATCGATCGATCGATCG")
 
         # Scores should be different (Tm differs)
         # With EquiPhi29 at 42C, longer primers should generally score better
@@ -186,63 +182,63 @@ class TestScorePrimerSetMechanisticMetrics:
         """score_primer_set should not include mechanistic metrics when disabled."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
         )
 
-        primers = ['ATCGATCGATCG', 'GCTAGCTAGCTA']
+        primers = ["ATCGATCGATCG", "GCTAGCTAGCTA"]
         result = optimizer.score_primer_set(primers)
 
-        assert 'avg_processivity_factor' not in result
-        assert 'avg_accessibility' not in result
-        assert 'avg_amplification_factor' not in result
+        assert "avg_processivity_factor" not in result
+        assert "avg_accessibility" not in result
+        assert "avg_amplification_factor" not in result
 
     def test_mechanistic_metrics_with_model(self, mock_cache, standard_conditions):
         """score_primer_set should include mechanistic metrics when enabled."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
             mechanistic_weight=0.3,
         )
 
-        primers = ['ATCGATCGATCG', 'GCTAGCTAGCTA']
+        primers = ["ATCGATCGATCG", "GCTAGCTAGCTA"]
         result = optimizer.score_primer_set(primers)
 
-        assert 'avg_processivity_factor' in result
-        assert 'avg_accessibility' in result
-        assert 'avg_amplification_factor' in result
-        assert 'min_amplification_factor' in result
-        assert 'avg_effective_binding' in result
-        assert 'avg_stability_factor' in result
+        assert "avg_processivity_factor" in result
+        assert "avg_accessibility" in result
+        assert "avg_amplification_factor" in result
+        assert "min_amplification_factor" in result
+        assert "avg_effective_binding" in result
+        assert "avg_stability_factor" in result
 
     def test_mechanistic_metrics_reasonable_values(self, mock_cache, standard_conditions):
         """Mechanistic metrics should have reasonable values."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
             mechanistic_weight=0.3,
         )
 
-        primers = ['ATCGATCGATCG', 'GCTAGCTAGCTA']
+        primers = ["ATCGATCGATCG", "GCTAGCTAGCTA"]
         result = optimizer.score_primer_set(primers)
 
         # All factors should be in reasonable range
-        assert 0.0 <= result['avg_processivity_factor'] <= 1.5
-        assert 0.0 <= result['avg_accessibility'] <= 1.0
-        assert 0.0 <= result['avg_amplification_factor'] <= 1.0
-        assert 0.0 <= result['min_amplification_factor'] <= 1.0
-        assert 0.0 <= result['avg_effective_binding'] <= 1.0
-        assert 0.0 <= result['avg_stability_factor'] <= 1.5
+        assert 0.0 <= result["avg_processivity_factor"] <= 1.5
+        assert 0.0 <= result["avg_accessibility"] <= 1.0
+        assert 0.0 <= result["avg_amplification_factor"] <= 1.0
+        assert 0.0 <= result["min_amplification_factor"] <= 1.0
+        assert 0.0 <= result["avg_effective_binding"] <= 1.0
+        assert 0.0 <= result["avg_stability_factor"] <= 1.5
 
 
 class TestConditionEffects:
@@ -255,8 +251,8 @@ class TestConditionEffects:
 
         opt_low = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=cond_low,
@@ -265,27 +261,27 @@ class TestConditionEffects:
 
         opt_high = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=cond_high,
             mechanistic_weight=0.3,
         )
 
-        primers = ['ATCGATCGATCG']
+        primers = ["ATCGATCGATCG"]
         result_low = opt_low.score_primer_set(primers)
         result_high = opt_high.score_primer_set(primers)
 
         # High DMSO should have lower processivity
-        assert result_high['avg_processivity_factor'] < result_low['avg_processivity_factor']
+        assert result_high["avg_processivity_factor"] < result_low["avg_processivity_factor"]
 
     def test_high_gc_template_affects_accessibility(self, mock_cache, standard_conditions):
         """High GC template should have lower accessibility."""
         opt_low_gc = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
@@ -295,8 +291,8 @@ class TestConditionEffects:
 
         opt_high_gc = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
@@ -304,12 +300,12 @@ class TestConditionEffects:
             template_gc=0.7,
         )
 
-        primers = ['ATCGATCGATCG']
+        primers = ["ATCGATCGATCG"]
         result_low = opt_low_gc.score_primer_set(primers)
         result_high = opt_high_gc.score_primer_set(primers)
 
         # High GC template should have lower accessibility
-        assert result_high['avg_accessibility'] < result_low['avg_accessibility']
+        assert result_high["avg_accessibility"] < result_low["avg_accessibility"]
 
 
 class TestOptimizeGreedyWithMechanistic:
@@ -319,8 +315,8 @@ class TestOptimizeGreedyWithMechanistic:
         """optimize_greedy should run without errors when mechanistic enabled."""
         optimizer = NetworkOptimizer(
             position_cache=mock_cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=standard_conditions,
@@ -328,10 +324,10 @@ class TestOptimizeGreedyWithMechanistic:
         )
 
         candidates = [
-            'ATCGATCGATCG',
-            'GCTAGCTAGCTA',
-            'TTAATTAATTAA',
-            'CCGGCCGGCCGG',
+            "ATCGATCGATCG",
+            "GCTAGCTAGCTA",
+            "TTAATTAATTAA",
+            "CCGGCCGGCCGG",
         ]
 
         result = optimizer.optimize_greedy(candidates, num_primers=2)
@@ -343,21 +339,23 @@ class TestOptimizeGreedyWithMechanistic:
         """Different mechanistic weights may lead to different selections."""
         # This is a statistical test - with enough primers, different weights
         # should sometimes lead to different selections
-        conditions = ReactionConditions(temp=42.0, polymerase='equiphi29', mg_conc=2.5)
+        conditions = ReactionConditions(temp=42.0, polymerase="equiphi29", mg_conc=2.5)
 
         # Create mock cache with varying positions for different primers
         positions_dict = {}
-        for primer in ['ATCGATCGATCG', 'GCTAGCTAGCTA', 'TTAATTAATTAA', 'CCGGCCGGCCGG']:
-            for strand in ['forward', 'reverse']:
-                positions_dict[('target', primer, strand)] = np.array([i * 500 for i in range(10)])
-                positions_dict[('background', primer, strand)] = np.array([i * 1000 for i in range(5)])
+        for primer in ["ATCGATCGATCG", "GCTAGCTAGCTA", "TTAATTAATTAA", "CCGGCCGGCCGG"]:
+            for strand in ["forward", "reverse"]:
+                positions_dict[("target", primer, strand)] = np.array([i * 500 for i in range(10)])
+                positions_dict[("background", primer, strand)] = np.array(
+                    [i * 1000 for i in range(5)]
+                )
 
         cache = MockPositionCache(positions_dict)
 
         opt_no_mech = NetworkOptimizer(
             position_cache=cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=conditions,
@@ -366,15 +364,15 @@ class TestOptimizeGreedyWithMechanistic:
 
         opt_with_mech = NetworkOptimizer(
             position_cache=cache,
-            fg_prefixes=['target'],
-            bg_prefixes=['background'],
+            fg_prefixes=["target"],
+            bg_prefixes=["background"],
             fg_seq_lengths=[10000],
             bg_seq_lengths=[50000],
             conditions=conditions,
             mechanistic_weight=0.5,  # Enabled
         )
 
-        candidates = ['ATCGATCGATCG', 'GCTAGCTAGCTA', 'TTAATTAATTAA', 'CCGGCCGGCCGG']
+        candidates = ["ATCGATCGATCG", "GCTAGCTAGCTA", "TTAATTAATTAA", "CCGGCCGGCCGG"]
 
         result_no = opt_no_mech.optimize_greedy(candidates, num_primers=2)
         result_with = opt_with_mech.optimize_greedy(candidates, num_primers=2)

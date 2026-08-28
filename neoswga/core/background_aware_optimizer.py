@@ -13,8 +13,9 @@ Three-stage optimization:
 3. Network Refinement - maximize amplification connectivity
 
 Expected Impact:
-- 10-20× reduction in background binding (vs standard hybrid optimizer)
-- Maintains excellent target coverage (>95%)
+- 10-20x reduction in background binding (vs standard hybrid optimizer)
+- Holds coverage above `min_coverage_threshold` during pruning (default 0.95,
+  and a setting the caller can lower)
 - Maintains good network connectivity
 
 Critical for:
@@ -121,6 +122,8 @@ class BackgroundAwareOptimizer:
         bg_seq_lengths: List[int],
         background_weight: float = 2.0,
         min_coverage_threshold: float = 0.95,
+        coverage_reach: Optional[int] = None,
+        polymerase: str = "phi29",
     ):
         """
         Initialize background-aware optimizer.
@@ -133,6 +136,11 @@ class BackgroundAwareOptimizer:
             bg_seq_lengths: Background genome lengths
             background_weight: Weight for background sites in scoring (higher = more aggressive pruning)
             min_coverage_threshold: Minimum coverage to maintain during background pruning
+            coverage_reach: Per-primer extension reach in bp for the coverage
+                figure and the pruning floor. None resolves the polymerase's
+                realistic reach. This was hardcoded to 3000 in two places, so
+                every polymerase and every --coverage-reach produced phi29's
+                answer -- three times too generous for bst.
         """
         self.cache = position_cache
         self.fg_prefixes = fg_prefixes
@@ -142,17 +150,24 @@ class BackgroundAwareOptimizer:
         self.background_weight = background_weight
         self.min_coverage = min_coverage_threshold
 
+        from neoswga.core.coverage import resolve_coverage_reach
+
+        self.coverage_reach = (
+            int(coverage_reach) if coverage_reach else resolve_coverage_reach(polymerase)
+        )
+
         # Create sub-optimizers with adaptive bin_size for small genomes
         min_genome = min(fg_seq_lengths) if fg_seq_lengths else 100000
         bin_size = min(10000, max(100, min_genome // 10))
-        # Use realistic per-primer reach for coverage (phi29 ~3 kb); see
-        # coverage.polymerase_extension_reach docstring.
+        # Realistic per-primer reach for coverage (phi29 ~3 kb); see
+        # coverage.polymerase_extension_reach. Threaded rather than hardcoded so
+        # selection and the reported figure are measured at the same distance.
         self.coverage_optimizer = DominatingSetOptimizer(
             position_cache,
             fg_prefixes,
             fg_seq_lengths,
             bin_size=bin_size,
-            extension_reach=3000,
+            extension_reach=self.coverage_reach,
         )
         self.network_optimizer = NetworkOptimizer(
             position_cache, fg_prefixes, bg_prefixes, fg_seq_lengths, bg_seq_lengths
@@ -357,7 +372,9 @@ class BackgroundAwareOptimizer:
 
         return current_primers, final_coverage, final_bg_sites
 
-    def _calculate_coverage(self, primers: List[str], extension_reach: int = 3000) -> float:
+    def _calculate_coverage(
+        self, primers: List[str], extension_reach: Optional[int] = None
+    ) -> float:
         """Genome coverage with strand-direction-aware polymerase extension.
 
         Forward-strand binding sites extend downstream only [pos, pos+reach);
@@ -368,6 +385,9 @@ class BackgroundAwareOptimizer:
         """
         if not primers:
             return 0.0
+
+        if extension_reach is None:
+            extension_reach = self.coverage_reach
 
         total_genome_length = sum(self.fg_seq_lengths)
         if total_genome_length == 0:
@@ -660,6 +680,10 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             bg_seq_lengths,
             config,
             conditions=conditions,
+            # Forward the rest so background_profile / aggregate reach
+            # BaseOptimizer. Dropping **kwargs here made a compositional
+            # background silently inert on every optimizer.
+            **kwargs,
         )
 
         # Delegate to HybridOptimizer with background pruning enabled
@@ -686,14 +710,11 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             mechanistic_weight=kwargs.get("mechanistic_weight", 0.0),
         )
 
-        # Keep the direct optimizer for backward compat (standalone use)
-        self._direct_optimizer = BackgroundAwareOptimizer(
-            position_cache=position_cache,
-            fg_prefixes=fg_prefixes,
-            bg_prefixes=bg_prefixes or [],
-            fg_seq_lengths=fg_seq_lengths,
-            bg_seq_lengths=bg_seq_lengths or [],
-        )
+        # A second BackgroundAwareOptimizer was built here "for backward
+        # compat (standalone use)" and read by nothing. Constructing it built a
+        # DominatingSetOptimizer and a NetworkOptimizer, so every run of this
+        # method paid for two optimizers it never called. The standalone class
+        # remains importable for callers that want it directly.
 
     @property
     def name(self) -> str:
@@ -730,6 +751,7 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
                 candidates=candidates,
                 final_count=target,
                 verbose=self.config.verbose,
+                apply_polymerase_multiplier=False,
             )
 
             primers = result.primers

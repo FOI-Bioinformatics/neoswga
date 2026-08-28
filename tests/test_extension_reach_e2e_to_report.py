@@ -56,6 +56,7 @@ def test_extension_reach_round_trips_through_summary_json(tmp_path):
     summary_path.write_text(json.dumps(result.to_dict(), default=str))
 
     from neoswga.core.report import metrics as report_metrics
+
     loaded = report_metrics._load_optimizer_summary(tmp_path)
 
     assert loaded["metrics"]["extension_reach"] == 4000
@@ -83,12 +84,17 @@ def test_coverage_metrics_carries_reach_after_full_load(tmp_path):
         "ATCGATCGATCG,0.88,0.001,0.0,50.0,0.3,0.5,200,0\n"
     )
     # Minimal params so coverage.total_bases is set.
-    (tmp_path / "params.json").write_text(json.dumps({
-        "fg_size": 5_000_000,
-        "polymerase": "phi29",
-    }))
+    (tmp_path / "params.json").write_text(
+        json.dumps(
+            {
+                "fg_size": 5_000_000,
+                "polymerase": "phi29",
+            }
+        )
+    )
 
     from neoswga.core.report.metrics import collect_pipeline_metrics
+
     pm = collect_pipeline_metrics(str(tmp_path))
 
     assert pm.coverage is not None

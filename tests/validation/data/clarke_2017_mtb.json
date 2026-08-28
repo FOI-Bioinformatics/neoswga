@@ -1,0 +1,291 @@
+{
+ "source": {
+  "citation": "Clarke EL, Sundararaman SA, Seifert SN, Bushman FD, Hahn BH, Brisson D (2017) swga: a primer design toolkit for selective whole genome amplification. Bioinformatics 33(14):2071-2077.",
+  "doi": "10.1093/bioinformatics/btx118",
+  "tables": "Table 2 (set characteristics + which amplified most effectively); Supplementary Table 2 (primer sequences)",
+  "target": "Mycobacterium tuberculosis",
+  "background": "human",
+  "outcome": "Percent of target genome covered at 1x after 50 Mbp of sequencing (Fig 6). Per-set percentages are only shown graphically; the paper marks the four most effective sets with a footnote, which is the label used here.",
+  "notes": "MtbUneven and MtbSparse were chosen deliberately as NEGATIVE controls - highest Gini and highest mean target binding distance respectively. Primer sequences carry 3' phosphorothioate bonds, written '*' and stripped. IMPORTANT: the authors pre-filtered the primer pool for even binding, which constrained the range of set evenness before sets were chosen. Gini therefore has little residual variance to explain outcome in this experiment."
+ },
+ "sets": {
+  "Mtb1": {
+   "primers": [
+    "ACGATCAAC",
+    "CCGATATGG",
+    "CGCGAATA",
+    "CGCGATTA",
+    "CGTCGTAG",
+    "CGTCGTAT",
+    "TAGTCGATG"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.017102030904051147,
+    "size": 7,
+    "fg_gini": 0.476282239371941,
+    "fg_max_distance": 32736,
+    "fg_mean_distance": 4967.94031531532,
+    "fg_std_deviation": 4561.71713919106,
+    "bg_mean_distance": 290488.325228
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": false
+   }
+  },
+  "Mtb2": {
+   "primers": [
+    "ATTCGTCG",
+    "CGCGAATA",
+    "CGGTATCG",
+    "CGTCGTAA",
+    "CGTCGTAT",
+    "GATTGTCGA",
+    "TACGAACG"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.009537928525148221,
+    "size": 7,
+    "fg_gini": 0.483964690041414,
+    "fg_max_distance": 27519,
+    "fg_mean_distance": 3289.73228933632,
+    "fg_std_deviation": 3115.43598718025,
+    "bg_mean_distance": 344910.562148
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": false
+   }
+  },
+  "Mtb3": {
+   "primers": [
+    "ATCGGATTC",
+    "CGATACGT",
+    "CGCGATAA",
+    "CTACGACG",
+    "CTCGATACC",
+    "GATCGACTC",
+    "TCGATCAAC"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.017220882155156356,
+    "size": 7,
+    "fg_gini": 0.478088161564571,
+    "fg_max_distance": 37657,
+    "fg_mean_distance": 4990.41968325792,
+    "fg_std_deviation": 4685.01411145927,
+    "bg_mean_distance": 289788.85276
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": false
+   }
+  },
+  "Mtb4": {
+   "primers": [
+    "ATCGACAAC",
+    "CGAATCCG",
+    "CGTTACGG",
+    "CTACGACG",
+    "GACGATCG",
+    "GATCGACTC",
+    "TCGACGAA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.0061769903873084295,
+    "size": 7,
+    "fg_gini": 0.511948014361608,
+    "fg_max_distance": 14949,
+    "fg_mean_distance": 1877.24723404255,
+    "fg_std_deviation": 1920.72924872177,
+    "bg_mean_distance": 303909.690049
+   },
+   "outcome": {
+    "most_effective": true,
+    "negative_control": false
+   }
+  },
+  "Mtb5": {
+   "primers": [
+    "ATATCGGTG",
+    "CCGAATCG",
+    "CGGTTACG",
+    "GACGACTAC",
+    "GATGATCGA",
+    "TGGATATCG"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.015501432273929736,
+    "size": 6,
+    "fg_gini": 0.480410091870962,
+    "fg_max_distance": 34404,
+    "fg_mean_distance": 4996.07134767837,
+    "fg_std_deviation": 4711.44800867431,
+    "bg_mean_distance": 322297.401904
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": false
+   }
+  },
+  "Mtb6": {
+   "primers": [
+    "CCGAATCG",
+    "CGCGAATA",
+    "CGCTATCG",
+    "CGGTATCG",
+    "CGGTTACG",
+    "CGTCTACG",
+    "TCGACGAA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.005734211174457203,
+    "size": 7,
+    "fg_gini": 0.501111334064456,
+    "fg_max_distance": 14968,
+    "fg_mean_distance": 1953.73383525244,
+    "fg_std_deviation": 1949.69914394466,
+    "bg_mean_distance": 340715.361854
+   },
+   "outcome": {
+    "most_effective": true,
+    "negative_control": false
+   }
+  },
+  "Mtb7": {
+   "primers": [
+    "ATCGACAAG",
+    "CCGAATCG",
+    "CGCGAATA",
+    "CGCTATCG",
+    "CGGTATCG",
+    "CGTCTACG",
+    "TCGACGAA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.006563505498504986,
+    "size": 7,
+    "fg_gini": 0.498573267850979,
+    "fg_max_distance": 13876,
+    "fg_mean_distance": 2028.29011494253,
+    "fg_std_deviation": 1987.29341348649,
+    "bg_mean_distance": 309025.430908
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": false
+   }
+  },
+  "Mtb8": {
+   "primers": [
+    "ACGATCAAC",
+    "CGAATCCG",
+    "CGACGAAA",
+    "CGACGATA",
+    "CGATACCG",
+    "TACGACGA",
+    "TCGACGAA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.006161656666389756,
+    "size": 7,
+    "fg_gini": 0.533006345439499,
+    "fg_max_distance": 18721,
+    "fg_mean_distance": 1796.95763747454,
+    "fg_std_deviation": 1960.26989638273,
+    "bg_mean_distance": 291635.469934
+   },
+   "outcome": {
+    "most_effective": true,
+    "negative_control": false
+   }
+  },
+  "Mtb9": {
+   "primers": [
+    "CGAATCCG",
+    "CGACGAAA",
+    "CGACGATA",
+    "CGATAACG",
+    "CGATACCG",
+    "TACGACGA",
+    "TCGACGAA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.0058478477495330404,
+    "size": 7,
+    "fg_gini": 0.538220008340757,
+    "fg_max_distance": 18721,
+    "fg_mean_distance": 1781.71688206785,
+    "fg_std_deviation": 1955.90521599419,
+    "bg_mean_distance": 304679.081669
+   },
+   "outcome": {
+    "most_effective": true,
+    "negative_control": false
+   }
+  },
+  "Mtb10": {
+   "primers": [
+    "CGAAACGA",
+    "CGATATCCA",
+    "CGATTCGG",
+    "CGGTATTGA",
+    "CGTAGTCG",
+    "CGTTACGT",
+    "TGTAGTCGA"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.018101917209391673,
+    "size": 7,
+    "fg_gini": 0.478619813239955,
+    "fg_max_distance": 31187,
+    "fg_mean_distance": 4287.20213799806,
+    "fg_std_deviation": 4092.69261898537,
+    "bg_mean_distance": 236836.910058
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": false
+   }
+  },
+  "MtbUneven": {
+   "primers": [
+    "CGATATTGC",
+    "CGTTACCG"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.014041815804358268,
+    "size": 2,
+    "fg_gini": 0.622507899033215,
+    "fg_max_distance": 92071,
+    "fg_mean_distance": 11369.925257732,
+    "fg_std_deviation": 14512.5195846434,
+    "bg_mean_distance": 809719.014702
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": true
+   }
+  },
+  "MtbSparse": {
+   "primers": [
+    "CGTTCGTA",
+    "TGATATCGC",
+    "TTCGACTAC"
+   ],
+   "published": {
+    "fg_bg_ratio": 0.03866090347522864,
+    "size": 3,
+    "fg_gini": 0.504556150687822,
+    "fg_max_distance": 99986,
+    "fg_mean_distance": 25950.1823529412,
+    "fg_std_deviation": 24818.9715865005,
+    "bg_mean_distance": 671225.450527
+   },
+   "outcome": {
+    "most_effective": false,
+    "negative_control": true
+   }
+  }
+ }
+}

@@ -34,10 +34,10 @@ from neoswga.core.utility import (
     get_seq_length,
 )
 
-
 # =============================================================================
 # Array Manipulation Tests
 # =============================================================================
+
 
 class TestFlatten:
     """Tests for flatten function."""
@@ -64,10 +64,10 @@ class TestFlatten:
 
     def test_flatten_strings(self):
         """Test flattening list of strings."""
-        nested = [['a', 'b'], ['c', 'd']]
+        nested = [["a", "b"], ["c", "d"]]
         result = flatten(nested)
 
-        assert result == ['a', 'b', 'c', 'd']
+        assert result == ["a", "b", "c", "d"]
 
 
 class TestMergeArrays:
@@ -145,6 +145,7 @@ class TestIntersection:
 # Mathematical Function Tests
 # =============================================================================
 
+
 class TestSoftmax:
     """Tests for softmax function."""
 
@@ -164,7 +165,7 @@ class TestSoftmax:
         result = softmax(x)
 
         # All should be equal
-        assert np.allclose(result, [1/3, 1/3, 1/3])
+        assert np.allclose(result, [1 / 3, 1 / 3, 1 / 3])
 
     def test_softmax_single(self):
         """Test softmax with single element."""
@@ -241,34 +242,35 @@ class TestGiniExact:
 # String Operation Tests
 # =============================================================================
 
+
 class TestLongestCharRepeat:
     """Tests for longest_char_repeat function."""
 
     def test_longest_repeat_simple(self):
         """Test finding longest character repeat."""
         s = "AATTTTCCC"
-        result = longest_char_repeat(s, 'T')
+        result = longest_char_repeat(s, "T")
 
         assert result == 4
 
     def test_longest_repeat_no_match(self):
         """Test when character not in string."""
         s = "AATTCC"
-        result = longest_char_repeat(s, 'G')
+        result = longest_char_repeat(s, "G")
 
         assert result == 0
 
     def test_longest_repeat_at_start(self):
         """Test repeat at start of string."""
         s = "AAAAAATCG"
-        result = longest_char_repeat(s, 'A')
+        result = longest_char_repeat(s, "A")
 
         assert result == 6
 
     def test_longest_repeat_single(self):
         """Test single occurrence."""
         s = "ATCGATCG"
-        result = longest_char_repeat(s, 'A')
+        result = longest_char_repeat(s, "A")
 
         assert result == 1
 
@@ -332,6 +334,7 @@ class TestReverseComplement:
 # Sequence Comparison Tests
 # =============================================================================
 
+
 class TestGetNumMismatches:
     """Tests for get_num_mismatches function."""
 
@@ -381,6 +384,7 @@ class TestLongestCommonSubstring:
 # Gap Calculation Tests
 # =============================================================================
 
+
 class TestGetPositionalGapLengths:
     """Tests for get_positional_gap_lengths function."""
 
@@ -426,27 +430,29 @@ class TestGetPositionalGapLengths:
 # Most Frequent Tests
 # =============================================================================
 
+
 class TestMostFrequent:
     """Tests for most_frequent function."""
 
     def test_single_most_frequent(self):
         """Test with clear most frequent element."""
-        lst = ['a', 'b', 'a', 'c', 'a']
+        lst = ["a", "b", "a", "c", "a"]
         result = most_frequent(lst)
 
-        assert result == 'a'
+        assert result == "a"
 
     def test_tie_returns_one(self):
         """Test that ties return one of the tied elements."""
-        lst = ['a', 'b', 'a', 'b']
+        lst = ["a", "b", "a", "b"]
         result = most_frequent(lst)
 
-        assert result in ['a', 'b']
+        assert result in ["a", "b"]
 
 
 # =============================================================================
 # Multiprocessing Tests
 # =============================================================================
+
 
 def _square_for_pool(x):
     """Helper function for pool test (must be at module level for pickling)."""
@@ -478,6 +484,7 @@ class TestCreatePool:
 # File Reading Tests
 # =============================================================================
 
+
 class TestGetSeqLength:
     """Tests for get_seq_length function."""
 
@@ -503,6 +510,7 @@ class TestGetSeqLength:
 # =============================================================================
 # Edge Cases
 # =============================================================================
+
 
 class TestEdgeCases:
     """Tests for edge cases."""
@@ -531,5 +539,5 @@ class TestEdgeCases:
         assert result == ""
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -242,14 +242,16 @@ def run_workflow_selector():
                     print("  2. dominating-set (8x faster)")
                     print("  3. background-aware (clinical, 10-20x bg reduction)")
                     print("  4. network (Tm-weighted, dimer-aware)")
-                    print("  5. ensemble (run all, keep the best)")
+                    print("  5. clique (guaranteed dimer-free, small pools)")
+                    print("  6. ensemble (run all, keep the best)")
                     method = input("Select method [1]: ").strip()
                     methods = {
                         "1": "hybrid",
                         "2": "dominating-set",
                         "3": "background-aware",
                         "4": "network",
-                        "5": "ensemble",
+                        "5": "clique",
+                        "6": "ensemble",
                     }
                     opt_method = methods.get(method, "hybrid")
                     cmd = [

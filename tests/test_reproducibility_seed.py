@@ -21,6 +21,7 @@ EXAMPLE_DIR = Path(__file__).resolve().parent.parent / "examples" / "plasmid_exa
 def _reset_pipeline_state(params_file):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
+
     pipeline_mod._initialized = False
     pipeline_mod.fg_prefixes = None
     pipeline_mod.bg_prefixes = None
@@ -57,6 +58,7 @@ def _prepare(tmp_path):
     os.chdir(tmp_path)
     _reset_pipeline_state(str(params_file))
     from neoswga.core.pipeline import step2, step3
+
     step2()
     step3()
     return params_file
@@ -96,14 +98,15 @@ def test_moea_factory_config_receives_seed():
     """MOEABaseOptimizer wrapper must copy seed into MOEAConfig."""
     # Smoke test via introspection of the wrapper source to catch regression.
     import inspect
+
     try:
         from neoswga.core import moea_optimizer
     except ImportError:
         pytest.skip("moea_optimizer unavailable (pymoo not installed)")
     src = inspect.getsource(moea_optimizer)
-    assert "seed=kwargs.get('seed')" in src, (
-        "MOEABaseOptimizer must forward seed into MOEAConfig for reproducibility"
-    )
+    assert (
+        "seed=kwargs.get('seed')" in src
+    ), "MOEABaseOptimizer must forward seed into MOEAConfig for reproducibility"
 
 
 @pytest.mark.integration

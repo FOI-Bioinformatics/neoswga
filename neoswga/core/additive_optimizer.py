@@ -28,6 +28,7 @@ Literature basis:
 """
 
 import itertools
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -35,6 +36,9 @@ from typing import Dict, List, Optional, Tuple
 from neoswga.core.mechanistic_model import MechanisticEffects, MechanisticModel
 from neoswga.core.mechanistic_params import get_polymerase_params
 from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.registry import views as _registry_views
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -193,7 +197,10 @@ class AdditiveOptimizer:
 
     Optimization goals:
     - 'amplification': Maximize overall amplification (default)
-    - 'specificity': Maximize fg/bg discrimination
+    - 'specificity': Maximize fg/bg discrimination. Requires `selectivity_fn`
+      to actually measure that; without one it falls back to a proxy (binding
+      stability of a synthetic primer) and says so, because a primer that binds
+      everything scores well on the proxy.
     - 'coverage': Maximize genome coverage
     - 'processivity': Maximize polymerase processivity
 
@@ -203,12 +210,19 @@ class AdditiveOptimizer:
         conditions = rec.to_conditions()
     """
 
-    # Additive search ranges (based on literature)
+    # Additive search ranges (based on literature).
+    #
+    # The magnesium grid was [1.5, 2.0, 2.5, 3.0, 4.0] -- PCR concentrations.
+    # Every value sat at or below the mechanistic model's `mg_low_threshold`
+    # (4.0 mM), so the search could not reach `mg_optimal` (10.0 mM) however
+    # long it ran and returned whichever deficient value scored least badly.
+    # The band below spans the model's usable range and brackets the standard
+    # phi29 buffer, which is what the registry and every preset apply.
     SEARCH_RANGES = {
         "dmso_percent": [0.0, 2.0, 4.0, 5.0, 6.0, 8.0],
         "betaine_m": [0.0, 0.5, 1.0, 1.5, 2.0],
         "trehalose_m": [0.0, 0.1, 0.2, 0.3, 0.5],
-        "mg_conc": [1.5, 2.0, 2.5, 3.0, 4.0],
+        "mg_conc": [4.0, 6.0, 8.0, 10.0, 12.0, 15.0],
     }
 
     # Quick search for faster optimization
@@ -216,44 +230,30 @@ class AdditiveOptimizer:
         "dmso_percent": [0.0, 3.0, 5.0],
         "betaine_m": [0.0, 1.0, 1.5],
         "trehalose_m": [0.0, 0.2],
-        "mg_conc": [2.5],
+        "mg_conc": [8.0, 10.0, 12.0],
     }
 
     # Constraints based on polymerase
-    POLYMERASE_CONSTRAINTS = {
-        "phi29": {
-            "max_dmso": 8.0,
-            "max_betaine": 2.5,
-            "optimal_temp": 30.0,
-            "max_primer_length_base": 12,
-        },
-        "equiphi29": {
-            "max_dmso": 6.0,  # More sensitive at higher temp
-            "max_betaine": 2.0,
-            "optimal_temp": 42.0,
-            "max_primer_length_base": 15,
-        },
-        "bst": {
-            "max_dmso": 5.0,
-            "max_betaine": 1.5,
-            "optimal_temp": 60.0,
-            "max_primer_length_base": 18,
-        },
-        "klenow": {
-            "max_dmso": 10.0,
-            "max_betaine": 2.0,
-            "optimal_temp": 37.0,
-            "max_primer_length_base": 12,
-        },
-    }
+    # Derived from the registry. Note `optimal_temp` here is the preset
+    # operating temperature, which differs from the canonical optimal_temp for
+    # bst (60.0 vs 63.0) - see registry/INCONSISTENCIES.md #3.
+    POLYMERASE_CONSTRAINTS = _registry_views.additive_optimizer_constraints()
 
-    def __init__(self, polymerase: str = "phi29"):
+    def __init__(self, polymerase: str = "phi29", selectivity_fn=None):
         """
         Initialize optimizer for a specific polymerase.
 
         Args:
             polymerase: Polymerase type ('phi29', 'equiphi29', 'bst', 'klenow')
         """
+        # Optional callable taking ReactionConditions and returning measured
+        # selectivity. Supplied by callers that have a primer set and a
+        # background -- see `condition_sweep`. Without it the "specificity"
+        # objective can only score a synthetic primer's binding stability,
+        # which is not specificity at all: an indiscriminate primer scores well
+        # on it, since binding tightly to everything is still binding tightly.
+        self._selectivity_fn = selectivity_fn
+        self._warned_about_proxy = False
         self.polymerase = polymerase
         self.poly_params = get_polymerase_params(polymerase)
         self.constraints = self.POLYMERASE_CONSTRAINTS.get(
@@ -446,8 +446,22 @@ class AdditiveOptimizer:
             # Balance all factors
             score = effects.predicted_amplification_factor
         elif optimize_for == "specificity":
-            # Prioritize binding stability (lower koff)
-            score = effects.effective_binding_rate * (1.0 / effects.koff_factor)
+            if self._selectivity_fn is not None:
+                score = self._selectivity_fn(conditions)
+            else:
+                # Proxy only: binding stability of the synthetic primer built
+                # above. Reported once so a caller does not read the result as
+                # a specificity measurement.
+                if not self._warned_about_proxy:
+                    logger.warning(
+                        "optimize_for='specificity' without a selectivity_fn scores "
+                        "binding stability of a synthetic primer, not foreground "
+                        "versus background discrimination -- a primer binding "
+                        "everything scores well on it. Pass selectivity_fn, or use "
+                        "condition_sweep for a measured answer."
+                    )
+                    self._warned_about_proxy = True
+                score = effects.effective_binding_rate * (1.0 / effects.koff_factor)
         elif optimize_for == "coverage":
             # Prioritize processivity and accessibility
             score = effects.processivity_factor * effects.accessibility_factor

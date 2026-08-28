@@ -10,19 +10,21 @@ import pytest
 import numpy as np
 from unittest.mock import patch, MagicMock, PropertyMock
 
-
 # ============================================================================
 # Fix 7: AttributeError - parameter.max_self_dimer_bp
 # ============================================================================
+
 
 class TestFix7DimerAttributeName:
     """Verify filter_extra uses parameter.max_self_dimer_bp (not default_max_self_dimer_bp)."""
 
     def test_filter_extra_uses_correct_attribute(self):
         """filter_extra should reference parameter.max_self_dimer_bp."""
-        with patch('neoswga.core.filter.parameter') as mock_param, \
-             patch('neoswga.core.filter.dimer') as mock_dimer, \
-             patch('neoswga.core.filter._get_reaction_conditions') as mock_rc:
+        with (
+            patch("neoswga.core.filter.parameter") as mock_param,
+            patch("neoswga.core.filter.dimer") as mock_dimer,
+            patch("neoswga.core.filter._get_reaction_conditions") as mock_rc,
+        ):
             mock_param.max_self_dimer_bp = 4
             mock_param.min_tm = 0
             mock_param.max_tm = 100
@@ -36,6 +38,7 @@ class TestFix7DimerAttributeName:
             mock_rc.return_value = mock_conditions
 
             from neoswga.core.filter import filter_extra
+
             # Should not raise AttributeError
             result = filter_extra("ATCGATCG")
             assert isinstance(result, bool)
@@ -47,6 +50,7 @@ class TestFix7DimerAttributeName:
 # ============================================================================
 # Fix 1: Tm gatekeeper with wide margin
 # ============================================================================
+
 
 class TestFix1TmPreFilter:
     """Verify wide Tm margin prevents premature rejection of long primers."""
@@ -68,16 +72,18 @@ class TestFix1TmPreFilter:
         result_narrow = get_primer_list_from_kmers(
             [str(tmp_path / "test")],
             kmer_lengths=range(16, 17),
-            min_tm=15.0, max_tm=45.0,
-            wide_tm_margin=0.0
+            min_tm=15.0,
+            max_tm=45.0,
+            wide_tm_margin=0.0,
         )
 
         # With wide margin (default 15C), primer should be kept
         result_wide = get_primer_list_from_kmers(
             [str(tmp_path / "test")],
             kmer_lengths=range(16, 17),
-            min_tm=15.0, max_tm=45.0,
-            wide_tm_margin=15.0
+            min_tm=15.0,
+            max_tm=45.0,
+            wide_tm_margin=15.0,
         )
 
         # The wide margin should retain more or equal primers
@@ -89,7 +95,7 @@ class TestFix1TmPreFilter:
         from neoswga.core.kmer_counter import get_primer_list_from_kmers
 
         sig = inspect.signature(get_primer_list_from_kmers)
-        assert sig.parameters['wide_tm_margin'].default == 15.0
+        assert sig.parameters["wide_tm_margin"].default == 15.0
 
     def test_extreme_tm_still_rejected(self, tmp_path):
         """Primers with extremely high Tm should still be rejected even with margin."""
@@ -103,8 +109,9 @@ class TestFix1TmPreFilter:
         result = get_primer_list_from_kmers(
             [str(tmp_path / "test")],
             kmer_lengths=range(18, 19),
-            min_tm=15.0, max_tm=45.0,
-            wide_tm_margin=15.0  # max becomes 60
+            min_tm=15.0,
+            max_tm=45.0,
+            wide_tm_margin=15.0,  # max becomes 60
         )
         # All-GC 18-mer has Tm well above 60C, should still be rejected
         assert primer not in result
@@ -113,6 +120,7 @@ class TestFix1TmPreFilter:
 # ============================================================================
 # Fix 2: Frequency threshold scaling
 # ============================================================================
+
 
 class TestFix2FrequencyScaling:
     """Verify frequency thresholds scale inversely with primer length."""
@@ -127,12 +135,14 @@ class TestFix2FrequencyScaling:
     def test_scale_freq_threshold_12bp(self):
         """12bp primer: scale factor = 4^(10-12) = 1/16."""
         from neoswga.core.filter import _scale_freq_threshold
+
         result = _scale_freq_threshold(1e-5, 12)
         assert abs(result - 1e-5 / 16) < 1e-12
 
     def test_scale_freq_threshold_15bp(self):
         """15bp primer: scale factor = 4^(10-15) = 1/1024."""
         from neoswga.core.filter import _scale_freq_threshold
+
         result = _scale_freq_threshold(1e-5, 15)
         expected = 1e-5 / 1024.0
         assert abs(result - expected) < 1e-15
@@ -140,6 +150,7 @@ class TestFix2FrequencyScaling:
     def test_scale_freq_threshold_18bp(self):
         """18bp primer: scale factor = 4^(10-18) = 1/65536."""
         from neoswga.core.filter import _scale_freq_threshold
+
         result = _scale_freq_threshold(1e-5, 18)
         expected = 1e-5 / 65536.0
         assert abs(result - expected) < 1e-18
@@ -162,14 +173,17 @@ class TestFix2FrequencyScaling:
 # Fix 3: GC clamp adaptive for AT-rich and GC-rich genomes
 # ============================================================================
 
+
 class TestFix3AdaptiveGCClamp:
     """Verify GC clamp is adaptive based on genome_gc."""
 
     def _run_filter_extra(self, primer, genome_gc=None, gc_min=0.0, gc_max=1.0):
         """Helper to run filter_extra with mocked parameters."""
-        with patch('neoswga.core.filter.parameter') as mock_param, \
-             patch('neoswga.core.filter.dimer') as mock_dimer, \
-             patch('neoswga.core.filter._get_reaction_conditions') as mock_rc:
+        with (
+            patch("neoswga.core.filter.parameter") as mock_param,
+            patch("neoswga.core.filter.dimer") as mock_dimer,
+            patch("neoswga.core.filter._get_reaction_conditions") as mock_rc,
+        ):
             mock_param.max_self_dimer_bp = 4
             mock_param.min_tm = 0
             mock_param.max_tm = 100
@@ -183,6 +197,7 @@ class TestFix3AdaptiveGCClamp:
             mock_rc.return_value = mock_conditions
 
             from neoswga.core.filter import filter_extra
+
             return filter_extra(primer)
 
     def test_at_rich_allows_zero_gc_in_last5(self):
@@ -236,6 +251,7 @@ class TestFix3AdaptiveGCClamp:
 # Fix 4: Dimer threshold scaling
 # ============================================================================
 
+
 class TestFix4DimerScaling:
     """Verify dimer thresholds auto-scale with max_k."""
 
@@ -288,6 +304,7 @@ class TestFix4DimerScaling:
 # Fix 5: GC-adaptive strategy respects user k-mer range
 # ============================================================================
 
+
 class TestFix5GCAdaptiveGuard:
     """Verify GC-adaptive strategy does not override user-specified k-mer range."""
 
@@ -298,31 +315,38 @@ class TestFix5GCAdaptiveGuard:
 
         # Mock _json_data to contain user-specified k-mer range
         original_json_data = parameter._json_data.copy()
-        original_min_k = getattr(parameter, 'min_k', 6)
-        original_max_k = getattr(parameter, 'max_k', 12)
+        original_min_k = getattr(parameter, "min_k", 6)
+        original_max_k = getattr(parameter, "max_k", 12)
 
         try:
-            parameter._json_data['min_k'] = 15
-            parameter._json_data['max_k'] = 18
+            parameter._json_data["min_k"] = 15
+            parameter._json_data["max_k"] = 18
             parameter.min_k = 15
             parameter.max_k = 18
             parameter.genome_gc = 0.65
 
             # Mock GCAdaptiveStrategy
-            with patch('neoswga.core.pipeline.parameter', parameter):
+            with patch("neoswga.core.pipeline.parameter", parameter):
                 mock_strategy = MagicMock()
                 mock_params = MagicMock()
                 mock_params.kmer_range = (8, 12)  # Strategy wants shorter primers
-                mock_params.recommended_polymerase = 'phi29'
+                mock_params.recommended_polymerase = "phi29"
                 mock_params.reaction_temp = 30.0
                 mock_params.betaine_m = 0.0
                 mock_params.dmso_percent = 0.0
                 mock_params.genome_class = MagicMock()
-                mock_params.genome_class.value = 'gc_rich'
+                mock_params.genome_class.value = "gc_rich"
                 mock_params.confidence = 0.8
                 mock_strategy.return_value.get_parameters.return_value = mock_params
 
-                with patch.dict('sys.modules', {'neoswga.core.gc_adaptive_strategy': MagicMock(GCAdaptiveStrategy=mock_strategy)}):
+                with patch.dict(
+                    "sys.modules",
+                    {
+                        "neoswga.core.gc_adaptive_strategy": MagicMock(
+                            GCAdaptiveStrategy=mock_strategy
+                        )
+                    },
+                ):
                     core_pipeline._apply_gc_adaptive_defaults()
 
             # K-mer range should NOT have been overridden
@@ -338,6 +362,7 @@ class TestFix5GCAdaptiveGuard:
 # ============================================================================
 # Fix 6: Coverage target in dominating set optimizer
 # ============================================================================
+
 
 class TestFix6CoverageTarget:
     """Verify optimize_greedy stops when min_coverage target is met."""
@@ -359,10 +384,7 @@ class TestFix6CoverageTarget:
         mock_cache.get_positions.side_effect = mock_positions
 
         optimizer = DominatingSetOptimizer(
-            cache=mock_cache,
-            fg_prefixes=['genome1'],
-            fg_seq_lengths=[100000],
-            bin_size=10000
+            cache=mock_cache, fg_prefixes=["genome1"], fg_seq_lengths=[100000], bin_size=10000
         )
         return optimizer
 
@@ -372,31 +394,24 @@ class TestFix6CoverageTarget:
         candidates = [f"PRIMER{i:03d}ATCGA" for i in range(50)]
 
         result = optimizer.optimize_greedy(
-            candidates=candidates,
-            max_primers=50,
-            min_coverage=0.5,
-            verbose=False
+            candidates=candidates, max_primers=50, min_coverage=0.5, verbose=False
         )
 
         # Should have stopped before using all 50 primers
-        assert result['n_primers'] < 50
-        assert result['coverage'] >= 0.5
-        assert result['coverage_target'] == 0.5
-        assert result['target_met'] is True
+        assert result["n_primers"] < 50
+        assert result["coverage"] >= 0.5
+        assert result["coverage_target"] == 0.5
+        assert result["target_met"] is True
 
     def test_no_coverage_target(self):
         """Without min_coverage, result should have target_met=False."""
         optimizer = self._make_optimizer()
         candidates = [f"PRIMER{i:03d}ATCGA" for i in range(10)]
 
-        result = optimizer.optimize_greedy(
-            candidates=candidates,
-            max_primers=5,
-            verbose=False
-        )
+        result = optimizer.optimize_greedy(candidates=candidates, max_primers=5, verbose=False)
 
-        assert result['coverage_target'] is None
-        assert result['target_met'] is False
+        assert result["coverage_target"] is None
+        assert result["target_met"] is False
 
     def test_coverage_target_in_result(self):
         """Result dict should include coverage_target and target_met keys."""
@@ -404,28 +419,29 @@ class TestFix6CoverageTarget:
         candidates = [f"PRIMER{i:03d}ATCGA" for i in range(10)]
 
         result = optimizer.optimize_greedy(
-            candidates=candidates,
-            max_primers=5,
-            min_coverage=0.95,
-            verbose=False
+            candidates=candidates, max_primers=5, min_coverage=0.95, verbose=False
         )
 
-        assert 'coverage_target' in result
-        assert 'target_met' in result
+        assert "coverage_target" in result
+        assert "target_met" in result
 
 
 # ============================================================================
 # Integration: long primers across GC extremes
 # ============================================================================
 
+
 class TestIntegrationGCExtremes:
     """Parameterized integration tests across GC extremes for 15bp primers."""
 
-    @pytest.mark.parametrize("genome_gc,gc_label", [
-        (0.25, "AT-rich"),
-        (0.50, "GC-neutral"),
-        (0.75, "GC-rich"),
-    ])
+    @pytest.mark.parametrize(
+        "genome_gc,gc_label",
+        [
+            (0.25, "AT-rich"),
+            (0.50, "GC-neutral"),
+            (0.75, "GC-rich"),
+        ],
+    )
     def test_15bp_primers_pass_filters(self, genome_gc, gc_label):
         """At least some 15bp primers should pass all filters for each GC regime."""
         from neoswga.core.filter import filter_extra, _scale_freq_threshold
@@ -433,9 +449,11 @@ class TestIntegrationGCExtremes:
         # Generate candidate 15bp primers appropriate for the genome GC
         primers = _generate_primers_for_gc(genome_gc, length=15, count=100)
 
-        with patch('neoswga.core.filter.parameter') as mock_param, \
-             patch('neoswga.core.filter.dimer') as mock_dimer, \
-             patch('neoswga.core.filter._get_reaction_conditions') as mock_rc:
+        with (
+            patch("neoswga.core.filter.parameter") as mock_param,
+            patch("neoswga.core.filter.dimer") as mock_dimer,
+            patch("neoswga.core.filter._get_reaction_conditions") as mock_rc,
+        ):
 
             mock_param.max_self_dimer_bp = max(4, int(15 * 0.28))
             mock_param.min_tm = 0
@@ -479,13 +497,11 @@ def _generate_primers_for_gc(target_gc, length=15, count=100):
         gc_prob = target_gc / 2  # Split between G and C
         at_prob = (1 - target_gc) / 2  # Split between A and T
         bases = rng.choice(
-            ['A', 'T', 'G', 'C'],
-            size=length,
-            p=[at_prob, at_prob, gc_prob, gc_prob]
+            ["A", "T", "G", "C"], size=length, p=[at_prob, at_prob, gc_prob, gc_prob]
         )
-        primer = ''.join(bases)
+        primer = "".join(bases)
         # Only keep primers with valid DNA bases
-        if all(b in 'ACGT' for b in primer):
+        if all(b in "ACGT" for b in primer):
             primers.append(primer)
         if len(primers) >= count:
             break

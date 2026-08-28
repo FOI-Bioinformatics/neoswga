@@ -11,6 +11,7 @@ Design principles:
 """
 
 import logging
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -20,6 +21,17 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# Selectivity ratio that scores a full 1.0 on the normalised scale. Not a
+# threshold for a usable design -- it is the point past which more selectivity
+# stops earning score, chosen so the term discriminates across the range real
+# designs occupy rather than saturating inside it.
+SELECTIVITY_REFERENCE = 100.0
+
+# Stands in for unbounded selectivity when no background binding is
+# detected at all, so the value stays finite and serialisable. Same
+# convention as multi_genome_filter.MAX_ENRICHMENT.
+MAX_SELECTIVITY = 1e6
+
 
 class OptimizationStatus(Enum):
     """Status of optimization run."""
@@ -28,6 +40,109 @@ class OptimizationStatus(Enum):
     PARTIAL = "partial"  # Converged but below target
     NO_CONVERGENCE = "no_convergence"
     ERROR = "error"
+
+
+def json_safe(value: Any) -> Any:
+    """
+    Replace non-finite floats with None so the result is valid JSON.
+
+    A failed optimization carries `score=-inf` and `mean_gap`/`max_gap` of `inf`
+    -- deliberately, since "no coverage" really is unboundedly bad and any finite
+    sentinel would rank it as merely mediocre. But `json.dump` writes those as
+    the bare tokens `Infinity` / `-Infinity` / `NaN`, which RFC 8259 does not
+    allow. Python reads them back happily, so the damage is invisible from
+    inside: `step4_improved_df_summary.json` is the file the report and any
+    downstream tooling read, and JavaScript, Go and Rust parsers all reject it.
+
+    `null` is the honest encoding -- the quantity is not representable -- and it
+    round-trips to None rather than to a number that would be silently wrong.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _selectivity_from_loads(fg_load: float, bg_load: float) -> float:
+    """Selectivity from foreground and background binding loads.
+
+    The integer version guarded with `max(bg, 1)`, which is right for counts --
+    you cannot have a fraction of a site. Occupancy-weighted loads are floats,
+    and carrying that guard over silently divided by 1.0 whenever the
+    background load fell below it: a set with 0.3 effective background sites
+    reported a third of its true selectivity, and one with 0.0 reported the
+    foreground load as though it were a ratio.
+
+    A genuinely zero background load is unbounded selectivity, not a large
+    number. `MAX_SELECTIVITY` stands in so the value stays finite and
+    JSON-serialisable, following the same convention and for the same reason as
+    `multi_genome_filter.MAX_ENRICHMENT`: it means "no background binding was
+    detected", not "measured this well".
+    """
+    if bg_load <= 0:
+        return MAX_SELECTIVITY if fg_load > 0 else 0.0
+    return fg_load / bg_load
+
+
+def _selectivity_density_from_loads(
+    fg_load: float, fg_length: float, bg_load: float, bg_length: float
+) -> float:
+    """Binding load per base of target against per base of background.
+
+    `_selectivity_from_loads` divides two counts and carries no genome length,
+    so its value moves with how much background sequence the caller supplied.
+    Substituting a whole human genome (3.1 Gb) for the single chromosome often
+    used as a stand-in (chr21, 46.7 Mb) multiplies the background load by
+    roughly the length ratio and divides the reported selectivity by it, with
+    nothing about the primers changed.
+
+    Enrichment does not work that way. Priming is proportional to sites per
+    genome copy, and a host contributes its sites spread over its own length,
+    so the quantity that survives the substitution -- and the one comparable
+    between two designs scored against different backgrounds -- is the ratio of
+    densities.
+
+    Both are reported. The count ratio remains what the objective is scored on:
+    within a single run the background is fixed, so the two rank sets
+    identically and selection is unaffected.
+    """
+    if fg_length <= 0 or bg_length <= 0:
+        # No length is an absent measurement, not a clean background.
+        return 0.0
+
+    fg_density = fg_load / fg_length
+    bg_density = bg_load / bg_length
+
+    if bg_density <= 0:
+        # Same convention as the count ratio: unbounded, not merely large.
+        return MAX_SELECTIVITY if fg_density > 0 else 0.0
+    return fg_density / bg_density
+
+
+def _union_coverage(positions, total_length: int, reach: int, circular: bool) -> float:
+    """Fraction of a sequence within `reach` of any binding site.
+
+    Module-level and free of instance state because three call sites want it --
+    the selection reach, each reporting reach, and the circular-wrap tests that
+    duck-type an optimizer with only a `config`. Three implementations of one
+    quantity is how this codebase has produced disagreeing coverage numbers
+    before; one audit found three different semantics for "coverage" at once.
+    """
+    import numpy as np
+
+    from .coverage import _mark_window
+
+    if not positions or total_length == 0:
+        return 0.0
+
+    # On a circular target a single site whose window spans the whole sequence
+    # covers everything, and the marking loop cannot represent that.
+    if circular and 2 * reach >= total_length:
+        return 1.0
+
+    occupied = np.zeros(total_length, dtype=bool)
+    for pos in positions:
+        _mark_window(occupied, int(pos), reach, total_length, circular)
+    return float(occupied.sum()) / total_length
 
 
 @dataclass(frozen=True)
@@ -44,9 +159,13 @@ class PrimerSetMetrics:
     coverage_uniformity: float  # Gini coefficient of gap sizes (lower is better)
 
     # Binding metrics
-    total_fg_sites: int  # Total binding sites in foreground
-    total_bg_sites: int  # Total binding sites in background
-    selectivity_ratio: float  # fg_sites / bg_sites (higher is better)
+    total_fg_sites: int  # Total exact-match binding sites in foreground
+    total_bg_sites: int  # Total exact-match binding sites in background
+    # Occupancy-weighted sites: each mismatch class weighted by how much of the
+    # time a duplex of that stability is actually bound under the configured
+    # conditions. Reported beside the raw counts so a reader can see both what
+    # was counted and what it was worth.
+    selectivity_ratio: float  # effective_fg / effective_bg (higher is better)
 
     # Thermodynamic metrics
     mean_tm: float  # Mean melting temperature
@@ -67,6 +186,67 @@ class PrimerSetMetrics:
     # so multi-genome runs can surface "target A 95% / target B 40%"
     # instead of a single aggregate. Empty dict in single-genome mode.
     per_target_coverage: Dict[str, float] = field(default_factory=dict)
+    effective_fg_sites: float = 0.0
+    effective_bg_sites: float = 0.0
+    # "occupancy" when conditions were applied, "exact" when the jellyfish
+    # count files needed for mismatch classes were unavailable and the metric
+    # fell back to counting perfect matches. Recorded rather than inferred:
+    # switching silently between two definitions of one number is exactly the
+    # failure this audit has met most often.
+    selectivity_mode: str = "exact"
+
+    # Binding load per base of target against per base of background, beside
+    # the count ratio in `selectivity_ratio`. The count ratio carries no genome
+    # length, so it moves with how much background sequence was supplied: a
+    # whole human genome in place of the single chromosome commonly used as a
+    # stand-in divides it by roughly 66 with nothing about the primers changed.
+    # Enrichment follows sites per genome copy, so the density ratio is the
+    # comparable quantity. The lengths it was taken over are reported with it,
+    # because a density cannot be read without them.
+    selectivity_density: float = 0.0
+    fg_total_length: int = 0
+    bg_total_length: int = 0
+
+    # Coverage weighted by how much of the time each site is actually bound
+    # under the configured conditions, beside the raw `fg_coverage` that counts
+    # every exact match as fully occupied.
+    #
+    # Phase 3 made selectivity occupancy-weighted and left coverage a count, so
+    # the two halves of the objective sat on different footings: a set could be
+    # rewarded for binding sites it does not occupy at the reaction temperature.
+    # The bias is not small and it is not uniform. Measured on Prevotella at
+    # equiphi29 42 C, a 10-mer set reports 52% coverage at mean occupancy 0.36
+    # while a 12-mer set reports 40% at 0.86 -- so the raw numbers rank them in
+    # the opposite order to the effective ones.
+    #
+    # This is also what connects additives to coverage. DMSO and betaine lower
+    # effective Tm, which moves every site down its occupancy curve; against a
+    # count-based coverage that cost is invisible, and a condition search would
+    # spend coverage it could not see it was spending.
+    effective_fg_coverage: float = 0.0
+
+    # Raw coverage at several reaches, {reach_bp: fraction}, so the figure can
+    # be compared across tools that do not share a convention. swga 2.0 reports
+    # at phi29's ~70 kb processivity; NeoSWGA selects at the ~3 kb realistic
+    # per-primer reach. The same set measures 0.418 / 0.836 / ~1.0 at 3 / 10 /
+    # 70 kb, so a bare "coverage" number is not comparable to a published one.
+    # Reporting the curve costs ~1 ms per reach and removes the ambiguity.
+    coverage_by_reach: Dict[int, float] = field(default_factory=dict)
+
+    # Coverage at the MEASURED product reach (~10 kb phi29), which is what a
+    # reader should be shown as "the" coverage of a design, and the reach it was
+    # computed at.
+    #
+    # Selection deliberately uses a shorter reach -- the design density that
+    # published successful sets have (2-5 kb spacing) -- because selecting at
+    # 10 kb would stop the greedy once the genome was covered at that reach and
+    # yield designs sparser than any set with measured wet-lab success. But
+    # reporting at the selection reach understates what is amplified, since
+    # strand displacement means a downstream primer does not truncate extension.
+    # Two questions, two numbers, both reported rather than one standing in for
+    # the other.
+    headline_coverage: float = 0.0
+    headline_reach: int = 0
 
     # Per-primer extension reach (bp) used to compute fg_coverage. Recorded
     # so the report can label "95% coverage at 3 kb reach" rather than
@@ -78,11 +258,28 @@ class PrimerSetMetrics:
         """Convert to dictionary for serialization."""
         return {
             "fg_coverage": self.fg_coverage,
+            # Same union of binding windows, weighted by how much of the time
+            # each site is bound under the configured conditions.
+            "effective_fg_coverage": self.effective_fg_coverage,
+            # Keyed by reach in bp. Coverage is not comparable across reaches,
+            # and the published tools do not share a convention.
+            "coverage_by_reach": {str(k): v for k, v in self.coverage_by_reach.items()},
+            # Coverage at the measured product reach; see headline_reach.
+            "headline_coverage": self.headline_coverage,
+            "headline_reach": self.headline_reach,
             "bg_coverage": self.bg_coverage,
             "coverage_uniformity": self.coverage_uniformity,
             "total_fg_sites": self.total_fg_sites,
             "total_bg_sites": self.total_bg_sites,
             "selectivity_ratio": self.selectivity_ratio,
+            # Beside the raw counts, so a reader can see both what was counted
+            # and what it was worth under the configured conditions.
+            "effective_fg_sites": self.effective_fg_sites,
+            "effective_bg_sites": self.effective_bg_sites,
+            "selectivity_mode": self.selectivity_mode,
+            "selectivity_density": self.selectivity_density,
+            "fg_total_length": self.fg_total_length,
+            "bg_total_length": self.bg_total_length,
             "mean_tm": self.mean_tm,
             "tm_range": list(self.tm_range),
             "dimer_risk_score": self.dimer_risk_score,
@@ -172,11 +369,43 @@ class PrimerSetMetrics:
                 dimer_w = weights["dimer_w"]
                 evenness_w = weights["evenness_w"]
                 tm_w = weights["tm_w"]
-        # Coverage: already [0,1]
+        # Coverage: already [0,1].
+        #
+        # Prefer the occupancy-weighted figure when conditions were available to
+        # compute it. Selecting on the raw count rewards a set for reaching
+        # sites it does not occupy at the reaction temperature, and the bias is
+        # not uniform across candidates -- on Prevotella at equiphi29 42 C a
+        # 10-mer set reports 0.520 raw against 0.245 effective while a 12-mer
+        # set reports 0.403 against 0.387, so the two figures rank them in
+        # opposite orders. Optimizing the raw one also hides the coverage that
+        # additives cost, which is the lever this tool exists to use.
+        #
+        # Falls back to the raw figure when no conditions are attached, matching
+        # how `selectivity_mode` degrades: 0.0 means "not computed" here, not
+        # "nothing is covered".
         cov = min(self.fg_coverage, 1.0)
+        if self.effective_fg_coverage > 0.0:
+            cov = min(self.effective_fg_coverage, 1.0)
 
-        # Selectivity: cap ratio at 100, normalize
-        sel = min(self.selectivity_ratio / 100.0, 1.0) if self.selectivity_ratio > 0 else 0.0
+        # Selectivity, on a log scale.
+        #
+        # This was `min(ratio / 100, 1.0)`, calibrated when selectivity was a
+        # count of exact matches -- ratios routinely exceeded 100 and saturated
+        # the cap, so the term behaved as a near-binary "good enough".
+        # Occupancy weighting counts near-match background load too, so ratios
+        # now land around 5-15 on the bundled example, where the same linear
+        # form contributes 0.05-0.15 of its weight and the term is effectively
+        # ignored instead. Saturating and vanishing are the same failure at
+        # opposite ends.
+        #
+        # A ratio spanning orders of magnitude wants a log scale: a design at
+        # SELECTIVITY_REFERENCE scores 1.0, and the term stays responsive
+        # across everything below it rather than being decided in the first or
+        # last few percent of the range.
+        sel = 0.0
+        if self.selectivity_ratio > 0:
+            sel = math.log10(1.0 + self.selectivity_ratio) / math.log10(1.0 + SELECTIVITY_REFERENCE)
+            sel = max(0.0, min(sel, 1.0))
 
         # Dimer safety: 1 - risk (lower risk is better)
         dimer_safe = 1.0 - min(self.dimer_risk_score, 1.0)
@@ -301,9 +530,9 @@ class OptimizationResult:
         """Convert to dictionary for JSON serialization."""
         d = {
             "primers": list(self.primers),
-            "score": self.score,
+            "score": json_safe(self.score),
             "status": self.status.value,
-            "metrics": self.metrics.to_dict(),
+            "metrics": {k: json_safe(v) for k, v in self.metrics.to_dict().items()},
             "iterations": self.iterations,
             "optimizer_name": self.optimizer_name,
             "num_primers": self.num_primers,
@@ -444,6 +673,16 @@ class OptimizerConfig:
     target_set_size: int = 6
     max_iterations: int = 100
     max_dimer_bp: int = 4
+    # Self-dimer threshold. The clique optimizer reached for this with
+    # `getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)` and the
+    # fallback fired every time, because the field did not exist -- so a
+    # params.json setting it had no effect anywhere.
+    max_self_dimer_bp: int = 5
+    # Highest mismatch class counted when weighting background load. 0
+    # reproduces exact-match counting. 2 is affordable (405 lookups for a
+    # 10-mer) but rarely changes the ranking, since a two-mismatch duplex is
+    # mostly unbound at any usable stringency.
+    max_mismatches: int = 1
     min_tm: float = 20.0
     max_tm: float = 50.0
     verbose: bool = True
@@ -518,6 +757,9 @@ class BaseOptimizer(ABC):
         bg_seq_lengths: Optional[List[int]] = None,
         config: Optional[OptimizerConfig] = None,
         conditions=None,
+        background_profile=None,
+        background_profile_lengths=None,
+        background_aggregate: str = "worst-case",
         **_unused_kwargs,
     ):
         """
@@ -547,6 +789,16 @@ class BaseOptimizer(ABC):
         # use additive-aware Tm (network / integrated_quality_scorer) can read
         # self.conditions; others simply leave it as attached metadata.
         self.conditions = conditions
+
+        # Compositional background, used only when there are no background
+        # prefixes. A `HostProfile` (or a panel of them) supplies expected
+        # k-mer counts so metagenomic and unknown-host designs still have a
+        # selectivity term; see `_modelled_site_load`. Held as plain attributes
+        # rather than threaded through every subclass constructor, since only
+        # the metrics path reads them.
+        self.background_profile = background_profile
+        self.background_profile_lengths = background_profile_lengths
+        self.background_aggregate = background_aggregate
 
         # Computed properties
         self.fg_total_length = sum(fg_seq_lengths)
@@ -691,6 +943,91 @@ class BaseOptimizer(ABC):
             logger.warning(f"Failed to get positions for {primer}: {e}")
             return np.array([], dtype=np.int64)
 
+    def _effective_site_load(self, primers) -> Tuple[float, float, str]:
+        """Occupancy-weighted binding load for the foreground and background.
+
+        Each mismatch class is weighted by how much of the time a duplex of
+        that stability is actually bound under the configured conditions:
+
+            load = SUM_j n_j * theta(dH, Tm - j*penalty, T)
+
+        This is what lets an additive change specificity. Selectivity used to be
+        a ratio of exact-match counts, which contains no temperature and no free
+        energy, so no chemistry could move it for a fixed primer set. Raising
+        stringency drops occupancy faster for the mismatched background sites
+        than for perfect foreground ones, and the ratio rises.
+
+        Returns `(fg_load, bg_load, mode)`. `mode` is "exact" when the jellyfish
+        count files needed for mismatch classes are unavailable -- an oligo set
+        scanned straight from a FASTA, for instance -- in which case the caller
+        falls back to exact counting. That is reported rather than inferred,
+        because silently swapping between two definitions of one number is the
+        failure this codebase has produced most often.
+        """
+        from neoswga.core.occupancy import weighted_site_load
+
+        conditions = getattr(self, "conditions", None)
+        if conditions is None:
+            return 0.0, 0.0, "exact"
+
+        max_mismatches = int(getattr(self.config, "max_mismatches", 1) or 0)
+
+        if not self.bg_prefixes:
+            return self._modelled_site_load(primers, conditions, max_mismatches)
+
+        try:
+            fg_load = weighted_site_load(primers, self.fg_prefixes, conditions, max_mismatches)
+            bg_load = weighted_site_load(primers, self.bg_prefixes, conditions, max_mismatches)
+        except (FileNotFoundError, OSError):
+            return 0.0, 0.0, "exact"
+
+        return fg_load, bg_load, "occupancy"
+
+    def _modelled_site_load(self, primers, conditions, max_mismatches):
+        """Background load from a compositional profile, when there is no genome.
+
+        Metagenomic SWGA has no host to design against, and dropping the
+        background makes every design report `MAX_SELECTIVITY` -- specificity
+        switched off rather than absent. A Markov profile of the expected
+        background supplies the missing term: expected k-mer counts follow from
+        a transition table rather than from a genome, and feed the same
+        occupancy weighting, so a modelled background is the same quantity as a
+        real one measured a different way.
+
+        Predicting real chr21 occupancy load for random 12-mers, the profile
+        reaches rho 0.888 fitted to the actual host and 0.701 fitted to an
+        unrelated organism -- so even a generic profile ranks background load
+        far better than the nothing it replaces.
+
+        Reports mode "modelled" rather than "occupancy", because a predicted
+        background must not be mistaken for a measured one.
+        """
+        profile = getattr(self, "background_profile", None)
+        if profile is None:
+            return 0.0, 0.0, "exact"
+
+        from neoswga.core.host_profile import aggregate_loads, expected_site_load
+        from neoswga.core.occupancy import weighted_site_load
+
+        try:
+            fg_load = weighted_site_load(primers, self.fg_prefixes, conditions, max_mismatches)
+        except (FileNotFoundError, OSError):
+            return 0.0, 0.0, "exact"
+
+        # A panel of candidate hosts is aggregated worst-case by default: one
+        # unknown host is drawn from it, so a set that is clean against one and
+        # filthy against another is not generic, and a mean would hide that.
+        profiles = profile if isinstance(profile, (list, tuple)) else [profile]
+        lengths = getattr(self, "background_profile_lengths", None) or [
+            getattr(p, "fitted_length", 0) or 3_000_000_000 for p in profiles
+        ]
+        mode = getattr(self, "background_aggregate", "worst-case")
+        loads = [
+            expected_site_load(primers, prof, length, conditions, max_mismatches)
+            for prof, length in zip(profiles, lengths)
+        ]
+        return fg_load, aggregate_loads(loads, mode), "modelled"
+
     def compute_metrics(
         self,
         primers: List[str],
@@ -707,14 +1044,18 @@ class BaseOptimizer(ABC):
         if not primers:
             return PrimerSetMetrics.empty()
 
-        # Collect all positions
+        # Collect all positions. Kept per primer as well as pooled: the pooled
+        # list cannot say which primer put a site there, and occupancy is a
+        # per-primer property.
         fg_positions = []
         bg_positions = []
+        fg_positions_by_primer = {}
 
         for primer in primers:
             for prefix in self.fg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
                 fg_positions.extend(positions.tolist())
+                fg_positions_by_primer.setdefault(primer, []).extend(positions.tolist())
 
             for prefix in self.bg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
@@ -725,6 +1066,14 @@ class BaseOptimizer(ABC):
 
         # Coverage
         fg_coverage = self._compute_coverage(fg_positions, self.fg_total_length)
+        effective_fg_coverage = self._compute_effective_coverage(
+            fg_positions_by_primer, self.fg_total_length
+        )
+        coverage_by_reach = self._compute_coverage_by_reach(fg_positions, self.fg_total_length)
+        headline_reach = self._product_reach()
+        headline_coverage = coverage_by_reach.get(headline_reach) or self._compute_coverage_at(
+            fg_positions, self.fg_total_length, headline_reach
+        )
         bg_coverage = (
             self._compute_coverage(bg_positions, self.bg_total_length)
             if self.bg_total_length > 0
@@ -751,7 +1100,15 @@ class BaseOptimizer(ABC):
         # Selectivity
         total_fg = len(fg_positions)
         total_bg = len(bg_positions)
-        selectivity = total_fg / max(total_bg, 1)
+        effective_fg, effective_bg, selectivity_mode = self._effective_site_load(primers)
+        if selectivity_mode == "exact":
+            effective_fg, effective_bg = float(total_fg), float(total_bg)
+        selectivity = _selectivity_from_loads(effective_fg, effective_bg)
+        fg_total_length = int(sum(self.fg_seq_lengths or []))
+        bg_total_length = int(sum(self.bg_seq_lengths or []))
+        selectivity_density = _selectivity_density_from_loads(
+            effective_fg, fg_total_length, effective_bg, bg_total_length
+        )
 
         # Tm calculation (simplified)
         tms = [self._estimate_tm(p) for p in primers]
@@ -778,11 +1135,21 @@ class BaseOptimizer(ABC):
 
         return PrimerSetMetrics(
             fg_coverage=fg_coverage,
+            effective_fg_coverage=effective_fg_coverage,
+            coverage_by_reach=coverage_by_reach,
+            headline_coverage=headline_coverage,
+            headline_reach=headline_reach,
             bg_coverage=bg_coverage,
             coverage_uniformity=gap_gini,
             total_fg_sites=total_fg,
             total_bg_sites=total_bg,
             selectivity_ratio=selectivity,
+            effective_fg_sites=effective_fg,
+            effective_bg_sites=effective_bg,
+            selectivity_mode=selectivity_mode,
+            selectivity_density=selectivity_density,
+            fg_total_length=fg_total_length,
+            bg_total_length=bg_total_length,
             mean_tm=mean_tm,
             tm_range=tm_range,
             dimer_risk_score=dimer_risk,
@@ -808,27 +1175,115 @@ class BaseOptimizer(ABC):
         marking to :func:`coverage._mark_window` so this implementation
         stays in sync with :func:`coverage.compute_per_prefix_coverage`.
         """
+        return _union_coverage(
+            positions,
+            total_length,
+            self.config.extension_reach,
+            getattr(self.config, "fg_circular", False),
+        )
+
+    def _compute_coverage_by_reach(self, positions, total_length: int) -> Dict[int, float]:
+        """Raw coverage at each reporting reach, plus the one used for selection.
+
+        Coverage is meaningless without the reach it was computed at, and the
+        published tools do not share a convention: swga 2.0 reports at phi29's
+        ~70 kb processivity, NeoSWGA selects at the ~3 kb realistic per-primer
+        reach. The same set measures 0.418 at 3 kb and ~1.0 at 70 kb, so a bare
+        coverage figure cannot be compared to a published one in either
+        direction. Reporting the curve settles that without either convention
+        having to move.
+
+        The selection reach is always included even when it is not one of the
+        standard reporting points, so `fg_coverage` can always be located on
+        this curve rather than appearing to come from nowhere.
+        """
+        from .coverage import REPORTING_REACHES
+
+        if not positions or total_length == 0:
+            return {}
+
+        reaches = sorted(
+            set(REPORTING_REACHES) | {int(self.config.extension_reach), self._product_reach()}
+        )
+        return {
+            reach: self._compute_coverage_at(positions, total_length, reach) for reach in reaches
+        }
+
+    def _product_reach(self) -> int:
+        """Measured product reach for this run's polymerase; see coverage.product_reach."""
+        from .coverage import product_reach
+
+        polymerase = getattr(self.conditions, "polymerase", None) if self.conditions else None
+        return product_reach(polymerase or "phi29")
+
+    def _compute_coverage_at(self, positions, total_length: int, reach: int) -> float:
+        """Raw union coverage at an explicit reach."""
+        return _union_coverage(
+            positions, total_length, reach, getattr(self.config, "fg_circular", False)
+        )
+
+    def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float:
+        """Coverage weighted by how much of the time each site is occupied.
+
+        `_compute_coverage` unions binding windows as booleans: a site either
+        covers its window or does not. That is the right question for "could
+        this primer reach here", and the wrong one for "will it". A primer whose
+        effective Tm sits well below the reaction temperature is mostly not
+        bound, and its sites contribute far less amplification than a count
+        implies.
+
+        Here a site covers its window with probability theta -- the same
+        two-state occupancy the selectivity metric uses -- so a base is covered
+        unless every site reaching it fails to bind:
+
+            P(covered at x) = 1 - PRODUCT over sites s reaching x of (1 - theta_s)
+
+        Independence across sites is an approximation. Sites on one template
+        molecule compete for polymerase and are not independent, so this reads
+        as an upper bound on what a single molecule does; across the many
+        molecules in a reaction it is the right shape.
+
+        Returns 0.0 when no reaction conditions are attached, since without them
+        there is no temperature at which to evaluate occupancy and a fabricated
+        number here would be indistinguishable from a measured one.
+        """
         import numpy as np
 
         from .coverage import _mark_window
+        from .occupancy import site_occupancy
+        from .thermodynamics import calculate_enthalpy_entropy
 
-        if not positions or total_length == 0:
+        if not positions_by_primer or total_length == 0 or self.conditions is None:
             return 0.0
 
         extension_reach = self.config.extension_reach
         circular = getattr(self.config, "fg_circular", False)
+        temp = self.conditions.temp
 
-        # Full coverage short-circuit: on a circular target, a single
-        # binding site whose window spans the whole sequence covers
-        # everything.
-        if circular and 2 * extension_reach >= total_length:
-            return 1.0
+        # Accumulate the probability that a base is NOT reached by anything.
+        not_covered = np.ones(total_length, dtype=np.float32)
+        window = np.zeros(total_length, dtype=bool)
 
-        occupied = np.zeros(total_length, dtype=bool)
-        for pos in positions:
-            _mark_window(occupied, int(pos), extension_reach, total_length, circular)
+        for primer, positions in positions_by_primer.items():
+            if not positions:
+                continue
+            tm = self.conditions.calculate_effective_tm(primer)
+            dh, _ = calculate_enthalpy_entropy(primer)
+            theta = site_occupancy(dh, tm, temp)
+            if theta <= 0.0:
+                continue
 
-        return float(occupied.sum()) / total_length
+            # One primer's sites are marked together, then applied once. Marking
+            # per site would multiply (1 - theta) in for every overlapping window
+            # of the SAME primer, which understates coverage where a primer binds
+            # densely -- the windows overlap, the primer does not stack with
+            # itself.
+            window[:] = False
+            for pos in positions:
+                _mark_window(window, int(pos), extension_reach, total_length, circular)
+            not_covered[window] *= 1.0 - theta
+
+        return float((1.0 - not_covered).sum()) / total_length
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
         """Compute gaps between adjacent binding sites."""
@@ -859,10 +1314,31 @@ class BaseOptimizer(ABC):
         return gini_sum / (n * total)
 
     def _estimate_tm(self, primer: str) -> float:
-        """Estimate melting temperature using Wallace rule."""
-        gc = primer.upper().count("G") + primer.upper().count("C")
-        at = primer.upper().count("A") + primer.upper().count("T")
-        return 4 * gc + 2 * at
+        """Melting temperature under the configured reaction conditions.
+
+        This was the Wallace rule, `4*GC + 2*AT` -- a 1979 approximation for
+        14-20mers at 1 M salt, with no term for magnesium, additives or the
+        nearest-neighbour stacking that sets the real value. Reported for
+        equiphi29 12-mer designs it reads about 11 C low: one validated
+        Prevotella set whose salt-corrected Tm is 45.9 C was published as
+        34.9 C, below its own 42 C reaction temperature.
+
+        That is the single check an equiphi29 design exists to pass -- do the
+        primers melt above the reaction -- so the wrong number did not merely
+        mislead, it inverted the answer. It also disagreed with the Tm the
+        occupancy model was using on the same primers at the same moment
+        (`conditions.calculate_effective_tm`, via `occupancy.site_occupancy`),
+        which is the real one. One quantity, two definitions, is the failure
+        this codebase has produced most often; this removes an instance of it.
+
+        Without conditions there is no buffer to correct for, but that is not a
+        reason to fall back to something worse than nearest-neighbour.
+        """
+        from neoswga.core.thermodynamics import calculate_tm_basic
+
+        if self.conditions is not None:
+            return self.conditions.calculate_effective_tm(primer)
+        return calculate_tm_basic(primer)
 
     def _estimate_dimer_risk(self, primers: List[str]) -> float:
         """

@@ -39,11 +39,7 @@ def test_per_primer_mode_aggregates_replicates(fg_fixture, conditions, tmp_path)
     fasta, (p1, p2, p3) = fg_fixture
     lab = tmp_path / "lab.csv"
     lab.write_text(
-        "primer,enrichment_fold\n"
-        f"{p1},10.0\n"
-        f"{p1},20.0\n"
-        f"{p2},5.0\n"
-        f"{p3},2.0\n"
+        "primer,enrichment_fold\n" f"{p1},10.0\n" f"{p1},20.0\n" f"{p2},5.0\n" f"{p3},2.0\n"
     )
 
     df = bridge.build_training_data(
@@ -69,11 +65,7 @@ def test_per_primer_mode_aggregates_replicates(fg_fixture, conditions, tmp_path)
 def test_per_set_mode_distributes_label_to_each_primer(fg_fixture, conditions, tmp_path):
     fasta, (p1, p2, p3) = fg_fixture
     lab = tmp_path / "lab.csv"
-    lab.write_text(
-        "primers,enrichment_fold\n"
-        f"{p1};{p2},10.0\n"
-        f"{p2};{p3},20.0\n"
-    )
+    lab.write_text("primers,enrichment_fold\n" f"{p1};{p2},10.0\n" f"{p2};{p3},20.0\n")
 
     df = bridge.build_training_data(
         lab_csv=lab,
@@ -92,10 +84,7 @@ def test_per_set_mode_distributes_label_to_each_primer(fg_fixture, conditions, t
 def test_log_enrichment_clipped_for_zero_enrichment(fg_fixture, conditions, tmp_path):
     fasta, (p1, _, _) = fg_fixture
     lab = tmp_path / "lab.csv"
-    lab.write_text(
-        "primer,enrichment_fold\n"
-        f"{p1},0.0\n"
-    )
+    lab.write_text("primer,enrichment_fold\n" f"{p1},0.0\n")
 
     df = bridge.build_training_data(
         lab_csv=lab,

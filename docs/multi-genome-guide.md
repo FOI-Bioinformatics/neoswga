@@ -194,6 +194,19 @@ print(genome_set.summary())
 - `"background"`: Minimize but tolerate (penalty = 1.0 default)
 - `"blacklist"`: Strongly avoid (penalty = 5.0 default)
 
+The `GenomeRole` enum is accepted wherever a role string is, so
+`role=GenomeRole.TARGET` and `role="target"` are equivalent.
+
+### Reading the enrichment figure
+
+`enrichment_score` is the target/background binding-frequency ratio. A primer
+with no detectable background binding cannot have a ratio, and is reported as
+`MAX_ENRICHMENT` (1e6) rather than infinity -- printed as "no background binding
+detected". Infinity would make `results.json` invalid JSON, and it would flatten
+ranking, since every perfectly selective primer would tie. With a finite
+sentinel the composite score stays proportional to target binding frequency, so
+equally selective primers are ordered by how well they bind the target.
+
 ### MultiGenomePipeline
 
 Automated pipeline with multi-genome support.
@@ -447,6 +460,20 @@ result = pipeline.run()
 ---
 
 ## Performance Considerations
+
+### Where the time goes
+
+The pipeline is dominated by two costs: Jellyfish k-mer counting (linear in
+genome size x number of genomes) and per-candidate thermodynamics (linear in the
+number of candidates).
+
+Pairwise primer-primer compatibility is deliberately **not** in that list. The
+heterodimer check is O(n^2), and it runs on the ranked shortlist rather than the
+full candidate pool. That matters more than it sounds: a 15 kb genome yields
+around 15,000 candidates after per-primer filtering, which is ~10^8 pairs, and a
+5 Mb bacterial genome roughly 10^10. Running the check on the pool made the
+command appear to hang on any real input. It is also the wrong place for it --
+heterodimer compatibility only matters among primers that will share a reaction.
 
 ### Genome Size
 

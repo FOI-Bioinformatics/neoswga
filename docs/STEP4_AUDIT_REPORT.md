@@ -55,7 +55,7 @@ All 17 PrimerSetMetrics independently verified correct:
 | dimer_risk_score | MATCH | Pairwise dimer check |
 | strand_alternation_score | MATCH | Forward/reverse alternation pattern |
 | normalized_score | MATCH | Weighted composite formula |
-| mean_tm | MATCH | Wallace rule calculation |
+| mean_tm | MATCH | conditions.calculate_effective_tm (salt- and additive-corrected nearest neighbour). Was the Wallace rule until be20bc3, which read ~11 C low on equiphi29 12-mers and disagreed with the Tm the occupancy model applied to the same primers |
 
 ## 3. Data Flow (8/10)
 

@@ -92,17 +92,37 @@ def get_genome_cache_stats() -> Dict[str, int]:
     }
 
 
-def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular):
+# pyahocorasick's `Automaton.iter()` indexes with a 32-bit int. Handed a string
+# longer than 2**31 - 1 its scan loop never executes: it yields nothing, raises
+# nothing and warns nothing. Measured with the needle planted at offset 1000,
+# length 2**31 - 10 finds it and 2**31 + 10 does not.
+#
+# Human is 3.1 Gb and mouse 2.7 Gb, so for the hosts this tool exists to
+# discriminate against, every primer came back with an empty position list and
+# `total_bg_sites` / `bg_coverage` reported 0 -- indistinguishable, downstream,
+# from a perfectly specific primer set. Scanning below the limit is the fix.
+MAX_SCAN_CHUNK = 2**30
+
+
+def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular, chunk_size=None):
     """Scan genome once for primers of all k-values using Aho-Corasick.
 
     Requires the optional ``pyahocorasick`` package.  When available this
     replaces per-k scanning and provides ~5-7x speedup for default k
     ranges (6-12).
 
+    The genome is scanned in chunks of at most ``MAX_SCAN_CHUNK`` bases, for
+    the 32-bit reason described above the constant. Consecutive chunks overlap
+    by ``k - 1`` so that a match straddling a boundary is still seen whole, and
+    each match is attributed to the chunk its START falls in, so the overlap
+    cannot double-count it. ``chunk_size`` exists so tests can exercise the
+    boundary logic without allocating two gigabytes.
+
     Args:
         primer_lists_by_k: Dict mapping k -> list of primers.
         seq_fname: Path to genome FASTA.
         circular: Whether the genome is circular.
+        chunk_size: Override the scan chunk length. Tests only.
 
     Returns:
         Dict mapping primer -> list of start positions.
@@ -117,17 +137,30 @@ def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular):
 
     sequence = get_cached_genome_sequence(seq_fname)
     seq_len = len(sequence)
+    max_k = max(primer_lists_by_k.keys())
 
     if circular:
-        max_k = max(primer_lists_by_k.keys())
         search_seq = sequence + sequence[: max_k - 1]
     else:
         search_seq = sequence
 
-    for end_pos, primer in A.iter(search_seq):
-        start_pos = end_pos - len(primer) + 1
-        if start_pos < seq_len:
-            all_primers[primer].append(start_pos)
+    limit = chunk_size or MAX_SCAN_CHUNK
+    overlap = max_k - 1
+    total = len(search_seq)
+
+    start = 0
+    while start < total:
+        stop = min(start + limit, total)
+        window = search_seq[start : min(stop + overlap, total)]
+        for end_pos, primer in A.iter(window):
+            abs_start = start + end_pos - len(primer) + 1
+            # Attribute to the chunk owning the start; the overlap is read but
+            # never claimed twice.
+            if not (start <= abs_start < stop):
+                continue
+            if abs_start < seq_len:
+                all_primers[primer].append(abs_start)
+        start = stop
 
     return all_primers
 
@@ -252,7 +285,13 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
 
 
 def get_positions(
-    primer_list, fname_prefixes, fname_genomes, circular, overwrite=False, no_all_primer_files=False
+    primer_list,
+    fname_prefixes,
+    fname_genomes,
+    circular,
+    overwrite=False,
+    no_all_primer_files=False,
+    k_values=None,
 ):
     """
     Launches a multiprocessing pool to check if all primers exists in their relevant h5py file and modifies the file
@@ -267,6 +306,8 @@ def get_positions(
         fname_prefixes: The path prefixes for the h5py files, basically the path minus '_6mer_positions.h5' where k = 6.
         fname_genomes: A list of paths to the fasta files.
         overwrite: Boolean which when set to true means overwrite the k-mer entries in the h5py file if it already exists.
+        k_values: Explicit k-mer lengths to scan. Defaults to the lengths
+            actually present in `primer_list`.
 
     Returns:
         Dictionary mapping (prefix, primer) -> list of positions when using
@@ -274,8 +315,34 @@ def get_positions(
         Callers can use this to avoid re-reading HDF5 files for immediate
         downstream calculations (e.g. Gini index).
     """
-    # Use parameter k-mer range instead of hardcoded [6-12]
-    k_range = range(parameter.min_k, parameter.max_k + 1)
+    # Scan the lengths we were actually asked about.
+    #
+    # This used to iterate `range(parameter.min_k, parameter.max_k + 1)`, so a
+    # primer whose length fell outside the configured window was silently
+    # dropped -- no error, no warning, and an empty position list that is
+    # indistinguishable from "binds nowhere". That defeats the bring-your-own-
+    # oligo case this function is the entry point for: an externally designed
+    # 14-mer set against a params.json configured for 10-mers returned nothing
+    # for every primer.
+    #
+    # An explicit `k_values` still wins, for callers that want to constrain it.
+    if k_values is not None:
+        k_range = sorted(set(k_values))
+    else:
+        k_range = sorted({len(primer) for primer in primer_list})
+
+        outside = sorted(
+            {length for length in k_range if length < parameter.min_k or length > parameter.max_k}
+        )
+        if outside:
+            logger.info(
+                "Scanning k-mer length(s) %s, which fall outside the configured "
+                "min_k-max_k window (%s-%s). They are included because they were "
+                "asked for; position files are written per length.",
+                outside,
+                parameter.min_k,
+                parameter.max_k,
+            )
 
     # Collect in-memory positions when possible (avoids HDF5 round-trip)
     position_cache = {}

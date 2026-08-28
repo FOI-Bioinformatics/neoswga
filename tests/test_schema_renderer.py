@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -22,14 +21,15 @@ def test_render_schema_script_exists():
 def test_params_reference_is_generated():
     """docs/params-reference.md must exist and be regeneratable."""
     ref = ROOT / "docs" / "params-reference.md"
-    assert ref.is_file(), (
-        "docs/params-reference.md missing; run scripts/render_schema.py"
-    )
+    assert ref.is_file(), "docs/params-reference.md missing; run scripts/render_schema.py"
 
     # Regenerate into a temporary buffer and compare
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "render_schema.py")],
-        capture_output=True, text=True, timeout=30, cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=ROOT,
     )
     assert result.returncode == 0, result.stderr
     assert ref.is_file()
@@ -49,7 +49,10 @@ def test_params_reference_in_sync_with_schema():
 
     result = subprocess.run(
         [sys.executable, str(ROOT / "scripts" / "render_schema.py")],
-        capture_output=True, text=True, timeout=30, cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        cwd=ROOT,
     )
     assert result.returncode == 0
 

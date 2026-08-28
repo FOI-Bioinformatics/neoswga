@@ -14,7 +14,9 @@ tests assert:
 import pytest
 
 from neoswga.core.base_optimizer import (
-    OptimizationResult, OptimizationStatus, PrimerSetMetrics,
+    OptimizationResult,
+    OptimizationStatus,
+    PrimerSetMetrics,
 )
 
 
@@ -81,13 +83,14 @@ def test_moea_wrapper_source_populates_pareto_fields():
     """MOEABaseOptimizer.optimize must construct pareto_front and
     pareto_metrics when MOEA has a non-empty pareto_front result."""
     import inspect
+
     try:
         from neoswga.core import moea_optimizer
     except ImportError:
         pytest.skip("moea_optimizer requires pymoo")
 
     src = inspect.getsource(moea_optimizer)
-    assert "pareto_front=pf_primers" in src, (
-        "MOEABaseOptimizer.optimize must pass pareto_front into OptimizationResult"
-    )
+    assert (
+        "pareto_front=pf_primers" in src
+    ), "MOEABaseOptimizer.optimize must pass pareto_front into OptimizationResult"
     assert "pareto_metrics=pf_metrics" in src

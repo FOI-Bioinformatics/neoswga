@@ -13,9 +13,7 @@ import pytest
 
 from neoswga.core.reaction_conditions import ReactionConditions
 
-_EXAMPLE_DIR = os.path.join(
-    os.path.dirname(__file__), "..", "examples", "plasmid_example"
-)
+_EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "examples", "plasmid_example")
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -59,17 +57,29 @@ def _prime_plasmid_example():
 
     def _reset():
         pipeline_mod._initialized = False
-        for attr in ("fg_prefixes", "bg_prefixes", "fg_genomes", "bg_genomes",
-                     "fg_seq_lengths", "bg_seq_lengths", "fg_circular", "bg_circular"):
+        for attr in (
+            "fg_prefixes",
+            "bg_prefixes",
+            "fg_genomes",
+            "bg_genomes",
+            "fg_seq_lengths",
+            "bg_seq_lengths",
+            "fg_circular",
+            "bg_circular",
+        ):
             setattr(pipeline_mod, attr, None)
         parameter.json_file = "params.json"
 
     cwd = os.getcwd()
     try:
         os.chdir(_EXAMPLE_DIR)
-        _reset(); pipeline_mod._initialize(); pipeline_mod.step1()
-        _reset(); pipeline_mod.step2()
-        _reset(); pipeline_mod.step3()
+        _reset()
+        pipeline_mod._initialize()
+        pipeline_mod.step1()
+        _reset()
+        pipeline_mod.step2()
+        _reset()
+        pipeline_mod.step3()
     except Exception:
         # Best-effort priming; dependent tests will report any real problem.
         pass
@@ -82,15 +92,16 @@ def _prime_plasmid_example():
 # Primer sequences
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def sample_primers():
     """List of 8-mer primer sequences spanning different GC contents."""
     return [
-        "ATCGATCG",   # 50% GC, balanced
-        "GCTAGCTA",   # 50% GC, balanced
-        "AATTCCGG",   # 50% GC, clustered
-        "TTAACCGG",   # 50% GC, clustered
-        "GGCCAATT",   # 50% GC, clustered
+        "ATCGATCG",  # 50% GC, balanced
+        "GCTAGCTA",  # 50% GC, balanced
+        "AATTCCGG",  # 50% GC, clustered
+        "TTAACCGG",  # 50% GC, clustered
+        "GGCCAATT",  # 50% GC, clustered
     ]
 
 
@@ -98,17 +109,18 @@ def sample_primers():
 def diverse_primers():
     """Primers spanning a wider range of GC content and lengths."""
     return [
-        "ATCGATCG",       # 50% GC, 8-mer
-        "GCGCGCGC",       # 100% GC, 8-mer
-        "AAAATTTT",       # 0% GC, 8-mer
-        "ATCGATCGATCG",   # 50% GC, 12-mer
-        "GCTAGCTAGC",     # 50% GC, 10-mer
+        "ATCGATCG",  # 50% GC, 8-mer
+        "GCGCGCGC",  # 100% GC, 8-mer
+        "AAAATTTT",  # 0% GC, 8-mer
+        "ATCGATCGATCG",  # 50% GC, 12-mer
+        "GCTAGCTAGC",  # 50% GC, 10-mer
     ]
 
 
 # ---------------------------------------------------------------------------
 # Genome sequences
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def simple_genome():
@@ -125,6 +137,7 @@ def repeat_genome():
 # ---------------------------------------------------------------------------
 # Reaction conditions
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def phi29_conditions():
@@ -147,6 +160,7 @@ def equiphi29_conditions():
 # ---------------------------------------------------------------------------
 # Mock position cache
 # ---------------------------------------------------------------------------
+
 
 class MockPositionCache:
     """Lightweight mock for PositionCache used across optimizer tests.
@@ -178,6 +192,7 @@ def mock_position_cache():
 # ---------------------------------------------------------------------------
 # Temporary FASTA files
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def tmp_fasta_file(tmp_path):

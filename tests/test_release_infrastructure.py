@@ -66,6 +66,7 @@ def test_precommit_config_exists_and_parses():
 
 def test_pyproject_dev_extras_include_release_tools():
     import tomllib  # Python 3.11+
+
     path = ROOT / "pyproject.toml"
     with path.open("rb") as fh:
         data = tomllib.load(fh)
@@ -80,6 +81,7 @@ def test_pyproject_dev_extras_include_release_tools():
 
 def test_ruff_config_present():
     import tomllib
+
     path = ROOT / "pyproject.toml"
     with path.open("rb") as fh:
         data = tomllib.load(fh)

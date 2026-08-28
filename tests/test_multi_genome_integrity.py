@@ -23,20 +23,16 @@ def test_position_file_cache_requires_all_fg_prefixes(tmp_path):
     # Pre-create only the first cache
     (tmp_path / "fg_a_8mer_positions.h5").write_text("")
 
-    position_files_exist = all(
-        os.path.exists(f"{p}_{k}mer_positions.h5") for p in prefixes
-    )
-    assert position_files_exist is False, (
-        "All prefixes must have caches for the pipeline to skip position-file creation"
-    )
+    position_files_exist = all(os.path.exists(f"{p}_{k}mer_positions.h5") for p in prefixes)
+    assert (
+        position_files_exist is False
+    ), "All prefixes must have caches for the pipeline to skip position-file creation"
 
     # Now create them all
     (tmp_path / "fg_b_8mer_positions.h5").write_text("")
     (tmp_path / "fg_c_8mer_positions.h5").write_text("")
 
-    position_files_exist = all(
-        os.path.exists(f"{p}_{k}mer_positions.h5") for p in prefixes
-    )
+    position_files_exist = all(os.path.exists(f"{p}_{k}mer_positions.h5") for p in prefixes)
     assert position_files_exist is True
 
 
@@ -56,9 +52,7 @@ def test_background_aware_optimizer_aggregates_all_bg_prefixes():
         code_lines.append(line)
     code = "\n".join(code_lines)
 
-    assert "for bg_prefix in bg_prefixes" in code, (
-        "compare_optimizers must iterate over all bg_prefixes, not bg_prefixes[0]"
-    )
-    assert "bg_prefixes[0]" not in code, (
-        "bg_prefixes[0] hardcoding should be removed from code"
-    )
+    assert (
+        "for bg_prefix in bg_prefixes" in code
+    ), "compare_optimizers must iterate over all bg_prefixes, not bg_prefixes[0]"
+    assert "bg_prefixes[0]" not in code, "bg_prefixes[0] hardcoding should be removed from code"

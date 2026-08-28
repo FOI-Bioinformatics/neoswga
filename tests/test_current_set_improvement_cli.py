@@ -7,21 +7,45 @@ modules already have dedicated tests).
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
 
+@pytest.fixture(scope="module")
+def example_workdir(tmp_path_factory):
+    """A private copy of the plasmid example.
+
+    These commands write their outputs beside their inputs, and running them
+    with `cwd=EXAMPLE_DIR` left artifacts in the repository's shared example --
+    which `tests/integration/test_plasmid_golden_snapshot.py` copies wholesale.
+    The snapshot then passed on a clean checkout, failed on the run after a
+    full suite, and passed again once the directory was cleaned: an order
+    dependency on the previous invocation rather than on anything in the run.
+    """
+    if not EXAMPLE_DIR.is_dir():
+        pytest.skip("plasmid example not available")
+
+    workdir = tmp_path_factory.mktemp("example")
+    for entry in EXAMPLE_DIR.iterdir():
+        if entry.is_file():
+            shutil.copy2(entry, workdir)
+    return workdir
+
+
 def _run(args, cwd=None, timeout=120):
     return subprocess.run(
-        [sys.executable, '-m', 'neoswga.cli_unified', *args],
-        capture_output=True, text=True, timeout=timeout, cwd=cwd,
+        [sys.executable, "-m", "neoswga.cli_unified", *args],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
     )
 
 
@@ -32,7 +56,7 @@ def test_help_is_available(cmd):
     assert "--primers" in result.stdout
 
 
-def test_rescore_set_additives_shift_tm():
+def test_rescore_set_additives_shift_tm(example_workdir):
     """Under 1.5 M betaine the effective Tm should drop vs no additive."""
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
@@ -40,25 +64,41 @@ def test_rescore_set_additives_shift_tm():
     primer_args = ["AAACGCT", "CATCCGTAAG", "AGGAAAGGAC"]
 
     r_plain = _run(
-        ["rescore-set", "-j", "params.json",
-         "--primers", *primer_args,
-         "--polymerase", "phi29",
-         "--reaction-temp", "30",
-         "--betaine-m", "0.0",
-         "--quiet"],
-        cwd=str(EXAMPLE_DIR),
+        [
+            "rescore-set",
+            "-j",
+            "params.json",
+            "--primers",
+            *primer_args,
+            "--polymerase",
+            "phi29",
+            "--reaction-temp",
+            "30",
+            "--betaine-m",
+            "0.0",
+            "--quiet",
+        ],
+        cwd=str(example_workdir),
     )
     assert r_plain.returncode == 0, r_plain.stderr
     plain = json.loads(r_plain.stdout)
 
     r_betaine = _run(
-        ["rescore-set", "-j", "params.json",
-         "--primers", *primer_args,
-         "--polymerase", "phi29",
-         "--reaction-temp", "30",
-         "--betaine-m", "1.5",
-         "--quiet"],
-        cwd=str(EXAMPLE_DIR),
+        [
+            "rescore-set",
+            "-j",
+            "params.json",
+            "--primers",
+            *primer_args,
+            "--polymerase",
+            "phi29",
+            "--reaction-temp",
+            "30",
+            "--betaine-m",
+            "1.5",
+            "--quiet",
+        ],
+        cwd=str(example_workdir),
     )
     assert r_betaine.returncode == 0, r_betaine.stderr
     betaine = json.loads(r_betaine.stdout)
@@ -67,42 +107,62 @@ def test_rescore_set_additives_shift_tm():
     tm_betaine_avg = sum(p["tm_effective_c"] for p in betaine["primers"]) / len(betaine["primers"])
 
     delta = tm_plain_avg - tm_betaine_avg
-    assert delta > 0.5, (
-        f"1.5 M betaine should lower Tm by >0.5 C on average; got delta={delta:.2f}"
-    )
+    assert delta > 0.5, f"1.5 M betaine should lower Tm by >0.5 C on average; got delta={delta:.2f}"
 
 
-def test_contract_set_smoke():
+def test_contract_set_smoke(example_workdir):
     """contract-set runs end-to-end and emits valid JSON with expected keys."""
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
     result = _run(
-        ["contract-set", "-j", "params.json",
-         "--primers", "AAACGCT", "CATCCGTAAG", "AGGAAAGGAC",
-         "--min-coverage", "0.3", "--quiet"],
-        cwd=str(EXAMPLE_DIR),
+        [
+            "contract-set",
+            "-j",
+            "params.json",
+            "--primers",
+            "AAACGCT",
+            "CATCCGTAAG",
+            "AGGAAAGGAC",
+            "--min-coverage",
+            "0.3",
+            "--quiet",
+        ],
+        cwd=str(example_workdir),
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    for key in ["original_set", "contracted_set", "removed_primers",
-                "baseline_coverage", "final_coverage"]:
+    for key in [
+        "original_set",
+        "contracted_set",
+        "removed_primers",
+        "baseline_coverage",
+        "final_coverage",
+    ]:
         assert key in payload, f"missing {key} in contract-set output"
     assert payload["final_coverage"] >= payload["min_coverage_threshold"] - 1e-9
 
 
-def test_swap_primer_smoke():
+def test_swap_primer_smoke(example_workdir):
     """swap-primer runs end-to-end on the plasmid example."""
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
     result = _run(
-        ["swap-primer", "-j", "params.json",
-         "--primers", "AAACGCT", "CATCCGTAAG", "AGGAAAGGAC",
-         "--max-swaps", "1", "--quiet"],
-        cwd=str(EXAMPLE_DIR),
+        [
+            "swap-primer",
+            "-j",
+            "params.json",
+            "--primers",
+            "AAACGCT",
+            "CATCCGTAAG",
+            "AGGAAAGGAC",
+            "--max-swaps",
+            "1",
+            "--quiet",
+        ],
+        cwd=str(example_workdir),
     )
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
-    for key in ["before_set", "after_set", "num_swaps",
-                "metrics_before", "metrics_after"]:
+    for key in ["before_set", "after_set", "num_swaps", "metrics_before", "metrics_after"]:
         assert key in payload
     assert len(payload["after_set"]) == len(payload["before_set"])

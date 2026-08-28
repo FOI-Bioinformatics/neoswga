@@ -19,22 +19,17 @@ from neoswga.core.dominating_set_optimizer import (
     DominatingSetOptimizer,
 )
 
-
 # =============================================================================
 # CoverageRegion Tests
 # =============================================================================
+
 
 class TestCoverageRegion:
     """Tests for CoverageRegion dataclass."""
 
     def test_creation(self):
         """Test creating a CoverageRegion."""
-        region = CoverageRegion(
-            chromosome="chr1",
-            start=0,
-            end=10000,
-            covered_by=set()
-        )
+        region = CoverageRegion(chromosome="chr1", start=0, end=10000, covered_by=set())
 
         assert region.chromosome == "chr1"
         assert region.start == 0
@@ -79,6 +74,7 @@ class TestCoverageRegion:
 # =============================================================================
 # BipartiteGraph Tests
 # =============================================================================
+
 
 class TestBipartiteGraph:
     """Tests for BipartiteGraph class."""
@@ -209,6 +205,7 @@ class TestBipartiteGraph:
 # DominatingSetOptimizer Tests
 # =============================================================================
 
+
 class TestDominatingSetOptimizer:
     """Tests for DominatingSetOptimizer class."""
 
@@ -221,6 +218,7 @@ class TestDominatingSetOptimizer:
     @pytest.fixture
     def simple_optimizer(self, mock_cache):
         """Create optimizer with simple mock data."""
+
         # Configure mock to return positions for specific primers
         def get_positions(prefix, primer, strand):
             # Return positions based on primer
@@ -235,10 +233,7 @@ class TestDominatingSetOptimizer:
         mock_cache.get_positions = get_positions
 
         optimizer = DominatingSetOptimizer(
-            cache=mock_cache,
-            fg_prefixes=["genome1"],
-            fg_seq_lengths=[100000],
-            bin_size=10000
+            cache=mock_cache, fg_prefixes=["genome1"], fg_seq_lengths=[100000], bin_size=10000
         )
         return optimizer
 
@@ -248,7 +243,7 @@ class TestDominatingSetOptimizer:
             cache=mock_cache,
             fg_prefixes=["genome1", "genome2"],
             fg_seq_lengths=[100000, 50000],
-            bin_size=5000
+            bin_size=5000,
         )
 
         assert optimizer.cache == mock_cache
@@ -260,11 +255,7 @@ class TestDominatingSetOptimizer:
         """Test basic greedy optimization."""
         candidates = ["PRIMER1", "PRIMER2", "PRIMER3", "PRIMER4"]
 
-        result = simple_optimizer.optimize_greedy(
-            candidates,
-            max_primers=10,
-            verbose=False
-        )
+        result = simple_optimizer.optimize_greedy(candidates, max_primers=10, verbose=False)
 
         # Should return a valid result dict
         assert "primers" in result
@@ -281,25 +272,22 @@ class TestDominatingSetOptimizer:
         """Test that greedy optimization achieves coverage."""
         candidates = ["PRIMER1", "PRIMER2", "PRIMER4"]  # Can cover bins 0-5
 
-        result = simple_optimizer.optimize_greedy(
-            candidates,
-            max_primers=10,
-            verbose=False
-        )
+        result = simple_optimizer.optimize_greedy(candidates, max_primers=10, verbose=False)
 
-        # Should achieve full coverage
-        assert result["coverage"] == 1.0
+        # `coverage` is the fraction of the GENOME. It used to be the fraction
+        # of the bins some candidate could reach, which is 1.0 whenever the
+        # greedy exhausts its pool -- however little of the target that pool
+        # touches. `reachable_coverage` keeps the old quantity, which is what
+        # this test was actually asserting.
+        assert result["reachable_coverage"] == 1.0
         assert result["uncovered_regions"] == 0
+        assert result["coverage"] == pytest.approx(0.6)
 
     def test_optimize_greedy_respects_max_primers(self, simple_optimizer):
         """Test that greedy respects max_primers limit."""
         candidates = ["PRIMER1", "PRIMER2", "PRIMER3", "PRIMER4"]
 
-        result = simple_optimizer.optimize_greedy(
-            candidates,
-            max_primers=2,
-            verbose=False
-        )
+        result = simple_optimizer.optimize_greedy(candidates, max_primers=2, verbose=False)
 
         # Should not exceed max_primers
         assert result["n_primers"] <= 2
@@ -309,11 +297,7 @@ class TestDominatingSetOptimizer:
         # PRIMER1 covers 3 regions, PRIMER3 only helps with overlap
         candidates = ["PRIMER1", "PRIMER3"]
 
-        result = simple_optimizer.optimize_greedy(
-            candidates,
-            max_primers=5,
-            verbose=False
-        )
+        result = simple_optimizer.optimize_greedy(candidates, max_primers=5, verbose=False)
 
         # PRIMER1 should be selected first (covers more)
         assert "PRIMER1" in result["primers"]
@@ -323,10 +307,7 @@ class TestDominatingSetOptimizer:
         mock_cache.get_positions = Mock(return_value=np.array([]))
 
         optimizer = DominatingSetOptimizer(
-            cache=mock_cache,
-            fg_prefixes=["genome1"],
-            fg_seq_lengths=[100000],
-            bin_size=10000
+            cache=mock_cache, fg_prefixes=["genome1"], fg_seq_lengths=[100000], bin_size=10000
         )
 
         result = optimizer.optimize_greedy([], max_primers=10, verbose=False)
@@ -339,17 +320,10 @@ class TestDominatingSetOptimizer:
         mock_cache.get_positions = Mock(return_value=np.array([]))
 
         optimizer = DominatingSetOptimizer(
-            cache=mock_cache,
-            fg_prefixes=["genome1"],
-            fg_seq_lengths=[100000],
-            bin_size=10000
+            cache=mock_cache, fg_prefixes=["genome1"], fg_seq_lengths=[100000], bin_size=10000
         )
 
-        result = optimizer.optimize_greedy(
-            ["PRIMER1", "PRIMER2"],
-            max_primers=10,
-            verbose=False
-        )
+        result = optimizer.optimize_greedy(["PRIMER1", "PRIMER2"], max_primers=10, verbose=False)
 
         assert result["n_primers"] == 0
         assert result["total_regions"] == 0
@@ -358,6 +332,7 @@ class TestDominatingSetOptimizer:
 # =============================================================================
 # Integration Tests
 # =============================================================================
+
 
 class TestDominatingSetIntegration:
     """Integration tests for dominating set optimization."""
@@ -383,18 +358,16 @@ class TestDominatingSetIntegration:
             cache=cache,
             fg_prefixes=["test_genome"],
             fg_seq_lengths=[10000],
-            bin_size=1000  # Small bins
+            bin_size=1000,  # Small bins
         )
 
         candidates = ["ATCGATCG", "GCTAGCTA", "AAATTTCCC"]
-        result = optimizer.optimize_greedy(
-            candidates,
-            max_primers=5,
-            verbose=False
-        )
+        result = optimizer.optimize_greedy(candidates, max_primers=5, verbose=False)
 
-        # Should cover all regions
-        assert result["coverage"] == 1.0
+        # Should cover all regions it can reach. `coverage` is now the fraction
+        # of the genome, which these three primers do not saturate.
+        assert result["reachable_coverage"] == 1.0
+        assert result["coverage"] == pytest.approx(0.9)
         # All 3 primers needed (they cover non-overlapping regions)
         assert result["n_primers"] == 3
 
@@ -417,17 +390,12 @@ class TestDominatingSetIntegration:
         cache.get_positions = get_positions
 
         optimizer = DominatingSetOptimizer(
-            cache=cache,
-            fg_prefixes=["genome"],
-            fg_seq_lengths=[5000],
-            bin_size=1000
+            cache=cache, fg_prefixes=["genome"], fg_seq_lengths=[5000], bin_size=1000
         )
 
         # Should prefer MEGA_PRIMER since it covers everything
         result = optimizer.optimize_greedy(
-            ["MEGA_PRIMER", "SMALL_1", "SMALL_2"],
-            max_primers=10,
-            verbose=False
+            ["MEGA_PRIMER", "SMALL_1", "SMALL_2"], max_primers=10, verbose=False
         )
 
         # MEGA_PRIMER should be selected first and achieve full coverage
@@ -439,6 +407,7 @@ class TestDominatingSetIntegration:
 # =============================================================================
 # Edge Cases
 # =============================================================================
+
 
 class TestEdgeCases:
     """Tests for edge cases and error handling."""
@@ -452,14 +421,10 @@ class TestEdgeCases:
             cache=cache,
             fg_prefixes=["tiny_genome"],
             fg_seq_lengths=[5000],  # Smaller than default bin
-            bin_size=10000
+            bin_size=10000,
         )
 
-        result = optimizer.optimize_greedy(
-            ["PRIMER1"],
-            max_primers=5,
-            verbose=False
-        )
+        result = optimizer.optimize_greedy(["PRIMER1"], max_primers=5, verbose=False)
 
         # Should create one region and cover it
         assert result["total_regions"] == 1
@@ -468,26 +433,24 @@ class TestEdgeCases:
     def test_large_position_values(self):
         """Test with large position values."""
         cache = Mock()
-        cache.get_positions = Mock(return_value=np.array([
-            1000000, 2000000, 3000000, 4000000
-        ]))
+        cache.get_positions = Mock(return_value=np.array([1000000, 2000000, 3000000, 4000000]))
 
         optimizer = DominatingSetOptimizer(
-            cache=cache,
-            fg_prefixes=["large_genome"],
-            fg_seq_lengths=[5000000],
-            bin_size=100000
+            cache=cache, fg_prefixes=["large_genome"], fg_seq_lengths=[5000000], bin_size=100000
         )
 
-        result = optimizer.optimize_greedy(
-            ["PRIMER1"],
-            max_primers=5,
-            verbose=False
-        )
+        result = optimizer.optimize_greedy(["PRIMER1"], max_primers=5, verbose=False)
 
         # Should handle large positions correctly
+        # `coverage` is the fraction of the GENOME. It used to be the fraction
+        # of the bins some candidate could reach, which is 1.0 whenever the
+        # greedy exhausts its pool -- however little of the target that pool
+        # touches. `reachable_coverage` keeps the old quantity, which is what
+        # this test was actually asserting.
         assert result["total_regions"] == 4
-        assert result["coverage"] == 1.0
+        assert result["reachable_coverage"] == 1.0
+        # Four sites at a 100 kb bin on a 5 Mb genome: 4 of 50 bins.
+        assert result["coverage"] == pytest.approx(0.08)
 
     def test_multiple_genomes(self):
         """Test with multiple target genomes."""
@@ -506,19 +469,22 @@ class TestEdgeCases:
             cache=cache,
             fg_prefixes=["genome1", "genome2"],
             fg_seq_lengths=[5000, 3000],
-            bin_size=1000
+            bin_size=1000,
         )
 
-        result = optimizer.optimize_greedy(
-            ["PRIMER1"],
-            max_primers=5,
-            verbose=False
-        )
+        result = optimizer.optimize_greedy(["PRIMER1"], max_primers=5, verbose=False)
 
         # Should cover regions in both genomes
+        # `coverage` is the fraction of the GENOME. It used to be the fraction
+        # of the bins some candidate could reach, which is 1.0 whenever the
+        # greedy exhausts its pool -- however little of the target that pool
+        # touches. `reachable_coverage` keeps the old quantity, which is what
+        # this test was actually asserting.
         assert result["total_regions"] == 4  # 2 bins in each genome
-        assert result["coverage"] == 1.0
+        assert result["reachable_coverage"] == 1.0
+        # 4 reachable bins of 8 in the two genomes (5 + 3 at a 1 kb bin).
+        assert result["coverage"] == pytest.approx(0.5)
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

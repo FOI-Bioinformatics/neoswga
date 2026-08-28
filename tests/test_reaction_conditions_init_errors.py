@@ -34,9 +34,10 @@ def test_run_optimization_logs_error_on_bad_conditions(caplog, monkeypatch):
     """Out-of-bounds formamide must emit an ERROR-level log line — not
     a debug, not a warning — so CLI users see it in their terminal."""
     from neoswga.core import parameter as param_mod
-    monkeypatch.setattr(param_mod, 'formamide_percent', 15.0, raising=False)
-    monkeypatch.setattr(param_mod, 'polymerase', 'phi29', raising=False)
-    monkeypatch.setattr(param_mod, 'reaction_temp', 30.0, raising=False)
+
+    monkeypatch.setattr(param_mod, "formamide_percent", 15.0, raising=False)
+    monkeypatch.setattr(param_mod, "polymerase", "phi29", raising=False)
+    monkeypatch.setattr(param_mod, "reaction_temp", 30.0, raising=False)
 
     with caplog.at_level(logging.ERROR, logger="neoswga.core.unified_optimizer"):
         # Phase 17D: ReactionConditions construction now happens BEFORE
@@ -54,16 +55,13 @@ def test_run_optimization_logs_error_on_bad_conditions(caplog, monkeypatch):
 
     # The error log message must contain the specific bound-violation
     # text and the actionable hint.
-    error_msgs = [r.getMessage() for r in caplog.records
-                  if r.levelno == logging.ERROR]
-    assert any("ReactionConditions construction failed" in m
-               for m in error_msgs), (
-        f"Expected an ERROR-level log line about ReactionConditions, "
-        f"got: {error_msgs}"
+    error_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("ReactionConditions construction failed" in m for m in error_msgs), (
+        f"Expected an ERROR-level log line about ReactionConditions, " f"got: {error_msgs}"
     )
-    assert any("Formamide" in m for m in error_msgs), (
-        "Error log should echo the specific out-of-bounds additive"
-    )
+    assert any(
+        "Formamide" in m for m in error_msgs
+    ), "Error log should echo the specific out-of-bounds additive"
 
 
 def test_narrow_catch_propagates_genuine_bugs(monkeypatch):
@@ -78,6 +76,7 @@ def test_narrow_catch_propagates_genuine_bugs(monkeypatch):
         raise BrokenConditions("genuine bug: something is wrong internally")
 
     from neoswga.core import reaction_conditions as rc
+
     monkeypatch.setattr(rc, "ReactionConditions", broken_init)
 
     # Should NOT be caught — the broken-init exception should propagate.
@@ -96,9 +95,10 @@ def test_valid_conditions_do_not_emit_warning(caplog, monkeypatch):
     """Happy path: with in-bounds additives, no
     reaction_conditions_init_failed warning should be generated."""
     from neoswga.core import parameter as param_mod
-    monkeypatch.setattr(param_mod, 'formamide_percent', 5.0, raising=False)
-    monkeypatch.setattr(param_mod, 'polymerase', 'phi29', raising=False)
-    monkeypatch.setattr(param_mod, 'reaction_temp', 30.0, raising=False)
+
+    monkeypatch.setattr(param_mod, "formamide_percent", 5.0, raising=False)
+    monkeypatch.setattr(param_mod, "polymerase", "phi29", raising=False)
+    monkeypatch.setattr(param_mod, "reaction_temp", 30.0, raising=False)
 
     with caplog.at_level(logging.ERROR, logger="neoswga.core.unified_optimizer"):
         run_optimization(
@@ -112,10 +112,10 @@ def test_valid_conditions_do_not_emit_warning(caplog, monkeypatch):
 
     # No ReactionConditions-specific error log.
     conditions_errors = [
-        r.getMessage() for r in caplog.records
-        if r.levelno == logging.ERROR
-        and "ReactionConditions" in r.getMessage()
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.ERROR and "ReactionConditions" in r.getMessage()
     ]
-    assert not conditions_errors, (
-        f"Valid conditions should not generate error logs: {conditions_errors}"
-    )
+    assert (
+        not conditions_errors
+    ), f"Valid conditions should not generate error logs: {conditions_errors}"

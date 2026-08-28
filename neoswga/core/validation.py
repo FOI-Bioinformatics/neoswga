@@ -75,8 +75,18 @@ class ValidationSuite:
                 passed, details = test_func()
                 runtime = time.time() - start_time
 
+                # Test functions signal failure by returning (False, {"error": ...})
+                # rather than raising -- carry that message into result.error too,
+                # otherwise the verbose per-test log line and print_summary()'s
+                # failed-tests listing (both of which read result.error, not
+                # result.details) never show it, and a failing `neoswga validate`
+                # reports FAIL with no indication of why.
                 result = ValidationResult(
-                    test_name=test_name, passed=passed, runtime=runtime, details=details
+                    test_name=test_name,
+                    passed=passed,
+                    runtime=runtime,
+                    details=details,
+                    error=details.get("error"),
                 )
 
                 self.results.append(result)
@@ -185,12 +195,13 @@ class ValidationSuite:
             burkholderia_filter = AdaptiveGCFilter(genome_gc=0.67, tolerance=0.15)
 
             # This primer has 75% GC (6/8)
-            high_gc_primer = "GCGCGCGC"
+            high_gc_primer = "GCGCGCAT"
             gc_content = sum(1 for b in high_gc_primer if b in "GC") / len(high_gc_primer)
 
             # Should PASS (within 67% ± 15% = 52%-82%)
             # 75% GC is within this range
-            if not burkholderia_filter.passes(high_gc_primer):
+            high_gc_passes = burkholderia_filter.passes(high_gc_primer)
+            if not high_gc_passes:
                 # Check if it's actually within range
                 expected_pass = (
                     burkholderia_filter.gc_min <= gc_content <= burkholderia_filter.gc_max
@@ -210,8 +221,11 @@ class ValidationSuite:
 
             # Test that old filter would FAIL on these
             # Old filter: 0.375 <= GC <= 0.625
-            low_gc_fails_old = (gc_content < 0.375) or (gc_content > 0.625)
-            high_gc_fails_old = (0.75 < 0.375) or (0.75 > 0.625)
+            # Use the actually-measured gc_content, not a hardcoded literal --
+            # the primer sequences above can change without this staying in sync.
+            low_gc_content = sum(1 for b in low_gc_primer if b in "GC") / len(low_gc_primer)
+            low_gc_fails_old = (low_gc_content < 0.375) or (low_gc_content > 0.625)
+            high_gc_fails_old = (gc_content < 0.375) or (gc_content > 0.625)
 
             details["francisella_fix"] = (
                 "low_gc_primer now passes (was rejected by old filter)"
@@ -220,7 +234,7 @@ class ValidationSuite:
             )
             details["burkholderia_fix"] = (
                 "high_gc_primer now passes (was rejected by old filter)"
-                if high_gc_fails_old
+                if high_gc_fails_old and high_gc_passes
                 else "verified"
             )
 
@@ -231,8 +245,10 @@ class ValidationSuite:
                 logger.info(
                     f"Burkholderia (67% GC): Accepts {burkholderia_filter.gc_min:.1%}-{burkholderia_filter.gc_max:.1%} GC"
                 )
-                logger.info(f"Low GC primer ({gc_content:.1%}): PASS")
-                logger.info("High GC primer (75%): PASS")
+                logger.info(f"Low GC primer ({low_gc_content:.1%}): PASS")
+                logger.info(
+                    f"High GC primer ({gc_content:.1%}): {'PASS' if high_gc_passes else 'REJECTED (acceptable, still within old-filter-fail range)'}"
+                )
 
             return True, details
 
@@ -387,11 +403,24 @@ class ValidationSuite:
             return False, details
 
     def test_milp_optimizer(self) -> Tuple[bool, Dict]:
-        """Test MILP optimizer"""
+        """Test the MILP optimizer, which is no longer part of this package.
+
+        `milp` was retired along with greedy/genetic/moea and is not in
+        `param_validator.VALID_OPTIMIZATION_METHODS`, so this always skips. The
+        reason used to read "python-mip not installed", which sends a user off
+        to install a package that would not bring the feature back -- a
+        misleading answer from the tool whose job is telling you what is wrong.
+        """
         try:
             from .milp_optimizer import MILPOptimizer
         except ImportError:
-            return True, {"status": "skipped", "reason": "python-mip not installed"}
+            return True, {
+                "status": "skipped",
+                "reason": (
+                    "the MILP optimizer was retired; use one of "
+                    "hybrid / dominating-set / background-aware / network / ensemble"
+                ),
+            }
 
         details = {}
 

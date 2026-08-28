@@ -473,22 +473,32 @@ def _apply_gc_adaptive_defaults():
 
     try:
         from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
+        from neoswga.core.registry import views as _registry_views
 
         strategy = GCAdaptiveStrategy(genome_gc_content=genome_gc)
         adaptive_params = strategy.get_parameters()
 
-        # Apply polymerase if not explicitly set by user in params.json
-        # Check _json_data (raw JSON) to distinguish user-set phi29 from default
+        # Apply polymerase if not explicitly set by user in params.json.
+        # Check _json_data (raw JSON) to distinguish user-set phi29 from default.
+        #
+        # `retune_for_polymerase` rather than a bare assignment, because
+        # changing the enzyme changes what the enzyme decides. This block used
+        # to set `parameter.polymerase` alone, so a GC-rich target was designed
+        # as equiphi29 while still carrying phi29's 20-50 C Tm window, phi29's
+        # 30 C reaction temperature and phi29's buffer. The temperature branch
+        # that was supposed to fix the second of those was dead: it applied the
+        # adaptive value only when `reaction_temp is None`, and `get_params`
+        # always assigns a float.
         user_set_polymerase = (
             hasattr(parameter, "_json_data") and "polymerase" in parameter._json_data
         )
         if not user_set_polymerase:
-            if adaptive_params.recommended_polymerase != "phi29":
+            if adaptive_params.recommended_polymerase != getattr(parameter, "polymerase", "phi29"):
                 logger.info(
                     f"GC-adaptive: Using {adaptive_params.recommended_polymerase} "
                     f"for {genome_gc:.1%} GC genome"
                 )
-                parameter.polymerase = adaptive_params.recommended_polymerase
+            parameter.retune_for_polymerase(parameter, adaptive_params.recommended_polymerase)
         else:
             current_polymerase = getattr(parameter, "polymerase", "phi29")
             if current_polymerase != adaptive_params.recommended_polymerase:
@@ -497,20 +507,30 @@ def _apply_gc_adaptive_defaults():
                     f"(adaptive would recommend '{adaptive_params.recommended_polymerase}')"
                 )
 
-        # Apply reaction temperature if not explicitly set
-        current_temp = getattr(parameter, "reaction_temp", None)
-        if current_temp is None:
-            parameter.reaction_temp = adaptive_params.reaction_temp
-            logger.info(f"GC-adaptive: Setting reaction temp to {adaptive_params.reaction_temp}C")
-
         # Apply k-mer range only if user did not explicitly set min_k/max_k
         # in their params.json. Check _json_data (raw JSON) since module
         # globals always have a default value.
+        #
+        # Clamped into the enzyme's own range. `gc_adaptive_strategy` carries a
+        # second polymerase table whose ranges disagree with the registry's
+        # (phi29 8-11 against 6-12, equiphi29 11-15 against 10-18), so before
+        # this the two silently overwrote each other in run order. The
+        # strategy's value is that it is GC-specific where the registry is only
+        # enzyme-specific, so it narrows within the range rather than replacing
+        # it, and the result is then recorded as a deliberate choice so a later
+        # enzyme change does not reset it.
         user_set_min_k = "min_k" in parameter._json_data
         user_set_max_k = "max_k" in parameter._json_data
         if not user_set_min_k and not user_set_max_k:
-            parameter.min_k = adaptive_params.kmer_range[0]
-            parameter.max_k = adaptive_params.kmer_range[1]
+            reg_min, reg_max = _registry_views.primer_length_ranges().get(
+                parameter.polymerase, (parameter.min_k, parameter.max_k)
+            )
+            adaptive_min, adaptive_max = adaptive_params.kmer_range
+            parameter.min_k = max(reg_min, min(adaptive_min, reg_max))
+            parameter.max_k = min(reg_max, max(adaptive_max, reg_min))
+            parameter.polymerase_derived_fields = set(
+                getattr(parameter, "polymerase_derived_fields", ())
+            ) - {"min_k", "max_k"}
             logger.info(
                 f"GC-adaptive: Setting k-mer range to " f"{parameter.min_k}-{parameter.max_k}bp"
             )
@@ -636,6 +656,175 @@ def step1():
     logger.info("Done running jellyfish")
 
     return fg_seq_lengths, bg_seq_lengths
+
+
+def _rank_and_cut_candidates(gini_df, max_primer):
+    """Rank surviving primers and cut to `max_primer`, ties broken by abundance.
+
+    Ranking is by `ratio` = bg_count / fg_count ascending -- lowest background
+    load per foreground site first. That is the right primary key, but it is not
+    a total order, and for the designs this tool exists for it is barely an
+    order at all: whenever a primer is long enough to have no exact background
+    match, which is the whole equiphi29 regime, its ratio is 0/fg_count = 0.
+
+    Measured on Prevotella vs human chr21 at k=12, all 369,431 survivors tied at
+    exactly 0.0. The cut therefore kept an arbitrary 10,000 of them -- mean
+    foreground count 1.29, against 9.5 for the 10,000 most abundant, with only
+    10 primers in common between the two. Coverage is set by how many sites a
+    set binds, so that handed the optimizer single-site candidates and capped
+    coverage before optimization began: 7.6% at k=12, against 40.3% once the tie
+    is broken, with selectivity rising 0.69 -> 2.54 at the same time.
+
+    Within a tie on selectivity, more foreground binding is strictly better and
+    costs nothing. The Gini filter has already run at this point, so primers
+    whose sites are clustered in a repeat are gone and the abundance that
+    remains is spread across the genome.
+
+    Breaking the tie on abundance recovers coverage but says nothing about
+    specificity, because `ratio` is still measured with exact counts. See
+    `_occupancy_ratio_column`, which measures the same quantity in a way that
+    discriminates.
+    """
+    ranked = _rank_by_occupancy(gini_df, max_primer)
+    if ranked is not None:
+        return ranked
+    return gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[:max_primer]
+
+
+# How many survivors to re-rank by occupancy. Ranking costs ~0.14 ms per primer
+# (measured, k=12, one foreground and one background prefix), so the full
+# 369,431-survivor set would add ~50 s to a filter step that takes ~2 min. The
+# shortlist is taken by the exact-count key first, so nothing that key can
+# already separate is discarded by it.
+DEFAULT_OCCUPANCY_SHORTLIST = 50_000
+
+
+def _rank_by_occupancy(gini_df, max_primer):
+    """Rank by occupancy-weighted background load per unit of foreground binding.
+
+    This is the *same* key as `ratio` -- background load per unit of foreground
+    binding, ascending -- measured against sites that are actually bound rather
+    than against exact matches only. It is a better measurement of the quantity
+    the original design chose, not a different objective.
+
+    Exact `bg_count` is 0 for every primer long enough to have no perfect
+    background match, which against a distant background is nearly all of them:
+    at k=12 on Prevotella vs human chr21, all 369,431 survivors scored exactly
+    0.0 and the key ordered nothing. The same candidates differ 664-fold in
+    occupancy-weighted background load (0.54 to 358.68) and 200-fold in
+    occupancy fg/bg ratio (0.057 to 11.6), all of it invisible to a count.
+
+    That signal is what separates a specific primer from an indiscriminate one,
+    and discarding it capped the design: a coverage-greedy over the
+    abundance-ranked pool reaches 0.975 coverage at 10 kb reach but selectivity
+    1.06, while the same greedy over an occupancy-clean pool holds 2.28.
+
+    Returns None when the ranking cannot be computed -- no reaction conditions,
+    no background, or missing jellyfish count files -- so the caller falls back
+    to the exact-count key deliberately rather than receiving a quietly
+    different number.
+    """
+    if "ratio" not in gini_df.columns or gini_df.empty:
+        return None
+    if getattr(parameter, "occupancy_ranking", True) is False:
+        logger.info("Occupancy ranking disabled; ranking candidates on exact counts.")
+        return None
+
+    conditions, bg_prefixes = _occupancy_ranking_inputs()
+    if conditions is None or not bg_prefixes:
+        return None
+
+    # Shortlist by the exact-count key first. Where that key discriminates --
+    # small backgrounds, short primers -- it is a real signal and leads; the
+    # occupancy pass then orders what it leaves tied.
+    shortlist_size = _configured_positive_int("occupancy_shortlist", DEFAULT_OCCUPANCY_SHORTLIST)
+    shortlist = gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[
+        : max(shortlist_size, max_primer)
+    ].copy()
+
+    fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
+    if not fg_prefixes:
+        return None
+
+    try:
+        occupancy_ratio = _occupancy_ratio_column(
+            [str(p).upper() for p in shortlist["primer"]],
+            fg_prefixes,
+            list(bg_prefixes),
+            conditions,
+        )
+    except (FileNotFoundError, OSError, ValueError) as exc:
+        logger.info(
+            f"Occupancy ranking unavailable ({exc}); ranking candidates on exact "
+            f"counts. Primers with no exact background match will be ordered by "
+            f"foreground abundance alone."
+        )
+        return None
+
+    shortlist["occupancy_ratio"] = occupancy_ratio
+    logger.info(
+        f"Ranked {len(shortlist):,} candidates by occupancy-weighted background "
+        f"load (median {shortlist['occupancy_ratio'].median():.3g}, "
+        f"best {shortlist['occupancy_ratio'].min():.3g})"
+    )
+    return shortlist.sort_values(by=["occupancy_ratio", "fg_count"], ascending=[True, False])[
+        :max_primer
+    ]
+
+
+def _occupancy_ranking_inputs():
+    """Reaction conditions and background prefixes, or (None, None).
+
+    Built here rather than threaded through `step2` because the filter's other
+    thermodynamic gates already read the same globals, and a second source of
+    reaction conditions in one step is how the two come to disagree.
+    """
+    bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
+    if not bg_prefixes:
+        return None, None
+    try:
+        from .reaction_conditions import build_reaction_conditions
+
+        return build_reaction_conditions(parameter), bg_prefixes
+    except (ImportError, ValueError, TypeError) as exc:
+        logger.debug(f"Could not build reaction conditions for occupancy ranking: {exc}")
+        return None, None
+
+
+def _occupancy_ratio_column(primers, fg_prefixes, bg_prefixes, conditions):
+    """Per-primer occupancy-weighted bg/fg load, ascending-is-better.
+
+    Mirrors `ratio` = bg_count / fg_count so the two keys agree in direction and
+    a reader comparing them is not comparing an ascending key with a descending
+    one. A primer that binds nothing in the foreground is worst, matching the
+    `float("inf")` the exact-count path assigns it.
+    """
+    from .occupancy import weighted_site_load
+
+    max_mismatches = _configured_positive_int("max_mismatches", 1)
+    ratios = []
+    for primer in primers:
+        fg_load = weighted_site_load([primer], fg_prefixes, conditions, max_mismatches)
+        if fg_load <= 0:
+            ratios.append(float("inf"))
+            continue
+        bg_load = weighted_site_load([primer], bg_prefixes, conditions, max_mismatches)
+        ratios.append(bg_load / fg_load)
+    return ratios
+
+
+def _configured_positive_int(name, default):
+    """Read a positive integer from the parameter module, ignoring nonsense.
+
+    Type-checked rather than truthiness-checked: several test modules replace
+    `pipeline.parameter` with a MagicMock, whose every attribute is a truthy
+    stub with `int(...) == 1`. A `getattr(...) or default` would silently
+    reconfigure the ranking to a one-primer shortlist.
+    """
+    value = getattr(parameter, name, None)
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return default
 
 
 def step2(all_primers=None, validate_prerequisites=True):
@@ -801,8 +990,7 @@ def step2(all_primers=None, validate_prerequisites=True):
     gini_df = gini_df.copy()
     gini_df["ratio"] = gini_df["bg_count"] / gini_df["fg_count"].replace(0, np.nan)
     gini_df["ratio"] = gini_df["ratio"].fillna(float("inf"))
-    # Sort ascending: lowest bg/fg ratio = best selectivity (keep best primers)
-    filtered_gini_df = gini_df.sort_values(by=["ratio"], ascending=True)[: parameter.max_primer]
+    filtered_gini_df = _rank_and_cut_candidates(gini_df, parameter.max_primer)
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")

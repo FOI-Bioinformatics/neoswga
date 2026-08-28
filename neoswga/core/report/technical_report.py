@@ -856,6 +856,48 @@ def _render_protocol(params: Dict, quality: QualityAssessment) -> str:
     """
 
 
+def _render_gap_section(coverage):
+    """Gap statistics with benchmark context; empty string if unavailable.
+
+    Reported as three separate statistics rather than one composite because the
+    published datasets disagree about which predicts success - density in
+    Clarke 2017's M. tuberculosis sets, evenness and the worst hole in their
+    Wolbachia sets and in Dwivedi-Yu 2023. See docs/validation/.
+    """
+    if not (coverage and coverage.from_optimizer and coverage.mean_gap > 0):
+        return ""
+
+    from neoswga.core.coverage import gap_regime_note, interpret_gap_metrics
+
+    reach = getattr(coverage, "extension_reach", 0) or 3000
+    rows = interpret_gap_metrics(
+        coverage.mean_gap, coverage.max_gap, coverage.gap_gini, extension_reach=reach
+    )
+    gap_rows = "".join(f"""
+        <div class="param-item">
+            <span class="param-label">{html_escape(r["label"])}</span>
+            <span class="param-value">{html_escape(r["value"])} &mdash; {html_escape(r["verdict"])}</span>
+        </div>
+        <p class="gap-detail">{html_escape(r["detail"])}</p>""" for r in rows)
+    return f"""
+    <h3>Gap Analysis</h3>
+    <p>Gap statistics measured from primer binding positions, interpreted
+    against the published primer-set datasets that have wet-lab outcomes
+    (Clarke et al. 2017; Dwivedi-Yu et al. 2023).</p>
+    <p><strong>All three are reported rather than combined.</strong> Those
+    datasets disagree about which statistic predicts success, because whichever
+    property is currently limiting is the one that shows up. The composite
+    quality score does not use max gap.</p>
+    <div class="info-box">{gap_rows}
+        <div class="param-item">
+            <span class="param-label">Gap Entropy</span>
+            <span class="param-value">{coverage.gap_entropy:.2f} bits</span>
+        </div>
+    </div>
+    <p>{html_escape(gap_regime_note(coverage.gap_gini))}</p>
+    """
+
+
 def render_technical_report(data: TechnicalReportData, interactive: bool = False) -> str:
     """
     Render technical report to HTML.
@@ -956,32 +998,8 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         secondary_structure_assessment = "High risk - significant secondary structures possible"
 
     # Gaps - show real data if available from optimizer, otherwise placeholder
-    if metrics.coverage and metrics.coverage.from_optimizer and metrics.coverage.mean_gap > 0:
-        mean_gap_kb = metrics.coverage.mean_gap / 1000.0
-        max_gap_kb = metrics.coverage.max_gap / 1000.0
-        gaps_html = f"""
-    <h3>Gap Analysis</h3>
-    <p>Gap statistics measured from primer binding positions across the target genome.</p>
-    <div class="info-box">
-        <div class="param-item">
-            <span class="param-label">Mean Gap</span>
-            <span class="param-value">{mean_gap_kb:.1f} kb</span>
-        </div>
-        <div class="param-item">
-            <span class="param-label">Max Gap</span>
-            <span class="param-value">{max_gap_kb:.1f} kb</span>
-        </div>
-        <div class="param-item">
-            <span class="param-label">Gap Gini</span>
-            <span class="param-value">{metrics.coverage.gap_gini:.2f} (lower is more uniform)</span>
-        </div>
-        <div class="param-item">
-            <span class="param-label">Gap Entropy</span>
-            <span class="param-value">{metrics.coverage.gap_entropy:.2f} bits</span>
-        </div>
-    </div>
-    """
-    else:
+    gaps_html = _render_gap_section(metrics.coverage)
+    if not gaps_html:
         gaps_html = """
     <h3>Coverage Gaps</h3>
     <p>Gap analysis requires primer position data. Run optimization to generate gap metrics.</p>

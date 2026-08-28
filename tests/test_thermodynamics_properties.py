@@ -50,6 +50,7 @@ def make_seq_with_gc(length, n_gc):
 # 1. Tm monotonicity with GC content
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=200)
 @given(length=st.integers(min_value=6, max_value=20))
 def test_tm_increases_with_gc_content(length):
@@ -88,14 +89,15 @@ def test_tm_monotonic_across_gc_levels(length):
     tm_mid = calculate_tm_basic(seq_mid)
     tm_high = calculate_tm_basic(seq_high)
 
-    assert tm_low < tm_mid < tm_high, (
-        f"Tm should increase with GC: {tm_low:.1f} < {tm_mid:.1f} < {tm_high:.1f}"
-    )
+    assert (
+        tm_low < tm_mid < tm_high
+    ), f"Tm should increase with GC: {tm_low:.1f} < {tm_mid:.1f} < {tm_high:.1f}"
 
 
 # ---------------------------------------------------------------------------
 # 2. Tm increases with primer length (homopolymers)
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=200)
 @given(
@@ -145,6 +147,7 @@ def test_longer_at_primers_have_higher_tm(shorter, delta):
 # 3. Salt correction direction
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=200)
 @given(
     low_na=st.floats(min_value=1.0, max_value=50.0, allow_nan=False, allow_infinity=False),
@@ -170,6 +173,7 @@ def test_higher_salt_increases_tm_correction(low_na, delta):
 # 4. Tm is always finite
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=200)
 @given(seq=short_dna_seq)
 def test_tm_is_finite(seq):
@@ -180,12 +184,8 @@ def test_tm_is_finite(seq):
 
     tm = calculate_tm_basic(seq)
 
-    assert isinstance(tm, (float, np.floating)), (
-        f"Tm should be a float, got {type(tm)}"
-    )
-    assert math.isfinite(tm), (
-        f"Tm should be finite for sequence '{seq}', got {tm}"
-    )
+    assert isinstance(tm, (float, np.floating)), f"Tm should be a float, got {type(tm)}"
+    assert math.isfinite(tm), f"Tm should be finite for sequence '{seq}', got {tm}"
 
 
 @settings(max_examples=200)
@@ -211,6 +211,7 @@ def test_tm_with_salt_is_finite(seq, na_conc, mg_conc):
 # ---------------------------------------------------------------------------
 # 5. Reverse complement has the same Tm
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=200)
 @given(seq=short_dna_seq)
@@ -270,6 +271,7 @@ def test_reverse_complement_similar_tm_with_salt(seq, na_conc):
 # 6. Symmetry correction for palindromes
 # ---------------------------------------------------------------------------
 
+
 def test_palindrome_has_lower_tm_than_nonpalindrome():
     """A palindromic sequence should have a slightly lower Tm than a
     non-palindromic sequence of similar base composition, due to the
@@ -289,9 +291,7 @@ def test_palindrome_has_lower_tm_than_nonpalindrome():
     # For AT-only sequences, palindrome means seq == rev_comp(seq).
     # AATAATTT: rc = AAATTATT, which differs from original.
     non_palindrome = "AATAATTT"
-    assert not is_palindrome(non_palindrome), (
-        f"'{non_palindrome}' should not be palindromic"
-    )
+    assert not is_palindrome(non_palindrome), f"'{non_palindrome}' should not be palindromic"
 
     tm_pal = calculate_tm_basic(palindrome)
     tm_nonpal = calculate_tm_basic(non_palindrome)
@@ -308,8 +308,8 @@ def test_palindrome_has_lower_tm_than_nonpalindrome():
 def test_multiple_palindromes_lower_tm():
     """Verify the symmetry correction across several palindromic sequences."""
     palindrome_pairs = [
-        ("ATAT", "AATT"),      # len 4
-        ("GCGC", "GGCC"),      # len 4
+        ("ATAT", "AATT"),  # len 4
+        ("GCGC", "GGCC"),  # len 4
         ("ACGTACGT", "AACGTCGT"),  # len 8
     ]
     for pal, nonpal in palindrome_pairs:
@@ -332,6 +332,7 @@ def test_multiple_palindromes_lower_tm():
 # ---------------------------------------------------------------------------
 # 7. Mg2+ increases effective salt correction
 # ---------------------------------------------------------------------------
+
 
 @settings(max_examples=200)
 @given(
@@ -380,6 +381,7 @@ def test_mg_raises_overall_tm(seq, na_conc, mg_conc):
 # 8. gc_content properties
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=200)
 @given(seq=short_dna_seq)
 def test_gc_content_bounded(seq):
@@ -414,9 +416,9 @@ def test_gc_content_exact(n_gc, n_at):
     seq = "G" * n_gc + "A" * n_at
     expected = n_gc / (n_gc + n_at)
     result = gc_content(seq)
-    assert abs(result - expected) < 1e-9, (
-        f"gc_content for {n_gc}G + {n_at}A: expected {expected}, got {result}"
-    )
+    assert (
+        abs(result - expected) < 1e-9
+    ), f"gc_content for {n_gc}G + {n_at}A: expected {expected}, got {result}"
 
 
 @settings(max_examples=200)
@@ -435,6 +437,7 @@ def test_gc_content_complement_invariant(seq):
 # 9. calculate_free_energy properties
 # ---------------------------------------------------------------------------
 
+
 @settings(max_examples=200)
 @given(seq=short_dna_seq)
 def test_free_energy_is_finite(seq):
@@ -452,9 +455,7 @@ def test_free_energy_negative_at_physiological_temp(seq):
     """
     assume(len(seq) >= 6)
     dg = calculate_free_energy(seq, temperature=37.0)
-    assert dg < 0.0, (
-        f"Free energy should be negative at 37 C for '{seq}', got {dg:.3f} kcal/mol"
-    )
+    assert dg < 0.0, f"Free energy should be negative at 37 C for '{seq}', got {dg:.3f} kcal/mol"
 
 
 @settings(max_examples=100)

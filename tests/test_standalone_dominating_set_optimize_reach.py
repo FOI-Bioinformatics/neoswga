@@ -13,13 +13,12 @@ from pathlib import Path
 
 def _read_function_source(name: str) -> str:
     src = (
-        Path(__file__).resolve().parents[1]
-        / "neoswga" / "core" / "dominating_set_optimizer.py"
+        Path(__file__).resolve().parents[1] / "neoswga" / "core" / "dominating_set_optimizer.py"
     ).read_text()
     # Pull the chunk between "def {name}(" and the next top-level "def" or end.
     needle = f"def {name}("
     start = src.index(needle)
-    rest = src[start + len(needle):]
+    rest = src[start + len(needle) :]
     next_def = rest.find("\ndef ")
     end = start + len(needle) + (next_def if next_def != -1 else len(rest))
     return src[start:end]

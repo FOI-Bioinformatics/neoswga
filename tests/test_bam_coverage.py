@@ -14,10 +14,10 @@ from neoswga.core.primer_expansion import (
     PrimerExpander,
 )
 
-
 # ---------------------------------------------------------------------------
 # find_low_depth_gaps
 # ---------------------------------------------------------------------------
+
 
 def test_find_low_depth_gaps_linear():
     # depth: high everywhere except a 0-depth window [30, 60)
@@ -31,7 +31,7 @@ def test_find_low_depth_gaps_linear():
 
 def test_find_low_depth_gaps_respects_min_gap_size():
     depth = np.full(100, 10, dtype=np.int32)
-    depth[30:35] = 0   # only 5 bp low
+    depth[30:35] = 0  # only 5 bp low
     gaps = find_low_depth_gaps(depth, "chr", min_depth=5, min_gap_size=10)
     assert gaps == []
 
@@ -41,8 +41,7 @@ def test_find_low_depth_gaps_circular_wrap_merges_origin():
     depth = np.full(100, 10, dtype=np.int32)
     depth[90:100] = 0
     depth[0:10] = 0
-    gaps = find_low_depth_gaps(depth, "chr", min_depth=5, min_gap_size=5,
-                               circular=True)
+    gaps = find_low_depth_gaps(depth, "chr", min_depth=5, min_gap_size=5, circular=True)
     assert len(gaps) == 1
     g = gaps[0]
     assert g.start == 90 and g.end == 110 and g.size == 20  # wrap encoded
@@ -56,6 +55,7 @@ def test_find_low_depth_gaps_no_low_returns_empty():
 # ---------------------------------------------------------------------------
 # match_contigs
 # ---------------------------------------------------------------------------
+
 
 def test_match_contigs_exact_and_basename():
     m = match_contigs(["genomeA"], [1000], ["data/genomeA"], [1000])
@@ -74,7 +74,10 @@ def test_match_contigs_length_fallback():
 
 def test_match_contigs_alias_and_unmatched():
     m = match_contigs(
-        ["bamctg"], [999], ["fg"], [1000],   # length differs -> no fallback
+        ["bamctg"],
+        [999],
+        ["fg"],
+        [1000],  # length differs -> no fallback
         aliases={"fg": "bamctg"},
     )
     assert m == {"fg": "bamctg"}
@@ -87,13 +90,14 @@ def test_match_contigs_alias_and_unmatched():
 # merge_gap_intervals
 # ---------------------------------------------------------------------------
 
+
 def test_merge_gap_intervals_overlap_adjacent_disjoint():
     gaps = [
         CoverageGap("c", 0, 100, 100),
-        CoverageGap("c", 90, 150, 60),    # overlaps previous
-        CoverageGap("c", 150, 200, 50),   # touches previous
+        CoverageGap("c", 90, 150, 60),  # overlaps previous
+        CoverageGap("c", 150, 200, 50),  # touches previous
         CoverageGap("c", 500, 600, 100),  # disjoint
-        CoverageGap("d", 10, 20, 10),     # other chromosome
+        CoverageGap("d", 10, 20, 10),  # other chromosome
     ]
     merged = merge_gap_intervals(gaps)
     intervals = sorted((g.chromosome, g.start, g.end) for g in merged)
@@ -104,6 +108,7 @@ def test_merge_gap_intervals_overlap_adjacent_disjoint():
 # Gap-restricted candidate pre-filter
 # ---------------------------------------------------------------------------
 
+
 class _Cache:
     def __init__(self, mapping):
         self._m = mapping  # (prefix, primer) -> np.array
@@ -113,10 +118,12 @@ class _Cache:
 
 
 def test_filter_candidates_to_gaps_keeps_only_in_gap():
-    cache = _Cache({
-        ("fg", "IN"): np.array([55]),       # inside gap [30,60)
-        ("fg", "OUT"): np.array([5, 80]),   # outside the gap
-    })
+    cache = _Cache(
+        {
+            ("fg", "IN"): np.array([55]),  # inside gap [30,60)
+            ("fg", "OUT"): np.array([5, 80]),  # outside the gap
+        }
+    )
     expander = PrimerExpander(cache, ["fg"], [100])
     gaps = [CoverageGap("fg", 30, 60, 30)]
     kept = expander._filter_candidates_to_gaps(["IN", "OUT"], gaps)
@@ -125,10 +132,12 @@ def test_filter_candidates_to_gaps_keeps_only_in_gap():
 
 def test_filter_candidates_to_gaps_handles_wrap_gap():
     # wrap gap encoded as end>length: covers [90,100) and [0,10)
-    cache = _Cache({
-        ("fg", "WRAP"): np.array([5]),      # inside [0,10)
-        ("fg", "MID"): np.array([50]),      # not in wrap
-    })
+    cache = _Cache(
+        {
+            ("fg", "WRAP"): np.array([5]),  # inside [0,10)
+            ("fg", "MID"): np.array([50]),  # not in wrap
+        }
+    )
     expander = PrimerExpander(cache, ["fg"], [100])
     gaps = [CoverageGap("fg", 90, 110, 20)]
     kept = expander._filter_candidates_to_gaps(["WRAP", "MID"], gaps)
@@ -138,6 +147,7 @@ def test_filter_candidates_to_gaps_handles_wrap_gap():
 # ---------------------------------------------------------------------------
 # identify_gaps merges extra (BAM) gaps
 # ---------------------------------------------------------------------------
+
 
 def test_identify_gaps_merges_extra_gaps():
     # No primers -> whole genome is a gap; merging extra is a no-op union.
@@ -153,6 +163,7 @@ def test_identify_gaps_merges_extra_gaps():
 # ---------------------------------------------------------------------------
 # pysam-gated end-to-end
 # ---------------------------------------------------------------------------
+
 
 def test_require_pysam_friendly_error(monkeypatch):
     import builtins
@@ -177,8 +188,7 @@ def test_bam_gaps_end_to_end(tmp_path):
     # leaving a low-depth gap in the middle.
     length = 300
     ref_name = "fg"
-    header = {"HD": {"VN": "1.0"},
-              "SQ": [{"SN": ref_name, "LN": length}]}
+    header = {"HD": {"VN": "1.0"}, "SQ": [{"SN": ref_name, "LN": length}]}
     bam_path = tmp_path / "reads.bam"
     seq = "A" * 50
     with pysam.AlignmentFile(str(bam_path), "wb", header=header) as out:
@@ -195,8 +205,7 @@ def test_bam_gaps_end_to_end(tmp_path):
             out.write(a)
     pysam.index(str(bam_path))
 
-    gaps = bam_gaps(str(bam_path), [ref_name], [length],
-                    min_depth=1, min_gap_size=20)
+    gaps = bam_gaps(str(bam_path), [ref_name], [length], min_depth=1, min_gap_size=20)
     # Reads start at 0..90 (50bp) so coverage reaches base 140; next read at
     # 200. The uncovered window is therefore [140, 200).
     assert len(gaps) == 1

@@ -306,10 +306,19 @@ def validate_mg_effects() -> Dict[str, Any]:
     """
     Validate Mg2+ concentration effects.
 
-    Expected behavior:
-    - Too low Mg (<1mM): Reduced activity
-    - Optimal range: 2-4mM
-    - Too high Mg (>6mM): Reduced activity
+    Expected behavior (isothermal amplification, NOT PCR):
+    - Too low Mg (<4 mM): reduced activity
+    - Optimal around 10 mM, the phi29-family vendor buffer value
+    - Too high Mg (>15 mM): reduced activity
+
+    These expectations were left at the PCR figures (optimum 2-4 mM, decline
+    above 6 mM) when the mechanistic model was recalibrated for isothermal
+    amplification in schema v2. The model changed and this test did not, so it
+    asserted that 8 mM must be worse than 2.5 mM -- the opposite of the
+    corrected behaviour, since 2.5 mM now sits below the low-activity
+    threshold. `neoswga validate-model` consequently reported 6/7 with a FAIL
+    against correct behaviour, which is worse than no check at all: it invites
+    a reader to "fix" the model back to the PCR numbers.
 
     Returns:
         Dict with test results and pass/fail status
@@ -317,7 +326,9 @@ def validate_mg_effects() -> Dict[str, Any]:
     results = []
     passed = True
 
-    for mg in [0.5, 1.0, 2.0, 2.5, 4.0, 6.0, 8.0]:
+    # Spans the corrected band: below the low threshold, through the optimum,
+    # and past the high threshold.
+    for mg in [0.5, 2.5, 4.0, 8.0, 10.0, 15.0, 20.0]:
         cond = ReactionConditions(temp=30.0, polymerase="phi29", mg_conc=mg)
         model = MechanisticModel(cond)
         effects = model.calculate_effects("ATCGATCGATCG", template_gc=0.5)
@@ -330,13 +341,13 @@ def validate_mg_effects() -> Dict[str, Any]:
 
     proc_values = [r["processivity_factor"] for r in results]
 
-    # Low Mg should have reduced processivity
-    if proc_values[0] >= proc_values[3]:  # 0.5mM vs 2.5mM
+    # Low Mg should have reduced processivity (0.5 mM vs the 10 mM optimum)
+    if proc_values[0] >= proc_values[4]:
         passed = False
         logger.warning("Low Mg should reduce processivity")
 
-    # Very high Mg should have reduced processivity
-    if proc_values[6] >= proc_values[3]:  # 8mM vs 2.5mM
+    # Very high Mg should have reduced processivity (20 mM vs the 10 mM optimum)
+    if proc_values[6] >= proc_values[4]:
         passed = False
         logger.warning("Very high Mg should reduce processivity")
 
@@ -344,7 +355,7 @@ def validate_mg_effects() -> Dict[str, Any]:
         "test": "Mg2+ concentration effects",
         "results": results,
         "passed": passed,
-        "summary": f"Optimal Mg around 2-4mM",
+        "summary": "Optimal Mg around 10 mM (isothermal, not PCR)",
     }
 
 

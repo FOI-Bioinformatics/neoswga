@@ -134,6 +134,8 @@ COMMAND_GROUPS = [
             "analyze-dimers",
             "analyze-stability",
             "analyze-coverage",
+            "calibrate-reach",
+            "evaluate-set",
         ],
     ),
     (
@@ -216,6 +218,7 @@ Run "neoswga <command> --help" for details on a specific command.
     from neoswga.cli import (
         analysis,
         commands,
+        evaluate,
         iterate,
         pipeline,
         registry,
@@ -225,6 +228,7 @@ Run "neoswga <command> --help" for details on a specific command.
     )
 
     pipeline.add_parsers(subparsers)
+    evaluate.add_parsers(subparsers)
     setup.add_parsers(subparsers)
     report.add_parsers(subparsers)
     analysis.add_parsers(subparsers)
@@ -259,11 +263,13 @@ from neoswga.cli.analysis import (  # noqa: E402,F401
 )
 from neoswga.cli.commands import (  # noqa: E402,F401
     run_analyze_coverage,
+    run_calibrate_reach,
     run_design,
     run_predict_efficiency,
     run_start,
     run_suggest,
 )
+from neoswga.cli.evaluate import run_evaluate_set  # noqa: E402,F401
 from neoswga.cli.iterate import (  # noqa: E402,F401
     run_contract_set,
     run_expand_primers,
@@ -354,6 +360,8 @@ def main():
         "analyze-dimers": run_analyze_dimers,
         "analyze-stability": run_analyze_stability,
         "analyze-coverage": run_analyze_coverage,
+        "calibrate-reach": run_calibrate_reach,
+        "evaluate-set": run_evaluate_set,
         # Category 3: Orphaned pipeline features (now exposed!)
         "multi-genome": run_multi_genome,
         # Category 4: Orphaned simulation features (now exposed!)

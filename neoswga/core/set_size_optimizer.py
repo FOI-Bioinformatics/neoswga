@@ -854,7 +854,29 @@ def estimate_optimal_set_size(
     # Empirical correction: multiply by ~1.3
     optimal_n *= 1.3
 
-    # Bound to reasonable range
+    # Bound to a reasonable range.
+    #
+    # KNOWN DEFECT, deliberately left in place rather than papered over by
+    # raising this ceiling. `genome_length` cancels out of `coverage_per_primer`
+    # above -- it appears in `expected_sites` and again in the denominator -- so
+    # `optimal_n` depends only on primer length. Measured: 53 primers at k=8,
+    # 851 at k=10 and 13,612 at k=12, identical for a 6 kb plasmid and a 50 Mb
+    # genome. At any SWGA primer length the clamp below is therefore the entire
+    # answer, and the model contributes nothing.
+    #
+    # The random-sequence site model is the reason. `expected_sites` assumes a
+    # k-mer occurs 4^-k times per base, but SWGA candidates are selected
+    # precisely for being abundant in the target: the Prevotella 12-mer pool has
+    # a median of 8 sites per primer against the 0.38 this predicts, a factor of
+    # about 20. Primers chosen for non-randomness cannot be modelled as random.
+    #
+    # Recalibrating it needs the measurement in
+    # docs/validation/reach_calibration.md, where greedy selection reaches 95%
+    # with 96 primers at a 3 kb reach where this model would say 13,612. Until
+    # then the ceiling stays at 20: a wrong number that is small is less
+    # damaging than a wrong number that is large, because `--auto-size` output
+    # is spent on oligos. Raise `num_primers` in params.json instead, which the
+    # schema now admits up to 200.
     return max(4, min(20, int(optimal_n + 0.5)))
 
 

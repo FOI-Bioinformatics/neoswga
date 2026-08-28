@@ -46,16 +46,16 @@ class TestSafeFloat:
 
     def test_nan_returns_default(self):
         """NaN values return default."""
-        assert _safe_float(float('nan')) == 0.0
-        assert _safe_float(float('nan'), default=1.0) == 1.0
+        assert _safe_float(float("nan")) == 0.0
+        assert _safe_float(float("nan"), default=1.0) == 1.0
         assert _safe_float("nan") == 0.0
         assert _safe_float("NaN") == 0.0
         assert _safe_float("NAN") == 0.0
 
     def test_inf_returns_default(self):
         """Infinity values return default."""
-        assert _safe_float(float('inf')) == 0.0
-        assert _safe_float(float('-inf')) == 0.0
+        assert _safe_float(float("inf")) == 0.0
+        assert _safe_float(float("-inf")) == 0.0
         assert _safe_float("inf") == 0.0
         assert _safe_float("Inf") == 0.0
         assert _safe_float("-inf") == 0.0
@@ -367,12 +367,16 @@ class TestCollectPipelineMetrics:
 
         # Create filter_stats with extra invalid fields
         filter_stats = tmp_path / "filter_stats.json"
-        filter_stats.write_text(json.dumps({
-            "total_kmers": 1000,
-            "final_candidates": 10,
-            "invalid_field": "should be ignored",
-            "another_invalid": 123,
-        }))
+        filter_stats.write_text(
+            json.dumps(
+                {
+                    "total_kmers": 1000,
+                    "final_candidates": 10,
+                    "invalid_field": "should be ignored",
+                    "another_invalid": 123,
+                }
+            )
+        )
 
         metrics = collect_pipeline_metrics(str(tmp_path))
 
@@ -439,11 +443,7 @@ class TestEdgeCases:
     def test_all_nan_tm_values(self, tmp_path):
         """Handle all NaN Tm values."""
         csv_path = tmp_path / "step4_improved_df.csv"
-        csv_path.write_text(
-            "sequence,tm\n"
-            "ATCG,nan\n"
-            "GCTA,NaN\n"
-        )
+        csv_path.write_text("sequence,tm\n" "ATCG,nan\n" "GCTA,NaN\n")
 
         metrics = collect_pipeline_metrics(str(tmp_path))
 
@@ -454,10 +454,7 @@ class TestEdgeCases:
     def test_unicode_in_csv(self, tmp_path):
         """Handle unicode characters in CSV (should not crash)."""
         csv_path = tmp_path / "step4_improved_df.csv"
-        csv_path.write_text(
-            "sequence,comment\n"
-            "ATCG,test primer\n"
-        )
+        csv_path.write_text("sequence,comment\n" "ATCG,test primer\n")
 
         metrics = collect_pipeline_metrics(str(tmp_path))
         assert len(metrics.primers) == 1
@@ -465,10 +462,7 @@ class TestEdgeCases:
     def test_very_large_numbers(self, tmp_path):
         """Handle very large numbers."""
         csv_path = tmp_path / "step4_improved_df.csv"
-        csv_path.write_text(
-            "sequence,fg_freq,bg_freq\n"
-            "ATCG,1e10,1e-15\n"
-        )
+        csv_path.write_text("sequence,fg_freq,bg_freq\n" "ATCG,1e10,1e-15\n")
 
         metrics = collect_pipeline_metrics(str(tmp_path))
         assert metrics.primers[0].fg_freq == 1e10
@@ -478,12 +472,7 @@ class TestEdgeCases:
         """Test strand ratio calculation edge cases."""
         # All primers favor forward strand
         csv_path = tmp_path / "step4_improved_df.csv"
-        csv_path.write_text(
-            "sequence,strand_ratio\n"
-            "ATCG,1.5\n"
-            "GCTA,2.0\n"
-            "TAGC,1.1\n"
-        )
+        csv_path.write_text("sequence,strand_ratio\n" "ATCG,1.5\n" "GCTA,2.0\n" "TAGC,1.1\n")
 
         metrics = collect_pipeline_metrics(str(tmp_path))
         assert metrics.uniformity is not None
@@ -516,31 +505,33 @@ class TestOptimizerSummaryIngestion:
         assert _load_optimizer_summary(tmp_path) is None
 
     def test_load_optimizer_summary_valid(self, tmp_path):
-        summary = {'metrics': {'fg_coverage': 0.85, 'mean_gap': 5000.0}}
-        (tmp_path / 'step4_improved_df_summary.json').write_text(json.dumps(summary))
+        summary = {"metrics": {"fg_coverage": 0.85, "mean_gap": 5000.0}}
+        (tmp_path / "step4_improved_df_summary.json").write_text(json.dumps(summary))
         result = _load_optimizer_summary(tmp_path)
-        assert result['metrics']['fg_coverage'] == 0.85
+        assert result["metrics"]["fg_coverage"] == 0.85
 
     def test_load_optimizer_summary_corrupt_json(self, tmp_path):
-        (tmp_path / 'step4_improved_df_summary.json').write_text('not json{')
+        (tmp_path / "step4_improved_df_summary.json").write_text("not json{")
         assert _load_optimizer_summary(tmp_path) is None
 
     def test_coverage_uses_optimizer_data(self, tmp_path):
         """When summary JSON exists, coverage should come from optimizer."""
-        csv_content = "sequence,score,fg_freq,bg_freq,tm,gini\nATCGATCG,1.0,0.001,0.00001,35.0,0.2\n"
-        (tmp_path / 'step4_improved_df.csv').write_text(csv_content)
-        params = {'fg_genome': 'target.fna', 'fg_size': 100000}
-        (tmp_path / 'params.json').write_text(json.dumps(params))
+        csv_content = (
+            "sequence,score,fg_freq,bg_freq,tm,gini\nATCGATCG,1.0,0.001,0.00001,35.0,0.2\n"
+        )
+        (tmp_path / "step4_improved_df.csv").write_text(csv_content)
+        params = {"fg_genome": "target.fna", "fg_size": 100000}
+        (tmp_path / "params.json").write_text(json.dumps(params))
         summary = {
-            'metrics': {
-                'fg_coverage': 0.72,
-                'mean_gap': 3500.0,
-                'max_gap': 12000.0,
-                'gap_gini': 0.35,
-                'gap_entropy': 2.1,
+            "metrics": {
+                "fg_coverage": 0.72,
+                "mean_gap": 3500.0,
+                "max_gap": 12000.0,
+                "gap_gini": 0.35,
+                "gap_entropy": 2.1,
             }
         }
-        (tmp_path / 'step4_improved_df_summary.json').write_text(json.dumps(summary))
+        (tmp_path / "step4_improved_df_summary.json").write_text(json.dumps(summary))
 
         metrics = collect_pipeline_metrics(str(tmp_path))
         assert metrics.coverage.overall_coverage == 0.72
@@ -554,9 +545,9 @@ class TestOptimizerSummaryIngestion:
     def test_coverage_without_summary_is_estimated(self, tmp_path):
         """Without summary JSON, coverage is estimated and from_optimizer is False."""
         csv_content = "sequence,fg_freq,bg_freq,tm,gini\nATCGATCG,0.001,0.00001,35.0,0.2\n"
-        (tmp_path / 'step4_improved_df.csv').write_text(csv_content)
-        params = {'fg_size': 100000}
-        (tmp_path / 'params.json').write_text(json.dumps(params))
+        (tmp_path / "step4_improved_df.csv").write_text(csv_content)
+        params = {"fg_size": 100000}
+        (tmp_path / "params.json").write_text(json.dumps(params))
 
         metrics = collect_pipeline_metrics(str(tmp_path))
         assert metrics.coverage.from_optimizer is False

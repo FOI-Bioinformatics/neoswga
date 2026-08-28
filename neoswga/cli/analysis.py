@@ -9,7 +9,11 @@ import logging
 import os
 import sys
 
-from neoswga.cli._common import PRESETS, validate_primer_sequence
+from neoswga.cli._common import (
+    PRESETS,
+    collect_primers_from_args,
+    validate_primer_sequence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +80,86 @@ def show_presets():
         print()
 
 
+def _sweep_conditions_for_set(args, primers):
+    """Choose conditions by measuring selectivity, not by looking up genome GC.
+
+    Reports the whole grid rather than only the winner: a flat optimum means
+    chemistry is not the binding constraint on this design and effort belongs
+    elsewhere, and that is invisible in a single recommended value.
+    """
+    import os
+
+    from neoswga.core.condition_sweep import (
+        DEFAULT_AMPLIFICATION_WEIGHT,
+        format_sweep_table,
+        recommend_conditions_for_set,
+        sweep_conditions,
+    )
+
+    fg_prefixes = getattr(args, "fg_prefix", None) or [os.path.splitext(args.fg)[0]]
+    bg_prefixes = list(args.bg)
+    weight = getattr(args, "amplification_weight", None)
+    if weight is None:
+        weight = DEFAULT_AMPLIFICATION_WEIGHT
+
+    logger.info(
+        "Sweeping reaction conditions for %d primer(s) against %d background(s)",
+        len(primers),
+        len(bg_prefixes),
+    )
+
+    points = sweep_conditions(
+        primers=primers,
+        fg_prefixes=fg_prefixes,
+        bg_prefixes=bg_prefixes,
+        polymerase=getattr(args, "polymerase", "phi29"),
+    )
+    best = recommend_conditions_for_set(
+        primers=primers,
+        fg_prefixes=fg_prefixes,
+        bg_prefixes=bg_prefixes,
+        polymerase=getattr(args, "polymerase", "phi29"),
+        amplification_weight=weight,
+    )
+
+    print("\nCondition sweep (selectivity measured against the background):\n")
+    print(format_sweep_table(points, weight))
+    print(f"\nRecommended: {best.label}")
+
+    os.makedirs(args.output, exist_ok=True)
+    out_path = os.path.join(args.output, "condition_sweep.json")
+    with open(out_path, "w") as handle:
+        json.dump(
+            {
+                "polymerase": getattr(args, "polymerase", "phi29"),
+                "primers": list(primers),
+                "amplification_weight": weight,
+                "recommended": vars(best) if hasattr(best, "__dict__") else best.__dict__,
+                "grid": [p.__dict__ for p in points],
+            },
+            handle,
+            indent=2,
+            default=float,
+        )
+    print(f"Wrote {out_path}")
+    return 0
+
+
 def optimize_conditions(args):
     """Optimize reaction conditions for a genome"""
     from Bio import SeqIO
 
     from neoswga.core import reaction_conditions as rc
+
+    # With a primer set and a background, conditions can be chosen from a
+    # measurement instead of from genome GC content. That path is the point of
+    # this command; the GC recommendation below remains for the case where
+    # there is no design to evaluate yet.
+    primers = collect_primers_from_args(
+        getattr(args, "primers", None), getattr(args, "primers_file", None), allow_empty=True
+    )
+    if primers and getattr(args, "bg", None):
+        return _sweep_conditions_for_set(args, primers)
 
     logger.info("Analyzing genome and recommending optimal conditions...")
 
@@ -125,14 +204,34 @@ def analyze_primer_set(args):
 
     logger.info("Analyzing primer set...")
 
-    # Load preset config
-    config_dict = PRESETS[args.preset]
+    # Resolve via load_preset_conditions so every additive the preset defines is
+    # applied. This used to read the PRESETS display dict and pass only four
+    # fields, which was the third place the preset divergence bit: analyze-set
+    # ran at 0 mM Mg and dropped urea/TMAC/ethanol/formamide entirely.
+    from neoswga.cli._common import load_preset_conditions
+
+    applied = load_preset_conditions(args.preset)
+    if not applied:
+        raise ValueError(f"Unknown preset: {args.preset}")
     conditions = rc.ReactionConditions(
-        temp=config_dict["temperature"],
-        dmso_percent=config_dict["dmso_percent"],
-        betaine_m=config_dict["betaine_m"],
-        polymerase=config_dict["polymerase"],
+        temp=applied["reaction_temp"],
+        polymerase=applied["polymerase"],
+        na_conc=applied["na_conc"],
+        mg_conc=applied["mg_conc"],
+        **{
+            k: v
+            for k, v in applied.items()
+            if k not in ("reaction_temp", "polymerase", "na_conc", "mg_conc", "ssb")
+        },
     )
+
+    if getattr(args, "fg", None) or getattr(args, "fg_kmers", None):
+        logger.warning(
+            "analyze-set does not use --fg/--fg-kmers; it performs sequence-only "
+            "analysis. For coverage and binding-site density against a genome, "
+            "use: neoswga evaluate-set --primers ... --genome %s",
+            getattr(args, "fg", None) or "<genome.fasta>",
+        )
 
     primers = args.primers
 
@@ -158,21 +257,58 @@ def analyze_primer_set(args):
         hairpins = ss.check_hairpins(primer, conditions)
         homodimer = ss.check_homodimer(primer, conditions)
         print(f"  {primer}:")
+        # check_hairpins returns a list of dicts and check_homodimer a dict;
+        # both were accessed as objects, which raised as soon as a hairpin was
+        # found or this line was reached.
         if hairpins:
-            worst = min(hairpins, key=lambda h: h.energy)
-            print(f"    Hairpin: dG={worst.energy:.2f} kcal/mol, stem={worst.stem_length}bp")
+            worst = min(hairpins, key=lambda h: h["energy"])
+            print(
+                f"    Hairpin: dG={worst['energy']:.2f} kcal/mol, "
+                f"stem={worst.get('stem_length', 0)}bp"
+            )
         else:
-            print(f"    Hairpin: none detected")
-        print(f"    Homodimer: dG={homodimer.energy:.2f} kcal/mol")
+            print("    Hairpin: none detected")
+        print(f"    Homodimer: dG={float(homodimer['energy']):.2f} kcal/mol")
 
     # Check heterodimers
     print("\nHeterodimer Analysis:")
+    heterodimers = []
     for i, p1 in enumerate(primers):
         for j, p2 in enumerate(primers):
             if i < j:
                 result = ss.check_heterodimer(p1, p2, conditions)
-                if result.energy < -6.0:
-                    print(f"  {p1} x {p2}: dG={result.energy:.2f} kcal/mol (warning)")
+                # check_heterodimer returns a dict; the previous code used
+                # attribute access and raised the moment this branch executed.
+                energy = float(result["energy"])
+                heterodimers.append({"primer_a": p1, "primer_b": p2, "delta_g": energy})
+                if energy < -6.0:
+                    print(f"  {p1} x {p2}: dG={energy:.2f} kcal/mol (warning)")
+
+    # Honour --output. It used to be a required argument that wrote nothing, so
+    # anyone scripting around this command got an empty directory.
+    if getattr(args, "output", None):
+        import json as _json
+        import os as _os
+
+        _os.makedirs(args.output, exist_ok=True)
+        report = {
+            "preset": args.preset,
+            "conditions": conditions.to_dict(),
+            "primers": [
+                {
+                    "primer": p,
+                    "length": len(p),
+                    "gc": round(thermo.gc_content(p), 4),
+                    "tm": round(conditions.calculate_effective_tm(p), 2),
+                }
+                for p in primers
+            ],
+            "heterodimers": heterodimers,
+        }
+        out_path = _os.path.join(args.output, "primer_analysis.json")
+        with open(out_path, "w") as fh:
+            _json.dump(report, fh, indent=2)
+        print(f"\nWrote {out_path}")
 
     print("\nAnalysis complete!")
 
@@ -303,20 +439,68 @@ def add_parsers(subparsers):
     optimize_cond_parser.add_argument(
         "--target-k", type=int, help="Target k-mer length to optimize for"
     )
+    # Without a background and a primer set this command could only ever
+    # recommend from genome GC content -- it had no way to measure specificity,
+    # which is the thing conditions are usually being chosen for.
+    optimize_cond_parser.add_argument(
+        "--bg",
+        "--background",
+        dest="bg",
+        nargs="+",
+        help="Background k-mer prefix(es). With --primers, sweeps conditions "
+        "and reports measured selectivity against this background rather than "
+        "recommending from genome GC alone.",
+    )
+    optimize_cond_parser.add_argument(
+        "--fg-prefix",
+        nargs="+",
+        help="Foreground k-mer prefix(es) for the selectivity sweep "
+        "(defaults to --fg with its extension stripped).",
+    )
+    optimize_cond_parser.add_argument(
+        "--primers", nargs="+", help="Primer set to optimise conditions for"
+    )
+    optimize_cond_parser.add_argument("--primers-file", help="File of primers, one per line")
+    optimize_cond_parser.add_argument(
+        "--polymerase", default="phi29", help="Polymerase (default: phi29)"
+    )
+    optimize_cond_parser.add_argument(
+        "--amplification-weight",
+        type=float,
+        default=None,
+        help="How much the amplification cost counts against the specificity "
+        "gain, 0-1 (default 0.5). At 0 the search walks to the harshest "
+        "condition on the grid and recommends a reaction that amplifies nothing.",
+    )
 
     # =========================================================================
     # ADVANCED: Analyze primer set
     # =========================================================================
 
     analyze_parser = subparsers.add_parser(
-        "analyze-set", help="[EXPERIMENTAL] Analyze an existing primer set"
+        "analyze-set",
+        help="Sequence-level analysis of a primer set (Tm, GC, hairpins, dimers)",
+        description=(
+            "Sequence-only analysis: melting temperature, GC, hairpins and "
+            "pairwise dimers. It does NOT look at a genome - for coverage, "
+            "binding-site density and selectivity use 'neoswga evaluate-set'."
+        ),
     )
     analyze_parser.add_argument(
         "--primers", required=True, nargs="+", help="Primer sequences to analyze"
     )
-    analyze_parser.add_argument("--fg", required=True, help="Foreground genome FASTA")
-    analyze_parser.add_argument("--fg-kmers", required=True, help="Foreground k-mer file prefix")
-    analyze_parser.add_argument("--output", "-o", required=True, help="Output directory")
+    # --fg / --fg-kmers were required but never read, and --output was required
+    # but nothing was written. Kept as accepted-but-optional so existing command
+    # lines keep working, with a pointer to the command that does use a genome.
+    analyze_parser.add_argument(
+        "--fg", help="(unused) Foreground genome FASTA - use evaluate-set for genome-aware analysis"
+    )
+    analyze_parser.add_argument(
+        "--fg-kmers", help="(unused) Foreground k-mer prefix - use evaluate-set instead"
+    )
+    analyze_parser.add_argument(
+        "--output", "-o", help="Optional output directory; writes primer_analysis.json"
+    )
     analyze_parser.add_argument(
         "--preset", default="standard_phi29", help="Reaction conditions preset"
     )

@@ -27,27 +27,27 @@ class TestAdditiveInteraction:
     def test_interaction_creation(self):
         """Test creating an interaction."""
         interaction = AdditiveInteraction(
-            name='test_interaction',
-            additives=['dmso', 'betaine'],
+            name="test_interaction",
+            additives=["dmso", "betaine"],
             pathway=Pathway.PROCESSIVITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.1,
-            min_concentrations={'dmso': 2.0, 'betaine': 0.5},
+            min_concentrations={"dmso": 2.0, "betaine": 0.5},
         )
-        assert interaction.name == 'test_interaction'
-        assert interaction.additives == ['dmso', 'betaine']
+        assert interaction.name == "test_interaction"
+        assert interaction.additives == ["dmso", "betaine"]
         assert interaction.pathway == Pathway.PROCESSIVITY
         assert interaction.effect_type == EffectType.SYNERGY
 
     def test_interaction_not_active_below_threshold(self):
         """Test that interaction is not active when below concentration threshold."""
         interaction = AdditiveInteraction(
-            name='test',
-            additives=['dmso'],
+            name="test",
+            additives=["dmso"],
             pathway=Pathway.PROCESSIVITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.1,
-            min_concentrations={'dmso': 5.0},
+            min_concentrations={"dmso": 5.0},
         )
         conditions = ReactionConditions(temp=30.0, dmso_percent=3.0)
         assert not interaction.is_active(conditions)
@@ -55,12 +55,12 @@ class TestAdditiveInteraction:
     def test_interaction_active_above_threshold(self):
         """Test that interaction is active when above concentration threshold."""
         interaction = AdditiveInteraction(
-            name='test',
-            additives=['dmso'],
+            name="test",
+            additives=["dmso"],
             pathway=Pathway.PROCESSIVITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.1,
-            min_concentrations={'dmso': 5.0},
+            min_concentrations={"dmso": 5.0},
         )
         conditions = ReactionConditions(temp=30.0, dmso_percent=6.0)
         assert interaction.is_active(conditions)
@@ -68,13 +68,13 @@ class TestAdditiveInteraction:
     def test_synergy_effect_positive(self):
         """Test that synergy produces effect > 1.0."""
         interaction = AdditiveInteraction(
-            name='test',
-            additives=['betaine'],
+            name="test",
+            additives=["betaine"],
             pathway=Pathway.STABILITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.1,
-            min_concentrations={'betaine': 0.5},
-            max_concentrations={'betaine': 2.0},
+            min_concentrations={"betaine": 0.5},
+            max_concentrations={"betaine": 2.0},
         )
         conditions = ReactionConditions(temp=30.0, betaine_m=1.5)
         effect = interaction.calculate_effect(conditions)
@@ -83,12 +83,12 @@ class TestAdditiveInteraction:
     def test_antagonism_effect_negative(self):
         """Test that antagonism produces effect < 1.0."""
         interaction = AdditiveInteraction(
-            name='test',
-            additives=['dmso'],
+            name="test",
+            additives=["dmso"],
             pathway=Pathway.PROCESSIVITY,
             effect_type=EffectType.ANTAGONISM,
             base_coefficient=0.1,
-            min_concentrations={'dmso': 3.0},
+            min_concentrations={"dmso": 3.0},
         )
         conditions = ReactionConditions(temp=30.0, dmso_percent=5.0)
         effect = interaction.calculate_effect(conditions)
@@ -97,12 +97,12 @@ class TestAdditiveInteraction:
     def test_inactive_interaction_returns_one(self):
         """Test that inactive interaction returns effect of 1.0."""
         interaction = AdditiveInteraction(
-            name='test',
-            additives=['dmso'],
+            name="test",
+            additives=["dmso"],
             pathway=Pathway.PROCESSIVITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.5,
-            min_concentrations={'dmso': 10.0},  # Very high threshold
+            min_concentrations={"dmso": 10.0},  # Very high threshold
         )
         conditions = ReactionConditions(temp=30.0, dmso_percent=5.0)
         effect = interaction.calculate_effect(conditions)
@@ -111,12 +111,12 @@ class TestAdditiveInteraction:
     def test_gc_dependent_interaction_high_gc(self):
         """Test GC-dependent interaction activates for high GC templates."""
         interaction = AdditiveInteraction(
-            name='test',
-            additives=['betaine'],
+            name="test",
+            additives=["betaine"],
             pathway=Pathway.ACCESSIBILITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.1,
-            min_concentrations={'betaine': 0.5},
+            min_concentrations={"betaine": 0.5},
             requires_high_gc=True,
             gc_threshold=0.55,
         )
@@ -136,57 +136,57 @@ class TestAdditiveInteractionRegistry:
         """Test registering and retrieving interactions."""
         registry = AdditiveInteractionRegistry()
         interaction = AdditiveInteraction(
-            name='test_interaction',
-            additives=['dmso'],
+            name="test_interaction",
+            additives=["dmso"],
             pathway=Pathway.PROCESSIVITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.1,
         )
         registry.register(interaction)
-        assert registry.get('test_interaction') is interaction
+        assert registry.get("test_interaction") is interaction
 
     def test_unregister_interaction(self):
         """Test removing an interaction."""
         registry = AdditiveInteractionRegistry()
         interaction = AdditiveInteraction(
-            name='test',
-            additives=['dmso'],
+            name="test",
+            additives=["dmso"],
             pathway=Pathway.PROCESSIVITY,
             effect_type=EffectType.SYNERGY,
             base_coefficient=0.1,
         )
         registry.register(interaction)
-        registry.unregister('test')
-        assert registry.get('test') is None
+        registry.unregister("test")
+        assert registry.get("test") is None
 
     def test_pathway_modifier_multiplicative(self):
         """Test that multiple interactions on same pathway multiply."""
         registry = AdditiveInteractionRegistry()
 
         # Two synergies, each +10%
-        registry.register(AdditiveInteraction(
-            name='synergy1',
-            additives=['dmso'],
-            pathway=Pathway.STABILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.1,
-            min_concentrations={'dmso': 1.0},
-        ))
-        registry.register(AdditiveInteraction(
-            name='synergy2',
-            additives=['betaine'],
-            pathway=Pathway.STABILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.1,
-            min_concentrations={'betaine': 0.5},
-        ))
+        registry.register(
+            AdditiveInteraction(
+                name="synergy1",
+                additives=["dmso"],
+                pathway=Pathway.STABILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.1,
+                min_concentrations={"dmso": 1.0},
+            )
+        )
+        registry.register(
+            AdditiveInteraction(
+                name="synergy2",
+                additives=["betaine"],
+                pathway=Pathway.STABILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.1,
+                min_concentrations={"betaine": 0.5},
+            )
+        )
 
-        conditions = ReactionConditions(
-            temp=30.0, dmso_percent=2.0, betaine_m=1.0
-        )
-        modifier = registry.calculate_pathway_modifier(
-            Pathway.STABILITY, conditions
-        )
+        conditions = ReactionConditions(temp=30.0, dmso_percent=2.0, betaine_m=1.0)
+        modifier = registry.calculate_pathway_modifier(Pathway.STABILITY, conditions)
         # Should be approximately 1.1 * 1.05 = 1.155 (multiplicative)
         # Exact values depend on concentration scaling
         assert modifier > 1.0
@@ -201,29 +201,33 @@ class TestAdditiveInteractionRegistry:
     def test_get_active_interactions(self):
         """Test getting list of active interactions."""
         registry = AdditiveInteractionRegistry()
-        registry.register(AdditiveInteraction(
-            name='active',
-            additives=['dmso'],
-            pathway=Pathway.PROCESSIVITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.1,
-            min_concentrations={'dmso': 2.0},
-        ))
-        registry.register(AdditiveInteraction(
-            name='inactive',
-            additives=['betaine'],
-            pathway=Pathway.STABILITY,
-            effect_type=EffectType.SYNERGY,
-            base_coefficient=0.1,
-            min_concentrations={'betaine': 5.0},  # High threshold
-        ))
+        registry.register(
+            AdditiveInteraction(
+                name="active",
+                additives=["dmso"],
+                pathway=Pathway.PROCESSIVITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.1,
+                min_concentrations={"dmso": 2.0},
+            )
+        )
+        registry.register(
+            AdditiveInteraction(
+                name="inactive",
+                additives=["betaine"],
+                pathway=Pathway.STABILITY,
+                effect_type=EffectType.SYNERGY,
+                base_coefficient=0.1,
+                min_concentrations={"betaine": 5.0},  # High threshold
+            )
+        )
 
         conditions = ReactionConditions(temp=30.0, dmso_percent=3.0, betaine_m=1.0)
         active = registry.get_active_interactions(conditions)
 
         active_names = [i.name for i in active]
-        assert 'active' in active_names
-        assert 'inactive' not in active_names
+        assert "active" in active_names
+        assert "inactive" not in active_names
 
 
 class TestDefaultRegistry:
@@ -240,17 +244,17 @@ class TestDefaultRegistry:
         interaction_names = list(registry.interactions.keys())
 
         # Check for migrated interactions
-        assert 'betaine_trehalose_synergy' in interaction_names
+        assert "betaine_trehalose_synergy" in interaction_names
         # Note: dmso_mg_chelation is now handled directly in MechanisticModel
 
         # Check for new interactions
-        assert 'betaine_dmso_gc_synergy' in interaction_names
-        assert 'trehalose_dmso_protection' in interaction_names
-        assert 'optimal_swga_triple' in interaction_names
+        assert "betaine_dmso_gc_synergy" in interaction_names
+        assert "trehalose_dmso_protection" in interaction_names
+        assert "optimal_swga_triple" in interaction_names
 
     def test_standard_conditions_no_effects(self):
         """Test that standard conditions without additives have no interactions."""
-        conditions = ReactionConditions(temp=30.0, polymerase='phi29', mg_conc=2.5)
+        conditions = ReactionConditions(temp=30.0, polymerase="phi29", mg_conc=2.5)
         mods = calculate_interaction_modifiers(conditions, template_gc=0.5)
 
         # All modifiers should be 1.0 (or very close)
@@ -260,8 +264,12 @@ class TestDefaultRegistry:
     def test_enhanced_conditions_have_effects(self):
         """Test that enhanced conditions activate interactions."""
         conditions = ReactionConditions(
-            temp=42.0, polymerase='equiphi29',
-            dmso_percent=5.0, betaine_m=1.5, trehalose_m=0.3, mg_conc=2.5
+            temp=42.0,
+            polymerase="equiphi29",
+            dmso_percent=5.0,
+            betaine_m=1.5,
+            trehalose_m=0.3,
+            mg_conc=2.5,
         )
         mods = calculate_interaction_modifiers(conditions, template_gc=0.6)
 
@@ -278,34 +286,37 @@ class TestMechanisticModelIntegration:
         from neoswga.core.mechanistic_model import MechanisticModel
 
         conditions = ReactionConditions(
-            temp=42.0, polymerase='equiphi29',
-            dmso_percent=5.0, betaine_m=1.5, trehalose_m=0.3, mg_conc=2.5
+            temp=42.0,
+            polymerase="equiphi29",
+            dmso_percent=5.0,
+            betaine_m=1.5,
+            trehalose_m=0.3,
+            mg_conc=2.5,
         )
         model = MechanisticModel(conditions)
 
         # Get interaction report
         report = model.get_interaction_report(template_gc=0.6)
-        assert 'Active Additive Interactions' in report
+        assert "Active Additive Interactions" in report
 
     def test_model_enzyme_parameters_include_interactions(self):
         """Test that enzyme parameters include interaction effects."""
         from neoswga.core.mechanistic_model import MechanisticModel
 
         # Standard conditions
-        base_conditions = ReactionConditions(temp=30.0, polymerase='phi29', mg_conc=2.5)
+        base_conditions = ReactionConditions(temp=30.0, polymerase="phi29", mg_conc=2.5)
         base_model = MechanisticModel(base_conditions)
         base_enzyme = base_model.get_enzyme_parameters(template_gc=0.5)
 
         # Enhanced conditions with synergistic additives
         enhanced_conditions = ReactionConditions(
-            temp=30.0, polymerase='phi29',
-            betaine_m=1.0, trehalose_m=0.3, mg_conc=2.5
+            temp=30.0, polymerase="phi29", betaine_m=1.0, trehalose_m=0.3, mg_conc=2.5
         )
         enhanced_model = MechanisticModel(enhanced_conditions)
         enhanced_enzyme = enhanced_model.get_enzyme_parameters(template_gc=0.5)
 
         # Enhanced should have better stability due to betaine-trehalose synergy
-        assert enhanced_enzyme['stability_factor'] >= base_enzyme['stability_factor']
+        assert enhanced_enzyme["stability_factor"] >= base_enzyme["stability_factor"]
 
 
 class TestThreeWayInteractions:
@@ -314,18 +325,14 @@ class TestThreeWayInteractions:
     def test_three_way_interaction_requires_all(self):
         """Test that 3-way interaction requires all additives."""
         registry = get_default_registry()
-        triple = registry.get('optimal_swga_triple')
+        triple = registry.get("optimal_swga_triple")
         assert triple is not None
         assert len(triple.additives) == 3
 
         # Missing one additive
-        partial = ReactionConditions(
-            temp=30.0, dmso_percent=5.0, betaine_m=1.5, trehalose_m=0.0
-        )
+        partial = ReactionConditions(temp=30.0, dmso_percent=5.0, betaine_m=1.5, trehalose_m=0.0)
         assert not triple.is_active(partial)
 
         # All additives present
-        full = ReactionConditions(
-            temp=30.0, dmso_percent=5.0, betaine_m=1.5, trehalose_m=0.3
-        )
+        full = ReactionConditions(temp=30.0, dmso_percent=5.0, betaine_m=1.5, trehalose_m=0.3)
         assert triple.is_active(full)

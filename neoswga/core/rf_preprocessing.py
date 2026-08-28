@@ -349,6 +349,17 @@ def get_features(primer, target=None, molarity=2.5):
     Returns:
         result: A list of all the base feature values, the primer sequence, and whether it is in the on-target genome.
     """
+    # Normalise case once, up front.
+    #
+    # Every base count below is case-sensitive (`primer.count("A")` sees nothing
+    # in "atcg"), so a lowercase primer would produce a feature vector of zero
+    # counts, zero proportions and zero GC content before failing on the 3'-base
+    # lookup with `KeyError: 'a'`. Jellyfish output is uppercase so the pipeline
+    # never hit it, but soft-masked FASTA and hand-typed primer lists are
+    # lowercase, and those reach the scoring path through the bring-your-own-
+    # oligo commands.
+    primer = primer.upper()
+
     feature_dict = {}
     feature_dict["molarity"] = molarity
     feature_dict["sequence.length"] = len(primer)

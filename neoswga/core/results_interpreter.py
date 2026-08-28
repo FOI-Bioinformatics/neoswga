@@ -15,7 +15,41 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from neoswga.core import quality_thresholds as _thresholds
+
 logger = logging.getLogger(__name__)
+
+
+def processivity_bonus(polymerase: str) -> float:
+    """How much an enzyme's reach is worth in the enrichment estimate.
+
+    This was `log2(processivity / 1000)`, which is negative below 1 kb. Klenow's
+    processivity is 40 bp and bsu's is 50 -- both correct, both distributive --
+    so the term went negative, the estimate went negative with it, and the
+    `max(1.0, ...)` floor downstream clamped every klenow and bsu design to
+    "no enrichment" whatever its primer set did. The floor hid the sign error
+    rather than containing it.
+
+    Anchoring the logarithm at the shortest reach in the registry keeps the term
+    positive and monotone in processivity, which is all the estimate needs from
+    it. The estimate remains a rough heuristic, not a prediction.
+    """
+    import math
+
+    from neoswga.core.reaction_conditions import get_polymerase_processivity
+    from neoswga.core.registry import views as _views
+
+    try:
+        processivity = get_polymerase_processivity(polymerase)
+    except (ValueError, KeyError):
+        logger.debug(
+            f"Unknown polymerase {polymerase!r}; using phi29 processivity "
+            f"for the enrichment estimate"
+        )
+        processivity = 70000
+
+    floor = min(_views.processivity_map().values())
+    return math.log2(2.0 * processivity / floor)
 
 
 class QualityRating(Enum):
@@ -53,34 +87,40 @@ class ResultsReport:
     enrichment_estimate: Optional[Dict[str, Any]] = None
 
 
-# Thresholds for quality ratings
-COVERAGE_THRESHOLDS = {
-    QualityRating.EXCELLENT: 0.95,
-    QualityRating.GOOD: 0.85,
-    QualityRating.ACCEPTABLE: 0.70,
-    QualityRating.POOR: 0.50,
-}
+def _blurb(thresholds, fmt):
+    """The threshold line printed under a metric, built from the numbers used.
 
-ENRICHMENT_THRESHOLDS = {
-    QualityRating.EXCELLENT: 200.0,
-    QualityRating.GOOD: 100.0,
-    QualityRating.ACCEPTABLE: 50.0,
-    QualityRating.POOR: 20.0,
-}
+    It was a hand-written string, so it kept saying ">200x excellent" after the
+    table it described had moved.
+    """
+    return ", ".join(
+        f">{fmt.format(thresholds[label])} {label}" for label in ("excellent", "good", "acceptable")
+    )
 
-UNIFORMITY_THRESHOLDS = {  # Gini index (lower is better)
-    QualityRating.EXCELLENT: 0.3,
-    QualityRating.GOOD: 0.45,
-    QualityRating.ACCEPTABLE: 0.6,
-    QualityRating.POOR: 0.75,
-}
 
-DIMER_SCORE_THRESHOLDS = {  # Lower is better
-    QualityRating.EXCELLENT: 0.1,
-    QualityRating.GOOD: 0.2,
-    QualityRating.ACCEPTABLE: 0.35,
-    QualityRating.POOR: 0.5,
-}
+def _by_rating(thresholds):
+    """Shared string-keyed thresholds, keyed by QualityRating for this module.
+
+    Derived rather than restated: this module and `report/quality.py` each kept
+    their own copy and drifted to 200x against 500x at "excellent", so the two
+    commands graded one result differently.
+    """
+    return {
+        QualityRating.EXCELLENT: thresholds["excellent"],
+        QualityRating.GOOD: thresholds["good"],
+        QualityRating.ACCEPTABLE: thresholds["acceptable"],
+        QualityRating.POOR: thresholds["poor"],
+    }
+
+
+# Thresholds for quality ratings, all from the shared calibrated source.
+COVERAGE_THRESHOLDS = _by_rating(_thresholds.COVERAGE)
+
+ENRICHMENT_THRESHOLDS = _by_rating(_thresholds.ENRICHMENT)
+
+UNIFORMITY_THRESHOLDS = _by_rating(_thresholds.GINI)  # Gini index (lower is better)
+
+DIMER_SCORE_THRESHOLDS = _by_rating(_thresholds.DIMER_RISK)  # Lower is better
 
 
 def rate_metric(
@@ -174,7 +214,7 @@ class ResultsInterpreter:
                     rating=rating,
                     unit="%",
                     context=f"Percentage of target genome covered by primer binding",
-                    threshold_info=f">95% excellent, >85% good, >70% acceptable",
+                    threshold_info=_blurb(_thresholds.COVERAGE, "{:.0%}"),
                 )
             )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
@@ -191,7 +231,7 @@ class ResultsInterpreter:
                     rating=rating,
                     unit="x",
                     context="Expected fold-enrichment of target vs background",
-                    threshold_info=">200x excellent, >100x good, >50x acceptable",
+                    threshold_info=_blurb(_thresholds.ENRICHMENT, "{:.0f}x"),
                 )
             )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
@@ -422,21 +462,16 @@ class ResultsInterpreter:
             # With N primers, overall enrichment scales roughly as
             # mean_amplification_factor ^ (N * coverage_efficiency).
             # We use a simplified estimate: mean_factor * num_primers * processivity_scaling
-            processivity_map = {
-                "phi29": 70000,
-                "equiphi29": 80000,
-                "bst": 2000,
-                "klenow": 10000,
-            }
-            processivity = processivity_map.get(polymerase, 70000)
-            # Scale by log2 of processivity relative to typical genome regions
-            import math
-
-            processivity_bonus = math.log2(processivity / 1000.0)
+            # Read processivity from reaction_conditions rather than keeping a
+            # hand copy here; this table had already gone stale once.
+            # get_polymerase_processivity raises on an unknown polymerase, but
+            # this is a best-effort interpretation of an existing result, so keep
+            # the previous phi29 fallback rather than failing the whole report.
+            bonus = processivity_bonus(polymerase)
 
             # Enrichment estimate: exponential scaling with primer count
             # Conservative estimate based on amplification factor and primer count
-            estimated_enrichment = mean_factor * len(primer_seqs) * processivity_bonus
+            estimated_enrichment = mean_factor * len(primer_seqs) * bonus
             # Cap at reasonable range
             estimated_enrichment = max(1.0, min(estimated_enrichment, 10000.0))
 

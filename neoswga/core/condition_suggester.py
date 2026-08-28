@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
+from neoswga.core.registry import views as _registry_views
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,14 +96,44 @@ ADDITIVE_MATRIX = {
     ("extreme_gc", "long"): (2.5, 7.0, 0.5),
 }
 
-# Mg2+ recommendations
-MG_RECOMMENDATIONS = {
-    "extreme_at": 2.5,  # Extra Mg2+ stabilizes AT-rich
-    "at_rich": 2.0,
-    "balanced": 1.5,
-    "gc_rich": 1.0,  # Less Mg2+ for GC-rich (already stable)
-    "extreme_gc": 0.5,
+# Mg2+ adjustments by genome composition, in mM *relative to the polymerase's
+# standard buffer*.
+#
+# These were absolutes spanning 0.5-2.5 mM, which is PCR practice. Strand-
+# displacing isothermal amplification runs at 10 mM MgCl2 (Thermo MAN0030290,
+# NEB phi29 buffer) -- the value the registry supplies through `mg_default_mm`,
+# every preset applies, and the mechanistic model was recalibrated to when the
+# PCR-era 2.5 mM optimum and its mis-attributed citation were removed
+# (registry/INCONSISTENCIES.md #6). Every old value sat at or below the model's
+# own `mg_low_threshold`, so `suggest` recommended magnesium the rest of the
+# tool scores as deficient.
+#
+# The GC direction is kept and is a heuristic, not a measurement (see
+# SCIENCE_CITATIONS.md): extra Mg2+ stabilises duplexes on AT-rich template,
+# less is needed on GC-rich template that is already stable. Expressing it as a
+# delta keeps the heuristic while anchoring the scale to the buffer.
+MG_ADJUSTMENTS_MM = {
+    "extreme_at": +2.0,
+    "at_rich": +1.0,
+    "balanced": 0.0,
+    "gc_rich": -1.0,
+    "extreme_gc": -2.0,
 }
+
+
+def suggested_mg_conc(gc_class: str, polymerase: str) -> float:
+    """Buffer magnesium for `polymerase`, nudged by genome composition.
+
+    Clamped to the mechanistic model's usable band so the suggestion can never
+    be a concentration the model then penalises.
+    """
+    from neoswga.core.mechanistic_params import MECHANISTIC_MODEL_PARAMS
+    from neoswga.core.parameter import default_mg_conc
+
+    enzyme = MECHANISTIC_MODEL_PARAMS["enzyme"]
+    base = default_mg_conc(polymerase)
+    value = base + MG_ADJUSTMENTS_MM.get(gc_class, 0.0)
+    return max(enzyme["mg_low_threshold"], min(enzyme["mg_high_threshold"], value))
 
 
 def classify_gc(gc_content: float) -> str:
@@ -153,12 +185,7 @@ def suggest_kmer_range(
         (min_k, max_k) inclusive bounds recommended for this scenario.
     """
     polymerase = (polymerase or "phi29").lower()
-    polymerase_bounds = {
-        "phi29": (6, 12),
-        "equiphi29": (10, 18),
-        "bst": (15, 25),
-        "klenow": (8, 15),
-    }
+    polymerase_bounds = _registry_views.primer_length_ranges()
     min_k, max_k = polymerase_bounds.get(polymerase, (6, 12))
 
     # Size-based adjustment: larger genomes need a longer minimum k so
@@ -252,11 +279,17 @@ class ConditionSuggester:
         rationale.extend(add_rationale)
 
         # Determine Mg2+
-        mg_conc = MG_RECOMMENDATIONS.get(self.gc_class, 1.5)
-        if mg_conc != 1.5:
+        from neoswga.core.parameter import default_mg_conc
+
+        mg_conc = suggested_mg_conc(self.gc_class, polymerase)
+        buffer_mg = default_mg_conc(polymerase)
+        if mg_conc != buffer_mg:
             rationale.append(
-                f"Mg2+: {mg_conc}mM (adjusted for {self.gc_class.replace('_', ' ')} genome)"
+                f"Mg2+: {mg_conc}mM ({polymerase} buffer {buffer_mg}mM, adjusted "
+                f"for {self.gc_class.replace('_', ' ')} genome)"
             )
+        else:
+            rationale.append(f"Mg2+: {mg_conc}mM (standard {polymerase} buffer)")
 
         # Add warnings for edge cases
         if self.genome_gc and self.genome_gc < 0.25:

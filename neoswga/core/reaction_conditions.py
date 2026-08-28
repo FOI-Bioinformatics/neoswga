@@ -30,7 +30,6 @@ References:
 - Henke et al. (1997) Nucleic Acids Res 25:3957-3958 (betaine)
 - Varadaraj & Skinner (1994) Gene 140:1-5 (DMSO)
 - Spiess et al. (2004) Biotechniques 36:732-736 (trehalose)
-- Rahman et al. (2014) PLoS One 9:e112515 (Mg2+ optimization)
 - Owczarzy et al. (2008) Biochemistry 47:5336-5353 (salt corrections)
 - Melchior & von Hippel (1973) PNAS 70:298-302 (TMAC AT/GC equalization)
 - Cheng et al. (1994) PNAS 91:5695-5699 (ethanol effects)
@@ -43,6 +42,7 @@ import numpy as np
 
 from neoswga.core import thermodynamics as thermo
 from neoswga.core.additives import AdditiveConcentrations
+from neoswga.core.registry import views as _registry_views
 
 # ========================================
 # Polymerase Characteristics Database
@@ -68,100 +68,39 @@ from neoswga.core.additives import AdditiveConcentrations
 #     MDA). This is a property of the PRODUCT population after many rounds of
 #     priming + displacement, not of a single primer's reach.
 #
-# (3) Effective per-primer reach in a SWGA design — "how far downstream of
-#     each primer binding site does extension go before a neighbouring
-#     primer's extension displaces it?". Clarke et al. (2017) Bioinformatics
-#     (the swga toolkit) post-hoc filtered their M. tuberculosis candidate
-#     sets to mean inter-primer-site spacing <5 kb ("we ... selected only
-#     those sets whose mean distance between binding sites on the M.
+# (3) Inter-primer site SPACING in published designs: ~2-5 kb. Clarke et al.
+#     (2017) Bioinformatics (the swga toolkit) post-hoc filtered their M.
+#     tuberculosis candidate sets to mean spacing <5 kb ("we ... selected
+#     only those sets whose mean distance between binding sites on the M.
 #     tuberculosis genome was <5 kb"); Dwivedi-Yu et al. (2023) PLOS
-#     Comput Biol 19:e1010137 report SWGA primer sets on Prevotella
-#     melaninogenica with site densities of 1/2.0, 1/4.1, 1/4.9 kbp
-#     (successful) and 1/2.8, 1/5.0, 1/7.4 kbp (unsuccessful), placing
-#     practical SWGA designs in the 1/2-10 kbp density range. In dense
-#     SWGA the extension before displacement is bounded by this inter-
-#     site spacing: ~2-5 kb. THIS is the right number for the
-#     `fg_coverage` metric, which asks "what fraction of the target genome
-#     is within effective amplification reach of any primer in the set?".
+#     Comput Biol 19:e1010137 report Prevotella sets at densities of
+#     1/2.0, 1/4.1, 1/4.9 kbp (successful) and 1/2.8, 1/5.0, 1/7.4 kbp
+#     (unsuccessful).
 #
-# `typical_amplicon_length` below stores (3) — the per-primer effective
-# reach in a typical SWGA design. It is NOT the gel fragment size (that
-# is number (2), ~10 kb for phi29 MDA). Cite Clarke et al. (2017) and
-# Dwivedi-Yu et al. (2023), not Dean et al. (2002), for this field.
+#     These are DESIGN CHOICES about how densely to place primers, not
+#     measurements of how far extension goes. Earlier text here claimed
+#     "extension before displacement is bounded by this inter-site
+#     spacing", which inverts the mechanism: strand displacement is what
+#     lets phi29 continue THROUGH a downstream duplex rather than what
+#     stops it, so a downstream primer does not truncate extension -- it
+#     gets displaced. Product length is set by processivity and enzyme
+#     dissociation, i.e. by (1) and (2), not by (3).
+#
+# `typical_amplicon_length` below stores (3), and is therefore a
+# conservative SELECTION reach rather than a physical one. Selecting at a
+# shorter reach than the true one is defensible -- amplification bias grows
+# with distance from the primer, so denser designs amplify more evenly --
+# but it should be understood as conservatism, not as the reach. The
+# best-evidenced physical reach is (2), ~10 kb. Override per run with
+# `coverage_reach` / `--coverage-reach`, or fit it from sequencing depth
+# with `neoswga calibrate-reach --bam`.
 # ---------------------------------------------------------------------------
 
-POLYMERASE_CHARACTERISTICS = {
-    "phi29": {
-        "name": "Phi29 DNA Polymerase",
-        "temp_range": (30.0, 40.0),
-        "optimal_temp": 30.0,
-        "processivity": 70000,  # ~70kb, Blanco et al. (1989) JBC 264:8935
-        # typical_amplicon_length = effective per-primer reach in a dense
-        # SWGA design. Clarke et al. (2017) filter their M. tuberculosis
-        # candidate sets to mean inter-primer spacing <5 kb; Dwivedi-Yu
-        # et al. (2023) report Prevotella sets at 1 site per 2-5 kbp
-        # (successful) and 1 per 2.8-7.4 kbp (unsuccessful). At these
-        # densities, extension from any one primer is truncated by
-        # downstream primer-initiated strand displacement after ~2-5 kb.
-        # NB: this is NOT the gel fragment size of the amplified product
-        # (Dean 2002 / Picher 2016 report ~10 kb mean gel bands for
-        # unselective phi29 MDA); it is the coverage-scoring reach per
-        # primer site in a selective multi-primer reaction.
-        "typical_amplicon_length": 3000,  # bp, +/- 1 kb uncertainty
-        "strand_displacement": True,
-        "exonuclease": "3to5",  # Proofreading
-        "error_rate": 1e-6,  # Very high fidelity
-        "requires_primer": True,
-        "description": "High-fidelity, high-processivity polymerase for MDA/SWGA",
-    },
-    "equiphi29": {
-        "name": "EquiPhi29 DNA Polymerase",
-        "temp_range": (42.0, 45.0),
-        "optimal_temp": 42.0,
-        "processivity": 80000,  # ~80kb at elevated temp (NEB data)
-        # Slightly longer effective reach than phi29 due to reduced
-        # secondary-structure interference at 42-45 C; SWGA designs using
-        # equiphi29 can tolerate slightly sparser primer spacing before
-        # extension is truncated. Still bounded by primer density, not
-        # processivity.
-        "typical_amplicon_length": 4000,  # bp, +/- 1 kb uncertainty
-        "strand_displacement": True,
-        "exonuclease": "3to5",
-        "error_rate": 1e-6,
-        "requires_primer": True,
-        "description": "Thermostable phi29 variant for higher specificity",
-    },
-    "bst": {
-        "name": "Bst 2.0/3.0 DNA Polymerase",
-        "temp_range": (60.0, 65.0),
-        "optimal_temp": 63.0,
-        "processivity": 2000,  # ~1-2kb, Notomi et al. (2000) NAR 28:e63
-        # Already processivity-limited; LAMP-context reaction times
-        # (30-60 min) shrink realised per-primer reach further.
-        "typical_amplicon_length": 1000,  # bp, +/- 0.5 kb uncertainty
-        "strand_displacement": True,
-        "exonuclease": "none",  # Large fragment lacks exo
-        "error_rate": 1e-4,  # Lower fidelity
-        "requires_primer": True,
-        "description": "LAMP-compatible, high-temperature isothermal amplification",
-    },
-    "klenow": {
-        "name": "Klenow Fragment (exo-)",
-        "temp_range": (25.0, 40.0),
-        "optimal_temp": 37.0,
-        "processivity": 10000,  # ~10kb, Bambara et al. (1978) JBC 253:413
-        # Despite 10 kb processivity, lower extension rate (50 nt/s vs
-        # phi29's 150) and moderate strand-displacement activity produce
-        # ~1-2 kb effective per-primer reach in SWGA-style multi-primer
-        # reactions.
-        "typical_amplicon_length": 1500,  # bp, +/- 0.5 kb uncertainty
-        "strand_displacement": True,  # Moderate
-        "exonuclease": "none",  # exo- variant
-        "error_rate": 1e-4,
-        "requires_primer": True,
-        "description": "Budget-friendly alternative with moderate processivity",
-    },
-}
+# The table itself now lives in neoswga/core/registry/polymerases.py, which is the
+# single source of truth for polymerase facts. This name is kept as a derived view
+# so the many existing importers keep working unchanged; see also
+# registry/INCONSISTENCIES.md for values that are deliberately seeded as-is.
+POLYMERASE_CHARACTERISTICS = _registry_views.as_characteristics()
 
 
 def get_polymerase_processivity(polymerase: str) -> int:
@@ -194,30 +133,45 @@ def get_polymerase_processivity(polymerase: str) -> int:
 
 def get_typical_amplicon_length(polymerase: str) -> int:
     """
-    Get the effective per-primer reach for a polymerase in a dense SWGA
-    design — i.e. how far downstream of a primer binding site extension
-    proceeds on average before a neighbouring primer's extension truncates
-    it via strand displacement.
+    A deliberately conservative per-primer reach used for coverage and
+    set-cover selection. **It is a design-density target, not a measured
+    extension length**, and the distinction was previously blurred here.
 
-    This is NOT the gel fragment size of the amplified product (unselective
-    phi29 MDA gel bands peak near 10 kb per Dean et al. 2002 PNAS 99:5261
-    and Picher et al. 2016 Nat Commun 7:13296). It is NOT single-event
-    processivity (phi29 ~70 kb per Blanco et al. 1989). It is the reach
-    that matters for "what fraction of the target genome is within
-    amplification distance of the selected primer set?".
+    The earlier justification for this value said extension proceeds until
+    "a neighbouring primer's extension truncates it via strand
+    displacement". That inverts the mechanism. Strand displacement is what
+    lets phi29 continue *through* a downstream duplex -- it displaces the
+    nascent strand and keeps synthesising, which is the defining property
+    of MDA and the reason it yields long, hyperbranched product. A
+    downstream primer does not truncate a strand-displacing polymerase; it
+    gets displaced. Extension length is set by processivity and enzyme
+    dissociation, not by neighbour spacing.
 
-    Literature basis:
-    - Clarke et al. (2017) Bioinformatics 33:2071-2077 — the swga toolkit
-      paper filters their M. tuberculosis candidate primer sets to mean
-      inter-primer-site spacing <5 kb (post-hoc selection, not a toolkit
-      default); in that regime per-primer reach is spacing-bounded.
-    - Dwivedi-Yu et al. (2023) PLOS Comput Biol 19:e1010137 — published
-      Prevotella SWGA sets with site densities of 1 per 2.0, 4.1, 4.9
-      kbp (successful) and 1 per 2.8, 5.0, 7.4 kbp (unsuccessful),
-      placing practical SWGA designs in the 1/2-10 kbp range and
-      giving mean per-primer reach of 2-5 kb for successful sets.
+    What the literature actually measures, kept separate here:
 
-    Use this value for `fg_coverage` and `per_target_coverage`. Keep using
+    - **Product length ~10 kb.** Unselective phi29 MDA gel bands peak near
+      10 kb (Dean et al. 2002 PNAS 99:5261; Picher et al. 2016 Nat Commun
+      7:13296). This is the best-evidenced estimate of how far a primer's
+      product actually reaches.
+    - **Single-event processivity ~70 kb** (Blanco et al. 1989). What one
+      molecule *can* do, not what a typical product is. swga 2.0 uses this
+      as its coverage reach, which overstates coverage.
+    - **Inter-primer spacing 2-5 kb.** Clarke et al. (2017) Bioinformatics
+      33:2071 filter candidate sets to mean spacing <5 kb; Dwivedi-Yu et al.
+      (2023) PLOS Comput Biol 19:e1010137 report successful Prevotella sets
+      at 1 site per 2.0/4.1/4.9 kbp and unsuccessful ones at 1 per
+      2.8/5.0/7.4 kbp. **These are spacings designers chose, not reaches
+      anyone observed**, and they are where this function's value comes
+      from.
+
+    Selecting at a reach shorter than the physical one is defensible --
+    amplification bias grows with distance from the primer, so a denser
+    design amplifies more evenly -- but that is a deliberate conservatism
+    and is labelled as one here rather than presented as the reach.
+
+    Override with `coverage_reach` / `--coverage-reach`, or estimate the
+    reach for an actual reaction from sequencing depth with
+    `neoswga calibrate-reach --bam`. Keep using
     :func:`get_polymerase_processivity` for amplicon-network graph
     reachability, where the question is "could primer A and B connect via
     one extension event in principle?".
@@ -226,7 +180,8 @@ def get_typical_amplicon_length(polymerase: str) -> int:
         polymerase: Polymerase name ('phi29', 'equiphi29', 'bst', 'klenow')
 
     Returns:
-        Effective per-primer reach in base pairs (±1 kb uncertainty).
+        Conservative per-primer selection reach in base pairs. Measured
+        product length is roughly 3x this; see above.
 
     Example:
         >>> get_typical_amplicon_length('phi29')
@@ -291,8 +246,13 @@ class ReactionConditions:
         ethanol_percent: float = 0.0,
         urea_m: float = 0.0,
         tmac_m: float = 0.0,
+        propanediol_m: float = 0.0,
         na_conc: float = 50.0,
-        mg_conc: float = 0.0,
+        mg_conc: Optional[float] = None,
+        k_conc: float = 0.0,
+        nh4_conc: float = 0.0,
+        dntp_conc: float = 0.0,
+        dtt_mm: Optional[float] = None,
         ssb: bool = False,
         polymerase: str = "phi29",
     ):
@@ -327,23 +287,55 @@ class ReactionConditions:
         self.ethanol_percent = ethanol_percent
         self.urea_m = urea_m
         self.tmac_m = tmac_m
+        self.propanediol_m = propanediol_m
         self.na_conc = na_conc
-        self.mg_conc = mg_conc
         self.ssb = ssb
         self.polymerase = polymerase.lower()
+        # mg_conc=None means "use this polymerase's standard buffer value".
+        # The old default was 0.0, which silently produced a non-functional
+        # reaction: five shipped presets never set mg_conc and so inherited zero
+        # magnesium. Requiring every caller to remember it was the wrong default
+        # - no polymerase reaction runs without Mg2+. Resolved after
+        # self.polymerase so the lookup is polymerase-aware.
+        if mg_conc is None:
+            mg_conc = _registry_views.mg_defaults().get(self.polymerase, 10.0)
+        self.mg_conc = mg_conc
+        # Additional buffer species. Defaults of 0 reproduce the previous
+        # behaviour exactly. They exist because a real isothermal buffer could
+        # not be expressed before: the standard phi29 buffer supplies its
+        # monovalent cations as 10 mM (NH4)2SO4 (= 20 mM NH4+) with no sodium at
+        # all, and an alternative formulation uses 66 mM K-acetate. Users had to
+        # misreport those as na_conc.
+        self.k_conc = k_conc
+        self.nh4_conc = nh4_conc
+        # Total dNTP (sum of all four) in mM. Chelates Mg2+ ~1:1, so free Mg2+
+        # is below nominal total (von Ahsen et al. 2001 Clin Chem 47:1956).
+        self.dntp_conc = dntp_conc
+        # DTT is in every phi29 buffer at 1-4 mM. It has no melting-temperature
+        # term, but MechanisticModel scores it as a *deficiency penalty*, so a
+        # literal 0.0 default read as a DTT-free reaction and cost 20% of
+        # stability at every site that built conditions directly rather than
+        # through get_params -- all eleven presets among them. Same resolution
+        # as mg_conc: None means this polymerase's standard buffer, an explicit
+        # value (including 0.0) is honoured. Resolved after self.polymerase so
+        # the lookup is polymerase-aware.
+        if dtt_mm is None:
+            from .parameter import default_dtt_mm
+
+            dtt_mm = default_dtt_mm(self.polymerase)
+        self.dtt_mm = dtt_mm
 
         # Validate inputs
         self._validate()
 
     def _validate(self):
         """Validate reaction condition parameters."""
-        # Temperature range depends on polymerase
-        polymerase_temp_ranges = {
-            "phi29": (20, 40),
-            "equiphi29": (30, 50),
-            "bst": (50, 72),
-            "klenow": (25, 40),
-        }
+        # Temperature range depends on polymerase. These are the HARD reject
+        # bounds and are deliberately wider than the vendor-optimal
+        # `temp_range` in POLYMERASE_CHARACTERISTICS, and different again from
+        # the warn bounds in param_validator - three distinct concepts, all
+        # carried separately by the registry.
+        polymerase_temp_ranges = _registry_views.hard_temp_ranges()
 
         if self.polymerase not in polymerase_temp_ranges:
             raise ValueError(
@@ -483,47 +475,14 @@ class ReactionConditions:
             - At lower concentrations: partial equalization proportional to conc.
             - Wallace rule: dTm/d(gc_fraction) = 2*length (length-dependent)
         """
-        # Calculate deviation from balanced (50%) GC content
-        # GC-rich (>50%): positive deviation, normally higher Tm
-        # AT-rich (<50%): negative deviation, normally lower Tm
-        gc_deviation = gc_content - 0.5
+        # Both Tm paths share one implementation. They used to carry their own,
+        # and disagreed on the dose response as well as on how two equalisers
+        # compose -- so the same reaction gave two Tm values depending on which
+        # path a caller took. See `additives.equalization_factor`.
+        from .additives import equalization_factor, gc_equalization_correction
 
-        # Equalization factors (fraction of full effect, capped at 1.0)
-        # TMAC: full equalization at 3M (Melchior & von Hippel 1973)
-        tmac_factor = min(1.0, self.tmac_m / 3.0)
-
-        # Betaine: full equalization at 5.2M (Rees et al. 1993)
-        betaine_factor = min(1.0, self.betaine_m / 5.2)
-
-        # Combined equalization using multiplicative model
-        # Each additive independently contributes to GC equalization.
-        # Combined effect: 1 - (1 - tmac_factor) * (1 - betaine_factor)
-        # Example: 50% TMAC effect + 50% betaine effect = 75% combined (not 50%)
-        # This prevents double-counting while allowing synergy.
-        equalization_factor = 1.0 - (1.0 - tmac_factor) * (1.0 - betaine_factor)
-
-        # The GC-dependent Tm difference from Wallace rule:
-        # For a primer of length L with GC fraction f:
-        #   Tm = 2*(AT pairs) + 4*(GC pairs)
-        #      = 2*L*(1-f) + 4*L*f
-        #      = 2L + 2Lf
-        #   dTm/df = 2L
-        #
-        # So the GC-dependent component scales linearly with primer length.
-        # For a 10bp primer: scale = 20
-        # For a 6bp primer: scale = 12
-        # For an 18bp primer: scale = 36
-        #
-        # This length-dependent scaling is important for accurate corrections
-        # across the range of SWGA primer lengths (6-18bp).
-        scale_factor = 2.0 * primer_length
-
-        # We apply a correction that moves Tm towards balanced
-        # GC-rich sequences get negative correction (reduce Tm)
-        # AT-rich sequences get positive correction (increase Tm)
-        gc_correction = -scale_factor * gc_deviation * equalization_factor
-
-        return gc_correction
+        factor = equalization_factor(betaine=self.betaine_m, tmac=self.tmac_m)
+        return gc_equalization_correction(gc_content, primer_length, factor)
 
     def adjust_tm(
         self,
@@ -568,7 +527,15 @@ class ReactionConditions:
             Effective Tm in degrees Celsius
         """
         # Calculate base Tm with salt
-        tm_base = thermo.calculate_tm_with_salt(seq, self.na_conc, self.mg_conc, primer_conc)
+        tm_base = thermo.calculate_tm_with_salt(
+            seq,
+            self.na_conc,
+            self.mg_conc,
+            primer_conc,
+            k_conc=self.k_conc,
+            nh4_conc=self.nh4_conc,
+            dntp_conc=self.dntp_conc,
+        )
 
         # Calculate GC content for GC-dependent corrections
         gc = thermo.gc_content(seq)
@@ -867,7 +834,10 @@ class ReactionConditions:
         """
         Optimize Mg2+ concentration based on genome GC content.
 
-        Literature evidence (Rahman et al. 2014, Owczarzy et al. 2008):
+        Owczarzy et al. (2008) for the salt/Tm relationship. NOTE: this GC-based
+        adjustment was previously attributed to Rahman et al. (2014); that is a
+        general PCR review and does not cover isothermal amplification, so treat
+        the GC adjustment as an operating-point heuristic rather than sourced:
         - AT-rich genomes (<35% GC): Higher Mg2+ stabilizes AT-rich duplexes
         - GC-rich genomes (>65% GC): Lower Mg2+ reduces non-specific binding
         - Balanced genomes: Standard 2.0 mM
@@ -973,8 +943,13 @@ class ReactionConditions:
             "ethanol_percent": self.ethanol_percent,
             "urea_m": self.urea_m,
             "tmac_m": self.tmac_m,
+            "propanediol_m": self.propanediol_m,
             "na_conc": self.na_conc,
             "mg_conc": self.mg_conc,
+            "k_conc": self.k_conc,
+            "nh4_conc": self.nh4_conc,
+            "dntp_conc": self.dntp_conc,
+            "dtt_mm": self.dtt_mm,
             "ssb": self.ssb,
             "polymerase": self.polymerase,
         }
@@ -1008,6 +983,7 @@ class ReactionConditions:
             ethanol_percent=self.ethanol_percent,
             urea_m=self.urea_m,
             tmac_m=self.tmac_m,
+            propanediol_m=self.propanediol_m,
         )
 
     @classmethod
@@ -1062,6 +1038,84 @@ class ReactionConditions:
         )
 
 
+def build_reaction_conditions(
+    args=None,
+    *,
+    polymerase: Optional[str] = None,
+    temp: Optional[float] = None,
+    **overrides,
+) -> ReactionConditions:
+    """Build `ReactionConditions` from pipeline configuration.
+
+    Use this instead of calling `ReactionConditions(...)` with a hand-written
+    list of fields. Every caller that hand-listed its own subset dropped
+    something: `cli/evaluate.py` passed two of twenty parameters, the score
+    step five, and not one passed `k_conc`, `nh4_conc`, `dntp_conc` or
+    `dtt_mm`, so the phi29 buffer species reached no calculation at all. The
+    additives a command respected were decided independently in nineteen
+    places.
+
+    The field list is read from `ReactionConditions.__init__` rather than
+    written out here, so a new field is forwarded by every caller without
+    anyone having to remember them. That is the whole point: the previous
+    arrangement failed by omission, and an omission is invisible -- a dropped
+    additive does not raise, it just leaves the Tm at its no-additive value.
+
+    Precedence is explicit keyword > `args` attribute > `parameter` global >
+    constructor default. A value that is absent everywhere is not passed at
+    all, so the constructor's own default applies. That distinction matters for
+    `mg_conc`: `None` means "use the polymerase's buffer value" (10 mM for
+    phi29), and callers that coerced an absent value to 0.0 were running the
+    reaction at zero magnesium, which the mechanistic model then penalised.
+
+    Args:
+        args: Optional argparse namespace whose attributes override params.json.
+        polymerase: Explicit polymerase, winning over args and parameter.
+        temp: Explicit reaction temperature in Celsius.
+        **overrides: Explicit values for any other field.
+
+    Returns:
+        ReactionConditions carrying every configured field.
+    """
+    import inspect as _inspect
+
+    from neoswga.core import parameter as _parameter
+    from neoswga.core.parameter import default_reaction_temp
+
+    def _resolve(name):
+        """Explicit keyword, then CLI args, then params.json. None = unset."""
+        if overrides.get(name) is not None:
+            return overrides[name]
+        if args is not None:
+            value = getattr(args, name, None)
+            if value is not None:
+                return value
+        return getattr(_parameter, name, None)
+
+    field_names = list(_inspect.signature(ReactionConditions.__init__).parameters)[1:]
+
+    kwargs = {}
+    for name in field_names:
+        if name in ("temp", "polymerase"):
+            continue
+        value = _resolve(name)
+        if value is not None:
+            kwargs[name] = value
+
+    resolved_polymerase = polymerase or _resolve("polymerase") or "phi29"
+
+    resolved_temp = temp
+    if resolved_temp is None:
+        resolved_temp = _resolve("reaction_temp")
+    if resolved_temp is None:
+        # ReactionConditions(temp=None) raises when it range-checks, so a
+        # params file with no reaction_temp must not reach the constructor
+        # with None. Match what thermodynamics.get_current_config does.
+        resolved_temp = default_reaction_temp(resolved_polymerase)
+
+    return ReactionConditions(temp=resolved_temp, polymerase=resolved_polymerase, **kwargs)
+
+
 # ========================================
 # Preset Conditions
 # ========================================
@@ -1076,7 +1130,7 @@ def get_standard_conditions() -> ReactionConditions:
         temp=30.0,
         polymerase="phi29",
         na_conc=50.0,
-        mg_conc=2.5,  # Optimal for phi29 activity
+        mg_conc=10.0,  # Standard phi29 buffer (was 2.5, a PCR figure)
     )
 
 
@@ -1089,7 +1143,7 @@ def get_equiphi_conditions() -> ReactionConditions:
         temp=42.0,
         polymerase="equiphi29",
         na_conc=50.0,
-        mg_conc=2.5,  # Optimal for equiphi29 activity
+        mg_conc=10.0,  # Standard phi29-family buffer (was 2.5, a PCR figure)
     )
 
 
@@ -1106,7 +1160,7 @@ def get_enhanced_conditions() -> ReactionConditions:
         betaine_m=1.0,
         polymerase="equiphi29",
         na_conc=50.0,
-        mg_conc=2.5,  # Optimal for polymerase activity
+        mg_conc=10.0,  # Standard phi29-family buffer (was 2.5, a PCR figure)
     )
 
 
@@ -1166,7 +1220,7 @@ def get_gc_melt_conditions() -> ReactionConditions:
         dmso_percent=5.0,
         betaine_m=2.0,
         trehalose_m=0.5,
-        mg_conc=1.5,
+        mg_conc=10.0,  # was 1.5, far below the phi29-family buffer
         polymerase="equiphi29",
         na_conc=50.0,
     )
@@ -1334,7 +1388,7 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
             temp=37.0,
             dmso_percent=3.0,
             betaine_m=0.8,
-            mg_conc=2.5,  # Extra Mg2+ for AT-rich
+            mg_conc=10.0,  # Standard phi29-family buffer
             polymerase="phi29",
             na_conc=50.0,
         )

@@ -33,7 +33,10 @@ def _register_optimizers():
 
 # Supported optimizers — kept after the optimizer-zoo trim.
 FACTORY_NAMES_TO_TEST = [
-    "dominating-set", "hybrid", "network", "background-aware",
+    "dominating-set",
+    "hybrid",
+    "network",
+    "background-aware",
 ]
 
 

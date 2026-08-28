@@ -2,6 +2,66 @@
 
 All notable changes to NeoSWGA are documented in this file.
 
+## [Unreleased]
+
+### Occupancy-based specificity model
+
+Selectivity was a count of exact k-mer matches, so for a fixed primer set no
+additive could move it by any amount -- the lever this tool exists to use had
+nowhere to land. Sites are now weighted by two-state occupancy under the
+configured conditions, and background near-matches are counted by mismatch
+class from the existing jellyfish `*_all.txt` files.
+
+Full findings, including what measurement rejected:
+[docs/validation/additive_specificity.md](validation/additive_specificity.md).
+
+#### NEW
+
+- `effective_fg_coverage` in `PrimerSetMetrics` and
+  `step4_improved_df_summary.json`: coverage weighted by how much of the time
+  each site is actually bound, beside the raw `fg_coverage`. Selection uses it
+  when reaction conditions are available and falls back to the raw figure
+  otherwise. Previously selectivity was occupancy-weighted and coverage was
+  not, so a set could be rewarded for reaching sites it does not occupy and
+  the coverage cost of additives was invisible.
+- `effective_fg_sites`, `effective_bg_sites`, `selectivity_mode` beside the
+  raw site counts.
+- `neoswga/core/occupancy.py`, `mismatch_counts.py`, `condition_sweep.py`.
+- `scripts/fetch_reference_genomes.py` for the validation genomes, which are
+  not committed.
+
+#### FIXED
+
+- **`num_primers` / `target_set_size` from params.json were ignored by
+  `optimize`**, which always used the default of 6. The completion check read
+  the params value later, so a run that had been asked for 6 primers reported
+  "Found 6 primers but target was 8 (PARTIAL result: insufficient candidates)"
+  and advised relaxing the filters -- for a pool that was never consulted at
+  that size. `--num-primers` was unaffected.
+- **The candidate cut kept an arbitrary slice rather than the best
+  `max_primer`.** Ranking is by `ratio` = bg_count / fg_count, which is 0 for
+  every primer with no exact background match -- at k=12 against a distant
+  background, all 369,431 survivors tied at exactly 0.0 and the stable sort
+  returned whichever arrived first. Ties now break on foreground abundance.
+  End to end at k=12: coverage 7.6% -> 40.3%, selectivity 0.69 -> 2.54.
+  Raising `max_primer` no longer helps, because it was compensating for this.
+- `additive_optimizer`'s `optimize_for="specificity"` scored a synthetic
+  primer's binding stability, which an indiscriminate primer also scores well
+  on. It can now be given a real fg/bg measurement.
+- Bloom-filter background path assigned a fixed sentinel count that passed any
+  frequency threshold on a large genome, silently disabling background
+  filtering at exactly the scale it exists for.
+
+#### CHANGED
+
+- `normalized_score` selectivity term is log-scaled. The previous
+  `min(ratio/100, 1)` was calibrated for exact-match ratios that routinely
+  saturated it; occupancy-weighted ratios land far below 100, where the same
+  linear form ignored the term instead.
+- Sequence heuristics (GC clamp window and threshold, homopolymer run) are
+  configurable via params.json. Defaults reproduce previous behaviour exactly
+  -- measurement rejected scaling them to primer length.
+
 ## [3.7.0] - 2026 - Production Readiness
 
 ### NEW FEATURES

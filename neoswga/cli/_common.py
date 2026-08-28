@@ -13,6 +13,8 @@ import logging
 import os
 import sys
 
+from neoswga.core.registry import polymerase_names as _polymerase_names
+
 logger = logging.getLogger(__name__)
 
 
@@ -450,55 +452,65 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
 
 
 # Preset configurations for reaction conditions
-PRESETS = {
-    "standard_phi29": {
-        "temperature": 37.0,
-        "dmso_percent": 0.0,
-        "betaine_m": 0.0,
-        "polymerase": "phi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": False,
-        "optimization_method": "hybrid",
-        "target_set_size": 6,
-    },
-    "enhanced_equiphi29": {
-        "temperature": 42.0,
-        "dmso_percent": 5.0,
-        "betaine_m": 1.0,
-        "polymerase": "equiphi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": True,
-        "optimization_method": "hybrid",
-        "target_set_size": 6,
-    },
-    "long_primers_15mer": {
-        "temperature": 45.0,
-        "dmso_percent": 7.0,
-        "betaine_m": 1.5,
-        "polymerase": "equiphi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": True,
-        "optimization_method": "hybrid",
-        "target_set_size": 6,
-    },
-    "high_gc_genome": {
-        "temperature": 45.0,
-        "dmso_percent": 10.0,
-        "betaine_m": 2.0,
-        "polymerase": "equiphi29",
-        "na_conc": 50.0,
-        "mg_conc": 0.0,
-        "ssb": True,
-        "optimization_method": "hybrid",
-        "target_set_size": 8,
-    },
+# The named presets, each an optimizer-facing config derived from the SAME
+# reaction-conditions factory that `--preset` applies (see PRESET_FACTORIES and
+# load_preset_conditions below). It used to be a hand-maintained literal that had
+# drifted: `show-presets` printed 37 C / 0 mM Mg for standard_phi29 while
+# `--preset standard_phi29` applied 30 C / 2.5 mM, and long_primers_15mer
+# advertised 7% DMSO / 1.5 M betaine while applying 5% / 1.0 M. Three of four
+# presets described something the tool would not do. Deriving them removes the
+# divergence by construction.
+_PRESET_OPTIMIZER_HINTS = {
+    "standard_phi29": {"optimization_method": "hybrid", "target_set_size": 6},
+    "enhanced_equiphi29": {"optimization_method": "hybrid", "target_set_size": 6},
+    "long_primers_15mer": {"optimization_method": "hybrid", "target_set_size": 6},
+    "high_gc_genome": {"optimization_method": "hybrid", "target_set_size": 8},
 }
 
 
+def _build_presets():
+    out = {}
+    for name, hints in _PRESET_OPTIMIZER_HINTS.items():
+        applied = load_preset_conditions(name)
+        out[name] = {
+            "temperature": applied["reaction_temp"],
+            "polymerase": applied["polymerase"],
+            "dmso_percent": applied["dmso_percent"],
+            "betaine_m": applied["betaine_m"],
+            "na_conc": applied["na_conc"],
+            "mg_conc": applied["mg_conc"],
+            "ssb": applied["ssb"],
+            **hints,
+        }
+    return out
+
+
 # Command groups for organized help display
+
+
+# Concentration additives carried by a reaction-conditions preset. Kept as an
+# explicit tuple rather than introspected so the set is greppable and reviewable;
+# tests/test_preset_round_trip.py asserts it stays complete against
+# ReactionConditions.__init__.
+PRESET_ADDITIVE_FIELDS = (
+    "dmso_percent",
+    "betaine_m",
+    "trehalose_m",
+    "formamide_percent",
+    "glycerol_percent",
+    "bsa_ug_ml",
+    "peg_percent",
+    "ethanol_percent",
+    "urea_m",
+    "tmac_m",
+    "propanediol_m",
+    # Buffer species added with the schema v2 chemistry work. Defaults of 0
+    # preserve behaviour; presets may set them to describe a real buffer.
+    "k_conc",
+    "nh4_conc",
+    "dntp_conc",
+    "dtt_mm",
+)
 
 
 def load_preset_conditions(preset_name):
@@ -533,20 +545,27 @@ def load_preset_conditions(preset_name):
 
     conditions = preset_map[preset_name]
 
-    # Convert ReactionConditions to dict
-    return {
+    # Convert ReactionConditions to dict.
+    #
+    # Every concentration knob on ReactionConditions must appear here. This list
+    # previously omitted urea_m, tmac_m, ethanol_percent and formamide_percent, so
+    # `--preset extreme_gc` silently dropped the two additives that define it
+    # (urea_m=0.5, tmac_m=0.05) and applied a preset that was no longer that preset.
+    # tests/test_preset_round_trip.py enforces coverage against the dataclass.
+    out = {
         "reaction_temp": conditions.temp,
         "polymerase": conditions.polymerase,
-        "dmso_percent": conditions.dmso_percent,
-        "betaine_m": conditions.betaine_m,
-        "trehalose_m": conditions.trehalose_m,
-        "glycerol_percent": conditions.glycerol_percent,
-        "bsa_ug_ml": conditions.bsa_ug_ml,
-        "peg_percent": conditions.peg_percent,
         "na_conc": conditions.na_conc,
         "mg_conc": conditions.mg_conc,
         "ssb": conditions.ssb,
     }
+    for name in PRESET_ADDITIVE_FIELDS:
+        out[name] = getattr(conditions, name)
+    return out
+
+
+# Built after load_preset_conditions so the two cannot disagree.
+PRESETS = _build_presets()
 
 
 def add_common_options(parser):
@@ -555,7 +574,7 @@ def add_common_options(parser):
     parser.add_argument("-z", "--data-dir", type=str, help="Data directory")
     parser.add_argument(
         "--polymerase",
-        choices=["phi29", "equiphi29", "bst", "klenow"],
+        choices=_polymerase_names(),
         help="Polymerase type: phi29 (30-40C), equiphi29 (42-45C), bst (60-65C), klenow (25-40C)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
@@ -627,3 +646,120 @@ def _record_run_manifest(step: str, args, parameter, input_files=None):
         )
     except Exception as e:
         logger.debug(f"run_manifest write skipped: {e}")
+
+
+def bootstrap_params_from_genome(genome_paths, output_dir, circular=True):
+    """Populate the parameter module from bare genome FASTAs.
+
+    The iterative commands all require a params.json carrying `fg_prefixes`,
+    `fg_genomes` and `fg_seq_lengths`, which in practice means a prior
+    `neoswga init` plus `count-kmers`. Someone holding an oligo list and a
+    reference genome has none of that, and the missing piece is bookkeeping
+    rather than anything scientific -- so synthesise it.
+
+    K-mer index files are NOT created here. Commands that need binding
+    positions should pass `genome_paths` with `on_missing='scan'` so
+    PositionCache finds the primers by scanning the FASTA directly.
+
+    Args:
+        genome_paths: One or more foreground FASTA paths.
+        output_dir: Directory used for `data_dir` and as the k-mer prefix root.
+        circular: Whether the targets are circular.
+
+    Returns:
+        The dict of parameters that were applied.
+    """
+    import os
+
+    from neoswga.core import parameter
+    from neoswga.core import utility as _utility
+
+    genome_paths = [genome_paths] if isinstance(genome_paths, str) else list(genome_paths)
+    for path in genome_paths:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Genome file not found: {path}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    prefixes = [
+        os.path.join(output_dir, os.path.splitext(os.path.basename(g))[0]) for g in genome_paths
+    ]
+    lengths = _utility.get_all_seq_lengths(
+        fname_genomes=genome_paths, cpus=getattr(parameter, "cpus", 1) or 1
+    )
+
+    applied = {
+        "fg_genomes": genome_paths,
+        "fg_prefixes": prefixes,
+        "fg_seq_lengths": lengths,
+        "data_dir": output_dir,
+        "src_dir": output_dir,
+        "fg_circular": circular,
+    }
+    for key, value in applied.items():
+        setattr(parameter, key, value)
+
+    logger.info(
+        "Bootstrapped parameters from %d genome(s): %s bp total",
+        len(genome_paths),
+        f"{sum(lengths):,}",
+    )
+    return applied
+
+
+def add_position_source_options(parser):
+    """Add the flags that let a command find binding positions without an index.
+
+    Shared so `--genome` means the same thing everywhere: scan this FASTA for
+    any primer that is not already in the HDF5 position files, instead of
+    silently reporting zero coverage for it.
+    """
+    parser.add_argument(
+        "--genome",
+        nargs="+",
+        metavar="FASTA",
+        help="Target genome FASTA(s). Primers missing from the k-mer index are "
+        "found by scanning these directly, so an externally-designed oligo set "
+        "can be evaluated without a prior count-kmers run. Also lets -j be "
+        "omitted entirely.",
+    )
+    parser.add_argument(
+        "--scan-background",
+        action="store_true",
+        help="Also scan background genomes for missing primers. Off by default: "
+        "background specificity is a frequency question the k-mer counts already "
+        "answer, and scanning a host-sized genome holds it in memory.",
+    )
+    return parser
+
+
+def set_size_shortfall_advice(num_found, target_size, method=None):
+    """What to say when fewer primers came back than were asked for.
+
+    This check compares two integers. It cannot see why they differ, and it
+    used to assert one: "PARTIAL result: insufficient candidates", followed by
+    four remedies all about enlarging the pool.
+
+    At least one common cause is not that, and the advice points away from it.
+    Stage 1 stops once coverage is satisfied, so a set-cover that reaches the
+    coverage target with fewer primers than requested returns early -- the
+    optimizer succeeding, reported as a partial failure. Loosening filters in
+    response degrades a design that was not deficient. The same misdirection is
+    on record in docs/validation/additive_specificity.md, where the advice was
+    followed from a different root cause.
+
+    So the shortfall is stated, the benign explanation is offered first, and
+    the pool remedies are kept but demoted to what they are: possibilities.
+    """
+    lines = [
+        f"Found {num_found} primers but the target was {target_size}.",
+        "This is not necessarily a shortfall. Stage 1 stops once the coverage "
+        "target is met, so a set that covers the genome with fewer primers "
+        "returns early. Check the reported coverage before treating it as one.",
+        "If coverage is also below target, the pool may genuinely be too small:",
+        "  - Relaxing filter thresholds (max_bg_freq, max_gini)",
+        "  - Widening k-mer range (min_k / max_k)",
+        "  - Increasing candidate pool (max_primer)",
+    ]
+    if method:
+        lines.append(f"  - Trying a different optimizer (current: {method})")
+    return lines

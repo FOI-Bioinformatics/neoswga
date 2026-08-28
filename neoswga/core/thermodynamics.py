@@ -62,7 +62,7 @@ ENTHALPY_NN = {
     "TT/AA": -7.9,  # = AA/TT
     "AC/TG": -8.4,  # = GT/CA
     "TC/AG": -8.2,  # = GA/CT
-    "AG/TC": -8.0,  # = GG/CC (entropy differs slightly)
+    "AG/TC": -7.8,  # = CT/GA (revcomp of AG is CT)
     "TG/AC": -8.5,  # = CA/GT
     "CC/GG": -8.0,  # = GG/CC
 }
@@ -85,7 +85,7 @@ ENTROPY_NN = {
     "TT/AA": -22.2,  # = AA/TT
     "AC/TG": -22.4,  # = GT/CA
     "TC/AG": -22.2,  # = GA/CT
-    "AG/TC": -19.9,  # = GG/CC
+    "AG/TC": -21.0,  # = CT/GA (revcomp of AG is CT)
     "TG/AC": -22.7,  # = CA/GT
     "CC/GG": -19.9,  # = GG/CC
 }
@@ -157,8 +157,20 @@ def reverse_complement(seq: str) -> str:
 
 
 def is_palindrome(seq: str) -> bool:
-    """Check if sequence is palindromic."""
-    return seq == reverse_complement(seq)
+    """Check if sequence is palindromic (self-complementary).
+
+    Both sides are normalised. `reverse_complement` uppercases its output, so
+    comparing a raw sequence against it made the check case-sensitive: a
+    lowercase palindrome such as `acgtacgtacgt` compared unequal to its own
+    reverse complement and silently lost the self-complementarity symmetry
+    correction (SantaLucia 1998), shifting its Tm by about 1.5 C.
+
+    Lowercase reaches here from soft-masked FASTA and from primer lists typed
+    by hand, and the affected sequences are exactly the self-complementary ones
+    whose thermodynamics matter most for dimer risk.
+    """
+    normalized = normalize_sequence(seq)
+    return normalized == reverse_complement(normalized)
 
 
 def is_watson_crick(base1: str, base2: str) -> bool:
@@ -316,7 +328,48 @@ def calculate_tm_basic(seq: str, primer_conc: float = 0.5e-6) -> float:
     return tm_celsius
 
 
-def calculate_salt_correction(na_conc: float = 50, mg_conc: float = 0) -> float:
+def effective_monovalent_mm(
+    na_conc: float = 50, k_conc: float = 0.0, nh4_conc: float = 0.0
+) -> float:
+    """Total monovalent cation concentration in mM.
+
+    Duplex stabilisation depends on ionic strength, not on which monovalent
+    cation supplies it, so Na+, K+ and NH4+ sum. This matters because a real
+    isothermal buffer often contains no sodium at all: the standard phi29 buffer
+    is 10 mM (NH4)2SO4 -- i.e. 20 mM NH4+ -- and an alternative formulation uses
+    66 mM K-acetate. Before these arguments existed the only way to represent
+    such a buffer was to misreport it as `na_conc`.
+
+    They are not perfectly interchangeable (ion-specific effects on DNA are
+    small but real), so this is an approximation -- a much better one than
+    ignoring two of the three species.
+    """
+    return max(0.0, na_conc) + max(0.0, k_conc) + max(0.0, nh4_conc)
+
+
+def free_magnesium_mm(mg_conc: float, dntp_conc: float = 0.0) -> float:
+    """Free Mg2+ in mM after dNTP chelation.
+
+    dNTPs chelate Mg2+ roughly mole-for-mole, so free Mg2+ -- the species that
+    actually stabilises the duplex and supports the polymerase -- sits below the
+    nominal total. At the 10 mM Mg2+ / 4 x 0.4 mM dNTP typical of MDA, free Mg2+
+    is nearer 8.4 mM (von Ahsen et al. 2001 Clin Chem 47:1956).
+
+    Args:
+        mg_conc: Total Mg2+ in mM.
+        dntp_conc: Total dNTP in mM (sum over all four), default 0 for
+            backwards compatibility.
+    """
+    return max(0.0, mg_conc - max(0.0, dntp_conc))
+
+
+def calculate_salt_correction(
+    na_conc: float = 50,
+    mg_conc: float = 0,
+    k_conc: float = 0.0,
+    nh4_conc: float = 0.0,
+    dntp_conc: float = 0.0,
+) -> float:
     """
     Calculate salt correction term for Tm.
 
@@ -329,17 +382,24 @@ def calculate_salt_correction(na_conc: float = 50, mg_conc: float = 0) -> float:
     References:
         - SantaLucia (1998) PNAS 95:1460-1465: 12.5 * log10([Na+])
         - Owczarzy et al. (2008) Biochemistry 47:5336-5353: Mg2+ correction
+        - von Ahsen et al. (2001) Clin Chem 47:1956-1961: dNTP chelation
 
     Args:
         na_conc: Na+ concentration in mM (default 50 mM)
-        mg_conc: Mg2+ concentration in mM (default 0 mM)
+        mg_conc: TOTAL Mg2+ concentration in mM (default 0 mM)
+        k_conc: K+ concentration in mM (default 0)
+        nh4_conc: NH4+ concentration in mM (default 0)
+        dntp_conc: Total dNTP in mM; chelates Mg2+ ~1:1 (default 0)
+
+    The k_conc/nh4_conc/dntp_conc defaults of 0 make this identical to the
+    previous two-argument behaviour, so existing callers are unaffected.
 
     Returns:
         Salt correction in degrees Celsius (relative to 1M Na+)
     """
     # Convert to M
-    na_m = na_conc / 1000.0
-    mg_m = mg_conc / 1000.0
+    na_m = effective_monovalent_mm(na_conc, k_conc, nh4_conc) / 1000.0
+    mg_m = free_magnesium_mm(mg_conc, dntp_conc) / 1000.0
 
     # Unified salt correction: one Mg2+ equivalent = 3.3 * sqrt([Mg2+]) in Na+
     # From Owczarzy (2008): accounts for Mg2+ stabilization of duplex
@@ -365,6 +425,9 @@ def calculate_tm_with_salt(
     mg_conc: float = 0,
     primer_conc: float = 0.5e-6,
     method: str = "entropy",
+    k_conc: float = 0.0,
+    nh4_conc: float = 0.0,
+    dntp_conc: float = 0.0,
 ) -> float:
     """
     Calculate melting temperature with salt corrections.
@@ -384,15 +447,23 @@ def calculate_tm_with_salt(
         mg_conc: Mg2+ concentration in mM
         primer_conc: Primer concentration in M
         method: 'entropy' (Owczarzy 2004) or 'additive' (SantaLucia 1998)
+        k_conc: K+ concentration in mM. Sums with Na+ and NH4+.
+        nh4_conc: NH4+ concentration in mM. Sums with Na+ and K+.
+        dntp_conc: Total dNTP in mM; chelates Mg2+ ~1:1.
+
+    The k_conc/nh4_conc/dntp_conc defaults of 0 reproduce the previous
+    behaviour exactly, so existing callers see no change.
 
     Returns:
         Tm in degrees Celsius
     """
+    monovalent = effective_monovalent_mm(na_conc, k_conc, nh4_conc)
+    free_mg = free_magnesium_mm(mg_conc, dntp_conc)
     if method == "entropy":
-        return _calculate_tm_entropy_salt(seq, na_conc, mg_conc, primer_conc)
+        return _calculate_tm_entropy_salt(seq, monovalent, free_mg, primer_conc)
     else:
         tm_basic = calculate_tm_basic(seq, primer_conc)
-        salt_corr = calculate_salt_correction(na_conc, mg_conc)
+        salt_corr = calculate_salt_correction(monovalent, free_mg)
         return tm_basic + salt_corr
 
 
@@ -1046,46 +1117,12 @@ def calculate_wallace_tm_batch(sequences: List[str]) -> np.ndarray:
 # ========================================
 
 
-def get_reaction_conditions_from_params() -> "ReactionConditions":
-    """
-    Create a ReactionConditions object from the current parameter module settings.
-
-    This helper bridges the parameter module with the ReactionConditions class,
-    allowing thermodynamic calculations to use the reaction conditions specified
-    in params.json.
-
-    Returns:
-        ReactionConditions object configured with current parameter settings
-    """
-    import neoswga.core.parameter as parameter
-    from neoswga.core.reaction_conditions import ReactionConditions
-
-    # Get reaction temperature, defaulting to polymerase optimal temp
-    reaction_temp = getattr(parameter, "reaction_temp", None)
-    polymerase = getattr(parameter, "polymerase", "phi29")
-
-    # Auto-set temperature based on polymerase if not specified
-    if reaction_temp is None:
-        from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
-
-        if polymerase.lower() in POLYMERASE_CHARACTERISTICS:
-            reaction_temp = POLYMERASE_CHARACTERISTICS[polymerase.lower()]["optimal_temp"]
-        else:
-            reaction_temp = 30.0  # Default to phi29 temperature
-
-    return ReactionConditions(
-        temp=reaction_temp,
-        na_conc=getattr(parameter, "na_conc", 50.0),
-        mg_conc=getattr(parameter, "mg_conc", 2.0),
-        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-        betaine_m=getattr(parameter, "betaine_m", 0.0),
-        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-        urea_m=getattr(parameter, "urea_m", 0.0),
-        tmac_m=getattr(parameter, "tmac_m", 0.0),
-        polymerase=polymerase,
-    )
+# `get_reaction_conditions_from_params` lived here and had no callers. It
+# hand-listed ten of ReactionConditions' twenty fields -- dropping
+# propanediol, glycerol, PEG, BSA, SSB and every buffer species -- and
+# defaulted magnesium to 2.0 mM, retired when the model was recalibrated for
+# isothermal amplification. Use `reaction_conditions.build_reaction_conditions`,
+# which reads the field list off the constructor so it cannot drift.
 
 
 if __name__ == "__main__":

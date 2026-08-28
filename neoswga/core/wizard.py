@@ -21,6 +21,14 @@ from typing import Any, Dict, List, Optional
 
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.genome_analysis import calculate_genome_stats, get_gc_class, recommend_adaptive_qa
+from neoswga.core.parameter import (
+    CURRENT_SCHEMA_VERSION,
+    EXTREME_AT_GENOME_GC,
+    EXTREME_GC_GENOME_GC,
+    adaptive_gc_window,
+    default_mg_conc,
+    polymerase_defaults,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -261,12 +269,21 @@ class SetupWizard:
         self.warnings: List[str] = []
 
         # Check for potential issues
-        if gc < 0.20:
+        # Warn at the point the PIPELINE actually changes behaviour, not at a
+        # separate hand-picked number.
+        #
+        # `EXTREME_AT_GENOME_GC` / `EXTREME_GC_GENOME_GC` are where
+        # `adaptive_gc_window` releases the GC bound, because published sets
+        # against such targets use primers at the composition extreme. These
+        # warnings used 0.20 and 0.75, so a genome at 22% or 27% GC had its
+        # filtering silently widened with nothing said about it -- exactly the
+        # targets where a user most needs to know the tool is adapting.
+        if gc < EXTREME_AT_GENOME_GC:
             self.warnings.append(
                 f"Extreme AT-rich genome ({gc:.1%} GC) - may have limited primer candidates. "
                 "Consider using multi-genome pipeline with closely related species."
             )
-        elif gc > 0.75:
+        elif gc > EXTREME_GC_GENOME_GC:
             self.warnings.append(
                 f"Extreme GC-rich genome ({gc:.1%} GC) - requires high additive concentrations. "
                 "Consider betaine >= 2.0M and DMSO >= 5%."
@@ -537,27 +554,40 @@ class SetupWizard:
         betaine = self.user_overrides.get("betaine_m", self.recommended_additives["betaine_m"])
         dmso = self.user_overrides.get("dmso_percent", self.recommended_additives["dmso_percent"])
 
-        # Calculate GC bounds
+        # Calculate GC bounds. Use the pipeline's own adaptive_gc_window rather
+        # than a plain +/- clamp: on extreme AT- or GC-rich targets the working
+        # primers sit at the composition extreme (e.g. Oyola et al. 2016 used
+        # ZERO-GC primers on 19%-GC P. falciparum), so a mean-centred window
+        # excludes them entirely. A prior version of this method hardcoded
+        # gc_min/gc_max here, and because get_params() treats an explicit
+        # gc_min/gc_max in params.json as a user override, it silently
+        # suppressed that adaptive release for every wizard-generated config.
         gc = self.target_stats["gc_content"]
         gc_tolerance = 0.15
-        gc_min = max(0.0, gc - gc_tolerance)
-        gc_max = min(1.0, gc + gc_tolerance)
+        gc_min, gc_max = adaptive_gc_window(gc, gc_tolerance)
+        _poly_defaults = polymerase_defaults(polymerase)
 
         # Build config
         config = {
-            # Schema version for reproducibility
-            "schema_version": 1,
+            # Schema version for reproducibility. Must track the pipeline's
+            # current schema (parameter.CURRENT_SCHEMA_VERSION) -- a freshly
+            # generated config that declares an old version triggers a
+            # "results will differ from a v1 run" warning on every downstream
+            # command, even though this run never used v1 defaults.
+            "schema_version": CURRENT_SCHEMA_VERSION,
             # Genome paths
             "fg_genomes": [str(self.target_path.resolve())],
             "fg_prefixes": [str(Path(output_dir) / self.target_path.stem)],
             "data_dir": output_dir,
             # Genome characteristics
             "genome_gc": round(gc, 4),
-            # Polymerase and temperature (match temp to selected polymerase)
+            # Polymerase and temperature (match temp to selected polymerase).
+            # From the registry rather than a hand-written branch: the branch
+            # covered phi29, equiphi29 and bst, so a bst3.0 or bsu selection was
+            # written out at 30 C, which their hard ranges reject -- the wizard
+            # would emit a params.json the pipeline then refuses.
             "polymerase": polymerase,
-            "reaction_temp": (
-                42.0 if polymerase == "equiphi29" else (63.0 if polymerase == "bst" else 30.0)
-            ),
+            "reaction_temp": _poly_defaults["reaction_temp"],
             # Primer length
             "min_k": min_k,
             "max_k": max_k,
@@ -571,15 +601,23 @@ class SetupWizard:
             "trehalose_m": 0.0,
             # Salt concentrations
             "na_conc": 50.0,
-            "mg_conc": 2.0 if self.gc_class in ("extreme_at", "at_rich") else 0.0,
+            # Use the same polymerase-aware default the pipeline would apply.
+            # This previously wrote 0.0 for any non-AT-rich genome, and because an
+            # explicit key suppresses the default in parameter.get_params(), that
+            # ran the whole pipeline at zero magnesium.
+            "mg_conc": default_mg_conc(polymerase),
             # Filtering thresholds
             "min_fg_freq": 1e-5,
             "max_bg_freq": 5e-6,
             "max_gini": 0.6,
             "max_primer": 500,
-            # Thermodynamic filters
-            "min_tm": 10.0 if polymerase == "phi29" else 20.0,
-            "max_tm": 45.0 if polymerase == "phi29" else 55.0,
+            # Thermodynamic filters. Also from the registry: a hardcoded
+            # 10-45 / 20-55 contradicted every enzyme's `primer_tm_range`, and
+            # writing the keys explicitly suppressed the polymerase-aware
+            # default in `get_params` -- the same mechanism as the zero-magnesium
+            # bug described above, with the same silence.
+            "min_tm": _poly_defaults["min_tm"],
+            "max_tm": _poly_defaults["max_tm"],
             "max_dimer_bp": 3,
             "max_self_dimer_bp": 4,
             # Optimization
@@ -656,7 +694,8 @@ class SetupWizard:
             print(f"Blacklist:        {bl_names}")
         print()
         print(f"Polymerase:       {polymerase.upper()}")
-        print(f"Temperature:      {self.recommended_temp if polymerase == 'equiphi29' else 30.0}C")
+        # The value actually written to params.json, not a second guess at it.
+        print(f"Temperature:      {polymerase_defaults(polymerase)['reaction_temp']}C")
         print(f"Primer length:    {min_k}-{max_k} bp")
         print()
         print("Next steps:")

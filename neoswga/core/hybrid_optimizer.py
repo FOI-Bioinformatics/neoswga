@@ -19,8 +19,9 @@ Version: 3.0 - Phase 2.1
 
 import logging
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from dataclasses import replace as _dc_replace
 from typing import Dict, List, Optional, Tuple
 
 import networkx as nx
@@ -28,8 +29,17 @@ import numpy as np
 
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
+from neoswga.core.registry import POLYMERASES as _POLYMERASES
 
 logger = logging.getLogger(__name__)
+
+# How much Stage-2 removal weighs the coverage a removal costs against the
+# amplification-network score it leaves behind. Both terms are normalised
+# within each removal step, so this is a genuine 0-1 trade-off rather than a
+# coefficient between incommensurable units. Half and half: Stage 2 exists to
+# improve connectivity, so coverage must not simply dominate it and turn the
+# stage into a second set-cover pass.
+_STAGE2_COVERAGE_WEIGHT = 0.5
 
 
 # =========================================================================
@@ -51,48 +61,44 @@ class PolymeraseConfig:
     max_gc: float = 0.75
 
 
-# Standard polymerase presets
+# Standard polymerase presets, derived from the registry.
+#
+# NOTE `max_extension` is the Stage-2 amplification-NETWORK reach -- "could two
+# primers connect via one uninterrupted extension?" -- so single-molecule
+# processivity is the right quantity for it. The Stage-1 set-cover COVERAGE
+# objective uses `coverage_reach` (the realistic per-primer reach), threaded
+# separately by unified_optimizer.
+#
+# These were previously hand-maintained numbers that disagreed with processivity
+# for bst (10000 vs 2000, physically impossible) and klenow (5000 vs 40). They
+# now derive from processivity_bp, so the two cannot diverge again.
 POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
-    "phi29": PolymeraseConfig(
-        max_extension=70000,
-        thermo_filter=False,
-        primer_multiplier=1.0,
-        reaction_temp=30.0,
-        min_primer_tm=20.0,
-        max_primer_tm=50.0,
-    ),
-    "equiphi29": PolymeraseConfig(
-        max_extension=80000,
-        thermo_filter=True,
-        primer_multiplier=0.85,
-        reaction_temp=42.0,
-        min_primer_tm=37.0,
-        max_primer_tm=62.0,
-        min_gc=0.25,
-        max_gc=0.75,
-    ),
-    "bst": PolymeraseConfig(
-        max_extension=10000,
-        thermo_filter=True,
-        primer_multiplier=1.0,
-        reaction_temp=60.0,
-        min_primer_tm=50.0,
-        max_primer_tm=75.0,
-    ),
-    "klenow": PolymeraseConfig(
-        max_extension=5000,
-        thermo_filter=False,
-        primer_multiplier=1.0,
-        reaction_temp=37.0,
-        min_primer_tm=20.0,
-        max_primer_tm=55.0,
-    ),
+    key: PolymeraseConfig(
+        max_extension=spec.processivity_bp,
+        thermo_filter=spec.thermo_filter,
+        primer_multiplier=spec.primer_multiplier,
+        reaction_temp=spec.preset_reaction_temp,
+        min_primer_tm=spec.primer_tm_range[0],
+        max_primer_tm=spec.primer_tm_range[1],
+        min_gc=spec.gc_range[0],
+        max_gc=spec.gc_range[1],
+    )
+    for key, spec in _POLYMERASES.items()
 }
 
 
 def _get_polymerase_config(polymerase: str) -> PolymeraseConfig:
-    """Get polymerase config, falling back to phi29 defaults."""
-    return POLYMERASE_PRESETS.get(polymerase, POLYMERASE_PRESETS["phi29"])
+    """Get a polymerase config, falling back to phi29 defaults.
+
+    Returns a COPY. `PolymeraseConfig` is a mutable dataclass and
+    `HybridOptimizer._adjust_for_gc` writes to `min_gc`/`max_gc` on the instance it
+    holds. Handing out the shared preset let one genome's GC adaptation leak into
+    every optimizer constructed later in the same process -- so an AT-rich target
+    would silently widen the GC window for an unrelated GC-rich target in an
+    ensemble, multi-genome, or long-running session.
+    """
+    preset = POLYMERASE_PRESETS.get(polymerase, POLYMERASE_PRESETS["phi29"])
+    return _dc_replace(preset)
 
 
 @dataclass
@@ -117,6 +123,14 @@ class HybridResult:
     final_coverage: float
     final_connectivity: float
     final_predicted_amplification: float
+
+    # Stage-1 primers in greedy selection order. `stage1_primers` comes from a
+    # set and has no meaningful order; this does. Set-cover picks the largest
+    # marginal gain at each step, so its first N picks are the same N whatever
+    # `stage1_count` was, and coverage over that prefix is non-decreasing in N.
+    # Stage 2 is floored against it, which is what makes final coverage
+    # monotone in the requested count.
+    stage1_ordered_primers: List[str] = field(default_factory=list)
 
     # Simulation validation (optional)
     simulation_fitness: Optional[object] = None  # SimulationFitness if validated
@@ -172,9 +186,11 @@ class HybridOptimizer:
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         bin_size: int = 10000,
-        max_extension: int = 70000,
+        max_extension: Optional[int] = None,
         coverage_reach: Optional[int] = None,
         uniformity_weight: float = 0.0,
+        min_tm: Optional[float] = None,
+        max_tm: Optional[float] = None,
         polymerase: str = "phi29",
         genome_gc_content: Optional[float] = None,
         background_pruning: bool = False,
@@ -225,10 +241,23 @@ class HybridOptimizer:
         # max_extension is the single-molecule processivity used for the Stage-2
         # amplification-NETWORK connectivity question ("can two primers connect
         # via one extension?").
-        if max_extension == 70000 and polymerase != "phi29":
-            self.max_extension = self.poly_config.max_extension
-        else:
-            self.max_extension = max_extension
+        #
+        # `None` means "not chosen" rather than the literal 70000 this used to
+        # test for. That was a sentinel-by-value: 70000 is phi29's processivity
+        # and a perfectly reasonable explicit argument, and a caller who passed
+        # it for bst had it silently replaced by 2000 -- a 35-fold change to the
+        # network reach, on the strength of a collision between a default and a
+        # real value.
+        self.max_extension = (
+            self.poly_config.max_extension if max_extension is None else max_extension
+        )
+
+        # Explicit Tm window, when the caller configured one. Stage-0 screening
+        # built its criteria from the polymerase preset alone, so a user who
+        # widened max_tm in params.json had the filter step honour it and the
+        # optimizer silently narrow it back.
+        self.min_tm = min_tm
+        self.max_tm = max_tm
 
         # coverage_reach is the realistic per-primer reach used for the Stage-1
         # set-cover COVERAGE objective, so selection optimizes the same coverage
@@ -299,10 +328,35 @@ class HybridOptimizer:
             self.poly_config.min_gc = 0.20
             logger.info("  AT-rich genome detected - widening GC acceptance")
 
+    def _rescale_for_polymerase(self, final_count: int, verbose: bool) -> int:
+        """Apply the polymerase preset's primer-count multiplier and floor.
+
+        Two faults lived at the call site. The assignment sat inside an
+        `and verbose` branch, so the rescale took effect only when logging was
+        on: equiphi29 asked for 10 returned 10 quiet and 8 loud, while phi29
+        (multiplier 1.0) returned 10 either way. A design must not depend on
+        how chatty the run is.
+
+        And it overrode counts a caller had named. At the default target of 6
+        the multiplier cannot bite -- `max(6, int(6 * 0.85))` is 6 -- so the
+        only counts it ever changed were deliberate ones. A params.json asking
+        for 32 primers got 27, and the completion check then blamed the
+        candidate pool, advice that would degrade a design that was not
+        deficient. Hence the call is now opt-in; see `optimize`.
+        """
+        adjusted = max(6, int(final_count * self.poly_config.primer_multiplier))
+        if adjusted != final_count and verbose:
+            logger.info(
+                f"Adjusted target from {final_count} to {adjusted} "
+                f"({self.polymerase} multiplier: {self.poly_config.primer_multiplier})"
+            )
+        return adjusted
+
     def optimize(
         self,
         candidates: List[str],
         final_count: int = 12,
+        apply_polymerase_multiplier: bool = False,
         stage1_count: Optional[int] = None,
         fixed_primers: Optional[List[str]] = None,
         verbose: bool = True,
@@ -316,6 +370,9 @@ class HybridOptimizer:
         Args:
             candidates: List of candidate primers (already filtered)
             final_count: Final number of primers to select (Stage 2 output)
+            apply_polymerase_multiplier: Let the preset rescale `final_count`
+                (see `_rescale_for_polymerase`). Defaults False: a caller who
+                names a count means it.
             stage1_count: Number of primers for Stage 1 (None = auto)
             fixed_primers: Optional list of primers that must be included in
                 the final set. The optimizer will select additional primers
@@ -395,14 +452,8 @@ class HybridOptimizer:
                 total_runtime=time.time() - total_start,
             )
 
-        # Apply primer count multiplier from polymerase preset
-        adjusted_final_count = max(6, int(final_count * self.poly_config.primer_multiplier))
-        if adjusted_final_count != final_count and verbose:
-            logger.info(
-                f"Adjusted target from {final_count} to {adjusted_final_count} "
-                f"({self.polymerase} multiplier: {self.poly_config.primer_multiplier})"
-            )
-            final_count = adjusted_final_count
+        if apply_polymerase_multiplier:
+            final_count = self._rescale_for_polymerase(final_count, verbose)
 
         # Auto-determine Stage 1 count if not specified
         if stage1_count is None:
@@ -454,6 +505,8 @@ class HybridOptimizer:
         # Combine fixed primers with newly selected primers
         stage1_new_primers = stage1_result["primers"]
         stage1_primers = fixed_primers + [p for p in stage1_new_primers if p not in fixed_primers]
+        # Greedy selection order, which `stage1_primers` (built from a set) loses.
+        stage1_ordered = list(stage1_result.get("ordered_primers") or stage1_primers)
         stage1_coverage = stage1_result["coverage"]
         stage1_regions = stage1_result["covered_regions"]
 
@@ -483,6 +536,7 @@ class HybridOptimizer:
             return HybridResult(
                 primers=stage1_primers,
                 stage1_primers=stage1_primers,
+                stage1_ordered_primers=stage1_ordered,
                 stage1_coverage=stage1_coverage,
                 stage1_regions_covered=stage1_regions,
                 stage2_primers=stage1_primers,
@@ -544,7 +598,11 @@ class HybridOptimizer:
         # Use network-based selection from Stage 1 primers
         # Fixed primers will never be removed during refinement
         stage2_primers = self._network_refine(
-            stage1_primers, target_count=final_count, fixed_primers=fixed_primers, verbose=verbose
+            stage1_primers,
+            target_count=final_count,
+            fixed_primers=fixed_primers,
+            verbose=verbose,
+            coverage_floor_set=stage1_ordered,
         )
 
         stage2_runtime = time.time() - stage2_start
@@ -626,6 +684,7 @@ class HybridOptimizer:
         return HybridResult(
             primers=stage2_primers,
             stage1_primers=stage1_primers,
+            stage1_ordered_primers=stage1_ordered,
             stage1_coverage=stage1_coverage,
             stage1_regions_covered=stage1_regions,
             stage2_primers=stage2_primers,
@@ -648,6 +707,7 @@ class HybridOptimizer:
         target_count: int,
         fixed_primers: Optional[List[str]] = None,
         verbose: bool = True,
+        coverage_floor_set: Optional[List[str]] = None,
     ) -> List[str]:
         """
         Refine primer set using network analysis.
@@ -695,9 +755,31 @@ class HybridOptimizer:
         current_primers = primers.copy()
         current_node_set = set(full_network.graph.nodes())
 
+        # Coverage bookkeeping for the removal criterion.
+        #
+        # The criterion used to be `connectivity + pred_amp / 100`, with no
+        # coverage term at all. That is not a neutral omission: the primer
+        # whose removal leaves the best network score is the most peripheral
+        # one in the amplification graph, and a primer is peripheral precisely
+        # when its sites sit far from everything else -- which is to say when
+        # it is the only thing covering its region. Stage 2 was therefore
+        # biased towards dropping exactly the primers carrying unique
+        # coverage, and took a 94.0%-covering Stage-1 set down to 64.9%.
+        #
+        # `_calculate_coverage` per candidate per step would undo the O(1)
+        # subgraph optimisation above, so instead count how many primers cover
+        # each bin once, and get the cost of a removal from the bins where that
+        # count is 1.
+        bins_by_primer = self._coverage_bins_by_primer(current_primers)
+        bin_counts = Counter()
+        for owned in bins_by_primer.values():
+            bin_counts.update(owned)
+        total_bins = self._total_coverage_bins()
+
         while len(current_primers) > target_count:
             best_to_remove = None
             best_score_after_removal = -float("inf")
+            candidates = []
 
             # Try removing each primer using subgraph views (O(1) each)
             for primer in current_primers:
@@ -728,15 +810,47 @@ class HybridOptimizer:
                 else:
                     pred_amp = 2 ** min(largest / 10.0, 20.0)
 
-                score = connectivity + pred_amp / 100
+                network_score = connectivity + pred_amp / 100
 
-                if score > best_score_after_removal:
-                    best_score_after_removal = score
-                    best_to_remove = primer
+                # Bins only this primer covers: what removing it costs.
+                unique_bins = sum(1 for b in bins_by_primer.get(primer, ()) if bin_counts[b] == 1)
+                candidates.append((primer, network_score, unique_bins))
+
+            if not candidates:
+                best_to_remove = None
+            else:
+                # Rank on both axes within this step rather than adding raw
+                # values: algebraic connectivity and a bin count share no
+                # scale, and a fixed coefficient between them would be
+                # arbitrary and input-dependent. Normalising per step keeps the
+                # trade-off meaningful whatever the magnitudes happen to be.
+                net_values = [c[1] for c in candidates]
+                cost_values = [c[2] for c in candidates]
+                net_lo, net_hi = min(net_values), max(net_values)
+                cost_lo, cost_hi = min(cost_values), max(cost_values)
+                net_span = (net_hi - net_lo) or 1.0
+                cost_span = (cost_hi - cost_lo) or 1.0
+
+                best_combined = -float("inf")
+                for primer, network_score, unique_bins in candidates:
+                    norm_net = (network_score - net_lo) / net_span
+                    # Cheap to remove == loses few unique bins == score 1.
+                    norm_keep = 1.0 - (unique_bins - cost_lo) / cost_span
+                    combined = (
+                        1.0 - _STAGE2_COVERAGE_WEIGHT
+                    ) * norm_net + _STAGE2_COVERAGE_WEIGHT * norm_keep
+                    if combined > best_combined:
+                        best_combined = combined
+                        best_to_remove = primer
+                best_score_after_removal = best_combined
 
             if best_to_remove:
                 current_primers.remove(best_to_remove)
                 current_node_set -= nodes_by_primer.get(best_to_remove, set())
+                for b in bins_by_primer.get(best_to_remove, ()):
+                    bin_counts[b] -= 1
+                    if bin_counts[b] <= 0:
+                        del bin_counts[b]
                 if verbose and len(current_primers) % 5 == 0:
                     logger.info(f"  Reduced to {len(current_primers)} primers...")
             else:
@@ -763,7 +877,65 @@ class HybridOptimizer:
                 f"Connectivity improved: {initial_stats['connectivity']:.2f} → {final_connectivity:.2f}"
             )
 
+        # Floor the result at the Stage-1 greedy prefix of the same size.
+        #
+        # Coverage-aware removal makes Stage 2 much less destructive, but "much
+        # less destructive" is a tendency, not a guarantee -- it holds on the
+        # inputs someone happened to try. Greedy set cover selects in a
+        # deterministic order, so its first N picks are the same N whatever
+        # stage1_count was, and coverage over that prefix is non-decreasing in
+        # N. Refusing to return anything worse than it turns the tendency into
+        # a floor that is itself monotone in the requested count.
+        if coverage_floor_set:
+            baseline = list(coverage_floor_set)[:target_count]
+            if len(baseline) == target_count:
+                refined_coverage = self._calculate_coverage(current_primers)
+                baseline_coverage = self._calculate_coverage(baseline)
+                if baseline_coverage > refined_coverage + 1e-12:
+                    if verbose:
+                        logger.info(
+                            f"  Refinement covered {refined_coverage:.1%} against "
+                            f"{baseline_coverage:.1%} for the stage-1 prefix; "
+                            f"keeping the prefix."
+                        )
+                    return baseline
+
         return current_primers
+
+    def _coverage_bins_by_primer(self, primers: List[str]) -> Dict[str, set]:
+        """Bins each primer covers, at the granularity `_calculate_coverage` uses.
+
+        Computed once per refinement so the removal loop can price a candidate
+        from a bin-occupancy counter instead of recomputing coverage, which
+        would undo the O(1) subgraph views the loop is built around.
+        """
+        from neoswga.core.dominating_set_optimizer import BipartiteGraph, coverage_bin_size
+
+        bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
+        owned: Dict[str, set] = {}
+
+        for primer in primers:
+            graph = BipartiteGraph(bin_size=bin_size)
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+                fw = self.position_cache.get_positions(prefix, primer, "forward")
+                rv = self.position_cache.get_positions(prefix, primer, "reverse")
+                positions = np.concatenate([fw, rv])
+                if len(positions) > 0:
+                    graph.add_primer_coverage(
+                        primer,
+                        positions,
+                        prefix,
+                        length,
+                        extension_reach=self.coverage_reach,
+                    )
+            owned[primer] = set(graph.regions)
+        return owned
+
+    def _total_coverage_bins(self) -> int:
+        from neoswga.core.dominating_set_optimizer import coverage_bin_size
+
+        bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
+        return sum((length + bin_size - 1) // bin_size for length in self.fg_seq_lengths)
 
     def _build_network(self, primers: List[str]) -> AmplificationNetwork:
         """Build amplification network for primer set"""
@@ -784,10 +956,25 @@ class HybridOptimizer:
         return network
 
     def _calculate_coverage(self, primers: List[str]) -> float:
-        """Calculate genome coverage for primer set"""
-        from neoswga.core.dominating_set_optimizer import BipartiteGraph
+        """Binned genome coverage for a primer set, at the realistic reach.
 
-        graph = BipartiteGraph(bin_size=self.bin_size)
+        This is an APPROXIMATION used for progress reporting and for the
+        coverage floor in background pruning. It works in bins, so a bin counts
+        as covered when any part of it falls within reach of a site -- which is
+        only sound while a bin is no larger than the reach. `coverage_bin_size`
+        enforces that: the configured 10 kb default is cut to the ~3 kb reach,
+        because a 10 kb bin let a primer covering 30% of it claim the whole bin
+        and report 1.000 for a set that covers 0.433.
+
+        The authoritative number is `PrimerSetMetrics.fg_coverage`, computed
+        base-by-base by `BaseOptimizer._compute_coverage` and written to
+        `step4_improved_df_summary.json`. Compare like with like: this method
+        and that metric will not agree exactly, by construction.
+        """
+        from neoswga.core.dominating_set_optimizer import BipartiteGraph, coverage_bin_size
+
+        bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
+        graph = BipartiteGraph(bin_size=bin_size)
 
         for primer in primers:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
@@ -797,18 +984,81 @@ class HybridOptimizer:
                 positions = np.concatenate([positions_fwd, positions_rev])
 
                 if len(positions) > 0:
-                    graph.add_primer_coverage(primer, positions, prefix, length)
+                    # Thread the realistic per-primer reach, as Stage-1 set
+                    # cover does. Omitting it left `extension_reach` at its
+                    # default of 0, so this measured bin OCCUPANCY -- "does any
+                    # site fall in this bin" -- and the answer depended on
+                    # `bin_size` rather than on the polymerase.
+                    #
+                    # At the default 10 kb bin that reported 100% coverage for a
+                    # set the shipped metric scores at 39%, and at a 1 kb bin the
+                    # same set scored 13%. It also meant `_prune_background`
+                    # checked its `min_coverage_threshold` floor against a
+                    # different quantity from the one finally reported, so the
+                    # guard against over-pruning was not measuring what it
+                    # protected.
+                    graph.add_primer_coverage(
+                        primer,
+                        positions,
+                        prefix,
+                        length,
+                        extension_reach=self.coverage_reach,
+                    )
 
         if len(graph.regions) == 0:
             return 0.0
 
-        # Calculate total genome bins
-        total_bins = sum(
-            (length + self.bin_size - 1) // self.bin_size for length in self.fg_seq_lengths
-        )
+        # Total bins at the SAME granularity the graph was built with. Dividing
+        # bins counted at one size by a total computed at another reported
+        # coverage above 1.0.
+        total_bins = sum((length + bin_size - 1) // bin_size for length in self.fg_seq_lengths)
 
         coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
         return coverage
+
+    def _thermo_criteria(self):
+        """Criteria for the Stage-0 thermodynamic screen.
+
+        Two things used to be wrong here and both were invisible.
+
+        The Tm bounds came from the polymerase preset alone, so a window
+        widened in params.json was honoured by the filter step and then
+        narrowed back by the optimizer. An explicitly configured bound now
+        wins; the preset remains the default when nothing is configured.
+
+        `na_conc=50.0, mg_conc=0.0` were hardcoded. Every hairpin, homodimer
+        and heterodimer energy this screen rejects primers on was therefore
+        computed for a reaction containing no magnesium -- the same
+        zero-magnesium fault schema v2 corrected in the presets, and Mg2+ is
+        the dominant term in the salt correction. The configured buffer is
+        used instead.
+        """
+        from neoswga.core.thermodynamic_filter import ThermodynamicCriteria
+
+        conditions = getattr(self, "conditions", None)
+        if conditions is not None:
+            na_conc = conditions.na_conc
+            mg_conc = conditions.mg_conc
+        else:
+            from neoswga.core.parameter import default_mg_conc
+
+            na_conc = 50.0
+            mg_conc = default_mg_conc(self.polymerase)
+
+        return ThermodynamicCriteria(
+            min_tm=self.min_tm if self.min_tm is not None else self.poly_config.min_primer_tm,
+            max_tm=self.max_tm if self.max_tm is not None else self.poly_config.max_primer_tm,
+            target_tm=self.poly_config.reaction_temp + 5,
+            na_conc=na_conc,
+            mg_conc=mg_conc,
+            max_homodimer_dg=-10.0,
+            max_heterodimer_dg=-10.0,
+            max_hairpin_dg=-3.0,
+            min_gc=self.poly_config.min_gc,
+            max_gc=self.poly_config.max_gc,
+            reaction_temp=self.poly_config.reaction_temp,
+            polymerase=self.polymerase,
+        )
 
     def _thermo_filter_candidates(self, candidates: List[str], verbose: bool = True) -> List[str]:
         """
@@ -828,20 +1078,7 @@ class HybridOptimizer:
         try:
             from neoswga.core.thermodynamic_filter import ThermodynamicCriteria, ThermodynamicFilter
 
-            criteria = ThermodynamicCriteria(
-                min_tm=self.poly_config.min_primer_tm,
-                max_tm=self.poly_config.max_primer_tm,
-                target_tm=self.poly_config.reaction_temp + 5,
-                na_conc=50.0,
-                mg_conc=0.0,
-                max_homodimer_dg=-10.0,
-                max_heterodimer_dg=-10.0,
-                max_hairpin_dg=-3.0,
-                min_gc=self.poly_config.min_gc,
-                max_gc=self.poly_config.max_gc,
-                reaction_temp=self.poly_config.reaction_temp,
-                polymerase=self.polymerase,
-            )
+            criteria = self._thermo_criteria()
 
             thermo_filter = ThermodynamicFilter(criteria)
             filtered, stats = thermo_filter.filter_candidates(
@@ -1008,6 +1245,10 @@ class HybridBaseOptimizer(BaseOptimizer):
             bg_seq_lengths,
             config,
             conditions=conditions,
+            # Forward the rest so background_profile / aggregate reach
+            # BaseOptimizer. Dropping **kwargs here made a compositional
+            # background silently inert on every optimizer.
+            **kwargs,
         )
         self._hybrid = HybridOptimizer(
             position_cache=position_cache,
@@ -1016,12 +1257,14 @@ class HybridBaseOptimizer(BaseOptimizer):
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
             bin_size=kwargs.get("bin_size", 10000),
-            max_extension=kwargs.get("max_extension", 70000),
+            max_extension=kwargs.get("max_extension"),
             # Stage-1 coverage selection uses the realistic reach resolved by
             # unified_optimizer (OptimizerConfig.extension_reach), so selection
             # and the scored metrics.fg_coverage share one coverage definition.
             coverage_reach=getattr(self.config, "extension_reach", None),
             polymerase=kwargs.get("polymerase", "phi29"),
+            min_tm=getattr(self.config, "min_tm", None),
+            max_tm=getattr(self.config, "max_tm", None),
             genome_gc_content=kwargs.get("genome_gc_content"),
             background_pruning=kwargs.get("background_pruning", False),
             background_weight=kwargs.get("background_weight", 2.0),
@@ -1062,6 +1305,11 @@ class HybridBaseOptimizer(BaseOptimizer):
                 final_count=target,
                 fixed_primers=fixed_primers,
                 verbose=self.config.verbose,
+                # `target` came from params.json or --auto-size, both
+                # deliberate. --auto-size already accounts for the polymerase
+                # through the mechanistic model, so rescaling here would
+                # double-count it; an explicit count it would simply override.
+                apply_polymerase_multiplier=False,
             )
 
             primers = result.primers

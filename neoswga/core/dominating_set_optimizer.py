@@ -35,6 +35,60 @@ class CoverageRegion:
         return hash((self.chromosome, self.start, self.end))
 
 
+def _deterministic_scan_order(fixed_primers, candidates, graph_primers) -> List[str]:
+    """The order the greedy loop considers primers in.
+
+    `graph.primers` is a set, and greedy selection keeps the first primer seen
+    at the best score -- so ties were broken by set iteration order, which
+    Python varies per process for strings. Four runs of the bundled example at
+    seed=42 gave four different sets: same first primer, different tie-break on
+    the second. No RNG is involved, which is why seeding never fixed it.
+
+    Input order rather than `sorted()`: the caller's list arrives ranked by the
+    scoring step, so preferring the earlier candidate on a tie respects that
+    ranking instead of substituting an alphabetical one.
+    """
+    seen = set()
+    order = []
+    for primer in list(fixed_primers) + list(candidates):
+        if primer in graph_primers and primer not in seen:
+            seen.add(primer)
+            order.append(primer)
+    return order
+
+
+def coverage_bin_size(bin_size: int, extension_reach: int) -> int:
+    """Bin size that does not overstate what the polymerase reaches.
+
+    `BipartiteGraph.add_primer_coverage` marks a bin covered when any part of
+    it is within reach of a binding site. That approximation is only sound
+    while a bin is no larger than the reach: at the shipped defaults --
+    10 kb bins against a realistic ~3 kb per-primer reach -- a primer covering
+    30% of a bin claimed all of it.
+
+    Two things followed, both silent. Greedy set cover saw the genome fully
+    covered after two primers and stopped, so every request between 2 and 12
+    primers returned the same two; and the coverage reported for that set was
+    1.000 where the honest figure was 0.433. A coarse bin rounds its own error
+    up to a perfect score, which is the one direction a reader will not
+    question.
+
+    A bin equal to the reach is not enough. A site at `pos` reaches
+    `[pos, pos + reach)` but marks every bin it touches, so it claims up to
+    `reach + bin_size` bases: the relative overstatement is `bin_size / reach`.
+    Binning at a quarter of the reach holds that under 25%, which is the
+    accuracy this approximation is used at -- progress reporting and the
+    background-pruning coverage floor. The authoritative figure remains
+    `BaseOptimizer._compute_coverage`, which counts bases rather than bins.
+
+    Callers that model no extension (`extension_reach=0`) keep their bin size:
+    with no reach there is no reach to overstate.
+    """
+    if extension_reach and extension_reach > 0:
+        return max(1, min(bin_size, extension_reach // 4 or 1))
+    return bin_size
+
+
 class BipartiteGraph:
     """
     Bipartite graph: Primers ↔ Regions
@@ -216,8 +270,31 @@ class DominatingSetOptimizer:
         self.cache = cache
         self.fg_prefixes = fg_prefixes
         self.fg_seq_lengths = fg_seq_lengths
-        self.bin_size = bin_size
         self.extension_reach = extension_reach
+        self.bin_size = coverage_bin_size(bin_size, extension_reach)
+        if self.bin_size != bin_size:
+            logger.info(
+                f"Bin size reduced {bin_size:,} -> {self.bin_size:,} bp to match the "
+                f"{extension_reach:,} bp extension reach"
+            )
+
+    def _total_bins(self) -> int:
+        """Bins in the genome, not bins some candidate happens to reach.
+
+        `BipartiteGraph.regions` only gains a bin when a candidate covers it, so
+        `len(covered) / len(graph.regions)` is the fraction of the *reachable*
+        genome -- a number that rises as the pool narrows. A pool touching a
+        tenth of the target and covering all of it scored 1.000, which became
+        `score` and passed a 0.95 SUCCESS gate. Dividing by this instead makes
+        coverage a property of the genome, which is what every consumer of the
+        number assumes it already was.
+        """
+        return sum((length + self.bin_size - 1) // self.bin_size for length in self.fg_seq_lengths)
+
+    def _genome_fraction(self, covered_regions) -> float:
+        """Covered bins as a fraction of the genome. See `_total_bins`."""
+        total = self._total_bins()
+        return len(covered_regions) / total if total else 0.0
 
     def optimize_greedy(
         self,
@@ -295,19 +372,33 @@ class DominatingSetOptimizer:
                         reverse_positions=rv if len(rv) > 0 else None,
                     )
 
+        total_bins = self._total_bins()
         if verbose:
-            logger.info(f"Graph: {len(graph.primers)} primers, {len(graph.regions)} regions")
+            logger.info(
+                f"Graph: {len(graph.primers)} primers, {len(graph.regions)} regions "
+                f"of {total_bins} genome bins"
+            )
 
-        # Greedy set cover - start with fixed primers' coverage
+        # Greedy set cover - start with fixed primers' coverage.
+        #
+        # `order` records the sequence selection happened in, which `selected`
+        # (a set) destroys. It matters downstream: greedy picks the primer with
+        # the largest marginal coverage at each step, so its first N picks are
+        # the same N whatever `max_primers` was, and coverage over that prefix
+        # is non-decreasing in N. That makes the prefix a monotone baseline the
+        # hybrid optimizer's Stage-2 refinement is floored against.
         selected = set(fixed_primers)
+        order = list(fixed_primers)
         covered_regions = set()
 
         # Pre-fill coverage from fixed primers
         for primer in fixed_primers:
             covered_regions.update(graph.primer_to_regions.get(primer, set()))
 
+        scan_order = _deterministic_scan_order(fixed_primers, candidates, graph.primers)
+
         if verbose and n_fixed > 0:
-            coverage_so_far = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
+            coverage_so_far = self._genome_fraction(covered_regions)
             logger.info(f"  Fixed primer coverage: {coverage_so_far:.1%}")
 
         for iteration in range(max_primers):
@@ -320,7 +411,7 @@ class DominatingSetOptimizer:
             best_primer = None
             best_new_coverage = 0
 
-            for primer in graph.primers:
+            for primer in scan_order:
                 if primer in selected:
                     continue
 
@@ -337,15 +428,16 @@ class DominatingSetOptimizer:
 
             # Add primer
             selected.add(best_primer)
+            order.append(best_primer)
             covered_regions.update(graph.primer_to_regions[best_primer])
 
             if verbose and (iteration + 1) % 5 == 0:
-                coverage = len(covered_regions) / len(graph.regions)
+                coverage = self._genome_fraction(covered_regions)
                 logger.info(f"  {iteration + 1} primers: {coverage:.1%} coverage")
 
             # Check if coverage target is met
             if min_coverage is not None and graph.regions:
-                current_coverage = len(covered_regions) / len(graph.regions)
+                current_coverage = self._genome_fraction(covered_regions)
                 if current_coverage >= min_coverage:
                     if verbose:
                         logger.info(
@@ -356,20 +448,34 @@ class DominatingSetOptimizer:
                     break
 
         # Final statistics
-        coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
+        coverage = self._genome_fraction(covered_regions)
+        reachable_coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
         uncovered = graph.regions - covered_regions
 
-        # Separate fixed and new primers in result
-        new_primers = [p for p in selected if p not in fixed_primers]
+        # Both lists come from `order`, not from `selected`.
+        #
+        # Returning `list(selected)` handed callers a set-ordered list, and
+        # Python randomises string hashing per process, so the order differed
+        # between runs of the same command. Stage-2 refinement breaks ties by
+        # position, so a different order gave a different primer set: the
+        # bundled example produced five different answers in five runs at
+        # seed=42. No RNG was involved, which is why seeding never helped --
+        # greedy selection is deterministic, and only the container forgot the
+        # order it happened in.
+        fixed_set = set(fixed_primers)
+        new_primers = [p for p in order if p not in fixed_set]
 
         result = {
-            "primers": list(selected),
+            "primers": list(order),
+            "ordered_primers": order,
             "new_primers": new_primers,
             "fixed_primers": fixed_primers,
             "n_primers": len(selected),
             "n_new": len(new_primers),
             "n_fixed": n_fixed,
             "coverage": coverage,
+            # Well above `coverage`: the pool cannot reach the rest of the genome.
+            "reachable_coverage": reachable_coverage,
             "covered_regions": len(covered_regions),
             "total_regions": len(graph.regions),
             "uncovered_regions": len(uncovered),
@@ -462,12 +568,15 @@ class DominatingSetOptimizer:
             for primer in selected:
                 covered_regions.update(graph.primer_to_regions.get(primer, set()))
 
-            coverage = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
+            total_bins = self._total_bins()
+            coverage = len(covered_regions) / total_bins if total_bins else 0.0
+            reachable = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
 
             result = {
                 "primers": selected,
                 "n_primers": len(selected),
                 "coverage": coverage,
+                "reachable_coverage": reachable,
                 "covered_regions": len(covered_regions),
                 "total_regions": len(graph.regions),
                 "optimal": True,

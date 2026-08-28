@@ -14,9 +14,21 @@ import numpy as np
 import pandas as pd
 
 from neoswga.core import dimer, parameter, primer_attributes
-from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.parameter import (
+    EXTREME_AT_GENOME_GC,
+    EXTREME_GC_GENOME_GC,
+    default_reaction_temp,
+    default_tm_range,
+)
+from neoswga.core.reaction_conditions import ReactionConditions, build_reaction_conditions
 
 logger = logging.getLogger(__name__)
+
+# Expected number of sampled sites at the background threshold below which
+# the sampled index cannot distinguish 'rare' from 'absent'. Five is a floor,
+# not a precision claim: below it the estimate is dominated by whether a
+# single position happened to land in the sample.
+_MIN_RESOLVABLE_SAMPLED_SITES = 5.0
 
 # Module-level reaction conditions (lazily initialized)
 _reaction_conditions = None
@@ -31,19 +43,14 @@ def _get_reaction_conditions() -> ReactionConditions:
     """
     global _reaction_conditions
     if _reaction_conditions is None:
-        _reaction_conditions = ReactionConditions(
-            temp=getattr(parameter, "reaction_temp", 30.0),
-            polymerase=getattr(parameter, "polymerase", "phi29"),
-            dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-            betaine_m=getattr(parameter, "betaine_m", 0.0),
-            trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-            formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-            ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-            urea_m=getattr(parameter, "urea_m", 0.0),
-            tmac_m=getattr(parameter, "tmac_m", 0.0),
-            na_conc=getattr(parameter, "na_conc", 50.0),
-            mg_conc=getattr(parameter, "mg_conc", 0.0),
-        )
+        # Hand-listing the fields here dropped nine of them, including every
+        # buffer species and the glycerol/PEG/BSA/SSB group the filter CLI
+        # accepts. `build_reaction_conditions` reads the field list off the
+        # constructor, so nothing can be left out by omission. It also keeps
+        # the reaction_temp fallback this function needed: the global EXISTS
+        # as None until get_params runs, so a getattr default never fires and
+        # ReactionConditions(temp=None) raises when it range-checks.
+        _reaction_conditions = build_reaction_conditions()
     return _reaction_conditions
 
 
@@ -84,6 +91,9 @@ MIN_NUCLEOTIDE_COUNT_FOR_REPEAT = 5
 
 # Rule 3: Maximum G/C bases allowed in last 5 bases (GC clamp)
 MAX_GC_IN_LAST_5_BASES = 3
+# Bases at the 3' end the clamp looks at. See resolve_gc_clamp for why this
+# is not scaled to primer length.
+GC_CLAMP_WINDOW = 5
 
 # Rule 1: All 3 bases at 3' end cannot be G/C
 MAX_GC_AT_3PRIME_END = 2  # Max 2 of 3 bases can be G/C
@@ -103,6 +113,27 @@ def _scale_freq_threshold(
     primer may have thousands. This function adjusts the threshold so that
     long primers are not eliminated by thresholds calibrated for short ones.
 
+    That argument is about the foreground FLOOR (`min_fg_freq`) and is right:
+    an unscaled 1e-5 floor demands 31.7 sites on a 3.2 Mb target, which almost
+    no 12-mer has, so without this every long primer would be rejected.
+
+    It is also applied to the background CEILING (`max_bg_freq`), where the
+    argument does not carry: the harm from a background site does not depend on
+    primer length. A 12-mer with ten host sites primes the host ten times,
+    exactly as a 10-mer with ten does. Scaling the ceiling therefore reinterprets
+    the parameter at every length -- on chr21, 5e-7 admits 23.35 sites at k=10,
+    1.46 at k=12 and 0.09 at k=14, so from k=13 the gate means "zero exact
+    background matches" and stops responding to the parameter.
+
+    Measured cost on the Prevotella 12-mer pool: of 573,182 candidates the
+    configured ceiling admits, the scaled one keeps 143,224 -- 75% discarded,
+    and not for quality (median 2 foreground sites either way).
+
+    Whether the ceiling should scale is a genuine trade-off, since admitting
+    primers with more host sites raises coverage and lowers selectivity, and it
+    is deliberately not settled here. What is not optional is that the applied
+    threshold be visible: see `describe_freq_gate` and `log_freq_gates`.
+
     Args:
         base_threshold: Frequency threshold calibrated for reference_k-mers
         primer_length: Actual primer length
@@ -116,6 +147,160 @@ def _scale_freq_threshold(
     length_diff = reference_k - primer_length
     scale_factor = 4.0**length_diff  # e.g. 4^(-5) = 1/1024 for 15bp
     return base_threshold * scale_factor
+
+
+def describe_freq_gate(base_threshold: float, primer_length: int, genome_length: int) -> dict:
+    """What a frequency gate actually admits, in sites.
+
+    A frequency is not a quantity anyone can reason about against a params.json
+    value; a site count is. `degenerate` marks a ceiling that has fallen below
+    one site, where the gate means "zero exact matches" and no value of the
+    parameter in its documented range loosens it.
+    """
+    scaled = _scale_freq_threshold(base_threshold, primer_length)
+    sites = scaled * genome_length
+    return {
+        "configured": base_threshold,
+        "scaled": scaled,
+        "sites": sites,
+        "degenerate": sites < 1.0,
+    }
+
+
+def log_freq_gates(
+    primer_length: int,
+    min_fg_freq: float,
+    max_bg_freq: float,
+    fg_length: int,
+    bg_length: int,
+) -> None:
+    """Report the thresholds a run is really applying, once per primer length.
+
+    The length scaling was invisible: nothing printed the applied value, so a
+    user comparing params.json against the result had no way to see that
+    `max_bg_freq: 5e-07` had become 3.13e-08 at k=12.
+    """
+    fg = describe_freq_gate(min_fg_freq, primer_length, fg_length)
+    bg = describe_freq_gate(max_bg_freq, primer_length, bg_length) if bg_length else None
+
+    message = (
+        f"k={primer_length} frequency gates: min_fg_freq {fg['configured']:.3g} "
+        f"-> {fg['scaled']:.3g} (>= {fg['sites']:.2f} foreground sites)"
+    )
+    if bg is not None:
+        message += (
+            f"; max_bg_freq {bg['configured']:.3g} -> {bg['scaled']:.3g} "
+            f"(< {bg['sites']:.2f} background sites)"
+        )
+    logger.info(message)
+
+    if bg is not None and bg["degenerate"]:
+        logger.warning(
+            f"At k={primer_length} the background gate admits only primers with "
+            f"zero exact background matches ({bg['sites']:.2f} sites). "
+            f"max_bg_freq={bg['configured']:.3g} is scaled by 4^(10-{primer_length}) "
+            f"and no value in its documented range loosens this. Raise it by that "
+            f"factor if you meant to allow background binding at this length."
+        )
+
+
+def _warn_if_sample_too_sparse(sampled_index) -> None:
+    """Say so when the sampled index cannot resolve the gate's threshold.
+
+    `SampledGenomeIndex` stores every `sample_rate`-th position and extrapolates,
+    so it can only resolve counts that survive being divided by that rate. The
+    count at the background gate's threshold is `max_bg_freq * genome_size`:
+
+        human, 3 Gbp at 5e-6   ->  15000 sites, sampled ~150 times   resolvable
+        plasmid, 6 kb at 5e-6  ->   0.03 sites, sampled 0.0003 times  hopeless
+
+    Below resolution every primer estimates zero and passes, which is the same
+    silent under-filtering the old sentinel produced, reached by a different
+    route. Warned rather than raised: unlike a missing index the numbers here
+    are real, only too coarse, and a caller may know their background better
+    than this heuristic. Exact k-mer counting is the answer at these sizes, and
+    it is affordable precisely because the genome is small.
+    """
+    genome_size = getattr(sampled_index, "genome_size", 0) or 0
+    sample_rate = getattr(sampled_index, "sample_rate", 1) or 1
+    if genome_size <= 0:
+        return
+
+    lengths = getattr(parameter, "bg_seq_lengths", None) or [genome_size]
+    max_bg_freq = getattr(parameter, "max_bg_freq", None)
+    if not max_bg_freq:
+        return
+
+    threshold_sites = max_bg_freq * sum(lengths)
+    expected_sampled = threshold_sites / sample_rate
+
+    if expected_sampled < _MIN_RESOLVABLE_SAMPLED_SITES:
+        logger.warning(
+            f"Sampled index is too sparse to resolve the background threshold: "
+            f"max_bg_freq={max_bg_freq:g} over {sum(lengths):,} bp is "
+            f"{threshold_sites:.3g} sites, which sample_rate={sample_rate} sees "
+            f"{expected_sampled:.3g} times. Background counts will read near "
+            f"zero and most primers will pass. Use exact k-mer counting for a "
+            f"background this size, or rebuild the index with a lower sample rate."
+        )
+
+
+def _load_sampled_index(bloom_path: str):
+    """The sampled index that turns Bloom presence into a usable count.
+
+    A Bloom filter answers "is this k-mer in the background", not "how often".
+    The background gate downstream is a frequency test
+    (`bg_count / bg_total_length < max_bg_freq`), so this path used to
+    manufacture a stand-in count -- `bloom_max_bg_matches + 1`, 11 by default --
+    for every primer the filter reported present.
+
+    An absolute count fed to a frequency test inverts with scale. 11 over a
+    6 kb plasmid is 1.8e-3 and gets rejected; 11 over a 3 Gbp human background
+    is 3.7e-9 and passes any sane threshold. Since an absent primer scores 0,
+    which also passes, BOTH branches passed on a large background: the filter
+    did nothing whatsoever, silently, at exactly the scale Bloom exists for.
+    Every small-scale test of it passed, which is why it survived.
+
+    So the stand-in is gone. `SampledGenomeIndex` can answer the frequency
+    question -- `build-filter` already writes `bg_sampled.pkl` beside
+    `bg_bloom.pkl` -- and it is looked for there when `sampled_index_path` is
+    unset, because requiring a second undocumented setting is what put callers
+    on the sentinel branch to begin with. If no index can be found this raises,
+    which costs a user one clear error instead of a primer set screened against
+    nothing.
+    """
+    import os
+
+    from neoswga.core.background_filter import SampledGenomeIndex
+
+    configured = getattr(parameter, "sampled_index_path", None)
+    candidates = [configured] if configured else []
+
+    # Where `build-filter` puts it (cli/pipeline.py, background_filter.py:678).
+    directory = os.path.dirname(os.path.abspath(bloom_path))
+    candidates.append(os.path.join(directory, "bg_sampled.pkl"))
+    # And the matching name for a bloom file the user renamed.
+    stem = os.path.basename(bloom_path)
+    if "bloom" in stem:
+        candidates.append(os.path.join(directory, stem.replace("bloom", "sampled")))
+
+    for path in candidates:
+        if path and os.path.exists(path):
+            try:
+                index = SampledGenomeIndex.load(path)
+                logger.info(f"Using sampled index for background counts: {path}")
+                return index
+            except Exception as e:
+                logger.warning(f"Could not load sampled index {path}: {e}")
+
+    raise ValueError(
+        f"No sampled index found for Bloom background {bloom_path!r}. A Bloom "
+        f"filter reports presence, not frequency, and the background gate is a "
+        f"frequency test -- without counts this path cannot screen anything. "
+        f"Re-run 'neoswga build-filter' (it writes bg_sampled.pkl next to "
+        f"bg_bloom.pkl), or set 'sampled_index_path' in params.json, or drop "
+        f"the Bloom filter to use exact k-mer counts."
+    )
 
 
 def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str, int]:
@@ -137,26 +322,15 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
         logger.info("Bloom filter: no primers to check")
         return {}
 
-    from neoswga.core.background_filter import BackgroundBloomFilter, BackgroundFilter
+    from neoswga.core.background_filter import BackgroundBloomFilter
 
     logger.info(f"Using Bloom filter for background filtering: {bloom_path}")
 
     # Load bloom filter
     bloom = BackgroundBloomFilter.load(bloom_path)
+    sampled_index = _load_sampled_index(bloom_path)
+    _warn_if_sample_too_sparse(sampled_index)
 
-    # Optional: load sampled index for count estimation
-    sampled_path = getattr(parameter, "sampled_index_path", None)
-    sampled_index = None
-    if sampled_path:
-        from neoswga.core.background_filter import SampledGenomeIndex
-
-        try:
-            sampled_index = SampledGenomeIndex.load(sampled_path)
-            logger.info(f"Using sampled index for count estimation: {sampled_path}")
-        except Exception as e:
-            logger.warning(f"Failed to load sampled index: {e}")
-
-    max_bg_matches = getattr(parameter, "bloom_max_bg_matches", 10)
     primer_to_count = {}
 
     total = len(primer_list)
@@ -165,16 +339,12 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
     for primer in primer_list:
         if bloom.contains(primer):
             bloom_hits += 1
-            # If we have sampled index, use it for count estimation
-            if sampled_index:
-                estimated_count = sampled_index.estimate_count(primer)
-                primer_to_count[primer] = estimated_count
-            else:
-                # Without sampled index, use max_bg_matches as indicator
-                # (primer is present, use threshold value)
-                primer_to_count[primer] = max_bg_matches + 1
+            primer_to_count[primer] = sampled_index.estimate_count(primer)
         else:
-            # Definitely not in background (no false negatives in Bloom filter)
+            # Definitely not in background: a Bloom filter has no false
+            # negatives, so absence is trustworthy and zero is an honest
+            # answer. Presence is not -- it carries no count, which is why the
+            # sampled index above is required rather than optional.
             primer_to_count[primer] = 0
 
     logger.info(
@@ -185,17 +355,120 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
     return primer_to_count
 
 
+def _resolve_tm_window() -> Tuple[float, float]:
+    """The Tm window this filter applies, in Celsius.
+
+    Two faults lived in the two lines this replaces:
+
+        tm_min = getattr(parameter, "min_tm", None) or 15
+        tm_max = getattr(parameter, "max_tm", None) or 55
+
+    The fallback was a fixed 15-55 whatever the enzyme, so a params.json that
+    did not mention Tm screened a bst design at 63 C through a window built for
+    phi29 -- keeping primers that cannot prime at that temperature and
+    rejecting ones that can. And `or` treats a configured 0.0 as absent, the
+    same sentinel-versus-value confusion found elsewhere in this codebase; 0 C
+    is a legitimate way to ask for no lower bound.
+
+    `get_params` now resolves both from the polymerase when params.json is
+    silent, so the globals are normally populated. The fallback here is for
+    library callers that reach the filter without going through it, and it
+    reads the same registry rather than being a fourth independent answer to
+    "what Tm is acceptable".
+    """
+    polymerase = getattr(parameter, "polymerase", None) or "phi29"
+    default_low, default_high = default_tm_range(polymerase)
+
+    tm_min = getattr(parameter, "min_tm", None)
+    tm_max = getattr(parameter, "max_tm", None)
+    return (
+        default_low if tm_min is None else tm_min,
+        default_high if tm_max is None else tm_max,
+    )
+
+
 def _count_gc(sequence: str) -> int:
     """Count G and C bases in a sequence."""
     return sum(1 for base in sequence if base in "GC")
 
 
+def _configured_int(name: str, default: int, allow_zero: bool = False) -> int:
+    """An integer setting from `parameter`, or the default.
+
+    Type-checked rather than truthiness-checked. `neoswga.core.filter.parameter`
+    is replaced with a MagicMock in several test modules, and a MagicMock
+    answers every attribute with a truthy stub whose `int()` is 1 -- so a plain
+    `getattr(...) or default` silently resolved the GC clamp to a 1-base window
+    with a 1-base limit. The same guard rejects a string or None arriving from
+    a hand-edited params.json, where the failure would be a quietly different
+    filter rather than an error.
+    """
+    value = getattr(parameter, name, None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    value = int(value)
+    if value < 0 or (value == 0 and not allow_zero):
+        return default
+    return value
+
+
+def resolve_homopolymer_run() -> int:
+    """Longest run of one base a primer may contain, from configuration.
+
+    Was a module constant, with the rejection patterns derived from it once at
+    import -- so a configured value would have had no effect on them. Read per
+    call now; the default reproduces the hardcoded 5.
+    """
+    return _configured_int("max_homopolymer_run", MAX_HOMOPOLYMER_RUN)
+
+
+def resolve_gc_clamp() -> Tuple[int, int]:
+    """(window, max G/C) for the 3'-end clamp, from configuration.
+
+    The window is length-blind: five bases is 83% of a 6-mer and 42% of a
+    12-mer, and the rule comes from PCR design on 18-25mers. Scaling it to
+    primer length was measured and rejected -- against the only benchmark with
+    per-primer amplification, a scaled window newly admits primers amplifying
+    at a median of 1.55x where the pool median is 10.15x. The fixed window
+    earns its place at short lengths by acting as the extra constraint that a
+    redundancy analysis makes it look like it is not. Configurable so that
+    conclusion can be re-tested, with the default reproducing it.
+    """
+    return (
+        _configured_int("gc_clamp_window", GC_CLAMP_WINDOW),
+        _configured_int("max_gc_in_clamp", MAX_GC_IN_LAST_5_BASES, allow_zero=True),
+    )
+
+
+def _fails_gc_clamp(primer: str) -> bool:
+    """Whether the 3'-end GC clamp rejects this primer.
+
+    Carries the genome-GC adaptation with it: an AT-rich target (Plasmodium
+    ~25% GC) cannot supply a G/C in every primer's 3' end, and a GC-rich one
+    (Mycobacterium ~65%) cannot avoid it, so a fixed band would reject nearly
+    everything for both.
+    """
+    window, configured_max = resolve_gc_clamp()
+    observed = _count_gc(primer[-window:])
+
+    genome_gc = getattr(parameter, "genome_gc", None)
+    if genome_gc is not None and genome_gc < EXTREME_AT_GENOME_GC:
+        low, high = 0, configured_max
+    elif genome_gc is not None and genome_gc > EXTREME_GC_GENOME_GC:
+        low, high = 1, max(configured_max + 1, 4)
+    else:
+        low, high = 1, configured_max
+
+    if observed > high or observed < low:
+        logger.debug(f"GC clamp filter: {primer} GC_last{window}={observed} (allowed {low}-{high})")
+        return True
+    return False
+
+
 def _has_homopolymer_run(primer: str) -> bool:
     """Check if primer contains homopolymer runs exceeding threshold."""
-    for pattern in HOMOPOLYMER_PATTERNS:
-        if pattern in primer:
-            return True
-    return False
+    run = resolve_homopolymer_run()
+    return any(base * run in primer for base in "ACGT")
 
 
 def _has_dinucleotide_repeats(primer: str, nucleotide_counts: Counter[str]) -> bool:
@@ -248,8 +521,7 @@ def filter_extra(primer: str) -> bool:
     # Use effective Tm that accounts for additives (DMSO, betaine, etc.)
     conditions = _get_reaction_conditions()
     primer_tm = conditions.calculate_effective_tm(primer)
-    tm_min = getattr(parameter, "min_tm", None) or 15
-    tm_max = getattr(parameter, "max_tm", None) or 55
+    tm_min, tm_max = _resolve_tm_window()
     if not (tm_min <= primer_tm <= tm_max):
         logger.debug(
             f"Tm filter: {primer} effective Tm={primer_tm:.1f} outside [{tm_min}, {tm_max}]"
@@ -271,28 +543,8 @@ def filter_extra(primer: str) -> bool:
         logger.debug(f"GC content filter: {primer} GC={gc_content:.1%}")
         return False
 
-    # Rule 3: GC clamp (last 5 bases)
-    # Adaptive based on genome GC content to avoid eliminating valid primers
-    # for AT-rich (e.g. Plasmodium ~25% GC) or GC-rich (e.g. Mycobacterium ~65% GC) targets
-    gc_in_last_5 = _count_gc(primer[-5:])
-    genome_gc = getattr(parameter, "genome_gc", None)
-    if genome_gc is not None and genome_gc < 0.30:
-        # AT-rich genome: allow 0 GC in last 5, reject >3
-        gc_clamp_min = 0
-        gc_clamp_max = MAX_GC_IN_LAST_5_BASES
-    elif genome_gc is not None and genome_gc > 0.70:
-        # GC-rich genome: allow up to 4 GC in last 5, require >=1 AT
-        gc_clamp_min = 1
-        gc_clamp_max = 4
-    else:
-        # Standard: 1-3 GC in last 5
-        gc_clamp_min = 1
-        gc_clamp_max = MAX_GC_IN_LAST_5_BASES
-    if gc_in_last_5 > gc_clamp_max or gc_in_last_5 < gc_clamp_min:
-        logger.debug(
-            f"GC clamp filter: {primer} GC_last5={gc_in_last_5} "
-            f"(allowed {gc_clamp_min}-{gc_clamp_max})"
-        )
+    # Rule 3: GC clamp at the 3' end, adapted to genome GC.
+    if _fails_gc_clamp(primer):
         return False
 
     # Rule 1: 3' end cannot have all 3 bases as G/C
@@ -368,6 +620,16 @@ def get_all_rates(
             _threshold_cache[primer_len] = (
                 _scale_freq_threshold(parameter.min_fg_freq, primer_len),
                 _scale_freq_threshold(parameter.max_bg_freq, primer_len),
+            )
+            # Once per length, say what is actually being applied. The scaling
+            # silently divides both gates by 4^(k-10), and at k>=13 the
+            # background ceiling falls below one site.
+            log_freq_gates(
+                primer_length=primer_len,
+                min_fg_freq=parameter.min_fg_freq,
+                max_bg_freq=parameter.max_bg_freq,
+                fg_length=fg_total_length,
+                bg_length=bg_total_length,
             )
         scaled_min_fg, scaled_max_bg = _threshold_cache[primer_len]
         fg_count = primer_to_fg_count.get(primer, None)

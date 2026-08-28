@@ -54,8 +54,16 @@ def get_gini(primer, fname_prefixes):
                     positions_diffs.extend(position_diffs_reverse)
         else:
             logger.warning(f"Cannot find HDF5 file for prefix: {fname_prefix}")
-    gini = _utility.gini(positions_diffs)
-    return gini
+
+    # `_utility.gini` does not exist -- the module exposes `gini_exact` -- so
+    # every call to this function raised AttributeError. It has no caller inside
+    # the package (`pipeline` uses the same-named helper in `filter`), which is
+    # why that went unnoticed.
+    #
+    # Unlike get_gini_from_txt_for_one_k this treats the genome as linear: it
+    # has no seq_length to wrap around with, so the origin-spanning gap is not
+    # counted. Prefer that function when circularity matters.
+    return _utility.gini_exact(positions_diffs)
 
 
 def _load_positions_from_h5(primer_list, fname_prefix):
@@ -139,12 +147,31 @@ def get_gini_from_txt_for_one_k(
     ginis = []
 
     for primer in primer_list:
+        # A primer with NO recorded positions has no evenness to measure. The
+        # Gini of an empty gap list is 0, which is the BEST possible score, so
+        # such a primer used to pass the evenness filter as if it were ideally
+        # spaced. `filter.get_gini` already guards with `.notna()`, aimed at
+        # exactly this risk, but the value produced was 0.0 rather than NaN so
+        # the guard never fired. NaN is the honest answer -- not measurable --
+        # and it makes that existing check work.
+        #
+        # A primer with one or more positions but no gaps (a single site, or a
+        # single site on a linear genome) still scores 0: there is data, it
+        # simply has no spacing to be uneven about. Only a total absence of
+        # positions is unmeasurable.
+        forward_positions = kmer_dict.get(primer, [])
+        reverse_positions = kmer_dict.get(reverse_complement(primer), [])
+
+        if len(forward_positions) == 0 and len(reverse_positions) == 0:
+            ginis.append((float("nan"), float("nan")))
+            continue
+
         position_diffs_forward = _utility.get_positional_gap_lengths(
-            kmer_dict.get(primer, []), circular, seq_length=seq_length
+            forward_positions, circular, seq_length=seq_length
         )
         gini_forward = _utility.gini_exact(position_diffs_forward)
         position_diffs_reverse = _utility.get_positional_gap_lengths(
-            kmer_dict.get(reverse_complement(primer), []), circular, seq_length=seq_length
+            reverse_positions, circular, seq_length=seq_length
         )
         gini_reverse = _utility.gini_exact(position_diffs_reverse)
         ginis.append((gini_forward, gini_reverse))

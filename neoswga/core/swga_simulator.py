@@ -36,6 +36,8 @@ import h5py
 import numpy as np
 from Bio import SeqIO
 
+from neoswga.core.thermodynamics import reverse_complement
+
 logger = logging.getLogger(__name__)
 
 
@@ -184,38 +186,54 @@ class SwgaSimulator:
             genome_name: Specific genome group to load (if None, uses first group)
         """
         positions = {}
+        empty = np.array([], dtype=np.int64)
 
         with h5py.File(h5_path, "r") as f:
-            # Get genome group
-            if genome_name is None:
-                genome_name = list(f.keys())[0]
+            # Two layouts are accepted.
+            #
+            # FLAT is what this pipeline writes and what PositionCache reads:
+            # top-level keys are primer sequences, each a dataset of forward
+            # positions. Reverse-strand hits live under the primer's reverse
+            # complement, because that is where the revcomp matches forward.
+            #
+            # NESTED (genome -> primer -> '+'/'-') is what this loader used to
+            # assume exclusively. Nothing in the project produces it, so on a
+            # real position file `list(f.keys())[0]` picked a PRIMER as the
+            # genome group, every subsequent lookup missed, and the simulator
+            # constructed happily with zero positions for primers that were in
+            # the file -- reporting confident zeros for coverage, uniformity and
+            # every derived score.
+            nested = genome_name is not None and isinstance(f.get(genome_name), h5py.Group)
+            if not nested:
+                first = f.get(list(f.keys())[0]) if len(f.keys()) else None
+                nested = isinstance(first, h5py.Group)
 
-            if genome_name not in f:
-                logger.warning(f"Genome '{genome_name}' not found in HDF5, using first genome")
-                genome_name = list(f.keys())[0]
-
-            genome_group = f[genome_name]
+            if nested:
+                group = f[genome_name] if genome_name in f else f[list(f.keys())[0]]
+                for primer in primers:
+                    if primer in group:
+                        fwd = np.array(group[primer]["+"])
+                        rev = np.array(group[primer]["-"])
+                    else:
+                        fwd = rev = empty
+                    positions[primer] = {
+                        "+": fwd,
+                        "-": rev,
+                        "forward": fwd,
+                        "reverse": rev,
+                    }
+                return positions
 
             for primer in primers:
-                if primer in genome_group:
-                    # Load forward strand positions
-                    pos_fwd = np.array(genome_group[primer]["+"])
-                    pos_rev = np.array(genome_group[primer]["-"])
-
-                    positions[primer] = {
-                        "+": pos_fwd,
-                        "-": pos_rev,
-                        "forward": pos_fwd,
-                        "reverse": pos_rev,
-                    }
-                else:
-                    # Primer not found
-                    positions[primer] = {
-                        "+": np.array([]),
-                        "-": np.array([]),
-                        "forward": np.array([]),
-                        "reverse": np.array([]),
-                    }
+                rc = reverse_complement(primer)
+                fwd = np.array(f[primer]) if primer in f else empty
+                rev = np.array(f[rc]) if rc in f else empty
+                positions[primer] = {
+                    "+": fwd,
+                    "-": rev,
+                    "forward": fwd,
+                    "reverse": rev,
+                }
 
         return positions
 

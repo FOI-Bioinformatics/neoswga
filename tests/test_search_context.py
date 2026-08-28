@@ -14,8 +14,8 @@ from neoswga.core.search_context import (
     SearchState,
 )
 
-
 # --- GenomeInfo -------------------------------------------------------------
+
 
 def test_genome_info_from_lists_and_properties():
     g = GenomeInfo.from_lists(["a", "b"], [100, 200], circular=False)
@@ -33,6 +33,7 @@ def test_genome_info_length_mismatch_raises():
 
 # --- PositionData -----------------------------------------------------------
 
+
 def test_position_data_empty_and_add_and_total():
     pd_ = PositionData.empty(2)
     assert pd_.total_sites() == 0
@@ -45,7 +46,7 @@ def test_position_data_from_numpy_and_copy_is_independent():
     pd_ = PositionData.from_numpy([(np.array([1, 2]), np.array([3]))])
     clone = pd_.copy()
     clone.add_positions(0, np.array([99]), np.array([]))
-    assert pd_.total_sites() == 3        # original unchanged
+    assert pd_.total_sites() == 3  # original unchanged
     assert clone.total_sites() == 4
 
 
@@ -56,6 +57,7 @@ def test_position_data_add_out_of_range_raises():
 
 
 # --- DimerConstraints -------------------------------------------------------
+
 
 def test_dimer_constraints_compatibility_and_readonly_matrix():
     matrix = np.array([[False, True], [True, False]])
@@ -72,6 +74,7 @@ def test_dimer_constraints_compatibility_and_readonly_matrix():
 
 # --- BFSConfig --------------------------------------------------------------
 
+
 def test_bfs_config_validation():
     BFSConfig(max_sets=5, iterations=3, selection_method="softmax")
     with pytest.raises(ValueError):
@@ -84,9 +87,11 @@ def test_bfs_config_validation():
 
 # --- SearchState ------------------------------------------------------------
 
+
 def test_search_state_copy_add_primer_and_key():
     state = SearchState(
-        primers=["A"], score=1.0,
+        primers=["A"],
+        score=1.0,
         fg_positions=PositionData.empty(1),
         bg_positions=PositionData.empty(1),
     )
@@ -96,34 +101,36 @@ def test_search_state_copy_add_primer_and_key():
         bg_new_positions=[(np.array([30]), np.array([]))],
         new_score=2.5,
     )
-    assert state.primers == ["A"]                     # original untouched
+    assert state.primers == ["A"]  # original untouched
     assert new.primers == ["A", "B"] and new.score == 2.5
     assert new.fg_positions.total_sites() == 2
     assert new.compressed_key == "A,B"
-    assert SearchState(["B", "A"], 0.0, PositionData.empty(0),
-                       PositionData.empty(0)).compressed_key == "A,B"
+    assert (
+        SearchState(["B", "A"], 0.0, PositionData.empty(0), PositionData.empty(0)).compressed_key
+        == "A,B"
+    )
 
 
 # --- BFSSearchContext -------------------------------------------------------
+
 
 def _ctx(pool=("A", "A", "B", "C")):
     return BFSSearchContext(
         primer_pool=list(pool),
         fg_genome=GenomeInfo.from_lists(["fg"], [1000]),
-        dimer_constraints=DimerConstraints(
-            np.zeros((3, 3), dtype=bool), {"A": 0, "B": 1, "C": 2}
-        ),
+        dimer_constraints=DimerConstraints(np.zeros((3, 3), dtype=bool), {"A": 0, "B": 1, "C": 2}),
         config=BFSConfig(max_sets=2),
     )
 
 
 def test_context_dedupes_pool_and_empty_raises():
     ctx = _ctx()
-    assert ctx.primer_pool == ["A", "B", "C"]   # deduped, order preserved
+    assert ctx.primer_pool == ["A", "B", "C"]  # deduped, order preserved
     assert ctx.has_background is False
     with pytest.raises(ValueError):
         BFSSearchContext(
-            primer_pool=[], fg_genome=GenomeInfo.from_lists(["fg"], [1]),
+            primer_pool=[],
+            fg_genome=GenomeInfo.from_lists(["fg"], [1]),
             dimer_constraints=DimerConstraints(np.zeros((0, 0), dtype=bool), {}),
             config=BFSConfig(),
         )
@@ -133,14 +140,14 @@ def test_context_available_primers_excludes_banned_and_current():
     ctx = _ctx()
     ctx.banned_primers = {"C"}
     avail = ctx.get_available_primers(["A"])
-    assert avail == ["B"]   # A in set, C banned
+    assert avail == ["B"]  # A in set, C banned
 
 
 def test_context_score_cache_roundtrip():
     ctx = _ctx()
     assert ctx.get_cached_score(["B", "A"]) is None
     ctx.cache_score(["B", "A"], 3.14)
-    assert ctx.get_cached_score(["A", "B"]) == 3.14   # order-independent key
+    assert ctx.get_cached_score(["A", "B"]) == 3.14  # order-independent key
 
 
 def test_context_initialize_states_empty_and_from_sets():
@@ -156,11 +163,11 @@ def test_context_initialize_states_empty_and_from_sets():
 
 # --- SearchResult / EvaluationContext --------------------------------------
 
+
 def test_search_result_best_and_to_dict():
     s1 = SearchState(["A"], 1.0, PositionData.empty(0), PositionData.empty(0))
     s2 = SearchState(["B", "C"], 5.0, PositionData.empty(0), PositionData.empty(0))
-    res = SearchResult(states=[s1, s2], best_score=5.0, iterations_completed=3,
-                       converged=True)
+    res = SearchResult(states=[s1, s2], best_score=5.0, iterations_completed=3, converged=True)
     assert res.best_state is s2
     assert res.best_primers == ["B", "C"]
     d = res.to_dict()
@@ -173,6 +180,9 @@ def test_search_result_best_and_to_dict():
 def test_evaluation_context_has_background():
     fg = GenomeInfo.from_lists(["fg"], [10])
     assert EvaluationContext(fg_genome=fg).has_background() is False
-    assert EvaluationContext(
-        fg_genome=fg, bg_genome=GenomeInfo.from_lists(["bg"], [20])
-    ).has_background() is True
+    assert (
+        EvaluationContext(
+            fg_genome=fg, bg_genome=GenomeInfo.from_lists(["bg"], [20])
+        ).has_background()
+        is True
+    )

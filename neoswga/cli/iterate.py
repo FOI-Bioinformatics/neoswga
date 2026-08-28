@@ -17,8 +17,53 @@ from neoswga.cli._common import (
     params_command,
     validate_params_json_file,
 )
+from neoswga.core.position_cache import MissingPositionsError
+from neoswga.core.registry import polymerase_names as _polymerase_names
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_expansion_candidates(candidates_file, data_dir, quiet=False):
+    """Load the candidate pool for expand-primers.
+
+    Prefers an explicit --candidates-file, falling back to the scored
+    ``step3_df.csv``. Before --candidates-file existed, step3 was a hard
+    precondition, so expanding a set required re-running the whole pipeline
+    even when the caller already had a candidate list.
+    """
+    import pandas as _pd
+
+    from neoswga.core.io_utils import primer_column
+
+    if candidates_file:
+        if not os.path.exists(candidates_file):
+            logger.error(f"Candidates file not found: {candidates_file}")
+            sys.exit(1)
+        source = candidates_file
+        logger.info(f"Using candidate pool from {candidates_file}")
+    else:
+        source = os.path.join(data_dir, "step3_df.csv")
+        if not os.path.exists(source):
+            logger.error(f"Step 3 output not found: {source}")
+            logger.error(
+                "Run 'neoswga score' first, or pass --candidates-file with your "
+                "own candidate list."
+            )
+            sys.exit(1)
+
+    if not quiet:
+        logger.info(f"Loading candidates from {source}...")
+
+    df = _pd.read_csv(source)
+    try:
+        primer_col = primer_column(df)
+    except KeyError:
+        logger.error(
+            f"Invalid candidates file: missing 'primer' or 'seq' column. "
+            f"Found: {list(df.columns)}"
+        )
+        sys.exit(1)
+    return df[primer_col].tolist()
 
 
 def run_expand_primers(args):
@@ -81,29 +126,11 @@ def run_expand_primers(args):
         fg_seq_lengths = core_pipeline.fg_seq_lengths
         bg_seq_lengths = core_pipeline.bg_seq_lengths
 
-        # Load candidate primers from scored step3 output
-        data_dir = getattr(parameter, "data_dir", ".")
-        step3_file = os.path.join(data_dir, "step3_df.csv")
-
-        if not os.path.exists(step3_file):
-            logger.error(f"Step 3 output not found: {step3_file}")
-            logger.error("Run 'neoswga score' first to generate candidate primers.")
-            sys.exit(1)
-
-        if not quiet:
-            logger.info(f"Loading candidates from {step3_file}...")
-
-        df = pd.read_csv(step3_file)
-        from neoswga.core.io_utils import primer_column
-
-        try:
-            primer_col = primer_column(df)
-        except KeyError:
-            logger.error(
-                f"Invalid step3 file: missing 'primer' or 'seq' column. Found: {list(df.columns)}"
-            )
-            sys.exit(1)
-        candidates = df[primer_col].tolist()
+        candidates = _resolve_expansion_candidates(
+            getattr(args, "candidates_file", None),
+            getattr(parameter, "data_dir", "."),
+            quiet=quiet,
+        )
 
         if not quiet:
             logger.info(f"Candidate pool: {len(candidates)} primers")
@@ -307,7 +334,7 @@ def run_swap_primer(args):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
-    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.reaction_conditions import build_reaction_conditions
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
@@ -356,19 +383,7 @@ def run_swap_primer(args):
         except Exception as e:
             logger.debug(f"Blacklist guard skipped: {e}")
 
-    conditions = ReactionConditions(
-        temp=getattr(parameter, "reaction_temp", 30.0) or 30.0,
-        polymerase=getattr(parameter, "polymerase", "phi29"),
-        na_conc=getattr(parameter, "na_conc", 50.0),
-        mg_conc=getattr(parameter, "mg_conc", 10.0),
-        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-        betaine_m=getattr(parameter, "betaine_m", 0.0),
-        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-        urea_m=getattr(parameter, "urea_m", 0.0),
-        tmac_m=getattr(parameter, "tmac_m", 0.0),
-    )
+    conditions = build_reaction_conditions()
     analyzer = create_dimer_network_analyzer(conditions)
 
     # Snapshot "before" state: analyze_primer_set returns (metrics, profiles, matrix)
@@ -412,6 +427,47 @@ def run_swap_primer(args):
         print(output_json)
 
 
+def _realistic_reach():
+    """Per-primer coverage reach for the configured polymerase.
+
+    Coverage is scored on the REALISTIC reach (~3 kb for phi29), not
+    single-molecule processivity (~70 kb). contract-set and rescore-set both
+    used processivity, which on a multi-Mb target let one binding site cover a
+    large fraction of the genome -- turning --min-coverage into an on/off switch
+    rather than a threshold.
+    """
+    from neoswga.core import parameter
+    from neoswga.core.coverage import polymerase_extension_reach
+
+    return polymerase_extension_reach(
+        getattr(parameter, "polymerase", "phi29") or "phi29",
+        coverage_metric="realistic",
+    )
+
+
+def _prefix_lengths(parameter, kind):
+    """Resolve (prefixes, sequence lengths) for 'fg' or 'bg' from module state.
+
+    `get_params` publishes `<kind>_seq_lengths` as a module global, deriving it
+    from the FASTAs when params.json omits the key. The `_json_data` fallback is
+    kept only for a caller that populated the raw JSON without running
+    get_params.
+
+    That fallback used to be the PRIMARY path, which was the bug: the derived
+    value never lands in `_json_data`, so a params.json without an explicit
+    `fg_seq_lengths` -- which is every config `neoswga init` writes -- made
+    contract-set and rescore-set exit with "fg_seq_lengths missing from params;
+    cannot compute coverage" while the pipeline itself ran fine. Only the two
+    shipped examples declare the key by hand, which is why it went unseen.
+    """
+    prefixes = list(getattr(parameter, f"{kind}_prefixes", []) or [])
+    lengths = list(getattr(parameter, f"{kind}_seq_lengths", []) or [])
+    if not lengths:
+        raw = getattr(parameter, "_json_data", {}) or {}
+        lengths = list(raw.get(f"{kind}_seq_lengths", []) or [])
+    return prefixes, lengths
+
+
 @params_command(seed=True)
 def run_contract_set(args):
     """Greedy leave-one-out contraction that keeps coverage above threshold."""
@@ -425,13 +481,7 @@ def run_contract_set(args):
     pipeline_mod._initialize()
 
     current = _load_primer_list(args.primers, args.primers_file, name="primer")
-    fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
-    # fg_seq_lengths flows through _json_data / data dict rather than the module
-    # globals, so fall back to _json_data if the global is empty.
-    fg_lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
-    if not fg_lengths:
-        raw = getattr(parameter, "_json_data", {}) or {}
-        fg_lengths = list(raw.get("fg_seq_lengths", []) or [])
+    fg_prefixes, fg_lengths = _prefix_lengths(parameter, "fg")
     if not fg_prefixes:
         logger.error("No fg_prefixes available; cannot compute coverage.")
         sys.exit(1)
@@ -447,7 +497,7 @@ def run_contract_set(args):
         if not total_genome:
             return 0.0
         covered = 0
-        extension = 70000
+        extension = _realistic_reach()
         import numpy as _np
 
         for prefix, length in zip(fg_prefixes, fg_lengths or [0] * len(fg_prefixes)):
@@ -478,21 +528,9 @@ def run_contract_set(args):
     #   w_bg    = 0.15  (prefer removing primers with high bg frequency)
     from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
     from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
-    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.reaction_conditions import build_reaction_conditions
 
-    conditions = ReactionConditions(
-        temp=getattr(parameter, "reaction_temp", 30.0) or 30.0,
-        polymerase=getattr(parameter, "polymerase", "phi29"),
-        na_conc=getattr(parameter, "na_conc", 50.0),
-        mg_conc=getattr(parameter, "mg_conc", 10.0),
-        dmso_percent=getattr(parameter, "dmso_percent", 0.0),
-        betaine_m=getattr(parameter, "betaine_m", 0.0),
-        trehalose_m=getattr(parameter, "trehalose_m", 0.0),
-        formamide_percent=getattr(parameter, "formamide_percent", 0.0),
-        ethanol_percent=getattr(parameter, "ethanol_percent", 0.0),
-        urea_m=getattr(parameter, "urea_m", 0.0),
-        tmac_m=getattr(parameter, "tmac_m", 0.0),
-    )
+    conditions = build_reaction_conditions()
     scorer = IntegratedQualityScorer(conditions=conditions)
     dimer_analyzer = create_dimer_network_analyzer(conditions=conditions)
 
@@ -623,7 +661,7 @@ def run_rescore_set(args):
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
     from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
-    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.reaction_conditions import build_reaction_conditions
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
@@ -637,19 +675,26 @@ def run_rescore_set(args):
         pv = getattr(parameter, attr, None)
         return pv if pv is not None else fallback
 
-    conditions = ReactionConditions(
-        temp=_pick("reaction_temp", 30.0) or 30.0,
-        polymerase=_pick("polymerase", "phi29"),
-        na_conc=_pick("na_conc", 50.0),
-        mg_conc=_pick("mg_conc", 10.0),
-        dmso_percent=_pick("dmso_percent", 0.0),
-        betaine_m=_pick("betaine_m", 0.0),
-        trehalose_m=_pick("trehalose_m", 0.0),
-        formamide_percent=_pick("formamide_percent", 0.0),
-        ethanol_percent=_pick("ethanol_percent", 0.0),
-        urea_m=_pick("urea_m", 0.0),
-        tmac_m=_pick("tmac_m", 0.0),
-    )
+    # A temperature configured for one polymerase is not meaningful for another:
+    # params.json carrying phi29's 30 C makes `--polymerase bst` fail validation
+    # outright (bst runs 50-72 C), which is the most obvious use of a command
+    # whose purpose is rescoring under a different chemistry. When the
+    # polymerase is overridden on the command line and the temperature is not,
+    # take the new polymerase's optimum rather than the old one's setting.
+    polymerase = _pick("polymerase", "phi29")
+    if getattr(args, "polymerase", None) and getattr(args, "reaction_temp", None) is None:
+        reaction_temp = parameter.default_reaction_temp(polymerase)
+        logger.info(
+            "Using %s's optimal temperature %.1f C (params.json specifies %s C, "
+            "which belongs to the previous polymerase). Pass --reaction-temp to override.",
+            polymerase,
+            reaction_temp,
+            getattr(parameter, "reaction_temp", None),
+        )
+    else:
+        reaction_temp = _pick("reaction_temp", 30.0) or 30.0
+
+    conditions = build_reaction_conditions(args, polymerase=polymerase, temp=reaction_temp)
 
     scorer = IntegratedQualityScorer(conditions=conditions)
     per_primer = []
@@ -685,25 +730,17 @@ def run_rescore_set(args):
     # multi-target user can see uneven distribution.
     coverage_block: dict = {}
     try:
+        from neoswga.core.coverage import polymerase_extension_reach
         from neoswga.core.position_cache import PositionCache
-        from neoswga.core.reaction_conditions import get_polymerase_processivity
 
-        try:
-            extension = int(get_polymerase_processivity(conditions.polymerase))
-        except Exception:
-            extension = 70_000
+        # Realistic per-primer reach, matching how the optimizer scores
+        # fg_coverage. This used single-molecule processivity (~70 kb), which
+        # overstated coverage by roughly an order of magnitude.
+        extension = polymerase_extension_reach(conditions.polymerase, coverage_metric="realistic")
 
-        fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
-        fg_lengths = list(getattr(parameter, "fg_seq_lengths", []) or [])
-        if not fg_lengths:
-            raw = getattr(parameter, "_json_data", {}) or {}
-            fg_lengths = list(raw.get("fg_seq_lengths", []) or [])
+        fg_prefixes, fg_lengths = _prefix_lengths(parameter, "fg")
 
-        bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
-        bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
-        if not bg_lengths:
-            raw = getattr(parameter, "_json_data", {}) or {}
-            bg_lengths = list(raw.get("bg_seq_lengths", []) or [])
+        bg_prefixes, bg_lengths = _prefix_lengths(parameter, "bg")
 
         all_prefixes = fg_prefixes + bg_prefixes
         cache = PositionCache(all_prefixes, primers) if all_prefixes else None
@@ -748,8 +785,23 @@ def run_rescore_set(args):
             "selectivity_ratio": float((fg_cov / bg_cov) if bg_cov > 1e-12 else (fg_cov * 1000.0)),
             "extension_reach_bp": int(extension),
         }
+    except MissingPositionsError as e:
+        # Never swallow this one. It means the coverage number would be a
+        # meaningless zero rather than a low result, which is exactly the
+        # failure this command is used to diagnose.
+        logger.error(
+            "Cannot compute coverage: %s\n"
+            "Pass --genome to scan for these primers directly, or run "
+            "'neoswga count-kmers' so they are indexed.",
+            e,
+        )
+        raise
     except Exception as e:
-        logger.debug(f"rescore-set coverage block skipped: {e}")
+        logger.error(
+            "rescore-set coverage block failed: %s. Reported coverage is " "incomplete.",
+            e,
+            exc_info=True,
+        )
         coverage_block = {"error": str(e)}
 
     result = {
@@ -815,6 +867,12 @@ def add_parsers(subparsers):
         "--failed-primers", nargs="+", help="Primer sequences to exclude (failed in wet lab)"
     )
     expand_parser.add_argument(
+        "--candidates-file",
+        help="CSV of candidate primers to draw new ones from. Without this, "
+        "expand-primers requires data_dir/step3_df.csv from a prior 'score' run; "
+        "with it, that becomes a fallback rather than a precondition.",
+    )
+    expand_parser.add_argument(
         "--failed-primers-file", help="File with failed primers to exclude (one per line)"
     )
     expand_parser.add_argument(
@@ -823,7 +881,14 @@ def add_parsers(subparsers):
     expand_parser.add_argument(
         "--optimization-method",
         default="hybrid",
-        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
+        choices=[
+            "hybrid",
+            "dominating-set",
+            "network",
+            "background-aware",
+            "clique",
+            "ensemble",
+        ],
         help="Optimization method (default: hybrid)",
     )
     expand_parser.add_argument(
@@ -928,7 +993,7 @@ def add_parsers(subparsers):
     rescore_parser.add_argument("-j", "--json-file", required=True)
     rescore_parser.add_argument("--primers", nargs="+", required=True)
     rescore_parser.add_argument("--primers-file")
-    rescore_parser.add_argument("--polymerase", choices=["phi29", "equiphi29", "bst", "klenow"])
+    rescore_parser.add_argument("--polymerase", choices=_polymerase_names())
     rescore_parser.add_argument("--reaction-temp", type=float)
     rescore_parser.add_argument("--mg-conc", type=float)
     rescore_parser.add_argument("--na-conc", type=float)

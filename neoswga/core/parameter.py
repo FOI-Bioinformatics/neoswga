@@ -5,8 +5,247 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from neoswga.core import utility as _utility
+from neoswga.core.registry import views as _registry_views
 
 logger = logging.getLogger(__name__)
+
+
+# Polymerase-aware Mg2+ defaults (mM). phi29 / equiphi29 / klenow all use ~10 mM in
+# vendor-recommended buffers (the standard phi29 buffer is 10 mM MgCl2 with
+# 10 mM (NH4)2SO4 and 4 mM DTT); bst tolerates lower Mg2+. Unknown polymerases fall
+# back to 10 mM rather than the old 2 mM value, which was suboptimal for every
+# supported polymerase.
+#
+# Module-level and public so callers that emit a params.json -- notably
+# core/wizard.py -- write the same value the pipeline would otherwise default to,
+# instead of hardcoding a fifth independent copy. Writing a *wrong* explicit value is
+# worse than omitting the key, because an explicit key suppresses the default below.
+MG_DEFAULTS_MM = _registry_views.mg_defaults()
+MG_DEFAULT_FALLBACK_MM = 10.0
+
+# DTT keeps the polymerase's cysteine thiols reduced. 4 mM is the standard in
+# the phi29-family vendor buffers (NEB, Thermo) and in Bst/Bsu reaction
+# buffers. The default is load-bearing rather than cosmetic: the mechanistic
+# model treats DTT as a DEFICIENCY penalty, so reading an unset `dtt_mm` of
+# 0.0 literally would hand every existing user a stability penalty for a
+# buffer component they never disabled. Unset means the vendor buffer; only an
+# explicit low value is penalised.
+DTT_DEFAULTS_MM = {
+    "phi29": 4.0,
+    "equiphi29": 4.0,
+    "bst": 4.0,
+    "bst3.0": 4.0,
+    "bsu": 4.0,
+    "klenow": 1.0,  # Klenow buffers commonly specify 1 mM DTT
+}
+DTT_DEFAULT_FALLBACK_MM = 4.0
+
+# Used only for an unrecognised polymerase. Deliberately wide: guessing a
+# narrow window for an enzyme we know nothing about would silently discard
+# usable primers.
+TM_RANGE_FALLBACK = (20.0, 55.0)
+
+
+# Bumped to 2 when the scientific corrections landed. A v1 params.json still
+# runs, but the numbers it produces will not match a v1-era run, so say why
+# rather than letting the difference look like nondeterminism.
+CURRENT_SCHEMA_VERSION = 2
+
+# Canonical list of reaction-chemistry parameters that must flow
+# params.json -> module globals -> ReactionConditions. Adding an entry here
+# wires it through get_params, get_current_config and set_from_config at once.
+#
+# This exists because four of them (glycerol_percent, peg_percent, bsa_ug_ml,
+# ssb) were schema-valid and CLI-exposed but had no field here, so get_params
+# never read them: users could set them, validate-params would pass, and the
+# pipeline silently ignored them. tests/test_reaction_params_reach_pipeline.py
+# enforces that this list stays in step with PipelineParameters,
+# ReactionConditions and the JSON schema.
+REACTION_PARAM_DEFAULTS = {
+    # Tm-active additives
+    "dmso_percent": 0.0,
+    "betaine_m": 0.0,
+    "trehalose_m": 0.0,
+    "formamide_percent": 0.0,
+    "ethanol_percent": 0.0,
+    "urea_m": 0.0,
+    "tmac_m": 0.0,
+    "propanediol_m": 0.0,
+    # Recorded but with no Tm model - they act on the enzyme, not the duplex
+    "glycerol_percent": 0.0,
+    "peg_percent": 0.0,
+    "bsa_ug_ml": 0.0,
+    # Buffer species. K+ and NH4+ sum with Na+ into ionic strength; dNTPs
+    # chelate Mg2+ ~1:1; DTT is recorded for protocol completeness.
+    "k_conc": 0.0,
+    "nh4_conc": 0.0,
+    "dntp_conc": 0.0,
+    "dtt_mm": 0.0,
+    # Single-stranded binding protein (boolean; see reaction_conditions)
+    "ssb": False,
+}
+
+SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is distributive; the old figure
+    cited a paper that does not support it). Klenow coverage estimates drop.
+  - phi29 extension rate 150 -> 53 nt/s (Blanco 1989). Simulated timings only.
+  - Mg2+ activity model recalibrated for isothermal amplification: optimum
+    2.5 -> 10 mM, usable band 1-6 -> 4-15 mM. The old PCR figures penalised the
+    pipeline's own 10 mM default.
+  - ReactionConditions now defaults mg_conc to the polymerase's buffer value
+    instead of 0.0. Five presets previously inherited zero magnesium.
+  - Reaction presets now report the values they actually apply; show-presets and
+    --preset had diverged.
+  - AG/TC nearest-neighbour Tm parameter corrected (affected ~38% of 8-mers).
+  Pin values explicitly in params.json if you need to reproduce an older run."""
+
+
+def default_mg_conc(polymerase: str) -> float:
+    """Return the default Mg2+ concentration (mM) for a polymerase."""
+    return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
+
+
+def default_tm_range(polymerase: str) -> tuple:
+    """Return the (min, max) primer Tm window for a polymerase, in Celsius.
+
+    A primer is usable when it binds at the reaction temperature, and those
+    temperatures span more than thirty degrees across the supported enzymes --
+    phi29 at 30 C, bst at 63 C. A window that does not move with the enzyme is
+    filtering for the wrong chemistry: `filter.py` used a fixed 15-55 fallback,
+    so a bst design was filtered through a window built for phi29.
+
+    Sourced from the registry's `primer_tm_range`, which is also where the
+    hybrid optimizer's polymerase presets come from, so the two cannot drift.
+    """
+    from neoswga.core.registry import POLYMERASES
+
+    spec = POLYMERASES.get((polymerase or "").lower())
+    if spec is not None and spec.primer_tm_range:
+        low, high = spec.primer_tm_range
+        return float(low), float(high)
+    return TM_RANGE_FALLBACK
+
+
+def default_dtt_mm(polymerase: str) -> float:
+    """Return the default DTT concentration (mM) for a polymerase."""
+    return DTT_DEFAULTS_MM.get((polymerase or "").lower(), DTT_DEFAULT_FALLBACK_MM)
+
+
+# The fields `get_params` fills in from the polymerase when the user has not set
+# them. Two paths change the enzyme after that has happened -- `filter --preset`
+# / `--polymerase`, and the GC-adaptive strategy -- and both used to leave these
+# behind, so a bst design was filtered through phi29's 20-50 C Tm window and
+# 6-12 bp length range. See `retune_for_polymerase`.
+POLYMERASE_DERIVED_FIELDS = (
+    "min_tm",
+    "max_tm",
+    "min_k",
+    "max_k",
+    "mg_conc",
+    "reaction_temp",
+    "dtt_mm",
+)
+
+# Populated by `get_params` with the subset of the above that the polymerase
+# actually supplied. Until then, assume all of them: a caller retuning before
+# any params.json has been read has nothing of the user's to preserve.
+polymerase_derived_fields = set(POLYMERASE_DERIVED_FIELDS)
+
+
+def _record_polymerase_derived(args, json_data) -> set:
+    """Which of `POLYMERASE_DERIVED_FIELDS` the user did not set themselves.
+
+    A value from params.json or from an explicit CLI flag is the user's and must
+    survive an enzyme change; anything else came from the registry and should
+    move with the enzyme.
+    """
+    return {
+        name
+        for name in POLYMERASE_DERIVED_FIELDS
+        if json_data.get(name) is None and getattr(args, name, None) is None
+    }
+
+
+def polymerase_defaults(polymerase: str) -> dict:
+    """Every `POLYMERASE_DERIVED_FIELDS` value for one enzyme."""
+    from neoswga.core.registry import views as _views
+
+    tm_low, tm_high = default_tm_range(polymerase)
+    k_low, k_high = _views.primer_length_ranges().get(polymerase, (6, 12))
+    return {
+        "min_tm": tm_low,
+        "max_tm": tm_high,
+        "min_k": k_low,
+        "max_k": k_high,
+        "mg_conc": default_mg_conc(polymerase),
+        "reaction_temp": default_reaction_temp(polymerase),
+        "dtt_mm": default_dtt_mm(polymerase),
+    }
+
+
+def mark_user_set(param, names) -> None:
+    """Record that `names` are the user's, so a retune leaves them alone.
+
+    `get_params` can only see the args object it was called with. A CLI handler
+    that merges `--min-tm` onto the parameter module afterwards has to say so,
+    or the next `retune_for_polymerase` will treat the value as a registry
+    default and overwrite it.
+    """
+    derived = set(getattr(param, "polymerase_derived_fields", POLYMERASE_DERIVED_FIELDS))
+    param.polymerase_derived_fields = derived - set(names)
+
+
+def retune_for_polymerase(param, new_polymerase: str) -> str:
+    """Change the enzyme on `param` and re-derive what the enzyme decides.
+
+    Only the fields the user left to the registry move; anything they pinned in
+    params.json or on the command line is left alone. Returns the canonical name
+    actually applied, which is the old one if `new_polymerase` is not a known
+    enzyme -- `param_validator` and `ReactionConditions` both report that far
+    better than this helper could, and applying half an enzyme change would be
+    worse than applying none.
+    """
+    from neoswga.core.registry.polymerases import resolve_polymerase_name
+
+    resolved = resolve_polymerase_name(new_polymerase)
+    current = getattr(param, "polymerase", "phi29")
+    if resolved is None:
+        logger.warning(
+            f"Ignoring polymerase={new_polymerase!r}: not a known enzyme. " f"Staying on {current}."
+        )
+        return current
+
+    param.polymerase = resolved
+    derived = getattr(param, "polymerase_derived_fields", None)
+    if derived is None:
+        derived = set(POLYMERASE_DERIVED_FIELDS)
+
+    changes = []
+    for name, value in polymerase_defaults(resolved).items():
+        if name in derived and getattr(param, name, None) != value:
+            setattr(param, name, value)
+            changes.append(f"{name}={value}")
+    if changes:
+        logger.info(f"Retuned for {resolved}: {', '.join(changes)}")
+    return resolved
+
+
+def default_reaction_temp(polymerase: str) -> float:
+    """
+    Return the optimal reaction temperature (deg C) for a polymerase.
+
+    Needed because the module-level `reaction_temp` is None until `get_params`
+    runs. Code that reaches ReactionConditions before that -- a library caller,
+    or any helper invoked outside the CLI pipeline -- cannot rely on a getattr
+    default, because the attribute exists and merely holds None. Constructing
+    ReactionConditions with temp=None raises a TypeError from its range check,
+    so callers need a real value rather than a sentinel.
+    """
+    return (
+        _registry_views.as_characteristics()
+        .get((polymerase or "").lower(), {})
+        .get("optimal_temp", 30.0)
+    )
+
 
 src_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -87,6 +326,19 @@ class PipelineParameters:
     ethanol_percent: float = 0.0
     urea_m: float = 0.0
     tmac_m: float = 0.0
+    propanediol_m: float = 0.0
+
+    # Enzyme-acting additives (no Tm model; recorded and passed through)
+    glycerol_percent: float = 0.0
+    peg_percent: float = 0.0
+    bsa_ug_ml: float = 0.0
+    ssb: bool = False
+
+    # Buffer species beyond Na+/Mg2+
+    k_conc: float = 0.0
+    nh4_conc: float = 0.0
+    dntp_conc: float = 0.0
+    dtt_mm: float = 0.0
 
     # Optimization settings
     iterations: int = 8
@@ -169,13 +421,7 @@ def get_current_config() -> PipelineParameters:
         na_conc=globals().get("na_conc", 50.0),
         mg_conc=globals().get("mg_conc", 2.0),
         primer_conc=globals().get("primer_conc", 0.5e-6),
-        dmso_percent=globals().get("dmso_percent", 0.0),
-        betaine_m=globals().get("betaine_m", 0.0),
-        trehalose_m=globals().get("trehalose_m", 0.0),
-        formamide_percent=globals().get("formamide_percent", 0.0),
-        ethanol_percent=globals().get("ethanol_percent", 0.0),
-        urea_m=globals().get("urea_m", 0.0),
-        tmac_m=globals().get("tmac_m", 0.0),
+        **{_n: globals().get(_n, _d) for _n, _d in REACTION_PARAM_DEFAULTS.items()},
         iterations=globals().get("iterations", 8),
         max_sets=globals().get("max_sets", 5),
         retries=globals().get("retries", 5),
@@ -257,14 +503,9 @@ def set_from_config(config: PipelineParameters) -> None:
     g["mg_conc"] = config.mg_conc
     g["primer_conc"] = config.primer_conc
 
-    # Thermodynamic additives
-    g["dmso_percent"] = config.dmso_percent
-    g["betaine_m"] = config.betaine_m
-    g["trehalose_m"] = config.trehalose_m
-    g["formamide_percent"] = config.formamide_percent
-    g["ethanol_percent"] = config.ethanol_percent
-    g["urea_m"] = config.urea_m
-    g["tmac_m"] = config.tmac_m
+    # Reaction-chemistry parameters, driven by REACTION_PARAM_DEFAULTS
+    for _name in REACTION_PARAM_DEFAULTS:
+        g[_name] = getattr(config, _name)
 
     # Optimization settings
     g["iterations"] = config.iterations
@@ -359,7 +600,8 @@ na_conc = 50.0  # mM
 mg_conc = 2.0  # mM
 primer_conc = 0.5e-6  # M (0.5 uM)
 
-# Thermodynamic additives
+# Thermodynamic additives and other reaction-chemistry parameters.
+# Declared from REACTION_PARAM_DEFAULTS so this block cannot drift from it.
 dmso_percent = 0.0
 betaine_m = 0.0
 trehalose_m = 0.0
@@ -367,6 +609,15 @@ formamide_percent = 0.0
 ethanol_percent = 0.0
 urea_m = 0.0
 tmac_m = 0.0
+propanediol_m = 0.0
+glycerol_percent = 0.0
+peg_percent = 0.0
+bsa_ug_ml = 0.0
+ssb = False
+k_conc = 0.0
+nh4_conc = 0.0
+dntp_conc = 0.0
+dtt_mm = 0.0
 
 # Exclusion genome parameters (e.g., mitochondrial DNA, chloroplast sequences)
 excl_genomes = []
@@ -385,6 +636,89 @@ max_bl_freq = 0.0
 gc_tolerance = 0.15
 gc_min = 0.375
 gc_max = 0.625
+genome_gc = None
+
+# Dimer and Tm constraints. These mirror the PipelineParameters defaults above
+# and exist as module globals so the filtering rules can run before get_params
+# has populated them -- filter.filter_extra reads max_self_dimer_bp as a bare
+# attribute, so its absence was an AttributeError rather than a fallback.
+max_dimer_bp = 3
+max_self_dimer_bp = 4
+min_tm = None
+max_tm = None
+
+# Worker count. rf_preprocessing.create_base_feature_matrix reads this as a bare
+# attribute when building the feature matrix, so its absence was an
+# AttributeError rather than a fallback -- the same shape as max_self_dimer_bp
+# above. Mirrors the PipelineParameters default.
+cpus = 1
+
+# Genome GC below/above which a target counts as compositionally extreme, and
+# the GC bound on the matching side is released rather than centred on the
+# genome mean. Shared by the adaptive GC window here, the GC-clamp rule in
+# filter.filter_extra and the filters in adaptive_filters, so the three cannot
+# drift apart. See docs/validation/published_primer_sets.md for the published
+# zero-GC primer sets that motivated this.
+EXTREME_AT_GENOME_GC = 0.30
+EXTREME_GC_GENOME_GC = 0.70
+
+
+def adaptive_gc_window(genome_gc, gc_tolerance=None):
+    """
+    Primer GC window for a target of the given composition.
+
+    The window is normally the genome GC plus or minus `gc_tolerance`, which is
+    what lets extreme-GC organisms such as Francisella (33%) or Burkholderia
+    (67%) work at all.
+
+    On strongly AT-rich or GC-rich targets that is not enough, because the
+    working primers sit at the composition *extreme* rather than near the genome
+    mean, so a window centred on the mean excludes them. Published sets show
+    this plainly: Oyola et al. (2016) amplified P. falciparum (19% GC) with ten
+    primers of ZERO GC, and Leichty and Brisson (2014) did the same for
+    Borrelia. Both are rejected by any positive lower bound, at any tolerance.
+
+    The reason is that SWGA selects on differential target/background k-mer
+    frequency, which on an AT-rich target drives primers to pure A/T -- and
+    short 8-12mers quantise GC coarsely enough that "near the genome mean" is
+    not reachable anyway. So beyond the thresholds the bound on the matching
+    side is released entirely. Those thresholds are shared with the GC-clamp
+    rule in filter.filter_extra and the filters in adaptive_filters.
+
+    Args:
+        genome_gc: Target genome GC fraction (0.0-1.0)
+        gc_tolerance: Allowed deviation from genome GC
+
+    Returns:
+        (gc_min, gc_max) fractions
+    """
+    # Read the module global at call time, not as a def-time default: binding it
+    # in the signature would freeze the value at import and silently ignore any
+    # later change to parameter.gc_tolerance.
+    if gc_tolerance is None:
+        gc_tolerance = globals().get("gc_tolerance", 0.15)
+
+    gc_min = max(0.15, genome_gc - gc_tolerance)
+    gc_max = min(0.85, genome_gc + gc_tolerance)
+
+    if genome_gc < EXTREME_AT_GENOME_GC:
+        gc_min = 0.0
+    elif genome_gc > EXTREME_GC_GENOME_GC:
+        gc_max = 1.0
+
+    # Log explicitly when adaptive kicks in on extreme-GC genomes so the user
+    # can trace why their GC window looks different.
+    if genome_gc < 0.35 or genome_gc > 0.65:
+        logger.info(
+            "Extreme GC genome detected (GC=%.1f%%). Adaptive GC filter "
+            "engaged: primer GC window %.2f-%.2f. Set 'adaptive_gc': false "
+            "in params.json to disable.",
+            genome_gc * 100,
+            gc_min,
+            gc_max,
+        )
+
+    return gc_min, gc_max
 
 
 def get_all_files(prefix_or_file):
@@ -489,6 +823,8 @@ def get_params(args):
     global src_dir
     global genome_gc
     global fg_genomes
+    global fg_seq_lengths
+    global bg_seq_lengths
     global bg_genomes
     global fg_prefixes
     global bg_prefixes
@@ -545,7 +881,6 @@ def get_params(args):
             _json_data.update(data_extra)  # Store raw JSON for CLI access
 
             # Schema versioning
-            CURRENT_SCHEMA_VERSION = 1
             schema_version = (
                 data_extra.get("schema_version", None) if isinstance(data_extra, dict) else None
             )
@@ -553,7 +888,16 @@ def get_params(args):
                 logger.warning(
                     "params.json has no 'schema_version' field. "
                     "Defaults may differ between NeoSWGA versions. "
-                    "Add '\"schema_version\": 1' to your params.json for reproducibility."
+                    f"Add '\"schema_version\": {CURRENT_SCHEMA_VERSION}' to your "
+                    "params.json for reproducibility."
+                )
+            elif schema_version < CURRENT_SCHEMA_VERSION:
+                logger.warning(
+                    f"params.json declares schema_version {schema_version}; this "
+                    f"NeoSWGA uses version {CURRENT_SCHEMA_VERSION}. Several "
+                    f"scientific constants were corrected in v2 and results will "
+                    f"differ from a v1 run:\n"
+                    f"{SCHEMA_V2_MIGRATION_NOTE}"
                 )
             elif schema_version > CURRENT_SCHEMA_VERSION:
                 logger.warning(
@@ -616,12 +960,7 @@ def get_params(args):
     _polymerase_default = (
         data.get("polymerase") or _json_data.get("polymerase") or "phi29"
     ).lower()
-    _polymerase_kmer_defaults = {
-        "phi29": (6, 12),
-        "equiphi29": (10, 18),
-        "bst": (15, 25),
-        "klenow": (8, 15),
-    }
+    _polymerase_kmer_defaults = _registry_views.primer_length_ranges()
     _def_min_k, _def_max_k = _polymerase_kmer_defaults.get(_polymerase_default, (6, 12))
     if "min_k" not in data and "min_k" not in _json_data:
         data["min_k"] = _def_min_k
@@ -732,14 +1071,17 @@ def get_params(args):
     # Polymerase and reaction condition parameters (optional)
     # Load from JSON file if present, otherwise use module defaults
     polymerase = data.get("polymerase", "phi29")
+
+    # Polymerase-aware Tm window; see default_tm_range. Resolved here rather
+    # than where min_tm is first read, because the polymerase is not known
+    # until this line. An explicit value in params.json still wins.
+    _tm_low, _tm_high = default_tm_range(polymerase)
+    min_tm = data["min_tm"] = _tm_low if min_tm is None else min_tm
+    max_tm = data["max_tm"] = _tm_high if max_tm is None else max_tm
     na_conc = data.get("na_conc", 50.0)
-    # Polymerase-aware Mg2+ defaults (mM). phi29 / equiphi29 / klenow all use
-    # ~10 mM in vendor-recommended buffers; bst tolerates lower Mg2+. Fall back
-    # to 10 mM for unknown polymerases rather than the old 2 mM value which was
-    # suboptimal for every supported polymerase.
-    _mg_defaults = {"phi29": 10.0, "equiphi29": 10.0, "bst": 8.0, "klenow": 10.0}
+    _mg_defaults = MG_DEFAULTS_MM
     if "mg_conc" not in data and "mg_conc" not in _json_data:
-        mg_conc = _mg_defaults.get(polymerase.lower(), 10.0)
+        mg_conc = default_mg_conc(polymerase)
         # Review I5: mg_conc default changed from 2.0 (pre-3.7) to polymerase-
         # aware values (phi29/equiphi29/klenow 10, bst 8). Surface the shift
         # so users rerunning an older params.json without mg_conc see why the
@@ -750,27 +1092,34 @@ def get_params(args):
             f"to 2.0 mM. Pin 'mg_conc' in params.json to lock the value."
         )
     else:
-        mg_conc = data.get("mg_conc", _mg_defaults.get(polymerase.lower(), 10.0))
+        mg_conc = data.get("mg_conc", default_mg_conc(polymerase))
+
     primer_conc = data.get("primer_conc", 0.5e-6)
 
-    # Auto-set reaction temperature based on polymerase if not specified
-    from neoswga.core.reaction_conditions import POLYMERASE_CHARACTERISTICS
-
-    if "reaction_temp" in data and data["reaction_temp"] is not None:
+    # Auto-set reaction temperature based on polymerase if not specified.
+    # `default_reaction_temp` reads the same registry view this block used to
+    # index by hand, and is what `retune_for_polymerase` and the wizard call.
+    if data.get("reaction_temp") is not None:
         reaction_temp = data["reaction_temp"]
-    elif polymerase.lower() in POLYMERASE_CHARACTERISTICS:
-        reaction_temp = POLYMERASE_CHARACTERISTICS[polymerase.lower()]["optimal_temp"]
     else:
-        reaction_temp = 30.0  # Default to phi29 temperature
+        reaction_temp = default_reaction_temp(polymerase)
 
-    # Thermodynamic additives (optional)
-    dmso_percent = data.get("dmso_percent", 0.0)
-    betaine_m = data.get("betaine_m", 0.0)
-    trehalose_m = data.get("trehalose_m", 0.0)
-    formamide_percent = data.get("formamide_percent", 0.0)
-    ethanol_percent = data.get("ethanol_percent", 0.0)
-    urea_m = data.get("urea_m", 0.0)
-    tmac_m = data.get("tmac_m", 0.0)
+    # Reaction-chemistry parameters (all optional). Driven by
+    # REACTION_PARAM_DEFAULTS so a new additive needs one edit, not seven.
+    _g = globals()
+    # DTT's default is polymerase-aware, like mg_conc, and for a sharper
+    # reason: the mechanistic model scores DTT as a deficiency penalty, so a
+    # params.json that never mentions dtt_mm must mean "the vendor buffer",
+    # not "a DTT-free reaction". Taking the 0.0 literally would penalise every
+    # existing user for a component they never disabled. No warning, unlike
+    # mg_conc: this default reproduces the standard buffer, so an unset field
+    # changes no prediction.
+    _reaction_defaults = dict(REACTION_PARAM_DEFAULTS)
+    _reaction_defaults["dtt_mm"] = default_dtt_mm(polymerase)
+    for _name, _default in _reaction_defaults.items():
+        _g[_name] = data.get(_name, _default)
+
+    _g["polymerase_derived_fields"] = _record_polymerase_derived(args, _json_data)
 
     # Store all reaction parameters in data dict
     data["polymerase"] = polymerase
@@ -778,13 +1127,8 @@ def get_params(args):
     data["na_conc"] = na_conc
     data["mg_conc"] = mg_conc
     data["primer_conc"] = primer_conc
-    data["dmso_percent"] = dmso_percent
-    data["betaine_m"] = betaine_m
-    data["trehalose_m"] = trehalose_m
-    data["formamide_percent"] = formamide_percent
-    data["ethanol_percent"] = ethanol_percent
-    data["urea_m"] = urea_m
-    data["tmac_m"] = tmac_m
+    for _name in REACTION_PARAM_DEFAULTS:
+        data[_name] = _g[_name]
 
     if args.fasta_fore is not None:
         data["fg_genomes"] = get_all_files(args.fasta_fore)
@@ -896,6 +1240,17 @@ def get_params(args):
             fname_genomes=data["bg_genomes"], cpus=data["cpus"]
         )
 
+    # Publish the derived lengths as module globals, the way fg_genomes and
+    # fg_prefixes already are. They are computed from the FASTAs when params.json
+    # omits them -- which `neoswga init` always does -- so leaving them only in
+    # the returned `data` meant every consumer reading module state saw nothing.
+    # contract-set and rescore-set both exited with "fg_seq_lengths missing from
+    # params; cannot compute coverage" on any config the wizard produced, while
+    # the pipeline itself worked, because the two shipped examples happen to
+    # declare the key by hand.
+    fg_seq_lengths = data.get("fg_seq_lengths", []) or []
+    bg_seq_lengths = data.get("bg_seq_lengths", []) or []
+
     # Auto-compute blacklist genome lengths (mirrors bg_seq_lengths handling) so the
     # frequency-based blacklist filter in pipeline._filter_blacklist_penalty gets
     # correct denominators whether bl_genomes came from params.json or --blacklist CLI.
@@ -953,9 +1308,6 @@ def get_params(args):
     user_set_gc_min = "gc_min" in _json_data
     user_set_gc_max = "gc_max" in _json_data
 
-    # Adaptive GC filtering: compute gc_min and gc_max based on genome_gc
-    # If genome_gc is known, use genome_gc +/- gc_tolerance
-    # This enables extreme GC genomes like Francisella (33%) and Burkholderia (67%)
     if (
         adaptive_gc_enabled
         and genome_gc is not None
@@ -963,20 +1315,7 @@ def get_params(args):
         and not user_set_gc_min
         and not user_set_gc_max
     ):
-        # Adaptive: primer GC should match target genome GC +/- tolerance
-        gc_min = max(0.15, genome_gc - gc_tolerance)
-        gc_max = min(0.85, genome_gc + gc_tolerance)
-        # Log explicitly when adaptive kicks in on extreme-GC genomes so
-        # the user can trace why their GC window looks different.
-        if genome_gc < 0.35 or genome_gc > 0.65:
-            logger.info(
-                "Extreme GC genome detected (GC=%.1f%%). Adaptive GC filter "
-                "engaged: primer GC window %.2f-%.2f. Set 'adaptive_gc': false "
-                "in params.json to disable.",
-                genome_gc * 100,
-                gc_min,
-                gc_max,
-            )
+        gc_min, gc_max = adaptive_gc_window(genome_gc, gc_tolerance)
     else:
         # Fallback to explicit gc_min/gc_max if specified, otherwise use defaults
         gc_min = data.get("gc_min", 0.375)

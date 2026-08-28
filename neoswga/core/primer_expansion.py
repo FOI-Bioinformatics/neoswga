@@ -40,6 +40,8 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+from neoswga.core.dominating_set_optimizer import coverage_bin_size as _coverage_bin_size
+
 logger = logging.getLogger(__name__)
 
 
@@ -195,7 +197,8 @@ class PrimerExpander:
         bg_prefixes: Optional[List[str]] = None,
         bg_seq_lengths: Optional[List[int]] = None,
         bin_size: int = 10000,
-        max_extension: int = 3000,
+        max_extension: Optional[int] = None,
+        coverage_reach: Optional[int] = None,
     ):
         """
         Initialize primer expander.
@@ -207,10 +210,15 @@ class PrimerExpander:
             bg_prefixes: Background genome identifiers (optional)
             bg_seq_lengths: Background genome lengths (optional)
             bin_size: Bin size for coverage analysis (bp)
-            max_extension: Per-primer extension reach in bp. Defaults to 3000
-                (Phase 16 realistic per-primer reach for phi29 in dense SWGA),
-                matching base_optimizer.compute_metrics. Use 70000 for the
-                theoretical single-molecule processivity.
+            max_extension: Deprecated alias for `coverage_reach`. It always
+                meant the per-primer coverage reach despite the name, and was
+                then handed to `HybridOptimizer(max_extension=...)`, which is
+                the amplification-NETWORK reach -- a different quantity,
+                answered by single-molecule processivity.
+            coverage_reach: Per-primer extension reach in bp for the coverage
+                figure and for Stage-1 set cover. Defaults to 3000, the
+                realistic reach for phi29 in a dense SWGA design, matching
+                base_optimizer.compute_metrics.
         """
         self.cache = position_cache
         self.fg_prefixes = fg_prefixes
@@ -218,7 +226,13 @@ class PrimerExpander:
         self.bg_prefixes = bg_prefixes or []
         self.bg_seq_lengths = bg_seq_lengths or []
         self.bin_size = bin_size
-        self.max_extension = max_extension
+        self.coverage_reach = coverage_reach or max_extension or 3000
+        # Retained so existing callers reading the attribute still see the
+        # value they set; it has only ever been the coverage reach.
+        self.max_extension = self.coverage_reach
+        # A bin larger than the reach lets a primer covering part of it claim
+        # all of it, which is what `coverage_bin_size` exists to stop.
+        self.coverage_bin_size = _coverage_bin_size(bin_size, self.coverage_reach)
         self.total_length = sum(fg_seq_lengths)
 
     def identify_gaps(
@@ -322,22 +336,31 @@ class PrimerExpander:
 
         from neoswga.core.dominating_set_optimizer import BipartiteGraph
 
-        graph = BipartiteGraph(bin_size=self.bin_size)
+        bin_size = self.coverage_bin_size
+        graph = BipartiteGraph(bin_size=bin_size)
 
         for primer in primers:
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
                 positions = self.cache.get_positions(prefix, primer, "both")
                 if len(positions) > 0:
-                    graph.add_primer_coverage(primer, positions, prefix, length)
+                    # Without `extension_reach` this marked only the bin each
+                    # site sits in, so the result was bin OCCUPANCY and its
+                    # value came from `bin_size` rather than the polymerase: a
+                    # 10 kb bin let one site claim 10 kb of coverage.
+                    graph.add_primer_coverage(
+                        primer,
+                        positions,
+                        prefix,
+                        length,
+                        extension_reach=self.coverage_reach,
+                    )
 
         if not graph.regions:
             return 0.0
 
-        total_bins = sum(
-            (length + self.bin_size - 1) // self.bin_size for length in self.fg_seq_lengths
-        )
+        total_bins = sum((length + bin_size - 1) // bin_size for length in self.fg_seq_lengths)
 
-        return len(graph.regions) / total_bins if total_bins > 0 else 0.0
+        return min(1.0, len(graph.regions) / total_bins) if total_bins > 0 else 0.0
 
     def expand(
         self,
@@ -524,6 +547,28 @@ class PrimerExpander:
                 kept.append(cand)
         return kept
 
+    def _build_hybrid_optimizer(self):
+        """Hybrid optimizer configured with both reaches, kept distinct.
+
+        `coverage_reach` governs Stage-1 set cover and the reported coverage;
+        `max_extension` governs the Stage-2 amplification-network question
+        "could two primers connect via one uninterrupted extension?", which is
+        single-molecule processivity. This class passed its 3 kb coverage reach
+        as `max_extension`, so the network stage ran at a reach 23x too short
+        for phi29. Leaving `max_extension` unset takes the polymerase preset.
+        """
+        from neoswga.core.hybrid_optimizer import HybridOptimizer
+
+        return HybridOptimizer(
+            position_cache=self.cache,
+            fg_prefixes=self.fg_prefixes,
+            fg_seq_lengths=self.fg_seq_lengths,
+            bg_prefixes=self.bg_prefixes,
+            bg_seq_lengths=self.bg_seq_lengths,
+            bin_size=self.bin_size,
+            coverage_reach=self.coverage_reach,
+        )
+
     def _expand_hybrid(
         self,
         candidates: List[str],
@@ -532,17 +577,7 @@ class PrimerExpander:
         verbose: bool,
     ) -> Dict:
         """Use hybrid optimizer for expansion."""
-        from neoswga.core.hybrid_optimizer import HybridOptimizer
-
-        optimizer = HybridOptimizer(
-            position_cache=self.cache,
-            fg_prefixes=self.fg_prefixes,
-            fg_seq_lengths=self.fg_seq_lengths,
-            bg_prefixes=self.bg_prefixes,
-            bg_seq_lengths=self.bg_seq_lengths,
-            bin_size=self.bin_size,
-            max_extension=self.max_extension,
-        )
+        optimizer = self._build_hybrid_optimizer()
 
         # Target total = fixed + new
         total_target = len(fixed_primers) + target_new
@@ -552,6 +587,9 @@ class PrimerExpander:
             final_count=total_target,
             fixed_primers=fixed_primers,
             verbose=verbose,
+            # total_target is len(fixed) + requested new, so rescaling it could
+            # ask for fewer primers than the caller is already keeping.
+            apply_polymerase_multiplier=False,
         )
 
         # Extract new primers (those not in fixed)
@@ -578,7 +616,7 @@ class PrimerExpander:
             fg_prefixes=self.fg_prefixes,
             fg_seq_lengths=self.fg_seq_lengths,
             bin_size=self.bin_size,
-            extension_reach=self.max_extension,
+            extension_reach=self.coverage_reach,
         )
 
         result = optimizer.optimize_greedy(

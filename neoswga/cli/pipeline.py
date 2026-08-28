@@ -12,10 +12,17 @@ from neoswga.cli._common import (
     _record_run_manifest,
     check_jellyfish_available,
     collect_primers_from_args,
+    load_preset_conditions,
     merge_args_to_parameter,
     params_command,
+    set_size_shortfall_advice,
     setup_gpu_acceleration,
     validate_params_json_file,
+)
+from neoswga.cli._params_preread import (
+    apply_polymerase_choice,
+    polymerase_from_params,
+    target_size_from_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -229,20 +236,19 @@ def run_step2(args):
             ],
         )
 
-        # Polymerase
-        merge_args_to_parameter(args, parameter, ["polymerase"])
+        # Polymerase. A preset names one too, and both have to re-derive what
+        # the enzyme decides; see apply_polymerase_choice.
+        apply_polymerase_choice(parameter, args)
 
         # Bloom filter for large background genomes
         use_bloom = getattr(args, "use_bloom_filter", False)
         bloom_path = getattr(args, "bloom_filter_path", None)
         sampled_path = getattr(args, "sampled_index_path", None)
-        bloom_max_bg = getattr(args, "bloom_max_bg_matches", 10)
 
         if use_bloom or bloom_path:
             parameter.use_bloom_filter = True
             parameter.bloom_filter_path = bloom_path
             parameter.sampled_index_path = sampled_path
-            parameter.bloom_max_bg_matches = bloom_max_bg
             if not args.quiet:
                 logger.info(f"Bloom filter enabled for background filtering")
                 if bloom_path:
@@ -464,6 +470,7 @@ Decision Tree:
   Speed critical / large pool?   -> dominating-set
   Clinical / low background?     -> background-aware
   Tm-balanced, dimer-aware?      -> network
+  Must be dimer-free?            -> clique (guaranteed, small pools only)
   Not sure / want the best?      -> ensemble (runs all, keeps the best)
   Default                        -> hybrid
 
@@ -475,9 +482,20 @@ Methods:
 | dominating-set   | Fast   | Excellent | Fair        | Large pools, quick       |
 | network          | Medium | Good      | Good        | Tm-balanced, dimer-aware |
 | background-aware | Slow   | Good      | Excellent   | Clinical, low background |
+| clique           | Slow   | Fair      | Good        | Guaranteed dimer-free    |
 | ensemble         | Slow   | Best-of   | Best-of     | Run all, keep best by    |
 |                  |        |           |             | normalized score         |
 +------------------+--------+-----------+-------------+--------------------------+
+
+The other four methods PENALISE primer-dimers: a dimerising pair costs score,
+and a greedy search can still accept one when the coverage looks worth it.
+`clique` instead joins two primers with an edge only when they do NOT dimerise
+and selects a clique, so a compatible set falls out of the representation. That
+is a guarantee none of the others make, paid for with an exhaustive search: it
+is limited to pools of roughly 200 candidates, and it truncates (with a log
+line) rather than running unbounded. It is not part of the default ensemble for
+the same reason -- add it explicitly with
+--ensemble-methods hybrid network clique.
 
 Application weighting (--application) tunes how the normalized score and the
 selection knobs trade coverage vs specificity:
@@ -506,6 +524,15 @@ Usage Examples:
     print(guide)
 
 
+# Resolving a params.json value before `get_params()` has populated the
+# parameter globals. Both helpers live in `_params_preread` so the pattern stays
+# in one place -- the same defect has now been found twice in `run_step4`. They
+# are re-exported here because that is where the tests and callers reach for
+# them.
+_target_size_from_params = target_size_from_params
+_polymerase_from_params = polymerase_from_params
+
+
 @params_command(merge=None)
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
@@ -526,9 +553,9 @@ def run_step4(args):
         # Set json_file if provided
         merge_args_to_parameter(args, parameter, ["json_file"])
 
-        # Pass polymerase info to optimizer (use adapted value, not raw JSON,
-        # so GC-adaptive strategy recommendations are respected)
-        polymerase = getattr(parameter, "polymerase", "phi29")
+        # `--polymerase` wins, then params.json, then the adapted global. The
+        # flag is resolved there because this handler never merges it.
+        polymerase = _polymerase_from_params(parameter, args=args)
         if polymerase != "phi29":
             logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
@@ -548,10 +575,8 @@ def run_step4(args):
             parameter.num_primers = args.num_primers
             parameter.target_set_size = args.num_primers
             logger.info(f"Target primer count: {args.num_primers}")
-        elif not hasattr(parameter, "num_primers") or not parameter.num_primers:
-            # Try to read from JSON if loaded
-            json_data = getattr(parameter, "_json_data", {})
-            num_primers = json_data.get("num_primers", json_data.get("target_set_size", 6))
+        else:
+            num_primers = _target_size_from_params(parameter)
             parameter.num_primers = num_primers
             parameter.target_set_size = num_primers
 
@@ -569,7 +594,7 @@ def run_step4(args):
 
             try:
                 from neoswga.core.mechanistic_model import MechanisticModel
-                from neoswga.core.reaction_conditions import ReactionConditions
+                from neoswga.core.reaction_conditions import build_reaction_conditions
                 from neoswga.core.set_size_optimizer import (
                     create_baseline_effects,
                     recommend_set_size,
@@ -591,19 +616,27 @@ def run_step4(args):
                     # Try to calculate from genome or use default
                     template_gc = json_data.get("fg_gc", 0.5)
 
-                # Get polymerase and create conditions
+                # Get polymerase and create conditions. The temperature default
+                # was `30.0 if polymerase == "phi29" else 42.0`, a two-way branch
+                # over six enzymes: bst and bst3.0 got 42 C, below the 50 C floor
+                # of their hard range, so `ReactionConditions` refused it and the
+                # model fell back to baseline effects behind a warning -- the
+                # set-size recommendation was then made with no chemistry in it.
                 polymerase = json_data.get("polymerase", "phi29")
                 reaction_temp = json_data.get(
-                    "reaction_temp", 30.0 if polymerase == "phi29" else 42.0
+                    "reaction_temp", parameter.default_reaction_temp(polymerase)
                 )
 
                 try:
-                    conditions = ReactionConditions(
-                        temp=reaction_temp,
-                        polymerase=polymerase,
-                        mg_conc=json_data.get("mg_conc", 2.5),
-                        dmso_percent=json_data.get("dmso_percent", 0.0),
-                        betaine_m=json_data.get("betaine_m", 0.0),
+                    # Five of twenty fields, which mattered here more than
+                    # anywhere: this feeds MechanisticModel, and glycerol and
+                    # SSB act through that model rather than through Tm, so
+                    # they were dropped at the one place they do something.
+                    # The old mg_conc default of 2.5 mM was the PCR-calibrated
+                    # value; the builder falls through to the polymerase buffer
+                    # value (10 mM for phi29) instead.
+                    conditions = build_reaction_conditions(
+                        polymerase=polymerase, temp=reaction_temp
                     )
                     model = MechanisticModel(conditions)
                     sample_primer = "A" * primer_length  # Neutral sequence
@@ -651,11 +684,6 @@ def run_step4(args):
             except Exception as e:
                 logger.warning(f"Auto-size failed: {e}. Using default num_primers.")
 
-        # Cooperative binding (experimental - not yet fully integrated)
-        if hasattr(args, "use_cooperative_binding") and args.use_cooperative_binding:
-            logger.warning("--use-cooperative-binding is experimental and not yet fully integrated")
-            parameter.use_cooperative_binding = True
-
         # Mechanistic model: when enabled, the optimizer's
         # factory kwargs carry mechanistic_weight so NetworkOptimizer (the
         # condition-aware scoring path inside hybrid / network) will
@@ -684,11 +712,6 @@ def run_step4(args):
                 "amplification-factor term to every primer."
             )
 
-        # Primer strategy
-        merge_args_to_parameter(args, parameter, ["primer_strategy"])
-        if hasattr(args, "primer_strategy") and args.primer_strategy == "hybrid":
-            logger.info("Using hybrid primer strategy (mixed lengths)")
-
         # Use unified optimizer framework (all methods handled via factory pattern)
         from neoswga.core.unified_optimizer import list_available_optimizers, optimize_step4
 
@@ -704,8 +727,6 @@ def run_step4(args):
             logger.info(
                 f"Minimal primer selection enabled (target coverage: {target_coverage:.1%})"
             )
-
-        strategy = getattr(args, "scoring_weights", "balanced")
 
         # Background pre-filter flag (enabled by default, --no-bg-prefilter disables)
         bg_prefilter = not getattr(args, "no_bg_prefilter", False)
@@ -732,7 +753,6 @@ def run_step4(args):
             uniformity_weight=uniformity_weight,
             minimize_primers=minimize_primers,
             target_coverage=target_coverage,
-            strategy=strategy,  # Pass strategy for normalized optimizer
             polymerase=polymerase,  # Pass polymerase for hybrid preset config
             bg_prefilter=bg_prefilter,  # Background pre-filtering of candidates
             no_background=no_background,  # Host-free mode
@@ -745,6 +765,9 @@ def run_step4(args):
             application=getattr(args, "application", "balanced"),
             ensemble_methods=getattr(args, "ensemble_methods", None),
             ensemble_combine=getattr(args, "ensemble_combine", "best"),
+            # Explicit reach for coverage / set-cover selection. None leaves the
+            # polymerase default in place; see coverage.resolve_coverage_reach.
+            coverage_reach=getattr(args, "coverage_reach", None),
         )
 
         if results:
@@ -754,17 +777,10 @@ def run_step4(args):
             logger.info(f"Selected {num_found} primers")
             logger.info(f"Score: {scores[0]:.4f}")
             if num_found < target_size:
-                logger.warning(
-                    f"WARNING: Found {num_found} primers but target was "
-                    f"{target_size} (PARTIAL result: insufficient candidates)"
-                )
-                logger.warning("To improve, consider:")
-                logger.warning("  - Relaxing filter thresholds (max_bg_freq, max_gini)")
-                logger.warning("  - Widening k-mer range (min_k / max_k)")
-                logger.warning("  - Increasing candidate pool (max_primer)")
-                logger.warning(
-                    f"  - Trying a different optimizer " f"(current: {args.optimization_method})"
-                )
+                for line in set_size_shortfall_advice(
+                    num_found, target_size, args.optimization_method
+                ):
+                    logger.warning(line)
         else:
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)
@@ -958,8 +974,17 @@ def run_step4(args):
                     # Create networks from cache
                     from neoswga.core.network_optimizer import AmplificationNetwork
 
+                    # --max-extension was accepted and then ignored here: both
+                    # networks were built with a literal 70000 whatever the user
+                    # asked for, so the flag could not size the amplification
+                    # network it exists to size. The default is still 70000
+                    # (phi29 single-molecule processivity), which is the right
+                    # reach for network CONNECTIVITY -- distinct from the ~3 kb
+                    # coverage reach used for set-cover selection.
+                    max_extension = getattr(args, "max_extension", 70000) or 70000
+
                     # Build fg network
-                    fg_network = AmplificationNetwork(max_extension=70000)
+                    fg_network = AmplificationNetwork(max_extension=max_extension)
                     for primer in primers:
                         for prefix in fg_prefixes:
                             try:
@@ -974,7 +999,7 @@ def run_step4(args):
                     fg_network.build_graph()
 
                     # Build bg network
-                    bg_network = AmplificationNetwork(max_extension=70000)
+                    bg_network = AmplificationNetwork(max_extension=max_extension)
                     for primer in primers:
                         for prefix in bg_prefixes:
                             try:
@@ -1358,12 +1383,12 @@ def add_parsers(subparsers):
         type=str,
         help="Path to pre-built sampled index (.pkl) for count estimation",
     )
-    step2_bloom_group.add_argument(
-        "--bloom-max-bg-matches",
-        type=int,
-        default=10,
-        help="Maximum background matches via Bloom filter (default: 10)",
-    )
+    # --bloom-max-bg-matches was removed here. It configured the stand-in count
+    # this path emitted for any primer the Bloom filter reported present, and
+    # that stand-in is gone: an absolute count fed to a frequency gate inverts
+    # with genome size, so it silently disabled background filtering on exactly
+    # the large backgrounds Bloom exists for. Counts now come from the sampled
+    # index, which has a real answer, so there is nothing left to tune.
 
     # Exclusion Genome Filtering (zero-tolerance for contaminants)
     step2_excl_group = filter_parser.add_argument_group(
@@ -1462,7 +1487,14 @@ def add_parsers(subparsers):
     opt_method_group.add_argument(
         "-m",
         "--optimization-method",
-        choices=["hybrid", "dominating-set", "network", "background-aware", "ensemble"],
+        choices=[
+            "hybrid",
+            "dominating-set",
+            "network",
+            "background-aware",
+            "clique",
+            "ensemble",
+        ],
         default="hybrid",
         help="Optimization method. "
         "Decision tree: "
@@ -1492,35 +1524,24 @@ def add_parsers(subparsers):
         "'union' additionally re-optimizes over the pooled primers from all "
         "methods (can beat any single method; never worsens it).",
     )
-    opt_method_group.add_argument(
-        "--scoring-weights",
-        dest="scoring_weights",
-        choices=["clinical", "discovery", "fast", "balanced", "enrichment"],
-        default="balanced",
-        help="Scoring-weight preset for the network optimizer: "
-        "clinical (high specificity), discovery (max coverage), "
-        "fast (quick screening), balanced (equal weights), "
-        "enrichment (sequencing).",
-    )
+    # --scoring-weights was removed here. It was read into `strategy` and
+    # forwarded into optimize_step4, and no optimizer read it -- **kwargs
+    # swallowed it. Its choices (clinical / discovery / balanced / enrichment)
+    # also duplicated --application, which IS wired: unified_optimizer maps it
+    # through OPTIMIZER_APPLICATION_WEIGHTS onto tm_weight, uniformity_weight
+    # and dimer_penalty. Use --application instead.
     opt_method_group.add_argument(
         "--method-guide",
         action="store_true",
         help="Show optimization method selection guide and exit",
     )
 
-    # Primer Strategy
-    opt_strategy_group = optimize_parser.add_argument_group("Primer Strategy")
-    opt_strategy_group.add_argument(
-        "--use-cooperative-binding",
-        action="store_true",
-        help="[EXPERIMENTAL] Cooperative binding model (not yet fully integrated)",
-    )
-    opt_strategy_group.add_argument(
-        "--primer-strategy",
-        choices=["standard", "hybrid"],
-        default="standard",
-        help="Primer design strategy (standard: uniform length, hybrid: mixed lengths)",
-    )
+    # --use-cooperative-binding and --primer-strategy were removed here. Both
+    # were accepted, logged and written to the parameter object, and no module
+    # under neoswga/core/ ever read either one, so neither could change a
+    # design. A flag that silently does nothing is worse than an absent one: it
+    # reads as a control that was tried and found not to matter.
+    # tests/test_design_options_have_effect.py holds the line for the rest.
 
     # Background Filtering
     opt_bg_group = optimize_parser.add_argument_group("Background Filtering")
@@ -1592,6 +1613,16 @@ def add_parsers(subparsers):
         type=int,
         default=70000,
         help="Maximum Phi29 extension length in bp (default: 70000)",
+    )
+    opt_perf_group.add_argument(
+        "--coverage-reach",
+        type=int,
+        default=None,
+        help="Per-primer extension reach in bp for coverage and set-cover "
+        "selection (default: the polymerase's realistic reach, phi29 ~3000). "
+        "This is NOT --max-extension, which is the amplification-network "
+        "reach. Coverage figures are not comparable across different reaches; "
+        "estimate this from data with 'neoswga calibrate-reach --bam'.",
     )
 
     # Set Size & Application

@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -23,7 +22,10 @@ EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 def _run(args, cwd=None, timeout=120):
     return subprocess.run(
         [sys.executable, "-m", "neoswga.cli_unified", *args],
-        capture_output=True, text=True, timeout=timeout, cwd=cwd,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        cwd=cwd,
     )
 
 
@@ -46,17 +48,23 @@ def test_contract_set_prefers_dimer_heavy_primer_for_removal(tmp_path):
     # contribute coverage (its k-mer files aren't in the example, but
     # contract-set still computes deficit for it).
     primers = [
-        "AAACGCT",      # from step2_df
+        "AAACGCT",  # from step2_df
         "CATCCGTAAG",
         "AGGAAAGGAC",
-        "ATCGATCGAT",   # palindromic pathological primer, high dimer risk
+        "ATCGATCGAT",  # palindromic pathological primer, high dimer risk
     ]
 
     result = _run(
-        ["contract-set", "-j", "params.json",
-         "--primers", *primers,
-         "--min-coverage", "0.0",  # allow any removal
-         "--quiet"],
+        [
+            "contract-set",
+            "-j",
+            "params.json",
+            "--primers",
+            *primers,
+            "--min-coverage",
+            "0.0",  # allow any removal
+            "--quiet",
+        ],
         cwd=str(tmp_path),
     )
     assert result.returncode == 0, result.stderr
@@ -68,9 +76,9 @@ def test_contract_set_prefers_dimer_heavy_primer_for_removal(tmp_path):
     # examples.
     if removed:
         # It should appear among the first removed primers.
-        assert "ATCGATCGAT" in removed[:2], (
-            f"Pathological primer should be removed early; removed={removed}"
-        )
+        assert (
+            "ATCGATCGAT" in removed[:2]
+        ), f"Pathological primer should be removed early; removed={removed}"
 
 
 def test_contract_set_respects_min_coverage_threshold(tmp_path):
@@ -86,10 +94,16 @@ def test_contract_set_respects_min_coverage_threshold(tmp_path):
     # Use 3 real primers; set threshold to baseline so no removal is safe
     primers = ["AAACGCT", "CATCCGTAAG", "AGGAAAGGAC"]
     result = _run(
-        ["contract-set", "-j", "params.json",
-         "--primers", *primers,
-         "--min-coverage", "0.999",  # very tight — baseline ~ 1.0
-         "--quiet"],
+        [
+            "contract-set",
+            "-j",
+            "params.json",
+            "--primers",
+            *primers,
+            "--min-coverage",
+            "0.999",  # very tight — baseline ~ 1.0
+            "--quiet",
+        ],
         cwd=str(tmp_path),
     )
     assert result.returncode == 0, result.stderr

@@ -10,6 +10,7 @@ import os
 import sys
 
 from neoswga.cli._common import _apply_seed
+from neoswga.core.registry import polymerase_names as _polymerase_names
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,9 @@ def run_multi_genome(args):
 
         logger.info(f"Pan-genome design complete! Results saved to: {args.output}")
         logger.info(f"Designed {result.primer_count} primers")
-        logger.info(f"Mean enrichment: {result.mean_enrichment:.1f}x")
+        from neoswga.core.multi_genome_filter import format_enrichment
+
+        logger.info(f"Mean enrichment: {format_enrichment(result.mean_enrichment)}")
 
     except Exception as e:
         logger.error(f"Multi-genome pipeline failed: {e}")
@@ -315,7 +318,7 @@ def add_parsers(subparsers):
     )
     multi_genome_parser.add_argument(
         "--polymerase",
-        choices=["phi29", "equiphi29", "bst", "klenow"],
+        choices=_polymerase_names(),
         help="Polymerase type: phi29 (30C), equiphi29 (42C), " "bst (63C), klenow (37C)",
     )
     multi_genome_parser.add_argument(
@@ -353,7 +356,7 @@ def add_parsers(subparsers):
     )
     simulate_parser.add_argument(
         "--polymerase",
-        choices=["phi29", "equiphi29", "bst", "klenow"],
+        choices=_polymerase_names(),
         default="phi29",
         help="Polymerase type: phi29 (30C), equiphi29 (42C), "
         "bst (63C), klenow (37C) (default: phi29)",
