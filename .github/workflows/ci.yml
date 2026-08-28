@@ -48,6 +48,13 @@ jobs:
     needs: lint
     runs-on: ${{ matrix.os }}
     strategy:
+      # Run every cell to completion. With fail-fast the first cell to fail
+      # cancels the other five, and a fault specific to one runner then
+      # presents as a total failure across every platform: a missing wheel for
+      # an optional dependency on macos/3.12 once cancelled all six jobs, and
+      # telling that apart from a real regression needed per-job API queries.
+      # Six matrix cells are cheap; misreading them is not.
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
         os: [ubuntu-latest, macos-latest]
