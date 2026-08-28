@@ -328,10 +328,35 @@ class HybridOptimizer:
             self.poly_config.min_gc = 0.20
             logger.info("  AT-rich genome detected - widening GC acceptance")
 
+    def _rescale_for_polymerase(self, final_count: int, verbose: bool) -> int:
+        """Apply the polymerase preset's primer-count multiplier and floor.
+
+        Two faults lived at the call site. The assignment sat inside an
+        `and verbose` branch, so the rescale took effect only when logging was
+        on: equiphi29 asked for 10 returned 10 quiet and 8 loud, while phi29
+        (multiplier 1.0) returned 10 either way. A design must not depend on
+        how chatty the run is.
+
+        And it overrode counts a caller had named. At the default target of 6
+        the multiplier cannot bite -- `max(6, int(6 * 0.85))` is 6 -- so the
+        only counts it ever changed were deliberate ones. A params.json asking
+        for 32 primers got 27, and the completion check then blamed the
+        candidate pool, advice that would degrade a design that was not
+        deficient. Hence the call is now opt-in; see `optimize`.
+        """
+        adjusted = max(6, int(final_count * self.poly_config.primer_multiplier))
+        if adjusted != final_count and verbose:
+            logger.info(
+                f"Adjusted target from {final_count} to {adjusted} "
+                f"({self.polymerase} multiplier: {self.poly_config.primer_multiplier})"
+            )
+        return adjusted
+
     def optimize(
         self,
         candidates: List[str],
         final_count: int = 12,
+        apply_polymerase_multiplier: bool = False,
         stage1_count: Optional[int] = None,
         fixed_primers: Optional[List[str]] = None,
         verbose: bool = True,
@@ -345,6 +370,9 @@ class HybridOptimizer:
         Args:
             candidates: List of candidate primers (already filtered)
             final_count: Final number of primers to select (Stage 2 output)
+            apply_polymerase_multiplier: Let the preset rescale `final_count`
+                (see `_rescale_for_polymerase`). Defaults False: a caller who
+                names a count means it.
             stage1_count: Number of primers for Stage 1 (None = auto)
             fixed_primers: Optional list of primers that must be included in
                 the final set. The optimizer will select additional primers
@@ -424,14 +452,8 @@ class HybridOptimizer:
                 total_runtime=time.time() - total_start,
             )
 
-        # Apply primer count multiplier from polymerase preset
-        adjusted_final_count = max(6, int(final_count * self.poly_config.primer_multiplier))
-        if adjusted_final_count != final_count and verbose:
-            logger.info(
-                f"Adjusted target from {final_count} to {adjusted_final_count} "
-                f"({self.polymerase} multiplier: {self.poly_config.primer_multiplier})"
-            )
-            final_count = adjusted_final_count
+        if apply_polymerase_multiplier:
+            final_count = self._rescale_for_polymerase(final_count, verbose)
 
         # Auto-determine Stage 1 count if not specified
         if stage1_count is None:
@@ -1283,6 +1305,11 @@ class HybridBaseOptimizer(BaseOptimizer):
                 final_count=target,
                 fixed_primers=fixed_primers,
                 verbose=self.config.verbose,
+                # `target` came from params.json or --auto-size, both
+                # deliberate. --auto-size already accounts for the polymerase
+                # through the mechanistic model, so rescaling here would
+                # double-count it; an explicit count it would simply override.
+                apply_polymerase_multiplier=False,
             )
 
             primers = result.primers

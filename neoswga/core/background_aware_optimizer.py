@@ -751,6 +751,7 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
                 candidates=candidates,
                 final_count=target,
                 verbose=self.config.verbose,
+                apply_polymerase_multiplier=False,
             )
 
             primers = result.primers

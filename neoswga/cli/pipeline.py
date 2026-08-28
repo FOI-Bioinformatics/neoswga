@@ -18,6 +18,7 @@ from neoswga.cli._common import (
     setup_gpu_acceleration,
     validate_params_json_file,
 )
+from neoswga.cli._common import set_size_shortfall_advice
 from neoswga.cli._params_preread import (
     apply_polymerase_choice,
     polymerase_from_params,
@@ -776,17 +777,10 @@ def run_step4(args):
             logger.info(f"Selected {num_found} primers")
             logger.info(f"Score: {scores[0]:.4f}")
             if num_found < target_size:
-                logger.warning(
-                    f"WARNING: Found {num_found} primers but target was "
-                    f"{target_size} (PARTIAL result: insufficient candidates)"
-                )
-                logger.warning("To improve, consider:")
-                logger.warning("  - Relaxing filter thresholds (max_bg_freq, max_gini)")
-                logger.warning("  - Widening k-mer range (min_k / max_k)")
-                logger.warning("  - Increasing candidate pool (max_primer)")
-                logger.warning(
-                    f"  - Trying a different optimizer " f"(current: {args.optimization_method})"
-                )
+                for line in set_size_shortfall_advice(
+                    num_found, target_size, args.optimization_method
+                ):
+                    logger.warning(line)
         else:
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)

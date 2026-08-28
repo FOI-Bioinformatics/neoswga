@@ -587,6 +587,9 @@ class PrimerExpander:
             final_count=total_target,
             fixed_primers=fixed_primers,
             verbose=verbose,
+            # total_target is len(fixed) + requested new, so rescaling it could
+            # ask for fewer primers than the caller is already keeping.
+            apply_polymerase_multiplier=False,
         )
 
         # Extract new primers (those not in fixed)

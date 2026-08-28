@@ -730,3 +730,36 @@ def add_position_source_options(parser):
         "answer, and scanning a host-sized genome holds it in memory.",
     )
     return parser
+
+
+def set_size_shortfall_advice(num_found, target_size, method=None):
+    """What to say when fewer primers came back than were asked for.
+
+    This check compares two integers. It cannot see why they differ, and it
+    used to assert one: "PARTIAL result: insufficient candidates", followed by
+    four remedies all about enlarging the pool.
+
+    At least one common cause is not that, and the advice points away from it.
+    Stage 1 stops once coverage is satisfied, so a set-cover that reaches the
+    coverage target with fewer primers than requested returns early -- the
+    optimizer succeeding, reported as a partial failure. Loosening filters in
+    response degrades a design that was not deficient. The same misdirection is
+    on record in docs/validation/additive_specificity.md, where the advice was
+    followed from a different root cause.
+
+    So the shortfall is stated, the benign explanation is offered first, and
+    the pool remedies are kept but demoted to what they are: possibilities.
+    """
+    lines = [
+        f"Found {num_found} primers but the target was {target_size}.",
+        "This is not necessarily a shortfall. Stage 1 stops once the coverage "
+        "target is met, so a set that covers the genome with fewer primers "
+        "returns early. Check the reported coverage before treating it as one.",
+        "If coverage is also below target, the pool may genuinely be too small:",
+        "  - Relaxing filter thresholds (max_bg_freq, max_gini)",
+        "  - Widening k-mer range (min_k / max_k)",
+        "  - Increasing candidate pool (max_primer)",
+    ]
+    if method:
+        lines.append(f"  - Trying a different optimizer (current: {method})")
+    return lines
