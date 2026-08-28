@@ -296,6 +296,15 @@ counted against, not by its sequence. Every set therefore looks alike, and the
 predicted ratios span under 2x across sets whose measured outcomes differ
 60-fold. No weighting of binding counts can separate them.
 
+The whole host has since been counted, and the saturation reaches further than
+chr21 alone suggests: **8,368,418 of the 8,390,656 canonical 12-mers, 99.7%,
+occur in hg38**. Only 1,882 of Prevotella's 2,184,319 are absent from the host,
+and among candidates abundant enough to carry coverage exactly one is. So the
+length at which exact background matches become rare is not reached at 12
+either, against a background this size -- the ratios separate there because the
+counts differ, not because they vanish. Measured in
+[additive_specificity.md](additive_specificity.md#the-background-was-one-chromosome-and-that-mattered).
+
 ### The consequence for design
 
 > Followed up end to end in [additive_specificity.md](additive_specificity.md), which measures the

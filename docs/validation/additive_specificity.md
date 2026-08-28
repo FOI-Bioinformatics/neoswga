@@ -7,15 +7,17 @@ genomes, including two defects that had to be fixed before any of it was
 measurable and three ideas that measurement rejected.
 
 Everything below is measured on one target/background pair unless stated
-otherwise. Reproduce with `scripts/fetch_reference_genomes.py prevotella
-human_chr21`, then the `tests/validation/genomes/equiphi29_{k}mer.json` and
+otherwise, and the background is a single human chromosome until the section
+that replaces it with the whole genome. Reproduce with
+`scripts/fetch_reference_genomes.py prevotella human_chr21`, then the
+`tests/validation/genomes/equiphi29_{k}mer.json` and
 `phi29_{k}mer.json` parameter files. The tests that pin these numbers are in
 `tests/validation/test_prevotella_specificity.py` and skip without the genomes.
 
 | | |
 |---|---|
 | target | *Prevotella melaninogenica* ATCC 25845, 3,168,282 bp, 41% GC |
-| background | human chr21 (hg38), 46,709,983 bp |
+| background | human chr21, 46,709,983 bp; whole hg38 (3.1 Gb) from [this section](#the-background-was-one-chromosome-and-that-mattered) on |
 | platforms | equiphi29 at 42 C, phi29 at 30 C |
 | set size | 8 primers unless stated |
 
@@ -269,16 +271,87 @@ where the additive lever exists.
 The best design measured: **equiphi29 42 C, k=12, 8 primers, 5% DMSO + 1 M
 betaine** -- effective coverage 0.352, selectivity 3.54.
 
+## The background was one chromosome, and that mattered
+
+Every figure above is measured against human chr21: 46.7 Mb of a 3.1 Gb host,
+or 1.5% of it. The whole genome has since been counted (hg38 no-ALT analysis
+set, 3,099,922,541 bp, 8,368,418 distinct canonical 12-mers). Three things
+follow.
+
+**Zero background is unattainable at k=12.** Of the 8,390,656 canonical 12-mers
+that exist, 8,368,418 occur in hg38 -- 99.7%. Only 1,882 of Prevotella's
+2,184,319 are absent from the host, and among candidates abundant enough to
+carry coverage (foreground count >= 10) exactly **one** has no host site at all.
+The design problem here is minimising host load, not eliminating it, and a
+parameter set that asks for elimination will not fail loudly.
+
+**`total_bg_sites: 0` was two artefacts at once.** The sets above report no
+exact background site. Against hg38 the 32-primer set has **672**, with every
+one of its 32 primers present, a median of 18 sites and a maximum of 63.
+Counting against 1.5% of the host is one cause. The other was a defect:
+position scanning silently returned nothing for any sequence longer than
+`2**31` bases, so until 28cc03b supplying the whole genome would still have
+reported zero. Both produce the same reading, and a zero background is
+indistinguishable, downstream, from a perfectly specific set.
+
+**The count ratio does not survive the substitution; the density does.** One
+primer set, occupancy-weighted, scored against each background:
+
+| | vs chr21, 46.7 Mb | vs hg38, 3.1 Gb | change |
+|---|---|---|---|
+| effective background sites | 482 | 35,087 | 72.7x |
+| `selectivity_ratio` (counts) | 2.74 | 0.04 | **72.7x** |
+| `selectivity_density` (per base) | 40x | 37x | **1.10x** |
+
+Nothing about the primers changed between those columns. `selectivity_density`
+was added in be20bc3 for this reason, and the result is a reprieve for the
+chr21 numbers above: read as densities they were within 10% of the whole-genome
+answer. Read as count ratios they were not, and the error is a factor of 73.
+
+A second correction lands on this document's central claim. `mean_tm` was the
+Wallace rule until be20bc3, which put the 12-mer sets at 34.9 C -- below their
+own 42 C reaction. Their salt-corrected nearest-neighbour Tm is **45.9 C** at
+mean occupancy 0.79. The claim that stringency is affordable when the primers
+melt above the reaction temperature was right; the number offered in support of
+it was not.
+
+### What is achievable against the real host
+
+With candidates restricted to those abundant enough to carry coverage
+(foreground count >= 5), the host ceiling becomes the binding constraint. Two
+27-primer designs, differing only in that ceiling:
+
+| host sites allowed | effective coverage | `selectivity_density` | measured host sites | max gap |
+|---|---|---|---|---|
+| <= 20 | 0.352 | 31.1x | 356 | 144 kb |
+| <= 50 | **0.654** | 24.4x | 860 | **62 kb** |
+
+Tightening from 50 to 20 halves the host load, and halves the coverage while
+tripling the largest gap. Since max_gap is the one statistic with a measured
+correlation to enrichment in
+[published_primer_sets.md](published_primer_sets.md#specificity-validation-against-prevotella-a-negative-result-and-why)
+(rho -0.83), the looser ceiling is the better design of the two despite the
+worse specificity figure. Neither has been run in a reaction.
+
+Pushing the ceiling to zero reproduces the coverage ceiling documented above by
+a new route: a gate admitting under 1.26 host sites leaves 1,627 candidates
+whose foreground count **maxes out at 5**, which is the single-site pool that
+caps coverage before selection begins.
+
 ## What is not established
 
 - No wet-lab validation, as above. This is a model that is now internally
-  consistent, not a predicted yield.
+  consistent, not a predicted yield. That applies to the whole-genome
+  redesigns too: they are scored, not run.
 - The amplification figures that set the additive ceiling come from the
   mechanistic model's enzyme pathway, whose magnitudes are marked EMPIRICAL in
   [SCIENCE_CITATIONS.md](../SCIENCE_CITATIONS.md). Treat the coverage and
   selectivity columns as far firmer than any claim about reaction yield.
-- One target/background pair. The all-zero `ratio` tie is guaranteed wherever
-  background counts vanish, but how much the abundance ordering helps will
-  depend on the genome.
+- One target. The background is now measured both ways -- chr21 and whole hg38
+  -- but Prevotella is still the only target, so how much the abundance
+  ordering helps elsewhere remains untested. The all-zero `ratio` tie is
+  guaranteed wherever background counts vanish, which at k=12 means a
+  background small enough for exact matches to be absent: chr21 qualifies and
+  the whole human genome does not.
 - Mismatch classes are capped at 1 by default. Two-mismatch load is 405 lookups
   for a 10-mer rather than 30, and has not been swept.
