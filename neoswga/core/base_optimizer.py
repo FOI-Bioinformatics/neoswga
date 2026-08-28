@@ -83,6 +83,41 @@ def _selectivity_from_loads(fg_load: float, bg_load: float) -> float:
     return fg_load / bg_load
 
 
+def _selectivity_density_from_loads(
+    fg_load: float, fg_length: float, bg_load: float, bg_length: float
+) -> float:
+    """Binding load per base of target against per base of background.
+
+    `_selectivity_from_loads` divides two counts and carries no genome length,
+    so its value moves with how much background sequence the caller supplied.
+    Substituting a whole human genome (3.1 Gb) for the single chromosome often
+    used as a stand-in (chr21, 46.7 Mb) multiplies the background load by
+    roughly the length ratio and divides the reported selectivity by it, with
+    nothing about the primers changed.
+
+    Enrichment does not work that way. Priming is proportional to sites per
+    genome copy, and a host contributes its sites spread over its own length,
+    so the quantity that survives the substitution -- and the one comparable
+    between two designs scored against different backgrounds -- is the ratio of
+    densities.
+
+    Both are reported. The count ratio remains what the objective is scored on:
+    within a single run the background is fixed, so the two rank sets
+    identically and selection is unaffected.
+    """
+    if fg_length <= 0 or bg_length <= 0:
+        # No length is an absent measurement, not a clean background.
+        return 0.0
+
+    fg_density = fg_load / fg_length
+    bg_density = bg_load / bg_length
+
+    if bg_density <= 0:
+        # Same convention as the count ratio: unbounded, not merely large.
+        return MAX_SELECTIVITY if fg_density > 0 else 0.0
+    return fg_density / bg_density
+
+
 def _union_coverage(positions, total_length: int, reach: int, circular: bool) -> float:
     """Fraction of a sequence within `reach` of any binding site.
 
@@ -160,6 +195,18 @@ class PrimerSetMetrics:
     # failure this audit has met most often.
     selectivity_mode: str = "exact"
 
+    # Binding load per base of target against per base of background, beside
+    # the count ratio in `selectivity_ratio`. The count ratio carries no genome
+    # length, so it moves with how much background sequence was supplied: a
+    # whole human genome in place of the single chromosome commonly used as a
+    # stand-in divides it by roughly 66 with nothing about the primers changed.
+    # Enrichment follows sites per genome copy, so the density ratio is the
+    # comparable quantity. The lengths it was taken over are reported with it,
+    # because a density cannot be read without them.
+    selectivity_density: float = 0.0
+    fg_total_length: int = 0
+    bg_total_length: int = 0
+
     # Coverage weighted by how much of the time each site is actually bound
     # under the configured conditions, beside the raw `fg_coverage` that counts
     # every exact match as fully occupied.
@@ -230,6 +277,9 @@ class PrimerSetMetrics:
             "effective_fg_sites": self.effective_fg_sites,
             "effective_bg_sites": self.effective_bg_sites,
             "selectivity_mode": self.selectivity_mode,
+            "selectivity_density": self.selectivity_density,
+            "fg_total_length": self.fg_total_length,
+            "bg_total_length": self.bg_total_length,
             "mean_tm": self.mean_tm,
             "tm_range": list(self.tm_range),
             "dimer_risk_score": self.dimer_risk_score,
@@ -1054,6 +1104,11 @@ class BaseOptimizer(ABC):
         if selectivity_mode == "exact":
             effective_fg, effective_bg = float(total_fg), float(total_bg)
         selectivity = _selectivity_from_loads(effective_fg, effective_bg)
+        fg_total_length = int(sum(self.fg_seq_lengths or []))
+        bg_total_length = int(sum(self.bg_seq_lengths or []))
+        selectivity_density = _selectivity_density_from_loads(
+            effective_fg, fg_total_length, effective_bg, bg_total_length
+        )
 
         # Tm calculation (simplified)
         tms = [self._estimate_tm(p) for p in primers]
@@ -1092,6 +1147,9 @@ class BaseOptimizer(ABC):
             effective_fg_sites=effective_fg,
             effective_bg_sites=effective_bg,
             selectivity_mode=selectivity_mode,
+            selectivity_density=selectivity_density,
+            fg_total_length=fg_total_length,
+            bg_total_length=bg_total_length,
             mean_tm=mean_tm,
             tm_range=tm_range,
             dimer_risk_score=dimer_risk,
@@ -1256,10 +1314,31 @@ class BaseOptimizer(ABC):
         return gini_sum / (n * total)
 
     def _estimate_tm(self, primer: str) -> float:
-        """Estimate melting temperature using Wallace rule."""
-        gc = primer.upper().count("G") + primer.upper().count("C")
-        at = primer.upper().count("A") + primer.upper().count("T")
-        return 4 * gc + 2 * at
+        """Melting temperature under the configured reaction conditions.
+
+        This was the Wallace rule, `4*GC + 2*AT` -- a 1979 approximation for
+        14-20mers at 1 M salt, with no term for magnesium, additives or the
+        nearest-neighbour stacking that sets the real value. Reported for
+        equiphi29 12-mer designs it reads about 11 C low: one validated
+        Prevotella set whose salt-corrected Tm is 45.9 C was published as
+        34.9 C, below its own 42 C reaction temperature.
+
+        That is the single check an equiphi29 design exists to pass -- do the
+        primers melt above the reaction -- so the wrong number did not merely
+        mislead, it inverted the answer. It also disagreed with the Tm the
+        occupancy model was using on the same primers at the same moment
+        (`conditions.calculate_effective_tm`, via `occupancy.site_occupancy`),
+        which is the real one. One quantity, two definitions, is the failure
+        this codebase has produced most often; this removes an instance of it.
+
+        Without conditions there is no buffer to correct for, but that is not a
+        reason to fall back to something worse than nearest-neighbour.
+        """
+        from neoswga.core.thermodynamics import calculate_tm_basic
+
+        if self.conditions is not None:
+            return self.conditions.calculate_effective_tm(primer)
+        return calculate_tm_basic(primer)
 
     def _estimate_dimer_risk(self, primers: List[str]) -> float:
         """
