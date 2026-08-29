@@ -490,3 +490,36 @@ class TestPositionsPastTheInt32Ceiling:
 
         assert len(got) == len(far)
         assert sorted(got.tolist()) == sorted(far)
+
+
+class TestPositionsSurviveTheRoundTripToDisk:
+    """A coordinate past 2**31 must survive write -> read, not just read.
+
+    `PositionCache` was fixed to load int64, but the on-disk format is the
+    other half: `string_search.write_to_h5py` passes positions to
+    `create_dataset` without an explicit dtype and relies on h5py inferring
+    int64 from Python ints. That inference is load-bearing and nothing pinned
+    it, so a well-meant `dtype=np.int32` there would silently reintroduce the
+    same undercounted background -- this time baked into the index file, where
+    re-reading it correctly would not help.
+    """
+
+    def test_a_far_coordinate_round_trips_through_the_index(self, tmp_path):
+        import h5py
+
+        from neoswga.core import string_search
+        from neoswga.core.position_cache import PositionCache
+
+        primer = "CACCGACGACGA"
+        far = [1000, 2_500_000_000, 2_774_977_701]  # real hg38 magnitudes
+        prefix = str(tmp_path / "g")
+
+        # write_to_h5py opens "r+", so the file has to exist first.
+        with h5py.File(prefix + "_12mer_positions.h5", "w"):
+            pass
+        string_search.write_to_h5py({primer: far}, prefix)
+
+        cache = PositionCache(fname_prefixes=[prefix], primers=[primer])
+        got = cache.get_positions(prefix, primer, strand="forward")
+
+        assert sorted(got.tolist()) == sorted(far)
