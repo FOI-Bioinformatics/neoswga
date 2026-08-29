@@ -504,3 +504,82 @@ class TestEdgeCases:
 
         report = ResultsInterpreter(str(tmp_path)).analyze()
         assert report.primer_count == 5  # step4 used, not step3
+
+
+class TestPercentMetricRendering:
+    """A coverage fraction must print as a percentage.
+
+    `value` is the fraction the thresholds are compared against (0.95 for
+    "excellent"), but it was printed with `:.2f` and a "%" glued on, so a
+    fully covered genome read "1.00%" directly above a line saying
+    ">95% excellent". The rating was right and the number was wrong by 100x.
+    """
+
+    def _report(self, coverage: float, rating: QualityRating) -> ResultsReport:
+        return ResultsReport(
+            primer_count=12,
+            assessments=[
+                MetricAssessment(
+                    name="Genome Coverage",
+                    value=coverage,
+                    rating=rating,
+                    unit="%",
+                    context="Percentage of target genome covered by primer binding",
+                    threshold_info=">95% excellent",
+                )
+            ],
+            overall_rating=rating,
+            recommendation="",
+            next_steps=[],
+            warnings=[],
+        )
+
+    def _render(self, tmp_path, coverage, rating) -> str:
+        import io
+        from contextlib import redirect_stdout
+
+        interpreter = ResultsInterpreter(str(tmp_path))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            interpreter.print_report(self._report(coverage, rating))
+        return buf.getvalue()
+
+    def test_full_coverage_prints_as_one_hundred_percent(self, tmp_path):
+        out = self._render(tmp_path, 1.0, QualityRating.EXCELLENT)
+
+        assert "100.0%" in out
+        assert "1.00%" not in out
+
+    def test_half_coverage_prints_as_fifty_percent(self, tmp_path):
+        out = self._render(tmp_path, 0.5048, QualityRating.POOR)
+
+        assert "50.5%" in out
+        assert "0.50%" not in out
+
+    def test_non_percent_metrics_are_unchanged(self, tmp_path):
+        """Enrichment is a raw multiplier, not a fraction; leave it alone."""
+        import io
+        from contextlib import redirect_stdout
+
+        report = ResultsReport(
+            primer_count=12,
+            assessments=[
+                MetricAssessment(
+                    name="Enrichment Ratio",
+                    value=73.55,
+                    rating=QualityRating.GOOD,
+                    unit="x",
+                    context="",
+                    threshold_info="",
+                )
+            ],
+            overall_rating=QualityRating.GOOD,
+            recommendation="",
+            next_steps=[],
+            warnings=[],
+        )
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            ResultsInterpreter(str(tmp_path)).print_report(report)
+
+        assert "73.55x" in buf.getvalue()

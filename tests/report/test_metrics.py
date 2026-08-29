@@ -561,3 +561,233 @@ class TestOptimizerSummaryIngestion:
         assert cm.gap_gini == 0.0
         assert cm.gap_entropy == 0.0
         assert cm.from_optimizer is False
+
+
+# ---------------------------------------------------------------------------
+# The report is fed step4_improved_df.csv, whose real schema is the one the
+# optimizer writes. It has no `tm`, `fg_count` or `bg_count` column, so the
+# parser's `_safe_*(..., 0)` defaults turned every absent column into a
+# confident zero: every primer showed Tm 0.0 and specificity 0x, and enrichment
+# came out 0x / "Critical" for a set with no background sites at all -- the
+# best possible specificity result, graded worst-possible.
+# ---------------------------------------------------------------------------
+
+REAL_STEP4_HEADER = (
+    "primer,set_index,score,normalized_score,coverage,bg_coverage,selectivity,"
+    "mean_gap,max_gap,coverage_uniformity,gap_gini,gap_entropy,dimer_risk_score,"
+    "strand_alternation,strand_coverage_ratio,mean_tm,optimizer\n"
+)
+REAL_STEP4_ROWS = (
+    "CGGCGACGATGC,0,1048576.0,0.617,0.5048,0.0,73.55,10331.4,61444,"
+    "0.5419,0.5419,4.377,0.6515,0.4741,0.9768,53.68,hybrid\n"
+    "CGACGACATCGA,0,1048576.0,0.617,0.5048,0.0,73.55,10331.4,61444,"
+    "0.5419,0.5419,4.377,0.6515,0.4741,0.9768,53.68,hybrid\n"
+)
+
+
+@pytest.fixture
+def real_step4_results(tmp_path):
+    """A results directory in the schema the optimizer actually writes."""
+    (tmp_path / "step4_improved_df.csv").write_text(REAL_STEP4_HEADER + REAL_STEP4_ROWS)
+    (tmp_path / "params.json").write_text(
+        json.dumps(
+            {
+                "polymerase": "equiphi29",
+                "reaction_temp": 42.0,
+                "betaine_m": 2.0,
+                "fg_genomes": ["mtb.fna"],
+                "bg_genomes": ["human_chr21.fna"],
+                "fg_seq_lengths": [4411532],
+                "bg_seq_lengths": [46709983],
+            }
+        )
+    )
+    (tmp_path / "step4_improved_df_summary.json").write_text(
+        json.dumps(
+            {
+                "primers": ["CGGCGACGATGC", "CGACGACATCGA"],
+                "score": 1048576.0,
+                "metrics": {
+                    "fg_coverage": 0.5048,
+                    "bg_coverage": 0.0,
+                    "total_fg_sites": 427,
+                    "total_bg_sites": 0,
+                    "selectivity_ratio": 73.55,
+                    "selectivity_density": 778.78,
+                    "mean_tm": 53.68,
+                },
+            }
+        )
+    )
+    return tmp_path
+
+
+class TestRealStep4SchemaIsNotSilentlyZero:
+    def test_per_primer_tm_is_not_zero(self, real_step4_results):
+        """step4 has no `tm` column, so Tm is derived from the sequence."""
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        assert metrics.primers, "no primers parsed"
+        assert all(p.tm > 0 for p in metrics.primers)
+
+    def test_per_primer_tm_matches_the_reaction_conditions(self, real_step4_results):
+        from neoswga.core.reaction_conditions import ReactionConditions
+
+        conditions = ReactionConditions(temp=42.0, polymerase="equiphi29", betaine_m=2.0)
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        for primer in metrics.primers:
+            expected = conditions.calculate_effective_tm(primer.sequence)
+            assert primer.tm == pytest.approx(expected, abs=0.05)
+
+    def test_zero_background_is_not_reported_as_zero_enrichment(self, real_step4_results):
+        """A set with no background sites is the best case, not the worst."""
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        assert metrics.specificity.enrichment_ratio > 0
+
+    def test_enrichment_uses_the_measured_density_ratio(self, real_step4_results):
+        """`selectivity_density` is the same quantity the report grades:
+        target sites per Mb over background sites per Mb."""
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        assert metrics.specificity.enrichment_ratio == pytest.approx(778.78, rel=1e-6)
+
+
+@pytest.fixture
+def real_step4_with_step2(real_step4_results):
+    """The same run, with the per-primer measurements step2 recorded.
+
+    step4 carries only the set-level result, but the filter step wrote the
+    per-primer foreground/background counts for these same primers.
+    """
+    (real_step4_results / "step2_df.csv").write_text(
+        "primer,fg_count,bg_count,gini,gini_bool,ratio,occupancy_ratio\n"
+        "CGGCGACGATGC,90,0,0.41,True,90.0,0.21\n"
+        "CGACGACATCGA,32,2,0.48,True,16.0,0.19\n"
+    )
+    return real_step4_results
+
+
+class TestPerPrimerCountsComeFromTheFilterStep:
+    def test_site_counts_are_backfilled_from_step2(self, real_step4_with_step2):
+        metrics = collect_pipeline_metrics(str(real_step4_with_step2))
+
+        by_seq = {p.sequence: p for p in metrics.primers}
+        assert by_seq["CGGCGACGATGC"].fg_sites == 90
+        assert by_seq["CGACGACATCGA"].fg_sites == 32
+        assert by_seq["CGACGACATCGA"].bg_sites == 2
+
+    def test_gini_is_backfilled_from_step2(self, real_step4_with_step2):
+        metrics = collect_pipeline_metrics(str(real_step4_with_step2))
+
+        by_seq = {p.sequence: p for p in metrics.primers}
+        assert by_seq["CGGCGACGATGC"].gini == pytest.approx(0.41)
+
+    def test_per_primer_specificity_is_not_zero(self, real_step4_with_step2):
+        """It read 0x for every primer, including ones with no background."""
+        metrics = collect_pipeline_metrics(str(real_step4_with_step2))
+
+        assert all(p.specificity > 0 for p in metrics.primers)
+
+    def test_specificity_is_the_density_ratio(self, real_step4_with_step2):
+        """Same quantity as enrichment: sites per bp of target over background."""
+        metrics = collect_pipeline_metrics(str(real_step4_with_step2))
+
+        by_seq = {p.sequence: p for p in metrics.primers}
+        expected = (32 / 4411532) / (2 / 46709983)
+        assert by_seq["CGACGACATCGA"].specificity == pytest.approx(expected, rel=1e-6)
+
+    def test_absent_step2_leaves_counts_alone(self, real_step4_results):
+        """Nothing to backfill from is not an error."""
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        assert all(p.fg_sites == 0 for p in metrics.primers)
+
+
+class TestReportUsesTheRecordedReactionConditions:
+    """The report must correct Tm for the same reaction the optimizer used."""
+
+    @pytest.fixture
+    def results_without_betaine(self, real_step4_results):
+        """params.json as the user wrote it: no betaine anywhere."""
+        params = json.loads((real_step4_results / "params.json").read_text())
+        params.pop("betaine_m", None)
+        (real_step4_results / "params.json").write_text(json.dumps(params))
+        return real_step4_results
+
+    def _manifest(self, path):
+        (path / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "steps": [
+                        {
+                            "step": "optimize",
+                            "effective_conditions": {
+                                "polymerase": "equiphi29",
+                                "reaction_temp": 42.0,
+                                "mg_conc": 10.0,
+                                "betaine_m": 2.0,
+                            },
+                        }
+                    ]
+                }
+            )
+        )
+
+    def test_recorded_betaine_lowers_the_reported_tm(self, results_without_betaine):
+        """params.json here carries no betaine; the run used 2 M."""
+        without = collect_pipeline_metrics(str(results_without_betaine))
+        self._manifest(results_without_betaine)
+        with_manifest = collect_pipeline_metrics(str(results_without_betaine))
+
+        assert with_manifest.primers[0].tm < without.primers[0].tm
+
+    def test_reported_tm_matches_the_recorded_reaction(self, results_without_betaine):
+        from neoswga.core.reaction_conditions import ReactionConditions
+
+        self._manifest(results_without_betaine)
+        metrics = collect_pipeline_metrics(str(results_without_betaine))
+
+        conditions = ReactionConditions(
+            temp=42.0, polymerase="equiphi29", mg_conc=10.0, betaine_m=2.0
+        )
+        for primer in metrics.primers:
+            expected = conditions.calculate_effective_tm(primer.sequence)
+            assert primer.tm == pytest.approx(expected, abs=0.05)
+
+
+class TestGenomeInfoReadsTheRealParamsSchema:
+    """`fg_genomes` and `fg_seq_lengths` are what params.json carries.
+
+    `_extract_genome_info` looked for `fg_genome` and `fg_size`, neither of
+    which the pipeline writes, so the report had no genome at all: no name, no
+    size, and `covered_bases` stayed 0 because it is guarded on total_bases.
+    """
+
+    def test_target_genome_is_found(self, real_step4_results):
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        assert metrics.target_genome is not None
+        assert metrics.target_genome.size == 4411532
+        assert metrics.target_genome.name == "mtb"
+
+    def test_background_genome_is_found(self, real_step4_results):
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        assert metrics.background_genome is not None
+        assert metrics.background_genome.size == 46709983
+
+    def test_covered_bases_follows_from_a_known_genome_size(self, real_step4_results):
+        metrics = collect_pipeline_metrics(str(real_step4_results))
+
+        assert metrics.coverage.total_bases == 4411532
+        assert metrics.coverage.covered_bases == pytest.approx(0.5048 * 4411532, rel=1e-3)
+
+    def test_missing_genome_params_stay_none(self, tmp_path):
+        (tmp_path / "step4_improved_df.csv").write_text(REAL_STEP4_HEADER + REAL_STEP4_ROWS)
+        (tmp_path / "params.json").write_text(json.dumps({"polymerase": "phi29"}))
+
+        metrics = collect_pipeline_metrics(str(tmp_path))
+
+        assert metrics.target_genome is None

@@ -77,6 +77,42 @@ def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:
 # AmplificationNetwork.predict_amplification_fold.
 _LINEAR_COMPONENT_LIMIT = 10
 _LINEAR_FOLD_PER_SITE = 5
+# Ceiling on a reported fold-amplification. ~1.05e6 is the top of the range
+# multiple-displacement amplification is reported to reach.
+_MAX_PREDICTED_FOLD = 2**20
+
+
+def amplification_fold(largest_component: int) -> float:
+    """Predicted fold-amplification for a network's largest component.
+
+    One definition, in one place. This shape was fixed once -- anchoring the
+    exponential branch to the linear one so the two meet -- but the fix landed
+    only in `predict_amplification_fold`. Two copies of the pre-fix formula
+    survived: one inlined in `get_statistics` to avoid recomputing components,
+    and one in `hybrid_optimizer`'s Stage-2 removal loop. Those copies are what
+    hybrid and background-aware actually reported and ranked on, so the fix
+    never reached the callers it was made for, and a component of 10 still
+    predicted 2-fold where a component of 9 predicted 45.
+
+    Taking `largest_component` as an argument rather than recomputing it is
+    what lets `get_statistics` share this without giving up the single
+    component pass it inlined the formula for.
+
+    The cap bounds the prediction, not its exponent. Anchoring multiplied the
+    whole curve by the linear branch's endpoint, which left the stated 2**20
+    ceiling reading 45 * 2**20 -- about 4.7e7 fold, an order of magnitude above
+    any multiple-displacement yield ever reported. Nothing ranks on the capped
+    value: `hybrid_optimizer` ranks on the component size and
+    `background_aware_optimizer` on background sites per unit coverage lost, so
+    the cap costs no discrimination. That separation is the point -- capping a
+    reported yield is reasonable, ranking on a capped value is not.
+    """
+    if largest_component < _LINEAR_COMPONENT_LIMIT:
+        return float(largest_component * _LINEAR_FOLD_PER_SITE)
+
+    anchor = (_LINEAR_COMPONENT_LIMIT - 1) * _LINEAR_FOLD_PER_SITE
+    exponent = min((largest_component - _LINEAR_COMPONENT_LIMIT + 1) / 10.0, 20.0)
+    return min(anchor * 2**exponent, float(_MAX_PREDICTED_FOLD))
 
 
 @dataclass(slots=True)
@@ -349,34 +385,11 @@ class AmplificationNetwork:
         """
         Predict amplification fold based on network structure.
 
-        Exponential growth: 2^(component_size / 10)
-        Cap at 2^20 (realistic maximum)
+        Linear in the largest component below the branching crossover,
+        exponential above it and anchored so the two meet, capped at
+        `_MAX_PREDICTED_FOLD`. See `amplification_fold`.
         """
-        largest = self.largest_component_size()
-
-        if largest < _LINEAR_COMPONENT_LIMIT:
-            # Below the crossover a component is too small to branch, so growth
-            # is linear in the number of connected sites.
-            return largest * _LINEAR_FOLD_PER_SITE
-
-        # Exponential above the crossover, ANCHORED to the linear branch so the
-        # two meet.
-        #
-        # These were previously independent: `largest * 5` below 10 and
-        # `2 ** (largest / 10)` at or above it. They do not meet -- 9 sites
-        # predicted 45-fold and 10 sites predicted 2-fold, a 22x drop -- and the
-        # exponential did not regain 45 until a component of 55. So every
-        # network with a largest component between 10 and 54 was predicted to
-        # amplify LESS than one with 9, which inverts the quantity over its most
-        # common range.
-        #
-        # That matters beyond reporting: background_aware_optimizer ranks
-        # candidate sets on this value, so a better-connected network scored
-        # worse. Anchoring keeps both intents -- linear for small components,
-        # exponential for large -- while making the function monotone.
-        anchor = (_LINEAR_COMPONENT_LIMIT - 1) * _LINEAR_FOLD_PER_SITE
-        exponent = min((largest - _LINEAR_COMPONENT_LIMIT + 1) / 10.0, 20.0)
-        return anchor * 2**exponent
+        return amplification_fold(self.largest_component_size())
 
     def predict_amplification_fold_weighted(
         self, primer_tms: Dict[str, float], reaction_temp: float
@@ -532,12 +545,9 @@ class AmplificationNetwork:
         avg_size = np.mean(comp_sizes)
         gini = self._calculate_gini_coefficient()
 
-        # Inline amplification prediction to avoid redundant component calls
-        if largest < 10:
-            base_pred = largest * 5
-        else:
-            exponent = min(largest / 10.0, 20.0)
-            base_pred = 2**exponent
+        # Shares `predict_amplification_fold`'s definition while keeping the
+        # single component pass this used to inline the formula for.
+        base_pred = amplification_fold(largest)
 
         if base_pred <= 1.0:
             pred, lower, upper = 1.0, 1.0, 1.0

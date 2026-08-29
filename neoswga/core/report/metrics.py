@@ -289,6 +289,11 @@ class UniformityMetrics:
     # that alternate strands; strand_coverage_ratio: min/max fwd-vs-rev balance.
     strand_alternation_score: Optional[float] = None
     strand_coverage_ratio: Optional[float] = None
+    # Set-level binding-evenness Gini measured by the optimizer (None = not
+    # available). This is the quantity `quality_thresholds.GINI` is calibrated
+    # on -- published sets, not individual primers -- so grading prefers it
+    # over `max_gini`, which is the worst single primer and always worse.
+    measured_gini: Optional[float] = None
     from_optimizer: bool = False
 
 
@@ -442,22 +447,56 @@ def _load_validation_report(results_path: Path) -> tuple:
     return normalised, ok
 
 
+def _genome_size(params: Dict, prefix: str) -> int:
+    """Total length of the `fg`/`bg` genomes, in bp, or 0 if params omit it.
+
+    `fg_size` is not a key the pipeline writes; `fg_seq_lengths` is. Reading
+    only the former left coverage with a genome of length 0 and the specificity
+    density dividing by a placeholder 1.
+    """
+    legacy = {"fg": "foreground_size", "bg": "background_size"}.get(prefix, "")
+    size = _safe_int(params.get(f"{prefix}_size") or params.get(legacy) or 0)
+    if size:
+        return size
+    lengths = params.get(f"{prefix}_seq_lengths") or []
+    if isinstance(lengths, (list, tuple)):
+        return sum(_safe_int(length) for length in lengths)
+    return 0
+
+
 def _extract_genome_info(params: Dict, prefix: str) -> Optional[GenomeInfo]:
-    """Extract genome info from params or file metadata."""
-    genome_file = params.get(f"{prefix}_genome", params.get(f"{prefix}", ""))
+    """Extract genome info from params or file metadata.
+
+    The plural keys are the ones the pipeline actually writes: params.json
+    carries `fg_genomes` and `fg_seq_lengths`, never `fg_genome` or `fg_size`.
+    Reading only the singular forms left the report with no genome -- no name,
+    no size, and `covered_bases` pinned at 0 because it is guarded on
+    `total_bases`.
+    """
+    genome_file = params.get(f"{prefix}_genome") or params.get(prefix) or ""
+    if not genome_file:
+        genomes = params.get(f"{prefix}_genomes") or params.get(f"{prefix}_prefixes") or []
+        if isinstance(genomes, (list, tuple)) and genomes:
+            genome_file = genomes[0]
+        elif isinstance(genomes, str):
+            genome_file = genomes
     if not genome_file:
         return None
 
-    # Try to get size and GC from params
-    size = params.get(f"{prefix}_size", 0)
-    gc = params.get(f"{prefix}_gc", 0)
+    size = _genome_size(params, prefix)
 
-    name = Path(genome_file).stem if genome_file else prefix
+    gc = _safe_float(params.get(f"{prefix}_gc", 0))
+
+    n_chromosomes = 1
+    genomes = params.get(f"{prefix}_genomes")
+    if isinstance(genomes, (list, tuple)) and genomes:
+        n_chromosomes = len(genomes)
 
     return GenomeInfo(
-        name=name,
+        name=Path(str(genome_file)).stem,
         size=size,
         gc_content=gc,
+        n_chromosomes=n_chromosomes,
     )
 
 
@@ -474,7 +513,7 @@ def _calculate_coverage_metrics(
     # and genome size using a simplified model.
 
     # Get genome size
-    fg_size = params.get("fg_size", params.get("foreground_size", 0))
+    fg_size = _genome_size(params, "fg")
     if fg_size > 0:
         coverage.total_bases = fg_size
 
@@ -505,8 +544,8 @@ def _calculate_specificity_metrics(
     bg_sites = sum(p.bg_sites for p in primers)
 
     # Calculate densities
-    fg_size = params.get("fg_size", params.get("foreground_size", 1))
-    bg_size = params.get("bg_size", params.get("background_size", 1))
+    fg_size = _genome_size(params, "fg")
+    bg_size = _genome_size(params, "bg")
 
     target_density = (target_sites / fg_size) * 1_000_000 if fg_size > 0 else 0
     bg_density = (bg_sites / bg_size) * 1_000_000 if bg_size > 0 else 0
@@ -618,6 +657,154 @@ def _load_coverage_gaps(results_path: Path) -> Optional[Dict]:
     return None
 
 
+_CONDITION_ADDITIVES = (
+    "dmso_percent",
+    "betaine_m",
+    "trehalose_m",
+    "formamide_percent",
+    "ethanol_percent",
+    "urea_m",
+    "tmac_m",
+)
+
+
+def _recorded_conditions(results_path: Optional[Path]) -> Optional[Dict[str, Any]]:
+    """Reaction conditions the run manifest recorded, if there is one."""
+    if results_path is None:
+        return None
+    try:
+        from neoswga.core.run_manifest import read_effective_conditions
+    except ImportError:  # pragma: no cover - report can render without core
+        return None
+    return read_effective_conditions(str(results_path))
+
+
+def _conditions_from_params(params: Dict[str, Any], results_path: Optional[Path] = None):
+    """The reaction the design was run under, or None if params cannot name one.
+
+    Used to recompute quantities the results CSV does not carry, so the report
+    states them in the same terms the optimizer did.
+
+    The run manifest wins over params.json where it has an opinion: the
+    GC-adaptive strategy resolves betaine and DMSO from the target's GC at run
+    time and never writes them back to the file, so params.json alone names a
+    reaction the design was not optimized under.
+    """
+    recorded = _recorded_conditions(results_path)
+    if recorded:
+        params = {**(params or {}), **recorded}
+
+    if not params:
+        return None
+    try:
+        from neoswga.core.parameter import default_reaction_temp
+        from neoswga.core.reaction_conditions import ReactionConditions
+    except ImportError:  # pragma: no cover - report can render without core
+        return None
+
+    polymerase = str(params.get("polymerase", "phi29"))
+    additives = {name: params[name] for name in _CONDITION_ADDITIVES if params.get(name)}
+    try:
+        return ReactionConditions(
+            temp=_safe_float(
+                params.get("reaction_temp"), default=default_reaction_temp(polymerase)
+            ),
+            polymerase=polymerase,
+            mg_conc=params.get("mg_conc"),
+            **additives,
+        )
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Could not reconstruct reaction conditions from params: {e}")
+        return None
+
+
+def _backfill_primer_tm(
+    primers: List["PrimerMetrics"],
+    params: Dict[str, Any],
+    results_path: Optional[Path] = None,
+) -> None:
+    """Give each primer the Tm its row does not carry.
+
+    `step4_improved_df.csv` holds a set-level `mean_tm` and no per-primer
+    column, so `PrimerMetrics.from_row` fell through to its `0` default and the
+    report printed a Tm of 0.0 C for every primer in the table. The sequence and
+    the reaction conditions are both in hand here, so the value is computable --
+    and computing it from `calculate_effective_tm` keeps it the same quantity
+    the optimizer and the exporter report.
+
+    Only a physically meaningful result is written back. Nearest-neighbour on a
+    sequence far below primer length returns a Tm below freezing, and swapping
+    one meaningless number for another is not an improvement.
+    """
+    missing = [p for p in primers if not p.tm > 0 and p.sequence]
+    if not missing:
+        return
+
+    conditions = _conditions_from_params(params, results_path)
+    if conditions is not None:
+        estimate = conditions.calculate_effective_tm
+    else:
+        try:
+            from neoswga.core.thermodynamics import calculate_tm_basic as estimate
+        except ImportError:  # pragma: no cover - leave the zeros rather than guess
+            return
+
+    for primer in missing:
+        try:
+            tm = float(estimate(primer.sequence))
+        except (ValueError, TypeError, KeyError):
+            continue
+        if tm > 0:
+            primer.tm = tm
+
+
+def _backfill_primer_sites(
+    primers: List["PrimerMetrics"], results_path: Path, params: Dict[str, Any]
+) -> None:
+    """Give each primer the site counts its row does not carry.
+
+    `step4_improved_df.csv` records the set-level result, not per-primer
+    measurements, so `fg_sites`, `bg_sites` and `gini` all fell through to 0
+    and per-primer specificity came out `0 / 1e-10 = 0`. The report then showed
+    "0x" against every primer, including ones with no background sites at all
+    -- the best case rendered as the worst.
+
+    The filter step already measured these, per primer, in `step2_df.csv`. This
+    reads them from there rather than inventing them.
+    """
+    missing = [p for p in primers if p.sequence and not p.fg_sites and not p.bg_sites]
+    if not missing:
+        return
+
+    step2 = results_path / "step2_df.csv"
+    if not step2.exists():
+        return
+    by_primer = {str(row.get("primer", row.get("sequence", ""))): row for row in _load_csv(step2)}
+    if not by_primer:
+        return
+
+    fg_len = sum(params.get("fg_seq_lengths") or []) or 0
+    bg_len = sum(params.get("bg_seq_lengths") or []) or 0
+
+    for primer in missing:
+        row = by_primer.get(primer.sequence)
+        if row is None:
+            continue
+        primer.fg_sites = _safe_int(row.get("fg_count", row.get("fg_sites", 0)))
+        primer.bg_sites = _safe_int(row.get("bg_count", row.get("bg_sites", 0)))
+        if not primer.gini:
+            primer.gini = _safe_float(row.get("gini", row.get("gini_index", 0)))
+
+        if fg_len > 0 and bg_len > 0 and primer.fg_sites:
+            # The same density ratio enrichment is graded on. A primer with no
+            # observed background is floored at one site: that is the detection
+            # limit of this background, and claiming more specificity than the
+            # data can show is how a zero became a certainty elsewhere.
+            fg_density = primer.fg_sites / fg_len
+            bg_density = max(primer.bg_sites, 1) / bg_len
+            primer.specificity = fg_density / bg_density
+
+
 def _extract_reaction_conditions(params: Dict[str, Any]) -> Dict[str, Any]:
     """Pull the reaction conditions / additives actually used from params.
 
@@ -692,6 +879,8 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     # Convert to PrimerMetrics
     metrics.primers = [PrimerMetrics.from_row(row) for row in primer_rows]
     metrics.primer_count = len(metrics.primers)
+    _backfill_primer_tm(metrics.primers, metrics.parameters, results_path)
+    _backfill_primer_sites(metrics.primers, results_path, metrics.parameters)
 
     # Calculate derived metrics
     metrics.coverage = _calculate_coverage_metrics(metrics.primers, metrics.parameters)
@@ -728,6 +917,14 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         if "selectivity_ratio" in opt_metrics:
             metrics.specificity.selectivity_ratio = _safe_float(opt_metrics["selectivity_ratio"])
             metrics.specificity.from_optimizer = True
+        # Enrichment as graded here is a site-DENSITY ratio (target sites per Mb
+        # over background sites per Mb), which is what `selectivity_density`
+        # measures. Deriving it from the CSV needed per-primer fg_count/bg_count
+        # columns that step4 does not have, so it came out 0.0 and a set with no
+        # background sites -- the best possible result -- was graded "Critical"
+        # on 30% of the composite score.
+        if "selectivity_density" in opt_metrics:
+            metrics.specificity.enrichment_ratio = _safe_float(opt_metrics["selectivity_density"])
         if "bg_coverage" in opt_metrics:
             metrics.specificity.bg_coverage = _safe_float(opt_metrics["bg_coverage"])
         if "total_fg_sites" in opt_metrics:
@@ -746,6 +943,11 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
                 metrics.uniformity.strand_coverage_ratio = _safe_float(
                     opt_metrics["strand_coverage_ratio"]
                 )
+            # The set-level evenness the grade is calibrated against.
+            for key in ("gap_gini", "coverage_uniformity"):
+                if key in opt_metrics:
+                    metrics.uniformity.measured_gini = _safe_float(opt_metrics[key])
+                    break
         logger.info("Using real optimizer metrics for coverage/specificity/strand data")
 
     # Top-level optimizer extras: ensemble per-method comparison and Pareto front.
@@ -759,7 +961,9 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     metrics.coverage_gaps = _load_coverage_gaps(results_path)
 
     # Reaction conditions / additives used (from params), for the report.
-    metrics.reaction_conditions = _extract_reaction_conditions(metrics.parameters)
+    metrics.reaction_conditions = _extract_reaction_conditions(
+        {**(metrics.parameters or {}), **(_recorded_conditions(results_path) or {})}
+    )
 
     # Load validator report so the HTML can surface warnings
     # (per_target_coverage_below_threshold, blacklist_primer_in_set,

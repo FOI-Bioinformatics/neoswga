@@ -211,3 +211,63 @@ def test_statistics_on_an_empty_network():
     stats = AmplificationNetwork(max_extension=70_000).get_statistics()
     assert stats["num_sites"] == 0
     assert stats["predicted_amplification"] == 0
+
+
+# ----------------------------------------------------------------------
+# One quantity, one definition
+#
+# The anchored prediction above was fixed once, in
+# `predict_amplification_fold`. Two other copies of the pre-fix formula
+# survived: one inlined in `get_statistics` ("to avoid redundant component
+# calls") and one in `hybrid_optimizer`'s Stage-2 removal loop. Those copies
+# are what hybrid and background-aware actually report and rank on, so the fix
+# never reached the callers it was made for.
+# ----------------------------------------------------------------------
+
+
+def test_statistics_report_the_same_prediction_as_the_method():
+    """`get_statistics` inlined the pre-fix formula; it must not disagree."""
+    for k in (2, 5, 6, 10, 20):
+        net = make_network(k)
+
+        assert net.get_statistics()["predicted_amplification"] == pytest.approx(
+            net.predict_amplification_fold()
+        )
+
+
+def test_statistics_prediction_is_monotone_in_component_size():
+    """The inversion reached users through this field, not the method.
+
+    `hybrid_optimizer` reports `get_statistics()["predicted_amplification"]` as
+    `final_predicted_amplification`, and that value becomes the
+    `OptimizationResult.score` written to step4_improved_df.csv.
+    """
+    predictions = [
+        make_network(k).get_statistics()["predicted_amplification"] for k in range(1, 40)
+    ]
+
+    for smaller, larger in zip(predictions, predictions[1:]):
+        assert larger >= smaller, "a larger network reported less amplification"
+
+
+def test_prediction_stays_within_the_documented_cap():
+    """ "Cap at 2**20 (realistic maximum)" is the stated contract.
+
+    Anchoring the exponential branch multiplied the whole curve by the linear
+    branch's endpoint, so the cap became 45 * 2**20 -- about 4.7e7 fold, an
+    order of magnitude above any multiple-displacement yield ever reported.
+    The cap applies to the prediction, not to its exponent.
+    """
+    from neoswga.core.network_optimizer import amplification_fold
+
+    for largest in (150, 209, 410, 1000, 10_000):
+        assert amplification_fold(largest) <= 2**20
+
+
+def test_prediction_is_monotone_up_to_and_through_the_cap():
+    from neoswga.core.network_optimizer import amplification_fold
+
+    values = [amplification_fold(n) for n in range(1, 400)]
+
+    for smaller, larger in zip(values, values[1:]):
+        assert larger >= smaller

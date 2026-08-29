@@ -21,9 +21,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from neoswga.core.strand_conventions import to_bed_strand
+
+if TYPE_CHECKING:
+    from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
 
@@ -98,16 +101,40 @@ def calculate_gc(seq: str) -> float:
     return gc_count / len(seq) if len(seq) > 0 else 0.0
 
 
-def calculate_simple_tm(seq: str) -> float:
-    """Calculate Tm using Wallace rule (for short primers)."""
-    seq = seq.upper()
-    at_count = seq.count("A") + seq.count("T")
-    gc_count = seq.count("G") + seq.count("C")
-    return 2 * at_count + 4 * gc_count
+def primer_tm(seq: str, conditions: Optional["ReactionConditions"] = None) -> float:
+    """Melting temperature under the reaction conditions.
+
+    This was the Wallace rule, `4*GC + 2*AT`, which carries no term for
+    temperature, salt, magnesium, additives or nearest-neighbour stacking. For
+    equiphi29 12-mers it reads about 12 C low, and the numbers it produced went
+    into the FASTA and vendor CSV that get ordered from: one set whose
+    corrected Tm is 48.8-56.2 C was exported as 38-42 C, at or below its own
+    42 C reaction temperature.
+
+    Whether the primers melt above the reaction is the single check an
+    equiphi29 design exists to pass, so the wrong number did not merely
+    mislead, it inverted the answer -- while the optimizer, on the same
+    primers at the same moment, was reporting the corrected value from
+    `conditions.calculate_effective_tm`. This makes the exported Tm that same
+    quantity.
+
+    Without conditions there is no buffer to correct for, but that is not a
+    reason to fall back to something worse than nearest-neighbour.
+    """
+    if conditions is not None:
+        return conditions.calculate_effective_tm(seq)
+
+    from neoswga.core.thermodynamics import calculate_tm_basic
+
+    return calculate_tm_basic(seq)
 
 
 def export_to_fasta(
-    primers: List[str], output_path: str, prefix: str = "SWGA", include_metadata: bool = False
+    primers: List[str],
+    output_path: str,
+    prefix: str = "SWGA",
+    include_metadata: bool = False,
+    conditions: Optional["ReactionConditions"] = None,
 ) -> None:
     """
     Export primers to FASTA format.
@@ -117,13 +144,14 @@ def export_to_fasta(
         output_path: Path for output file
         prefix: Prefix for sequence names (default: SWGA)
         include_metadata: Include Tm and GC in header
+        conditions: Reaction conditions the reported Tm is corrected for
     """
     with open(output_path, "w") as f:
         for i, primer in enumerate(primers, 1):
             header = f">{prefix}_{i:03d}"
 
             if include_metadata:
-                tm = calculate_simple_tm(primer)
+                tm = primer_tm(primer, conditions)
                 gc = calculate_gc(primer)
                 header += f" Tm={tm:.1f}C GC={gc:.1%} len={len(primer)}"
 
@@ -366,6 +394,7 @@ def export_to_vendor_csv(
     project_name: str = "SWGA",
     scale: Optional[str] = None,
     purification: Optional[str] = None,
+    conditions: Optional["ReactionConditions"] = None,
 ) -> None:
     """
     Export primers in vendor-specific CSV format.
@@ -422,7 +451,7 @@ def export_to_vendor_csv(
             if "length" in columns:
                 row["length"] = len(primer)
             if "tm" in columns:
-                row["tm"] = f"{calculate_simple_tm(primer):.1f}"
+                row["tm"] = f"{primer_tm(primer, conditions):.1f}"
             if "gc" in columns:
                 row["gc"] = f"{calculate_gc(primer):.1%}"
 
@@ -533,6 +562,40 @@ PROTOCOL_ADDITIVES = (
 _PROTOCOL_ADDITIVE_NAMES = frozenset(name for name, _, _ in PROTOCOL_ADDITIVES)
 
 
+def build_conditions(
+    polymerase: str,
+    temperature: float,
+    mg_conc: Optional[float],
+    additives: Dict[str, float],
+) -> Optional["ReactionConditions"]:
+    """The reaction the exported numbers describe.
+
+    Every name in `PROTOCOL_ADDITIVES` is a `ReactionConditions` keyword, so
+    the buffer the design was optimized under is the buffer its Tm is
+    corrected for.
+
+    Returns None when the polymerase and temperature do not describe a
+    reaction `ReactionConditions` will accept -- bst at 30 C, say. Exporting is
+    reporting, not validating, so an odd pairing degrades to an uncorrected
+    nearest-neighbour Tm rather than failing the export.
+    """
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    try:
+        return ReactionConditions(
+            temp=temperature,
+            polymerase=polymerase,
+            mg_conc=mg_conc,
+            **{name: additives.get(name, 0.0) or 0.0 for name in _PROTOCOL_ADDITIVE_NAMES},
+        )
+    except ValueError as e:
+        logger.warning(
+            f"Reporting uncorrected nearest-neighbour Tm: {polymerase} at "
+            f"{temperature}C is not a usable reaction ({e})"
+        )
+        return None
+
+
 def generate_protocol(
     primers: List[str],
     polymerase: str = "phi29",
@@ -566,10 +629,11 @@ def generate_protocol(
     unknown = sorted(set(additives) - _PROTOCOL_ADDITIVE_NAMES)
     if unknown:
         raise TypeError(f"generate_protocol got unexpected keyword arguments: {unknown}")
+    conditions = build_conditions(polymerase, temperature, mg_conc, additives)
     # Build primer table
     table_rows = []
     for i, primer in enumerate(primers, 1):
-        tm = calculate_simple_tm(primer)
+        tm = primer_tm(primer, conditions)
         gc = calculate_gc(primer)
         table_rows.append(f"| {i} | {primer} | {len(primer)} | {tm:.1f}C | {gc:.1%} |")
     primer_table = "\n".join(table_rows)
@@ -733,11 +797,25 @@ class PrimerExporter:
         # describes a different reaction.
         kwargs = {}
         params_path = params_file or (results_path / "params.json")
+        params = {}
         if Path(params_path).exists():
-            from neoswga.core.parameter import default_reaction_temp
-
             with open(params_path, "r") as f:
                 params = json.load(f)
+
+        # What the run actually used beats what the user wrote. Both
+        # `retune_for_polymerase` and the GC-adaptive strategy resolve
+        # conditions at run time -- a GC-rich target picks up betaine from its
+        # own GC -- and neither writes back to params.json, so exporting from
+        # the file alone corrected the Tm for a reaction the design never saw.
+        from neoswga.core.run_manifest import read_effective_conditions
+
+        recorded = read_effective_conditions(str(results_path))
+        if recorded:
+            params = {**params, **recorded}
+
+        if params:
+            from neoswga.core.parameter import default_reaction_temp
+
             polymerase = params.get("polymerase", "phi29")
             kwargs["polymerase"] = polymerase
             kwargs["temperature"] = params.get("reaction_temp", default_reaction_temp(polymerase))
@@ -749,8 +827,13 @@ class PrimerExporter:
 
         return cls(primers, **kwargs)
 
+    def conditions(self) -> Optional["ReactionConditions"]:
+        """The reaction this design's Tm values are corrected for."""
+        return build_conditions(self.polymerase, self.temperature, self.mg_conc, self.additives)
+
     def export_fasta(self, output_path: str, **kwargs) -> None:
         """Export primers to FASTA format."""
+        kwargs.setdefault("conditions", self.conditions())
         export_to_fasta(self.primers, output_path, **kwargs)
 
     def export_vendor_csv(self, output_path: str, vendor: str = "idt", **kwargs) -> None:
@@ -759,6 +842,7 @@ class PrimerExporter:
         modified_primers = [
             apply_modifications(p, self.modifications, vendor) for p in self.primers
         ]
+        kwargs.setdefault("conditions", self.conditions())
         export_to_vendor_csv(modified_primers, output_path, vendor=vendor, **kwargs)
 
     def _protocol_kwargs(self, **overrides):
@@ -871,7 +955,7 @@ class PrimerExporter:
 
         lengths = [len(p) for p in self.primers]
         gcs = [calculate_gc(p) for p in self.primers]
-        tms = [calculate_simple_tm(p) for p in self.primers]
+        tms = [primer_tm(p, self.conditions()) for p in self.primers]
 
         # Cost from length and the modifications this set will actually be
         # ordered with. The previous flat $5/primer ignored both, which for

@@ -567,5 +567,40 @@ class TestHybridResult:
         assert "0.820" in s
 
 
+class TestStage2RemovalRankingDoesNotSaturate:
+    """Stage 2 chooses which primer to drop by scoring the network left behind.
+
+    That score was `connectivity + predicted_fold / 100`, and the predicted
+    fold is capped at 2**20. Any component past roughly 200 sites reaches the
+    cap -- which is every real bacterial genome -- so every candidate removal
+    scored the identical constant and the term ranked nothing. On a
+    M. tuberculosis run the largest component was 410 sites and connectivity
+    read 0.00 throughout, leaving Stage 2 with no signal at all: it spent 150 s
+    producing a set that covered 53.2% against Stage 1's 54.8%, and the guard
+    correctly threw the result away.
+
+    Fold is a monotone function of component size, so ranking on the size gives
+    the same ordering everywhere the fold is informative, and keeps ordering
+    where the fold has saturated.
+    """
+
+    def test_ranking_separates_components_past_the_cap(self):
+        from neoswga.core.hybrid_optimizer import _removal_network_score
+
+        assert _removal_network_score(0.0, 410) > _removal_network_score(0.0, 400)
+
+    def test_ranking_is_monotone_in_component_size(self):
+        from neoswga.core.hybrid_optimizer import _removal_network_score
+
+        scores = [_removal_network_score(0.0, n) for n in range(1, 600, 7)]
+
+        assert all(b > a for a, b in zip(scores, scores[1:]))
+
+    def test_connectivity_still_breaks_ties(self):
+        from neoswga.core.hybrid_optimizer import _removal_network_score
+
+        assert _removal_network_score(1.5, 100) > _removal_network_score(0.5, 100)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
