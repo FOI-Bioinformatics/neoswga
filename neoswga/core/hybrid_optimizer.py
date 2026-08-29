@@ -165,7 +165,7 @@ class HybridResult:
     def __str__(self):
         base = f"""Hybrid Optimization Result:
   Final primers: {len(self.primers)}
-  Coverage: {self.final_coverage:.1%}
+  Coverage: {self.final_coverage:.1%} (estimated, binned)
   Connectivity: {self.final_connectivity:.2f}
   Amplification: {self.final_predicted_amplification:.1f}×"""
 
@@ -694,7 +694,7 @@ class HybridOptimizer:
             logger.info("HYBRID OPTIMIZATION COMPLETE")
             logger.info("=" * 80)
             logger.info(f"Final primers: {len(stage2_primers)}")
-            logger.info(f"Final coverage: {final_coverage_result:.1%}")
+            logger.info(f"Final coverage: {final_coverage_result:.1%} (estimated, binned)")
             logger.info(f"Final connectivity: {final_stats['connectivity']:.2f}")
             logger.info(f"Final amplification: {final_stats['predicted_amplification']:.1f}×")
             if simulation_fitness:
@@ -1241,6 +1241,22 @@ class HybridBaseOptimizer(BaseOptimizer):
     # coverage-only by design.
     ADDITIVE_AWARE = True
 
+    @staticmethod
+    def _coverage_message(final_coverage: float, connectivity: float) -> str:
+        """The `message` stored in step4_improved_df_summary.json.
+
+        `final_coverage` is the binned progress figure from
+        `HybridOptimizer._calculate_coverage`, not `metrics.fg_coverage`, which
+        the same summary carries and which is computed base by base. The two
+        disagree by construction, so the label says which this one is rather
+        than leaving a reader to reconcile 55.2% against 50.9%.
+        """
+        return (
+            f"Coverage: {final_coverage:.1%} (estimated, binned; "
+            f"fg_coverage is the measured value), "
+            f"Connectivity: {connectivity:.2f}"
+        )
+
     def __init__(
         self,
         position_cache,
@@ -1337,7 +1353,7 @@ class HybridBaseOptimizer(BaseOptimizer):
                 metrics=metrics,
                 iterations=1,
                 optimizer_name=self.name,
-                message=f"Coverage: {result.final_coverage:.1%}, Connectivity: {result.final_connectivity:.2f}",
+                message=self._coverage_message(result.final_coverage, result.final_connectivity),
             )
 
         except Exception as e:
