@@ -34,6 +34,23 @@ class MissingPositionsError(RuntimeError):
 
 logger = logging.getLogger(__name__)
 
+# Genome coordinates. int64, not int32.
+#
+# int32 tops out at 2,147,483,647. Human is 3.1 Gb and mouse 2.7 Gb, so for
+# exactly the hosts this tool exists to discriminate against, every binding site
+# past that offset saturated at the ceiling on the way out of HDF5 -- and the
+# `"both"` path calls `np.unique`, which then collapsed all of them into one
+# site. Measured on an M. tuberculosis-vs-hg38 run: `CACCGACGACGA` occurs 48
+# times in hg38, the scan stored all 48, and the cache returned 5. Across the
+# set `total_bg_sites` read 48 against a true 114.
+#
+# That is the same failure as the pyahocorasick 2**31 limit in CLAUDE.md's
+# Known Issue #5, in a different place, with the same symptom: an undercounted
+# background is indistinguishable from a specific primer set. Doubling the
+# width of a position array is the cost of being able to name a coordinate in
+# the genomes this tool is pointed at.
+POSITION_DTYPE = np.int64
+
 
 @dataclass
 class BindingSite:
@@ -207,8 +224,8 @@ class PositionCache:
                     # Cache even zero-length results: having scanned, "no sites"
                     # is a KNOWN answer rather than an unknown one. That
                     # distinction is the whole point of this method.
-                    self.cache[(prefix, primer, "forward")] = np.array(fwd, dtype=np.int32)
-                    self.cache[(prefix, primer, "reverse")] = np.array(rev, dtype=np.int32)
+                    self.cache[(prefix, primer, "forward")] = np.array(fwd, dtype=POSITION_DTYPE)
+                    self.cache[(prefix, primer, "reverse")] = np.array(rev, dtype=POSITION_DTYPE)
                     if not fwd and not rev:
                         zero_site.append(primer)
 
@@ -259,7 +276,7 @@ class PositionCache:
                     for primer in primer_list:
                         # Forward strand
                         if primer in db:
-                            positions = np.array(db[primer], dtype=np.int32)
+                            positions = np.array(db[primer], dtype=POSITION_DTYPE)
                             key = (fname_prefix, primer, "forward")
                             self.cache[key] = positions
                             total_loaded += 1
@@ -267,7 +284,7 @@ class PositionCache:
                         # Reverse strand (pre-computed reverse complement)
                         rc = rc_map[primer]
                         if rc in db:
-                            positions = np.array(db[rc], dtype=np.int32)
+                            positions = np.array(db[rc], dtype=POSITION_DTYPE)
                             key = (fname_prefix, primer, "reverse")
                             self.cache[key] = positions
                             total_loaded += 1
@@ -291,8 +308,12 @@ class PositionCache:
             cached = self.cache.get(key)
             if cached is not None:
                 return cached
-            fw = self.cache.get((fname_prefix, primer, "forward"), np.array([], dtype=np.int32))
-            rv = self.cache.get((fname_prefix, primer, "reverse"), np.array([], dtype=np.int32))
+            fw = self.cache.get(
+                (fname_prefix, primer, "forward"), np.array([], dtype=POSITION_DTYPE)
+            )
+            rv = self.cache.get(
+                (fname_prefix, primer, "reverse"), np.array([], dtype=POSITION_DTYPE)
+            )
             # For a palindromic (self-reverse-complementary) primer the same
             # genome position appears under both the forward key and the reverse
             # (== forward) key; np.unique dedups so the site is not double-counted
@@ -316,7 +337,7 @@ class PositionCache:
                 f"neoswga.core.strand_conventions.to_cache_strand."
             )
 
-        return self.cache.get((fname_prefix, primer, strand), np.array([], dtype=np.int32))
+        return self.cache.get((fname_prefix, primer, strand), np.array([], dtype=POSITION_DTYPE))
 
     def get_all_positions(
         self, fname_prefix: str, primers: List[str]
@@ -632,7 +653,7 @@ class StreamingPositionCache:
         path = f"{fname_prefix}_{k}mer_positions.h5"
 
         if path not in self.file_handles:
-            return np.array([], dtype=np.int32)
+            return np.array([], dtype=POSITION_DTYPE)
 
         db = self.file_handles[path]
 

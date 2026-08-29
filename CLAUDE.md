@@ -600,6 +600,26 @@ with h5py.File('positions.h5', 'r') as f:
    a gate demanding zero host sites returns a single-site candidate pool rather than failing.
    See [docs/validation/additive_specificity.md](docs/validation/additive_specificity.md#the-background-was-one-chromosome-and-that-mattered).
 
+7. **Genome coordinates are int64** (`position_cache.POSITION_DTYPE`), and must stay so.
+   Positions were cast to `np.int32` on the way out of HDF5. int32 tops out at 2,147,483,647,
+   so for human (3.1 Gb) and mouse (2.7 Gb) every site past that offset **saturated at the
+   ceiling**; the `strand="both"` path then calls `np.unique`, which collapsed all of them into
+   a single site.
+
+   This is a second, independent instance of the 2**31 failure in Known Issue #5 -- different
+   place, same symptom, and neither one is visible on a single chromosome. Measured on an
+   *M. tuberculosis*-vs-hg38 run: `CACCGACGACGA` occurs 48 times in hg38 (jellyfish and a
+   direct string count agree), the scan stored all 48 correctly, and the cache returned 5.
+   Across the twelve-primer set `total_bg_sites` read 48 against a true 114.
+
+   It changed the design, not just the report: with the true background visible the optimizer
+   **drops** `CACCGACGACGA`, the primer whose host load int32 had been hiding. After the fix
+   `total_bg_sites` matches the jellyfish count exactly (77 = 77).
+
+   The lesson both issues share: **test against a whole genome, not a chromosome.** chr21 is
+   46 Mb and cannot reach either limit, so both bugs sat behind a passing test suite.
+   `tests/test_position_cache.py::TestPositionsPastTheInt32Ceiling` pins this one.
+
 ## Package Structure
 
 ```
