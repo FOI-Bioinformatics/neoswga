@@ -438,3 +438,55 @@ class TestEdgeCases:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestPositionsPastTheInt32Ceiling:
+    """Binding sites beyond 2**31 bp must survive loading.
+
+    Positions were cast to `np.int32` on the way out of HDF5. Human is 3.1 Gb
+    and mouse 2.7 Gb, so for exactly the hosts this tool exists to discriminate
+    against, every site past 2,147,483,647 saturated at the ceiling. The
+    `"both"` path then calls `np.unique`, which collapsed every saturated site
+    into a single entry.
+
+    Measured on a real M. tuberculosis-vs-hg38 run: `CACCGACGACGA` has 48
+    occurrences in hg38 (jellyfish and a direct string count agree), the scan
+    stored all 48 correctly, and the cache returned 5. Across the twelve-primer
+    set `total_bg_sites` read 48 against a true 114, so the background was
+    undercounted by 58% and selectivity overstated by ~2.4x.
+
+    This is the same failure as the pyahocorasick 2**31 limit in Known Issue
+    #5, in a different place: a silently undercounted background is
+    indistinguishable from a specific primer set.
+    """
+
+    def _cache_with(self, tmp_path, primer, positions):
+        import h5py
+        import numpy as np
+
+        from neoswga.core.position_cache import PositionCache
+
+        (tmp_path / "g_12mer_positions.h5").parent.mkdir(parents=True, exist_ok=True)
+        with h5py.File(tmp_path / "g_12mer_positions.h5", "w") as f:
+            f.create_dataset(primer, data=np.array(positions, dtype=np.int64))
+        return PositionCache(fname_prefixes=[str(tmp_path / "g")], primers=[primer])
+
+    def test_a_position_past_the_ceiling_is_not_clipped(self, tmp_path):
+        primer = "CACCGACGACGA"
+        far = 2_774_977_701  # a real hg38 coordinate from the measured run
+        cache = self._cache_with(tmp_path, primer, [1000, far])
+
+        got = cache.get_positions(str(tmp_path / "g"), primer, strand="forward")
+
+        assert far in set(got.tolist())
+
+    def test_distinct_far_positions_stay_distinct(self, tmp_path):
+        """The saturation collapse: many sites became one."""
+        primer = "CACCGACGACGA"
+        far = [2_500_000_000, 2_600_000_000, 2_700_000_000, 2_774_977_701]
+        cache = self._cache_with(tmp_path, primer, far)
+
+        got = cache.get_positions(str(tmp_path / "g"), primer, strand="both")
+
+        assert len(got) == len(far)
+        assert sorted(got.tolist()) == sorted(far)
