@@ -535,7 +535,7 @@ def run_optimization(
 
         if result.is_success:
             print(f"Selected: {result.primers}")
-            print(f"Coverage: {result.metrics.fg_coverage:.1%}")
+            print(f"Coverage: {result.metrics.fg_coverage:.1%} (measured)")
     """
     _ensure_optimizers_registered()
 
@@ -925,7 +925,7 @@ def run_optimization(
     if verbose:
         if result.is_success:
             logger.info(f"Selected {result.num_primers} primers")
-            logger.info(f"Coverage: {result.metrics.fg_coverage:.1%}")
+            logger.info(f"Coverage: {result.metrics.fg_coverage:.1%} (measured)")
             logger.info(f"Score: {result.score:.4f}")
         elif result.status == OptimizationStatus.PARTIAL:
             if result.num_primers < target_size:
@@ -1343,7 +1343,7 @@ def main():
         for primer in result.primers:
             print(f"  {primer}")
         print(f"\nScore: {result.score:.4f}")
-        print(f"Coverage: {result.metrics.fg_coverage:.1%}")
+        print(f"Coverage: {result.metrics.fg_coverage:.1%} (measured)")
     else:
         print(f"Optimization failed: {result.message}")
         exit(1)

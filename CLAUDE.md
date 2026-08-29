@@ -181,6 +181,13 @@ CONNECTIVITY uses single-molecule processivity (~70 kb). Hybrid/background-aware
 thread the realistic `coverage_reach` into Stage-1 set-cover so selection and
 the reported `fg_coverage` agree (and ensemble comparisons are fair).
 
+A hybrid run prints **two** coverage figures and they do not match, by
+construction. `HybridOptimizer._calculate_coverage` works in bins and is used
+for progress reporting and the background-pruning floor; `fg_coverage` is
+computed base-by-base and is the authoritative number in
+`step4_improved_df_summary.json`. Both are labelled in the output —
+`(estimated, binned)` against `(measured)` — so read the measured one.
+
 ### Utility Commands
 ```bash
 neoswga validate --quick            # Validate installation

@@ -602,5 +602,53 @@ class TestStage2RemovalRankingDoesNotSaturate:
         assert _removal_network_score(1.5, 100) > _removal_network_score(0.5, 100)
 
 
+class TestCoverageFiguresSayWhichTheyAre:
+    """Two coverage numbers reach the user from one run, and they disagree.
+
+    `HybridOptimizer._calculate_coverage` is a binned approximation used for
+    progress reporting; `PrimerSetMetrics.fg_coverage` is computed base by base
+    and is what lands in step4_improved_df_summary.json. They do not agree by
+    construction -- one M. tuberculosis run printed "Final coverage: 55.2%"
+    and then "Coverage: 50.9%" a few lines later, with nothing saying why.
+
+    The report already badges every value MEASURED or ESTIMATED. The logs
+    should use the same vocabulary rather than leaving the reader to guess
+    which number to trust.
+    """
+
+    def _result(self):
+        from neoswga.core.hybrid_optimizer import HybridResult
+
+        return HybridResult(
+            primers=["ATCGATCG"],
+            stage1_primers=["ATCGATCG"],
+            stage1_coverage=0.55,
+            stage1_regions_covered=3,
+            stage2_primers=["ATCGATCG"],
+            stage2_connectivity=0.45,
+            stage2_predicted_amplification=12.5,
+            stage2_largest_component=5,
+            final_coverage=0.552,
+            final_connectivity=0.45,
+            final_predicted_amplification=12.5,
+            total_runtime=2.0,
+        )
+
+    def test_the_binned_figure_is_marked_estimated(self):
+        text = str(self._result())
+
+        assert "55.2%" in text
+        assert "estimated" in text.lower()
+
+    def test_the_result_message_marks_it_too(self):
+        """This string is stored in the summary JSON as `message`."""
+        from neoswga.core.hybrid_optimizer import HybridBaseOptimizer
+
+        message = HybridBaseOptimizer._coverage_message(0.552, 0.45)
+
+        assert "55.2%" in message
+        assert "estimated" in message.lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
