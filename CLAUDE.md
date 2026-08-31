@@ -142,6 +142,29 @@ neoswga score -j params.json        # Step 3: Score amplification efficacy
 neoswga optimize -j params.json     # Step 4: Find optimal primer sets
 ```
 
+### Quality Assurance (`--enable-qa`)
+
+Accepted by every pipeline step; each one routes through
+`core/pipeline_qa_integration.py`:
+
+- `filter --enable-qa` runs `apply_post_step2_qa_filter` on step2_df.csv (3'
+  stability, dimer-hub degree, integrated quality score), rewrites the CSV with
+  a `qa_score` column, writes `qa_report.txt`, and corrects the last stage of
+  `filter_stats.json`. A QA pass that rejects every candidate fails the step
+  instead of writing an empty pool.
+- `score --enable-qa` blends the QA score with the random forest score into
+  `composite_score` (0.7 RF / 0.3 QA) and re-orders step3_df.csv by it. The QA
+  scores come from step2_df.csv when `filter --enable-qa` produced them, and
+  are computed on the spot otherwise.
+- `optimize --enable-qa` drops dimer-hub primers from the candidate pool before
+  optimizing. The pre-filter is pairwise, so it costs O(n^2) dimer
+  calculations.
+- `count-kmers --enable-qa` has no QA hook (there are no candidates yet); the
+  step logs that and proceeds.
+
+The flag is per-invocation: it is assigned to `parameter.enable_qa` on every
+step, so it cannot carry over to a later step in the same process.
+
 ### Optimization Methods
 ```bash
 neoswga optimize -j params.json --optimization-method=hybrid           # default

@@ -10,6 +10,11 @@ Integration Points:
     1. apply_post_step2_qa_filter() - Filter primers after Step 2
     2. combine_rf_qa_scores() - Merge RF and QA scores in Step 3
     3. create_qa_aware_optimizer() - Network-aware optimization for Step 4
+
+The `--enable-qa` CLI flag reaches these through the three step wrappers at the
+end of this module (apply_qa_to_step2_output, apply_qa_to_step3_output,
+qa_prefiltered_candidates), which own the CSV read/write so the step handlers
+stay a single call each.
 """
 
 import logging
@@ -261,6 +266,24 @@ def apply_post_step2_qa_filter(
     )
 
 
+def rf_score_column(df: pd.DataFrame) -> str:
+    """Return the name of the random-forest score column.
+
+    step3_df.csv names it ``'on.target.pred'``; ``'score'`` is the name used by
+    hand-built frames and by the older QA examples.
+
+    Raises:
+        KeyError: if neither column is present.
+    """
+    for name in ("score", "on.target.pred"):
+        if name in df.columns:
+            return name
+    raise KeyError(
+        "DataFrame has neither a 'score' nor an 'on.target.pred' column; "
+        f"columns present: {list(df.columns)}"
+    )
+
+
 def combine_rf_qa_scores(
     step3_df: pd.DataFrame,
     qa_scores: Dict[str, float],
@@ -275,7 +298,8 @@ def combine_rf_qa_scores(
     quality metrics.
 
     Args:
-        step3_df: DataFrame from Step 3 with 'seq' and 'score' columns
+        step3_df: DataFrame from Step 3 with a primer column and an RF score
+            column (see `rf_score_column`)
         qa_scores: Dict mapping primer sequences to QA scores (0-1)
         rf_weight: Weight for RF score (default: 0.7)
         qa_weight: Weight for QA score (default: 0.3)
@@ -299,15 +323,16 @@ def combine_rf_qa_scores(
 
     df = step3_df.copy()
     seq_col = primer_column(df)
+    score_col = rf_score_column(df)
 
     # Add QA scores
     df["qa_score"] = df[seq_col].map(qa_scores).fillna(0.5)
 
     # Normalize RF scores to 0-1 range
-    rf_min = df["score"].min()
-    rf_max = df["score"].max()
+    rf_min = df[score_col].min()
+    rf_max = df[score_col].max()
     if rf_max > rf_min:
-        df["rf_score_norm"] = (df["score"] - rf_min) / (rf_max - rf_min)
+        df["rf_score_norm"] = (df[score_col] - rf_min) / (rf_max - rf_min)
     else:
         df["rf_score_norm"] = 1.0
 
@@ -316,7 +341,7 @@ def combine_rf_qa_scores(
 
     if verbose:
         logger.info(f"\nScore statistics:")
-        logger.info(f"  RF scores: {df['score'].min():.2f} - {df['score'].max():.2f}")
+        logger.info(f"  RF scores ({score_col}): {rf_min:.2f} - {rf_max:.2f}")
         logger.info(f"  QA scores: {df['qa_score'].min():.3f} - {df['qa_score'].max():.3f}")
         logger.info(
             f"  Composite: {df['composite_score'].min():.3f} - {df['composite_score'].max():.3f}"
@@ -518,3 +543,217 @@ def save_qa_report(result: QAFilterResult, output_path: Path, verbose: bool = Tr
 
     if verbose:
         logger.info(f"\nQA report saved to: {output_path}")
+
+
+def _resolve_conditions(conditions: Optional[ReactionConditions]) -> ReactionConditions:
+    """Fall back to the reaction the run is configured for, not the defaults.
+
+    `ReactionConditions()` would silently score primers at 30 C with no
+    additives regardless of what the run set, so QA would disagree with the
+    filter and optimizer steps it sits between.
+    """
+    if conditions is not None:
+        return conditions
+
+    from neoswga.core.reaction_conditions import build_reaction_conditions
+
+    return build_reaction_conditions()
+
+
+def _read_step_csv(path: Path) -> Tuple[pd.DataFrame, bool]:
+    """Read a pipeline CSV and report whether it carries a written index.
+
+    step2_df.csv is written with an unnamed positional index and step3_df.csv
+    with the primer as a named index. Returning the flag lets the caller write
+    the file back in the shape it found it.
+    """
+    df = pd.read_csv(path)
+    has_index = str(df.columns[0]).startswith("Unnamed:")
+    if has_index:
+        df = pd.read_csv(path, index_col=0)
+    return df, has_index
+
+
+def apply_qa_to_step2_output(
+    data_dir: str,
+    config: Optional[QAFilterConfig] = None,
+    conditions: Optional[ReactionConditions] = None,
+    verbose: bool = True,
+) -> QAFilterResult:
+    """Filter `step2_df.csv` in place with the QA metrics, and write a report.
+
+    This is what `neoswga filter --enable-qa` runs after the standard step-2
+    filtering. The `qa_score` column is kept in the rewritten CSV so
+    `score --enable-qa` can blend it with the random-forest score.
+
+    Args:
+        data_dir: Directory holding step2_df.csv.
+        config: QA filter configuration (default: moderate stringency).
+        conditions: Reaction conditions (default: the run's configured ones).
+        verbose: Print filtering progress.
+
+    Returns:
+        The QAFilterResult for the filtering that was applied.
+
+    Raises:
+        ValueError: if QA rejects every candidate. step2_df.csv is left as it
+            was, because an empty one fails step 3 with a less specific error.
+    """
+    step2_path = Path(data_dir) / "step2_df.csv"
+    step2_df, has_index = _read_step_csv(step2_path)
+
+    result = apply_post_step2_qa_filter(
+        step2_df,
+        config=config,
+        conditions=_resolve_conditions(conditions),
+        verbose=verbose,
+    )
+
+    if result.primers_out == 0:
+        raise ValueError(
+            f"QA filtering rejected all {result.primers_in} candidate primers "
+            f"({result.filter_reasons}). Relax the QA stringency or drop "
+            f"--enable-qa; {step2_path} is unchanged."
+        )
+
+    filtered = result.filtered_df.drop(columns=["qa_pass", "filter_reason"], errors="ignore")
+    filtered.to_csv(step2_path, index=has_index)
+    save_qa_report(result, Path(data_dir) / "qa_report.txt", verbose=verbose)
+    _record_qa_funnel_stage(Path(data_dir) / "filter_stats.json", result.primers_out)
+
+    logger.info(
+        f"QA filtering kept {result.primers_out}/{result.primers_in} candidates "
+        f"(mean QA score {result.mean_qa_score:.3f})"
+    )
+    return result
+
+
+def _record_qa_funnel_stage(stats_path: Path, primers_out: int) -> None:
+    """Point the funnel's last stage at the pool QA actually left behind.
+
+    The filter step writes filter_stats.json before QA runs, so its
+    `final_candidates` counts primers QA has since removed. `after_qa` is
+    recorded alongside for provenance; the report's FilteringStats ignores
+    fields it does not declare.
+    """
+    if not stats_path.is_file():
+        return
+    import json
+
+    try:
+        stats = json.loads(stats_path.read_text())
+        stats["after_qa"] = primers_out
+        stats["final_candidates"] = primers_out
+        stats_path.write_text(json.dumps(stats, indent=2))
+    except (json.JSONDecodeError, OSError, TypeError) as e:
+        logger.debug(f"Could not update filter_stats.json after QA: {e}")
+
+
+def apply_qa_to_step3_output(
+    data_dir: str,
+    config: Optional[QAFilterConfig] = None,
+    conditions: Optional[ReactionConditions] = None,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """Blend QA scores into `step3_df.csv` in place.
+
+    This is what `neoswga score --enable-qa` runs after the random-forest
+    scoring. QA scores come from step2_df.csv when `filter --enable-qa`
+    produced them, and are computed here otherwise, so the flag is usable on
+    the score step alone.
+
+    The rewritten pool is ordered by `composite_score` because step 4 reads its
+    candidates in file order.
+
+    Args:
+        data_dir: Directory holding step2_df.csv and step3_df.csv.
+        config: QA configuration supplying the RF/QA score weights.
+        conditions: Reaction conditions (default: the run's configured ones).
+        verbose: Print scoring statistics.
+
+    Returns:
+        The step-3 DataFrame with `qa_score` and `composite_score` added.
+    """
+    if config is None:
+        config = QAFilterConfig()
+    conditions = _resolve_conditions(conditions)
+
+    step3_path = Path(data_dir) / "step3_df.csv"
+    step3_df, has_index = _read_step_csv(step3_path)
+    primers = step3_df[primer_column(step3_df)].astype(str).tolist()
+
+    qa_scores = _step2_qa_scores(Path(data_dir) / "step2_df.csv")
+    if not qa_scores:
+        logger.info("No QA scores in step2_df.csv; scoring the step-3 pool directly")
+        optimizer = QAAwareOptimizer(config, conditions)
+        qa_scores = dict(optimizer.rank_by_quality(primers, verbose=verbose))
+
+    combined = combine_rf_qa_scores(
+        step3_df,
+        qa_scores,
+        rf_weight=config.rf_weight,
+        qa_weight=config.qa_weight,
+        verbose=verbose,
+    )
+    combined = combined.sort_values("composite_score", ascending=False)
+    combined.to_csv(step3_path, index=has_index)
+    return combined
+
+
+def _step2_qa_scores(step2_path: Path) -> Dict[str, float]:
+    """QA scores carried over from `filter --enable-qa`, empty if there are none."""
+    if not step2_path.is_file():
+        return {}
+    step2_df = pd.read_csv(step2_path)
+    if "qa_score" not in step2_df.columns:
+        return {}
+    seq_col = primer_column(step2_df)
+    return dict(zip(step2_df[seq_col].astype(str), step2_df["qa_score"]))
+
+
+def qa_prefiltered_candidates(
+    parameter_module,
+    config: Optional[QAFilterConfig] = None,
+    conditions: Optional[ReactionConditions] = None,
+    verbose: bool = True,
+) -> Optional[List[str]]:
+    """Step-4 candidate pool with dimer-hub primers removed, or None.
+
+    None tells the optimizer to load its own pool: either `--enable-qa` was not
+    given, step3_df.csv is missing, or the pre-filter left nothing to optimize.
+    The pre-filter is pairwise, so it costs O(n^2) dimer calculations and runs
+    only when asked for.
+
+    Args:
+        parameter_module: The pipeline parameter module (read for `enable_qa`
+            and `data_dir`).
+        config: QA configuration supplying `max_hub_degree`.
+        conditions: Reaction conditions (default: the run's configured ones).
+        verbose: Print pre-filtering statistics.
+
+    Returns:
+        The retained candidate sequences, or None.
+    """
+    if not getattr(parameter_module, "enable_qa", False):
+        return None
+
+    step3_path = Path(getattr(parameter_module, "data_dir", ".")) / "step3_df.csv"
+    if not step3_path.is_file():
+        logger.warning(f"QA pre-filter skipped: {step3_path} not found")
+        return None
+
+    step3_df = pd.read_csv(step3_path)
+    primers = step3_df[primer_column(step3_df)].astype(str).tolist()
+
+    optimizer = create_qa_aware_optimizer(config, _resolve_conditions(conditions))
+    filtered, _metadata = optimizer.prefilter_candidates(primers, verbose=verbose)
+
+    if not filtered:
+        logger.warning(
+            f"QA pre-filter rejected all {len(primers)} candidates; "
+            "optimizing over the unfiltered pool instead"
+        )
+        return None
+
+    logger.info(f"QA pre-filter: {len(filtered)}/{len(primers)} candidates retained")
+    return filtered

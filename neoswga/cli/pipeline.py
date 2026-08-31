@@ -66,9 +66,10 @@ def run_step1(args):
         # GPU acceleration (with auto-detection)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
-        # QA integration (boolean flag)
-        if hasattr(args, "enable_qa") and args.enable_qa:
-            parameter.enable_qa = True
+        # QA integration. Assigned either way: the flag is per-invocation, and
+        # several steps can run in one process (design, the SDK, a test
+        # session), where a leftover True would enable QA nobody asked for.
+        parameter.enable_qa = bool(getattr(args, "enable_qa", False))
 
         # Log effective parameters
         if not args.quiet:
@@ -164,9 +165,9 @@ def run_step2(args):
         # GPU acceleration (with auto-detection)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
-        # QA integration
-        if hasattr(args, "enable_qa") and args.enable_qa:
-            parameter.enable_qa = True
+        # QA integration (per-invocation; see run_step1 on why it is assigned
+        # rather than only ever set)
+        parameter.enable_qa = bool(getattr(args, "enable_qa", False))
 
         # Apply preset if specified
         if hasattr(args, "preset") and args.preset:
@@ -315,13 +316,12 @@ def run_step2(args):
             if hasattr(parameter, "betaine_m") and parameter.betaine_m > 0:
                 logger.info(f"  Betaine: {parameter.betaine_m} M")
 
-        # Run step2 with QA if enabled
+        # Run step2, then let QA filter what it wrote
+        pipeline.step2()
         if getattr(parameter, "enable_qa", False):
-            from neoswga.core import pipeline_qa_integration
+            from neoswga.core.pipeline_qa_integration import apply_qa_to_step2_output
 
-            pipeline_qa_integration.run_step2_with_qa()
-        else:
-            pipeline.step2()
+            apply_qa_to_step2_output(parameter.data_dir, verbose=not args.quiet)
 
         if not args.quiet:
             print("\nNext: neoswga score -j params.json")
@@ -380,9 +380,8 @@ def run_step3(args):
             if not args.quiet:
                 logger.info(f"K-mer sampling seeded with {args.seed} for reproducible scoring")
 
-        # QA integration (boolean flag)
-        if hasattr(args, "enable_qa") and args.enable_qa:
-            parameter.enable_qa = True
+        # QA integration (per-invocation; see run_step1)
+        parameter.enable_qa = bool(getattr(args, "enable_qa", False))
 
         # Apply CLI arguments to parameter module
         merge_args_to_parameter(args, parameter, ["min_amp_pred"])
@@ -418,13 +417,12 @@ def run_step3(args):
             if getattr(args, "fast_score", False):
                 logger.info("--fast-score is now the default; flag is a no-op")
 
-        # Run step3 with QA if enabled
+        # Run step3, then blend the QA scores into what it wrote
+        pipeline.step3()
         if getattr(parameter, "enable_qa", False):
-            from neoswga.core import pipeline_qa_integration
+            from neoswga.core.pipeline_qa_integration import apply_qa_to_step3_output
 
-            pipeline_qa_integration.run_step3_with_qa()
-        else:
-            pipeline.step3()
+            apply_qa_to_step3_output(parameter.data_dir, verbose=not args.quiet)
 
         if not args.quiet:
             print("\nNext: neoswga optimize -j params.json")
@@ -566,9 +564,17 @@ def run_step4(args):
         # GPU acceleration (with auto-detection)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
-        # QA integration (boolean flag)
-        if hasattr(args, "enable_qa") and args.enable_qa:
-            parameter.enable_qa = True
+        # QA integration (boolean flag). The pre-filter reads step3_df.csv, so
+        # data_dir has to be resolved here; run_optimization only initializes
+        # once it is already loading candidates itself.
+        _qa_candidates = None
+        parameter.enable_qa = bool(getattr(args, "enable_qa", False))
+        if parameter.enable_qa:
+            from neoswga.core import pipeline as _core_pipeline
+            from neoswga.core.pipeline_qa_integration import qa_prefiltered_candidates
+
+            _core_pipeline._initialize()
+            _qa_candidates = qa_prefiltered_candidates(parameter, verbose=not args.quiet)
 
         # Set num_primers from CLI or JSON file (special handling needed)
         if hasattr(args, "num_primers") and args.num_primers:
@@ -746,6 +752,7 @@ def run_step4(args):
         target_size = getattr(parameter, "target_set_size", getattr(parameter, "num_primers", 6))
 
         results, scores, cache = optimize_step4(
+            candidates=_qa_candidates,  # None: the optimizer loads step3 itself
             use_cache=args.use_position_cache,
             use_background_filter=args.use_background_filter,
             optimization_method=args.optimization_method,
