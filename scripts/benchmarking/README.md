@@ -27,12 +27,17 @@ The set size goes on the CLI rather than into `params.json` deliberately:
 ### `max_coverage_bound.py` — exact and LP bounds on coverage
 
 The optimizers answer "given a budget of S primers, which S maximise coverage?".
-The ILP that ships in `dominating_set_optimizer.optimize_ilp` answers a
-different question (fewest primers covering every reachable bin), so it is
-infeasible below the minimum cover and cannot bound the greedy result. This
-module builds the max-coverage formulation over the same `BipartiteGraph` bins
-and the same `extension_reach`, and reports both the integer optimum and the
-LP relaxation.
+This module builds that formulation over the same `BipartiteGraph` bins and the
+same `extension_reach`, and reports both the integer optimum and the LP
+relaxation.
+
+It was written because the ILP that then shipped in
+`dominating_set_optimizer.optimize_ilp` answered a different question (fewest
+primers covering every reachable bin), so it was infeasible below the minimum
+cover and could not bound the greedy result. That has since been replaced with
+this formulation, so `optimize_ilp` and `coverage_upper_bound` now give the same
+answers as this harness. The harness remains the sweep driver, and is a useful
+independent check on the library implementation.
 
 Needs a solver: `pip install mip`.
 

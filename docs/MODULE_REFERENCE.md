@@ -808,7 +808,8 @@ class GPUThermodynamics:
     """GPU-accelerated thermodynamic calculations."""
 
     def batch_calculate_tm(self, primers: List[str]) -> np.ndarray:
-        """Calculate Tm for many primers in parallel (10-100x faster)."""
+        """Calculate Tm for many primers. Not currently faster than NumPy:
+        the implementation loops in Python. See the module docstring."""
 ```
 
 ---

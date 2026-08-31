@@ -7,7 +7,8 @@ NeoSWGA is a command-line tool for designing primer sets for selective whole-gen
 ## Key Features
 
 - **Adaptive GC filtering**: Support for extreme GC genomes (32-68% GC)
-- **Network-based optimization**: 10-100x faster than greedy search
+- **Several optimization methods**: graph set-cover, network, background-aware
+  and dimer-free clique selection, with an exact solver for bounding the result
 - **Thermodynamic modeling**: SantaLucia nearest-neighbor calculations with salt corrections
 - **Background filtering**: Bloom filter for large background genomes (human 3 Gbp)
 - **Host-free mode**: Design primers without a background genome (`--no-background`)

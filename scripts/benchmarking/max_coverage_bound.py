@@ -1,12 +1,9 @@
 """Exact and LP-relaxation bounds for the fixed-budget coverage problem.
 
 NeoSWGA's optimizers all answer the same question: given a budget of S primers,
-which S maximise foreground coverage?  The ILP that ships in
-`dominating_set_optimizer.optimize_ilp` answers a different one -- the fewest
-primers that cover every reachable bin -- so it is infeasible, and returns None,
-for every budget below the minimum cover.  It cannot bound the greedy result.
+which S maximise foreground coverage?
 
-This module builds the max-coverage formulation instead:
+This module builds the max-coverage formulation:
 
     maximise    sum_b w_b * y_b
     subject to  y_b <= sum_{i covers b} x_i     for every bin b
@@ -20,6 +17,12 @@ the coverage a greedy run reports on the same bins.
 Both bounds are reported.  The LP relaxation is always available and is a valid
 upper bound even when the integer program is stopped early, which matters at
 genome scale where the exact solve will not finish.
+
+This harness predates the library implementation and drove the audit's
+optimality-gap measurements.  `dominating_set_optimizer.optimize_ilp` and
+`coverage_upper_bound` now solve the same program; the two are kept separate so
+the harness stays an independent check rather than a wrapper around the code it
+is checking.
 """
 
 from __future__ import annotations

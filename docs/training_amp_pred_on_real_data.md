@@ -1,8 +1,10 @@
 # Training the amp_pred random forest on real lab data
 
-The shipped `random_forest_filter.p` was trained on synthetic data via
-`scripts/retrain_rf_model.py`. To replace it with a model fit to measured
-SWGA outcomes, use the workflow below.
+The shipped `random_forest_filter.skops` was trained on synthetic data via
+`scripts/retrain_rf_model.py`: features sampled at random, labels supplied by
+`compute_target_score`, a hand-written rule over Tm, GC, GC clamp and
+homopolymer runs. To replace it with a model fit to measured SWGA outcomes, use
+the workflow below.
 
 ## Overview
 

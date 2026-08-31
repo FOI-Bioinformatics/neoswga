@@ -63,6 +63,7 @@ neoswga schema --dump > params.schema.json
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
 | `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
 | `max_k` | integer | min: 4; max: 30 | - | Maximum primer length (bp). Polymerase-aware default is used if absent. |
+| `max_mismatches` | integer | min: 1 | `1` | Highest mismatch class counted when ranking step-2 candidates by occupancy-weighted site load. Minimum 1 because the read site (pipeline._configured_positive_int) takes positive integers only; exact-match-only ranking is reached with occupancy_ranking: false instead. Applies to the filter step's ranking; the optimizers carry their own OptimizerConfig.max_mismatches. |
 | `max_primer` | integer | min: 1; max: 10000 | - | - |
 | `max_self_dimer_bp` | integer | min: 1; max: 15 | - | - |
 | `max_sets` | integer | min: 1; max: 100 | `5` | - |
@@ -86,6 +87,7 @@ neoswga schema --dump > params.schema.json
 | `reaction_temp` | number | min: 20.0; max: 70.0 | - | - |
 | `retries` | integer | min: 0; max: 100 | - | - |
 | `sample_rate` | number or null | min: 0.001; max: 1.0 | - | - |
+| `sampled_index_path` | string | - | - | Path to a pre-built sampled background index, used when use_bloom_filter is set and no index is found beside the Bloom filter. Overridden by --sampled-index-path. |
 | `schema_version` | integer | min: 1; max: 2 | `2` | Version of this schema the file was written for. Version 2 corrected several scientific constants (Klenow processivity, phi29 extension rate, the Mg2+ activity model, the AG/TC nearest-neighbour parameter) and changed the mg_conc default from 0.0 to the polymerase buffer value; a v1 file still runs but produces different numbers. |
 | `selection_metric` | string | one of: deterministic, random, stochastic | - | - |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
