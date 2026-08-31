@@ -316,3 +316,95 @@ def test_removed_flags_are_not_offered(flag):
 
     help_text = create_parser().format_help()
     assert flag not in help_text
+
+
+# ----------------------------------------------------------------------
+# --max-extension
+# ----------------------------------------------------------------------
+
+MINIMAL_PARAMS = {
+    "fg_genomes": ["data/target.fna"],
+    "bg_genomes": [],
+    "fg_prefixes": ["data/target"],
+    "bg_prefixes": [],
+    "min_k": 10,
+    "max_k": 10,
+    "num_primers": 6,
+    "target_set_size": 6,
+    "optimization_method": "hybrid",
+}
+
+
+def run_optimize_cli(tmp_path, monkeypatch, extra_args):
+    """Drive the real `optimize` handler with the optimizer stubbed out.
+
+    Returns the keyword arguments the handler passed down. Returning no primer
+    sets makes the handler exit, which is the cheapest way to stop the command
+    before it does any real work.
+    """
+    import json
+
+    from neoswga.cli.pipeline import run_step4
+    from neoswga.cli_unified import create_parser
+    from neoswga.core import unified_optimizer
+
+    captured = {}
+
+    def fake_optimize_step4(**kwargs):
+        captured.update(kwargs)
+        return [], [], None
+
+    monkeypatch.setattr(unified_optimizer, "optimize_step4", fake_optimize_step4)
+
+    params = tmp_path / "params.json"
+    params.write_text(json.dumps({**MINIMAL_PARAMS, "data_dir": str(tmp_path)}))
+
+    args = create_parser().parse_args(["optimize", "-j", str(params), *extra_args])
+    with pytest.raises(SystemExit):
+        run_step4(args)
+
+    return captured
+
+
+def test_max_extension_reaches_the_optimizer(tmp_path, monkeypatch):
+    """`--max-extension` sized nothing outside the `--validate-simulation`
+    block: the optimize handler never forwarded it, so the Stage-2
+    amplification network it exists to size ran at the preset reach whatever
+    the user asked for.
+    """
+    captured = run_optimize_cli(tmp_path, monkeypatch, ["--max-extension", "12345"])
+
+    assert captured.get("max_extension") == 12345
+
+
+def test_an_omitted_max_extension_leaves_the_polymerase_preset(tmp_path, monkeypatch):
+    """Forwarding a literal 70000 default would be worse than not forwarding
+    at all: it would overwrite the preset for every enzyme whose processivity
+    is not phi29's (bst is 2 kb, klenow 40 bp). None means "unset".
+    """
+    captured = run_optimize_cli(tmp_path, monkeypatch, [])
+
+    assert captured.get("max_extension") is None
+
+
+def test_max_extension_changes_the_amplification_network(cache, genome):
+    """The reach the flag sets has to reach the object it names."""
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.unified_optimizer import _ensure_optimizers_registered
+
+    _ensure_optimizers_registered()
+    position_cache, prefix = cache
+
+    def hybrid(**kwargs):
+        return OptimizerFactory.create(
+            name="hybrid",
+            position_cache=position_cache,
+            fg_prefixes=[prefix],
+            fg_seq_lengths=[GENOME_LENGTH],
+            bg_prefixes=[],
+            bg_seq_lengths=[],
+            **kwargs,
+        )
+
+    assert hybrid(max_extension=5000)._hybrid.max_extension == 5000
+    assert hybrid(max_extension=None)._hybrid.max_extension == 70000

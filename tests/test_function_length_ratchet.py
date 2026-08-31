@@ -35,7 +35,7 @@ _BUDGETS = {
     # assigned here, so setting it in params.json silently did nothing. Adding a
     # parameter to the function whose job is assigning parameters is the fix;
     # the real remedy for the size is splitting this function, not this line.
-    "core/parameter.py::get_params": 542,
+    "core/parameter.py::get_params": 539,
     "core/unified_optimizer.py::run_optimization": 470,
     "core/hybrid_optimizer.py::optimize": 350,
     "core/report/technical_report.py::render_technical_report": 325,

@@ -1314,7 +1314,9 @@ class NetworkBaseOptimizer(BaseOptimizer):
             bg_prefixes=bg_prefixes or [],
             fg_seq_lengths=fg_seq_lengths,
             bg_seq_lengths=bg_seq_lengths or [],
-            max_extension=kwargs.get("max_extension", 70000),
+            # `or` rather than a dict default: an unset --max-extension arrives
+            # as an explicit None, which the default would not replace.
+            max_extension=kwargs.get("max_extension") or 70000,
             uniformity_weight=kwargs.get("uniformity_weight", 0.0),
             reaction_temp=kwargs.get("reaction_temp"),
             tm_weight=kwargs.get("tm_weight", 0.0),

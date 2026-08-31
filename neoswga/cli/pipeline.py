@@ -15,10 +15,12 @@ from neoswga.cli._common import (
     load_preset_conditions,
     merge_args_to_parameter,
     params_command,
+    report_unimplemented_options,
     set_size_shortfall_advice,
     setup_gpu_acceleration,
     validate_params_json_file,
 )
+from neoswga.cli._optimize_parser import _add_optimize_option_groups
 from neoswga.cli._params_preread import (
     apply_polymerase_choice,
     polymerase_from_params,
@@ -391,21 +393,7 @@ def run_step3(args):
             min_amp_pred = getattr(parameter, "min_amp_pred", None) or "auto"
             logger.info(f"Minimum amplification prediction score: {min_amp_pred}")
 
-        # Enhanced feature engineering
-        use_enhanced = getattr(args, "use_enhanced_features", False)
-        enhanced_model_path = getattr(args, "enhanced_model_path", None)
-
-        if use_enhanced:
-            from neoswga.core.rf_preprocessing import is_enhanced_model_available
-
-            if is_enhanced_model_available(enhanced_model_path):
-                logger.info("Using enhanced 120+ feature model")
-                parameter.use_enhanced_features = True
-                parameter.enhanced_model_path = enhanced_model_path
-            else:
-                logger.warning("Enhanced model not found, using standard model")
-                logger.warning("To train enhanced model: python scripts/train_enhanced_rf.py")
-                use_enhanced = False
+        report_unimplemented_options(args)
 
         # Scoring mode: fast (skip delta-G histograms) is the default.
         # --full-score opts back in to the full RF feature set.
@@ -531,6 +519,27 @@ _target_size_from_params = target_size_from_params
 _polymerase_from_params = polymerase_from_params
 
 
+def _resolve_qa_candidate_pool(args, parameter):
+    """The step-4 candidate pool under `--enable-qa`, or None to let the
+    optimizer load its own.
+
+    The pre-filter reads step3_df.csv, so `data_dir` has to be resolved before
+    the call; `run_optimization` initializes only once it is already loading
+    candidates itself. `enable_qa` is assigned either way, because several
+    steps can run in one process and a leftover True would enable QA nobody
+    asked for.
+    """
+    parameter.enable_qa = bool(getattr(args, "enable_qa", False))
+    if not parameter.enable_qa:
+        return None
+
+    from neoswga.core import pipeline as _core_pipeline
+    from neoswga.core.pipeline_qa_integration import qa_prefiltered_candidates
+
+    _core_pipeline._initialize()
+    return qa_prefiltered_candidates(parameter, verbose=not args.quiet)
+
+
 @params_command(merge=None)
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
@@ -559,22 +568,11 @@ def run_step4(args):
 
         logger.info(f"Optimization method: {args.optimization_method}")
         logger.info(f"Position cache: {args.use_position_cache}")
-        logger.info(f"Background filter: {args.use_background_filter}")
 
-        # GPU acceleration (with auto-detection)
+        report_unimplemented_options(args)
         setup_gpu_acceleration(args, parameter, quiet=args.quiet)
 
-        # QA integration (boolean flag). The pre-filter reads step3_df.csv, so
-        # data_dir has to be resolved here; run_optimization only initializes
-        # once it is already loading candidates itself.
-        _qa_candidates = None
-        parameter.enable_qa = bool(getattr(args, "enable_qa", False))
-        if parameter.enable_qa:
-            from neoswga.core import pipeline as _core_pipeline
-            from neoswga.core.pipeline_qa_integration import qa_prefiltered_candidates
-
-            _core_pipeline._initialize()
-            _qa_candidates = qa_prefiltered_candidates(parameter, verbose=not args.quiet)
+        _qa_candidates = _resolve_qa_candidate_pool(args, parameter)
 
         # Set num_primers from CLI or JSON file (special handling needed)
         if hasattr(args, "num_primers") and args.num_primers:
@@ -756,6 +754,8 @@ def run_step4(args):
         results, scores, cache = optimize_step4(
             candidates=_qa_candidates,  # None: the optimizer loads step3 itself
             use_cache=args.use_position_cache,
+            # Accepted by optimize_step4 and forwarded no further; the flag
+            # reports itself as not implemented. See _common.UNIMPLEMENTED_OPTIONS.
             use_background_filter=args.use_background_filter,
             optimization_method=args.optimization_method,
             verbose=not args.quiet,
@@ -777,6 +777,10 @@ def run_step4(args):
             # Explicit reach for coverage / set-cover selection. None leaves the
             # polymerase default in place; see coverage.resolve_coverage_reach.
             coverage_reach=getattr(args, "coverage_reach", None),
+            # Stage-2 amplification-network reach. None must stay None: the
+            # optimizers read an unset value as "take the polymerase preset",
+            # so a literal 70000 would overwrite bst's 2 kb on every bst run.
+            max_extension=getattr(args, "max_extension", None),
         )
 
         if results:
@@ -794,11 +798,11 @@ def run_step4(args):
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)
 
-        # MOEA Pareto front text table (Phase 14B). When MOEA has populated
-        # OptimizationResult.pareto_front, emit a plain-text tradeoff table
-        # in addition to the set-size frontier (which runs below). This
-        # surfaces NSGA-III's non-dominated solutions without needing Plotly
-        # or pandas.
+        # MOEA Pareto front text table (Phase 14B). Cannot currently fire:
+        # nothing assigns OptimizationResult.pareto_front, and the MOEA
+        # optimizers that would have were removed in 08044d9. The set-size
+        # frontier below is what --show-frontier actually prints today. Kept
+        # against a re-registered MOEA optimizer, and silent meanwhile.
         if show_frontier and results:
             from neoswga.core import unified_optimizer as _uo
 
@@ -1472,14 +1476,20 @@ def add_parsers(subparsers):
         "step3 output.",
     )
 
-    # Enhanced feature engineering options
+    # Enhanced feature engineering. Accepted, and not implemented: see
+    # _common.UNIMPLEMENTED_OPTIONS.
     score_parser.add_argument(
         "--use-enhanced-features",
         action="store_true",
-        help="Use enhanced 120+ feature model (requires enhanced_rf_model.pkl)",
+        help="Not implemented: scoring runs the standard random-forest "
+        "model whatever this is set to",
     )
     score_parser.add_argument(
-        "--enhanced-model-path", type=str, default=None, help="Path to enhanced random forest model"
+        "--enhanced-model-path",
+        type=str,
+        default=None,
+        help="Path to an enhanced random-forest model. Not implemented: no "
+        "scoring path loads it",
     )
 
     # =========================================================================
@@ -1552,190 +1562,7 @@ def add_parsers(subparsers):
     # reads as a control that was tried and found not to matter.
     # tests/test_design_options_have_effect.py holds the line for the rest.
 
-    # Background Filtering
-    opt_bg_group = optimize_parser.add_argument_group("Background Filtering")
-    opt_bg_group.add_argument(
-        "--use-background-filter",
-        action="store_true",
-        default=False,
-        help="Use Bloom filter for background filtering",
-    )
-    opt_bg_group.add_argument(
-        "--no-bg-prefilter",
-        action="store_true",
-        default=False,
-        help="Disable automatic background pre-filtering of candidates "
-        "(enabled by default when background genome data is available)",
-    )
-    opt_bg_group.add_argument(
-        "--background-bloom-path", type=str, help="Path to pre-built Bloom filter"
-    )
-    opt_bg_group.add_argument(
-        "--background-sampled-path", type=str, help="Path to pre-built sampled index"
-    )
-    opt_bg_group.add_argument(
-        "--no-background",
-        action="store_true",
-        default=False,
-        help="Host-free mode: optimize without background genome data. "
-        "Relies on intrinsic primer quality (Tm, complexity, evenness) "
-        "rather than fg/bg selectivity. Use when background genome is "
-        "unknown or unavailable.",
-    )
-
-    # Performance
-    opt_perf_group = optimize_parser.add_argument_group("Performance")
-    opt_perf_group.add_argument(
-        "--use-position-cache",
-        action="store_true",
-        default=True,
-        help="Use in-memory position cache (default: True, 1000x speedup)",
-    )
-    opt_perf_group.add_argument(
-        "--no-position-cache",
-        action="store_false",
-        dest="use_position_cache",
-        help="Disable position cache (slower)",
-    )
-    opt_perf_group.add_argument(
-        "--seed",
-        type=int,
-        default=None,
-        help="Random seed for reproducible results. Affects the network "
-        "refinement, ensemble re-seeding, RF k-mer sampling, and any "
-        "background pre-filtering. Required for clinical/regulated workflows.",
-    )
-    opt_perf_group.add_argument(
-        "-n",
-        "--num-primers",
-        type=int,
-        help="Number of primers to select (default: from params.json or 6)",
-    )
-    opt_perf_group.add_argument(
-        "--max-optimization-time",
-        type=int,
-        default=300,
-        help="Maximum optimization time in seconds (default: 300)",
-    )
-    opt_perf_group.add_argument(
-        "--max-extension",
-        type=int,
-        default=70000,
-        help="Maximum Phi29 extension length in bp (default: 70000)",
-    )
-    opt_perf_group.add_argument(
-        "--coverage-reach",
-        type=int,
-        default=None,
-        help="Per-primer extension reach in bp for coverage and set-cover "
-        "selection (default: the polymerase's realistic reach, phi29 ~3000). "
-        "This is NOT --max-extension, which is the amplification-network "
-        "reach. Coverage figures are not comparable across different reaches; "
-        "estimate this from data with 'neoswga calibrate-reach --bam'.",
-    )
-
-    # Set Size & Application
-    opt_size_group = optimize_parser.add_argument_group("Set Size & Application")
-    opt_size_group.add_argument(
-        "--auto-size",
-        action="store_true",
-        help="Automatically determine optimal primer set size based on "
-        "application profile and reaction conditions",
-    )
-    opt_size_group.add_argument(
-        "--application",
-        type=str,
-        choices=["balanced", "discovery", "clinical", "enrichment", "metagenomics"],
-        default="enrichment",
-        help="Application profile: "
-        "balanced (default scoring), "
-        "discovery (maximize sensitivity), "
-        "clinical (minimize false positives), "
-        "enrichment (balanced, default for auto-size), "
-        "metagenomics (capture diversity). "
-        "Drives --auto-size AND tunes normalized_score weights.",
-    )
-    opt_size_group.add_argument(
-        "--min-fg-bg-ratio",
-        type=float,
-        help="Minimum foreground/background binding site ratio. "
-        "Overrides application profile default. Higher values = more selective.",
-    )
-    opt_size_group.add_argument(
-        "--show-frontier",
-        action="store_true",
-        help="Show Pareto frontier of coverage vs fg/bg ratio tradeoffs "
-        "(requires matplotlib for plotting)",
-    )
-    opt_size_group.add_argument(
-        "--quick-estimate",
-        action="store_true",
-        help="Use quick estimation only for auto-size (skip full optimization at multiple sizes)",
-    )
-
-    # Mechanistic Model
-    opt_mech_group = optimize_parser.add_argument_group("Mechanistic Model")
-    opt_mech_group.add_argument(
-        "--use-mechanistic-model",
-        action="store_true",
-        help="Use mechanistic model for primer weighting during optimization",
-    )
-    opt_mech_group.add_argument(
-        "--mechanistic-weight",
-        type=float,
-        default=None,
-        help="Weight for mechanistic model in scoring (0.0-1.0, default 0.3 when "
-        "enabled). Setting this > 0 implies --use-mechanistic-model.",
-    )
-    opt_mech_group.add_argument(
-        "--template-gc",
-        type=float,
-        help="Template genome GC content (0-1). Auto-detected if not specified.",
-    )
-    opt_mech_group.add_argument(
-        "--uniformity-weight",
-        type=float,
-        default=None,
-        help="Weight for coverage uniformity in scoring (0.0-1.0). Higher "
-        "values prioritize even genome coverage over raw enrichment. Left "
-        "unset, the --application profile supplies it; 0.0 disables the term.",
-    )
-
-    # Post-processing
-    opt_post_group = optimize_parser.add_argument_group("Post-processing")
-    opt_post_group.add_argument(
-        "--minimize-primers",
-        action="store_true",
-        help="Post-process to minimize primer count while maintaining coverage",
-    )
-    opt_post_group.add_argument(
-        "--target-coverage",
-        type=float,
-        default=0.70,
-        help="Target genome coverage fraction when minimizing primers (default: 0.70)",
-    )
-    opt_post_group.add_argument(
-        "--min-per-target-coverage",
-        type=float,
-        default=0.0,
-        help="Multi-genome runs only: minimum coverage required on every "
-        "individual target. Below this, the post-optimization validator "
-        "flags a warning. Default 0.0 (disabled).",
-    )
-
-    # Validation
-    opt_val_group = optimize_parser.add_argument_group("Validation")
-    opt_val_group.add_argument(
-        "--validate-simulation",
-        action="store_true",
-        help="Validate results with stochastic simulation (Gillespie algorithm)",
-    )
-    opt_val_group.add_argument(
-        "--simulation-time",
-        type=float,
-        default=3600.0,
-        help="Simulation time in seconds (default: 3600)",
-    )
+    _add_optimize_option_groups(optimize_parser)
 
     # =========================================================================
     # UNIFIED: Complete pipeline (all 4 steps)

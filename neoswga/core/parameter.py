@@ -316,6 +316,12 @@ class PipelineParameters:
     # or on --coverage-reach overrides it.
     coverage_reach: Optional[int] = None
 
+    # Candidate ranking in step 2. None means "use the read site's default",
+    # which keeps one source of truth for it (pipeline.py).
+    occupancy_ranking: bool = True
+    occupancy_shortlist: Optional[int] = None
+    max_mismatches: Optional[int] = None
+
     # Polymerase and reaction conditions
     polymerase: str = "phi29"
     reaction_temp: Optional[float] = None
@@ -364,6 +370,7 @@ class PipelineParameters:
     # Bloom filter (for large backgrounds)
     use_bloom_filter: bool = False
     bloom_filter_path: Optional[str] = None
+    sampled_index_path: Optional[str] = None
 
     # Paths
     data_dir: str = ""
@@ -422,6 +429,9 @@ def get_current_config() -> PipelineParameters:
         gc_tolerance=globals().get("gc_tolerance", 0.15),
         genome_gc=globals().get("genome_gc", None),
         coverage_reach=globals().get("coverage_reach", None),
+        occupancy_ranking=globals().get("occupancy_ranking", True),
+        occupancy_shortlist=globals().get("occupancy_shortlist", None),
+        max_mismatches=globals().get("max_mismatches", None),
         polymerase=globals().get("polymerase", "phi29"),
         reaction_temp=globals().get("reaction_temp", None),
         na_conc=globals().get("na_conc", 50.0),
@@ -440,6 +450,7 @@ def get_current_config() -> PipelineParameters:
         min_sample_count=globals().get("min_sample_count", 5),
         use_bloom_filter=globals().get("use_bloom_filter", False),
         bloom_filter_path=globals().get("bloom_filter_path", None),
+        sampled_index_path=globals().get("sampled_index_path", None),
         data_dir=globals().get("data_dir", ""),
         src_dir=globals().get("src_dir", ""),
         fg_genomes=globals().get("fg_genomes", []) or [],
@@ -502,6 +513,9 @@ def set_from_config(config: PipelineParameters) -> None:
     g["gc_tolerance"] = config.gc_tolerance
     g["genome_gc"] = config.genome_gc
     g["coverage_reach"] = config.coverage_reach
+    g["occupancy_ranking"] = config.occupancy_ranking
+    g["occupancy_shortlist"] = config.occupancy_shortlist
+    g["max_mismatches"] = config.max_mismatches
 
     # Polymerase and reaction conditions
     g["polymerase"] = config.polymerase
@@ -533,6 +547,7 @@ def set_from_config(config: PipelineParameters) -> None:
     # Bloom filter
     g["use_bloom_filter"] = config.use_bloom_filter
     g["bloom_filter_path"] = config.bloom_filter_path
+    g["sampled_index_path"] = config.sampled_index_path
 
     # Paths
     g["data_dir"] = config.data_dir
@@ -595,9 +610,12 @@ long_primer_mode = False
 sample_rate = None  # None means disabled (use all k-mers)
 min_sample_count = 5
 
-# Bloom filter parameters for large background genome filtering
+# Bloom filter parameters for large background genome filtering.
+# `filter.py` reads sampled_index_path off this module, and its own
+# "index not found" message tells the user to set it in params.json.
 use_bloom_filter = False
 bloom_filter_path = None
+sampled_index_path = None
 
 # Polymerase and reaction condition parameters
 # polymerase: phi29 (30C), equiphi29 (42-45C), bst (60-65C), klenow (37C)
@@ -649,6 +667,14 @@ genome_gc = None
 # `unified_optimizer.run_optimization` reads this global, so get_params must
 # assign it or a params.json setting silently does nothing.
 coverage_reach = None
+
+# Step-2 candidate ranking. `pipeline.py` reads all three off this module, so
+# get_params must assign them or a params.json setting silently does nothing.
+# None on the latter two means "use the read site's default"
+# (DEFAULT_OCCUPANCY_SHORTLIST, and one mismatch class).
+occupancy_ranking = True
+occupancy_shortlist = None
+max_mismatches = None
 
 # Dimer and Tm constraints. These mirror the PipelineParameters defaults above
 # and exist as module globals so the filtering rules can run before get_params
@@ -801,6 +827,33 @@ def get_value_or_default(arg_value, data, key):
         return None
 
 
+def _apply_params_only_keys(data: dict) -> None:
+    """Assign the params.json keys that no CLI argument maps onto `args`.
+
+    Their read sites use `getattr(parameter, name, default)`, so a key that
+    reaches only `get_params`'s returned dict does nothing at all -- the defect
+    behind `coverage_reach` and the four keys beside it here. Each is declared
+    in `params.schema.json`, and `additionalProperties: true` means an
+    unassigned one produces no warning either.
+
+    Assigned unconditionally, so a second run in one process does not inherit
+    the first's values. A command-line flag still wins: `run_step2` merges args
+    onto this module after `pipeline._initialize()` has already called
+    `get_params`, so the flag lands last.
+    """
+    global coverage_reach
+    global occupancy_ranking
+    global occupancy_shortlist
+    global max_mismatches
+    global sampled_index_path
+
+    coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
+    occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
+    occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")
+    max_mismatches = data["max_mismatches"] = data.get("max_mismatches")
+    sampled_index_path = data["sampled_index_path"] = data.get("sampled_index_path")
+
+
 def get_params(args):
     """
     Writes the arguments of a pipeline instance to a json file for future use.
@@ -834,7 +887,6 @@ def get_params(args):
     global retries
     global src_dir
     global genome_gc
-    global coverage_reach
     global fg_genomes
     global fg_seq_lengths
     global bg_seq_lengths
@@ -1077,9 +1129,7 @@ def get_params(args):
             print(f"Auto-setting sample_rate={sample_rate:.1%} for {max_k}bp primers")
         data["sample_rate"] = sample_rate
 
-    # Optional params-only keys. Assigned unconditionally so a run without the
-    # key resets it rather than inheriting the previous run's value.
-    coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
+    _apply_params_only_keys(data)
     use_bloom_filter = data.get("use_bloom_filter", False)
     bloom_filter_path = data.get("bloom_filter_path", None)
 

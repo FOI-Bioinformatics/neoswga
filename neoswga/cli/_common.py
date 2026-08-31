@@ -415,14 +415,81 @@ def merge_args_to_parameter(args, parameter, param_names, mapping=None):
                 setattr(parameter, target_name, value)
 
 
-def setup_gpu_acceleration(args, parameter, quiet=False):
-    """
-    Configure GPU acceleration with auto-detection.
+UNIMPLEMENTED_MESSAGE = (
+    "{flag} is accepted but not implemented: {detail}. "
+    "The run continues with the option ignored."
+)
 
-    Auto-enables GPU if CuPy is available unless --no-gpu is specified.
-    Can be explicitly enabled with --use-gpu.
+# Options the parsers accept that no module consumes. They stay in the
+# interface because removing a published argument turns a working script into a
+# parse error, which is the repository owner's call; what they no longer do is
+# log a message that reads as confirmation. An entry here is a promise the tool
+# does not keep, so wiring an option means deleting its entry, not editing it.
+UNIMPLEMENTED_OPTIONS = {
+    "use_enhanced_features": (
+        "--use-enhanced-features",
+        "the scoring step runs the standard random-forest model in "
+        "neoswga/core/models/, and rf_preprocessing.predict_with_enhanced_"
+        "features has no caller in the pipeline",
+    ),
+    "enhanced_model_path": (
+        "--enhanced-model-path",
+        "no scoring path loads an enhanced model file",
+    ),
+    "use_background_filter": (
+        "--use-background-filter",
+        "optimize builds no Bloom filter; candidates are screened against the "
+        "background by the separate pre-filter that --no-bg-prefilter disables",
+    ),
+    "background_bloom_path": (
+        "--background-bloom-path",
+        "a pre-built Bloom filter is read only by improved_pipeline, which the "
+        "optimize command does not use; see --no-bg-prefilter for the screening "
+        "optimize does perform",
+    ),
+    "background_sampled_path": (
+        "--background-sampled-path",
+        "a pre-built sampled index is read only by improved_pipeline, which the "
+        "optimize command does not use; see --no-bg-prefilter for the screening "
+        "optimize does perform",
+    ),
+    "max_optimization_time": (
+        "--max-optimization-time",
+        "no optimizer enforces a wall-clock budget, so a long run is not " "interrupted",
+    ),
+}
+
+
+def report_unimplemented_options(args):
+    """Warn about each unconsumed option the caller actually set.
+
+    Returns the flags reported, so a caller can act on the list rather than
+    parse the log. An option left at its default is silent: only a request the
+    tool cannot honour is worth interrupting the user for.
     """
-    # Check if user explicitly disabled GPU
+    reported = []
+
+    for attr, (flag, detail) in UNIMPLEMENTED_OPTIONS.items():
+        value = getattr(args, attr, None)
+        if value is None or value is False:
+            continue
+        logger.warning(UNIMPLEMENTED_MESSAGE.format(flag=flag, detail=detail))
+        reported.append(flag)
+
+    return reported
+
+
+def setup_gpu_acceleration(args, parameter, quiet=False):
+    """Record the GPU request and report that it does not change the run.
+
+    `neoswga.core.gpu_acceleration` exists, but no pipeline stage dispatches to
+    it: neither `--use-gpu` nor CuPy being importable changes a result or a
+    runtime. The attributes are still written because they are part of the
+    parameter object's surface and cost nothing to keep.
+
+    `quiet` is accepted for call-site compatibility and does not suppress the
+    warning -- an option that cannot do what it says is not routine output.
+    """
     no_gpu = getattr(args, "no_gpu", False)
     use_gpu = getattr(args, "use_gpu", False)
 
@@ -431,24 +498,22 @@ def setup_gpu_acceleration(args, parameter, quiet=False):
         return
 
     if use_gpu:
-        # User explicitly requested GPU
         parameter.use_gpu = True
         parameter.gpu_device = getattr(args, "gpu_device", 0)
-        if not quiet:
-            logger.info(f"GPU acceleration enabled (device {parameter.gpu_device})")
+        logger.warning(
+            UNIMPLEMENTED_MESSAGE.format(
+                flag="--use-gpu",
+                detail=(
+                    "no pipeline stage dispatches to neoswga.core.gpu_acceleration, "
+                    "so results and runtime are unchanged whether or not CuPy is "
+                    "installed"
+                ),
+            )
+        )
         return
 
-    # Auto-detect GPU availability
-    try:
-        from neoswga.core.gpu_acceleration import is_gpu_available
-
-        if is_gpu_available():
-            parameter.use_gpu = True
-            parameter.gpu_device = getattr(args, "gpu_device", 0)
-            if not quiet:
-                logger.info(f"GPU auto-detected and enabled (device {parameter.gpu_device})")
-    except ImportError:
-        pass  # GPU module not available
+    parameter.use_gpu = False
+    logger.debug("GPU acceleration is not connected to any pipeline stage")
 
 
 # Preset configurations for reaction conditions
@@ -580,19 +645,24 @@ def add_common_options(parser):
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("-q", "--quiet", action="store_true", help="Minimal output")
 
-    # GPU acceleration (Category 1 orphaned feature)
+    # GPU acceleration. Accepted, and not implemented: see
+    # UNIMPLEMENTED_OPTIONS and setup_gpu_acceleration.
     parser.add_argument(
         "--use-gpu",
         action="store_true",
-        help="Use GPU acceleration (requires CuPy). Provides 10-100x speedup for large genomes",
+        help="Not implemented: no pipeline stage dispatches to the CuPy "
+        "backend, so this changes neither results nor runtime",
     )
     parser.add_argument(
         "--no-gpu",
         action="store_true",
-        help="Disable auto-GPU detection (GPU is auto-enabled when CuPy is available)",
+        help="Accepted for compatibility. No stage uses a GPU, so this is " "already the behaviour",
     )
     parser.add_argument(
-        "--gpu-device", type=int, default=0, help="GPU device ID to use (default: 0)"
+        "--gpu-device",
+        type=int,
+        default=0,
+        help="GPU device ID. Recorded and not used; see --use-gpu",
     )
 
     # Quality assurance (Category 3)
