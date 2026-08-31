@@ -495,7 +495,7 @@ sim.simulate_detailed(num_replicates=10, n_workers=4)  # 4 parallel workers
 
 ## Examples Gallery
 
-### Example: AT-rich Genome (Francisella, 32% GC)
+### Example: AT-rich Genome (Wolbachia, 35% GC)
 
 ```python
 # Expected results

@@ -7,7 +7,7 @@ This guide explains the new implementation and how to migrate from the old pipel
 ### Critical Fixes
 
 1. **Adaptive GC Filtering** (`adaptive_filters.py`)
-   - **Problem**: Fixed GC thresholds (37.5-62.5%) reject ALL primers for Francisella (33% GC) and Burkholderia (67% GC)
+   - **Problem**: Fixed GC thresholds (37.5-62.5%) reject ALL primers for Wolbachia (35% GC) and Burkholderia (67% GC)
    - **Solution**: Adaptive thresholds based on genome GC content
    - **Impact**: Algorithm now works for GC-extreme organisms
 
@@ -304,7 +304,7 @@ benchmark_cache_vs_hdf5(fg_prefixes, primers, iterations=1000)
 from neoswga.core.adaptive_filters import compare_filters
 
 compare_filters(primers, genome_seq)
-# For Francisella: Should accept primers with 20-45% GC
+# For Wolbachia: Should accept primers with 20-45% GC
 # For Burkholderia: Should accept primers with 55-80% GC
 
 # Test background filter
@@ -337,7 +337,7 @@ run_comparison(
 ```python
 # Test on known organisms
 test_organisms = [
-    ('Francisella tularensis', 1.89e6, 0.33),  # Low GC
+    ('Wolbachia', 1.27e6, 0.35),  # Low GC
     ('Burkholderia pseudomallei', 7.24e6, 0.68),  # High GC
     ('E. coli K12', 4.64e6, 0.51),  # Control
 ]

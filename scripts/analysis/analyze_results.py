@@ -212,7 +212,7 @@ class ResultsAnalyzer:
 
         successful = [r for r in self.results if r['success']]
 
-        for genome in ['francisella', 'burkholderia']:
+        for genome in ['wolbachia', 'burkholderia']:
             genome_results = [r for r in successful if r['genome'] == genome]
 
             if not genome_results:
@@ -404,15 +404,15 @@ class ResultsAnalyzer:
                     f"({np.mean([r['coverage_score'] for r in best_quality[1]]):.4f} average)")
         lines.append("")
 
-        # Francisella
-        franc_results = [r for r in successful if r['genome'] == 'francisella']
+        # Wolbachia
+        franc_results = [r for r in successful if r['genome'] == 'wolbachia']
         if franc_results:
             franc_by_method = defaultdict(list)
             for r in franc_results:
                 franc_by_method[r['optimization_method']].append(r)
             best_franc = max(franc_by_method.items(),
                            key=lambda x: np.mean([r['coverage_score'] for r in x[1]]))
-            lines.append(f"**For Francisella (low GC)**: Use `{best_franc[0]}`")
+            lines.append(f"**For Wolbachia (low GC)**: Use `{best_franc[0]}`")
             lines.append("")
 
         # Burkholderia

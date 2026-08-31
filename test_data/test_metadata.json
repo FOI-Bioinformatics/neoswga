@@ -3,8 +3,8 @@
   "primer_length": 12,
   "target_primers_per_genome": 500,
   "genomes": {
-    "francisella": {
-      "genome_name": "francisella",
+    "wolbachia": {
+      "genome_name": "wolbachia",
       "genome_length": 1892775,
       "gc_content": 0.3225935465123958,
       "gc_min": 0.2,
@@ -12,8 +12,8 @@
       "gc_tolerance": 0.15,
       "n_primers": 500,
       "primer_length": 12,
-      "h5_file": "test_data/francisella_test.h5",
-      "primer_file": "test_data/francisella_primers.txt",
+      "h5_file": "test_data/wolbachia_test.h5",
+      "primer_file": "test_data/wolbachia_primers.txt",
       "total_positions": 1188
     },
     "burkholderia": {

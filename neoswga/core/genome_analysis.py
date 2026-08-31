@@ -29,9 +29,9 @@ def calculate_genome_gc(genome_path: Union[str, Path]) -> float:
         GC content as fraction (0-1)
 
     Examples:
-        >>> gc = calculate_genome_gc("francisella.fasta")
-        >>> print(f"Francisella GC: {gc:.1%}")
-        Francisella GC: 32.3%
+        >>> gc = calculate_genome_gc("wolbachia.fasta")
+        >>> print(f"Wolbachia GC: {gc:.1%}")
+        Wolbachia GC: 32.3%
 
     Raises:
         FileNotFoundError: If genome file doesn't exist
@@ -86,7 +86,7 @@ def calculate_genome_stats(genome_path: Union[str, Path]) -> Dict[str, float]:
         - gc_std: Standard deviation of GC across 10kb windows
 
     Example:
-        >>> stats = calculate_genome_stats("francisella.fasta")
+        >>> stats = calculate_genome_stats("wolbachia.fasta")
         >>> print(f"GC: {stats['gc_content']:.1%}, Length: {stats['length']:,} bp")
         GC: 32.3%, Length: 1,892,775 bp
     """
@@ -155,7 +155,7 @@ def get_gc_class(gc_content: float) -> str:
 
     Classification:
         - Extreme AT-rich: <25% GC (e.g., Plasmodium 19%)
-        - AT-rich: 25-40% GC (e.g., Francisella 32%, Wolbachia 34%)
+        - AT-rich: 25-40% GC (e.g., Wolbachia 35%, P. falciparum 19%)
         - Balanced: 40-60% GC (e.g., E. coli 50%)
         - GC-rich: 60-70% GC (e.g., Mycobacterium 66%, Burkholderia 67%)
         - Extreme GC-rich: >70% GC (e.g., Streptomyces 72%)
@@ -199,7 +199,7 @@ def recommend_adaptive_qa(genome_gc: float) -> Dict[str, Union[bool, str]]:
         - expected_improvement: Estimated coverage improvement
 
     Examples:
-        >>> rec = recommend_adaptive_qa(0.32)  # Francisella
+        >>> rec = recommend_adaptive_qa(0.35)  # Wolbachia
         >>> print(rec['use_adaptive'])
         True
         >>> print(rec['reason'])
@@ -270,7 +270,7 @@ def analyze_genome_for_qa(genome_path: Union[str, Path]) -> Dict:
         - suggested_stringency: Recommended QA stringency level
 
     Example:
-        >>> analysis = analyze_genome_for_qa("francisella.fasta")
+        >>> analysis = analyze_genome_for_qa("wolbachia.fasta")
         >>> print(f"GC: {analysis['gc_content']:.1%}")
         GC: 32.3%
         >>> print(f"Class: {analysis['gc_class']}")
@@ -513,7 +513,7 @@ def _gc_class_description(gc_class: str) -> str:
     """Get human-readable description for GC class."""
     descriptions = {
         "extreme_at": "Extreme AT-rich (like Plasmodium, <25% GC)",
-        "at_rich": "AT-rich (like Francisella, Wolbachia, 25-40% GC)",
+        "at_rich": "AT-rich (like Wolbachia, P. falciparum, 25-40% GC)",
         "balanced": "Balanced (like E. coli, 40-60% GC)",
         "gc_rich": "GC-rich (like Mycobacterium, Burkholderia, 60-70% GC)",
         "extreme_gc": "Extreme GC-rich (like Streptomyces, >70% GC)",
@@ -687,7 +687,7 @@ if __name__ == "__main__":
     else:
         print("Usage: python genome_analysis.py <genome.fasta> [output_dir]")
         print("\nExample genomes to test:")
-        print("  - Francisella (32% GC, AT-rich)")
+        print("  - Wolbachia (35% GC, AT-rich)")
         print("  - E. coli (50% GC, balanced)")
         print("  - Burkholderia (67% GC, GC-rich)")
         raise SystemExit(1)

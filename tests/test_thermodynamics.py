@@ -170,8 +170,8 @@ class TestLiteratureValidation:
         tm_range = max(tms) - min(tms)
         assert tm_range < 50
 
-    def test_francisella_primer_low_gc(self):
-        """Test primer for Francisella tularensis (low GC)."""
+    def test_wolbachia_primer_low_gc(self):
+        """Test primer for Wolbachia (low GC)."""
         primer = "AATATATATAT"
         assert gc_content(primer) < 0.2
         tm = calculate_tm_with_salt(primer)

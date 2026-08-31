@@ -49,8 +49,8 @@ class TestGCDeviation(unittest.TestCase):
 
     def test_at_rich_genome(self):
         """AT-rich genome should have negative deviation."""
-        deviation = calculate_gc_deviation(0.32)  # Francisella
-        self.assertAlmostEqual(deviation, -0.18, places=6)
+        deviation = calculate_gc_deviation(0.35)  # Wolbachia
+        self.assertAlmostEqual(deviation, -0.15, places=6)
 
     def test_gc_rich_genome(self):
         """GC-rich genome should have positive deviation."""
@@ -76,8 +76,8 @@ class TestAdaptiveTerminalTm(unittest.TestCase):
         tm = calculate_adaptive_terminal_tm(14.0, 0.50, "moderate")
         self.assertAlmostEqual(tm, 14.0, places=1)
 
-    def test_francisella_moderate(self):
-        """Francisella (32% GC) should reduce terminal Tm."""
+    def test_wolbachia_moderate(self):
+        """Wolbachia (35% GC) should reduce terminal Tm."""
         tm = calculate_adaptive_terminal_tm(14.0, 0.32, "moderate")
         # Expected: 14 + (-0.18) * (20/0.35) = 14 - 10.3 = 3.7, but floored at 8.0
         self.assertAlmostEqual(tm, 8.0, places=1)
@@ -108,8 +108,8 @@ class TestAdaptiveGCRange(unittest.TestCase):
         self.assertAlmostEqual(min_gc, 0.35, places=2)
         self.assertAlmostEqual(max_gc, 0.65, places=2)
 
-    def test_francisella(self):
-        """Francisella (32% GC) should have AT-shifted range."""
+    def test_wolbachia(self):
+        """Wolbachia (35% GC) should have AT-shifted range."""
         min_gc, max_gc = calculate_adaptive_gc_range(0.32)
         self.assertAlmostEqual(min_gc, 0.17, places=2)
         self.assertAlmostEqual(max_gc, 0.47, places=2)
@@ -139,8 +139,8 @@ class TestAdaptiveDimerThreshold(unittest.TestCase):
         threshold = calculate_adaptive_dimer_threshold(-9.0, 0.50)
         self.assertAlmostEqual(threshold, -9.0, places=1)
 
-    def test_francisella(self):
-        """Francisella (32% GC) should have more lenient threshold."""
+    def test_wolbachia(self):
+        """Wolbachia (35% GC) should have more lenient threshold."""
         threshold = calculate_adaptive_dimer_threshold(-9.0, 0.32)
         # Expected: -9.0 - (-0.18) * (3/0.35) = -9.0 + 1.54 = -7.46
         self.assertAlmostEqual(threshold, -7.46, places=1)
@@ -173,7 +173,7 @@ class TestGCClassification(unittest.TestCase):
         self.assertEqual(gc_class, "extreme_at")
 
     def test_at_rich(self):
-        """Francisella (32% GC) should be at_rich."""
+        """Wolbachia (35% GC) should be at_rich."""
         gc_class = get_gc_class(0.32)
         self.assertEqual(gc_class, "at_rich")
 
@@ -204,8 +204,8 @@ class TestGCClassification(unittest.TestCase):
 class TestAdaptiveQARecommendations(unittest.TestCase):
     """Test adaptive QA recommendations."""
 
-    def test_francisella_recommendation(self):
-        """Francisella should recommend adaptive QA."""
+    def test_wolbachia_recommendation(self):
+        """Wolbachia should recommend adaptive QA."""
         rec = recommend_adaptive_qa(0.32)
         self.assertTrue(rec["use_adaptive"])
         self.assertEqual(rec["gc_class"], "at_rich")
@@ -316,15 +316,15 @@ class TestAdaptiveAnalyzerCreation(unittest.TestCase):
 class TestAdaptiveQAEndToEnd(unittest.TestCase):
     """End-to-end tests of adaptive QA system."""
 
-    def test_francisella_at_rich_primer(self):
-        """Test that AT-rich primers score better with Francisella adaptive QA."""
+    def test_wolbachia_at_rich_primer(self):
+        """Test that AT-rich primers score better with Wolbachia adaptive QA."""
         at_rich_primer = "ATATATATATAT"
 
         # Standard QA
         scorer_std = create_quality_scorer("moderate")
         score_std = scorer_std.score_primer(at_rich_primer)
 
-        # Adaptive QA for Francisella
+        # Adaptive QA for Wolbachia
         scorer_adaptive = create_quality_scorer("moderate", genome_gc=0.32)
         score_adaptive = scorer_adaptive.score_primer(at_rich_primer)
 

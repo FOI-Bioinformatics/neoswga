@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Create test dataset from real Francisella and Burkholderia genomes.
+Create test dataset from real Wolbachia and Burkholderia genomes.
 
 Extracts representative genome regions and generates candidate primers
 for systematic benchmarking of different argument combinations.
@@ -48,7 +48,7 @@ class TestDatasetGenerator:
         # Paths to real genomes
         self.genome_dir = Path("/Users/andreassjodin/Code/swga-dev/test")
         self.genome_files = {
-            'francisella': self.genome_dir / "francisella_GCF_000008985.1_ASM898v1_genomic.fna",
+            'wolbachia': self.genome_dir / "wolbachia_GCF_000008985.1_ASM898v1_genomic.fna",
             'burkholderia': self.genome_dir / "burkholderia_GCF_030297255.1_ASM3029725v1_genomic.fna",
             'bacillus': self.genome_dir / "bacillus_GCF_000008445.1_ASM844v1_genomic.fna",
             'ecoli': self.genome_dir / "ecoli_GCF_000005845.2_ASM584v2_genomic.fna",

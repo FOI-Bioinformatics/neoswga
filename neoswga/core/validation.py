@@ -179,16 +179,16 @@ class ValidationSuite:
         details = {}
 
         try:
-            # Test with Francisella (33% GC)
-            francisella_filter = AdaptiveGCFilter(genome_gc=0.33, tolerance=0.15)
+            # Test with Wolbachia (35% GC)
+            wolbachia_filter = AdaptiveGCFilter(genome_gc=0.35, tolerance=0.15)
 
             # This primer has 25% GC (2/8)
             low_gc_primer = "AAATAACG"
             gc_content = sum(1 for b in low_gc_primer if b in "GC") / len(low_gc_primer)
 
             # Should PASS (within 33% ± 15%)
-            if not francisella_filter.passes(low_gc_primer):
-                details["error"] = f"Francisella filter rejected {gc_content:.1%} GC primer"
+            if not wolbachia_filter.passes(low_gc_primer):
+                details["error"] = f"Wolbachia filter rejected {gc_content:.1%} GC primer"
                 return False, details
 
             # Test with Burkholderia (67% GC)
@@ -227,7 +227,7 @@ class ValidationSuite:
             low_gc_fails_old = (low_gc_content < 0.375) or (low_gc_content > 0.625)
             high_gc_fails_old = (gc_content < 0.375) or (gc_content > 0.625)
 
-            details["francisella_fix"] = (
+            details["wolbachia_fix"] = (
                 "low_gc_primer now passes (was rejected by old filter)"
                 if low_gc_fails_old
                 else "n/a"
@@ -240,7 +240,7 @@ class ValidationSuite:
 
             if self.verbose:
                 logger.info(
-                    f"Francisella (33% GC): Accepts {francisella_filter.gc_min:.1%}-{francisella_filter.gc_max:.1%} GC"
+                    f"Wolbachia (35% GC): Accepts {wolbachia_filter.gc_min:.1%}-{wolbachia_filter.gc_max:.1%} GC"
                 )
                 logger.info(
                     f"Burkholderia (67% GC): Accepts {burkholderia_filter.gc_min:.1%}-{burkholderia_filter.gc_max:.1%} GC"

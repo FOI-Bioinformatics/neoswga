@@ -1,7 +1,7 @@
 """Behavioural tests for the adaptive filtering pipeline.
 
 `adaptive_filters` is the path that lets extreme-GC organisms work at all: a
-fixed 37.5-62.5% primer GC window rejects everything for Francisella (33% GC) or
+fixed 37.5-62.5% primer GC window rejects everything for Wolbachia (35% GC) or
 Burkholderia (67% GC). Its filters were changed earlier in this audit so that
 strongly AT-rich targets are not excluded by a positive lower bound -- published
 sets against *P. falciparum* and *Borrelia* use primers with zero GC.
@@ -28,7 +28,7 @@ from neoswga.core.parameter import EXTREME_AT_GENOME_GC, EXTREME_GC_GENOME_GC
 
 @pytest.mark.parametrize(
     "genome_gc,label",
-    [(0.33, "Francisella"), (0.50, "E. coli"), (0.67, "Burkholderia")],
+    [(0.35, "Wolbachia"), (0.50, "E. coli"), (0.67, "Burkholderia")],
 )
 def test_window_is_centred_on_the_genome_for_normal_targets(genome_gc, label):
     """The whole point: a primer matching the target's composition must pass."""

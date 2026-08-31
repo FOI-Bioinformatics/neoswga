@@ -516,9 +516,9 @@ def filter_primers_by_three_prime_stability(
 # The following functions implement genome-adaptive QA thresholds that adjust
 # terminal Tm requirements based on target genome GC content. This solves the
 # GC bias problem where standard thresholds (14°C) favor GC-rich primers,
-# causing poor coverage for AT-rich genomes like Francisella (32% GC).
+# causing poor coverage for AT-rich genomes like Wolbachia (35% GC).
 #
-# Research: FRANCISELLA_COVERAGE_ANALYSIS.md (2025-11-23)
+# Research: WOLBACHIA_COVERAGE_ANALYSIS.md (2025-11-23)
 # Problem: QA filters select 39-40% GC primers from 32% GC genome (+7-8% bias)
 # Solution: Scale terminal Tm by genome GC deviation from balanced (50%)
 # ============================================================================
@@ -538,7 +538,7 @@ def calculate_gc_deviation(genome_gc: float) -> float:
     Examples:
         >>> calculate_gc_deviation(0.19)  # Plasmodium
         -0.31
-        >>> calculate_gc_deviation(0.32)  # Francisella
+        >>> calculate_gc_deviation(0.35)  # Wolbachia
         -0.18
         >>> calculate_gc_deviation(0.50)  # E. coli
         0.0
@@ -572,7 +572,7 @@ def calculate_adaptive_terminal_tm(
         Adjusted terminal Tm threshold in degrees Celsius
 
     Examples:
-        Francisella (32% GC, moderate):
+        Wolbachia (35% GC, moderate):
             base=14°C, gc=0.32 → adjustment=-10.3°C → final=8.0°C (floor)
 
         Burkholderia (67% GC, moderate):
@@ -592,7 +592,7 @@ def calculate_adaptive_terminal_tm(
     # Scale factor: 20°C per 0.35 GC deviation
     # This means:
     #   Plasmodium (19% GC, dev=-0.31) → -17.7°C adjustment
-    #   Francisella (32% GC, dev=-0.18) → -10.3°C adjustment
+    #   Wolbachia (35% GC, dev=-0.15) → -10.3°C adjustment
     #   Burkholderia (67% GC, dev=+0.17) → +9.7°C adjustment
     #   Streptomyces (72% GC, dev=+0.22) → +12.6°C adjustment
     tm_adjustment = gc_deviation * (20.0 / 0.35)
@@ -640,7 +640,7 @@ def create_three_prime_analyzer_adaptive(
         Configured ThreePrimeStabilityAnalyzer with genome-adaptive thresholds
 
     Examples:
-        # Francisella (32% GC, AT-rich)
+        # Wolbachia (35% GC, AT-rich)
         >>> analyzer = create_three_prime_analyzer_adaptive(
         ...     genome_gc=0.32,
         ...     stringency='moderate'
@@ -657,7 +657,7 @@ def create_three_prime_analyzer_adaptive(
         # Maintains quality for GC-rich primers
 
     Expected Impact:
-        - Francisella: Coverage increases from 33.7% → 60-70%
+        - Wolbachia: Coverage increases from 33.7% → 60-70%
         - Burkholderia: Coverage increases from 40-50% → 60-70%
         - Primer GC matches genome GC (±3% vs current ±8%)
         - Enrichment maintains >80% of baseline

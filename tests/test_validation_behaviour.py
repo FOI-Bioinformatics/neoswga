@@ -80,12 +80,12 @@ def test_adaptive_gc_filter_reports_pass_that_matches_the_real_filter_decision()
 
 
 def test_adaptive_gc_filter_low_gc_primer_check_uses_its_own_measurement():
-    """The Francisella (low-GC) branch must be evaluated against its own primer's GC.
+    """The Wolbachia (low-GC) branch must be evaluated against its own primer's GC.
 
     Before the fix, `low_gc_fails_old` was computed from a `gc_content`
     variable that had already been overwritten by the high-GC primer's value
     (the two primers share one variable name in the source), so the low-GC
-    check was silently testing the wrong number. Confirm the francisella_fix
+    check was silently testing the wrong number. Confirm the wolbachia_fix
     detail reflects the actual low-GC primer ("AAATAACG", 25% GC).
     """
     low_gc_primer = "AAATAACG"
@@ -97,7 +97,7 @@ def test_adaptive_gc_filter_low_gc_primer_check_uses_its_own_measurement():
     suite = ValidationSuite(verbose=False)
     passed, details = suite.test_adaptive_gc_filter()
     assert passed
-    assert details["francisella_fix"] == "low_gc_primer now passes (was rejected by old filter)"
+    assert details["wolbachia_fix"] == "low_gc_primer now passes (was rejected by old filter)"
 
 
 # ----------------------------------------------------------------------

@@ -606,7 +606,7 @@ released rather than centred on the genome mean:
 |---|---|---|
 | *P. falciparum* | 0.19 | **0.00**–0.34 |
 | *B. burgdorferi* | 0.28 | **0.00**–0.43 |
-| *Francisella* | 0.33 | 0.18–0.48 |
+| *Wolbachia* | 0.35 | 0.20–0.50 |
 | *E. coli* | 0.50 | 0.35–0.65 |
 | *Burkholderia* | 0.67 | 0.52–0.82 |
 | GC-rich | 0.72 | 0.57–**1.00** |

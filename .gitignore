@@ -98,8 +98,6 @@ dmypy.json
 
 # Project-specific
 # Large test output directories (regenerated as needed)
-francisella_equiphi29/
-francisella_test/
 neoswga_results/
 
 # Benchmark outputs (regenerated)
@@ -140,8 +138,6 @@ tests/integration/**/human_*.fasta
 tests/integration/**/data/
 
 # Integration test working directories (local experiments)
-tests/integration/francisella_clinical/
-tests/integration/francisella_e2e/
 tests/integration/equiphi29_long/
 tests/integration/equiphi29_validation/
 tests/integration/equiphi29_full_factorial/
