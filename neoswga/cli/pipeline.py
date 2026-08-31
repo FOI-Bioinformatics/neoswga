@@ -536,6 +536,12 @@ def _resolve_qa_candidate_pool(args, parameter):
     from neoswga.core import pipeline as _core_pipeline
     from neoswga.core.pipeline_qa_integration import qa_prefiltered_candidates
 
+    # `_initialize()` reads parameter.json_file, a global, and loads an empty
+    # configuration in silence if it is unset. run_step4 assigns it too; the
+    # invariant is per-caller, not per-command.
+    if hasattr(args, "json_file") and args.json_file:
+        parameter.json_file = args.json_file
+
     _core_pipeline._initialize()
     return qa_prefiltered_candidates(parameter, verbose=not args.quiet)
 
