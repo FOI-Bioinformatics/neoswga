@@ -54,7 +54,7 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 **Performance**:
 - `position_cache.py`: In-memory position cache (1000x speedup)
 - `background_filter.py`: Bloom filter for large background genomes
-- `gpu_acceleration.py`: CuPy-based GPU acceleration for thermodynamics (10-100x speedup)
+- `gpu_acceleration.py`: CuPy-based thermodynamics helpers. Not reached by any pipeline stage, and `--use-gpu` says so rather than claiming otherwise. `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in Python writing element-by-element into a CuPy array, which is slower than the NumPy path it replaces
 
 **Simulation**:
 - `replication_simulator.py`: Agent-based phi29 DNA replication simulation
@@ -344,7 +344,11 @@ positions = cache.get_positions('data/target', 'ATCGATCG', strand='both')
 
 ### GPU Acceleration
 
-Optional CuPy-based GPU acceleration:
+A library-only CuPy path. No pipeline stage calls it, so `--use-gpu` /
+`--gpu-device` change neither results nor runtime and report that they are not
+implemented. `batch_calculate_tm` is not a speedup — it iterates in Python and
+assigns into a CuPy array element by element, which is slower than the NumPy
+fallback. `batch_binding_probability` is the one genuinely vectorised routine.
 
 ```python
 from neoswga.core.gpu_acceleration import is_gpu_available, get_gpu_info, GPUThermodynamics
@@ -354,7 +358,7 @@ if is_gpu_available():
     print(f"GPU: {info['device_name']}")
 
     gpu_calc = GPUThermodynamics(conditions)
-    tms = gpu_calc.batch_calculate_tm(primers)  # 10-100x faster
+    tms = gpu_calc.batch_calculate_tm(primers)
 ```
 
 ### Reaction Conditions

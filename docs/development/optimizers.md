@@ -340,7 +340,7 @@ class MyOptimizer(BaseOptimizer):
 ```
 
 Key data classes:
-- `OptimizerConfig`: Common configuration (target_size, max_iterations, timeout_seconds, min_coverage)
+- `OptimizerConfig`: Common configuration (target_set_size, max_iterations, extension_reach, Tm and dimer bounds). There is no `timeout_seconds` field and no optimizer has a wall-clock budget, which is why `--max-optimization-time` reports itself as not implemented
 - `OptimizationResult`: Frozen result container (primer_set, metrics, status, message)
 - `PrimerSetMetrics`: Comprehensive metrics (coverage, selectivity, dimer risk, gap stats, strand alternation) with a `normalized_score()` method for cross-optimizer comparison
 - `OptimizationStatus`: Enum (SUCCESS, PARTIAL, NO_CONVERGENCE, ERROR)
