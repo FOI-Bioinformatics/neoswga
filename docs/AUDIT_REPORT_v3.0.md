@@ -50,7 +50,7 @@ NeoSWGA is an ambitious and architecturally sound primer design tool with strong
 ### Strengths
 - **SantaLucia (1998) NN parameters correctly implemented** with all 10 canonical stacks verified
 - **Comprehensive literature citations** throughout (Owczarzy 2008, Rees 1993, Blanco 1989, etc.)
-- **Adaptive GC filtering** solves a real problem for extreme-GC organisms (Francisella, Burkholderia)
+- **Adaptive GC filtering** solves a real problem for extreme-GC organisms (AT-rich and GC-rich targets)
 - **Four-pathway mechanistic model** is novel and scientifically ambitious
 - **Additive chemistry** well-modeled with Arrhenius kinetics and sigmoid GC-normalization
 
