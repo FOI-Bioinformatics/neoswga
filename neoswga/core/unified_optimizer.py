@@ -390,6 +390,49 @@ def _build_optimizer_config(target_size, verbose, extension_reach, fg_circular, 
     )
 
 
+_SELECTION_WEIGHT_KEYS = ("tm_weight", "uniformity_weight", "dimer_penalty")
+
+
+def _resolve_selection_weights(kwargs: dict, application, verbose: bool) -> None:
+    """Fill the selection weights from the `--application` profile in place.
+
+    These three knobs shape the greedy selection inside NetworkOptimizer, so
+    `--application` changes which primers are returned rather than only how
+    they are displayed.
+
+    None means "the caller expressed no preference"; 0.0 is a preference and
+    is kept. The two cannot be told apart once a caller has substituted a
+    concrete default, which is how the profile's `uniformity_weight` came to
+    be unreachable: `optimize_step4` and the CLI forwarded 0.0 on every call,
+    so the key was always present and the profile could never be installed.
+    The sentinel therefore has to survive from argparse down to here.
+    """
+    for key in _SELECTION_WEIGHT_KEYS:
+        if key in kwargs and kwargs[key] is None:
+            del kwargs[key]
+
+    if not application:
+        return
+
+    try:
+        from .base_optimizer import OPTIMIZER_APPLICATION_WEIGHTS
+
+        profile = OPTIMIZER_APPLICATION_WEIGHTS.get(
+            str(application).lower(), OPTIMIZER_APPLICATION_WEIGHTS["balanced"]
+        )
+        for key, value in profile.items():
+            kwargs.setdefault(key, value)
+        if verbose:
+            logger.info(
+                f"application='{application}' → selection weights applied: "
+                f"tm={kwargs['tm_weight']:.2f}, "
+                f"uniformity={kwargs['uniformity_weight']:.2f}, "
+                f"dimer_penalty={kwargs['dimer_penalty']:.2f}"
+            )
+    except Exception as e:
+        logger.debug(f"application weight lookup skipped: {e}")
+
+
 def _collect_forbidden_primers(candidates, verbose: bool) -> list:
     """Candidates that exceed the blacklist frequency ceiling.
 
@@ -707,32 +750,8 @@ def run_optimization(
     # `_conditions_init_error` populated for validator-banner reporting
     # further down).
 
-    # Route `--application` into NetworkOptimizer's selection
-    # knobs (tm_weight, uniformity_weight, dimer_penalty) so clinical users
-    # actually get more-selective primer sets, not just a different
-    # display ordering. Caller-supplied values (via kwargs) always win
-    # over the application preset so the CLI-level --tm-weight etc.
-    # continue to work.
     _application = kwargs.pop("application", None)
-    if _application:
-        try:
-            from .base_optimizer import OPTIMIZER_APPLICATION_WEIGHTS
-
-            _w = OPTIMIZER_APPLICATION_WEIGHTS.get(
-                (_application or "balanced").lower(),
-                OPTIMIZER_APPLICATION_WEIGHTS["balanced"],
-            )
-            for weight_key, weight_val in _w.items():
-                kwargs.setdefault(weight_key, weight_val)
-            if verbose:
-                logger.info(
-                    f"application='{_application}' → selection weights: "
-                    f"tm={_w['tm_weight']:.2f}, "
-                    f"uniformity={_w['uniformity_weight']:.2f}, "
-                    f"dimer_penalty={_w['dimer_penalty']:.2f}"
-                )
-        except Exception as e:
-            logger.debug(f"application weight lookup skipped: {e}")
+    _resolve_selection_weights(kwargs, _application, verbose)
 
     # Ensemble path: run several methods on the SAME position cache and keep
     # the best by normalized_score. Falls through to the shared
@@ -1197,7 +1216,7 @@ def optimize_step4(
     use_background_filter: bool = True,
     optimization_method: str = "hybrid",
     verbose: bool = True,
-    uniformity_weight: float = 0.0,
+    uniformity_weight: Optional[float] = None,
     minimize_primers: bool = False,
     target_coverage: float = 0.70,
     **kwargs,
@@ -1213,7 +1232,9 @@ def optimize_step4(
         use_background_filter: Use background filtering
         optimization_method: Optimizer method name
         verbose: Print progress
-        uniformity_weight: Weight for coverage uniformity
+        uniformity_weight: Weight for coverage uniformity. None leaves it to
+            the `--application` profile (see _resolve_selection_weights);
+            0.0 is an explicit request for no uniformity term.
         minimize_primers: Minimize primer count
         target_coverage: Target coverage for minimization
         **kwargs: Additional parameters

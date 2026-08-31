@@ -715,10 +715,12 @@ def run_step4(args):
         # Use unified optimizer framework (all methods handled via factory pattern)
         from neoswga.core.unified_optimizer import list_available_optimizers, optimize_step4
 
-        # Get uniformity weight from args (default 0.0 for backward compatibility)
-        uniformity_weight = getattr(args, "uniformity_weight", 0.0)
-        if uniformity_weight > 0:
-            logger.info(f"Uniformity weight: {uniformity_weight:.2f}")
+        # None means the flag was not given, and the --application profile
+        # supplies the weight downstream. Substituting 0.0 here would make the
+        # profile unreachable, since the key would always be present.
+        uniformity_weight = getattr(args, "uniformity_weight", None)
+        if uniformity_weight is not None:
+            logger.info(f"Uniformity weight: {uniformity_weight:.2f} (explicit)")
 
         # Get minimal primer selection options
         minimize_primers = getattr(args, "minimize_primers", False)
@@ -1686,9 +1688,10 @@ def add_parsers(subparsers):
     opt_mech_group.add_argument(
         "--uniformity-weight",
         type=float,
-        default=0.0,
-        help="Weight for coverage uniformity in scoring (0.0-1.0, default: 0.0). "
-        "Higher values prioritize even genome coverage over raw enrichment.",
+        default=None,
+        help="Weight for coverage uniformity in scoring (0.0-1.0). Higher "
+        "values prioritize even genome coverage over raw enrichment. Left "
+        "unset, the --application profile supplies it; 0.0 disables the term.",
     )
 
     # Post-processing
