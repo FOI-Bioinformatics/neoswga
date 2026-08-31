@@ -5,9 +5,10 @@ Verifies that the uniformity_weight parameter properly influences
 primer selection to achieve more uniform coverage.
 """
 
-import pytest
+from unittest.mock import MagicMock, Mock
+
 import numpy as np
-from unittest.mock import Mock, MagicMock
+import pytest
 
 
 class TestUniformityScoring:
@@ -161,6 +162,7 @@ class TestCLIUniformityOption:
     def test_cli_has_uniformity_weight_option(self):
         """CLI should have --uniformity-weight option."""
         import argparse
+
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
@@ -171,13 +173,19 @@ class TestCLIUniformityOption:
         assert args.uniformity_weight == 0.3
 
     def test_cli_uniformity_weight_default(self):
-        """Default uniformity-weight should be 0.0."""
+        """Default uniformity-weight is the unset sentinel, not 0.0.
+
+        A concrete 0.0 here is indistinguishable from a user asking for 0.0,
+        and it made the --application profile's uniformity_weight unreachable.
+        The optimizer still runs at 0.0 when no profile supplies a value; see
+        tests/test_application_selection_weights.py.
+        """
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
         args = parser.parse_args(["optimize", "-j", "test.json"])
 
-        assert args.uniformity_weight == 0.0
+        assert args.uniformity_weight is None
 
 
 if __name__ == "__main__":
