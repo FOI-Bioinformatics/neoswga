@@ -116,7 +116,13 @@ discriminates — or retire the stage. What should not persist is a stage that
 looks load-bearing, costs a pipeline step, and changes nothing. Settling the
 provenance question is the prerequisite for either path.
 
-### F1 (HIGH) `coverage_reach` in params.json is ignored
+### F1 (HIGH) `coverage_reach` in params.json is ignored — FIXED
+
+> **Fixed.** `get_params` now assigns the `coverage_reach` global (and carries it
+> on `PipelineParameters`, so a config round-trip does not drop it). Both routes
+> now report reach 20000 and `fg_coverage` 0.9513 on the case below. Pinned by
+> `tests/test_params_json_routes_reach_the_pipeline.py`. The three sibling keys
+> named at the end of this finding are **still open**.
 
 Tier M, `dominating-set`, S=8, seed 42, everything else identical:
 
@@ -144,9 +150,14 @@ Three more keys have the same shape — read via `getattr` on a global
   message instructs the user to set it in params.json, a route that does not
   exist.
 
-### F2 (HIGH) `num_primers` above 50 is rejected from params.json, accepted on the CLI
+### F2 (HIGH) `num_primers` above 50 is rejected from params.json, accepted on the CLI — FIXED
 
-`param_validator.py:95-96` caps `num_primers` and `target_set_size` at `(1, 50)`;
+> **Fixed.** `PARAM_RANGES` now allows `(1, 200)` for both keys, matching the
+> schema; 201 is still rejected. `num_primers: 64` in params.json now returns 64
+> primers at `fg_coverage` 0.6607, identical to the CLI route. A test pins the
+> validator ceiling to the schema's so the two cannot drift apart again.
+
+`param_validator.py` capped `num_primers` and `target_set_size` at `(1, 50)`;
 `params.schema.json` allows 200. The validator runs first:
 
 ```
@@ -194,19 +205,23 @@ exact (Jaccard 1.000), not merely equal coverage.
 | 12 | 8.28 s | 13.65 s | 1.7x | yes | 0.4116 |
 | 32 | 8.17 s | 63.30 s | 7.8x | yes | 0.5376 |
 | 64 | 8.95 s | 347.02 s | **38.8x** | yes | 0.6607 |
-| 128 | 8.61 s | >25 min, did not finish | >175x | — | 0.8097 |
-
-The S=128 hybrid run was still going after 25 minutes when this was written,
-against `dominating-set`'s 8.61 s for the same budget — already past 175x. It is
-reported as a lower bound rather than a measurement.
+| 128 | 8.61 s | 2239.13 s (37 min) | **260x** | yes | 0.8097 |
 
 `dominating-set` is flat in set size while coverage climbs from 0.369 to 0.810.
-The entire cost curve belongs to hybrid's Stage 2, and its exponent is rising:
-1.28x over 6->12 (exponent 0.36), 4.64x over 12->32 (1.56), 5.48x over 32->64
-(**2.45**). Extrapolating `S^2.45` to the schema ceiling of 200 puts a
-default-method run near **95 minutes** for a set `dominating-set` returns in
-about 9 seconds — and nothing interrupts it, because no optimizer has a
-wall-clock budget (`docs/development/optimizers.md:343` documents
+The entire cost curve belongs to hybrid's Stage 2, and its exponent keeps
+rising:
+
+| interval | ratio | implied exponent |
+|---|---:|---:|
+| 6 -> 12 | 1.28x | 0.36 |
+| 12 -> 32 | 4.64x | 1.56 |
+| 32 -> 64 | 5.48x | 2.45 |
+| 64 -> 128 | 6.45x | **2.69** |
+
+At the schema ceiling of 200 that extrapolates to roughly **two hours** for a
+set `dominating-set` returns in about 9 seconds — and nothing interrupts it,
+because no optimizer has a wall-clock budget
+(`docs/development/optimizers.md:343` documents
 `OptimizerConfig.timeout_seconds`; the field does not exist).
 
 **Why Stage 2 cannot help.** Captured at S=12:
@@ -602,10 +617,11 @@ Each entry cites a measurement or a file.
    26% of the runtime on this target (F5b). Confirm on a second dataset before
    changing the guidance, but the current recommendation is not supported by
    this measurement.
-4. **Fix the two split configuration routes** — `coverage_reach` and
-   `num_primers`. Both are small changes with large, silent consequences (F1,
-   F2). Assign the params keys in `get_params` and align
-   `param_validator.py:95-96` with the schema.
+4. ~~**Fix the two split configuration routes** — `coverage_reach` and
+   `num_primers`.~~ **Done** (F1, F2). The same defect remains in
+   `occupancy_ranking`, `occupancy_shortlist`, `max_mismatches` and
+   `sampled_index_path`, which are still read from a global `get_params` never
+   assigns — fix those the same way.
 5. **Fix or remove `--enable-qa`.** It crashes (F3).
 6. **Fix `--application`'s `uniformity_weight` shadowing** (F4).
 7. **Replace `optimize_ilp` with the max-coverage formulation** and report the
@@ -652,8 +668,8 @@ configuration was run twice by accident (`dominating-set` at S=6, 8.0 s and
 8.7 s), which puts the repeat noise around 9%, so treat any difference under
 about 10% as nothing. The effects reported here — 7.8x, 16.3x, 38.8x, 46.2x —
 are orders of magnitude outside that. The S=128 hybrid run overlapped a second
-sweep for part of its life and had not finished after 25 minutes, so it is
-reported as a lower bound on the slowdown rather than as a timing. Peak RSS is measured on the child
+sweep for the first few minutes of its 37, so its wall time is a slight
+over-estimate; the 260x it implies is not sensitive to that. Peak RSS is measured on the child
 process and includes the position-cache build, which is why every run reads
 ~1.35-1.5 GB regardless of method; it is not a discriminating figure here.
 

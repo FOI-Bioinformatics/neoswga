@@ -311,6 +311,11 @@ class PipelineParameters:
     gc_tolerance: float = 0.15
     genome_gc: Optional[float] = None
 
+    # Per-primer extension reach for set-cover selection and reported coverage.
+    # None means "use the polymerase's realistic reach"; an explicit value here
+    # or on --coverage-reach overrides it.
+    coverage_reach: Optional[int] = None
+
     # Polymerase and reaction conditions
     polymerase: str = "phi29"
     reaction_temp: Optional[float] = None
@@ -416,6 +421,7 @@ def get_current_config() -> PipelineParameters:
         gc_max=globals().get("gc_max", 0.625),
         gc_tolerance=globals().get("gc_tolerance", 0.15),
         genome_gc=globals().get("genome_gc", None),
+        coverage_reach=globals().get("coverage_reach", None),
         polymerase=globals().get("polymerase", "phi29"),
         reaction_temp=globals().get("reaction_temp", None),
         na_conc=globals().get("na_conc", 50.0),
@@ -495,6 +501,7 @@ def set_from_config(config: PipelineParameters) -> None:
     g["gc_max"] = config.gc_max
     g["gc_tolerance"] = config.gc_tolerance
     g["genome_gc"] = config.genome_gc
+    g["coverage_reach"] = config.coverage_reach
 
     # Polymerase and reaction conditions
     g["polymerase"] = config.polymerase
@@ -637,6 +644,11 @@ gc_tolerance = 0.15
 gc_min = 0.375
 gc_max = 0.625
 genome_gc = None
+
+# Per-primer extension reach, in bp. None means "use the polymerase default";
+# `unified_optimizer.run_optimization` reads this global, so get_params must
+# assign it or a params.json setting silently does nothing.
+coverage_reach = None
 
 # Dimer and Tm constraints. These mirror the PipelineParameters defaults above
 # and exist as module globals so the filtering rules can run before get_params
@@ -822,6 +834,7 @@ def get_params(args):
     global retries
     global src_dir
     global genome_gc
+    global coverage_reach
     global fg_genomes
     global fg_seq_lengths
     global bg_seq_lengths
@@ -1064,7 +1077,9 @@ def get_params(args):
             print(f"Auto-setting sample_rate={sample_rate:.1%} for {max_k}bp primers")
         data["sample_rate"] = sample_rate
 
-    # Bloom filter parameters for large background genome filtering (optional)
+    # Optional params-only keys. Assigned unconditionally so a run without the
+    # key resets it rather than inheriting the previous run's value.
+    coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
     use_bloom_filter = data.get("use_bloom_filter", False)
     bloom_filter_path = data.get("bloom_filter_path", None)
 
