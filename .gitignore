@@ -174,3 +174,6 @@ docs/superpowers/
 # scripts/fetch_reference_genomes.py; the smallest useful pair is ~50 Mb and
 # the full human background is 3 Gb, so they are not committed.
 tests/validation/genomes/
+
+# local experiment runs
+runs/
