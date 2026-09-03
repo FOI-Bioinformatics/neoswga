@@ -203,9 +203,7 @@ class ValidationSuite:
             high_gc_passes = caulobacter_filter.passes(high_gc_primer)
             if not high_gc_passes:
                 # Check if it's actually within range
-                expected_pass = (
-                    caulobacter_filter.gc_min <= gc_content <= caulobacter_filter.gc_max
-                )
+                expected_pass = caulobacter_filter.gc_min <= gc_content <= caulobacter_filter.gc_max
                 if expected_pass:
                     details["error"] = (
                         f"Caulobacter filter rejected {gc_content:.1%} GC primer (expected to pass)"
