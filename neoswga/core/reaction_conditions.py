@@ -850,9 +850,9 @@ class ReactionConditions:
 
         Example:
             >>> conditions = ReactionConditions()
-            >>> conditions.optimize_mg_concentration(0.33)  # Francisella
+            >>> conditions.optimize_mg_concentration(0.35)  # Wolbachia
             2.5
-            >>> conditions.optimize_mg_concentration(0.67)  # Burkholderia
+            >>> conditions.optimize_mg_concentration(0.67)  # Caulobacter
             1.5
         """
         if genome_gc < 0 or genome_gc > 1:
@@ -1383,7 +1383,7 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
 
     # Recommend conditions based on GC content
     if gc_content < 0.30:
-        # AT-rich genome (e.g., Francisella 32% GC)
+        # AT-rich genome (e.g., Wolbachia 35% GC)
         conditions = ReactionConditions(
             temp=37.0,
             dmso_percent=3.0,
@@ -1396,7 +1396,7 @@ def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dic
         rationale = "AT-rich genome: moderate additives + extra Mg2+ for stability"
 
     elif gc_content > 0.65:
-        # GC-rich genome (e.g., Burkholderia 67% GC)
+        # GC-rich genome (e.g., Caulobacter 67% GC)
         conditions = get_high_gc_conditions()
         optimal_k = 12
         rationale = "GC-rich genome: high betaine + DMSO to equalize AT/GC stability"

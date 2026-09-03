@@ -163,15 +163,31 @@ Edges: Pi covers Rj
 - For 1000 regions: at most 6.9x optimal
 - In practice often near-optimal
 
-**ILP Formulation**:
+**ILP Formulation** (maximum coverage at a fixed budget):
 ```
-Minimize: Σ x[i]                           (number of primers)
-Subject to: Σ x[i] ≥ 1  for each region   (coverage constraint)
+Maximize:   Σ w[b] · y[b]                  (bases covered)
+Subject to: y[b] ≤ Σ x[i]  over primers i covering bin b
             Σ x[i] ≤ max_primers           (budget constraint)
-            x[i] ∈ {0,1}                   (binary variables)
+            x[i], y[b] ∈ {0,1}             (binary variables)
 ```
 
-Finds provably optimal solution (if solvable within time limit).
+`w[b]` is the number of genome bases bin `b` spans, so the objective counts
+covered bases rather than covered bins.
+
+This is the same question `optimize_greedy` answers, which is what makes the
+difference between the two a real optimality gap. On a 3.2 Mb bacterial target
+the greedy result sat 3.4-7.2% below this optimum, and the solve took 0.8-17 s
+(see `docs/AUDIT_2026-08_alternatives_and_scaling.md`).
+
+Until 2026-08 this minimised primer *count* subject to covering every reachable
+bin. That formulation is infeasible for any budget below the minimum cover, so
+it returned `None` for most budgets a user asks for and could not bound the
+greedy result at all.
+
+`coverage_upper_bound()` solves the LP relaxation of the same program. It is a
+valid upper bound even when the integer solve is stopped early, which is what
+makes it usable where the exact solve will not finish; on the audited target it
+was within 0.06% of the integer optimum.
 
 ### Usage
 
@@ -212,7 +228,8 @@ if result_ilp and result_ilp.get('optimal'):
 
 - Complete genome coverage is critical
 - Want provable approximation bounds
-- Need to minimize number of primers
+- Need to know how far the greedy set is from optimal, or want the optimum
+  itself where the instance is small enough to solve
 - Have moderate candidate set (<500 for ILP)
 
 ### Dependencies

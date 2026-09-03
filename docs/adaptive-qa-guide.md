@@ -42,11 +42,11 @@ Adaptive QA automatically adjusts three critical thresholds:
 ### Use Adaptive QA When:
 
 - Your genome is **AT-rich** (< 40% GC)
-  - Examples: Francisella, Plasmodium, Borrelia
+  - Examples: Wolbachia, Plasmodium, Borrelia
   - Benefit: +75-200% primer coverage
 
 - Your genome is **GC-rich** (> 60% GC)
-  - Examples: Burkholderia, Streptomyces, Mycobacterium
+  - Examples: Caulobacter, Streptomyces, Mycobacterium
   - Benefit: +70-150% primer coverage
 
 - Standard primer design yields **few acceptable primers**
@@ -72,7 +72,7 @@ from neoswga.core.optimal_oligo_generator import OptimalOligoGenerator
 
 # Just provide your genome - adaptive QA activates automatically!
 generator = OptimalOligoGenerator(
-    genome_file='path/to/francisella.fna'  # 32% GC genome
+    genome_file='path/to/wolbachia.fna'  # 35% GC genome
 )
 
 result = generator.generate_primers(
@@ -101,7 +101,7 @@ from neoswga.core.optimal_oligo_generator import OptimalOligoGenerator
 
 # Automatic genome analysis and adaptive QA
 generator = OptimalOligoGenerator(
-    genome_file='burkholderia.fna'  # 68% GC
+    genome_file='caulobacter.fna'  # 67% GC
 )
 
 result = generator.generate_primers(
@@ -215,7 +215,7 @@ INFO - Using standard QA thresholds
 
 ### Threshold Adjustments
 
-For a 68% GC genome (Burkholderia):
+For a 67% GC genome (Caulobacter):
 
 | Threshold | Standard | Adaptive | Change |
 |-----------|----------|----------|--------|
@@ -289,7 +289,7 @@ Record adaptive QA settings for reproducibility:
 ```python
 # Save configuration
 config = {
-    'genome_file': 'francisella.fna',
+    'genome_file': 'wolbachia.fna',
     'genome_gc': result.reaction_conditions.genome_gc,
     'adaptive_qa_used': result.reaction_conditions.use_adaptive_qa,
     'stringency': 'moderate',
@@ -550,14 +550,14 @@ score = scorer.score_primer(
 
 ## Examples
 
-### Example 1: Francisella (AT-Rich)
+### Example 1: Wolbachia (AT-Rich)
 
 ```python
 from neoswga.core.optimal_oligo_generator import OptimalOligoGenerator
 
 # AT-rich genome (32% GC)
 generator = OptimalOligoGenerator(
-    genome_file='francisella_tularensis.fna'
+    genome_file='wolbachia.fna'
 )
 
 result = generator.generate_primers(
@@ -576,14 +576,14 @@ print(f"Adaptive QA: {result.reaction_conditions.use_adaptive_qa}")
 # Adaptive QA: True
 ```
 
-### Example 2: Burkholderia (GC-Rich)
+### Example 2: Caulobacter (GC-Rich)
 
 ```python
 from neoswga.core.optimal_oligo_generator import OptimalOligoGenerator
 
-# GC-rich genome (68% GC)
+# GC-rich genome (67% GC)
 generator = OptimalOligoGenerator(
-    genome_file='burkholderia_pseudomallei.fna'
+    genome_file='caulobacter_crescentus.fna'
 )
 
 result = generator.generate_primers(
@@ -637,14 +637,14 @@ from neoswga.core.genome_analysis import analyze_genome_for_qa
 from neoswga.core.integrated_quality_scorer import create_quality_scorer
 
 # Analyze genome
-analysis = analyze_genome_for_qa('francisella.fna')
+analysis = analyze_genome_for_qa('wolbachia.fna')
 genome_gc = analysis['gc_content']
 
 # Create both scorers
 scorer_standard = create_quality_scorer(stringency='moderate', genome_gc=None)
 scorer_adaptive = create_quality_scorer(stringency='moderate', genome_gc=genome_gc)
 
-# Test AT-rich primer (typical for Francisella)
+# Test AT-rich primer (typical for Wolbachia)
 at_primer = "ATATATATATAT"
 
 score_std = scorer_standard.score_primer(at_primer)

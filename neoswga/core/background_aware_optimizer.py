@@ -21,7 +21,7 @@ Expected Impact:
 Critical for:
 - 16-18bp primers (more background binding opportunities)
 - Human/mouse host backgrounds
-- Challenging targets (Francisella, Plasmodium, parasites)
+- Challenging targets (Wolbachia, Plasmodium, parasites)
 
 Author: NeoSWGA Development Team
 Date: November 2025

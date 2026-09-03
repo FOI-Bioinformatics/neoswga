@@ -1,5 +1,28 @@
 # NeoSWGA Optimization Strategies
 
+> **Superseded, 2026-08-31. Read
+> [`../optimization_guide.md`](../optimization_guide.md) instead.**
+>
+> This document describes a 17-optimizer architecture that no longer exists.
+> The CLI accepts exactly six methods — `hybrid`, `dominating-set`,
+> `background-aware`, `network`, `clique`, `ensemble` — and several modules
+> named below were deleted: `genetic_algorithm.py`, `moea_optimizer.py` and
+> `milp_optimizer.py` are not present in `neoswga/core/`. Any section here
+> describing `greedy`, `genetic`, `moea`, `milp`, `tiling_optimizer`,
+> `normalized_optimizer`, `multi_agent_optimizer` or the serial cascades
+> describes retired code.
+>
+> Two things below were corrected in place rather than left wrong, because they
+> were actively misleading: the claim that `network` is "10-100x faster" (it
+> measured 46x *slower* than `dominating-set` for 20% less coverage), and the
+> `OptimizerConfig.timeout_seconds` reference — that field does not exist and no
+> optimizer enforces a wall-clock budget.
+>
+> Rewriting this document against the surviving six is outstanding work, tracked
+> in [`../AUDIT_2026-08_alternatives_and_scaling.md`](../AUDIT_2026-08_alternatives_and_scaling.md)
+> (F11). It is kept rather than deleted because the `BaseOptimizer` /
+> `OptimizerFactory` description and the configuration examples still hold.
+
 NeoSWGA provides multiple optimization algorithms for primer set selection (Step 4). All optimizers inherit from `BaseOptimizer` and are registered with `OptimizerFactory` for uniform instantiation.
 
 ## Quick Reference
@@ -35,7 +58,7 @@ NeoSWGA provides multiple optimization algorithms for primer set selection (Step
 
 ### Use **network** when:
 - Working with large target genomes (> 1 Mbp)
-- Need 10-100x speedup over greedy search
+- Want Tm-weighted, dimer-aware selection
 - Want better coverage for complex genomes
 - Modeling Phi29 extension dynamics (up to 70 kb)
 
@@ -73,8 +96,9 @@ NeoSWGA provides multiple optimization algorithms for primer set selection (Step
 #### 2. **network_optimizer** (Network-Based Optimization)
 - **File**: `neoswga/core/network_optimizer.py`
 - **Algorithm**: Models amplification as network of binding sites
-- **Speed**: Very Fast (10-100x faster than greedy)
-- **Quality**: Excellent
+- **Speed**: Slow. Measured 377 s at 32 primers on a 3.2 Mb target, 46x
+  `dominating-set` (see AUDIT_2026-08_alternatives_and_scaling.md, F5b)
+- **Quality**: Fair. 20% less coverage than `dominating-set` on that target
 - **Memory**: Moderate (uses position cache)
 - **Use when**: Working with large genomes, need speed
 - **Command**: `neoswga optimize -j params.json --optimization-method=network`
@@ -307,7 +331,7 @@ Do you need provably optimal solutions?
 └─ NO → Continue
     │
     Is genome > 1 Mbp?
-    ├─ YES → Use network (10-100x faster)
+    ├─ YES → Use dominating-set (flat cost in set size)
     └─ NO → Continue
         │
         Do you have complex constraints?
@@ -340,7 +364,7 @@ class MyOptimizer(BaseOptimizer):
 ```
 
 Key data classes:
-- `OptimizerConfig`: Common configuration (target_size, max_iterations, timeout_seconds, min_coverage)
+- `OptimizerConfig`: Common configuration (target_set_size, max_iterations, extension_reach, Tm and dimer bounds). There is no `timeout_seconds` field and no optimizer has a wall-clock budget, which is why `--max-optimization-time` reports itself as not implemented
 - `OptimizationResult`: Frozen result container (primer_set, metrics, status, message)
 - `PrimerSetMetrics`: Comprehensive metrics (coverage, selectivity, dimer risk, gap stats, strand alternation) with a `normalized_score()` method for cross-optimizer comparison
 - `OptimizationStatus`: Enum (SUCCESS, PARTIAL, NO_CONVERGENCE, ERROR)

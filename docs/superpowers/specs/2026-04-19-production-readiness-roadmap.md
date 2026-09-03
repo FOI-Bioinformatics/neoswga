@@ -38,7 +38,7 @@ Key findings, grouped by severity.
    unclear. equiphi29 predictions at 42 C may be systematically biased.
    `neoswga/core/rf_preprocessing.py:18-34`.
 2. `AdaptiveGCFilter` exists but is never instantiated by the pipeline. Extreme-GC
-   genomes (Francisella, Plasmodium) are rejected wholesale against the fixed
+   genomes (AT-rich targets, Plasmodium) are rejected wholesale against the fixed
    37.5-62.5 percent thresholds. `neoswga/core/adaptive_filters.py` vs `neoswga/core/filter.py`.
 3. Blacklist half-integrated: `bl_seq_lengths`, `bl_penalty`, `max_bl_freq` missing
    from `PipelineParameters` defaults; `pipeline.py:659-660` reads a field never set;
@@ -109,7 +109,7 @@ changes). No new features.
 **Exit criteria.**
 
 - All five issues closed with new regression tests.
-- A Francisella-like (low-GC) target yields a non-empty `step2_df` (it would
+- An AT-rich (low-GC) target yields a non-empty `step2_df` (it would
   return zero primers today).
 - A run with a blacklist genome produces strictly fewer blacklist-hitting
   primers in `step4_improved_df` than the same run without.

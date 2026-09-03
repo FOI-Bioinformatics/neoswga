@@ -114,6 +114,45 @@ def is_dimer_fast(seq_1, seq_2, max_dimer_bp=3):
     return False
 
 
+def max_complementary_run(seq_1, seq_2):
+    """
+    Length of the longest contiguous complementary stretch between two primers.
+
+    Same scan as ``is_dimer_fast`` but reports how long the duplex is instead
+    of only whether it clears a threshold, so callers can grade a pair by
+    severity. ``is_dimer_fast(a, b, t)`` is equivalent to
+    ``max_complementary_run(a, b) > t``.
+
+    Args:
+        seq_1: First primer sequence (5' to 3')
+        seq_2: Second primer sequence (5' to 3')
+
+    Returns:
+        Length in bases of the longest complementary run, at most the length
+        of the shorter primer.
+    """
+    seq_2_rc = seq_2.translate(_DIMER_RC_TABLE)[::-1]
+
+    len1, len2 = len(seq_1), len(seq_2_rc)
+    longest = 0
+
+    for offset in range(-len2 + 1, len1):
+        start1 = max(0, offset)
+        end1 = min(len1, offset + len2)
+        start2 = max(0, -offset)
+
+        run = 0
+        for i in range(end1 - start1):
+            if seq_1[start1 + i] == seq_2_rc[start2 + i]:
+                run += 1
+                if run > longest:
+                    longest = run
+            else:
+                run = 0
+
+    return longest
+
+
 def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None):
     """
     Thermodynamic dimer check based on free energy of the longest complementary region.

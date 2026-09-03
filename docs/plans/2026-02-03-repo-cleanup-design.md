@@ -15,8 +15,8 @@ Reduce repo from 335 files to ~180 files by removing redundant tests, historical
 | `validation_tests/` | Local scripts with hardcoded paths |
 | `docs/archive/` | Historical QA reports |
 | `docs/validation/` | Validation reports |
-| `tests/integration/francisella_clinical/` | Factorial experiment data |
-| `tests/integration/francisella_e2e/` | Redundant e2e tests |
+| `tests/integration/<clinical-scenario>/` | Factorial experiment data |
+| `tests/integration/<scenario>_e2e/` | Redundant e2e tests |
 | `tests/integration/equiphi29_full_factorial/` | Factorial experiment data |
 | `tests/integration/equiphi29_long/` | Covered by parameterized test |
 | `tests/integration/equiphi29_validation/` | Duplicate of baseline |

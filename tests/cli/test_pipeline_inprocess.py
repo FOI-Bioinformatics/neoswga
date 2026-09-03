@@ -293,3 +293,119 @@ def test_application_profile_is_accepted_and_recorded(scored):
     )
     summary_path = scored["root"] / "results" / "step4_improved_df_summary.json"
     assert json.loads(summary_path.read_text()).get("primers")
+
+
+# ----------------------------------------------------------------------
+# --enable-qa
+# ----------------------------------------------------------------------
+#
+# The flag dispatched to `pipeline_qa_integration.run_step2_with_qa()` and
+# `run_step3_with_qa()`, neither of which exists. The AttributeError was
+# swallowed by each step's `except Exception` and turned into `sys.exit(1)`, so
+# every step the flag is offered on failed the run instead of doing QA.
+
+
+@pytest.fixture
+def filtered_qa(counted):
+    _run(["filter", "-j", str(counted["params_file"]), "--enable-qa"], counted["root"])
+    return counted
+
+
+def test_filter_with_enable_qa_does_not_crash(counted):
+    import pandas as pd
+
+    _run(["filter", "-j", str(counted["params_file"]), "--enable-qa"], counted["root"])
+
+    step2 = pd.read_csv(counted["root"] / "results" / "step2_df.csv")
+    assert "qa_score" in step2.columns, step2.columns.tolist()
+    assert (counted["root"] / "results" / "qa_report.txt").is_file()
+
+
+def test_qa_filtering_only_removes_candidates(counted):
+    """QA is a filter: it may reject primers, never invent them."""
+    import pandas as pd
+
+    def survivors(*extra):
+        _run(["filter", "-j", str(counted["params_file"]), *extra], counted["root"])
+        return set(pd.read_csv(counted["root"] / "results" / "step2_df.csv")["primer"])
+
+    plain = survivors()
+    with_qa = survivors("--enable-qa")
+    assert with_qa <= plain
+
+
+def test_enable_qa_does_not_stick_to_the_next_run(counted):
+    """`parameter.enable_qa` was only ever set True, never cleared.
+
+    In one process -- `design`, the SDK, a test session -- that turned QA on
+    for every later step whether or not the flag was given.
+    """
+    import pandas as pd
+
+    _run(["filter", "-j", str(counted["params_file"]), "--enable-qa"], counted["root"])
+    _run(["filter", "-j", str(counted["params_file"])], counted["root"])
+
+    step2 = pd.read_csv(counted["root"] / "results" / "step2_df.csv")
+    assert "qa_score" not in step2.columns, "QA ran without --enable-qa"
+
+
+def test_score_with_enable_qa_combines_rf_and_qa_scores(filtered_qa):
+    import pandas as pd
+
+    _run(["score", "-j", str(filtered_qa["params_file"]), "--enable-qa"], filtered_qa["root"])
+
+    step3 = pd.read_csv(filtered_qa["root"] / "results" / "step3_df.csv")
+    assert "qa_score" in step3.columns, step3.columns.tolist()
+    assert "composite_score" in step3.columns, step3.columns.tolist()
+    assert step3["composite_score"].notna().all()
+    assert step3["composite_score"].is_monotonic_decreasing, "pool is not ranked by composite score"
+
+
+def test_score_with_enable_qa_works_without_a_qa_filtered_step2(filtered):
+    """`score --enable-qa` after a plain `filter` must score, not crash."""
+    import pandas as pd
+
+    _run(["score", "-j", str(filtered["params_file"]), "--enable-qa"], filtered["root"])
+
+    step3 = pd.read_csv(filtered["root"] / "results" / "step3_df.csv")
+    assert "composite_score" in step3.columns, step3.columns.tolist()
+
+
+def test_optimize_with_enable_qa_passes_a_qa_filtered_pool(scored, monkeypatch):
+    """Step 4's QA hook is the candidate pre-filter, so the pool must reach it."""
+    import pandas as pd
+
+    from neoswga.core import unified_optimizer
+
+    seen = {}
+    real = unified_optimizer.optimize_step4
+
+    def capture(**kwargs):
+        seen["candidates"] = kwargs.get("candidates")
+        return real(**kwargs)
+
+    monkeypatch.setattr(unified_optimizer, "optimize_step4", capture)
+    _run(
+        ["optimize", "-j", str(scored["params_file"]), "--enable-qa", "--seed", "1"],
+        scored["root"],
+    )
+
+    pool = set(pd.read_csv(scored["root"] / "results" / "step3_df.csv")["primer"])
+    assert seen["candidates"] is not None, "QA pool was never built"
+    assert set(seen["candidates"]) <= pool
+
+
+def test_optimize_without_enable_qa_leaves_the_pool_alone(scored, monkeypatch):
+    from neoswga.core import unified_optimizer
+
+    seen = {}
+    real = unified_optimizer.optimize_step4
+
+    def capture(**kwargs):
+        seen["candidates"] = kwargs.get("candidates")
+        return real(**kwargs)
+
+    monkeypatch.setattr(unified_optimizer, "optimize_step4", capture)
+    _run(["optimize", "-j", str(scored["params_file"]), "--seed", "1"], scored["root"])
+
+    assert seen["candidates"] is None

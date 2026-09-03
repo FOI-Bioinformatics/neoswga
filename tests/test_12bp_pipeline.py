@@ -1,9 +1,9 @@
 """
 Pytest tests for 12bp pipeline validation.
 
-Tests the output quality of the Francisella 12bp SWGA primer design pipeline.
+Tests the output quality of the Wolbachia 12bp SWGA primer design pipeline.
 Run after executing the pipeline with:
-    cd tests/integration/francisella_e2e/12bp
+    cd tests/integration/wolbachia_e2e/12bp
     neoswga filter -j params.json
     neoswga score -j params.json
     neoswga optimize -j params.json
@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 
 # Test directory relative to repo root
-TEST_DIR = Path(__file__).parent / "integration" / "francisella_e2e" / "12bp"
+TEST_DIR = Path(__file__).parent / "integration" / "wolbachia_e2e" / "12bp"
 
 
 class Test12bpPipelineResults:

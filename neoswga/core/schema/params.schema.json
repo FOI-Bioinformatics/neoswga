@@ -181,6 +181,16 @@
       "default": 50000,
       "description": "How many survivors to re-rank by occupancy. Taken by the exact-count key first, so nothing that key separates is discarded."
     },
+    "max_mismatches": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Highest mismatch class counted when ranking step-2 candidates by occupancy-weighted site load. Minimum 1 because the read site (pipeline._configured_positive_int) takes positive integers only; exact-match-only ranking is reached with occupancy_ranking: false instead. Applies to the filter step's ranking; the optimizers carry their own OptimizerConfig.max_mismatches."
+    },
+    "sampled_index_path": {
+      "type": "string",
+      "description": "Path to a pre-built sampled background index, used when use_bloom_filter is set and no index is found beside the Bloom filter. Overridden by --sampled-index-path."
+    },
     "min_amp_pred": {
       "type": "number"
     },

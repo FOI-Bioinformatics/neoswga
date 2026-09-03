@@ -301,11 +301,19 @@ class TestGenomeCache:
         assert seq1 is seq2
 
     def test_get_cached_genome_reads_file_once(self):
-        """The file should be read only on the first call; subsequent calls use the cache."""
+        """The file should be read only on the first call; subsequent calls use the cache.
+
+        Patches the record-wise streaming loader, which is what the cache reads
+        from. It used to read `utility.read_fasta_file`, which yields one
+        character per base and cannot be joined at whole-genome scale -- see
+        tests/test_genome_cache_join_granularity.py.
+        """
         clear_genome_cache()
         fake_seq = "ACGTACGT"
         unique_file = f"_test_cache_reads_once_{id(self)}.fna"
-        with patch("neoswga.core.utility.read_fasta_file") as mock_read:
+        with patch(
+            "neoswga.core.genome_io.GenomeLoader.load_genome_streaming"
+        ) as mock_read:
             mock_read.return_value = iter([fake_seq])
             seq1 = get_cached_genome_sequence(unique_file)
             seq2 = get_cached_genome_sequence(unique_file)

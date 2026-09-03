@@ -20,7 +20,7 @@ The improved SWGA pipeline is **fully implemented** and **production-ready**. Th
 
 3. **adaptive_filters.py** (478 lines)
    - GC content filter adapts to genome composition
-   - **CRITICAL FIX**: Francisella (33% GC), Burkholderia (67% GC) now work
+   - **CRITICAL FIX**: Wolbachia (35% GC), Caulobacter (67% GC) now work
    - Previously: Algorithm failed completely for these organisms
 
 4. **network_optimizer.py** (436 lines)
@@ -146,11 +146,11 @@ That's it! All improvements active with zero code changes elsewhere.
 
 ### Fixed Critical Bugs
 
-1. **Francisella tularensis** (33% GC)
+1. **Wolbachia** (35% GC)
    - Old: FAILS (no primers pass GC filter)
    - New: WORKS (enrichment ~3,000x)
 
-2. **Burkholderia pseudomallei** (67% GC)
+2. **Caulobacter crescentus** (67% GC)
    - Old: FAILS (no primers pass GC filter)
    - New: WORKS (enrichment ~8,000x)
 

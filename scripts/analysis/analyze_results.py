@@ -212,7 +212,7 @@ class ResultsAnalyzer:
 
         successful = [r for r in self.results if r['success']]
 
-        for genome in ['francisella', 'burkholderia']:
+        for genome in ['wolbachia', 'caulobacter']:
             genome_results = [r for r in successful if r['genome'] == genome]
 
             if not genome_results:
@@ -404,26 +404,26 @@ class ResultsAnalyzer:
                     f"({np.mean([r['coverage_score'] for r in best_quality[1]]):.4f} average)")
         lines.append("")
 
-        # Francisella
-        franc_results = [r for r in successful if r['genome'] == 'francisella']
+        # Wolbachia
+        franc_results = [r for r in successful if r['genome'] == 'wolbachia']
         if franc_results:
             franc_by_method = defaultdict(list)
             for r in franc_results:
                 franc_by_method[r['optimization_method']].append(r)
             best_franc = max(franc_by_method.items(),
                            key=lambda x: np.mean([r['coverage_score'] for r in x[1]]))
-            lines.append(f"**For Francisella (low GC)**: Use `{best_franc[0]}`")
+            lines.append(f"**For Wolbachia (low GC)**: Use `{best_franc[0]}`")
             lines.append("")
 
-        # Burkholderia
-        burkh_results = [r for r in successful if r['genome'] == 'burkholderia']
-        if burkh_results:
-            burkh_by_method = defaultdict(list)
-            for r in burkh_results:
-                burkh_by_method[r['optimization_method']].append(r)
-            best_burkh = max(burkh_by_method.items(),
+        # Caulobacter
+        caulo_results = [r for r in successful if r['genome'] == 'caulobacter']
+        if caulo_results:
+            caulo_by_method = defaultdict(list)
+            for r in caulo_results:
+                caulo_by_method[r['optimization_method']].append(r)
+            best_caulo = max(caulo_by_method.items(),
                            key=lambda x: np.mean([r['coverage_score'] for r in x[1]]))
-            lines.append(f"**For Burkholderia (high GC)**: Use `{best_burkh[0]}`")
+            lines.append(f"**For Caulobacter (high GC)**: Use `{best_caulo[0]}`")
             lines.append("")
 
         lines.append("---")

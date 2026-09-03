@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Create test dataset from real Francisella and Burkholderia genomes.
+Create test dataset from real bacterial genomes spanning the GC range.
 
 Extracts representative genome regions and generates candidate primers
 for systematic benchmarking of different argument combinations.
@@ -27,10 +27,16 @@ logger = logging.getLogger(__name__)
 class TestDatasetGenerator:
     """Generate test datasets from real genomes"""
 
+    #: Where the genomes are looked for when no directory is given. Relative to
+    #: the repository root, which is where `scripts/fetch_reference_genomes.py`
+    #: writes them, so a fresh checkout needs no configuration.
+    DEFAULT_GENOME_DIR = Path(__file__).resolve().parents[2] / "tests" / "validation" / "genomes"
+
     def __init__(self,
                  output_dir: str = "./test_data",
                  primer_length: int = 12,
-                 target_primers: int = 1000):
+                 target_primers: int = 1000,
+                 genome_dir: str = None):
         """
         Initialize generator.
 
@@ -38,6 +44,9 @@ class TestDatasetGenerator:
             output_dir: Directory for output files
             primer_length: Length of primers to generate
             target_primers: Target number of candidate primers
+            genome_dir: Directory holding the source genome FASTAs. Defaults to
+                `DEFAULT_GENOME_DIR`, overridable with the NEOSWGA_GENOME_DIR
+                environment variable or `--genome-dir`.
         """
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(exist_ok=True, parents=True)
@@ -45,14 +54,18 @@ class TestDatasetGenerator:
         self.primer_length = primer_length
         self.target_primers = target_primers
 
-        # Paths to real genomes
-        self.genome_dir = Path("/Users/andreassjodin/Code/swga-dev/test")
+        # Paths to real genomes. Resolution order: explicit argument, then the
+        # NEOSWGA_GENOME_DIR environment variable, then the in-repo default.
+        self.genome_dir = Path(
+            genome_dir or os.environ.get("NEOSWGA_GENOME_DIR") or self.DEFAULT_GENOME_DIR
+        ).expanduser()
         self.genome_files = {
-            'francisella': self.genome_dir / "francisella_GCF_000008985.1_ASM898v1_genomic.fna",
-            'burkholderia': self.genome_dir / "burkholderia_GCF_030297255.1_ASM3029725v1_genomic.fna",
-            'bacillus': self.genome_dir / "bacillus_GCF_000008445.1_ASM844v1_genomic.fna",
+            # Benign reference genomes chosen to span the GC range: 35% to 67%.
+            'lactococcus': self.genome_dir / "lactococcus_GCF_000006865.1_ASM686v1_genomic.fna",
+            'wolbachia': self.genome_dir / "wolbachia_GCF_000008025.1_ASM802v1_genomic.fna",
+            'synechocystis': self.genome_dir / "synechocystis_GCF_000009725.1_ASM972v1_genomic.fna",
             'ecoli': self.genome_dir / "ecoli_GCF_000005845.2_ASM584v2_genomic.fna",
-            'yersinia': self.genome_dir / "yersinia_GCF_000222975.1_ASM22297v1_genomic.fna"
+            'caulobacter': self.genome_dir / "caulobacter_GCF_000022005.1_ASM2200v1_genomic.fna"
         }
 
     def generate_dataset(self, genome_file: Path, genome_name: str,
@@ -271,15 +284,30 @@ class TestDatasetGenerator:
         logger.info("GENERATING TEST DATASETS FROM REAL GENOMES")
         logger.info("="*80)
 
-        # Generate dataset for each genome
+        # Generate dataset for each genome. Genomes are not committed (see
+        # scripts/fetch_reference_genomes.py), so a missing one is expected and
+        # is skipped with a message naming the path rather than raising from
+        # inside the FASTA parser.
         all_metadata = {}
         for genome_name, genome_file in self.genome_files.items():
+            if not genome_file.exists():
+                logger.warning(
+                    f"Skipping {genome_name}: no file at {genome_file}. "
+                    f"Fetch the genomes into {self.genome_dir}, or point "
+                    f"--genome-dir / NEOSWGA_GENOME_DIR somewhere that has them."
+                )
+                continue
             metadata = self.generate_dataset(
                 genome_file,
                 genome_name,
                 gc_tolerance=0.15
             )
             all_metadata[genome_name] = metadata
+
+        if not all_metadata:
+            raise SystemExit(
+                f"No source genomes found in {self.genome_dir}. Nothing to generate."
+            )
 
         # Combined metadata
         combined_metadata = {
@@ -339,6 +367,16 @@ def main():
         default=12,
         help='Primer length (default: 12)'
     )
+    parser.add_argument(
+        '--genome-dir',
+        default=None,
+        help=(
+            'Directory holding the source genome FASTAs. Defaults to '
+            f'{TestDatasetGenerator.DEFAULT_GENOME_DIR}, which is where '
+            'scripts/fetch_reference_genomes.py writes them. Also settable '
+            'with NEOSWGA_GENOME_DIR.'
+        )
+    )
 
     args = parser.parse_args()
 
@@ -346,7 +384,8 @@ def main():
     generator = TestDatasetGenerator(
         output_dir=args.output_dir,
         primer_length=args.primer_length,
-        target_primers=args.target_primers
+        target_primers=args.target_primers,
+        genome_dir=args.genome_dir
     )
 
     metadata = generator.generate_combined_dataset()

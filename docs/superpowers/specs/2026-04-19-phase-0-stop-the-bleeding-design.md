@@ -31,7 +31,7 @@ ends with tests committed.
 a tolerance band around the genome's own GC content. The class is never
 instantiated in `filter.py` or `pipeline.py`. The actual GC filter uses fixed
 37.5-62.5 percent thresholds, so any genome with mean GC outside that band
-(Francisella 33 percent, Plasmodium 20 percent, Streptomyces 70 percent)
+(AT-rich 33 percent, Plasmodium 20 percent, Streptomyces 70 percent)
 loses all candidate primers at the filter stage.
 
 **Changes.**

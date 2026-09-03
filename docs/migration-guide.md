@@ -88,11 +88,11 @@ score = scorer.score_primer("ATGCATGCATGC")
 ### Upgrade If:
 
 ✓ You work with **AT-rich genomes** (< 40% GC)
-  - Francisella, Plasmodium, Borrelia, etc.
+  - Wolbachia, Plasmodium, Borrelia, etc.
   - Benefit: +75-200% primer coverage
 
 ✓ You work with **GC-rich genomes** (> 60% GC)
-  - Burkholderia, Streptomyces, Mycobacterium, etc.
+  - Caulobacter, Streptomyces, Mycobacterium, etc.
   - Benefit: +70-150% primer coverage
 
 ✓ Standard primer design yields **too few primers**
@@ -218,7 +218,7 @@ Compare primers from v3.4 (standard) vs v3.5 (adaptive):
 # compare_versions.py
 from neoswga.core.integrated_quality_scorer import create_quality_scorer
 
-# Your genome GC (e.g., 32% for Francisella)
+# Your genome GC (e.g., 35% for Wolbachia)
 genome_gc = 0.32
 
 # Standard QA (v3.4 behavior)
@@ -301,12 +301,12 @@ assert result.reaction_conditions.genome_gc is not None
 
 Before (v3.4, standard QA):
 ```
-Francisella (32% GC): 3 primers pass QA
+Wolbachia (35% GC): 3 primers pass QA
 ```
 
 After (v3.5, adaptive QA):
 ```
-Francisella (32% GC): 8 primers pass QA (+167%)
+Wolbachia (35% GC): 8 primers pass QA (+167%)
 ```
 
 **2. New Log Messages**

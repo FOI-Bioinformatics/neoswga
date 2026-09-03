@@ -4,15 +4,17 @@ Minimum Dominating Set algorithms for primer coverage optimization.
 Models primer selection as a graph theory problem:
 - Nodes: Genome regions (bins)
 - Edges: Primer can amplify region
-- Goal: Find minimum set of primers that covers all regions
 
-This provides:
-1. Provable approximation bounds
-2. Faster than exhaustive search
-3. Optimal coverage guarantees
+Two questions are answered over that graph:
+- `optimize_greedy`: within a budget of S primers, cover as much as possible.
+  Greedy set cover, with an ln(n) approximation bound.
+- `optimize_ilp` / `coverage_upper_bound`: the same question solved exactly, and
+  its LP relaxation. Together these say how far the greedy set is from optimal
+  rather than merely how good it looks.
 """
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -497,32 +499,16 @@ class DominatingSetOptimizer:
 
         return result
 
-    def optimize_ilp(
-        self, candidates: List[str], max_primers: int = 20, verbose: bool = True
-    ) -> Optional[Dict]:
+    def _bin_coverage(self, candidates: List[str]):
+        """Bins each candidate covers, and the bases each bin stands for.
+
+        Built through `BipartiteGraph` at this optimizer's own
+        `extension_reach`, so the exact solve sees the bins greedy set cover
+        sees. A bound computed over different bins bounds nothing -- and the
+        earlier version of `optimize_ilp` omitted the reach, which with the
+        reduced bin size the reach implies made its reported coverage fall as
+        reach was switched on.
         """
-        Integer Linear Programming for exact minimum dominating set.
-
-        Finds optimal solution (if feasible within time limit).
-
-        Args:
-            candidates: List of candidate primers
-            max_primers: Maximum primers to select
-            verbose: Print progress
-
-        Returns:
-            Dictionary with optimal solution, or None if infeasible
-        """
-        try:
-            from mip import BINARY, Model, minimize, xsum
-        except ImportError:
-            logger.error("python-mip required for ILP. Install: pip install mip")
-            return None
-
-        if verbose:
-            logger.info("Building ILP model for minimum dominating set...")
-
-        # Build bipartite graph
         graph = BipartiteGraph(bin_size=self.bin_size)
 
         for primer in candidates:
@@ -531,66 +517,201 @@ class DominatingSetOptimizer:
                 positions = self.cache.get_positions(prefix, primer, "both")
 
                 if len(positions) > 0:
-                    graph.add_primer_coverage(primer, positions, prefix, length)
+                    graph.add_primer_coverage(
+                        primer,
+                        positions,
+                        prefix,
+                        length,
+                        extension_reach=self.extension_reach,
+                    )
 
-        primers_list = list(graph.primers)
-        regions_list = list(graph.regions)
+        primer_to_bins = {}
+        for primer in candidates:
+            bins = graph.primer_to_regions.get(primer)
+            if bins:
+                primer_to_bins[primer] = bins
 
-        # Create model
-        model = Model(sense=minimize)
+        # Weight each bin by the bases it spans. The last bin of a prefix is
+        # short, and counting bins treats it as full -- 5.3% on the shipped
+        # plasmid with no primer changed.
+        bin_weight: Dict[CoverageRegion, int] = {}
+        for bins in primer_to_bins.values():
+            for region in bins:
+                bin_weight.setdefault(region, region.end - region.start)
 
-        # Decision variables: x[i] = 1 if primer i selected
-        x = {primer: model.add_var(var_type=BINARY, name=f"x_{primer}") for primer in primers_list}
+        return graph, primer_to_bins, bin_weight
 
-        # Objective: Minimize number of primers
-        model.objective = xsum(x[primer] for primer in primers_list)
+    def _solve_max_coverage(
+        self,
+        candidates: List[str],
+        max_primers: int,
+        relax: bool,
+        max_seconds: int,
+        verbose: bool,
+    ) -> Optional[Dict]:
+        """Solve (or relax) the fixed-budget max-coverage program.
 
-        # Constraints: Each region must be covered by at least one primer
-        for region in regions_list:
-            covering_primers = graph.region_to_primers[region]
-            if covering_primers:
-                model += xsum(x[primer] for primer in covering_primers if primer in x) >= 1
+        maximise    sum_b w_b * y_b
+        subject to  y_b <= sum_{i covers b} x_i     for every bin b
+                    sum_i x_i <= S
+        """
+        try:
+            # `sense` takes the string 'MAX', not the `maximize` helper. Passing
+            # the function yields a model CBC reports as "Empty problem", with
+            # objective 0 and no error raised.
+            from mip import BINARY, CONTINUOUS, MAXIMIZE, Model, xsum
+        except ImportError:
+            logger.error(
+                "python-mip required for the exact solve. Install: pip install 'neoswga[improved]'"
+            )
+            return None
 
-        # Constraint: Select at most max_primers
-        model += xsum(x[primer] for primer in primers_list) <= max_primers
+        graph, primer_to_bins, bin_weight = self._bin_coverage(candidates)
+        total_bases = int(sum(self.fg_seq_lengths))
 
-        if verbose:
-            logger.info(f"ILP model: {len(primers_list)} primers, {len(regions_list)} regions")
-            logger.info("Solving...")
-
-        # Solve
-        status = model.optimize(max_seconds=300)
-
-        if status.value == 0:  # Optimal
-            selected = [primer for primer in primers_list if x[primer].x >= 0.99]
-
-            covered_regions = set()
-            for primer in selected:
-                covered_regions.update(graph.primer_to_regions.get(primer, set()))
-
-            total_bins = self._total_bins()
-            coverage = len(covered_regions) / total_bins if total_bins else 0.0
-            reachable = len(covered_regions) / len(graph.regions) if graph.regions else 0.0
-
-            result = {
-                "primers": selected,
-                "n_primers": len(selected),
-                "coverage": coverage,
-                "reachable_coverage": reachable,
-                "covered_regions": len(covered_regions),
-                "total_regions": len(graph.regions),
+        if not bin_weight:
+            return {
+                "primers": [],
+                "n_primers": 0,
+                "coverage": 0.0,
+                "covered_bases": 0,
+                "total_bases": total_bases,
+                "covered_regions": 0,
+                "total_regions": 0,
+                "proven_optimal": True,
                 "optimal": True,
+                "status": "OPTIMAL",
+                "seconds": 0.0,
                 "graph": graph,
             }
 
-            if verbose:
-                logger.info(f"Optimal solution: {len(selected)} primers, {coverage:.1%} coverage")
+        # CoverageRegion is hashable but not orderable, so keep insertion order.
+        bins = list(bin_weight)
+        bin_to_primers: Dict[CoverageRegion, List[str]] = {b: [] for b in bins}
+        for primer, covered in primer_to_bins.items():
+            for region in covered:
+                bin_to_primers[region].append(primer)
 
-            return result
-        else:
-            if verbose:
-                logger.warning("ILP did not find optimal solution")
-            return None
+        if verbose:
+            logger.info(
+                f"Max-coverage {'LP' if relax else 'ILP'}: "
+                f"{len(primer_to_bins)} primers, {len(bins)} bins, budget {max_primers}"
+            )
+
+        vtype = CONTINUOUS if relax else BINARY
+        model = Model(sense=MAXIMIZE)
+        model.verbose = 0
+
+        x = {p: model.add_var(var_type=vtype, lb=0.0, ub=1.0) for p in primer_to_bins}
+        y = {b: model.add_var(var_type=vtype, lb=0.0, ub=1.0) for b in bins}
+
+        model.objective = xsum(bin_weight[b] * y[b] for b in bins)
+        for b in bins:
+            model += y[b] <= xsum(x[p] for p in bin_to_primers[b])
+        model += xsum(x.values()) <= max_primers
+
+        start = time.time()
+        status = model.optimize(max_seconds=max_seconds)
+        elapsed = time.time() - start
+
+        objective = float(model.objective_value or 0.0)
+
+        # Order by the caller's ranking rather than alphabetically, for the same
+        # reason `_deterministic_scan_order` does.
+        chosen = {p for p, var in x.items() if var.x is not None and var.x >= 0.99}
+        selected = [p for p in candidates if p in chosen]
+
+        covered_regions = set()
+        for primer in selected:
+            covered_regions |= primer_to_bins.get(primer, set())
+
+        result = {
+            "primers": selected,
+            "n_primers": len(selected),
+            "coverage": objective / total_bases if total_bases else 0.0,
+            "covered_bases": objective,
+            "total_bases": total_bases,
+            "covered_regions": len(covered_regions),
+            "total_regions": len(graph.regions),
+            "proven_optimal": status.name == "OPTIMAL",
+            # Retained under its old name for the example in
+            # docs/development/algorithms.md.
+            "optimal": status.name == "OPTIMAL",
+            "status": status.name,
+            "seconds": elapsed,
+            "graph": graph,
+        }
+
+        if verbose:
+            logger.info(
+                f"{status.name} in {elapsed:.1f}s: {len(selected)} primers, "
+                f"{result['coverage']:.1%} coverage"
+            )
+
+        return result
+
+    def optimize_ilp(
+        self,
+        candidates: List[str],
+        max_primers: int = 20,
+        verbose: bool = True,
+        max_seconds: int = 300,
+    ) -> Optional[Dict]:
+        """
+        Exact maximum coverage within a fixed primer budget.
+
+        Answers the question every greedy optimizer here answers: given
+        `max_primers`, which primers cover the most of the target? Where the
+        solver proves optimality this bounds the greedy result, so the
+        difference between the two is a real optimality gap rather than a
+        difference of convention.
+
+        This replaced a formulation that minimised primer *count* subject to
+        covering every reachable bin. That one was infeasible -- and returned
+        None -- for every budget below the minimum cover, which is most budgets
+        a user asks for, so it could not bound anything.
+
+        `coverage` is covered bases over genome bases. Note that
+        `optimize_greedy` reports covered bins over bin count, so the two agree
+        only while bins are uniform; they differ by the length of the short
+        final bin of each prefix.
+
+        Args:
+            candidates: List of candidate primers
+            max_primers: Budget -- the most primers that may be selected
+            verbose: Log model size and outcome
+            max_seconds: Solver time limit. On timeout the incumbent is
+                returned with `proven_optimal` False; use
+                `coverage_upper_bound` for a valid bound in that case.
+
+        Returns:
+            Result dictionary, or None if python-mip is not installed.
+        """
+        return self._solve_max_coverage(
+            candidates, max_primers, relax=False, max_seconds=max_seconds, verbose=verbose
+        )
+
+    def coverage_upper_bound(
+        self,
+        candidates: List[str],
+        max_primers: int = 20,
+        verbose: bool = False,
+        max_seconds: int = 300,
+    ) -> Optional[float]:
+        """
+        LP relaxation of `optimize_ilp` -- an upper bound on achievable coverage.
+
+        The relaxation solves in a fraction of the integer program's time and
+        stays a valid bound when the integer solve will not finish, which is
+        what makes it usable at genome scale. On the audited bacterial target
+        it sat within 0.06% of the proven integer optimum.
+
+        Returns the bound as a genome fraction, or None without python-mip.
+        """
+        result = self._solve_max_coverage(
+            candidates, max_primers, relax=True, max_seconds=max_seconds, verbose=verbose
+        )
+        return None if result is None else result["coverage"]
 
 
 def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]], List[float]]:

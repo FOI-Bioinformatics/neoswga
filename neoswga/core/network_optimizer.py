@@ -41,13 +41,19 @@ def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:
     """
     Calculate dimer formation potential between two primers.
     Returns score 0-1 where 0 = no dimer risk, 1 = high dimer risk.
+
+    The score grades with the length of the complementary stretch rather than
+    only reporting whether it clears ``max_bp``. A step function saturated: at
+    12-mers with max_bp=3 over half of all pairs sat at 1.0, so a four-base
+    overlap and a near reverse-complement scored alike and selection had no
+    way to prefer one. Endpoints are unchanged -- at or below ``max_bp`` the
+    score is 0.0, and a full-length duplex is 1.0 -- so only the interior,
+    where the saturation was, now carries a gradient.
     """
     try:
         from neoswga.core import dimer
 
-        if dimer.is_dimer_fast(primer1, primer2, max_bp):
-            return 1.0
-        return 0.0
+        run = dimer.max_complementary_run(primer1, primer2)
     except ImportError:
         # Simplified dimer check: look for complementary runs
         _comp_table = str.maketrans("ATGC", "TACG")
@@ -56,18 +62,24 @@ def calculate_dimer_score(primer1: str, primer2: str, max_bp: int = 4) -> float:
         p2_comp = p2_rev.translate(_comp_table)
 
         # Check for runs of complementary bases
-        max_run = 0
+        run = 0
         for i in range(len(p1)):
             for j in range(len(p2_comp)):
-                run = 0
-                while i + run < len(p1) and j + run < len(p2_comp):
-                    if p1[i + run] == p2_comp[j + run]:
-                        run += 1
+                length = 0
+                while i + length < len(p1) and j + length < len(p2_comp):
+                    if p1[i + length] == p2_comp[j + length]:
+                        length += 1
                     else:
                         break
-                max_run = max(max_run, run)
+                run = max(run, length)
 
-        return min(1.0, max_run / max_bp) if max_run >= max_bp else 0.0
+    if run <= max_bp:
+        return 0.0
+
+    # A run can never exceed the shorter primer, so this is the longest duplex
+    # the pair could form and the divisor is always positive.
+    ceiling = min(len(primer1), len(primer2))
+    return (run - max_bp) / (ceiling - max_bp)
 
 
 # Amplification-prediction shape. Below the crossover a connected component is
@@ -1314,11 +1326,18 @@ class NetworkBaseOptimizer(BaseOptimizer):
             bg_prefixes=bg_prefixes or [],
             fg_seq_lengths=fg_seq_lengths,
             bg_seq_lengths=bg_seq_lengths or [],
-            max_extension=kwargs.get("max_extension", 70000),
+            # `or` rather than a dict default: an unset --max-extension arrives
+            # as an explicit None, which the default would not replace.
+            max_extension=kwargs.get("max_extension") or 70000,
             uniformity_weight=kwargs.get("uniformity_weight", 0.0),
             reaction_temp=kwargs.get("reaction_temp"),
             tm_weight=kwargs.get("tm_weight", 0.0),
             dimer_penalty=kwargs.get("dimer_penalty", 0.0),
+            # From the config, not kwargs: params.json routes it onto the
+            # OptimizerConfig, and omitting it here left the inner optimizer
+            # on its own default of 4. That is the looser threshold, so pairs
+            # the user asked to treat as dimers were scored as clean.
+            max_dimer_bp=self.config.max_dimer_bp,
             conditions=conditions,
             mechanistic_weight=kwargs.get("mechanistic_weight", 0.0),
             template_gc=kwargs.get("template_gc", 0.5),

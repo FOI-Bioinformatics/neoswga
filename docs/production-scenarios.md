@@ -65,7 +65,7 @@ Template: `examples/multi_genome_blacklist/params.json`
 ## Scenario 4: Extreme-GC genomes
 
 Targets outside the 35-65% GC range (*Plasmodium* ~20%, *Mycobacterium*
-~65%, *Burkholderia* ~67%). The adaptive GC filter engages automatically
+~65%, *Caulobacter* ~67%). The adaptive GC filter engages automatically
 when `genome_gc` is outside that band and narrows the primer GC window to
 `genome_gc +/- gc_tolerance`. Additives help further:
 - Betaine equalises AT/GC kinetics

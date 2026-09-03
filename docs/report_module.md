@@ -125,7 +125,7 @@ Collect all metrics from a pipeline results directory.
 ```python
 from neoswga.core.report.metrics import collect_pipeline_metrics
 
-metrics = collect_pipeline_metrics("results/bacillus/")
+metrics = collect_pipeline_metrics("results/lactococcus/")
 print(f"Primers: {metrics.primer_count}")
 print(f"Target size: {metrics.target_genome_size:,} bp")
 ```

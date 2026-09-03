@@ -28,12 +28,18 @@ Pre-trained model (random_forest_filter.skops):
   - Output: Continuous score on ~0-20 scale where higher indicates better
     predicted amplification. Default threshold min_amp_pred=10.0 retains
     above-average primers. Report modules normalize to 0-1 for display.
-  - Training: Model trained on experimental SWGA primer sets with known
-    amplification outcomes. Retrain with: python scripts/retrain_rf_model.py
-  - Limitations: Training data composition is not fully documented. Model
-    performance may vary for genome types or primer lengths not represented
-    in the training set. The skops format tolerates minor sklearn version
-    drift; a major sklearn upgrade may still warrant re-validating the model.
+  - Training: Synthetic. `scripts/retrain_rf_model.py` samples primer features
+    at random and labels them with `compute_target_score`, a hand-written rule
+    over Tm, GC, GC clamp and homopolymer runs. No measured amplification
+    outcome enters the fit. Retrain with: python scripts/retrain_rf_model.py;
+    see docs/training_amp_pred_on_real_data.md for fitting to lab data instead.
+  - Limitations: Because the labels are a rule rather than a measurement, the
+    model reproduces that rule and cannot know more than it does. The rule
+    rewards the same properties the filter step has already selected for, so
+    the default min_amp_pred=10.0 gate -- the rule's own baseline -- removes a
+    median of zero primers in practice. The skops format tolerates minor
+    sklearn version drift; a major sklearn upgrade may still warrant
+    re-validating the model.
   - Security: Model integrity verified via SHA-256 hash, then loaded with
     skops.io.load() (no arbitrary code execution; rejects untrusted types).
     The legacy-pickle path (RestrictedUnpickler) remains only for optional

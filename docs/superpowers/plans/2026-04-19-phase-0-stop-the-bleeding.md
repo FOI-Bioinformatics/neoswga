@@ -29,7 +29,7 @@ The spec assumed `AdaptiveGCFilter` needed wiring. In reality, `neoswga/core/par
 
 - [ ] **Step 1: Create a 33% GC fixture FASTA**
 
-A ~10 kbp synthetic sequence at ~33% GC (Francisella-like). Use a deterministic seed so the fixture is reproducible.
+A ~10 kbp synthetic sequence at ~33% GC (AT-rich). Use a deterministic seed so the fixture is reproducible.
 
 Create `tests/fixtures/low_gc/target.fna` with the following content (one header, sequence wrapped at 80 char):
 
@@ -1666,8 +1666,8 @@ Prepend a new section at the top of `docs/CHANGELOG.md`:
 
 ### Bug fixes
 
-- **Adaptive GC regression guards.** Extreme-GC genomes (Francisella ~33%,
-  Burkholderia ~68%) now have explicit integration tests so the silently
+- **Adaptive GC regression guards.** Extreme-GC genomes (AT-rich ~33%,
+  Caulobacter ~67%) now have explicit integration tests so the silently
   functioning adaptive GC filter cannot regress unnoticed.
 - **Blacklist `bl_seq_lengths` auto-computed.** When `bl_genomes` is
   supplied without `bl_seq_lengths`, lengths are now derived from the

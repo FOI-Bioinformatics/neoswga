@@ -436,10 +436,18 @@ if __name__ == "__main__":
     print("Genome I/O - Example Usage")
     print("=" * 80)
 
-    # Create test files to demonstrate (in practice, use real genome files)
+    # Create test files to demonstrate (in practice, use real genome files).
+    # Genomes are not committed; scripts/fetch_reference_genomes.py writes them
+    # here. Override with NEOSWGA_GENOME_DIR.
+    import os
     from pathlib import Path
 
-    test_dir = Path("/Users/andreassjodin/Code/swga-dev/test")
+    test_dir = Path(
+        os.environ.get(
+            "NEOSWGA_GENOME_DIR",
+            Path(__file__).resolve().parents[2] / "tests" / "validation" / "genomes",
+        )
+    ).expanduser()
 
     if test_dir.exists():
         genomes = list(test_dir.glob("*.fna"))[:3]

@@ -13,7 +13,7 @@ Two bugs were found here.
    comment, but that no longer had 75% GC after edits -- the code went on to
    hardcode the stale 0.75 value (and an unconditional "PASS" in the log)
    instead of using the value it actually measured, so the reported
-   `details["burkholderia_fix"]` and log line claimed a pass regardless of
+   `details["caulobacter_fix"]` and log line claimed a pass regardless of
    what `AdaptiveGCFilter.passes()` actually returned.
 
 2. `run_all_tests()` built each `ValidationResult` without passing `error=`,
@@ -43,7 +43,7 @@ def test_adaptive_gc_filter_primer_actually_has_the_gc_it_claims():
 
     The bug this guards: the primer string was "GCGCGCGC" (100% GC) while the
     surrounding comments and a hardcoded 0.75 literal claimed 75%. Because
-    100% GC falls outside the Burkholderia window (52-82%), the "PASS" the
+    100% GC falls outside the Caulobacter window (52-82%), the "PASS" the
     test unconditionally logged did not correspond to what the filter really
     decided. Pinning the arithmetic here prevents that drift from creeping
     back if the primer string is edited again without checking its GC.
@@ -54,7 +54,7 @@ def test_adaptive_gc_filter_primer_actually_has_the_gc_it_claims():
 
 
 def test_adaptive_gc_filter_reports_pass_that_matches_the_real_filter_decision():
-    """`details["burkholderia_fix"]` must not claim a pass the filter didn't grant.
+    """`details["caulobacter_fix"]` must not claim a pass the filter didn't grant.
 
     Regression check for the fixed sentinel-value bug: previously the
     "high_gc_primer now passes" message was produced from a hardcoded 0.75
@@ -65,27 +65,27 @@ def test_adaptive_gc_filter_reports_pass_that_matches_the_real_filter_decision()
     """
     from neoswga.core.adaptive_filters import AdaptiveGCFilter
 
-    burkholderia_filter = AdaptiveGCFilter(genome_gc=0.67, tolerance=0.15)
+    caulobacter_filter = AdaptiveGCFilter(genome_gc=0.67, tolerance=0.15)
     high_gc_primer = "GCGCGCAT"  # the primer the suite now uses
     gc_content = sum(1 for b in high_gc_primer if b in "GC") / len(high_gc_primer)
 
     assert gc_content == pytest.approx(0.75)
-    assert burkholderia_filter.gc_min <= gc_content <= burkholderia_filter.gc_max
-    assert burkholderia_filter.passes(high_gc_primer) is True
+    assert caulobacter_filter.gc_min <= gc_content <= caulobacter_filter.gc_max
+    assert caulobacter_filter.passes(high_gc_primer) is True
 
     suite = ValidationSuite(verbose=False)
     passed, details = suite.test_adaptive_gc_filter()
     assert passed
-    assert details["burkholderia_fix"] == "high_gc_primer now passes (was rejected by old filter)"
+    assert details["caulobacter_fix"] == "high_gc_primer now passes (was rejected by old filter)"
 
 
 def test_adaptive_gc_filter_low_gc_primer_check_uses_its_own_measurement():
-    """The Francisella (low-GC) branch must be evaluated against its own primer's GC.
+    """The Wolbachia (low-GC) branch must be evaluated against its own primer's GC.
 
     Before the fix, `low_gc_fails_old` was computed from a `gc_content`
     variable that had already been overwritten by the high-GC primer's value
     (the two primers share one variable name in the source), so the low-GC
-    check was silently testing the wrong number. Confirm the francisella_fix
+    check was silently testing the wrong number. Confirm the wolbachia_fix
     detail reflects the actual low-GC primer ("AAATAACG", 25% GC).
     """
     low_gc_primer = "AAATAACG"
@@ -97,7 +97,7 @@ def test_adaptive_gc_filter_low_gc_primer_check_uses_its_own_measurement():
     suite = ValidationSuite(verbose=False)
     passed, details = suite.test_adaptive_gc_filter()
     assert passed
-    assert details["francisella_fix"] == "low_gc_primer now passes (was rejected by old filter)"
+    assert details["wolbachia_fix"] == "low_gc_primer now passes (was rejected by old filter)"
 
 
 # ----------------------------------------------------------------------

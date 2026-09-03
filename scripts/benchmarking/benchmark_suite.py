@@ -3,7 +3,7 @@
 Comprehensive benchmark suite for testing all argument combinations.
 
 Tests different combinations of:
-- Genomes (Francisella, Burkholderia)
+- Genomes (Wolbachia, Caulobacter)
 - Optimization methods (greedy, milp, network, hybrid, moea, dominating-set)
 - GC tolerance (0.10, 0.15, 0.20)
 - Primer counts (5, 10, 15, 20)
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class BenchmarkConfig:
     """Configuration for a single benchmark run"""
-    genome: str  # francisella or burkholderia
+    genome: str  # wolbachia or caulobacter
     optimization_method: str  # greedy, milp, network, hybrid, moea, dominating-set
     gc_tolerance: float  # 0.10, 0.15, 0.20
     num_primers: int  # 5, 10, 15, 20

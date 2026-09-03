@@ -1,5 +1,12 @@
 # NeoSWGA v3.0.0 — Comprehensive Audit Report
 
+> **Superseded in part.** This report predates roughly 20,000 changed lines
+> under `neoswga/core/` (222 commits since 2026-04-01). Several of its
+> findings are already fixed and at least one is contradicted by current
+> behaviour. Read it as history; check any individual finding against
+> [AUDIT_2026-08_alternatives_and_scaling.md](AUDIT_2026-08_alternatives_and_scaling.md)
+> before acting on it.
+
 **Date:** 2026-03-30
 **Audit Team:** 6 specialists + lead coordinator
 **Scope:** Scientific correctness, algorithm quality, UX, testing, production readiness, gap analysis
@@ -43,7 +50,7 @@ NeoSWGA is an ambitious and architecturally sound primer design tool with strong
 ### Strengths
 - **SantaLucia (1998) NN parameters correctly implemented** with all 10 canonical stacks verified
 - **Comprehensive literature citations** throughout (Owczarzy 2008, Rees 1993, Blanco 1989, etc.)
-- **Adaptive GC filtering** solves a real problem for extreme-GC organisms (Francisella, Burkholderia)
+- **Adaptive GC filtering** solves a real problem for extreme-GC organisms (AT-rich and GC-rich targets)
 - **Four-pathway mechanistic model** is novel and scientifically ambitious
 - **Additive chemistry** well-modeled with Arrhenius kinetics and sigmoid GC-normalization
 

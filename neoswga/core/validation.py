@@ -179,20 +179,20 @@ class ValidationSuite:
         details = {}
 
         try:
-            # Test with Francisella (33% GC)
-            francisella_filter = AdaptiveGCFilter(genome_gc=0.33, tolerance=0.15)
+            # Test with Wolbachia (35% GC)
+            wolbachia_filter = AdaptiveGCFilter(genome_gc=0.35, tolerance=0.15)
 
             # This primer has 25% GC (2/8)
             low_gc_primer = "AAATAACG"
             gc_content = sum(1 for b in low_gc_primer if b in "GC") / len(low_gc_primer)
 
             # Should PASS (within 33% ± 15%)
-            if not francisella_filter.passes(low_gc_primer):
-                details["error"] = f"Francisella filter rejected {gc_content:.1%} GC primer"
+            if not wolbachia_filter.passes(low_gc_primer):
+                details["error"] = f"Wolbachia filter rejected {gc_content:.1%} GC primer"
                 return False, details
 
-            # Test with Burkholderia (67% GC)
-            burkholderia_filter = AdaptiveGCFilter(genome_gc=0.67, tolerance=0.15)
+            # Test with Caulobacter (67% GC)
+            caulobacter_filter = AdaptiveGCFilter(genome_gc=0.67, tolerance=0.15)
 
             # This primer has 75% GC (6/8)
             high_gc_primer = "GCGCGCAT"
@@ -200,22 +200,20 @@ class ValidationSuite:
 
             # Should PASS (within 67% ± 15% = 52%-82%)
             # 75% GC is within this range
-            high_gc_passes = burkholderia_filter.passes(high_gc_primer)
+            high_gc_passes = caulobacter_filter.passes(high_gc_primer)
             if not high_gc_passes:
                 # Check if it's actually within range
-                expected_pass = (
-                    burkholderia_filter.gc_min <= gc_content <= burkholderia_filter.gc_max
-                )
+                expected_pass = caulobacter_filter.gc_min <= gc_content <= caulobacter_filter.gc_max
                 if expected_pass:
                     details["error"] = (
-                        f"Burkholderia filter rejected {gc_content:.1%} GC primer (expected to pass)"
+                        f"Caulobacter filter rejected {gc_content:.1%} GC primer (expected to pass)"
                     )
                     return False, details
                 else:
                     # If filter is working correctly but being more strict, that's OK
                     if self.verbose:
                         logger.info(
-                            f"Note: High GC primer ({gc_content:.1%}) outside filter range {burkholderia_filter.gc_min:.1%}-{burkholderia_filter.gc_max:.1%}"
+                            f"Note: High GC primer ({gc_content:.1%}) outside filter range {caulobacter_filter.gc_min:.1%}-{caulobacter_filter.gc_max:.1%}"
                         )
                         logger.info("This is acceptable behavior")
 
@@ -227,12 +225,12 @@ class ValidationSuite:
             low_gc_fails_old = (low_gc_content < 0.375) or (low_gc_content > 0.625)
             high_gc_fails_old = (gc_content < 0.375) or (gc_content > 0.625)
 
-            details["francisella_fix"] = (
+            details["wolbachia_fix"] = (
                 "low_gc_primer now passes (was rejected by old filter)"
                 if low_gc_fails_old
                 else "n/a"
             )
-            details["burkholderia_fix"] = (
+            details["caulobacter_fix"] = (
                 "high_gc_primer now passes (was rejected by old filter)"
                 if high_gc_fails_old and high_gc_passes
                 else "verified"
@@ -240,10 +238,10 @@ class ValidationSuite:
 
             if self.verbose:
                 logger.info(
-                    f"Francisella (33% GC): Accepts {francisella_filter.gc_min:.1%}-{francisella_filter.gc_max:.1%} GC"
+                    f"Wolbachia (35% GC): Accepts {wolbachia_filter.gc_min:.1%}-{wolbachia_filter.gc_max:.1%} GC"
                 )
                 logger.info(
-                    f"Burkholderia (67% GC): Accepts {burkholderia_filter.gc_min:.1%}-{burkholderia_filter.gc_max:.1%} GC"
+                    f"Caulobacter (67% GC): Accepts {caulobacter_filter.gc_min:.1%}-{caulobacter_filter.gc_max:.1%} GC"
                 )
                 logger.info(f"Low GC primer ({low_gc_content:.1%}): PASS")
                 logger.info(

@@ -51,6 +51,21 @@ Documentation for NeoSWGA, a tool for designing primer sets for selective whole-
 | [Implementation Guide](development/implementation-guide.md) | Development guidelines |
 | [Deployment](development/deployment.md) | Deployment and configuration |
 
+## Audits and validation reports
+
+| Document | Description |
+|----------|-------------|
+| [Alternatives and scaling audit](AUDIT_2026-08_alternatives_and_scaling.md) | 2026-08. Optimizer scaling, option reachability, and oligo-set quality against an exact optimum. Current. |
+| [Additive specificity](validation/additive_specificity.md) | The additive-to-specificity lever, measured end to end |
+| [Reach calibration](validation/reach_calibration.md) | Per-primer extension reach fitted to a published outcome |
+| [Published primer sets](validation/published_primer_sets.md) | Scoring checked against seven wet-lab datasets |
+| [Tool comparison](validation/tool_comparison.md) | NeoSWGA against swga 1.0, swga 2.0/soapswga and COATswga |
+
+The per-step reports (`STEP1`-`STEP4_AUDIT_REPORT.md`), `AUDIT_REPORT_v3.0.md`
+and `OPTIMIZER_UX_AUDIT.md` date from 2026-03 and predate roughly 20,000 changed
+lines under `neoswga/core/`. Several of their findings are already fixed. Read
+them as history, and check any finding against the current audit above.
+
 ## Validation
 
 Run validation tests:

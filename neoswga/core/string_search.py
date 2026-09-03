@@ -6,7 +6,6 @@ from typing import Dict, List, Optional
 import h5py
 
 from neoswga.core import parameter
-from neoswga.core import utility as _utility
 from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
@@ -49,9 +48,24 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
 
     logger.info(f"Loading genome sequence from {seq_fname}...")
 
-    # Read entire genome into memory
-    seq_generator = _utility.read_fasta_file(seq_fname)
-    sequence = "".join(seq_generator).upper()
+    # Read entire genome into memory, joining whole records.
+    #
+    # NOT `"".join(utility.read_fasta_file(...))`: that helper yields one
+    # character per base, and `str.join` materialises its argument into a list
+    # first, so the list holds one pointer per base -- about 26 GB for hg38
+    # (3.3 Gbp) before a single base is concatenated. The symptom was a
+    # SIGKILL with "Loading genome sequence from ..." as the last log line,
+    # which reads like a slow load rather than a defect, and no small-genome
+    # test could see it.
+    #
+    # `load_genome_streaming` yields one uppercased string per record, so the
+    # peak here is the finished sequence plus the largest chromosome. It
+    # already uppercases, which is why no `.upper()` follows: that call was a
+    # second full-length copy of the genome.
+    from neoswga.core import genome_io
+
+    loader = genome_io.GenomeLoader()
+    sequence = "".join(loader.load_genome_streaming(seq_fname))
 
     _genome_cache[seq_fname] = sequence
     logger.info(f"Cached genome sequence: {len(sequence):,} bp")

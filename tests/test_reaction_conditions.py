@@ -253,15 +253,15 @@ class TestMg2Optimization(unittest.TestCase):
 
         self.assertEqual(mg_conc, 1.5)
 
-    def test_francisella_genome(self):
-        """Test Mg2+ for Francisella (33% GC)."""
+    def test_wolbachia_genome(self):
+        """Test Mg2+ for Wolbachia (35% GC)."""
         conditions = ReactionConditions()
         mg_conc = conditions.optimize_mg_concentration(0.33)
 
         self.assertEqual(mg_conc, 2.5)
 
-    def test_burkholderia_genome(self):
-        """Test Mg2+ for Burkholderia (67% GC)."""
+    def test_caulobacter_genome(self):
+        """Test Mg2+ for Caulobacter (67% GC)."""
         conditions = ReactionConditions()
         mg_conc = conditions.optimize_mg_concentration(0.67)
 

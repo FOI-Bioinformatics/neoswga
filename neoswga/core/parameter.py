@@ -311,6 +311,17 @@ class PipelineParameters:
     gc_tolerance: float = 0.15
     genome_gc: Optional[float] = None
 
+    # Per-primer extension reach for set-cover selection and reported coverage.
+    # None means "use the polymerase's realistic reach"; an explicit value here
+    # or on --coverage-reach overrides it.
+    coverage_reach: Optional[int] = None
+
+    # Candidate ranking in step 2. None means "use the read site's default",
+    # which keeps one source of truth for it (pipeline.py).
+    occupancy_ranking: bool = True
+    occupancy_shortlist: Optional[int] = None
+    max_mismatches: Optional[int] = None
+
     # Polymerase and reaction conditions
     polymerase: str = "phi29"
     reaction_temp: Optional[float] = None
@@ -359,6 +370,7 @@ class PipelineParameters:
     # Bloom filter (for large backgrounds)
     use_bloom_filter: bool = False
     bloom_filter_path: Optional[str] = None
+    sampled_index_path: Optional[str] = None
 
     # Paths
     data_dir: str = ""
@@ -416,6 +428,10 @@ def get_current_config() -> PipelineParameters:
         gc_max=globals().get("gc_max", 0.625),
         gc_tolerance=globals().get("gc_tolerance", 0.15),
         genome_gc=globals().get("genome_gc", None),
+        coverage_reach=globals().get("coverage_reach", None),
+        occupancy_ranking=globals().get("occupancy_ranking", True),
+        occupancy_shortlist=globals().get("occupancy_shortlist", None),
+        max_mismatches=globals().get("max_mismatches", None),
         polymerase=globals().get("polymerase", "phi29"),
         reaction_temp=globals().get("reaction_temp", None),
         na_conc=globals().get("na_conc", 50.0),
@@ -434,6 +450,7 @@ def get_current_config() -> PipelineParameters:
         min_sample_count=globals().get("min_sample_count", 5),
         use_bloom_filter=globals().get("use_bloom_filter", False),
         bloom_filter_path=globals().get("bloom_filter_path", None),
+        sampled_index_path=globals().get("sampled_index_path", None),
         data_dir=globals().get("data_dir", ""),
         src_dir=globals().get("src_dir", ""),
         fg_genomes=globals().get("fg_genomes", []) or [],
@@ -495,6 +512,10 @@ def set_from_config(config: PipelineParameters) -> None:
     g["gc_max"] = config.gc_max
     g["gc_tolerance"] = config.gc_tolerance
     g["genome_gc"] = config.genome_gc
+    g["coverage_reach"] = config.coverage_reach
+    g["occupancy_ranking"] = config.occupancy_ranking
+    g["occupancy_shortlist"] = config.occupancy_shortlist
+    g["max_mismatches"] = config.max_mismatches
 
     # Polymerase and reaction conditions
     g["polymerase"] = config.polymerase
@@ -526,6 +547,7 @@ def set_from_config(config: PipelineParameters) -> None:
     # Bloom filter
     g["use_bloom_filter"] = config.use_bloom_filter
     g["bloom_filter_path"] = config.bloom_filter_path
+    g["sampled_index_path"] = config.sampled_index_path
 
     # Paths
     g["data_dir"] = config.data_dir
@@ -588,9 +610,12 @@ long_primer_mode = False
 sample_rate = None  # None means disabled (use all k-mers)
 min_sample_count = 5
 
-# Bloom filter parameters for large background genome filtering
+# Bloom filter parameters for large background genome filtering.
+# `filter.py` reads sampled_index_path off this module, and its own
+# "index not found" message tells the user to set it in params.json.
 use_bloom_filter = False
 bloom_filter_path = None
+sampled_index_path = None
 
 # Polymerase and reaction condition parameters
 # polymerase: phi29 (30C), equiphi29 (42-45C), bst (60-65C), klenow (37C)
@@ -638,6 +663,19 @@ gc_min = 0.375
 gc_max = 0.625
 genome_gc = None
 
+# Per-primer extension reach, in bp. None means "use the polymerase default";
+# `unified_optimizer.run_optimization` reads this global, so get_params must
+# assign it or a params.json setting silently does nothing.
+coverage_reach = None
+
+# Step-2 candidate ranking. `pipeline.py` reads all three off this module, so
+# get_params must assign them or a params.json setting silently does nothing.
+# None on the latter two means "use the read site's default"
+# (DEFAULT_OCCUPANCY_SHORTLIST, and one mismatch class).
+occupancy_ranking = True
+occupancy_shortlist = None
+max_mismatches = None
+
 # Dimer and Tm constraints. These mirror the PipelineParameters defaults above
 # and exist as module globals so the filtering rules can run before get_params
 # has populated them -- filter.filter_extra reads max_self_dimer_bp as a bare
@@ -668,7 +706,7 @@ def adaptive_gc_window(genome_gc, gc_tolerance=None):
     Primer GC window for a target of the given composition.
 
     The window is normally the genome GC plus or minus `gc_tolerance`, which is
-    what lets extreme-GC organisms such as Francisella (33%) or Burkholderia
+    what lets extreme-GC organisms such as Wolbachia (35%) or Caulobacter
     (67%) work at all.
 
     On strongly AT-rich or GC-rich targets that is not enough, because the
@@ -787,6 +825,33 @@ def get_value_or_default(arg_value, data, key):
         else:
             logger.warning("Missing parameter '%s' in params.json. Please provide a value.", key)
         return None
+
+
+def _apply_params_only_keys(data: dict) -> None:
+    """Assign the params.json keys that no CLI argument maps onto `args`.
+
+    Their read sites use `getattr(parameter, name, default)`, so a key that
+    reaches only `get_params`'s returned dict does nothing at all -- the defect
+    behind `coverage_reach` and the four keys beside it here. Each is declared
+    in `params.schema.json`, and `additionalProperties: true` means an
+    unassigned one produces no warning either.
+
+    Assigned unconditionally, so a second run in one process does not inherit
+    the first's values. A command-line flag still wins: `run_step2` merges args
+    onto this module after `pipeline._initialize()` has already called
+    `get_params`, so the flag lands last.
+    """
+    global coverage_reach
+    global occupancy_ranking
+    global occupancy_shortlist
+    global max_mismatches
+    global sampled_index_path
+
+    coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
+    occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
+    occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")
+    max_mismatches = data["max_mismatches"] = data.get("max_mismatches")
+    sampled_index_path = data["sampled_index_path"] = data.get("sampled_index_path")
 
 
 def get_params(args):
@@ -1064,7 +1129,7 @@ def get_params(args):
             print(f"Auto-setting sample_rate={sample_rate:.1%} for {max_k}bp primers")
         data["sample_rate"] = sample_rate
 
-    # Bloom filter parameters for large background genome filtering (optional)
+    _apply_params_only_keys(data)
     use_bloom_filter = data.get("use_bloom_filter", False)
     bloom_filter_path = data.get("bloom_filter_path", None)
 

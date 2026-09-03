@@ -1,11 +1,11 @@
 {
-  "fg_genomes": ["data/francisella.fna"],
+  "fg_genomes": ["data/wolbachia.fna"],
   "bg_genomes": [],
-  "fg_prefixes": ["data/francisella"],
+  "fg_prefixes": ["data/wolbachia"],
   "bg_prefixes": [],
   "data_dir": "results",
 
-  "genome_gc": 0.3226,
+  "genome_gc": 0.3524,
   "polymerase": "equiphi29",
 
   "min_k": 12,

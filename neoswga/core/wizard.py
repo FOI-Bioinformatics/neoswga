@@ -158,9 +158,9 @@ def check_jellyfish_available() -> bool:
 # GC class to human-readable description
 GC_CLASS_DESCRIPTIONS = {
     "extreme_at": "Extreme AT-rich (like Plasmodium)",
-    "at_rich": "AT-rich (like Francisella, Wolbachia)",
+    "at_rich": "AT-rich (like Wolbachia, P. falciparum)",
     "balanced": "Balanced (like E. coli)",
-    "gc_rich": "GC-rich (like Mycobacterium, Burkholderia)",
+    "gc_rich": "GC-rich (like Mycobacterium, Caulobacter)",
     "extreme_gc": "Extreme GC-rich (like Streptomyces)",
 }
 

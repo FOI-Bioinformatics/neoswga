@@ -54,7 +54,7 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 **Performance**:
 - `position_cache.py`: In-memory position cache (1000x speedup)
 - `background_filter.py`: Bloom filter for large background genomes
-- `gpu_acceleration.py`: CuPy-based GPU acceleration for thermodynamics (10-100x speedup)
+- `gpu_acceleration.py`: CuPy-based thermodynamics helpers. Not reached by any pipeline stage, and `--use-gpu` says so rather than claiming otherwise. `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in Python writing element-by-element into a CuPy array, which is slower than the NumPy path it replaces
 
 **Simulation**:
 - `replication_simulator.py`: Agent-based phi29 DNA replication simulation
@@ -141,6 +141,29 @@ neoswga filter -j params.json       # Step 2: Filter candidate primers
 neoswga score -j params.json        # Step 3: Score amplification efficacy
 neoswga optimize -j params.json     # Step 4: Find optimal primer sets
 ```
+
+### Quality Assurance (`--enable-qa`)
+
+Accepted by every pipeline step; each one routes through
+`core/pipeline_qa_integration.py`:
+
+- `filter --enable-qa` runs `apply_post_step2_qa_filter` on step2_df.csv (3'
+  stability, dimer-hub degree, integrated quality score), rewrites the CSV with
+  a `qa_score` column, writes `qa_report.txt`, and corrects the last stage of
+  `filter_stats.json`. A QA pass that rejects every candidate fails the step
+  instead of writing an empty pool.
+- `score --enable-qa` blends the QA score with the random forest score into
+  `composite_score` (0.7 RF / 0.3 QA) and re-orders step3_df.csv by it. The QA
+  scores come from step2_df.csv when `filter --enable-qa` produced them, and
+  are computed on the spot otherwise.
+- `optimize --enable-qa` drops dimer-hub primers from the candidate pool before
+  optimizing. The pre-filter is pairwise, so it costs O(n^2) dimer
+  calculations.
+- `count-kmers --enable-qa` has no QA hook (there are no candidates yet); the
+  step logs that and proceeds.
+
+The flag is per-invocation: it is assigned to `parameter.enable_qa` on every
+step, so it cannot carry over to a later step in the same process.
 
 ### Optimization Methods
 ```bash
@@ -321,7 +344,9 @@ neoswga expand-primers -j params.json --fixed-primers SEQ1 SEQ2 \
 | `klenow` | 25-40C | 8-15 bp | Room temperature, lower processivity |
 
 **Optimization**:
-- `optimization_method`: 'hybrid' (default), 'dominating-set' (fast), 'background-aware' (clinical), 'network'
+- `optimization_method`: **currently inert in params.json — see Known Issue #8.**
+  Use `--optimization-method` on the CLI. Values: 'hybrid' (default),
+  'dominating-set' (fast), 'background-aware' (clinical), 'network'
 - `num_primers`, `target_set_size`: Desired primer set size (default: 6)
 - `iterations`: Search iterations (default: 8)
 - `max_sets`: Parallel primer sets to build (default: 5)
@@ -344,7 +369,11 @@ positions = cache.get_positions('data/target', 'ATCGATCG', strand='both')
 
 ### GPU Acceleration
 
-Optional CuPy-based GPU acceleration:
+A library-only CuPy path. No pipeline stage calls it, so `--use-gpu` /
+`--gpu-device` change neither results nor runtime and report that they are not
+implemented. `batch_calculate_tm` is not a speedup — it iterates in Python and
+assigns into a CuPy array element by element, which is slower than the NumPy
+fallback. `batch_binding_probability` is the one genuinely vectorised routine.
 
 ```python
 from neoswga.core.gpu_acceleration import is_gpu_available, get_gpu_info, GPUThermodynamics
@@ -354,7 +383,7 @@ if is_gpu_available():
     print(f"GPU: {info['device_name']}")
 
     gpu_calc = GPUThermodynamics(conditions)
-    tms = gpu_calc.batch_calculate_tm(primers)  # 10-100x faster
+    tms = gpu_calc.batch_calculate_tm(primers)
 ```
 
 ### Reaction Conditions
@@ -619,6 +648,34 @@ with h5py.File('positions.h5', 'r') as f:
    The lesson both issues share: **test against a whole genome, not a chromosome.** chr21 is
    46 Mb and cannot reach either limit, so both bugs sat behind a passing test suite.
    `tests/test_position_cache.py::TestPositionsPastTheInt32Ceiling` pins this one.
+
+8. **`optimization_method` in params.json does nothing** (open, audit finding F1b).
+   The key is declared in `params.schema.json` and documented above, but `get_params`
+   assigns no module global and `run_step4` passes `args.optimization_method` straight
+   through (`cli/pipeline.py:766`), whose argparse default is `'hybrid'`. So the flag's
+   default always wins:
+
+   ```
+   params.json "optimization_method": "dominating-set"
+     -> parameter module global: <UNSET>,  optimizer actually run: hybrid
+   ```
+
+   This costs more than it looks: `hybrid` returns a set **identical** to
+   `dominating-set` (Jaccard 1.000) at 7.8x the cost at 32 primers and 260x at 128
+   (2239 s against 8.6 s). Every params.json user is pinned to the slow method for the
+   same answer. `design` compounds it — that subparser has no `--optimization-method`
+   at all and `run_design` hardcodes `"hybrid"`.
+
+   **Use `--optimization-method` on the CLI until this is fixed.** The fix is the one
+   applied to the five keys in `_apply_params_only_keys`, plus a "was the flag given"
+   sentinel as in `_resolve_selection_weights`, because `'hybrid'` is both the argparse
+   default and a legitimate explicit choice.
+
+   This is the sixth instance of one class: a config key or flag that is documented,
+   accepted, and read by nothing. `additionalProperties: true` means none of them warn.
+   `tests/test_design_options_have_effect.py` and
+   `tests/test_params_json_routes_optional_keys.py` are the tests that hold the line;
+   extend them when adding an option.
 
 ## Package Structure
 

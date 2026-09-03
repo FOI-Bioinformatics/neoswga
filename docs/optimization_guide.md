@@ -34,15 +34,19 @@ This guide helps you choose the right optimization method for your SWGA primer d
 
 | Method | Speed | Coverage | Specificity | Best For |
 |--------|-------|----------|-------------|----------|
-| `hybrid` | Medium | Excellent | Good | General use (default) |
-| `dominating-set` | Fast (8x) | Excellent | Fair | Large pools, quick results |
-| `background-aware` | Slow | Good | Excellent | Clinical, low background |
-| `network` | Medium | Good | Good | Tm-balanced sets |
-| `genetic` | Slow | Good | Good | Multi-objective exploration |
-| `moea` | Slow | Good | Good | Pareto optimization |
-| `milp` | Variable | Optimal | Good | Exact solutions (small sets) |
-| `clique` | Medium | Good | Good | Dimer-free primer sets |
-| `greedy` | Fast | Fair | Fair | Simple baseline |
+| `hybrid` | Slow, and superlinear in set size | Excellent | Good | General use (default) |
+| `dominating-set` | Fast, and flat in set size | Excellent | Fair | Large pools, quick results |
+| `background-aware` | Slowest | Good | Excellent | Clinical, low background |
+| `network` | Slow | Fair | Good | Tm-balanced sets |
+| `clique` | Medium | Fair | Best measured | Dimer-free primer sets |
+| `ensemble` | Slowest | Best of the above | Varies | When unsure which to use |
+
+> **Read this table with the measurements below.** On the one target measured
+> so far, `hybrid`, `dominating-set` and `background-aware` returned the
+> *identical* primer set at every size tested, so the speed column is the only
+> column separating them. `genetic`, `moea`, `milp` and `greedy` were removed
+> from this guide on 2026-08-31: those optimizers no longer exist and the CLI
+> rejects the names.
 
 ## Detailed Method Descriptions
 
@@ -157,120 +161,6 @@ neoswga optimize -j params.json --optimization-method=network
 - Uniform amplification desired
 
 
-### genetic
-
-**Multi-objective genetic algorithm.**
-
-```bash
-neoswga optimize -j params.json --optimization-method=genetic
-```
-
-**How it works:**
-- Evolutionary optimization with crossover and mutation
-- Balances multiple objectives (coverage, selectivity, Tm)
-- Explores diverse solution space
-
-**Strengths:**
-- Good for complex multi-objective problems
-- Can escape local optima
-- Explores diverse solutions
-
-**Weaknesses:**
-- Slow (many iterations)
-- Non-deterministic results
-- May require tuning
-
-**When to use:**
-- Complex optimization with many constraints
-- When other methods give poor results
-- Exploration of solution space
-
-
-### moea
-
-**Multi-objective evolutionary algorithm (Pareto optimization).**
-
-```bash
-neoswga optimize -j params.json --optimization-method=moea
-```
-
-**How it works:**
-- NSGA-II style Pareto optimization
-- Returns set of non-dominated solutions
-- Balances coverage vs selectivity trade-offs
-
-**Strengths:**
-- Provides multiple Pareto-optimal solutions
-- Explicit trade-off analysis
-- Good for understanding design space
-
-**Weaknesses:**
-- Slow
-- Requires choosing from multiple solutions
-- Complex interpretation
-
-**When to use:**
-- Trade-off analysis
-- When multiple objectives matter equally
-- Research applications
-
-
-### milp
-
-**Mixed Integer Linear Programming (exact solution).**
-
-```bash
-neoswga optimize -j params.json --optimization-method=milp
-```
-
-**How it works:**
-- Formulates as integer program
-- Solves using branch-and-bound
-- Finds provably optimal solution
-
-**Strengths:**
-- Optimal solution guaranteed (if feasible)
-- Provable bounds
-- Good for small problems
-
-**Weaknesses:**
-- Very slow for large problems
-- Requires `mip` package
-- May timeout
-
-**When to use:**
-- Small candidate pools (<100)
-- When optimality proof needed
-- Benchmarking other methods
-
-
-### greedy
-
-**Simple greedy breadth-first search.**
-
-```bash
-neoswga optimize -j params.json --optimization-method=greedy
-```
-
-**How it works:**
-- Iteratively adds primer with best marginal improvement
-- Simple coverage-based scoring
-
-**Strengths:**
-- Very fast
-- Simple and predictable
-- Good baseline
-
-**Weaknesses:**
-- Can get stuck in local optima
-- No global optimization
-
-**When to use:**
-- Quick baseline
-- Testing and development
-- When speed is critical
-
-
 ### clique
 
 **Dimer-free primer sets via clique finding.**
@@ -296,18 +186,24 @@ neoswga optimize -j params.json --optimization-method=clique
 - Multiplex applications requiring dimer-free sets
 
 
-### Pipeline Methods
+### ensemble
 
-These methods chain multiple optimizers together:
-
-- `coverage-then-dimerfree`: Runs dominating-set for coverage, then clique filtering for dimer-free refinement
-- `dimerfree-scored`: Clique-based dimer-free selection followed by network scoring
-- `bg-prefilter`: Background pre-filtering before optimization
-- `bg-prefilter-hybrid`: Background pre-filtering combined with hybrid optimization
+**Runs several methods on one shared position cache and keeps the best.**
 
 ```bash
-neoswga optimize -j params.json --optimization-method=coverage-then-dimerfree
+neoswga optimize -j params.json --optimization-method=ensemble
+neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combine=union
 ```
+
+Selection is by `normalized_score`, a [0,1] value comparable across optimizers,
+weighted by `--application`; the raw `score` is not comparable between methods.
+The runner-up table is written to `step4_improved_df_summary.json` as
+`ensemble_comparison`. `--ensemble-combine union` additionally re-optimizes over
+the pooled primers from all methods, guarded so it never returns a worse set.
+
+Note that on a target where the methods converge — as they did on the one
+measured here — the comparison table will show several indistinguishable
+runners-up. That is information about the target, not a failure of the ensemble.
 
 ### Host-Free Optimization
 
@@ -384,18 +280,34 @@ neoswga expand-primers -j params.json \
 
 ## Performance Benchmarks
 
-Approximate runtimes on typical datasets (500 candidates, 10 target primers):
+Measured 2026-08-31 on a 3.17 Mb bacterial target against human chr21, 2000
+candidates, seed 42, phi29 at 30 C, one run each (repeat noise about 9%). Driven
+through the CLI, so the figures include dispatch, position-cache build and
+metric computation. Reproduce with `scripts/benchmarking/sweep_optimize.py`.
 
-| Method | Runtime | Memory |
-|--------|---------|--------|
-| greedy | 1-2s | Low |
-| dominating-set | 2-5s | Low |
-| hybrid | 10-30s | Medium |
-| network | 20-60s | Medium |
-| background-aware | 30-120s | Medium |
-| genetic | 60-300s | Medium |
-| moea | 60-300s | Medium |
-| milp | Variable | High |
+| Method | 12 primers | 32 primers | 64 primers | 128 primers | fg_coverage at 32 |
+|--------|---:|---:|---:|---:|---:|
+| dominating-set | 8.3 s | 8.2 s | 9.0 s | 8.6 s | 0.5376 |
+| hybrid (default) | 13.7 s | 63.3 s | 347 s | 2239 s | 0.5376 |
+| background-aware | 20.1 s | 133 s | — | — | 0.5376 |
+| clique | 13.1 s | 34.7 s | — | — | 0.4499 |
+| network | 64.9 s | 377 s | — | — | 0.4283 |
+
+Three things this table is for. **`dominating-set` is flat in set size** while
+coverage climbs; every other method's cost curve is superlinear. **The first
+three rows returned the identical primer set** at every size tested (Jaccard
+1.000), so the extra runtime bought nothing on this target. **`network` is worse
+on coverage and costs 46x more** at 32 primers.
+
+`clique` is the one method that is not dominated: it gives up coverage but was
+the only one to return `dimer_risk` 0.0000, and it had the best selectivity
+density of any method here (42.4 against 31.7).
+
+Caveats that belong with these numbers: one target, one k, one run each. Enough
+to show that a method returning an identical set at 38x the cost has a defect;
+not enough to change a shipped default on. See
+[`AUDIT_2026-08_alternatives_and_scaling.md`](AUDIT_2026-08_alternatives_and_scaling.md)
+(F5, F5b) for the full measurement and its limits.
 
 ## Troubleshooting
 

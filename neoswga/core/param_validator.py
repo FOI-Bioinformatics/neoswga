@@ -92,8 +92,14 @@ PARAM_RANGES = {
     "genome_gc": (0.0, 1.0),
     "min_tm": (0.0, 100.0),
     "max_tm": (0.0, 100.0),
-    "num_primers": (1, 50),
-    "target_set_size": (1, 50),
+    # Ceilings mirror params.schema.json. They were left at 50 when the schema
+    # was raised to 200, and since this gate runs first a params.json asking for
+    # 64 was rejected while `--num-primers 64` ran -- so the range the raise was
+    # made for (31-96 primers for a >95% design on a 3.2 Mb target) was
+    # unreachable from the config file. tests/test_params_json_routes_reach_the
+    # _pipeline.py pins the two together.
+    "num_primers": (1, 200),
+    "target_set_size": (1, 200),
     "iterations": (1, 100),
     "max_sets": (1, 100),
     "bl_penalty": (0.0, 100.0),

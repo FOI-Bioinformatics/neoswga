@@ -262,8 +262,8 @@ class TestThermodynamicFilter(unittest.TestCase):
 class TestAdaptiveGCRange(unittest.TestCase):
     """Test calculate_adaptive_gc_range function."""
 
-    def test_at_rich_genome_francisella(self):
-        """Test adaptive GC range for AT-rich genome (Francisella ~32%)."""
+    def test_at_rich_genome_wolbachia(self):
+        """Test adaptive GC range for AT-rich genome (Wolbachia ~35%)."""
         min_gc, max_gc = calculate_adaptive_gc_range(0.32)
 
         # Range should be centered around 32%
@@ -272,8 +272,8 @@ class TestAdaptiveGCRange(unittest.TestCase):
         # Width should be approximately 30% (±15%)
         self.assertAlmostEqual(max_gc - min_gc, 0.30, places=1)
 
-    def test_gc_rich_genome_burkholderia(self):
-        """Test adaptive GC range for GC-rich genome (Burkholderia ~67%)."""
+    def test_gc_rich_genome_caulobacter(self):
+        """Test adaptive GC range for GC-rich genome (Caulobacter ~67%)."""
         min_gc, max_gc = calculate_adaptive_gc_range(0.67)
 
         # Range should be centered around 67%
@@ -374,8 +374,8 @@ class TestFactoryFunctions(unittest.TestCase):
         self.assertIsInstance(filter_obj, ThermodynamicFilter)
         self.assertEqual(filter_obj.criteria.reaction_temp, 42.0)
 
-    def test_create_adaptive_filter_francisella(self):
-        """Test creating adaptive filter for Francisella (AT-rich)."""
+    def test_create_adaptive_filter_wolbachia(self):
+        """Test creating adaptive filter for Wolbachia (AT-rich)."""
         filter_obj = create_thermodynamic_filter_adaptive(genome_gc=0.32)
 
         self.assertIsInstance(filter_obj, ThermodynamicFilter)
@@ -384,8 +384,8 @@ class TestFactoryFunctions(unittest.TestCase):
         # Should have more lenient dimer threshold
         self.assertGreater(filter_obj.criteria.max_homodimer_dg, -9.0)
 
-    def test_create_adaptive_filter_burkholderia(self):
-        """Test creating adaptive filter for Burkholderia (GC-rich)."""
+    def test_create_adaptive_filter_caulobacter(self):
+        """Test creating adaptive filter for Caulobacter (GC-rich)."""
         filter_obj = create_thermodynamic_filter_adaptive(genome_gc=0.67)
 
         self.assertIsInstance(filter_obj, ThermodynamicFilter)

@@ -152,7 +152,7 @@ class SwgaSimulator:
         Extract genome name from file path.
 
         Examples:
-            yersinia_GCF_000222975.1_ASM22297v1_genomic.fna → yersinia
+            synechocystis_GCF_000009725.1_ASM972v1_genomic.fna → synechocystis
             GCF_000001405.40_GRCh38.p14_genomic.fna → human (special case)
         """
         filename = Path(genome_path).name

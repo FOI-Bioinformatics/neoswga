@@ -179,7 +179,7 @@ class IntegratedQualityScorer:
             # Standard QA (balanced genome)
             >>> scorer = IntegratedQualityScorer(stringency='moderate')
 
-            # Genome-adaptive QA for AT-rich genome (Francisella)
+            # Genome-adaptive QA for AT-rich genome (Wolbachia)
             >>> scorer = IntegratedQualityScorer(
             ...     stringency='moderate',
             ...     genome_gc=0.32
@@ -599,7 +599,7 @@ def create_quality_scorer(
         >>> quality = scorer.score_primer('ACGTACGTACGTGC')
         >>> print(f"Quality score: {quality.overall_score:.3f}")
 
-        # Genome-adaptive QA for Francisella
+        # Genome-adaptive QA for Wolbachia
         >>> scorer = create_quality_scorer('moderate', genome_gc=0.32)
         >>> quality = scorer.score_primer('ATATATATATAT')  # AT-rich primer
     """

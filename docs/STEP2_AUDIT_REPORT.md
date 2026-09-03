@@ -1,5 +1,12 @@
 # NeoSWGA Step 2 (filter) Audit Report
 
+> **Superseded in part.** This report predates roughly 20,000 changed lines
+> under `neoswga/core/` (222 commits since 2026-04-01). Several of its
+> findings are already fixed and at least one is contradicted by current
+> behaviour. Read it as history; check any individual finding against
+> [AUDIT_2026-08_alternatives_and_scaling.md](AUDIT_2026-08_alternatives_and_scaling.md)
+> before acting on it.
+
 **Date:** 2026-03-31
 **Team:** 6 agents (filter rules, output verification, data flow, parameter testing, adaptive filtering, thermodynamic filtering)
 

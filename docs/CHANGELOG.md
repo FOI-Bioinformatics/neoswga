@@ -211,7 +211,7 @@ None. All 3.6 configurations continue to run; see
 
 #### Fixed: GC Filter Bug That Blocked Entire Organism Classes
 - **Issue**: Fixed GC thresholds (37.5-62.5%) rejected ALL primers for organisms with extreme GC content
-- **Organisms affected**: Francisella tularensis (33% GC), Burkholderia pseudomallei (67% GC)
+- **Organisms affected**: AT-rich targets (~33% GC) and GC-rich targets (~67% GC)
 - **Impact**: Algorithm was completely non-functional for ~20% of bacterial pathogens
 - **Solution**: Adaptive GC filtering based on genome composition
 - **File**: `neoswga/core/adaptive_filters.py`
@@ -220,7 +220,7 @@ None. All 3.6 configurations continue to run; see
 ```python
 # src/filter.py:56
 if GC_content <= 0.375 or GC_content >= 0.625:
-    return False  # BLOCKS Francisella, Burkholderia
+    return False  # BLOCKS AT-rich and GC-rich targets
 ```
 
 **After**:
@@ -228,8 +228,8 @@ if GC_content <= 0.375 or GC_content >= 0.625:
 # Adapts to genome GC content
 gc_min = max(0.20, genome_gc - 0.15)
 gc_max = min(0.80, genome_gc + 0.15)
-# Francisella (33%): Accepts 18-48% GC primers
-# Burkholderia (67%): Accepts 52-82% GC primers
+# AT-rich target (33%): Accepts 18-48% GC primers
+# Caulobacter (67%): Accepts 52-82% GC primers
 ```
 
 ### NEW FEATURES
@@ -423,7 +423,7 @@ Original SOAPswga by Jane Dwivedi-Yu et al. (2023)
 Enhanced implementation by Andreas Sjodin (2025)
 
 Based on feedback identifying:
-- GC filter bug blocking Francisella, Burkholderia
+- GC filter bug blocking AT-rich and GC-rich targets
 - I/O bottleneck from repeated HDF5 reads
 - Human genome infeasibility
 - Ratio-based scoring limitations
