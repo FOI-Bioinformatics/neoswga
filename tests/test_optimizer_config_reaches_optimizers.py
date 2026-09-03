@@ -220,3 +220,36 @@ def test_params_json_values_reach_the_config(monkeypatch, prefix, planted):
     run(prefix, planted, method="hybrid")
 
     assert seen["config"].max_dimer_bp == 2
+
+
+def test_network_optimizer_receives_the_configured_dimer_threshold(monkeypatch, prefix, planted):
+    """The config reaches the adapter and stops there.
+
+    `NetworkBaseOptimizer.__init__` builds the inner `NetworkOptimizer` from an
+    explicit argument list that omits `max_dimer_bp`, so the object that
+    actually scores pairs fell back to its own default of 4 whatever
+    params.json asked for. As in the module docstring, 4 is the looser
+    threshold: pairs the user wanted treated as dimers scored as clean.
+
+    Asserting on the inner object rather than the config is the point. The
+    config already carried the value; the gap is one constructor further in.
+    """
+    from neoswga.core import unified_optimizer as uo
+
+    seen = {}
+    original = uo.OptimizerFactory.create
+
+    def spy(*args, **kwargs):
+        optimizer = original(*args, **kwargs)
+        seen["optimizer"] = optimizer
+        return optimizer
+
+    monkeypatch.setattr(uo.OptimizerFactory, "create", spy)
+    run(prefix, planted, method="network", max_dimer_bp=3)
+
+    optimizer = seen.get("optimizer")
+    assert optimizer is not None, "no optimizer reached the spy"
+    assert optimizer._network.max_dimer_bp == 3, (
+        "configured max_dimer_bp=3 did not reach the inner NetworkOptimizer; "
+        f"it is using {optimizer._network.max_dimer_bp}"
+    )
