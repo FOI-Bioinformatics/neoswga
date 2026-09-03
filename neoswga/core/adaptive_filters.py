@@ -2,7 +2,7 @@
 Adaptive filtering that adjusts to genome composition.
 
 Fixes critical bug: Current fixed GC thresholds (37.5-62.5%) fail for
-GC-extreme organisms like Wolbachia (35% GC) and Burkholderia (67% GC).
+GC-extreme organisms like Wolbachia (35% GC) and Caulobacter (67% GC).
 """
 
 import logging
@@ -57,7 +57,7 @@ class AdaptiveGCFilter:
         Examples:
             Wolbachia (35% GC): Accept primers 20-50% GC
             E. coli (50% GC): Accept primers 35-65% GC
-            Burkholderia (67% GC): Accept primers 52-82% GC
+            Caulobacter (67% GC): Accept primers 52-82% GC
         """
         self.genome_gc = genome_gc
         self.tolerance = tolerance

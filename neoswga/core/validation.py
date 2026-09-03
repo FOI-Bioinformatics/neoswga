@@ -191,8 +191,8 @@ class ValidationSuite:
                 details["error"] = f"Wolbachia filter rejected {gc_content:.1%} GC primer"
                 return False, details
 
-            # Test with Burkholderia (67% GC)
-            burkholderia_filter = AdaptiveGCFilter(genome_gc=0.67, tolerance=0.15)
+            # Test with Caulobacter (67% GC)
+            caulobacter_filter = AdaptiveGCFilter(genome_gc=0.67, tolerance=0.15)
 
             # This primer has 75% GC (6/8)
             high_gc_primer = "GCGCGCAT"
@@ -200,22 +200,22 @@ class ValidationSuite:
 
             # Should PASS (within 67% ± 15% = 52%-82%)
             # 75% GC is within this range
-            high_gc_passes = burkholderia_filter.passes(high_gc_primer)
+            high_gc_passes = caulobacter_filter.passes(high_gc_primer)
             if not high_gc_passes:
                 # Check if it's actually within range
                 expected_pass = (
-                    burkholderia_filter.gc_min <= gc_content <= burkholderia_filter.gc_max
+                    caulobacter_filter.gc_min <= gc_content <= caulobacter_filter.gc_max
                 )
                 if expected_pass:
                     details["error"] = (
-                        f"Burkholderia filter rejected {gc_content:.1%} GC primer (expected to pass)"
+                        f"Caulobacter filter rejected {gc_content:.1%} GC primer (expected to pass)"
                     )
                     return False, details
                 else:
                     # If filter is working correctly but being more strict, that's OK
                     if self.verbose:
                         logger.info(
-                            f"Note: High GC primer ({gc_content:.1%}) outside filter range {burkholderia_filter.gc_min:.1%}-{burkholderia_filter.gc_max:.1%}"
+                            f"Note: High GC primer ({gc_content:.1%}) outside filter range {caulobacter_filter.gc_min:.1%}-{caulobacter_filter.gc_max:.1%}"
                         )
                         logger.info("This is acceptable behavior")
 
@@ -232,7 +232,7 @@ class ValidationSuite:
                 if low_gc_fails_old
                 else "n/a"
             )
-            details["burkholderia_fix"] = (
+            details["caulobacter_fix"] = (
                 "high_gc_primer now passes (was rejected by old filter)"
                 if high_gc_fails_old and high_gc_passes
                 else "verified"
@@ -243,7 +243,7 @@ class ValidationSuite:
                     f"Wolbachia (35% GC): Accepts {wolbachia_filter.gc_min:.1%}-{wolbachia_filter.gc_max:.1%} GC"
                 )
                 logger.info(
-                    f"Burkholderia (67% GC): Accepts {burkholderia_filter.gc_min:.1%}-{burkholderia_filter.gc_max:.1%} GC"
+                    f"Caulobacter (67% GC): Accepts {caulobacter_filter.gc_min:.1%}-{caulobacter_filter.gc_max:.1%} GC"
                 )
                 logger.info(f"Low GC primer ({low_gc_content:.1%}): PASS")
                 logger.info(

@@ -1667,7 +1667,7 @@ Prepend a new section at the top of `docs/CHANGELOG.md`:
 ### Bug fixes
 
 - **Adaptive GC regression guards.** Extreme-GC genomes (AT-rich ~33%,
-  Burkholderia ~68%) now have explicit integration tests so the silently
+  Caulobacter ~67%) now have explicit integration tests so the silently
   functioning adaptive GC filter cannot regress unnoticed.
 - **Blacklist `bl_seq_lengths` auto-computed.** When `bl_genomes` is
   supplied without `bl_seq_lengths`, lengths are now derived from the

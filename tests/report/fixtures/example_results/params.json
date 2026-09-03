@@ -1,6 +1,6 @@
 {
-    "fg": "/Users/andreassjodin/Code/swga-dev/test/bacillus_GCF_000008445.1_ASM844v1_genomic.fna",
-    "bg": "/Users/andreassjodin/Code/swga-dev/test/human_chr22.fna",
+    "fg": "genomes/target.fna",
+    "bg": "genomes/background.fna",
     "fg_size": 5220000,
     "bg_size": 50818468,
     "fg_gc": 0.35,

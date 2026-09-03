@@ -459,7 +459,7 @@ def calculate_adaptive_gc_range(genome_gc: float, tolerance: float = 0.15) -> Tu
     Examples:
         >>> calculate_adaptive_gc_range(0.35)  # Wolbachia
         (0.17, 0.47)
-        >>> calculate_adaptive_gc_range(0.67)  # Burkholderia
+        >>> calculate_adaptive_gc_range(0.67)  # Caulobacter
         (0.52, 0.82)
         >>> calculate_adaptive_gc_range(0.50)  # E. coli
         (0.35, 0.65)
@@ -493,7 +493,7 @@ def calculate_adaptive_dimer_threshold(base_threshold: float, genome_gc: float) 
     Examples:
         >>> calculate_adaptive_dimer_threshold(-9.0, 0.35)  # Wolbachia
         -7.5  # More lenient (less negative) for AT-rich
-        >>> calculate_adaptive_dimer_threshold(-9.0, 0.67)  # Burkholderia
+        >>> calculate_adaptive_dimer_threshold(-9.0, 0.67)  # Caulobacter
         -10.5  # Stricter (more negative) for GC-rich
         >>> calculate_adaptive_dimer_threshold(-9.0, 0.50)  # E. coli
         -9.0  # Unchanged for balanced
@@ -585,7 +585,7 @@ def create_thermodynamic_filter_adaptive(
         # GC range: 17-47% (vs standard 30-70%)
         # Dimer threshold: -7.5 kcal/mol (vs standard -9.0)
 
-        # Burkholderia (67% GC, GC-rich)
+        # Caulobacter (67% GC, GC-rich)
         >>> filter_bk = create_thermodynamic_filter_adaptive(genome_gc=0.67)
         # GC range: 52-82% (vs standard 30-70%)
         # Dimer threshold: -10.5 kcal/mol (vs standard -9.0)

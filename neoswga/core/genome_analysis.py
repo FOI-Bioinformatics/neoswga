@@ -157,7 +157,7 @@ def get_gc_class(gc_content: float) -> str:
         - Extreme AT-rich: <25% GC (e.g., Plasmodium 19%)
         - AT-rich: 25-40% GC (e.g., Wolbachia 35%, P. falciparum 19%)
         - Balanced: 40-60% GC (e.g., E. coli 50%)
-        - GC-rich: 60-70% GC (e.g., Mycobacterium 66%, Burkholderia 67%)
+        - GC-rich: 60-70% GC (e.g., Mycobacterium 66%, Caulobacter 67%)
         - Extreme GC-rich: >70% GC (e.g., Streptomyces 72%)
 
     Examples:
@@ -515,7 +515,7 @@ def _gc_class_description(gc_class: str) -> str:
         "extreme_at": "Extreme AT-rich (like Plasmodium, <25% GC)",
         "at_rich": "AT-rich (like Wolbachia, P. falciparum, 25-40% GC)",
         "balanced": "Balanced (like E. coli, 40-60% GC)",
-        "gc_rich": "GC-rich (like Mycobacterium, Burkholderia, 60-70% GC)",
+        "gc_rich": "GC-rich (like Mycobacterium, Caulobacter, 60-70% GC)",
         "extreme_gc": "Extreme GC-rich (like Streptomyces, >70% GC)",
     }
     return descriptions.get(gc_class, gc_class)
@@ -689,7 +689,7 @@ if __name__ == "__main__":
         print("\nExample genomes to test:")
         print("  - Wolbachia (35% GC, AT-rich)")
         print("  - E. coli (50% GC, balanced)")
-        print("  - Burkholderia (67% GC, GC-rich)")
+        print("  - Caulobacter (67% GC, GC-rich)")
         raise SystemExit(1)
 
     print("=" * 80)

@@ -3,7 +3,7 @@
 Benchmark script demonstrating improvements of new pipeline vs. old.
 
 Tests:
-1. Adaptive GC filtering (Wolbachia, Burkholderia)
+1. Adaptive GC filtering (Wolbachia, Caulobacter)
 2. Position cache speedup
 3. Background filtering capability
 4. Network vs. ratio optimization
@@ -40,7 +40,7 @@ def test_gc_filter_fix():
     test_cases = [
         ('Wolbachia', 0.35),
         ('E. coli K12', 0.51),
-        ('Burkholderia pseudomallei', 0.67),
+        ('Caulobacter crescentus', 0.67),
     ]
 
     test_primers = [
@@ -288,7 +288,7 @@ def test_overall_comparison():
             'new_memory': 8,
         },
         {
-            'name': 'Burkholderia (67% GC) vs. Human',
+            'name': 'Caulobacter (67% GC) vs. Human',
             'old_runtime': None,  # FAILS
             'new_runtime': 40,
             'old_enrichment': None,

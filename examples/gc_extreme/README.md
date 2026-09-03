@@ -1,7 +1,7 @@
 # Extreme GC scenario
 
 Template for genomes with strongly skewed GC content (e.g. *Plasmodium
-falciparum* ~20% GC, *Mycobacterium tuberculosis* ~65% GC, *Burkholderia*
+falciparum* ~20% GC, *Mycobacterium tuberculosis* ~65% GC, *Caulobacter*
 ~67% GC, *Streptomyces* ~72% GC).
 
 ## Why this scenario exists

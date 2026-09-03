@@ -65,7 +65,7 @@ python3 production_test/test_simulator.py
 
 **Expected output**:
 ```
-YERSINIA TEST PASSED
+SYNECHOCYSTIS TEST PASSED
   Coverage: 42.3%
   Enrichment: 639,972x
   Recommendation: GOOD
@@ -140,7 +140,7 @@ for name, metrics in sorted(results.items(), key=lambda x: x[1]['composite'], re
 ```json
 {
   "primers": "primers.txt",
-  "target_genome": "yersinia.fasta",
+  "target_genome": "synechocystis.fasta",
   "background_genome": "human.fasta",
   "positions": "positions.h5",
   "mode": "fast",
@@ -385,7 +385,7 @@ with h5py.File('positions.h5', 'r') as f:
 Expected structure:
 ```
 positions.h5
-├── yersinia/
+├── synechocystis/
 │   ├── PRIMER1/
 │   │   ├── + (forward positions)
 │   │   └── - (reverse positions)
@@ -407,7 +407,7 @@ positions.h5
 ```python
 # Check primers in HDF5
 with h5py.File('positions.h5', 'r') as f:
-    genome = f['yersinia']
+    genome = f['synechocystis']
     print("Primers in HDF5:", list(genome.keys())[:10])
 
 # Check your primer file
@@ -505,7 +505,7 @@ assert result.enrichment > 20              # ~42×
 assert result.recommendation in ['GOOD', 'FAIR']  # Lower due to AT-richness
 ```
 
-### Example: Balanced Genome (Yersinia, 48% GC)
+### Example: Balanced Genome (Synechocystis, 47% GC)
 
 ```python
 # Expected results
@@ -515,7 +515,7 @@ assert result.enrichment > 1000            # ~640,000×
 assert result.recommendation == 'GOOD'     # Excellent specificity
 ```
 
-### Example: GC-rich Genome (Burkholderia, 68% GC)
+### Example: GC-rich Genome (Caulobacter, 67% GC)
 
 ```python
 # Expected results (from benchmarks)

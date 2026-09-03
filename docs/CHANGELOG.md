@@ -229,7 +229,7 @@ if GC_content <= 0.375 or GC_content >= 0.625:
 gc_min = max(0.20, genome_gc - 0.15)
 gc_max = min(0.80, genome_gc + 0.15)
 # AT-rich target (33%): Accepts 18-48% GC primers
-# Burkholderia (67%): Accepts 52-82% GC primers
+# Caulobacter (67%): Accepts 52-82% GC primers
 ```
 
 ### NEW FEATURES

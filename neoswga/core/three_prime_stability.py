@@ -542,7 +542,7 @@ def calculate_gc_deviation(genome_gc: float) -> float:
         -0.18
         >>> calculate_gc_deviation(0.50)  # E. coli
         0.0
-        >>> calculate_gc_deviation(0.67)  # Burkholderia
+        >>> calculate_gc_deviation(0.67)  # Caulobacter
         0.17
     """
     return genome_gc - 0.50
@@ -575,7 +575,7 @@ def calculate_adaptive_terminal_tm(
         Wolbachia (35% GC, moderate):
             base=14°C, gc=0.32 → adjustment=-10.3°C → final=8.0°C (floor)
 
-        Burkholderia (67% GC, moderate):
+        Caulobacter (67% GC, moderate):
             base=14°C, gc=0.67 → adjustment=+9.7°C → final=23.7°C
 
         E. coli (50% GC, moderate):
@@ -593,7 +593,7 @@ def calculate_adaptive_terminal_tm(
     # This means:
     #   Plasmodium (19% GC, dev=-0.31) → -17.7°C adjustment
     #   Wolbachia (35% GC, dev=-0.15) → -10.3°C adjustment
-    #   Burkholderia (67% GC, dev=+0.17) → +9.7°C adjustment
+    #   Caulobacter (67% GC, dev=+0.17) → +9.7°C adjustment
     #   Streptomyces (72% GC, dev=+0.22) → +12.6°C adjustment
     tm_adjustment = gc_deviation * (20.0 / 0.35)
 
@@ -648,7 +648,7 @@ def create_three_prime_analyzer_adaptive(
         # Terminal Tm threshold: 8.0°C (vs 14.0°C standard)
         # Allows AT-rich primers matching genome composition
 
-        # Burkholderia (67% GC, GC-rich)
+        # Caulobacter (67% GC, GC-rich)
         >>> analyzer = create_three_prime_analyzer_adaptive(
         ...     genome_gc=0.67,
         ...     stringency='moderate'
@@ -658,7 +658,7 @@ def create_three_prime_analyzer_adaptive(
 
     Expected Impact:
         - Wolbachia: Coverage increases from 33.7% → 60-70%
-        - Burkholderia: Coverage increases from 40-50% → 60-70%
+        - Caulobacter: Coverage increases from 40-50% → 60-70%
         - Primer GC matches genome GC (±3% vs current ±8%)
         - Enrichment maintains >80% of baseline
     """

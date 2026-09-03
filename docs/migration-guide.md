@@ -92,7 +92,7 @@ score = scorer.score_primer("ATGCATGCATGC")
   - Benefit: +75-200% primer coverage
 
 ✓ You work with **GC-rich genomes** (> 60% GC)
-  - Burkholderia, Streptomyces, Mycobacterium, etc.
+  - Caulobacter, Streptomyces, Mycobacterium, etc.
   - Benefit: +70-150% primer coverage
 
 ✓ Standard primer design yields **too few primers**

@@ -184,8 +184,8 @@ class TestLiteratureValidation:
         tm = calculate_tm_with_salt(primer)
         assert isinstance(tm, float)
 
-    def test_burkholderia_primer_high_gc(self):
-        """Test primer for Burkholderia (high GC)."""
+    def test_caulobacter_primer_high_gc(self):
+        """Test primer for Caulobacter (high GC)."""
         primer = "GCGCGCATGCGC"
         assert gc_content(primer) > 0.6
         tm = calculate_tm_with_salt(primer)

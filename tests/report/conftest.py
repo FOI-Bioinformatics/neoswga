@@ -45,9 +45,13 @@ def fixtures_dir():
 
 
 @pytest.fixture
-def bacillus_results_dir(fixtures_dir):
-    """Path to Bacillus test results directory."""
-    return fixtures_dir / "bacillus_results"
+def example_results_dir(fixtures_dir):
+    """Path to the example pipeline-results directory used by the report tests.
+
+    The sequences in this fixture are hand-written placeholders, not derived
+    from any genome, so the directory is deliberately organism-neutral.
+    """
+    return fixtures_dir / "example_results"
 
 
 @pytest.fixture

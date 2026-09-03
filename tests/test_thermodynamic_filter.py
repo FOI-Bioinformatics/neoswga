@@ -272,8 +272,8 @@ class TestAdaptiveGCRange(unittest.TestCase):
         # Width should be approximately 30% (±15%)
         self.assertAlmostEqual(max_gc - min_gc, 0.30, places=1)
 
-    def test_gc_rich_genome_burkholderia(self):
-        """Test adaptive GC range for GC-rich genome (Burkholderia ~67%)."""
+    def test_gc_rich_genome_caulobacter(self):
+        """Test adaptive GC range for GC-rich genome (Caulobacter ~67%)."""
         min_gc, max_gc = calculate_adaptive_gc_range(0.67)
 
         # Range should be centered around 67%
@@ -384,8 +384,8 @@ class TestFactoryFunctions(unittest.TestCase):
         # Should have more lenient dimer threshold
         self.assertGreater(filter_obj.criteria.max_homodimer_dg, -9.0)
 
-    def test_create_adaptive_filter_burkholderia(self):
-        """Test creating adaptive filter for Burkholderia (GC-rich)."""
+    def test_create_adaptive_filter_caulobacter(self):
+        """Test creating adaptive filter for Caulobacter (GC-rich)."""
         filter_obj = create_thermodynamic_filter_adaptive(genome_gc=0.67)
 
         self.assertIsInstance(filter_obj, ThermodynamicFilter)

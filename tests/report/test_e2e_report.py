@@ -1,8 +1,9 @@
 """
 End-to-end tests for report generation.
 
-Tests the full pipeline from results directory to HTML output
-using realistic Bacillus genome test data.
+Tests the full pipeline from results directory to HTML output using a
+realistic example results directory. The sequences in that fixture are
+hand-written placeholders, not derived from any genome.
 """
 
 import pytest
@@ -39,11 +40,11 @@ from neoswga.core.report.technical_report import (
 
 
 class TestE2EReportGeneration:
-    """End-to-end tests with Bacillus genome fixtures."""
+    """End-to-end tests against the example results fixture."""
 
-    def test_collect_metrics_from_bacillus(self, bacillus_results_dir):
-        """Collect metrics from Bacillus test data."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+    def test_collect_metrics_from_example(self, example_results_dir):
+        """Collect metrics from the example test data."""
+        metrics = collect_pipeline_metrics(str(example_results_dir))
 
         assert len(metrics.primers) == 6
         assert metrics.primer_count == 6
@@ -56,9 +57,9 @@ class TestE2EReportGeneration:
         assert first_primer.tm > 30.0
         assert first_primer.gc_content > 0
 
-    def test_calculate_quality_grade_bacillus(self, bacillus_results_dir):
-        """Calculate quality grade for Bacillus data."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+    def test_calculate_quality_grade_example(self, example_results_dir):
+        """Calculate quality grade for the example data."""
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         quality = calculate_quality_grade(metrics)
 
         # Test data has realistic values - grade depends on coverage calculation
@@ -75,11 +76,11 @@ class TestE2EReportGeneration:
         assert "Thermodynamics" in component_names
         assert "Dimer Risk" in component_names
 
-    def test_generate_executive_summary_bacillus(self, bacillus_results_dir, tmp_path):
-        """Generate executive summary from Bacillus data."""
-        output_file = tmp_path / "bacillus_summary.html"
+    def test_generate_executive_summary_example(self, example_results_dir, tmp_path):
+        """Generate executive summary from the example data."""
+        output_file = tmp_path / "example_summary.html"
 
-        summary = generate_executive_summary(str(bacillus_results_dir), str(output_file))
+        summary = generate_executive_summary(str(example_results_dir), str(output_file))
 
         # Check summary data
         assert summary.metrics.primer_count == 6
@@ -92,9 +93,9 @@ class TestE2EReportGeneration:
         assert "<!DOCTYPE html>" in html_content
         assert "NeoSWGA" in html_content
 
-    def test_render_executive_summary_contains_key_sections(self, bacillus_results_dir):
+    def test_render_executive_summary_contains_key_sections(self, example_results_dir):
         """Verify HTML output contains all required sections."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         quality = calculate_quality_grade(metrics)
         summary = create_executive_summary(metrics, quality)
         html = render_executive_summary(summary)
@@ -123,9 +124,9 @@ class TestE2EReportGeneration:
         # Check recommendation
         assert quality.recommendation in html
 
-    def test_html_output_valid_structure(self, bacillus_results_dir):
+    def test_html_output_valid_structure(self, example_results_dir):
         """Verify HTML output has valid structure."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         quality = calculate_quality_grade(metrics)
         summary = create_executive_summary(metrics, quality)
         html = render_executive_summary(summary)
@@ -142,10 +143,10 @@ class TestE2EReportGeneration:
         assert html.count("<div") == html.count("</div>")
         assert html.count("<table>") == html.count("</table>")
 
-    def test_coverage_badge_estimated_when_no_optimizer(self, bacillus_results_dir):
+    def test_coverage_badge_estimated_when_no_optimizer(self, example_results_dir):
         """Coverage badge shows 'Estimated' when coverage is not from optimizer."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
-        # Bacillus test data has no optimizer summary, so from_optimizer is False
+        metrics = collect_pipeline_metrics(str(example_results_dir))
+        # the example test data has no optimizer summary, so from_optimizer is False
         assert metrics.coverage is not None
         assert not metrics.coverage.from_optimizer
 
@@ -156,9 +157,9 @@ class TestE2EReportGeneration:
         assert "Estimated" in html
         assert "badge-estimated" in html
 
-    def test_coverage_badge_measured_when_from_optimizer(self, bacillus_results_dir):
+    def test_coverage_badge_measured_when_from_optimizer(self, example_results_dir):
         """Coverage badge shows 'Measured' when coverage is from optimizer."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         # Override to simulate optimizer-provided coverage
         metrics.coverage = CoverageMetrics(
             overall_coverage=0.85,
@@ -177,11 +178,11 @@ class TestE2EReportGeneration:
         assert "Measured" in html
         assert "badge-measured" in html
 
-    def test_coverage_badge_includes_extension_reach_when_available(self, bacillus_results_dir):
+    def test_coverage_badge_includes_extension_reach_when_available(self, example_results_dir):
         """Measured-coverage badge labels the per-primer reach so users know
         the granularity of the reported coverage value.
         """
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         metrics.coverage = CoverageMetrics(
             overall_coverage=0.85,
             covered_bases=3400000,
@@ -197,21 +198,21 @@ class TestE2EReportGeneration:
         assert "Measured" in html
         assert "3,000 bp reach" in html
 
-    def test_coverage_badge_estimated_label_disambiguates_30kb_default(self, bacillus_results_dir):
+    def test_coverage_badge_estimated_label_disambiguates_30kb_default(self, example_results_dir):
         """The fallback estimate must be labelled as '30 kb/primer' so users
         do not mistake it for a measured value.
         """
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
-        # Bacillus fixture has from_optimizer=False
+        metrics = collect_pipeline_metrics(str(example_results_dir))
+        # Example fixture has from_optimizer=False
         quality = calculate_quality_grade(metrics)
         summary = create_executive_summary(metrics, quality)
         html = render_executive_summary(summary)
 
         assert "30 kb/primer" in html
 
-    def test_gap_analysis_shown_when_available(self, bacillus_results_dir):
+    def test_gap_analysis_shown_when_available(self, example_results_dir):
         """Gap analysis section appears when gap metrics are available."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         metrics.coverage = CoverageMetrics(
             overall_coverage=0.85,
             covered_bases=3400000,
@@ -231,9 +232,9 @@ class TestE2EReportGeneration:
         assert "45.0 kb" in html
         assert "0.350" in html
 
-    def test_gap_analysis_hidden_when_no_data(self, bacillus_results_dir):
+    def test_gap_analysis_hidden_when_no_data(self, example_results_dir):
         """Gap analysis section is absent when no gap data available."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         # Default coverage has mean_gap=0, so no gap section
         quality = calculate_quality_grade(metrics)
         summary = create_executive_summary(metrics, quality)
@@ -245,9 +246,9 @@ class TestE2EReportGeneration:
 class TestValidation:
     """Tests for validation utilities."""
 
-    def test_validate_valid_directory(self, bacillus_results_dir):
+    def test_validate_valid_directory(self, example_results_dir):
         """Validate complete results directory."""
-        result = validate_results_directory(str(bacillus_results_dir))
+        result = validate_results_directory(str(example_results_dir))
 
         assert result.is_valid
         assert len(result.errors) == 0
@@ -268,9 +269,9 @@ class TestValidation:
         assert len(result.errors) == 1
         assert "not found" in result.errors[0].message
 
-    def test_validate_metrics_complete(self, bacillus_results_dir):
+    def test_validate_metrics_complete(self, example_results_dir):
         """Validate complete metrics."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         result = validate_metrics(metrics)
 
         # May have warnings but no errors
@@ -386,9 +387,9 @@ class TestSecurityEscaping:
 class TestOutputQuality:
     """Tests for output quality and usability."""
 
-    def test_primer_table_ordered(self, bacillus_results_dir):
+    def test_primer_table_ordered(self, example_results_dir):
         """Verify primers appear in expected order."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         quality = calculate_quality_grade(metrics)
         summary = create_executive_summary(metrics, quality)
         html = render_executive_summary(summary)
@@ -399,9 +400,9 @@ class TestOutputQuality:
 
         assert first_pos < second_pos
 
-    def test_grade_color_appropriate(self, bacillus_results_dir):
+    def test_grade_color_appropriate(self, example_results_dir):
         """Verify grade colors are appropriate."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         quality = calculate_quality_grade(metrics)
         summary = create_executive_summary(metrics, quality)
         html = render_executive_summary(summary)
@@ -412,9 +413,9 @@ class TestOutputQuality:
         # Grade letter should be present
         assert quality.grade.value in html
 
-    def test_responsive_design_classes(self, bacillus_results_dir):
+    def test_responsive_design_classes(self, example_results_dir):
         """Verify responsive design is included."""
-        metrics = collect_pipeline_metrics(str(bacillus_results_dir))
+        metrics = collect_pipeline_metrics(str(example_results_dir))
         quality = calculate_quality_grade(metrics)
         summary = create_executive_summary(metrics, quality)
         html = render_executive_summary(summary)
@@ -427,23 +428,23 @@ class TestOutputQuality:
 class TestTechnicalReport:
     """Tests for technical report generation."""
 
-    def test_technical_report_shows_coverage_source_estimated(self, bacillus_results_dir):
+    def test_technical_report_shows_coverage_source_estimated(self, example_results_dir):
         """Technical report should show coverage source annotation."""
-        data = collect_technical_report_data(str(bacillus_results_dir))
+        data = collect_technical_report_data(str(example_results_dir))
         html = render_technical_report(data, interactive=False)
 
         assert "Coverage source" in html
-        # Bacillus fixture has no summary JSON, so should be estimated
+        # Example fixture has no summary JSON, so should be estimated
         assert "Estimated" in html
 
-    def test_technical_report_shows_coverage_source_measured(self, bacillus_results_dir, tmp_path):
+    def test_technical_report_shows_coverage_source_measured(self, example_results_dir, tmp_path):
         """Technical report should show 'Measured' when optimizer data exists."""
         import json
         import shutil
 
-        # Copy bacillus results to tmp and add summary JSON
+        # Copy the example results to tmp and add summary JSON
         dest = tmp_path / "results"
-        shutil.copytree(str(bacillus_results_dir), str(dest))
+        shutil.copytree(str(example_results_dir), str(dest))
         summary = {
             "metrics": {
                 "fg_coverage": 0.72,

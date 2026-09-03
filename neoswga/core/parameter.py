@@ -706,7 +706,7 @@ def adaptive_gc_window(genome_gc, gc_tolerance=None):
     Primer GC window for a target of the given composition.
 
     The window is normally the genome GC plus or minus `gc_tolerance`, which is
-    what lets extreme-GC organisms such as Wolbachia (35%) or Burkholderia
+    what lets extreme-GC organisms such as Wolbachia (35%) or Caulobacter
     (67%) work at all.
 
     On strongly AT-rich or GC-rich targets that is not enough, because the

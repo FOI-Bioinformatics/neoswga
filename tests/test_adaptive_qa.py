@@ -54,7 +54,7 @@ class TestGCDeviation(unittest.TestCase):
 
     def test_gc_rich_genome(self):
         """GC-rich genome should have positive deviation."""
-        deviation = calculate_gc_deviation(0.67)  # Burkholderia
+        deviation = calculate_gc_deviation(0.67)  # Caulobacter
         self.assertAlmostEqual(deviation, 0.17, places=6)
 
     def test_extreme_at(self):
@@ -82,8 +82,8 @@ class TestAdaptiveTerminalTm(unittest.TestCase):
         # Expected: 14 + (-0.18) * (20/0.35) = 14 - 10.3 = 3.7, but floored at 8.0
         self.assertAlmostEqual(tm, 8.0, places=1)
 
-    def test_burkholderia_moderate(self):
-        """Burkholderia (67% GC) should increase terminal Tm."""
+    def test_caulobacter_moderate(self):
+        """Caulobacter (67% GC) should increase terminal Tm."""
         tm = calculate_adaptive_terminal_tm(14.0, 0.67, "moderate")
         # Expected: 14 + 0.17 * (20/0.35) = 14 + 9.7 = 23.7
         self.assertAlmostEqual(tm, 23.7, places=1)
@@ -114,8 +114,8 @@ class TestAdaptiveGCRange(unittest.TestCase):
         self.assertAlmostEqual(min_gc, 0.17, places=2)
         self.assertAlmostEqual(max_gc, 0.47, places=2)
 
-    def test_burkholderia(self):
-        """Burkholderia (67% GC) should have GC-shifted range."""
+    def test_caulobacter(self):
+        """Caulobacter (67% GC) should have GC-shifted range."""
         min_gc, max_gc = calculate_adaptive_gc_range(0.67)
         self.assertAlmostEqual(min_gc, 0.52, places=2)
         self.assertAlmostEqual(max_gc, 0.82, places=2)
@@ -146,8 +146,8 @@ class TestAdaptiveDimerThreshold(unittest.TestCase):
         self.assertAlmostEqual(threshold, -7.46, places=1)
         self.assertGreater(threshold, -9.0)  # Less negative = more lenient
 
-    def test_burkholderia(self):
-        """Burkholderia (67% GC) should have stricter threshold."""
+    def test_caulobacter(self):
+        """Caulobacter (67% GC) should have stricter threshold."""
         threshold = calculate_adaptive_dimer_threshold(-9.0, 0.67)
         # Expected: -9.0 - 0.17 * (3/0.35) = -9.0 - 1.46 = -10.46
         self.assertAlmostEqual(threshold, -10.46, places=1)
@@ -183,7 +183,7 @@ class TestGCClassification(unittest.TestCase):
         self.assertEqual(gc_class, "balanced")
 
     def test_gc_rich(self):
-        """Burkholderia (67% GC) should be gc_rich."""
+        """Caulobacter (67% GC) should be gc_rich."""
         gc_class = get_gc_class(0.67)
         self.assertEqual(gc_class, "gc_rich")
 
@@ -218,8 +218,8 @@ class TestAdaptiveQARecommendations(unittest.TestCase):
         self.assertEqual(rec["gc_class"], "balanced")
         self.assertIn("optional", rec["reason"].lower())
 
-    def test_burkholderia_recommendation(self):
-        """Burkholderia should recommend adaptive QA."""
+    def test_caulobacter_recommendation(self):
+        """Caulobacter should recommend adaptive QA."""
         rec = recommend_adaptive_qa(0.67)
         self.assertTrue(rec["use_adaptive"])
         self.assertEqual(rec["gc_class"], "gc_rich")
@@ -335,15 +335,15 @@ class TestAdaptiveQAEndToEnd(unittest.TestCase):
             score_std.three_prime_score - 0.01,  # Allow small numerical difference
         )
 
-    def test_burkholderia_gc_rich_primer(self):
-        """Test that GC-rich primers work with Burkholderia adaptive QA."""
+    def test_caulobacter_gc_rich_primer(self):
+        """Test that GC-rich primers work with Caulobacter adaptive QA."""
         gc_rich_primer = "GCGCGCGCGCGC"
 
         # Standard QA
         scorer_std = create_quality_scorer("moderate")
         score_std = scorer_std.score_primer(gc_rich_primer)
 
-        # Adaptive QA for Burkholderia
+        # Adaptive QA for Caulobacter
         scorer_adaptive = create_quality_scorer("moderate", genome_gc=0.67)
         score_adaptive = scorer_adaptive.score_primer(gc_rich_primer)
 

@@ -740,20 +740,32 @@ if __name__ == "__main__":
     print("=" * 80)
     print("\nDetect Borrelia in tick while avoiding tick DNA and Rickettsia\n")
 
+    # Genomes are not committed; scripts/fetch_reference_genomes.py writes them
+    # here. Override with NEOSWGA_GENOME_DIR.
+    import os
+    from pathlib import Path
+
+    genome_dir = Path(
+        os.environ.get(
+            "NEOSWGA_GENOME_DIR",
+            Path(__file__).resolve().parents[2] / "tests" / "validation" / "genomes",
+        )
+    ).expanduser()
+
     # Create genome set
     genome_set = GenomeSet()
 
     # Target: Borrelia burgdorferi
     genome_set.add_genome(
         name="Borrelia_burgdorferi",
-        fasta_path="/Users/andreassjodin/Code/swga-dev/test/borrelia.fasta",
+        fasta_path=str(genome_dir / "borrelia.fasta"),
         role="target",
     )
 
     # Background: Ixodes tick (host)
     genome_set.add_genome(
         name="Ixodes_scapularis",
-        fasta_path="/Users/andreassjodin/Code/swga-dev/test/tick.fasta",
+        fasta_path=str(genome_dir / "tick.fasta"),
         role="background",
         penalty_weight=1.0,
     )
@@ -761,7 +773,7 @@ if __name__ == "__main__":
     # Blacklist: Rickettsia (avoid completely)
     genome_set.add_genome(
         name="Rickettsia",
-        fasta_path="/Users/andreassjodin/Code/swga-dev/test/rickettsia.fasta",
+        fasta_path=str(genome_dir / "rickettsia.fasta"),
         role="blacklist",
         penalty_weight=5.0,
     )
