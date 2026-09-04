@@ -675,11 +675,25 @@ All CONFIRMED by the module audits unless noted.
 - **The audit trail cannot distinguish runs.** `_write_audit_trail` hashes a
   fixed 13-key list at `:1087-1101` that omits `optimization_method`, `seed`,
   `application` and `coverage_reach`.
-- **`analyze-dimers` contradicts itself.** The same six-oligo set yields "FAIL
-  (severity 1.00)" alongside "Total interactions: 0" and zero problematic
-  partners for every primer, so the verdict is right and the detail cannot say
-  which pair to break. `--output` is also treated as a directory.
-  **[verified here]**
+- **~~`analyze-dimers` contradicts itself.~~ WITHDRAWN -- this finding was my
+  error, not the tool's.** I reported that the same six-oligo set yields "FAIL
+  (severity 1.00)" alongside "Total interactions: 0", and separately that
+  `--output` is wrongly treated as a directory. Re-checked on 2026-09-04, both
+  halves are wrong. `--threshold` is a SEVERITY on a 0-1 scale and its help text
+  says so; I passed 3, meaning base pairs, because that is what `max_dimer_bp`
+  is set to elsewhere in the tool. Nothing can exceed a threshold of 3, so every
+  interaction count was zero, while max-severity and the verdict are computed
+  independently of the threshold and correctly reported 1.00 and FAIL. Run with
+  the default the same set reports 3 interactions and 1 hub primer, with no
+  contradiction at all. `--output` is documented as "Output directory", so a
+  directory is what it should create.
+
+  What survives is smaller and real: an out-of-range threshold was accepted
+  silently and produced a report that reads as self-contradictory. It is now
+  rejected with a message naming the right flag for a base-pair count. The
+  lesson is the one this whole audit is about -- a plausible-looking output from
+  a misused parameter is hard to tell from a defect, and I did not tell them
+  apart.
 - **The three named integration scenarios never run the pipeline.**
   `tests/integration/{phi29_baseline,equiphi29_baseline,phi29_with_bg}/` contain
   only a `params.json`; the genomes they name are absent, and

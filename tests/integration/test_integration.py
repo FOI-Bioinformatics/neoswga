@@ -1,8 +1,27 @@
-"""
-Parameterized integration tests for NeoSWGA pipeline.
+"""Scenario definitions for the polymerase integration cases.
 
-Tests representative scenarios covering different polymerases and configurations.
-Skips gracefully if test genomes are not available.
+WHAT THIS FILE ACTUALLY COVERS. Each scenario directory holds a `params.json`
+and nothing else: the genomes its `fg_genomes` key names are not in the
+repository. So these tests validate the scenario DEFINITIONS -- that the config
+is well formed and internally consistent -- and cannot run the pipeline.
+
+That distinction was previously lost. The module docstring said "integration
+tests ... skips gracefully if test genomes are not available", CLAUDE.md
+described the three directories as polymerase scenarios under Integration
+tests, and `check_genome_available()` was defined and never called. Nothing
+skipped, because nothing tried: the two tests were assertions about JSON keys,
+and they passed for the same reason an empty test passes.
+
+`test_the_pipeline_runs_when_the_genomes_are_present` closes that gap. It runs
+the real pipeline when a scenario's genomes exist and skips with a stated
+reason when they do not, so adding the genomes turns these into genuine
+integration coverage without editing this file again.
+
+One of the key assertions is also worth reading twice: `optimization_method` in
+params.json is documented as inert (Known Issue 8), so asserting its presence
+pins a key that changes nothing. It is kept because the schema declares it and
+these are schema tests, but it is not evidence that the scenario runs the
+method it names.
 """
 
 import json
@@ -75,3 +94,54 @@ def test_scenario_description(scenario: str):
     """Verify each scenario has a description."""
     params = load_params(scenario)
     assert "_description" in params, f"Scenario {scenario} missing _description"
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.parametrize("scenario", SCENARIOS)
+def test_the_pipeline_runs_when_the_genomes_are_present(scenario: str, tmp_path):
+    """Run the scenario end to end, or say plainly why it was not run.
+
+    `check_genome_available` existed for this and had no caller, so a scenario
+    with no genomes was indistinguishable from one that passed. A skip with a
+    reason is the honest outcome; silence is not.
+    """
+    if not check_genome_available(scenario):
+        pytest.skip(
+            f"{scenario}: genomes named in params.json are not in the repository, "
+            "so this scenario validates its configuration only"
+        )
+
+    import os
+    import shutil
+
+    from neoswga.core.kmer_counter import check_jellyfish_available
+
+    if not check_jellyfish_available():
+        pytest.skip("jellyfish not on PATH")
+
+    src = get_scenario_path(scenario)
+    for item in src.iterdir():
+        dest = tmp_path / item.name
+        shutil.copytree(item, dest) if item.is_dir() else shutil.copy2(item, dest)
+
+    cwd = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        import neoswga.core.pipeline as pipeline_mod
+        from neoswga.core import parameter
+        from neoswga.core.unified_optimizer import optimize_step4
+
+        pipeline_mod._initialized = False
+        parameter.json_file = "params.json"
+        pipeline_mod._initialize()
+        pipeline_mod.step1()
+        pipeline_mod._initialized = False
+        assert len(pipeline_mod.step2()) > 0, f"{scenario}: filter produced no candidates"
+        pipeline_mod._initialized = False
+        assert len(pipeline_mod.step3()) > 0, f"{scenario}: score produced nothing"
+        pipeline_mod._initialized = False
+        primer_sets, _scores, _cache = optimize_step4(verbose=False, seed=42)
+        assert primer_sets and primer_sets[0], f"{scenario}: optimize returned no primers"
+    finally:
+        os.chdir(cwd)
