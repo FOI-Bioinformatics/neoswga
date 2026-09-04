@@ -492,6 +492,18 @@ def _apply_gc_adaptive_defaults():
         user_set_polymerase = (
             hasattr(parameter, "_json_data") and "polymerase" in parameter._json_data
         )
+        # `retune_for_polymerase` resets the k-mer range to the new enzyme's,
+        # which is right when the enzyme changed underneath the user and wrong
+        # when they pinned a range by hand. The guard below says "Preserving
+        # user-specified k-mer range" but runs AFTER this and only logs, so a
+        # params.json setting min_k/max_k without polymerase had its range
+        # silently replaced -- 15-18 becoming phi29's 6-12 -- under a line
+        # claiming it had been preserved.
+        _pinned_k = {
+            key: getattr(parameter, key, None)
+            for key in ("min_k", "max_k")
+            if hasattr(parameter, "_json_data") and key in parameter._json_data
+        }
         if not user_set_polymerase:
             if adaptive_params.recommended_polymerase != getattr(parameter, "polymerase", "phi29"):
                 logger.info(
@@ -535,6 +547,9 @@ def _apply_gc_adaptive_defaults():
                 f"GC-adaptive: Setting k-mer range to " f"{parameter.min_k}-{parameter.max_k}bp"
             )
         elif user_set_min_k or user_set_max_k:
+            # Restore, do not merely announce. See `_pinned_k` above.
+            for key, value in _pinned_k.items():
+                setattr(parameter, key, value)
             logger.info(
                 f"GC-adaptive: Preserving user-specified k-mer range "
                 f"{parameter.min_k}-{parameter.max_k}bp"

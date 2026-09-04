@@ -332,8 +332,16 @@ class TestFix5GCAdaptiveGuard:
                 mock_params.kmer_range = (8, 12)  # Strategy wants shorter primers
                 mock_params.recommended_polymerase = "phi29"
                 mock_params.reaction_temp = 30.0
-                mock_params.betaine_m = 0.0
-                mock_params.dmso_percent = 0.0
+                # The names the production code actually reads. This mocked
+                # `betaine_m` / `dmso_percent`, which `GCAdaptiveParameters`
+                # does not have, so `adaptive_params.betaine_concentration`
+                # auto-created a MagicMock, the `> 0` comparison raised, and the
+                # broad `except Exception` swallowed it -- leaving the rest of
+                # the function unexecuted and the test passing only when an
+                # earlier test in the same process had left the right globals
+                # behind.
+                mock_params.betaine_concentration = 0.0
+                mock_params.dmso_concentration = 0.0
                 mock_params.genome_class = MagicMock()
                 mock_params.genome_class.value = "gc_rich"
                 mock_params.confidence = 0.8

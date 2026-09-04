@@ -7,6 +7,17 @@ from the primer 3' end in one direction along the template, so a forward
 primer extends downstream only and a reverse primer extends upstream
 only. The bidirectional model over-estimated coverage by up to 2x in
 strand-imbalanced primer sets.
+
+NOTE ON SCOPE: this file exercises `BackgroundAwareOptimizer`, the standalone
+three-stage class. No CLI run reaches it -- `--optimization-method
+background-aware` resolves to `BackgroundAwareBaseOptimizer`, which delegates to
+`HybridOptimizer` -- and nothing outside tests references it. So these tests
+say the algorithm is right; they cannot say the algorithm the user gets is
+right, and they passed throughout the period when the live wrapper was dropping
+the configured Tm window, the extension reach and every selection weight.
+`tests/test_background_aware_live_path.py` covers the object the factory
+actually returns. Keep both: this one pins the algorithm, that one pins the
+wiring.
 """
 
 from unittest.mock import MagicMock

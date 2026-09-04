@@ -426,7 +426,7 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
             </div>
             <div class="metric-card">
                 <div class="label">Enrichment</div>
-                <div class="value">{enrichment:.0f}x</div>
+                <div class="value">{enrichment_display}</div>
                 <div class="progress-container">
                     <div class="progress-bar {enrichment_progress_class}"
                          style="width: {enrichment_bar_pct:.0f}%"></div>
@@ -631,6 +631,12 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     # Calculate display values
     coverage_pct = coverage_comp.raw_value * 100 if coverage_comp else 0
     enrichment = specificity_comp.raw_value if specificity_comp else 0
+    # `MAX_SELECTIVITY` (1e6) stands in for "no background binding was
+    # detected", so printing it as "1000000x" claims a measurement that was
+    # never made. Rendered as text instead, matching `condition_sweep`.
+    from neoswga.core.base_optimizer import MAX_SELECTIVITY
+
+    enrichment_display = "no bg binding" if enrichment >= MAX_SELECTIVITY else f"{enrichment:.0f}x"
     uniformity = uniformity_comp.raw_value if uniformity_comp else 0.5
     dimer_risk = dimer_comp.raw_value if dimer_comp else 0
 
@@ -742,6 +748,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         gap_analysis_html=gap_analysis_html,
         # Enrichment
         enrichment=enrichment,
+        enrichment_display=enrichment_display,
         enrichment_bar_pct=enrichment_bar,
         enrichment_rating=specificity_comp.rating if specificity_comp else "N/A",
         enrichment_rating_class=get_rating_class(

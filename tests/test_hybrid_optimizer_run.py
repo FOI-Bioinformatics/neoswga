@@ -365,14 +365,31 @@ def test_background_pruning_runs_and_still_selects(cache_with_background, genome
 
 def test_background_pruning_reduces_background_binding(cache_with_background, genome):
     """The point of the feature. If it does not lower background sites, it is
-    costing time for nothing."""
-    plain = _bg_optimizer(cache_with_background, background_pruning=False)
-    pruned = _bg_optimizer(cache_with_background, background_pruning=True)
+    costing time for nothing.
 
-    a = plain.optimize(genome["primers"], final_count=5, verbose=False)
-    b = pruned.optimize(genome["primers"], final_count=5, verbose=False)
+    Asserted on the pruning STAGE rather than on the finished pipeline. The
+    end-to-end comparison this used to make -- pruned pipeline against unpruned
+    pipeline -- is not a property the pipeline guarantees: stage 2 refines on
+    connectivity and coverage with no background term at all, so it can give
+    back what pruning won, and a run can legitimately finish with more host
+    sites than one that never pruned. The old assertion was `<=`, which a
+    complete no-op also satisfies, and for a long time a no-op is exactly what
+    it was measuring: the coverage floor was absolute at 0.95, so on any set
+    below that every removal was rejected and the stage returned its input.
+    """
+    opt = _bg_optimizer(cache_with_background, background_pruning=True)
+    stage1 = list(opt.dominating_optimizer.optimize_greedy(genome["primers"], 7)["primers"])
+    before = opt._count_background_sites(stage1)
+    assert before > 0, "the fixture has no background binding to prune"
 
-    assert pruned._count_background_sites(b.primers) <= plain._count_background_sites(a.primers)
+    kept, coverage, after = opt._prune_background(stage1, target_size=5, verbose=False)
+
+    assert len(kept) == 5
+    assert after < before, (
+        f"pruning removed no background: {before} sites before, {after} after. "
+        "A stage that returns its input is the failure mode here."
+    )
+    assert coverage > 0
 
 
 def test_background_pruning_respects_the_coverage_floor(cache_with_background, genome):
@@ -382,6 +399,57 @@ def test_background_pruning_respects_the_coverage_floor(cache_with_background, g
     result = opt.optimize(genome["primers"], final_count=5, verbose=False)
 
     assert result.final_coverage > 0
+
+
+def test_the_coverage_floor_is_relative_to_where_pruning_started():
+    """Pruning must still run on a set whose coverage is nowhere near 0.95.
+
+    The floor was absolute: a removal was rejected whenever what remained fell
+    below `min_coverage_threshold`, default 0.95. The quantity compared is
+    binned coverage at realistic reach, which on a real target sits well below
+    that -- the note on `_calculate_coverage` records the same set reading 39%
+    under the corrected measure where the older bin-occupancy measure read
+    100%. So every candidate removal was rejected on the first pass and
+    `background-aware`, the method sold on a 10-20x background reduction,
+    quietly became plain hybrid on every ordinary run.
+
+    Driven with a controlled coverage function rather than a genome, because
+    the point is the shape of the floor and not any particular target.
+    """
+    from neoswga.core.hybrid_optimizer import HybridOptimizer
+
+    primers = [f"P{i}" for i in range(1, 13)]
+    background = {p: 100 * i for i, p in enumerate(primers, 1)}
+
+    def count_background(subset):
+        try:
+            return sum(background.get(p, 0) for p in subset)
+        except TypeError:  # the loop also probes with non-primer values
+            return 0
+
+    def optimizer_at(coverage):
+        opt = HybridOptimizer.__new__(HybridOptimizer)
+        opt.min_coverage_threshold = 0.95
+        opt._absolute_coverage_floor = False
+        opt.min_coverage_drop = 0.05
+        opt.background_weight = 2.0
+        opt.fg_prefixes, opt.fg_seq_lengths = ["fg"], [1_000_000]
+        opt.bg_prefixes, opt.bg_seq_lengths = ["bg"], [1_000_000]
+        # Coverage decays gently as primers are dropped, anchored at `coverage`.
+        opt._calculate_coverage = lambda s: coverage * (len(s) / 12.0) ** 0.05
+        opt._count_background_sites = count_background
+        return opt
+
+    started_with = count_background(primers)
+    for coverage in (0.99, 0.94, 0.80, 0.60, 0.39):
+        kept, _final_coverage, _bg = optimizer_at(coverage)._prune_background(
+            list(primers), target_size=9, verbose=False
+        )
+        assert len(kept) == 9, (
+            f"at stage-1 coverage {coverage} pruning kept {len(kept)} of 12 primers; "
+            "an absolute floor blocks every removal once coverage is below it"
+        )
+        assert count_background(kept) < started_with
 
 
 def test_background_sites_are_counted_from_the_background_prefix(cache_with_background, genome):

@@ -63,10 +63,13 @@ class CliqueOptimizerConfig(OptimizerConfig):
     # How many of those to score with full base-level metrics. Enumeration is
     # cheap and scoring is not, so these are deliberately separate budgets.
     max_scored_sets: int = 100
-    # Use thermodynamic dimer check instead of sequence-based
-    use_thermodynamic_dimer: bool = False
-    # Delta-G threshold for thermodynamic dimer check (kcal/mol)
-    delta_g_threshold: float = -6.0
+    # `use_thermodynamic_dimer` and `delta_g_threshold` were declared here and
+    # read by nothing: the compatibility graph is always sequence-based, and
+    # `dimer.is_thermodynamic_dimer` is unreachable from any optimizer. They are
+    # removed rather than routed, because making an inert knob settable ships
+    # the same defect wearing a fix's clothes. Reinstate them with the call site
+    # that uses them, if the thermodynamic check is ever wired up.
+    #
     # Maximum pool size before automatic truncation
     max_pool_size: int = 200
     # Include self-dimer check in compatibility
@@ -75,8 +78,12 @@ class CliqueOptimizerConfig(OptimizerConfig):
 
 def build_compatibility_graph(
     primers: List[str],
-    max_dimer_bp: int = 3,
-    max_self_dimer_bp: int = 4,
+    # Matching `OptimizerConfig`'s defaults. These read 3 and 4 while the config
+    # defaults are 4 and 5, so a direct caller of this helper got a STRICTER
+    # graph than the optimizer built from the same unset configuration -- two
+    # answers to "what counts as a dimer here" a line apart.
+    max_dimer_bp: int = 4,
+    max_self_dimer_bp: int = 5,
     check_self_dimers: bool = True,
 ) -> "nx.Graph":
     """
@@ -226,6 +233,11 @@ class CliqueOptimizer(BaseOptimizer):
     incremental dimer checking.
     """
 
+    #: The config subclass this optimizer branches on. `OptimizerFactory.create`
+    #: reads it so the object receives its own fields rather than the base
+    #: class's, which is what made `max_pool_size` unreachable.
+    CONFIG_CLASS = CliqueOptimizerConfig
+
     def __init__(
         self,
         position_cache,
@@ -312,8 +324,12 @@ class CliqueOptimizer(BaseOptimizer):
             # Remove fixed primers from candidate pool
             fixed_set = set(fixed)
             candidates = [p for p in candidates if p not in fixed_set]
-            # Reduce target to account for fixed primers
-            target = max(1, target - len(fixed))
+            # Reduce target to account for fixed primers.
+            #
+            # Floored at 0, not 1. `max(1, ...)` meant that fixing as many
+            # primers as the target size still asked the search for one more,
+            # so `--num-primers 4` with four fixed primers returned five.
+            target = max(0, target - len(fixed))
 
         # Truncate pool if too large
         if len(candidates) > self.clique_config.max_pool_size:

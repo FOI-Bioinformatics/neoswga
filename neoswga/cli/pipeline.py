@@ -546,6 +546,95 @@ def _resolve_qa_candidate_pool(args, parameter):
     return qa_prefiltered_candidates(parameter, verbose=not args.quiet)
 
 
+def _build_validation_network(cache, primers, prefixes, max_extension):
+    """An `AmplificationNetwork` over `primers`, for stochastic validation.
+
+    Uses the API the class actually has. The inline version this replaces
+    called `add_site` and `build_graph`, neither of which exists, so
+    `--validate-simulation` failed on every run and reported it as a warning
+    while exiting 0.
+
+    Sequences are laid out in disjoint slots for the same reason
+    `NetworkOptimizer._prefix_offsets` does it: positions are genome-local, so
+    adding two prefixes unshifted joins sites on different molecules.
+    """
+    import numpy as np
+
+    from neoswga.core.network_optimizer import AmplificationNetwork
+
+    network = AmplificationNetwork(max_extension=max_extension)
+    separator = int(max_extension) + 1
+    offset = 0
+
+    for prefix in prefixes or []:
+        highest = 0
+        for primer in primers:
+            for strand, sign in (("forward", "+"), ("reverse", "-")):
+                positions = cache.get_positions(prefix, primer, strand)
+                if len(positions) == 0:
+                    continue
+                shifted = np.asarray(positions, dtype=np.int64) + offset
+                highest = max(highest, int(shifted.max()))
+                network.add_primer_sites(primer, shifted, sign)
+        offset = highest + separator
+
+    network.build_edges()
+    return network
+
+
+def _step4_optimizer_kwargs(args, **resolved):
+    """Everything `optimize_step4` is called with, in one place.
+
+    Extracted from `run_step4` so the argument list can be read, and extended,
+    without the enclosing function growing past its length budget. That budget
+    is part of why several of the values below went missing for so long: adding
+    "just one more line" to a 550-line function is how an argument list drifts
+    out of step with the flags that feed it.
+    """
+    return dict(
+        # None means the optimizer loads step3 itself.
+        candidates=resolved.get("candidates"),
+        use_cache=args.use_position_cache,
+        # Accepted by optimize_step4 and forwarded no further; the flag
+        # reports itself as not implemented. See _common.UNIMPLEMENTED_OPTIONS.
+        use_background_filter=args.use_background_filter,
+        optimization_method=args.optimization_method,
+        verbose=not args.quiet,
+        uniformity_weight=resolved.get("uniformity_weight"),
+        minimize_primers=resolved.get("minimize_primers"),
+        target_coverage=resolved.get("target_coverage"),
+        polymerase=resolved.get("polymerase"),
+        bg_prefilter=resolved.get("bg_prefilter"),
+        no_background=resolved.get("no_background"),
+        seed=resolved.get("seed"),
+        target_size=resolved.get("target_size"),
+        mechanistic_weight=resolved.get("mechanistic_weight"),
+        # Phase 11D / 14C -- per-target coverage floor and application
+        # profile. Both are consumed by unified_optimizer.run_optimization.
+        min_per_target_coverage=getattr(args, "min_per_target_coverage", 0.0),
+        application=getattr(args, "application", "balanced"),
+        ensemble_methods=getattr(args, "ensemble_methods", None),
+        ensemble_combine=getattr(args, "ensemble_combine", "best"),
+        # Explicit reach for coverage / set-cover selection. None leaves the
+        # polymerase default in place; see coverage.resolve_coverage_reach.
+        coverage_reach=getattr(args, "coverage_reach", None),
+        # Stage-2 amplification-network reach. None must stay None: the
+        # optimizers read an unset value as "take the polymerase preset",
+        # so a literal 70000 would overwrite bst's 2 kb on every bst run.
+        max_extension=getattr(args, "max_extension", None),
+        # `--min-fg-bg-ratio` was read only under --auto-size and
+        # --show-frontier and never reached the optimizer, so setting it on a
+        # plain `optimize` run changed nothing and warned nobody. The knob it
+        # should drive already existed and was unreachable: `run_optimization`
+        # reads `bg_min_ratio` for the background pre-filter threshold and
+        # `run_step4` never passed it.
+        bg_min_ratio=getattr(args, "min_fg_bg_ratio", None),
+        # Search effort. `iterations` in params.json reaches
+        # `parameter.max_iterations`; this lets an explicit CLI value win.
+        max_iterations=getattr(args, "iterations", None),
+    )
+
+
 @params_command(merge=None)
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
@@ -626,13 +715,15 @@ def run_step4(args):
                     # Try to calculate from genome or use default
                     template_gc = json_data.get("fg_gc", 0.5)
 
-                # Get polymerase and create conditions. The temperature default
-                # was `30.0 if polymerase == "phi29" else 42.0`, a two-way branch
+                # Create conditions. The temperature default was
+                # `30.0 if polymerase == "phi29" else 42.0`, a two-way branch
                 # over six enzymes: bst and bst3.0 got 42 C, below the 50 C floor
                 # of their hard range, so `ReactionConditions` refused it and the
                 # model fell back to baseline effects behind a warning -- the
                 # set-size recommendation was then made with no chemistry in it.
-                polymerase = json_data.get("polymerase", "phi29")
+                # `polymerase` is deliberately NOT re-read from json_data here;
+                # it is resolved above. Rebinding it made `--auto-size` discard
+                # `--polymerase`, designing at phi29's 3000 bp reach for a bst run.
                 reaction_temp = json_data.get(
                     "reaction_temp", parameter.default_reaction_temp(polymerase)
                 )
@@ -758,35 +849,19 @@ def run_step4(args):
         target_size = getattr(parameter, "target_set_size", getattr(parameter, "num_primers", 6))
 
         results, scores, cache = optimize_step4(
-            candidates=_qa_candidates,  # None: the optimizer loads step3 itself
-            use_cache=args.use_position_cache,
-            # Accepted by optimize_step4 and forwarded no further; the flag
-            # reports itself as not implemented. See _common.UNIMPLEMENTED_OPTIONS.
-            use_background_filter=args.use_background_filter,
-            optimization_method=args.optimization_method,
-            verbose=not args.quiet,
-            uniformity_weight=uniformity_weight,
-            minimize_primers=minimize_primers,
-            target_coverage=target_coverage,
-            polymerase=polymerase,  # Pass polymerase for hybrid preset config
-            bg_prefilter=bg_prefilter,  # Background pre-filtering of candidates
-            no_background=no_background,  # Host-free mode
-            seed=seed,  # Reproducibility for stochastic optimizers
-            target_size=target_size,  # Explicit target from params
-            mechanistic_weight=_mech_weight,  # 0 if flag not set; else user value
-            # Phase 11D / 14C — per-target coverage floor and application
-            # profile. Both are consumed by unified_optimizer.run_optimization.
-            min_per_target_coverage=getattr(args, "min_per_target_coverage", 0.0),
-            application=getattr(args, "application", "balanced"),
-            ensemble_methods=getattr(args, "ensemble_methods", None),
-            ensemble_combine=getattr(args, "ensemble_combine", "best"),
-            # Explicit reach for coverage / set-cover selection. None leaves the
-            # polymerase default in place; see coverage.resolve_coverage_reach.
-            coverage_reach=getattr(args, "coverage_reach", None),
-            # Stage-2 amplification-network reach. None must stay None: the
-            # optimizers read an unset value as "take the polymerase preset",
-            # so a literal 70000 would overwrite bst's 2 kb on every bst run.
-            max_extension=getattr(args, "max_extension", None),
+            **_step4_optimizer_kwargs(
+                args,
+                candidates=_qa_candidates,
+                uniformity_weight=uniformity_weight,
+                minimize_primers=minimize_primers,
+                target_coverage=target_coverage,
+                polymerase=polymerase,
+                bg_prefilter=bg_prefilter,
+                no_background=no_background,
+                seed=seed,
+                target_size=target_size,
+                mechanistic_weight=_mech_weight,
+            )
         )
 
         if results:
@@ -987,8 +1062,13 @@ def run_step4(args):
 
                 if cache is not None:
                     # Build AmpliconNetwork for target
-                    fg_genome_length = sum(getattr(parameter, "fg_lengths", [1000000]))
-                    bg_genome_length = sum(getattr(parameter, "bg_lengths", [1000000]))
+                    # `fg_lengths` is not a module global -- the name is
+                    # `fg_seq_lengths`, and `fg_lengths` exists only as a local
+                    # inside `get_params`. `hasattr(parameter, "fg_lengths")` is
+                    # False, so this always took the fallback and validated
+                    # against a fabricated 1 Mb whatever the real target was.
+                    fg_genome_length = sum(getattr(parameter, "fg_seq_lengths", None) or [0])
+                    bg_genome_length = sum(getattr(parameter, "bg_seq_lengths", None) or [0])
 
                     # Create networks from cache
                     from neoswga.core.network_optimizer import AmplificationNetwork
@@ -1002,35 +1082,19 @@ def run_step4(args):
                     # coverage reach used for set-cover selection.
                     max_extension = getattr(args, "max_extension", 70000) or 70000
 
-                    # Build fg network
-                    fg_network = AmplificationNetwork(max_extension=max_extension)
-                    for primer in primers:
-                        for prefix in fg_prefixes:
-                            try:
-                                fw_pos = cache.get_positions(prefix, primer, "forward")
-                                rv_pos = cache.get_positions(prefix, primer, "reverse")
-                                for pos in fw_pos:
-                                    fg_network.add_site(pos, primer, "forward")
-                                for pos in rv_pos:
-                                    fg_network.add_site(pos, primer, "reverse")
-                            except Exception:
-                                pass
-                    fg_network.build_graph()
-
-                    # Build bg network
-                    bg_network = AmplificationNetwork(max_extension=max_extension)
-                    for primer in primers:
-                        for prefix in bg_prefixes:
-                            try:
-                                fw_pos = cache.get_positions(prefix, primer, "forward")
-                                rv_pos = cache.get_positions(prefix, primer, "reverse")
-                                for pos in fw_pos:
-                                    bg_network.add_site(pos, primer, "forward")
-                                for pos in rv_pos:
-                                    bg_network.add_site(pos, primer, "reverse")
-                            except Exception:
-                                pass
-                    bg_network.build_graph()
+                    # `AmplificationNetwork` has `add_primer_sites` and
+                    # `build_edges`; it has never had `add_site` or
+                    # `build_graph`. Every one of these calls raised, the bare
+                    # `except Exception: pass` swallowed the first pair, and the
+                    # AttributeError from `build_graph` was caught by the outer
+                    # handler and logged as "Validation failed" -- so this whole
+                    # block could not run, on any input, since it was written.
+                    fg_network = _build_validation_network(
+                        cache, primers, fg_prefixes, max_extension
+                    )
+                    bg_network = _build_validation_network(
+                        cache, primers, bg_prefixes, max_extension
+                    )
 
                     # Run validation
                     validation_results = validate_network_predictions(
