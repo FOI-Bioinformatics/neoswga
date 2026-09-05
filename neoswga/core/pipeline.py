@@ -1166,24 +1166,48 @@ def step2(all_primers=None, validate_prerequisites=True):
 
 
 # RANK BY RANDOM FOREST
-def step3(validate_prerequisites=True):
+DEFAULT_MIN_AMP_PRED = 10.0
+
+
+def _candidate_carry_columns(step2_df):
+    """The step-2 measurements `step3_df.csv` carries forward.
+
+    `gini` is load-bearing: it leads the row order `order_step3_rows`
+    establishes, and that order reaches the optimizer.
     """
-    Filters primers according to primer efficacy. To adjust the threshold, use option -a or --min_amp_pred.
+    df = step2_df.set_index("primer")
+    keep = [c for c in ("ratio", "gini", "fg_count", "bg_count") if c in df.columns]
+    return df[keep]
 
-    Args:
-        validate_prerequisites: If True, validate that Step 2 outputs exist before running.
 
-    Returns:
-        joined_step3_df: Pandas dataframe of sequences passing step 3.
+def _warn_if_a_retired_gate_was_requested():
+    """`min_amp_pred` no longer gates anything. Say so rather than ignore it.
+
+    This repository's recurring defect is an option that is documented,
+    accepted, and read by nothing; retiring the gate must not create another
+    instance. Only fires when the value differs from the default, so an ordinary
+    run stays quiet -- the point is to catch someone who set a real gating value
+    and would otherwise receive a pool it never filtered.
     """
-    _initialize()  # Lazy initialization
+    threshold = getattr(parameter, "min_amp_pred", None)
+    if threshold is None or float(threshold) == DEFAULT_MIN_AMP_PRED:
+        return
+    logger.warning(
+        f"min_amp_pred={threshold} was given, but the amplification gate is "
+        "retired and does nothing. On the panels that settled this it removed 7 "
+        "of 1222 candidates, 0 of 449 and 0 of 319, and step 4 reads only the "
+        "primer column. Pass --amp-model to restore the score and its gate."
+    )
 
-    # Validate prerequisites
-    if validate_prerequisites:
-        validation = validate_step3_prerequisites(parameter.data_dir)
-        if not validation.valid:
-            raise StepPrerequisiteError(3, validation)
 
+def _score_with_amp_model(step2_df):
+    """The random-forest path, retired from the default pipeline.
+
+    Reachable with `--amp-model`. Kept rather than deleted because retiring a
+    stage from the default path is not the same as removing the capability, and
+    because `score --enable-qa` blends this score with the QA score at 0.7/0.3.
+    """
+    logger.info("Amplification model requested: scoring candidates")
     # Adaptive k-mer sampling: scale sample rate by genome size
     disable_sampling = getattr(parameter, "disable_kmer_sampling", False)
     explicit_rate = getattr(parameter, "sample_rate", None)
@@ -1212,8 +1236,6 @@ def step3(validate_prerequisites=True):
             logger.info("K-mer sampling disabled (small genome)")
     else:
         rf_preprocessing.disable_kmer_sampling()
-
-    step2_df = pd.read_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
 
     primer_list = step2_df["primer"]
     logger.info(f"Scoring {len(primer_list)} primers...")
@@ -1270,18 +1292,56 @@ def step3(validate_prerequisites=True):
         )
 
     joined_step3_df = step3_df.join(step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left")
-    joined_step3_df = order_step3_rows(joined_step3_df)
-
-    joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
-
     logger.info(
         f"Filtered {step2_df.shape[0] - joined_step3_df.shape[0]} primers based on efficacy"
     )
 
-    # Log thermodynamic cache performance
-    from neoswga.core.thermodynamics import log_cache_stats
+    return joined_step3_df
 
-    log_cache_stats("Step 3")
+
+def step3(validate_prerequisites=True):
+    """Prepare the candidate pool that step 4 optimizes over.
+
+    This stage used to score every candidate with a random forest and gate on
+    `min_amp_pred`. Audit finding F0 retired that on 2026-09-05. The gate removed
+    7 of 1222 candidates on the S. aureus panel and none at all on the E. coli
+    and M. tuberculosis panels, and every step-4 consumer reads only the primer
+    column, so the score was computed for each candidate and then discarded
+    before selection. Asked whether it identified good primers, the top half of
+    a pool by `amp_pred` optimized to the WORST of five half-pools.
+
+    What the stage still does, and why it is not simply deleted: it writes
+    `step3_df.csv`, a required intermediate that six modules read, carrying the
+    step-2 measurements and the deterministic order from `order_step3_rows`.
+    That order is what makes an unseeded run reproducible.
+
+    `--amp-model` restores the old behaviour, score column and gate included.
+
+    Args:
+        validate_prerequisites: If True, validate that Step 2 outputs exist first.
+
+    Returns:
+        joined_step3_df: the candidate pool, deterministically ordered.
+    """
+    _initialize()  # Lazy initialization
+
+    # Validate prerequisites
+    if validate_prerequisites:
+        validation = validate_step3_prerequisites(parameter.data_dir)
+        if not validation.valid:
+            raise StepPrerequisiteError(3, validation)
+
+    step2_df = pd.read_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
+
+    if getattr(parameter, "use_amp_model", False):
+        joined_step3_df = _score_with_amp_model(step2_df)
+    else:
+        _warn_if_a_retired_gate_was_requested()
+        logger.info(f"Carrying {len(step2_df)} candidates forward (scoring retired)")
+        joined_step3_df = _candidate_carry_columns(step2_df)
+
+    joined_step3_df = order_step3_rows(joined_step3_df)
+    joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
 
     if parameter.verbose:
         logger.debug(f"Step 3 results:\n{joined_step3_df}")

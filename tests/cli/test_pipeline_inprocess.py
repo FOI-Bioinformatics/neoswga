@@ -223,7 +223,14 @@ def filtered(counted):
     return counted
 
 
-def test_score_annotates_without_dropping_candidates(filtered):
+def test_score_carries_every_candidate_forward(filtered):
+    """`score` prepares the candidate pool; it no longer scores it (finding F0).
+
+    It used to assert that the stage ADDED columns. It now adds none: the
+    amplification model is retired from the default path, and what the stage
+    contributes is the deterministic order that makes an unseeded run
+    reproducible. It must still drop nothing.
+    """
     import pandas as pd
 
     _run(["score", "-j", str(filtered["params_file"])], filtered["root"])
@@ -232,8 +239,9 @@ def test_score_annotates_without_dropping_candidates(filtered):
     step2 = pd.read_csv(data_dir / "step2_df.csv")
     step3 = pd.read_csv(data_dir / "step3_df.csv")
 
-    assert len(step3) == len(step2)
-    assert len(step3.columns) > len(step2.columns), "score added no columns"
+    assert len(step3) == len(step2), f"score dropped candidates: {len(step2)} -> {len(step3)}"
+    assert set(step3["primer"]) == set(step2["primer"])
+    assert step3["gini"].is_monotonic_increasing, "the deterministic order was lost"
 
 
 # ----------------------------------------------------------------------

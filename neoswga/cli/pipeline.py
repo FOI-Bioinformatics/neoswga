@@ -389,10 +389,17 @@ def run_step3(args):
         # Apply CLI arguments to parameter module
         merge_args_to_parameter(args, parameter, ["min_amp_pred"])
 
+        # The amplification model is retired from the default path (finding F0);
+        # --amp-model opts back into scoring and its gate.
+        parameter.use_amp_model = bool(getattr(args, "amp_model", False))
+
         # Log effective parameters
         if not args.quiet:
-            min_amp_pred = getattr(parameter, "min_amp_pred", None) or "auto"
-            logger.info(f"Minimum amplification prediction score: {min_amp_pred}")
+            if parameter.use_amp_model:
+                min_amp_pred = getattr(parameter, "min_amp_pred", None) or "auto"
+                logger.info(f"Minimum amplification prediction score: {min_amp_pred}")
+            else:
+                logger.info("Preparing candidate pool (amplification scoring retired)")
 
         report_unimplemented_options(args)
 
@@ -1540,12 +1547,25 @@ def add_parsers(subparsers):
     # =========================================================================
 
     score_parser = subparsers.add_parser(
-        "score", help="Amplification efficacy scoring with ML threshold control"
+        "score", help="Prepare the candidate pool for optimization"
     )
     add_common_options(score_parser)
 
     score_parser.add_argument(
-        "--min-amp-pred", type=float, help="Minimum amplification prediction score (default: 10)"
+        "--amp-model",
+        action="store_true",
+        help="Score candidates with the bundled random forest and gate on "
+        "--min-amp-pred. Retired from the default pipeline: on real panels "
+        "the gate removed 7 of 1222 candidates and none at all on two "
+        "others, and the optimizer reads only the primer column, so the "
+        "score never reached selection.",
+    )
+    score_parser.add_argument(
+        "--min-amp-pred",
+        type=float,
+        help="Minimum amplification prediction score (default: 10). "
+        "Requires --amp-model; without it the gate is retired and this "
+        "value does nothing.",
     )
     score_parser.add_argument(
         "--full-score",

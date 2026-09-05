@@ -323,10 +323,30 @@ def combine_rf_qa_scores(
 
     df = step3_df.copy()
     seq_col = primer_column(df)
-    score_col = rf_score_column(df)
+    try:
+        score_col = rf_score_column(df)
+    except KeyError:
+        score_col = None
 
     # Add QA scores
     df["qa_score"] = df[seq_col].map(qa_scores).fillna(0.5)
+
+    if score_col is None:
+        # The amplification model is retired from the default pipeline (finding
+        # F0), so `step3_df.csv` normally carries no RF score to blend with.
+        # Rank on QA alone rather than fail: the QA score is a measurement of
+        # the primer (3' stability, dimer-hub degree), where the retired score
+        # reproduced a hand-written rule. Pass --amp-model to get the blend back.
+        df["rf_score_norm"] = float("nan")
+        df["composite_score"] = df["qa_score"]
+        if verbose:
+            logger.info(
+                "No amplification score present; ranking on the QA score alone. "
+                "Pass --amp-model to restore the %.2f/%.2f RF/QA blend.",
+                rf_weight,
+                qa_weight,
+            )
+        return df
 
     # Normalize RF scores to 0-1 range
     rf_min = df[score_col].min()
