@@ -28,6 +28,30 @@ from typing import Any, Callable, Dict, List, Optional, Type
 from .base_optimizer import BaseOptimizer, OptimizerConfig
 from .exceptions import OptimizerNotFoundError
 
+
+def upgrade_config(config: OptimizerConfig, target_class: Type[OptimizerConfig]):
+    """Re-home `config`'s values on `target_class`, without mutating `config`.
+
+    Returns `config` unchanged when it is already an instance of the target, and
+    otherwise copies every field the two classes share onto a fresh instance,
+    leaving target-only fields at their defaults.
+
+    Returning a NEW object matters: `_run_ensemble` hands one config to every
+    method in a loop, so an in-place upgrade would let one optimizer's
+    subclass fields leak into the next optimizer's run.
+    """
+    import dataclasses
+
+    if isinstance(config, target_class):
+        return config
+
+    shared = {f.name for f in dataclasses.fields(target_class)}
+    carried = {
+        f.name: getattr(config, f.name) for f in dataclasses.fields(config) if f.name in shared
+    }
+    return target_class(**carried)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -127,6 +151,26 @@ class OptimizerRegistry:
                 raise OptimizerNotFoundError(name, list(cls._registry.keys()))
 
             return cls._registry[canonical_name]
+
+    @classmethod
+    def config_class(cls, name: str) -> Type[OptimizerConfig]:
+        """The `OptimizerConfig` subclass `name` expects, or the base class.
+
+        An optimizer declares one by setting `CONFIG_CLASS` on itself. Two do:
+        `CliqueOptimizer` and `DominatingSetAdapter`, each of which then branches
+        on `isinstance` to read its own fields. The factory used to build the
+        base class unconditionally, so both branches were constant-false in
+        production and every subclass field -- `max_pool_size` among them -- was
+        pinned at its dataclass default and unreachable from params.json.
+
+        Declared as a class attribute rather than a decorator argument so it is
+        also correct for callers who construct the optimizer directly.
+        """
+        try:
+            optimizer_class = cls.get(name)
+        except OptimizerNotFoundError:
+            return OptimizerConfig
+        return getattr(optimizer_class, "CONFIG_CLASS", None) or OptimizerConfig
 
     @classmethod
     def list_all(cls) -> Dict[str, str]:
@@ -237,8 +281,14 @@ class OptimizerFactory:
 
         optimizer_class = OptimizerRegistry.get(name)
 
-        # Merge config with kwargs if optimizer has specific config class
-        optimizer_config = config or OptimizerConfig()
+        # Build the config class this optimizer actually branches on. The line
+        # here used to be `config or OptimizerConfig()`, under a comment about
+        # merging that no code performed, so `CliqueOptimizer` and
+        # `DominatingSetAdapter` never saw their own subclass and read defaults.
+        target_class = OptimizerRegistry.config_class(name)
+        optimizer_config = (
+            upgrade_config(config, target_class) if config is not None else target_class()
+        )
 
         try:
             optimizer = optimizer_class(

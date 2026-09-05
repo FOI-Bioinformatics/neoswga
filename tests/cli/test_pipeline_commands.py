@@ -52,12 +52,32 @@ def test_filter_stats_records_a_real_funnel(pipeline_run):
     assert all(n >= 0 for n in numbers)
 
 
-def test_scored_output_carries_the_prediction_column(pipeline_run):
+def test_scored_output_carries_no_prediction_column(pipeline_run):
+    """The amplification model is retired from the default pipeline (finding F0).
+
+    This test previously asserted the opposite. The gate removed 7 of 1222
+    candidates on one real panel and none at all on two others, and every step-4
+    consumer reads only the primer column, so the score was computed for every
+    candidate and discarded before selection. `--amp-model` brings it back; see
+    `tests/test_score_stage_is_retired.py`.
+    """
     import pandas as pd
 
     df = pd.read_csv(os.path.join(pipeline_run["data_dir"], "step3_df.csv"))
     assert len(df) > 0
-    assert any("amp" in c.lower() or "pred" in c.lower() for c in df.columns), list(df.columns)
+    scored = [c for c in df.columns if "amp" in c.lower() or "pred" in c.lower()]
+    assert not scored, f"step3_df.csv still carries a score column: {scored}"
+
+
+def test_scored_output_still_carries_the_step2_measurements(pipeline_run):
+    """What the stage does now: carry candidates and their measurements, in a
+    deterministic order. `gini` leads that order and must survive."""
+    import pandas as pd
+
+    df = pd.read_csv(os.path.join(pipeline_run["data_dir"], "step3_df.csv"))
+    for col in ("primer", "gini"):
+        assert col in df.columns, f"step3_df.csv lost {col!r}: {list(df.columns)}"
+    assert df["gini"].is_monotonic_increasing
 
 
 def test_scoring_preserves_every_filtered_primer(pipeline_run):

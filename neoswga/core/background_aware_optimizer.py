@@ -701,6 +701,8 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             coverage_reach=getattr(self.config, "extension_reach", None),
             background_weight=kwargs.get("background_weight", 2.0),
             min_coverage_threshold=kwargs.get("min_coverage_threshold", 0.95),
+            min_coverage_drop=kwargs.get("min_coverage_drop", 0.05),
+            absolute_coverage_floor=kwargs.get("absolute_coverage_floor", False),
             polymerase=kwargs.get("polymerase", "phi29"),
             # Forward ReactionConditions + mechanistic weight so the clinical
             # background-aware optimizer's stage-3 network refinement honours
@@ -708,6 +710,26 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             # this seam even though self.conditions was set on the wrapper.
             conditions=conditions,
             mechanistic_weight=kwargs.get("mechanistic_weight", 0.0),
+            # This wrapper builds the same HybridOptimizer class as the `hybrid`
+            # wrapper does, and the two argument lists had drifted apart: six
+            # values arrived at `hybrid` and were dropped here. The sharpest was
+            # the Tm window, which the polymerase preset then replaced -- on an
+            # equiphi29 pool configured for 20-70 C, `hybrid` screened at
+            # 20.0-70.0 and passed 500/500 candidates while `background-aware`
+            # screened at 37.0-62.0 and passed 167/500. Two thirds of a
+            # user-approved pool, discarded before selection, by the method
+            # documented as the clinical one.
+            bin_size=kwargs.get("bin_size", 10000),
+            max_extension=kwargs.get("max_extension"),
+            min_tm=getattr(self.config, "min_tm", None),
+            max_tm=getattr(self.config, "max_tm", None),
+            genome_gc_content=kwargs.get("genome_gc_content"),
+            uniformity_weight=kwargs.get("uniformity_weight", 0.0),
+            reaction_temp=kwargs.get("reaction_temp"),
+            tm_weight=kwargs.get("tm_weight", 0.0),
+            dimer_penalty=kwargs.get("dimer_penalty", 0.0),
+            max_dimer_bp=getattr(self.config, "max_dimer_bp", 4),
+            template_gc=kwargs.get("template_gc", 0.5),
         )
 
         # A second BackgroundAwareOptimizer was built here "for backward

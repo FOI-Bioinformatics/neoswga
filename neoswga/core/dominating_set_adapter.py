@@ -46,8 +46,10 @@ class DominatingSetConfig(OptimizerConfig):
     """Configuration for dominating set optimizer."""
 
     bin_size: int = 10000  # Size of genome bins
-    use_ilp: bool = False  # Use ILP for exact solution
-    ilp_timeout: int = 300  # ILP solver timeout in seconds
+    # `use_ilp` and `ilp_timeout` were declared here and read by nothing -- the
+    # adapter has no ILP branch to switch on. Removed rather than routed, for
+    # the reason given on CliqueOptimizerConfig: a settable knob that changes
+    # nothing is the defect this class of fix exists to remove.
 
 
 @OptimizerFactory.register("dominating-set", aliases=["ds", "set-cover"])
@@ -72,6 +74,9 @@ class DominatingSetAdapter(BaseOptimizer):
     Complexity: O(n * m) where n = primers, m = regions
     Approximation: ln(n) of optimal (Chvatal 1979)
     """
+
+    #: The config subclass this adapter branches on; see CliqueOptimizer.
+    CONFIG_CLASS = DominatingSetConfig
 
     def __init__(
         self,

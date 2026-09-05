@@ -217,8 +217,32 @@ class HybridOptimizer:
         background_pruning: bool = False,
         background_weight: float = 2.0,
         min_coverage_threshold: float = 0.95,
+        # How much coverage background pruning may give up, measured from the
+        # coverage stage 1 handed it. See _prune_background for why the floor
+        # has to be relative: an absolute 0.95 is unreachable on a real target,
+        # so the stage removed nothing at all.
+        min_coverage_drop: float = 0.05,
+        # Opt back in to the absolute reading of `min_coverage_threshold`, for
+        # a caller that wants a hard bound rather than a budget.
+        absolute_coverage_floor: bool = False,
         conditions=None,
         mechanistic_weight: float = 0.0,
+        # Stage-2 scoring parameters. These are handed straight to the inner
+        # NetworkOptimizer, which is the object that actually scores candidates
+        # during refinement, so the defaults here are ITS defaults
+        # (network_optimizer.py) rather than anything new: a caller that omits
+        # them gets exactly the previous behaviour.
+        #
+        # They were absent from this signature entirely, which is why
+        # `--application` could report "selection weights applied: tm=0.30,
+        # uniformity=0.05, dimer_penalty=0.45" while the object doing the
+        # selecting used 0.0, 0.0 and 0.0, and why a params.json max_dimer_bp of
+        # 3 became 4 -- the looser threshold -- inside the default method.
+        reaction_temp: Optional[float] = None,
+        tm_weight: float = 0.0,
+        dimer_penalty: float = 0.0,
+        max_dimer_bp: int = 4,
+        template_gc: float = 0.5,
     ):
         """
         Initialize hybrid optimizer.
@@ -244,6 +268,14 @@ class HybridOptimizer:
                 Higher values favor more aggressive background removal.
             min_coverage_threshold: Minimum coverage to maintain during
                 background pruning (0.0-1.0).
+            reaction_temp: Reaction temperature (C) for Stage-2 Tm scoring.
+            tm_weight: Weight for the Tm term in Stage-2 selection.
+            dimer_penalty: Weight for the dimer term in Stage-2 selection. This
+                is the only dimer consideration in Stage-2, so a value of 0.0
+                means refinement weighs dimers not at all.
+            max_dimer_bp: Longest complementary stretch tolerated between two
+                primers before the dimer term applies.
+            template_gc: Template GC fraction used by the mechanistic term.
         """
         self.position_cache = position_cache
         self.fg_prefixes = fg_prefixes
@@ -295,6 +327,8 @@ class HybridOptimizer:
         self.background_pruning = background_pruning
         self.background_weight = background_weight
         self.min_coverage_threshold = min_coverage_threshold
+        self.min_coverage_drop = min_coverage_drop
+        self._absolute_coverage_floor = absolute_coverage_floor
 
         # Initialize both optimizers
         self.dominating_optimizer = DominatingSetOptimizer(
@@ -322,6 +356,16 @@ class HybridOptimizer:
             # Phase 13B: forward --use-mechanistic-model weight so the
             # NetworkOptimizer's scoring includes a mechanistic term.
             mechanistic_weight=mechanistic_weight,
+            # The Stage-2 scoring parameters. Omitting these left the object
+            # that performs refinement at its own defaults, so `--application`
+            # and a configured `max_dimer_bp` reached the adapter and stopped
+            # there. `network` has always passed them; the default method did
+            # not. See tests/test_optimizer_config_reaches_optimizers.py.
+            reaction_temp=reaction_temp,
+            tm_weight=tm_weight,
+            dimer_penalty=dimer_penalty,
+            max_dimer_bp=max_dimer_bp,
+            template_gc=template_gc,
         )
         # Retain for introspection / rescoring hooks.
         self.conditions = conditions
@@ -792,9 +836,7 @@ class HybridOptimizer:
         # each bin once, and get the cost of a removal from the bins where that
         # count is 1.
         bins_by_primer = self._coverage_bins_by_primer(current_primers)
-        bin_counts = Counter()
-        for owned in bins_by_primer.values():
-            bin_counts.update(owned)
+        bin_counts = self._bin_occupancy(bins_by_primer)
         total_bins = self._total_coverage_bins()
 
         while len(current_primers) > target_count:
@@ -828,7 +870,9 @@ class HybridOptimizer:
                 network_score = _removal_network_score(connectivity, largest)
 
                 # Bins only this primer covers: what removing it costs.
-                unique_bins = sum(1 for b in bins_by_primer.get(primer, ()) if bin_counts[b] == 1)
+                unique_bins = sum(
+                    1 for b in bins_by_primer.get(primer, ()) if bin_counts[self._bin_key(b)] == 1
+                )
                 candidates.append((primer, network_score, unique_bins))
 
             if not candidates:
@@ -923,14 +967,28 @@ class HybridOptimizer:
         Computed once per refinement so the removal loop can price a candidate
         from a bin-occupancy counter instead of recomputing coverage, which
         would undo the O(1) subgraph views the loop is built around.
+
+        ONE graph for all the primers, not one per primer. `BipartiteGraph`
+        already dedupes regions by coordinate through its `_region_lookup`, and
+        already records which primers cover each region, so a shared graph gives
+        both this mapping and the occupancy counts with no extra structure --
+        the same structure the greedy path uses, which is why greedy was never
+        affected by the bug this fixes.
+
+        Per-primer graphs looked equivalent and were not. `CoverageRegion` hashes
+        on `(chromosome, start, end)` but the dataclass `__eq__` also compares
+        `covered_by`, so the same bin arriving from two different graphs hashed
+        equal and compared unequal. Every bin then landed in the occupancy
+        counter as its own key with a count of 1, "uniquely covered" became
+        "covered at all", and the removal ranking preferred discarding the primer
+        with the FEWEST bins -- the sole coverer of a region.
         """
         from neoswga.core.dominating_set_optimizer import BipartiteGraph, coverage_bin_size
 
         bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
-        owned: Dict[str, set] = {}
+        graph = BipartiteGraph(bin_size=bin_size)
 
         for primer in primers:
-            graph = BipartiteGraph(bin_size=bin_size)
             for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
                 fw = self.position_cache.get_positions(prefix, primer, "forward")
                 rv = self.position_cache.get_positions(prefix, primer, "reverse")
@@ -943,8 +1001,27 @@ class HybridOptimizer:
                         length,
                         extension_reach=self.coverage_reach,
                     )
-            owned[primer] = set(graph.regions)
-        return owned
+
+        return {primer: set(graph.primer_to_regions.get(primer, ())) for primer in primers}
+
+    @staticmethod
+    def _bin_key(region):
+        """The identity of a coverage bin: where it is, not who covers it."""
+        return (region.chromosome, region.start, region.end)
+
+    @staticmethod
+    def _bin_occupancy(bins_by_primer: Dict[str, set]) -> Dict[object, int]:
+        """How many of the given primers cover each bin.
+
+        Keyed on the region's coordinates rather than on the region object, so
+        the count cannot be split by an unequal-but-equally-hashing key. That is
+        belt and braces given `_coverage_bins_by_primer` now shares one graph,
+        and it is what makes the count correct for any caller that does not.
+        """
+        counts: Dict[object, int] = Counter()
+        for owned in bins_by_primer.values():
+            counts.update({HybridOptimizer._bin_key(r) for r in owned})
+        return counts
 
     def _total_coverage_bins(self) -> int:
         from neoswga.core.dominating_set_optimizer import coverage_bin_size
@@ -1128,9 +1205,31 @@ class HybridOptimizer:
         Greedy background pruning: remove primers with worst background/coverage ratio.
 
         Iteratively removes the primer whose removal causes the largest
-        reduction in background binding relative to coverage loss. Stops
-        when coverage drops below min_coverage_threshold or target_size
-        is reached.
+        reduction in background binding relative to coverage loss. Stops when
+        coverage would fall more than `min_coverage_drop` below the coverage
+        this stage STARTED with, or when target_size is reached.
+
+        The floor used to be absolute: a removal was rejected whenever the
+        remaining coverage fell below `min_coverage_threshold`, default 0.95.
+        The quantity compared is binned coverage at realistic reach, which on a
+        real target is well under 0.95 -- the file's own note on
+        `_calculate_coverage` records a set reading 39% under the corrected
+        measure where the older bin-occupancy measure read 100%. So on any
+        normal run every candidate removal was rejected on the first pass,
+        `best_removal` stayed None, and the loop broke immediately:
+
+            stage-1 coverage 0.99 -> 12 primers to 9, background 7800 -> 4500
+            stage-1 coverage 0.94 -> 12 primers to 12, background unchanged
+            stage-1 coverage 0.39 -> 12 primers to 12, background unchanged
+
+        which made `--optimization-method background-aware` degenerate to plain
+        hybrid on every run whose coverage sat at or below the floor, while the
+        documentation advertised a 10-20x background reduction.
+
+        A RELATIVE floor is what the stage needs: it exists to stop pruning
+        eating the coverage stage 1 just bought, and "how much did we give up"
+        is the question that asks. The absolute reading is still available by
+        passing `min_coverage_threshold`, for a caller that wants a hard bound.
 
         Args:
             primers: Initial primer set from coverage stage
@@ -1142,6 +1241,11 @@ class HybridOptimizer:
         """
         current_primers = list(primers)
         current_coverage = self._calculate_coverage(current_primers)
+        # Both floors apply; the relative one is what normally binds.
+        floor = max(
+            self.min_coverage_threshold if self._absolute_coverage_floor else 0.0,
+            current_coverage - self.min_coverage_drop,
+        )
 
         if verbose:
             logger.info(f"  Background pruning: {len(current_primers)} -> {target_size} primers")
@@ -1161,15 +1265,32 @@ class HybridOptimizer:
                 test_coverage = self._calculate_coverage(test_set)
                 coverage_loss = current_coverage - test_coverage
 
-                if test_coverage < self.min_coverage_threshold:
+                if test_coverage < floor:
                     continue
 
                 primer_bg_sites = self._count_background_sites([primer])
 
-                if coverage_loss > 0:
-                    score = primer_bg_sites / coverage_loss * self.background_weight
-                else:
-                    score = primer_bg_sites * 1000
+                # Rank on background removed per unit of coverage given up, and
+                # break ties on the cheaper removal.
+                #
+                # This was two disjoint branches -- `bg / loss * weight` when a
+                # removal cost coverage and `bg * 1000` when it did not -- with
+                # two consequences. `background_weight` was a positive constant
+                # multiplier INSIDE one branch, so it could not change that
+                # branch's argmax and could not make pruning "more aggressive"
+                # as documented; all it did was move the crossover against the
+                # other branch, favouring removals that cost coverage. And when
+                # every candidate carried the same host load, which includes
+                # every candidate carrying none, all scores tied and the strict
+                # `>` kept the first primer in list order, so the choice was
+                # made by input order with the coverage cost never consulted.
+                #
+                # One expression removes both. `background_weight` now scales
+                # the background term against the coverage term, which is the
+                # trade-off it is named for, and the coverage cost is always
+                # part of the score, so a tie on host load is broken by keeping
+                # the primer that covers more.
+                score = (self.background_weight * primer_bg_sites) - (coverage_loss * 1000.0)
 
                 if score > best_score:
                     best_score = score
@@ -1300,8 +1421,22 @@ class HybridBaseOptimizer(BaseOptimizer):
             background_pruning=kwargs.get("background_pruning", False),
             background_weight=kwargs.get("background_weight", 2.0),
             min_coverage_threshold=kwargs.get("min_coverage_threshold", 0.95),
+            min_coverage_drop=kwargs.get("min_coverage_drop", 0.05),
+            absolute_coverage_floor=kwargs.get("absolute_coverage_floor", False),
             conditions=conditions,
             mechanistic_weight=kwargs.get("mechanistic_weight", 0.0),
+            # Selection weights and the dimer threshold. `uniformity_weight`
+            # was accepted by HybridOptimizer and simply not passed here; the
+            # other four were not on its signature at all until this change.
+            # The CLI always sends the weights, resolved from --application by
+            # unified_optimizer._resolve_selection_weights, and max_dimer_bp
+            # comes off the config the way `network` already reads it.
+            uniformity_weight=kwargs.get("uniformity_weight", 0.0),
+            reaction_temp=kwargs.get("reaction_temp"),
+            tm_weight=kwargs.get("tm_weight", 0.0),
+            dimer_penalty=kwargs.get("dimer_penalty", 0.0),
+            max_dimer_bp=getattr(self.config, "max_dimer_bp", 4),
+            template_gc=kwargs.get("template_gc", 0.5),
         )
 
     @property

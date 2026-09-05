@@ -576,7 +576,10 @@ def run_design(args):
     # Ensure optimize-specific attributes exist on args namespace
     # (the design subparser doesn't define these but run_step4 needs them)
     optimize_defaults = {
-        "optimization_method": "hybrid",
+        # None, so `resolve_optimization_method` falls through to
+        # params.json. Hardcoding "hybrid" here pinned the one-shot
+        # `design` path to it from a second, independent direction.
+        "optimization_method": None,
         "num_primers": None,
         "iterations": None,
         "max_sets": None,

@@ -30,9 +30,11 @@ import pandas as pd
 
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
+from .dimer import dimer_validation_issue, worst_heterodimer
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
-from .position_cache import PositionCache
+from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
+from .step4_output import save_results
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,10 @@ _registration_lock = threading.Lock()
 # the legacy (primer_sets, scores, cache) return contract. Access via
 # unified_optimizer._LAST_RESULT; do not rely on this for library use.
 _LAST_RESULT: Optional["OptimizationResult"] = None
+
+# Alternative primer sets from the most recent run, best first. Populated
+# when `max_sets` asks for more than one; always at least the primary set.
+_LAST_PRIMER_SETS: List[Tuple[str, ...]] = []
 
 
 @dataclass
@@ -200,6 +206,113 @@ def _reseed(seed) -> None:
         pass
 
 
+def _resolve_target_coverage(kwargs, default=0.70):
+    """The coverage floor `--minimize-primers` trims down to.
+
+    Pops the key, so it is not forwarded twice.
+
+    This was `float(kwargs.pop("target_coverage", 0.70) or 0.70)`, and `or`
+    treats an explicit 0 as absent -- so `--target-coverage 0`, a legitimate
+    request meaning "trim as far as you can", silently became 0.70. Only a
+    MISSING value may fall back.
+    """
+    value = kwargs.pop("target_coverage", None)
+    return float(default) if value is None else float(value)
+
+
+def collect_alternative_sets(
+    primary, optimizer, candidates, target_size, max_sets=1, max_iterations=8
+):
+    """Up to `max_sets` distinct primer sets, best first.
+
+    Alternatives are found by removing the primers already chosen from the
+    candidate pool and running selection again, so each one is a genuinely
+    different set rather than a reordering of the same oligos. `max_iterations`
+    caps how many such attempts are made, which matters because a pool can run
+    out of usable candidates long before `max_sets` is reached.
+
+    Fewer than `max_sets` is a normal outcome, not a failure: a small pool
+    simply cannot yield many disjoint sets. The primary result is always first.
+
+    Both parameters were documented and inert -- `max_sets` reached only
+    `search_context.BFSConfig`, which has no callers, and no optimizer reads
+    `config.max_iterations`. The output format already anticipated this: the
+    `set_index` column of step4_improved_df.csv was hardcoded to 0.
+
+    Note `max_iterations` bounds the search for ALTERNATIVES only. Bounding the
+    primary selection with it would cap how many primers a run can choose, so
+    `iterations: 8` would quietly truncate a 96-oligo panel.
+    """
+    sets = [tuple(primary.primers)]
+    if not primary.primers or max_sets <= 1:
+        return sets
+
+    seen = {frozenset(primary.primers)}
+    remaining = [p for p in candidates if p not in set(primary.primers)]
+    attempts = 0
+
+    while len(sets) < max_sets and attempts < max(1, int(max_iterations)):
+        attempts += 1
+        if len(remaining) < target_size:
+            break
+        try:
+            result = optimizer.optimize(remaining, target_size)
+        except Exception as exc:
+            logger.debug(f"Alternative set search stopped: {exc}")
+            break
+
+        chosen = tuple(result.primers)
+        if not chosen or frozenset(chosen) in seen:
+            break
+
+        sets.append(chosen)
+        seen.add(frozenset(chosen))
+        remaining = [p for p in remaining if p not in set(chosen)]
+
+    return sets
+
+
+def _select_ensemble_winner(results, application):
+    """Which method's set to deliver, decided by a stated rule.
+
+    Ranked on `normalized_score` (application-weighted), then -- and this is the
+    part that was missing -- on explicit tie-breaks rather than on whichever
+    method happened to be listed first.
+
+    `max()` over the results dict returns the FIRST key attaining the maximum,
+    and that dict is built in `--ensemble-methods` order, so flag order decided
+    every tie. Ties are the common case: on the plasmid example hybrid,
+    dominating-set and background-aware return the identical set and score
+    0.9003 alike, and reordering the flag moved the winner each time. Here the
+    tied methods returned the same primers so only provenance moved, but the tie
+    is on the composite score rather than on the set, so two methods returning
+    different pools can tie and then flag order picks what gets ordered.
+
+    Tie-breaks, in order:
+
+    1. the higher `normalized_score`;
+    2. the SMALLER set -- fewer oligos at equal quality is cheaper to
+       synthesise and simpler to run;
+    3. the method name, alphabetically, purely so the answer is stable.
+
+    Rule 3 is arbitrary on purpose. Something has to settle a true tie, and an
+    arbitrary rule that is written down and reproducible is better than an
+    arbitrary rule that depends on argument order and is documented as
+    order-independent.
+    """
+
+    def rank(method):
+        result = results[method]
+        return (
+            result.metrics.normalized_score(application=application),
+            -len(result.primers),
+            # `max` takes the largest, so invert the name to prefer the earliest.
+            tuple(-ord(c) for c in method),
+        )
+
+    return max(results, key=rank)
+
+
 def _run_ensemble(
     methods: List[str],
     cache,
@@ -267,7 +380,19 @@ def _run_ensemble(
             continue
 
         norm = res.metrics.normalized_score(application=application)
-        results[m] = res
+        # Only a method that actually produced a set is a candidate to win.
+        #
+        # Hybrid, network and background-aware all return NO_CONVERGENCE with an
+        # empty primer tuple rather than raising, and an empty
+        # `PrimerSetMetrics` does NOT score zero -- a (0.0, 0.0) Tm range reads
+        # as perfectly tight and collects the whole Tm term, so it scores 0.10
+        # under balanced weights and 0.05 under clinical. Such a result was
+        # therefore rankable, and when every method came back empty the ensemble
+        # returned one of them as the "winner", after which `optimize_step4`
+        # logged "Optimization failed: " with an empty message. The clear
+        # all-methods-failed error below already existed and was unreachable.
+        if res.primers:
+            results[m] = res
         rows.append(
             {
                 "method": m,
@@ -284,11 +409,7 @@ def _run_ensemble(
     if not results:
         return OptimizationResult.failure("ensemble", f"All ensemble methods failed: {methods}")
 
-    # Pick the winner by normalized_score (application-weighted).
-    best_method = max(
-        results,
-        key=lambda m: results[m].metrics.normalized_score(application=application),
-    )
+    best_method = _select_ensemble_winner(results, application)
     for row in rows:
         row["selected"] = row["method"] == best_method and row["status"] != "error"
 
@@ -351,7 +472,28 @@ def _run_ensemble(
     return _dc_replace(winner, ensemble_comparison=tuple(rows))
 
 
-def _build_optimizer_config(target_size, verbose, extension_reach, fg_circular, kwargs):
+def _make_position_cache(prefixes, primers, use_cache=True):
+    """The position cache a run should use.
+
+    `--no-position-cache` sets `use_cache=False`. It used to change nothing:
+    `optimize_step4` accepted the value and never referenced it, while the CLI
+    logged "Position cache: False" beforehand, which reads as confirmation the
+    request was honoured.
+
+    False now selects `StreamingPositionCache`, the memory-mapped
+    implementation, which is what "disable the in-memory cache (slower)" should
+    mean on a background too large to hold.
+    """
+    if use_cache:
+        return PositionCache(prefixes, primers)
+
+    logger.info("Position cache disabled; using the memory-mapped streaming cache")
+    return StreamingPositionCache(prefixes, primers)
+
+
+def _build_optimizer_config(
+    target_size, verbose, extension_reach, fg_circular, kwargs, method=None
+):
     """Populate every configurable field, not just the ones a caller passes.
 
     This used to set five fields and leave the rest at their dataclass
@@ -369,6 +511,12 @@ def _build_optimizer_config(target_size, verbose, extension_reach, fg_circular, 
     config themselves never saw it.
 
     Precedence: explicit kwarg, then the `parameter` global, then the default.
+
+    When `method` names an optimizer with its own `OptimizerConfig` subclass,
+    that subclass is built instead of the base, and its extra fields are
+    resolved through the same precedence. Naming each one here by hand is what
+    produced this defect class in the first place, so they are enumerated from
+    the dataclass rather than listed.
     """
 
     def pick(name, default):
@@ -377,14 +525,49 @@ def _build_optimizer_config(target_size, verbose, extension_reach, fg_circular, 
             value = getattr(parameter, name, None)
         return default if value is None else value
 
-    return OptimizerConfig(
+    config_class = OptimizerConfig
+    if method:
+        from .optimizer_factory import OptimizerRegistry
+
+        config_class = OptimizerRegistry.config_class(method)
+
+    # Fields the subclass adds on top of the base. Resolved generically so a
+    # newly added field is reachable from params.json the day it is declared.
+    extra = {}
+    if config_class is not OptimizerConfig:
+        import dataclasses
+
+        base_names = {f.name for f in dataclasses.fields(OptimizerConfig)}
+        for field in dataclasses.fields(config_class):
+            if field.name in base_names:
+                continue
+            default = (
+                field.default
+                if field.default is not dataclasses.MISSING
+                else field.default_factory()  # type: ignore[misc]
+            )
+            extra[field.name] = pick(field.name, default)
+
+    return config_class(
+        **extra,
         target_set_size=target_size,
-        max_iterations=kwargs.get("max_iterations", 100),
+        # params.json calls this `iterations` and `get_params` assigns that
+        # name; `OptimizerConfig` calls it `max_iterations`. A bare
+        # `pick("max_iterations", ...)` looks for a global that does not exist
+        # and always took the default, so the key was inert whichever way it was
+        # set. Both names are tried, the config's first.
+        max_iterations=pick("max_iterations", None) or pick("iterations", 100),
         verbose=verbose,
         extension_reach=extension_reach,
         fg_circular=fg_circular,
         max_dimer_bp=pick("max_dimer_bp", 4),
         max_self_dimer_bp=pick("max_self_dimer_bp", 5),
+        # `parameter.max_mismatches` is assigned by _apply_params_only_keys and
+        # `base_optimizer._weighted_loads` reads `self.config.max_mismatches`,
+        # but nothing connected the two, so the modelled site load ran at 1
+        # mismatch whatever params.json asked for. Tenth instance of the
+        # documented-accepted-and-read-by-nothing class, and a missing line.
+        max_mismatches=pick("max_mismatches", 1),
         min_tm=pick("min_tm", 20.0),
         max_tm=pick("max_tm", 50.0),
     )
@@ -466,6 +649,104 @@ def _collect_forbidden_primers(candidates, verbose: bool) -> list:
         return []
 
 
+def _dispatch_optimizer(
+    method,
+    cache,
+    candidates,
+    fg_prefixes,
+    fg_seq_lengths,
+    bg_prefixes,
+    bg_seq_lengths,
+    target_size,
+    config,
+    conditions,
+    seed,
+    verbose,
+    _application,
+    kwargs,
+):
+    """Run `method` and return `(result, optimizer)`.
+
+    The optimizer comes back beside the result because the post-processing in
+    `run_optimization` measures coverage with it.
+    """
+    optimizer = None
+
+    if method in ("ensemble", "auto", "all"):
+        ensemble_methods = kwargs.pop("ensemble_methods", None) or [
+            "hybrid",
+            "dominating-set",
+            "network",
+            "background-aware",
+        ]
+        # `seed` is captured separately and passed explicitly; remove it from
+        # kwargs so it is not forwarded twice into _run_ensemble.
+        kwargs.pop("seed", None)
+        ensemble_combine = kwargs.pop("ensemble_combine", "best")
+        result = _run_ensemble(
+            methods=ensemble_methods,
+            cache=cache,
+            candidates=candidates,
+            fg_prefixes=fg_prefixes,
+            fg_seq_lengths=fg_seq_lengths,
+            bg_prefixes=bg_prefixes,
+            bg_seq_lengths=bg_seq_lengths,
+            target_size=target_size,
+            config=config,
+            conditions=conditions,
+            application=(_application or "balanced"),
+            seed=seed,
+            verbose=verbose,
+            combine=ensemble_combine,
+            **kwargs,
+        )
+
+        # The post-processing below measures coverage with
+        # `optimizer.compute_metrics`, which is `BaseOptimizer`'s and does not
+        # depend on which algorithm selected the set. Build one for the winning
+        # method so `--minimize-primers` works on an ensemble run rather than
+        # silently doing nothing: handing the minimiser None would put an
+        # AttributeError inside its `try` and return the set untrimmed, which
+        # is the same defect this class of fix exists to remove.
+        try:
+            optimizer = OptimizerFactory.create(
+                name=getattr(result, "optimizer_name", None) or ensemble_methods[0],
+                position_cache=cache,
+                fg_prefixes=fg_prefixes,
+                fg_seq_lengths=fg_seq_lengths,
+                bg_prefixes=bg_prefixes,
+                bg_seq_lengths=bg_seq_lengths,
+                config=config,
+                conditions=conditions,
+                **kwargs,
+            )
+        except Exception as exc:
+            logger.debug(f"No measuring optimizer for the ensemble winner: {exc}")
+    else:
+        # Create optimizer via factory
+        try:
+            optimizer = OptimizerFactory.create(
+                name=method,
+                position_cache=cache,
+                fg_prefixes=fg_prefixes,
+                fg_seq_lengths=fg_seq_lengths,
+                bg_prefixes=bg_prefixes,
+                bg_seq_lengths=bg_seq_lengths,
+                config=config,
+                conditions=conditions,
+                **kwargs,
+            )
+        except Exception as e:
+            logger.error(f"Failed to create optimizer '{method}': {e}")
+            return OptimizationResult.failure(method, str(e)), None
+
+        # Run optimization
+        with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
+            result = optimizer.optimize(candidates, target_size)
+
+    return result, optimizer
+
+
 def _minimize_primer_count(result, optimizer, target_coverage: float, verbose: bool):
     """Trim a selected set to the fewest primers still meeting a coverage target.
 
@@ -525,7 +806,21 @@ def _minimize_primer_count(result, optimizer, target_coverage: float, verbose: b
                 f"--minimize-primers: {len(result.primers)} -> {len(current)} primers "
                 f"at {best_metrics.fg_coverage:.1%} coverage (target {target_coverage:.0%})."
             )
-        return _replace(result, primers=tuple(current), metrics=best_metrics)
+        # `score` has to move with the set. Replacing primers and metrics and
+        # leaving `score` alone reported the FOUR-primer score for a set trimmed
+        # to one, in both the CSV `score` column and the summary JSON -- a
+        # number describing a set that no longer exists.
+        #
+        # `normalized_score` is the comparable [0,1] composite and is derived
+        # from the metrics, which have been recomputed, so it is the honest
+        # value to carry. The per-optimizer raw score cannot be recomputed here
+        # without re-running the optimizer on the trimmed set.
+        return _replace(
+            result,
+            primers=tuple(current),
+            metrics=best_metrics,
+            score=float(best_metrics.normalized_score()),
+        )
 
     except Exception as e:
         logger.warning(f"--minimize-primers skipped ({e}); keeping the full set.")
@@ -686,7 +981,9 @@ def run_optimization(
 
     # Create position cache
     with progress_context("Loading position data", disable=not verbose):
-        cache = PositionCache(fg_prefixes + (bg_prefixes or []), candidates)
+        cache = _make_position_cache(
+            fg_prefixes + (bg_prefixes or []), candidates, kwargs.get("use_cache", True)
+        )
 
     # Optional: pre-filter candidates by fg/bg binding ratio
     if bg_prefixes and kwargs.get("bg_prefilter", True):
@@ -695,8 +992,11 @@ def run_optimization(
             candidates,
             fg_prefixes,
             bg_prefixes,
-            min_ratio=kwargs.get("bg_min_ratio", 1.0),
-            max_removal_fraction=kwargs.get("bg_max_removal", 0.20),
+            # `or` rather than a `.get` default: the CLI now forwards these,
+            # and forwards None when the flag was not given, which a bare
+            # `.get(name, default)` would hand straight through as None.
+            min_ratio=kwargs.get("bg_min_ratio") or 1.0,
+            max_removal_fraction=kwargs.get("bg_max_removal") or 0.20,
             verbose=verbose,
         )
 
@@ -735,6 +1035,10 @@ def run_optimization(
         extension_reach=extension_reach,
         fg_circular=fg_circular,
         kwargs=kwargs,
+        # So an optimizer with its own config subclass gets its own fields
+        # resolved from params.json. The ensemble path passes its per-method
+        # name too, via the same helper.
+        method=method,
     )
 
     # Popped rather than read off `config`: these arrive as kwargs, and the
@@ -744,7 +1048,7 @@ def run_optimization(
     # they came to be set, forwarded, and never acted on. Popping also keeps
     # them out of the optimizer constructors, which have no use for them.
     _minimize_primers = bool(kwargs.pop("minimize_primers", False))
-    _target_coverage = float(kwargs.pop("target_coverage", 0.70) or 0.70)
+    _target_coverage = _resolve_target_coverage(kwargs)
 
     # By this point `conditions` is either a valid object or None (with
     # `_conditions_init_error` populated for validator-banner reporting
@@ -757,55 +1061,32 @@ def run_optimization(
     # the best by normalized_score. Falls through to the shared
     # post-processing below so the winner gets per-target coverage, saturation
     # checks, and the validation report like any single-method run.
-    if method in ("ensemble", "auto", "all"):
-        ensemble_methods = kwargs.pop("ensemble_methods", None) or [
-            "hybrid",
-            "dominating-set",
-            "network",
-            "background-aware",
-        ]
-        # `seed` is captured separately and passed explicitly; remove it from
-        # kwargs so it is not forwarded twice into _run_ensemble.
-        kwargs.pop("seed", None)
-        ensemble_combine = kwargs.pop("ensemble_combine", "best")
-        result = _run_ensemble(
-            methods=ensemble_methods,
-            cache=cache,
-            candidates=candidates,
-            fg_prefixes=fg_prefixes,
-            fg_seq_lengths=fg_seq_lengths,
-            bg_prefixes=bg_prefixes,
-            bg_seq_lengths=bg_seq_lengths,
-            target_size=target_size,
-            config=config,
-            conditions=conditions,
-            application=(_application or "balanced"),
-            seed=seed,
-            verbose=verbose,
-            combine=ensemble_combine,
-            **kwargs,
-        )
-    else:
-        # Create optimizer via factory
-        try:
-            optimizer = OptimizerFactory.create(
-                name=method,
-                position_cache=cache,
-                fg_prefixes=fg_prefixes,
-                fg_seq_lengths=fg_seq_lengths,
-                bg_prefixes=bg_prefixes,
-                bg_seq_lengths=bg_seq_lengths,
-                config=config,
-                conditions=conditions,
-                **kwargs,
-            )
-        except Exception as e:
-            logger.error(f"Failed to create optimizer '{method}': {e}")
-            return OptimizationResult.failure(method, str(e))
-
-        # Run optimization
-        with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
-            result = optimizer.optimize(candidates, target_size)
+    # Bound before the branch. The post-processing below reads `optimizer`, and
+    # only the single-method branch used to assign it, so `--minimize-primers`
+    # with `--optimization-method ensemble` raised UnboundLocalError while the
+    # call arguments were being evaluated -- before the `try` inside
+    # `_minimize_primer_count` could see it. The step then exited 1 having run
+    # every ensemble method to completion and thrown all of it away: no CSV, no
+    # summary, no validation report. The `auto` and `all` aliases hit the same
+    # branch.
+    result, optimizer = _dispatch_optimizer(
+        method,
+        cache,
+        candidates,
+        fg_prefixes,
+        fg_seq_lengths,
+        bg_prefixes,
+        bg_seq_lengths,
+        target_size,
+        config,
+        conditions,
+        seed,
+        verbose,
+        _application,
+        kwargs,
+    )
+    if result is not None and getattr(result, "status", None) is OptimizationStatus.ERROR:
+        return result
 
     # --minimize-primers / --target-coverage post-processing.
     #
@@ -816,13 +1097,36 @@ def run_optimization(
     # anywhere outside its own module. So `--minimize-primers` did nothing,
     # which also made the default path look like it was minimising when the
     # real cause was the coverage-binning bug in dominating_set_optimizer.
-    if _minimize_primers and result.primers:
+    if _minimize_primers and result.primers and optimizer is None:
+        logger.warning(
+            "--minimize-primers was requested but no optimizer is available to "
+            "measure coverage with; the set is returned untrimmed."
+        )
+    elif _minimize_primers and result.primers:
         result = _minimize_primer_count(
             result=result,
             optimizer=optimizer,
             target_coverage=_target_coverage,
             verbose=verbose,
         )
+
+    # Alternative sets, when `max_sets` asks for more than one. Done here, on
+    # the finished primary result, so an alternative is a genuinely different
+    # set of oligos rather than a reordering.
+    global _LAST_PRIMER_SETS
+    _LAST_PRIMER_SETS = [tuple(result.primers)] if result.primers else []
+    _max_sets = int(kwargs.get("max_sets") or getattr(parameter, "max_sets", 1) or 1)
+    if _max_sets > 1 and result.primers and optimizer is not None:
+        _LAST_PRIMER_SETS = collect_alternative_sets(
+            primary=result,
+            optimizer=optimizer,
+            candidates=candidates,
+            target_size=target_size,
+            max_sets=_max_sets,
+            max_iterations=getattr(config, "max_iterations", 8),
+        )
+        if verbose and len(_LAST_PRIMER_SETS) > 1:
+            logger.info(f"max_sets={_max_sets}: offering {len(_LAST_PRIMER_SETS)} distinct sets")
 
     # Phase 15A: populate per_target_coverage on the result so multi-
     # target runs surface "target A 95% / target B 40%" instead of one
@@ -914,6 +1218,19 @@ def run_optimization(
             for w in _saturation_warnings:
                 logger.warning(f"{w['code']}: {w['detail']}")
 
+    # Screen the pool that is actually being delivered against the threshold
+    # the user configured. The optimizers penalise dimers (except clique, which
+    # constrains them), but a penalty can be outweighed, so the only way to know
+    # what came back is to measure it.
+    if validation is not None and result.primers:
+        _dimer_issue = dimer_validation_issue(
+            list(result.primers), getattr(config, "max_dimer_bp", None)
+        )
+        if _dimer_issue is not None:
+            validation.setdefault("issues", []).append(_dimer_issue)
+            if verbose:
+                logger.warning(f"{_dimer_issue['code']}: {_dimer_issue['detail']}")
+
     # Surface the ReactionConditions init failure in the banner too.
     # Marked as a warning (not error) because the optimizer still
     # produced a primer set — just with additive-blind Tm.
@@ -993,142 +1310,20 @@ def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResu
         target_size=config.target_set_size,
         verbose=config.verbose,
         max_iterations=config.max_iterations,
+        # Nine of the eighteen fields this dataclass declares were dropped here,
+        # so a library caller writing
+        #     OptimizationConfig(minimize_primers=True, target_coverage=0.9)
+        # got neither. That also contradicted the comment justifying how
+        # `minimize_primers` is handled in `run_optimization`, which says the
+        # flag "lives on the separate OptimizationConfig used by
+        # run_optimization_from_config" -- it does live there, and this did not
+        # forward it.
+        minimize_primers=config.minimize_primers,
+        target_coverage=config.target_coverage,
+        uniformity_weight=config.uniformity_weight,
+        use_cache=config.use_position_cache,
+        use_background_filter=config.use_background_filter,
     )
-
-
-def save_results(
-    result: OptimizationResult, output_path: str, include_all_sets: bool = False
-) -> None:
-    """
-    Save optimization results to CSV.
-
-    Args:
-        result: OptimizationResult to save
-        output_path: Path for output CSV
-        include_all_sets: Whether to include all found sets (not just best)
-    """
-    if not result.primers:
-        logger.warning("No primers to save")
-        return
-
-    # Build results DataFrame with set-level aggregate metrics
-    metrics = result.metrics
-    records = []
-    for primer in result.primers:
-        records.append(
-            {
-                "primer": primer,
-                "set_index": 0,
-                "score": result.score,
-                "normalized_score": result.normalized_score,
-                "coverage": metrics.fg_coverage,
-                "bg_coverage": metrics.bg_coverage,
-                "selectivity": metrics.selectivity_ratio,
-                "mean_gap": metrics.mean_gap,
-                "max_gap": metrics.max_gap,
-                "coverage_uniformity": metrics.coverage_uniformity,
-                "gap_gini": metrics.gap_gini,
-                "gap_entropy": metrics.gap_entropy,
-                "dimer_risk_score": metrics.dimer_risk_score,
-                "strand_alternation": metrics.strand_alternation_score,
-                "strand_coverage_ratio": metrics.strand_coverage_ratio,
-                "mean_tm": metrics.mean_tm,
-                "optimizer": result.optimizer_name,
-            }
-        )
-
-    df = pd.DataFrame(records)
-    df.to_csv(output_path, index=False)
-    logger.info(f"Results saved to {output_path}")
-
-    # Write summary JSON alongside CSV
-    summary_path = os.path.splitext(output_path)[0] + "_summary.json"
-    try:
-        summary = result.to_dict()
-        # Synthesis cost, itemised. Set size is the main lever on coverage, so
-        # "how many primers" is really "how many oligos will you buy"; without
-        # this the trade-off has a missing axis. Assumes the standard SWGA
-        # modification (two 3' PTO bonds against phi29's exonuclease), which is
-        # the largest single component for primers this short.
-        try:
-            from neoswga.core.oligo_cost import cost_per_coverage_point, set_cost
-
-            cost = set_cost(list(result.primers))
-            summary["synthesis_cost"] = cost.to_dict()
-            summary["synthesis_cost"]["usd_per_coverage_point"] = round(
-                cost_per_coverage_point(cost, result.metrics.fg_coverage), 2
-            )
-        except Exception as exc:  # never lose the result over a cost estimate
-            logger.debug(f"Could not estimate synthesis cost: {exc}")
-        with open(summary_path, "w") as f:
-            json.dump(summary, f, indent=2, default=str)
-        logger.info(f"Summary saved to {summary_path}")
-    except Exception as e:
-        logger.warning(f"Could not write summary JSON: {e}")
-
-    # Write audit trail for reproducibility
-    _write_audit_trail(output_path, result)
-
-
-def _write_audit_trail(output_path: str, result: OptimizationResult) -> None:
-    """Write run metadata alongside pipeline results for reproducibility.
-
-    Creates a JSON file with version, timestamp, parameters hash, and
-    optimizer configuration so that results can be traced back to the
-    exact conditions that produced them.
-    """
-    import hashlib
-    from datetime import datetime, timezone
-
-    audit_path = os.path.splitext(output_path)[0] + "_audit.json"
-    try:
-        # Collect parameters hash
-        params_dict = {}
-        for attr in [
-            "fg_genomes",
-            "bg_genomes",
-            "min_k",
-            "max_k",
-            "min_fg_freq",
-            "max_bg_freq",
-            "max_gini",
-            "num_primers",
-            "target_set_size",
-            "polymerase",
-            "reaction_temp",
-            "na_conc",
-            "mg_conc",
-        ]:
-            val = getattr(parameter, attr, None)
-            if val is not None:
-                params_dict[attr] = str(val)
-
-        params_str = json.dumps(params_dict, sort_keys=True)
-        params_hash = hashlib.sha256(params_str.encode()).hexdigest()[:16]
-
-        try:
-            from neoswga import __version__
-
-            version = __version__
-        except ImportError:
-            version = "unknown"
-
-        audit = {
-            "neoswga_version": version,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "params_hash": params_hash,
-            "optimizer": result.optimizer_name,
-            "num_primers": result.num_primers,
-            "score": float(result.score) if result.score else None,
-            "status": result.status.value if result.status else None,
-            "parameters": params_dict,
-        }
-
-        with open(audit_path, "w") as f:
-            json.dump(audit, f, indent=2)
-        logger.info(f"Audit trail saved to {audit_path}")
-    except Exception as e:
-        logger.debug(f"Could not write audit trail: {e}")
 
 
 def _simulation_rescore(
@@ -1228,7 +1423,11 @@ def optimize_step4(
     the new optimizer framework internally.
 
     Args:
-        use_cache: Use position cache (always True with new system)
+        use_cache: True builds the in-memory `PositionCache`; False builds the
+            memory-mapped `StreamingPositionCache` instead, for a background
+            too large to hold. This said "always True with new system" and was
+            never read, so `--no-position-cache` changed nothing while the CLI
+            logged "Position cache: False".
         use_background_filter: Use background filtering
         optimization_method: Optimizer method name
         verbose: Print progress
@@ -1267,6 +1466,10 @@ def optimize_step4(
         uniformity_weight=uniformity_weight,
         minimize_primers=minimize_primers,
         target_coverage=target_coverage,
+        # Named on this function's signature, so it is NOT in **kwargs and has
+        # to be forwarded explicitly. Being absent here is why the flag stayed
+        # inert even once `run_optimization` knew what to do with it.
+        use_cache=use_cache,
         **kwargs,
     )
 
@@ -1304,12 +1507,22 @@ def optimize_step4(
 
     # Convert to legacy format
     if result.is_success or (result.status == OptimizationStatus.PARTIAL and result.primers):
-        primer_sets = [list(result.primers)]
+        # Every set the run produced, best first. This was always a
+        # single-entry list, which is why `max_sets` had nothing to change.
+        primer_sets = [list(s) for s in (_LAST_PRIMER_SETS or [result.primers])]
         scores = [result.score]
 
         # Save results
         output_path = os.path.join(parameter.data_dir, "step4_improved_df.csv")
-        save_results(result, output_path)
+        # The profile this run was scored under, so the CSV's
+        # `normalized_score` column agrees with the ensemble comparison
+        # table rather than silently using the balanced weights.
+        save_results(
+            result,
+            output_path,
+            application=kwargs.get("application"),
+            primer_sets=_LAST_PRIMER_SETS or None,
+        )
 
         # Return cache placeholder (for compatibility)
         from .position_cache import PositionCache

@@ -902,15 +902,29 @@ class BaseOptimizer(ABC):
         if not candidates:
             raise ValueError("candidates list cannot be empty")
 
-        # Deduplicate while preserving order
+        # Deduplicate while preserving order.
+        #
+        # Normalised to uppercase, not merely checked in uppercase. This used to
+        # validate `primer.upper()` and then append `primer` unchanged, so a
+        # lowercase sequence entered the pool as-is -- and `dimer.py` compares
+        # translated characters directly, so 'a' never matches 'A'. A perfect
+        # 10 bp duplex between one lowercase primer and one uppercase primer
+        # measured a complementary run of ZERO, in the clique optimizer's
+        # compatibility graph and in the network penalty alike. That is the one
+        # input that breaks the dimer-free guarantee outright.
+        #
+        # Normalising here rather than inside the dimer check keeps every other
+        # consumer of the pool -- Tm, GC, k-mer lookup, HDF5 keys -- from having
+        # to make the same allowance separately.
         seen = set()
         valid = []
         for primer in candidates:
-            if primer not in seen:
-                seen.add(primer)
+            normalised = primer.upper() if isinstance(primer, str) else primer
+            if normalised not in seen:
+                seen.add(normalised)
                 # Basic validation
-                if primer and all(c in "ATCG" for c in primer.upper()):
-                    valid.append(primer)
+                if normalised and all(c in "ATCG" for c in normalised):
+                    valid.append(normalised)
                 else:
                     logger.warning(f"Skipping invalid primer: {primer}")
 
@@ -1047,41 +1061,65 @@ class BaseOptimizer(ABC):
         # Collect all positions. Kept per primer as well as pooled: the pooled
         # list cannot say which primer put a site there, and occupancy is a
         # per-primer property.
-        fg_positions = []
-        bg_positions = []
+        # Positions are kept PER PREFIX, because each prefix is a separate
+        # sequence with its own 0-based coordinate space. Pooling them into one
+        # flat list made position 5000 in target A and position 5000 in target B
+        # the same integer, so `set()` collapsed them, no position could exceed
+        # the longest single genome, and the denominator was the sum of them
+        # all. Two fully covered 100 kb targets reported fg_coverage 0.5145 and
+        # a max_gap of 102,000 bp on a 100,000 bp target.
+        #
+        # It is not only a reporting fault: `--minimize-primers` gates on
+        # `fg_coverage`, so a ceiling near 1/N put the 0.70 default out of reach
+        # and the trim quietly stopped working on multi-target runs.
+        fg_by_prefix = {prefix: set() for prefix in self.fg_prefixes}
+        bg_by_prefix = {prefix: set() for prefix in self.bg_prefixes}
         fg_positions_by_primer = {}
 
         for primer in primers:
             for prefix in self.fg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
-                fg_positions.extend(positions.tolist())
+                fg_by_prefix[prefix].update(positions.tolist())
                 fg_positions_by_primer.setdefault(primer, []).extend(positions.tolist())
 
             for prefix in self.bg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
-                bg_positions.extend(positions.tolist())
+                bg_by_prefix[prefix].update(positions.tolist())
 
-        fg_positions = sorted(set(fg_positions))
-        bg_positions = sorted(set(bg_positions))
+        fg_by_prefix = {p: sorted(v) for p, v in fg_by_prefix.items()}
+        bg_by_prefix = {p: sorted(v) for p, v in bg_by_prefix.items()}
+
+        # Flat lists remain for the site COUNTS, where summing across sequences
+        # is exactly right and de-duplication across them would be wrong.
+        fg_positions = [pos for prefix in self.fg_prefixes for pos in fg_by_prefix[prefix]]
+        bg_positions = [pos for prefix in self.bg_prefixes for pos in bg_by_prefix[prefix]]
 
         # Coverage
-        fg_coverage = self._compute_coverage(fg_positions, self.fg_total_length)
+        fg_coverage = self._coverage_over_prefixes(
+            fg_by_prefix, self.fg_prefixes, self.fg_seq_lengths
+        )
         effective_fg_coverage = self._compute_effective_coverage(
             fg_positions_by_primer, self.fg_total_length
         )
-        coverage_by_reach = self._compute_coverage_by_reach(fg_positions, self.fg_total_length)
+        coverage_by_reach = self._coverage_by_reach_over_prefixes(
+            fg_by_prefix, self.fg_prefixes, self.fg_seq_lengths
+        )
         headline_reach = self._product_reach()
-        headline_coverage = coverage_by_reach.get(headline_reach) or self._compute_coverage_at(
-            fg_positions, self.fg_total_length, headline_reach
+        headline_coverage = coverage_by_reach.get(headline_reach) or self._coverage_over_prefixes(
+            fg_by_prefix, self.fg_prefixes, self.fg_seq_lengths, reach=headline_reach
         )
         bg_coverage = (
-            self._compute_coverage(bg_positions, self.bg_total_length)
+            self._coverage_over_prefixes(bg_by_prefix, self.bg_prefixes, self.bg_seq_lengths)
             if self.bg_total_length > 0
             else 0.0
         )
 
-        # Gap statistics
-        gaps = self._compute_gaps(fg_positions, self.fg_total_length)
+        # Gap statistics, per sequence then pooled. A "gap" spanning the end of
+        # one molecule and the start of another is not a distance a polymerase
+        # could ever travel.
+        gaps = []
+        for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            gaps.extend(self._compute_gaps(fg_by_prefix.get(prefix, []), length))
         mean_gap = np.mean(gaps) if gaps else float("inf")
         max_gap = max(gaps) if gaps else float("inf")
         gap_gini = self._gini(gaps) if gaps else 1.0
@@ -1161,6 +1199,46 @@ class BaseOptimizer(ABC):
             strand_coverage_ratio=strand_cov_ratio,
             extension_reach=self.config.extension_reach,
         )
+
+    def _coverage_over_prefixes(self, positions_by_prefix, prefixes, seq_lengths, reach=None):
+        """Coverage across several sequences, weighted by their lengths.
+
+        Each sequence is measured in its own coordinate space and the covered
+        BASES are summed, which is the only aggregate that means anything when
+        the parts are separate molecules. Equivalent to `_compute_coverage` when
+        there is one prefix, so single-target behaviour is unchanged.
+        """
+        total = sum(int(length) for length in seq_lengths)
+        if total <= 0:
+            return 0.0
+
+        covered = 0.0
+        for prefix, length in zip(prefixes, seq_lengths):
+            length = int(length)
+            if length <= 0:
+                continue
+            positions = positions_by_prefix.get(prefix, [])
+            fraction = (
+                self._compute_coverage(positions, length)
+                if reach is None
+                else self._compute_coverage_at(positions, length, reach)
+            )
+            covered += fraction * length
+        return covered / total
+
+    def _coverage_by_reach_over_prefixes(self, positions_by_prefix, prefixes, seq_lengths):
+        """`_compute_coverage_by_reach`, aggregated the same way."""
+        reaches = set()
+        for prefix, length in zip(prefixes, seq_lengths):
+            reaches.update(
+                self._compute_coverage_by_reach(positions_by_prefix.get(prefix, []), int(length))
+            )
+        return {
+            reach: self._coverage_over_prefixes(
+                positions_by_prefix, prefixes, seq_lengths, reach=reach
+            )
+            for reach in sorted(reaches)
+        }
 
     def _compute_coverage(self, positions: List[int], total_length: int) -> float:
         """Compute coverage fraction from positions.

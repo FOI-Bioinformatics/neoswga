@@ -268,6 +268,22 @@ def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
     # Cap enrichment for scoring (very high values all get perfect score)
     capped_enrichment = min(enrichment, 1000)
     rating, score = _rate_value(capped_enrichment, ENRICHMENT_THRESHOLDS)
+
+    # `MAX_SELECTIVITY` (1e6) is a sentinel meaning "no background binding was
+    # detected", and `base_optimizer` says so where it is defined. Printing it
+    # as "1000000x target/background enrichment" states a measurement nobody
+    # made, and one no reaction could produce. `condition_sweep` already renders
+    # the same sentinel as "no bg binding"; this now agrees with it.
+    #
+    # The GRADE is unchanged: no detectable host binding is the best available
+    # outcome and still scores as such. Only the wording changes.
+    from neoswga.core.base_optimizer import MAX_SELECTIVITY
+
+    if enrichment >= MAX_SELECTIVITY:
+        description = "no background binding detected"
+    else:
+        description = f"{enrichment:.0f}x target/background enrichment"
+
     components.append(
         GradeComponent(
             name="Specificity",
@@ -275,7 +291,7 @@ def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
             raw_value=enrichment,
             normalized_score=score,
             rating=rating,
-            description=f"{enrichment:.0f}x target/background enrichment",
+            description=description,
         )
     )
 
@@ -320,14 +336,28 @@ def calculate_quality_grade(metrics: PipelineMetrics) -> QualityAssessment:
     )
 
     # Dimer Risk (5%)
-    # Use normalized dimer score (0-1 scale)
-    # Note: dimer scores are typically negative (kcal/mol), more negative = worse
+    #
+    # `dimer_score` is a POSITIVE 0-1 risk score, higher being worse. It is
+    # filled from the `dimer_risk_score` column of step4_improved_df.csv by
+    # report/metrics.py, and DIMER_THRESHOLDS is calibrated on that same 0-1
+    # scale (excellent < 0.1 ... poor < 0.5).
+    #
+    # It used to be read as a free energy: the worst case was taken with min()
+    # -- which on a positive scale selects the LEAST risky primer -- and then
+    # divided by 10.0 on the assumption that -10 kcal/mol was significant risk.
+    # Both errors pushed the same way, so every report understated dimer risk by
+    # an order of magnitude. A set whose measured risk was 0.4667, which rates
+    # "poor", was graded 0.0467 and printed "Excellent"; that set contained a
+    # 10 bp heterodimer against a configured max_dimer_bp of 3.
+    #
+    # Clamped to [0, 1] rather than trusted: the column is produced on that
+    # scale by every pipeline path (free energies travel separately, as
+    # `hairpin_dg` and `self_dimer_dg`), so anything outside it is out of
+    # contract and must not be able to grade well by accident.
     dimer_risk = 0.0
     if metrics.primers:
-        # Use min() to get the most negative (worst) dimer score
-        worst_dimer = min((p.dimer_score for p in metrics.primers), default=0)
-        # Normalize: assume -10 kcal/mol is significant risk
-        dimer_risk = min(abs(worst_dimer) / 10.0, 1.0)
+        worst = max((p.dimer_score for p in metrics.primers), default=0.0)
+        dimer_risk = min(max(worst, 0.0), 1.0)
     rating, score = _rate_value(dimer_risk, DIMER_THRESHOLDS, lower_is_better=True)
     components.append(
         GradeComponent(

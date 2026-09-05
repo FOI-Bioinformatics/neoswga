@@ -1,3 +1,4 @@
+import itertools
 import logging
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -383,3 +384,60 @@ if __name__ == "__main__":
     print(dimer_mat)
     print(is_compatible_set(primer_set))
     print(is_dimer(primer_set[5], primer_set[6]))
+
+# ---------------------------------------------------------------------------
+# Screening a finished pool
+# ---------------------------------------------------------------------------
+
+
+def worst_heterodimer(primers):
+    """The longest complementary stretch between any two of `primers`.
+
+    Returns `(length, (a, b))`, or `(0, None)` when there is no pair to measure.
+
+    Self-dimers are excluded: they are screened at the filter step, against
+    `max_self_dimer_bp`, and mixing the two would report a compliant pool as
+    failing a threshold that does not govern it.
+    """
+    worst_length, worst_pair = 0, None
+    for a, b in itertools.combinations(list(primers), 2):
+        run = max_complementary_run(a, b)
+        if run > worst_length:
+            worst_length, worst_pair = run, (a, b)
+    return worst_length, worst_pair
+
+
+def dimer_validation_issue(primers, max_dimer_bp):
+    """A validator issue when the delivered pool breaks its own threshold.
+
+    Returns None when the pool is compliant. The comparison is
+    inclusive-allowed, matching `dimer.is_dimer_fast`, which sets its trigger at
+    `max_dimer_bp + 1`: a pool whose worst pair is exactly the configured
+    maximum meets the constraint.
+
+    This exists because nothing between the optimizer and the order form
+    measured the delivered set. `neoswga analyze-dimers` computes the same
+    answer and correctly scored a shipped set FAIL, but it is a separate command
+    taking sequences as arguments and no pipeline stage called it, so
+    `interpret`, `export` and `report` all described a pool carrying a 10 bp
+    duplex as ready for synthesis.
+    """
+    if not max_dimer_bp or max_dimer_bp < 0:
+        return None
+
+    length, pair = worst_heterodimer(primers)
+    if pair is None or length <= max_dimer_bp:
+        return None
+
+    a, b = pair
+    return {
+        "level": "warning",
+        "code": "delivered_pool_exceeds_max_dimer_bp",
+        "detail": (
+            f"worst heterodimer is {length} bp against a configured "
+            f"max_dimer_bp of {max_dimer_bp}: {a} / {b}. Only "
+            f"--optimization-method clique constrains this structurally; the "
+            f"other methods penalise dimers but can accept one. Break this pair "
+            f"or re-run with clique before ordering."
+        ),
+    }
