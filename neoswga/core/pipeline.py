@@ -579,11 +579,103 @@ def _apply_gc_adaptive_defaults():
         logger.warning(f"Error applying GC-adaptive defaults: {e}")
 
 
+def check_genome_inputs(paths):
+    """Pre-flight the genome files before an expensive count begins.
+
+    Returns a list of human-readable problems; empty means proceed. Every
+    genome's measured length is logged whether or not it is a problem.
+
+    `GenomeLoader.validate_genome` already computes length, N fraction, empty
+    sequences and implausible GC, and had no caller outside a `__main__` demo.
+    So whatever a download left behind went straight into jellyfish, and the
+    failures surfaced late and undiagnosably: a 0 bp genome and an all-N genome
+    both passed `count-kmers` and then failed `filter` with a bare
+    `Step 2 failed: 'primer'`, and an HTML error page saved with a `.fna` name
+    produced a C++ crash from jellyfish naming neither the file nor the cause.
+
+    Only a genome carrying NO sequence is refused. `validate_genome` calls
+    anything under 100 kb "too short", and the shipped plasmid example is
+    6,157 bp, so length cannot be a hard gate without rejecting plasmids,
+    viruses, organelles and the tool's own example. A truncated download and a
+    small target are indistinguishable to this function; what it can do is state
+    the measured size, which is the signal a person who knows the organism can
+    act on. That is why the length is logged for every input rather than judged.
+    """
+    from neoswga.core.genome_io import GenomeLoader
+
+    problems = []
+    for path in paths or []:
+        if not os.path.exists(path):
+            problems.append(f"{path}: file not found")
+            continue
+        try:
+            loader = GenomeLoader()
+            sequence = loader.load_genome(path, return_stats=True)
+        except Exception as exc:
+            # An unreadable or non-FASTA file lands here: the HTML-error-page
+            # case reaches this branch rather than reaching jellyfish.
+            problems.append(f"{path}: could not be read as FASTA ({exc})")
+            continue
+
+        length = len(sequence)
+        usable = length - sequence.upper().count("N")
+        if length == 0:
+            problems.append(
+                f"{path}: contains no sequence (0 bp). A header with no bases is "
+                f"what a truncated or interrupted download leaves behind."
+            )
+            continue
+        if usable == 0:
+            # Same principle as 0 bp: nothing legitimate has no A, C, G or T.
+            # An all-N record is a placeholder or a masked file, and it fails
+            # two steps later with a message that names neither.
+            problems.append(
+                f"{path}: {length:,} bp but not one A, C, G or T. Every base is N, "
+                f"so no primer can bind anywhere in it."
+            )
+            continue
+
+        stats = getattr(loader, "last_stats", None)
+        n_fraction = getattr(stats, "n_fraction", 0.0) or 0.0
+        detail = f"{os.path.basename(path)}: {length:,} bp"
+        if n_fraction > 0.10:
+            detail += f", {n_fraction:.1%} N"
+        logger.info(f"  Genome {detail}")
+        if n_fraction > 0.10:
+            logger.warning(
+                f"{path}: {n_fraction:.1%} of bases are N. Primer sites in those "
+                f"regions are not real; coverage will be overstated."
+            )
+
+    return problems
+
+
 def step1():
     """
     Creates files of all k-mers of length 6 to 12 at the paths specified by --kmer-fore and --kmer-back.
     """
     _initialize()  # Lazy initialization
+
+    # Pre-flight the inputs. Counting a 3 Gb genome takes minutes and a bad
+    # file fails two steps later with a message that names neither.
+    _problems = check_genome_inputs(list(fg_genomes or []) + list(bg_genomes or []))
+    if _problems:
+        for _p in _problems:
+            logger.error(_p)
+        raise StepPrerequisiteError(
+            1,
+            StepValidationResult(
+                valid=False,
+                missing_files=_problems,
+                error_message="One or more genome files cannot be used as input.",
+                remediation=(
+                    "If a file was downloaded, check that it completed and holds "
+                    "the sequence you expect rather than an error page. A header "
+                    "with no bases is what an interrupted transfer leaves behind."
+                ),
+            ),
+        )
+
     for prefix in fg_prefixes + bg_prefixes:
         prefix_dir = os.path.dirname(prefix)
         if prefix_dir and not os.path.exists(prefix_dir):
