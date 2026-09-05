@@ -579,6 +579,34 @@ def _apply_gc_adaptive_defaults():
         logger.warning(f"Error applying GC-adaptive defaults: {e}")
 
 
+def order_step3_rows(df):
+    """A deterministic total order for the scored candidate pool.
+
+    `step3_df.csv` was written with `sort_values(by="gini")` alone. On a real
+    pool almost every row ties: 496 of 500 on the plasmid example share a gini
+    value. `sort_values` defaults to quicksort, which is not stable, so for
+    those rows the order was whatever the algorithm produced from the order the
+    rows happened to arrive in -- the same data from two different input orders
+    gave two different files, sharing 7 of the first 50 primers.
+
+    That would not matter if the optimizer ignored order. It does not. On the
+    E. coli pool at target size 24, dominating-set returned a set with a Jaccard
+    of 0.600 against the as-written order when the candidates were reversed, and
+    0.920 when they were shuffled. Up to 40% of the delivered oligos were
+    decided by a tie-break nobody chose.
+
+    Gini leads, as before; the primer sequence breaks ties. It is unique, so the
+    order is total, and it claims nothing about primer quality -- which is the
+    point. `amp_pred` is the obvious alternative and the evidence is against it:
+    selecting the top half of a pool by `amp_pred` and optimizing over it
+    produced the WORST of five half-pools, behind all three random halves and
+    behind the bottom half by the same measure.
+    """
+    if len(df) == 0:
+        return df
+    return df.sort_values(by=["gini", "primer"], kind="mergesort")
+
+
 def check_genome_inputs(paths):
     """Pre-flight the genome files before an expensive count begins.
 
@@ -1206,6 +1234,9 @@ def step3(validate_prerequisites=True):
 
     with progress_context("Predicting amplification efficacy"):
         results = rf_preprocessing.predict_new_primers(df_pred)
+    # Ordering here is for the gate and the median fallback below only. The
+    # file written at the end of this function is re-ordered by
+    # `order_step3_rows`, so this does not decide what the optimizer sees.
     results.sort_values(by=["on.target.pred"], ascending=[False], inplace=True)
 
     # min_amp_pred: unitless amplification prediction score (~0-20 scale).
@@ -1238,9 +1269,8 @@ def step3(validate_prerequisites=True):
             f"(first 3: {list(missing[:3])}). These will have NaN metrics."
         )
 
-    joined_step3_df = step3_df.join(
-        step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left"
-    ).sort_values(by="gini")
+    joined_step3_df = step3_df.join(step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left")
+    joined_step3_df = order_step3_rows(joined_step3_df)
 
     joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
 
