@@ -745,6 +745,65 @@ All CONFIRMED by the module audits unless noted.
    uses for this. Four more instances is enough to argue for a schema-driven
    check rather than a hand-maintained list.
 
+## 22 (HIGH) The retraining script fits `melting_tm` with a different function than serving supplies -- FIXED
+
+Raised as two separate observations, "the `melting_tm` feature uses hardcoded
+10 mM Na and 20 mM Mg, running 7.9 C high on a run configured for 50 and 10",
+and "the model spends 27.7% of its importance on inputs that never vary". They
+are one defect, and the salt offset is the small half of it.
+
+**The hardcoded salt is not the bug.** `rf_preprocessing.py` calls
+`melting_temp.temp` at its defaults deliberately: those defaults are the scale
+the bundled model was fitted on. Passing a run's configured chemistry there
+would move the served value off the trained distribution. It looks like a repair
+and is the opposite. The reaction's real Tm is computed elsewhere and correctly,
+by `ReactionConditions.calculate_effective_tm` in `filter.filter_extra` and by
+`calculate_tm_with_salt` in `NetworkOptimizer._get_primer_tm`.
+
+**The bug is in `scripts/retrain_rf_model.py`.** It filled the same feature name
+with a local `compute_melting_temp`: the Wallace rule below 14 bp, a Marmur-Doty
+GC regression at or above it. The two branches do not meet.
+
+    len 13    32.0 .. 44.0
+    len 14    67.1 .. 87.6      +23.1 C from adding one base
+
+No training primer of any length could take a value between 44 and 67 C. That
+band is empty by construction, and in training it is exactly what separates
+short primers from long ones. Serving is continuous and puts a real 12-mer at
+49.7-67.5 C, so **396 of 400 primers in the E. coli pool land inside it**. Each
+one presents to the model as a 14-mer or longer while `sequence.length`, in the
+same row, says 12.
+
+That is where the wasted capacity comes from. `melting_tm` was encoding length
+through a formula artifact, so the model split its importance between two
+redundant features, and only 2.6% of its `melting_tm` splits fall in the range
+real primers actually occupy.
+
+**Fixed** by having the script call the serving function, and by restating the
+label's Tm bands on that scale -- they were 30-42 C, tuned to the Wallace rule,
+which on the served scale never fires, so every primer collected the same Tm
+contribution. Retraining with the corrected script, into a scratch file rather
+than over the shipped model:
+
+| | shipped | corrected |
+|---|---|---|
+| importance on `melting_tm` + `sequence.length` | 41.8% | 10.7% |
+| `melting_tm` splits inside the real pool's range | 2.6% | 31.6% |
+
+`sequence.length` falls from 25.6% to 0.1%, which is the honest figure: the
+label does not depend on primer length except through Tm and GC, and the 25.6%
+was capacity spent on the artifact.
+
+**The shipped model is deliberately left in place.** Spearman between the two on
+the same 400 primers is 0.690, so swapping it changes every user's `amp_pred`,
+and whether that score should exist at all is finding F0, still open. The script
+is now correct for whoever answers that question.
+
+Pinned by `tests/test_rf_training_features_match_serving.py`, which holds
+training and serving to one function, refuses a discontinuity across the length
+boundary, and separately refuses the tempting "fix" of feeding configured salt
+into the feature.
+
 ## Method
 
 Commands are relative to a copy of `examples/plasmid_example`.

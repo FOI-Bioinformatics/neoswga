@@ -748,7 +748,22 @@ class NetworkOptimizer:
                     gc_content=gc_fraction,
                     primer_length=primer_len,
                 )
-            except Exception:
+            except Exception as exc:
+                # The fallback is not equivalent: `calculate_primer_tm` uses the
+                # model's fixed 10 mM Na / 20 mM Mg and drops the additive
+                # correction entirely, so a silent swap here changes which
+                # primers score well by several degrees. Say so once per run
+                # rather than let a configured reaction quietly stop applying.
+                if not getattr(self, "_tm_fallback_warned", False):
+                    logger.warning(
+                        "Effective Tm could not be computed from the configured "
+                        "reaction (%s: %s); falling back to the fixed 10 mM Na / "
+                        "20 mM Mg estimate, which ignores salt and additives. "
+                        "Tm-weighted scoring will not reflect this reaction.",
+                        type(exc).__name__,
+                        exc,
+                    )
+                    self._tm_fallback_warned = True
                 tm = calculate_primer_tm(primer)
         else:
             tm = calculate_primer_tm(primer)
