@@ -804,6 +804,65 @@ training and serving to one function, refuses a discontinuity across the length
 boundary, and separately refuses the tempting "fix" of feeding configured salt
 into the feature.
 
+## Panel re-derivation: were the shipped designs actually harmed?
+
+The three EquiPhi29 12-mer panels under `runs/gc_tiers/` were designed on 2026-09-02,
+before any of the fixes above. Re-running step 4 against the same `step3_df.csv`
+and the same `*_positions.h5`, with the same method and size each was originally
+built with, answers the question the fixes exist to answer.
+
+| | S. aureus | E. coli | M. tuberculosis |
+|---|---|---|---|
+| method / size | dominating-set, 200 | dominating-set, 160 | network, 36 |
+| primers kept | 200 of 200 | 160 of 160 | **6 of 36** |
+| Jaccard | 1.000 | 1.000 | **0.091** |
+| fg_coverage | 0.9932 -> 0.9932 | 0.9431 -> 0.9431 | 0.7781 -> **0.7560** |
+| total_bg_sites | unchanged | unchanged | 553 -> **79** |
+| selectivity_ratio | unchanged | unchanged | 0.352 -> **0.841** |
+| selectivity_density | 10.40 | 33.12 | 263.24 -> **628.75** |
+
+**The two dominating-set panels are unchanged, exactly.** That is the expected
+result rather than a null one: the config-routing seams (finding 1, 2, 6), the
+stage-2 occupancy bug (3), the background-pruning floor (4) and the greedy
+background penalty (5) all sit in `hybrid`, `network` and `background-aware`.
+`dominating-set` reaches its engine by a different adapter. Findings 10 and 11
+cannot bite either, because each panel has a single foreground genome and so a
+single coordinate space.
+
+**The M. tuberculosis panel was harmed, and materially.** It was binding seven
+times more host sequence than it needed to: 553 sites against 79 for a panel of
+the same size on the same candidate pool. Finding 5 is the cause -- the greedy's
+`fg_improvement / (bg_penalty + 1.0)` went NEGATIVE in the denominator as
+isolated host sites were added, so background load could raise a primer's score.
+The fixed objective drops the primers that defect was rewarding.
+
+It costs 2.2 points of coverage, and the distribution of what remains is more
+even, not less: `max_gap` 47,491 -> 39,977, `gap_gini` 0.7151 -> 0.6279,
+`gap_entropy` 2.7806 -> 3.6446. One measure moves the wrong way --
+`dimer_risk_score` 0.5206 -> 0.7143 -- so the new set trades some pairwise
+compatibility for specificity. On `--application clinical` that is the trade you
+want; it is worth stating rather than burying.
+
+**All three panels carry an 11 bp heterodimer against a configured
+`max_dimer_bp` of 3**, before and after, recomputed independently of the
+package. Finding 9's post-optimize screen now names the offending pair on every
+run (`CGACGATGTCGA / CGACATCGTCGA` for M. tuberculosis); before, nothing did, and
+all three were reported ready to order. The screen reports rather than repairs,
+which is correct: only `clique` constrains this structurally.
+
+Two side effects of other fixes show up here. `max_sets` now delivers
+alternatives instead of one set with `set_index` hardcoded to 0 -- five for
+S. aureus and M. tuberculosis, two for E. coli, where the candidate pool runs
+out. And the runs are now reproducible **without** a seed: two consecutive
+unseeded M. tuberculosis runs returned bit-identical sets, which the
+`order_step3_rows` tie-break is what makes true.
+
+```bash
+neoswga optimize -j runs/gc_tiers/low_saureus/params.json -m dominating-set -n 200
+neoswga optimize -j runs/gc_tiers/mid_ecoli/params.json   -m dominating-set -n 160
+neoswga optimize -j runs/gc_tiers/high_mtb/params.json    -m network         -n 36
+```
+
 ## Method
 
 Commands are relative to a copy of `examples/plasmid_example`.
