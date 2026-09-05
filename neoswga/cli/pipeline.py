@@ -23,6 +23,7 @@ from neoswga.cli._common import (
 from neoswga.cli._optimize_parser import _add_optimize_option_groups
 from neoswga.cli._params_preread import (
     apply_polymerase_choice,
+    optimization_method_from_params,
     polymerase_from_params,
     target_size_from_params,
 )
@@ -582,6 +583,32 @@ def _build_validation_network(cache, primers, prefixes, max_extension):
     return network
 
 
+def resolve_optimization_method(args, default="hybrid"):
+    """Which optimizer to run: the flag, then params.json, then the default.
+
+    `optimization_method` was declared in `params.schema.json`, documented in
+    CLAUDE.md, accepted by the validator, and read by nothing -- `get_params`
+    assigned no global, and `run_step4` passed `args.optimization_method`
+    straight through with an argparse default of the literal `"hybrid"`. So the
+    flag's default beat the config every time, and every params.json user ran
+    `hybrid` whatever they configured. That cost real time: `hybrid` returns a
+    set identical to `dominating-set` at up to 260x the cost.
+
+    The flag now defaults to None, and that sentinel is load-bearing. `"hybrid"`
+    is BOTH the sensible default and a legitimate explicit choice, so comparing
+    the flag against the default cannot tell "the user typed hybrid" from "the
+    user said nothing" -- and a config of `dominating-set` must lose to the
+    former and win against the latter.
+
+    `design` defines no such argument at all, so `getattr` rather than
+    attribute access: that path used to fill the gap with a hardcoded
+    `"hybrid"`, pinning it from a second direction.
+    """
+    from neoswga.core import parameter
+
+    return optimization_method_from_params(parameter, default=default, args=args)
+
+
 def _step4_optimizer_kwargs(args, **resolved):
     """Everything `optimize_step4` is called with, in one place.
 
@@ -598,7 +625,7 @@ def _step4_optimizer_kwargs(args, **resolved):
         # Accepted by optimize_step4 and forwarded no further; the flag
         # reports itself as not implemented. See _common.UNIMPLEMENTED_OPTIONS.
         use_background_filter=args.use_background_filter,
-        optimization_method=args.optimization_method,
+        optimization_method=resolve_optimization_method(args),
         verbose=not args.quiet,
         uniformity_weight=resolved.get("uniformity_weight"),
         minimize_primers=resolved.get("minimize_primers"),
@@ -661,7 +688,7 @@ def run_step4(args):
         if polymerase != "phi29":
             logger.info(f"Polymerase: {polymerase} (config applied to optimizer)")
 
-        logger.info(f"Optimization method: {args.optimization_method}")
+        logger.info(f"Optimization method: {resolve_optimization_method(args)}")
         logger.info(f"Position cache: {args.use_position_cache}")
 
         report_unimplemented_options(args)
@@ -872,7 +899,7 @@ def run_step4(args):
             logger.info(f"Score: {scores[0]:.4f}")
             if num_found < target_size:
                 for line in set_size_shortfall_advice(
-                    num_found, target_size, args.optimization_method
+                    num_found, target_size, resolve_optimization_method(args)
                 ):
                     logger.warning(line)
         else:
@@ -1584,8 +1611,11 @@ def add_parsers(subparsers):
             "clique",
             "ensemble",
         ],
-        default="hybrid",
-        help="Optimization method. "
+        # None, not "hybrid": the sentinel that lets an explicit `hybrid` be
+        # told from an absent flag, so params.json can win when the user said
+        # nothing. See resolve_optimization_method.
+        default=None,
+        help="Optimization method (default: hybrid, or params.json). "
         "Decision tree: "
         "hybrid (default, general use), "
         "dominating-set (speed-critical, large pools), "
