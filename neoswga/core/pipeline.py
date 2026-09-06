@@ -331,6 +331,78 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
 
 
+def unindexed_candidates(cache, fg_prefixes: List[str]) -> List[str]:
+    """Candidates the position index cannot place anywhere in the foreground.
+
+    `PositionCache` records these in `missing_primers` as (prefix, primer)
+    pairs. Under the default `on_missing="warn"` it logs them and carries on,
+    and they then cover no region at all, so a greedy selection never picks
+    one. The run delivers a smaller panel and reports a coverage figure that is
+    correct for the panel it delivered, which is what makes the outcome hard to
+    notice.
+
+    Only the foreground prefixes count. A candidate absent from a BACKGROUND
+    index is the normal case for a specific primer: the position files are
+    written only for k-mers the genome actually contains, so a primer with no
+    host sites is legitimately missing there.
+
+    Restricted further to primers missing from EVERY foreground prefix. In a
+    multi-target design a primer that binds one target and not another is a
+    normal outcome, not a broken index.
+    """
+    missing = getattr(cache, "missing_primers", None)
+    if not missing or not fg_prefixes:
+        return []
+    wanted = set(fg_prefixes)
+    seen: dict = {}
+    for prefix, primer in missing:
+        if prefix in wanted:
+            seen.setdefault(primer, set()).add(prefix)
+    return sorted(p for p, prefixes in seen.items() if prefixes == wanted)
+
+
+def validate_index_covers_candidates(cache, fg_prefixes, n_candidates, refuse) -> int:
+    """Count candidates with no foreground positions, and refuse when asked.
+
+    `validate_step4_prerequisites` checks that the position files EXIST. It
+    cannot check that they cover the pool, because the pool is only read once
+    the cache is built. Measured on a three-candidate pool with one candidate
+    indexed: step 4 returned SUCCESS with one primer and fg_coverage 1.0.
+
+    Returns the count so it can be recorded in the run summary even when the
+    run proceeds. When `refuse` is set -- the pipeline path, where step 4 read
+    the pool from step3_df.csv itself -- a non-zero count raises
+    `StepPrerequisiteError` instead. A caller that supplied its own candidate
+    list is never blocked, matching `validate_step4_prerequisites`.
+    """
+    unindexed = unindexed_candidates(cache, fg_prefixes)
+    if not unindexed or not refuse:
+        return len(unindexed)
+
+    extra = f" (+{len(unindexed) - 5} more)" if len(unindexed) > 5 else ""
+    shown = ", ".join(unindexed[:5]) + extra
+    raise StepPrerequisiteError(
+        4,
+        StepValidationResult(
+            valid=False,
+            missing_files=[f"{prefix}_*mer_positions.h5" for prefix in fg_prefixes],
+            error_message=(
+                f"{len(unindexed)} of {n_candidates} candidate primers have no "
+                f"binding positions in the foreground index: {shown}. They cover "
+                f"nothing, so optimization would select from the remaining "
+                f"{n_candidates - len(unindexed)} and report a coverage figure "
+                f"correct only for that smaller pool. The position files are out "
+                f"of step with step3_df.csv."
+            ),
+            remediation=(
+                "Re-run 'neoswga filter -j params.json' (Step 2) so every "
+                "candidate is indexed, then 'neoswga score' and "
+                "'neoswga optimize' again."
+            ),
+        ),
+    )
+
+
 defaults = {
     "min_fg_freq": float(1 / 100000),
     "max_bg_freq": float(1 / 200000),

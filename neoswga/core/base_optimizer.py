@@ -503,6 +503,14 @@ class OptimizationResult:
     # None for single-method runs.
     ensemble_comparison: Optional[Tuple[Dict[str, Any], ...]] = None
 
+    # How many candidates the foreground position index could not place. These
+    # cover nothing, so they are invisible to selection: the delivered panel is
+    # chosen from the rest and its coverage figure is correct only for that
+    # smaller pool. The pipeline path refuses outright (see
+    # unified_optimizer._check_candidate_index_coverage); this field is what
+    # makes the count auditable on the paths that proceed.
+    unindexed_candidates: int = 0
+
     @property
     def num_primers(self) -> int:
         """Number of primers in the set."""
@@ -537,6 +545,7 @@ class OptimizationResult:
             "optimizer_name": self.optimizer_name,
             "num_primers": self.num_primers,
             "message": self.message,
+            "unindexed_candidates": self.unindexed_candidates,
         }
         if self.pareto_front is not None:
             d["pareto_front"] = [list(p) for p in self.pareto_front]

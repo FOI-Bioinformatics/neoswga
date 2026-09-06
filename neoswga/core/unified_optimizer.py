@@ -931,6 +931,7 @@ def run_optimization(
     # score against actually exists. Without this the position cache falls back
     # to on_missing="warn", which says the coverage number is "meaningless, not
     # low" and then lets the run select a set and report it.
+    _pool_read_from_step3 = candidates is None
     if candidates is None:
         from .pipeline import StepPrerequisiteError, validate_step4_prerequisites
 
@@ -991,6 +992,14 @@ def run_optimization(
             fg_prefixes + (bg_prefixes or []), candidates, kwargs.get("use_cache", True)
         )
 
+    # Refuse a pool the index only partly covers, rather than optimizing over
+    # whichever part happens to be present. See validate_index_covers_candidates.
+    from .pipeline import validate_index_covers_candidates
+
+    _unindexed = validate_index_covers_candidates(
+        cache, fg_prefixes, len(candidates), refuse=_pool_read_from_step3
+    )
+
     # Optional: pre-filter candidates by fg/bg binding ratio
     if bg_prefixes and kwargs.get("bg_prefilter", True):
         candidates = _prefilter_by_background(
@@ -1006,29 +1015,9 @@ def run_optimization(
             verbose=verbose,
         )
 
-    # Determine polymerase extension reach for coverage computation.
-    # Uses realistic per-primer reach (phi29 ~3 kb, equiphi29 ~4 kb), not
-    # single-molecule processivity. See coverage.polymerase_extension_reach
-    # for the Clarke 2017 / Dwivedi-Yu 2023 rationale.
-    # An explicit `coverage_reach` (params.json or --coverage-reach) overrides
-    # it. The right value is an empirical property of the reaction, and
-    # `neoswga calibrate-reach --bam` estimates it from sequencing depth.
-    polymerase = kwargs.get("polymerase") or getattr(parameter, "polymerase", "phi29")
-    reach_override = kwargs.get("coverage_reach")
-    if reach_override is None:
-        reach_override = getattr(parameter, "coverage_reach", None)
-    try:
-        from .coverage import resolve_coverage_reach
+    from .coverage import resolve_extension_reach
 
-        extension_reach = resolve_coverage_reach(polymerase, override=reach_override)
-    except ImportError:
-        extension_reach = 3000  # phi29 realistic per-primer reach
-    if reach_override is not None and verbose:
-        logger.info(
-            f"Coverage reach: {extension_reach:,} bp (explicit; polymerase default "
-            f"would be used otherwise). Coverage figures are not comparable across "
-            f"different reaches."
-        )
+    extension_reach = resolve_extension_reach(kwargs, verbose)
 
     # Build optimizer config
     fg_circular = kwargs.get("fg_circular")
@@ -1133,6 +1122,13 @@ def run_optimization(
         )
         if verbose and len(_LAST_PRIMER_SETS) > 1:
             logger.info(f"max_sets={_max_sets}: offering {len(_LAST_PRIMER_SETS)} distinct sets")
+
+    # Carry the unindexed-candidate count onto the result so it reaches
+    # step4_improved_df_summary.json even on the paths that do not refuse.
+    if _unindexed:
+        from dataclasses import replace as _dc_replace
+
+        result = _dc_replace(result, unindexed_candidates=_unindexed)
 
     # Phase 15A: populate per_target_coverage on the result so multi-
     # target runs surface "target A 95% / target B 40%" instead of one
