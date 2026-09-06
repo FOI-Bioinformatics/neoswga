@@ -368,30 +368,58 @@ class AmplificationNetwork:
 
     def coverage_uniformity(self, genome_length: int) -> float:
         """
-        Measure how uniformly network covers genome.
+        Measure how uniformly the network covers the genome.
 
-        Returns CV (coefficient of variation) of component positions.
-        Lower is better.
+        Returns the coefficient of variation of the GAPS between consecutive
+        components, counting the run-up from the start of the sequence and the
+        run-out to its end. Evenly spaced components give equal gaps and a CV
+        near zero; components bunched into one region give one enormous gap and
+        several tiny ones, and a large CV. Lower is better.
+
+        This used to be the CV of the component CENTROID POSITIONS, which
+        measures how tightly the components sit together rather than how evenly
+        they are spread -- and, with lower treated as better, therefore scored
+        clustering as ideal:
+
+            eight islands spread across a 4 Mb genome   0.6546
+            the same eight bunched into 200 kb          much lower
+
+        `uniformity_weight` comes from `--application` and is highest for
+        `metagenomics` and `discovery`, the two profiles that exist to spread
+        coverage, so the term pushed hardest in the wrong direction exactly
+        where it mattered most. It reached only the `network` method until the
+        selection weights were forwarded into the inner optimizer; it now
+        reaches `hybrid`, the default.
+
+        How MANY components a set has is coverage's question, not this one's, so
+        a single component is reported as evenly placed rather than penalised
+        here.
         """
         components = list(nx.connected_components(self.graph))
 
         if len(components) == 0:
             return float("inf")
 
-        # Average position of each component
-        component_positions = []
-        for component in components:
-            positions = [site.position for site in component]
-            component_positions.append(np.mean(positions))
+        centroids = sorted(
+            np.mean([site.position for site in component]) for component in components
+        )
 
-        if len(component_positions) < 2:
+        if len(centroids) < 2:
             return 0.0
 
-        # CV of component positions (coefficient of variation)
-        mean_pos = np.mean(component_positions)
-        if mean_pos == 0:
-            return 0.0  # Avoid division by zero
-        return np.std(component_positions) / mean_pos
+        length = int(genome_length) if genome_length else 0
+        if length <= 0:
+            return 0.0
+
+        # Gaps between neighbours, plus the two end runs, so a set that leaves
+        # one end of the genome untouched is not scored as evenly spaced.
+        edges = [0.0, *centroids, float(length)]
+        gaps = np.diff(edges)
+
+        mean_gap = float(np.mean(gaps))
+        if mean_gap == 0:
+            return 0.0
+        return float(np.std(gaps) / mean_gap)
 
     def predict_amplification_fold(self) -> float:
         """
@@ -720,7 +748,22 @@ class NetworkOptimizer:
                     gc_content=gc_fraction,
                     primer_length=primer_len,
                 )
-            except Exception:
+            except Exception as exc:
+                # The fallback is not equivalent: `calculate_primer_tm` uses the
+                # model's fixed 10 mM Na / 20 mM Mg and drops the additive
+                # correction entirely, so a silent swap here changes which
+                # primers score well by several degrees. Say so once per run
+                # rather than let a configured reaction quietly stop applying.
+                if not getattr(self, "_tm_fallback_warned", False):
+                    logger.warning(
+                        "Effective Tm could not be computed from the configured "
+                        "reaction (%s: %s); falling back to the fixed 10 mM Na / "
+                        "20 mM Mg estimate, which ignores salt and additives. "
+                        "Tm-weighted scoring will not reflect this reaction.",
+                        type(exc).__name__,
+                        exc,
+                    )
+                    self._tm_fallback_warned = True
                 tm = calculate_primer_tm(primer)
         else:
             tm = calculate_primer_tm(primer)
@@ -915,12 +958,39 @@ class NetworkOptimizer:
         test_fg = self._simulate_add_primer(fg_network, primer, self.fg_prefixes)
         fg_improvement = test_fg.largest_component_size() - fg_network.largest_component_size()
 
-        # Simulate adding primer to background
-        test_bg = self._simulate_add_primer(bg_network, primer, self.bg_prefixes)
-        bg_penalty = test_bg.average_component_size() - bg_network.average_component_size()
+        # Simulate adding primer to background.
+        #
+        # The quantity that matters is how much host network this primer BRINGS,
+        # so it is measured as the growth in total background sites rather than
+        # as the change in the average component size.
+        #
+        # The average was the wrong statistic and it inverted the term. Host
+        # sites that are isolated -- which scattered ones are, being further
+        # apart than one extension -- pull an average DOWN, so `bg_penalty` went
+        # negative, the denominator of `fg_improvement / (bg_penalty + 1.0)`
+        # shrank towards zero, and the score climbed with host load:
+        #
+        #     isolated host sites   0    1    2    5   11   20
+        #     score              +2.0 +4.0 +6.0 +12  +24  +42
+        #
+        # so the background penalty was a background reward. At exactly -1.0 the
+        # denominator is zero and the score is +inf, which `optimize_greedy`
+        # takes immediately against its -inf starting best and which nothing can
+        # then displace. And since the Tm and dimer modifiers below are applied
+        # multiplicatively, any negative base score inverted them too, turning
+        # the dimer penalty into a dimer bonus.
+        # Counted straight from the cache rather than by simulating the addition
+        # and diffing a network statistic: it is the same quantity, it cannot be
+        # distorted by the shape of the existing background graph, and it saves
+        # a `_simulate_add_primer` call on every candidate at every step.
+        bg_added = 0.0
+        for prefix in self.bg_prefixes:
+            for strand in ("forward", "reverse"):
+                bg_added += len(self.cache.get_positions(prefix, primer, strand))
 
-        # Base score: maximize target connectivity, minimize background connectivity
-        base_score = fg_improvement / (bg_penalty + 1.0)
+        # Monotonically decreasing in host load, always finite, and never
+        # changing sign, so the modifiers below stay penalties.
+        base_score = fg_improvement / (1.0 + bg_added)
 
         # If uniformity weight is 0, return base score (backward compatible)
         if uniformity_weight <= 0.0:
@@ -969,16 +1039,13 @@ class NetworkOptimizer:
         saved_sites = network._sorted_sites
         saved_dirty = network._index_dirty
 
-        # Add new primer sites in-place
-        all_new_sites = []
-        for prefix in prefixes:
-            fw_positions = self.cache.get_positions(prefix, primer, "forward")
-            rv_positions = self.cache.get_positions(prefix, primer, "reverse")
-
-            new_sites_fw = network.add_primer_sites(primer, fw_positions, "+")
-            new_sites_rv = network.add_primer_sites(primer, rv_positions, "-")
-            all_new_sites.extend(new_sites_fw)
-            all_new_sites.extend(new_sites_rv)
+        # Add new primer sites in-place, in the same per-sequence slots
+        # `_build_network` uses. Both paths have to agree, or a candidate is
+        # scored against a network whose geometry differs from the one it is
+        # being added to.
+        all_new_sites = self._add_prefix_sites(
+            network, primer, prefixes, self._prefix_offsets(prefixes)
+        )
 
         # Build edges for new sites only
         network.add_edges_for_sites(all_new_sites)
@@ -1209,17 +1276,60 @@ class NetworkOptimizer:
 
         return result
 
+    def _prefix_offsets(self, prefixes: List[str]) -> Dict[str, int]:
+        """Where each sequence starts in the network's shared coordinate space.
+
+        Positions come out of `PositionCache` in each sequence's OWN 0-based
+        coordinates, and every prefix used to be added to one network unchanged.
+        A forward site at 500 on contig C1 and a reverse site at 900 on contig
+        C2 then looked 400 bp apart and were joined by an amplification edge --
+        an amplicon spanning two separate molecules.
+
+        Laying the sequences end to end, with a gap wider than `max_extension`
+        between them, makes a cross-molecule edge unrepresentable rather than
+        merely unlikely, while leaving the structure within each sequence
+        exactly as it was.
+
+        This is selection, not reporting: `largest_component_size` is the whole
+        foreground term of `_evaluate_primer_addition`.
+        """
+        lengths = {}
+        for group, sizes in (
+            (self.fg_prefixes, self.fg_seq_lengths),
+            (self.bg_prefixes, self.bg_seq_lengths),
+        ):
+            for prefix, size in zip(group or [], sizes or []):
+                lengths[prefix] = int(size)
+
+        separator = int(self.max_extension) + 1
+        offsets, cursor = {}, 0
+        for prefix in prefixes:
+            offsets[prefix] = cursor
+            # An unknown length still gets a slot; falling back to the separator
+            # alone would stack sequences on top of one another again.
+            cursor += lengths.get(prefix, 0) + separator
+        return offsets
+
+    def _add_prefix_sites(self, network, primer, prefixes, offsets) -> list:
+        """Add `primer`'s sites for every prefix, each in its own slot."""
+        added = []
+        for prefix in prefixes:
+            shift = offsets.get(prefix, 0)
+            for strand, sign in (("forward", "+"), ("reverse", "-")):
+                positions = self.cache.get_positions(prefix, primer, strand)
+                if len(positions) == 0:
+                    continue
+                shifted = np.asarray(positions, dtype=np.int64) + shift
+                added.extend(network.add_primer_sites(primer, shifted, sign))
+        return added
+
     def _build_network(self, primers: List[str], prefixes: List[str]) -> AmplificationNetwork:
         """Build complete network for primer set"""
         network = AmplificationNetwork(self.max_extension)
+        offsets = self._prefix_offsets(prefixes)
 
         for primer in primers:
-            for prefix in prefixes:
-                fw_positions = self.cache.get_positions(prefix, primer, "forward")
-                rv_positions = self.cache.get_positions(prefix, primer, "reverse")
-
-                network.add_primer_sites(primer, fw_positions, "+")
-                network.add_primer_sites(primer, rv_positions, "-")
+            self._add_prefix_sites(network, primer, prefixes, offsets)
 
         network.build_edges()
         return network

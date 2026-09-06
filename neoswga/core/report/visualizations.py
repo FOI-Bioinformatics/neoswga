@@ -14,6 +14,8 @@ allowing graceful degradation.
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from neoswga.core.report.metrics import amp_pred_is_available
+
 logger = logging.getLogger(__name__)
 
 # Check Plotly availability at import time
@@ -378,19 +380,40 @@ def render_coverage_specificity_scatter(
     specificity_values = [min(p.specificity, 10000) for p in primers]
     sequences = [p.sequence for p in primers]
 
-    # Color by quality (amp_pred if available)
-    colors = [p.amp_pred if p.amp_pred > 0 else 0.5 for p in primers]
+    # Colour by amplification score when the run produced one. Without it every
+    # point took the same 0.5, which reads as a measured mid-quality set rather
+    # than as an absent measurement.
+    if amp_pred_is_available(primers):
+        colors = [p.amp_pred for p in primers]
+        colorbar_title = "Amplification score"
+        hover_quality = [f"Quality: {p.amp_pred:.2f}" for p in primers]
+    else:
+        # No colorbar_title here: it is read only inside the `colors is not
+        # None` branch that builds the colorbar.
+        colors = None
+        hover_quality = ["" for _ in primers]
 
     # Create hover text
     hover_text = [
         f"Seq: {seq}<br>"
         f"FG Sites: {p.fg_sites}<br>"
-        f"Specificity: {p.specificity:.0f}x<br>"
-        f"Quality: {p.amp_pred:.2f}"
-        for seq, p in zip(sequences, primers)
+        f"Specificity: {p.specificity:.0f}x" + (f"<br>{quality_line}" if quality_line else "")
+        for seq, p, quality_line in zip(sequences, primers, hover_quality)
     ]
 
     fig = go.Figure()
+
+    marker = dict(size=12, line=dict(width=1, color="white"))
+    if colors is not None:
+        marker.update(
+            color=colors,
+            colorscale="Viridis",
+            showscale=True,
+            colorbar=dict(
+                title=dict(text=colorbar_title, font=dict(size=11)),
+                tickfont=dict(size=10),
+            ),
+        )
 
     # Main scatter plot
     fig.add_trace(
@@ -398,17 +421,7 @@ def render_coverage_specificity_scatter(
             x=coverage_values,
             y=specificity_values,
             mode="markers",
-            marker=dict(
-                size=12,
-                color=colors,
-                colorscale="Viridis",
-                showscale=True,
-                colorbar=dict(
-                    title=dict(text="Quality", font=dict(size=11)),
-                    tickfont=dict(size=10),
-                ),
-                line=dict(width=1, color="white"),
-            ),
+            marker=marker,
             text=hover_text,
             hoverinfo="text",
             name="Primers",
@@ -519,8 +532,12 @@ def render_primer_heatmap(
     if not primers or len(primers) < 2:
         return ""
 
-    # Metrics to display (normalized 0-1)
-    metrics = ["GC%", "Tm", "Specificity", "Uniformity", "Quality"]
+    # Metrics to display (normalized 0-1). "Quality" is omitted rather than
+    # filled with a constant 0.5 when the run produced no amplification score.
+    show_quality = amp_pred_is_available(primers)
+    metrics = ["GC%", "Tm", "Specificity", "Uniformity"]
+    if show_quality:
+        metrics.append("Quality")
 
     # Build data matrix
     z_data = []
@@ -534,9 +551,11 @@ def render_primer_heatmap(
         tm_norm = min(max((p.tm - 20) / 40, 0), 1)  # Normalize 20-60C range
         spec_norm = min(p.specificity / 1000, 1)  # Normalize to 1000x
         uniform_norm = 1 - p.gini  # Invert gini
-        quality_norm = p.amp_pred if p.amp_pred > 0 else 0.5
 
-        z_data.append([gc_norm, tm_norm, spec_norm, uniform_norm, quality_norm])
+        row = [gc_norm, tm_norm, spec_norm, uniform_norm]
+        if show_quality:
+            row.append(p.amp_pred)
+        z_data.append(row)
 
     fig = go.Figure(
         data=go.Heatmap(

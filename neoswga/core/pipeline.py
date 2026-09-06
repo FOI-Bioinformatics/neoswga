@@ -190,14 +190,53 @@ def validate_step1_prerequisites(
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
 
 
+def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> List[str]:
+    """K-mer tables whose provenance record names a genome other than this one.
+
+    Step 1 records what each table was counted from and refuses to reuse a
+    table that does not match. Nothing else read that record, so repointing
+    `fg_genomes` at a new assembly and running `filter` without re-running
+    `count-kmers` built the whole design from the previous organism's counts.
+
+    A table with NO provenance record is not treated as stale. Every table
+    written before the record was introduced lacks one, so refusing on absence
+    would reject working data directories over a fact that is unknown rather
+    than wrong. Step 1 already recounts in that case and writes the record,
+    which is where the gap closes.
+    """
+    from neoswga.core.kmer_counter import _table_is_current, table_provenance_path
+
+    if not genomes or len(genomes) != len(prefixes):
+        return []
+
+    stale = []
+    for prefix, genome in zip(prefixes, genomes):
+        if not os.path.exists(genome):
+            continue
+        for k in range(min_k, max_k + 1):
+            if not os.path.exists(table_provenance_path(prefix, k)):
+                continue
+            if not _table_is_current(prefix, genome, k):
+                stale.append(f"{prefix}_{k}mer_all.txt")
+    return stale
+
+
 def validate_step2_prerequisites(
-    data_dir: str, fg_prefixes: List[str], bg_prefixes: List[str], min_k: int = 6, max_k: int = 12
+    data_dir: str,
+    fg_prefixes: List[str],
+    bg_prefixes: List[str],
+    min_k: int = 6,
+    max_k: int = 12,
+    fg_genomes: Optional[List[str]] = None,
+    bg_genomes: Optional[List[str]] = None,
 ) -> StepValidationResult:
     """
     Validate prerequisites for Step 2 (filtering).
 
     Checks:
     - K-mer count files exist from Step 1
+    - Those tables were counted from the genomes now configured, when the
+      genome paths are supplied and the tables carry a provenance record
     """
     missing = []
 
@@ -214,6 +253,24 @@ def validate_step2_prerequisites(
             missing_files=missing,
             error_message="K-mer count files not found. Step 2 requires output from Step 1.",
             remediation="Run 'neoswga count-kmers -j params.json' (Step 1) first.",
+        )
+
+    stale = _tables_counted_from_another_genome(
+        fg_prefixes, fg_genomes, min_k, max_k
+    ) + _tables_counted_from_another_genome(bg_prefixes, bg_genomes, min_k, max_k)
+    if stale:
+        return StepValidationResult(
+            valid=False,
+            missing_files=stale,
+            error_message=(
+                f"{len(stale)} k-mer count file(s) were counted from a different "
+                f"genome than the one now configured. Step 2 would build the "
+                f"whole design from the other organism's counts."
+            ),
+            remediation=(
+                "Run 'neoswga count-kmers -j params.json' (Step 1) again so the "
+                "tables match the configured genomes."
+            ),
         )
 
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
@@ -282,8 +339,12 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             return StepValidationResult(
                 valid=False,
                 missing_files=[],
-                error_message="Step 3 output is empty (no primers passed scoring threshold).",
-                remediation="Lower --min-amp-pred threshold and re-run Step 3.",
+                error_message="Step 3 output is empty: no candidate primers reached step 4.",
+                remediation=(
+                    "Relax the filter step: raise max_bg_freq or max_gini, widen "
+                    "min_k-max_k, or raise max_primer, then re-run "
+                    "'neoswga filter -j params.json' and 'neoswga score -j params.json'."
+                ),
             )
     except Exception as e:
         return StepValidationResult(
@@ -325,6 +386,78 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
         )
 
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
+
+
+def unindexed_candidates(cache, fg_prefixes: List[str]) -> List[str]:
+    """Candidates the position index cannot place anywhere in the foreground.
+
+    `PositionCache` records these in `missing_primers` as (prefix, primer)
+    pairs. Under the default `on_missing="warn"` it logs them and carries on,
+    and they then cover no region at all, so a greedy selection never picks
+    one. The run delivers a smaller panel and reports a coverage figure that is
+    correct for the panel it delivered, which is what makes the outcome hard to
+    notice.
+
+    Only the foreground prefixes count. A candidate absent from a BACKGROUND
+    index is the normal case for a specific primer: the position files are
+    written only for k-mers the genome actually contains, so a primer with no
+    host sites is legitimately missing there.
+
+    Restricted further to primers missing from EVERY foreground prefix. In a
+    multi-target design a primer that binds one target and not another is a
+    normal outcome, not a broken index.
+    """
+    missing = getattr(cache, "missing_primers", None)
+    if not missing or not fg_prefixes:
+        return []
+    wanted = set(fg_prefixes)
+    seen: dict = {}
+    for prefix, primer in missing:
+        if prefix in wanted:
+            seen.setdefault(primer, set()).add(prefix)
+    return sorted(p for p, prefixes in seen.items() if prefixes == wanted)
+
+
+def validate_index_covers_candidates(cache, fg_prefixes, n_candidates, refuse) -> int:
+    """Count candidates with no foreground positions, and refuse when asked.
+
+    `validate_step4_prerequisites` checks that the position files EXIST. It
+    cannot check that they cover the pool, because the pool is only read once
+    the cache is built. Measured on a three-candidate pool with one candidate
+    indexed: step 4 returned SUCCESS with one primer and fg_coverage 1.0.
+
+    Returns the count so it can be recorded in the run summary even when the
+    run proceeds. When `refuse` is set -- the pipeline path, where step 4 read
+    the pool from step3_df.csv itself -- a non-zero count raises
+    `StepPrerequisiteError` instead. A caller that supplied its own candidate
+    list is never blocked, matching `validate_step4_prerequisites`.
+    """
+    unindexed = unindexed_candidates(cache, fg_prefixes)
+    if not unindexed or not refuse:
+        return len(unindexed)
+
+    extra = f" (+{len(unindexed) - 5} more)" if len(unindexed) > 5 else ""
+    shown = ", ".join(unindexed[:5]) + extra
+    raise StepPrerequisiteError(
+        4,
+        StepValidationResult(
+            valid=False,
+            missing_files=[f"{prefix}_*mer_positions.h5" for prefix in fg_prefixes],
+            error_message=(
+                f"{len(unindexed)} of {n_candidates} candidate primers have no "
+                f"binding positions in the foreground index: {shown}. They cover "
+                f"nothing, so optimization would select from the remaining "
+                f"{n_candidates - len(unindexed)} and report a coverage figure "
+                f"correct only for that smaller pool. The position files are out "
+                f"of step with step3_df.csv."
+            ),
+            remediation=(
+                "Re-run 'neoswga filter -j params.json' (Step 2) so every "
+                "candidate is indexed, then 'neoswga score' and "
+                "'neoswga optimize' again."
+            ),
+        ),
+    )
 
 
 defaults = {
@@ -459,6 +592,29 @@ def reset_pipeline_state():
         logger.debug(f"reset_reaction_conditions skipped: {e}")
 
 
+def _apply_adaptive_additives(adaptive_params) -> None:
+    """Apply the strategy's additive recommendations, but not over a user's choice.
+
+    The guards used to read `getattr(parameter, "betaine_m", 0.0) == 0.0`, which
+    is true both when the user wrote 0.0 and when the user wrote nothing. A
+    params.json excluding betaine was therefore run at the recommended
+    concentration, and every melting temperature in that design was computed
+    against a buffer the user had ruled out. Key presence is the only thing that
+    distinguishes the two cases, and the k-mer branch above already uses it.
+    """
+    if "betaine_m" not in parameter._json_data and adaptive_params.betaine_concentration > 0:
+        parameter.betaine_m = adaptive_params.betaine_concentration
+        logger.info(f"GC-adaptive: Setting betaine to {adaptive_params.betaine_concentration}M")
+    elif "betaine_m" in parameter._json_data:
+        logger.info(f"GC-adaptive: Preserving user-specified betaine {parameter.betaine_m}M")
+
+    if "dmso_percent" not in parameter._json_data and adaptive_params.dmso_concentration > 0:
+        parameter.dmso_percent = adaptive_params.dmso_concentration
+        logger.info(f"GC-adaptive: Setting DMSO to {adaptive_params.dmso_concentration}%")
+    elif "dmso_percent" in parameter._json_data:
+        logger.info(f"GC-adaptive: Preserving user-specified DMSO {parameter.dmso_percent}%")
+
+
 def _apply_gc_adaptive_defaults():
     """
     Apply GC-adaptive parameter defaults if genome_gc is set.
@@ -492,6 +648,18 @@ def _apply_gc_adaptive_defaults():
         user_set_polymerase = (
             hasattr(parameter, "_json_data") and "polymerase" in parameter._json_data
         )
+        # `retune_for_polymerase` resets the k-mer range to the new enzyme's,
+        # which is right when the enzyme changed underneath the user and wrong
+        # when they pinned a range by hand. The guard below says "Preserving
+        # user-specified k-mer range" but runs AFTER this and only logs, so a
+        # params.json setting min_k/max_k without polymerase had its range
+        # silently replaced -- 15-18 becoming phi29's 6-12 -- under a line
+        # claiming it had been preserved.
+        _pinned_k = {
+            key: getattr(parameter, key, None)
+            for key in ("min_k", "max_k")
+            if hasattr(parameter, "_json_data") and key in parameter._json_data
+        }
         if not user_set_polymerase:
             if adaptive_params.recommended_polymerase != getattr(parameter, "polymerase", "phi29"):
                 logger.info(
@@ -535,22 +703,15 @@ def _apply_gc_adaptive_defaults():
                 f"GC-adaptive: Setting k-mer range to " f"{parameter.min_k}-{parameter.max_k}bp"
             )
         elif user_set_min_k or user_set_max_k:
+            # Restore, do not merely announce. See `_pinned_k` above.
+            for key, value in _pinned_k.items():
+                setattr(parameter, key, value)
             logger.info(
                 f"GC-adaptive: Preserving user-specified k-mer range "
                 f"{parameter.min_k}-{parameter.max_k}bp"
             )
 
-        # Apply betaine if not explicitly set and recommended
-        current_betaine = getattr(parameter, "betaine_m", 0.0)
-        if current_betaine == 0.0 and adaptive_params.betaine_concentration > 0:
-            parameter.betaine_m = adaptive_params.betaine_concentration
-            logger.info(f"GC-adaptive: Setting betaine to {adaptive_params.betaine_concentration}M")
-
-        # Apply DMSO if not explicitly set and recommended
-        current_dmso = getattr(parameter, "dmso_percent", 0.0)
-        if current_dmso == 0.0 and adaptive_params.dmso_concentration > 0:
-            parameter.dmso_percent = adaptive_params.dmso_concentration
-            logger.info(f"GC-adaptive: Setting DMSO to {adaptive_params.dmso_concentration}%")
+        _apply_adaptive_additives(adaptive_params)
 
         # Log overall strategy
         logger.info(
@@ -564,11 +725,131 @@ def _apply_gc_adaptive_defaults():
         logger.warning(f"Error applying GC-adaptive defaults: {e}")
 
 
+def order_step3_rows(df):
+    """A deterministic total order for the scored candidate pool.
+
+    `step3_df.csv` was written with `sort_values(by="gini")` alone. On a real
+    pool almost every row ties: 496 of 500 on the plasmid example share a gini
+    value. `sort_values` defaults to quicksort, which is not stable, so for
+    those rows the order was whatever the algorithm produced from the order the
+    rows happened to arrive in -- the same data from two different input orders
+    gave two different files, sharing 7 of the first 50 primers.
+
+    That would not matter if the optimizer ignored order. It does not. On the
+    E. coli pool at target size 24, dominating-set returned a set with a Jaccard
+    of 0.600 against the as-written order when the candidates were reversed, and
+    0.920 when they were shuffled. Up to 40% of the delivered oligos were
+    decided by a tie-break nobody chose.
+
+    Gini leads, as before; the primer sequence breaks ties. It is unique, so the
+    order is total, and it claims nothing about primer quality -- which is the
+    point. `amp_pred` is the obvious alternative and the evidence is against it:
+    selecting the top half of a pool by `amp_pred` and optimizing over it
+    produced the WORST of five half-pools, behind all three random halves and
+    behind the bottom half by the same measure.
+    """
+    if len(df) == 0:
+        return df
+    return df.sort_values(by=["gini", "primer"], kind="mergesort")
+
+
+def check_genome_inputs(paths):
+    """Pre-flight the genome files before an expensive count begins.
+
+    Returns a list of human-readable problems; empty means proceed. Every
+    genome's measured length is logged whether or not it is a problem.
+
+    `GenomeLoader.validate_genome` already computes length, N fraction, empty
+    sequences and implausible GC, and had no caller outside a `__main__` demo.
+    So whatever a download left behind went straight into jellyfish, and the
+    failures surfaced late and undiagnosably: a 0 bp genome and an all-N genome
+    both passed `count-kmers` and then failed `filter` with a bare
+    `Step 2 failed: 'primer'`, and an HTML error page saved with a `.fna` name
+    produced a C++ crash from jellyfish naming neither the file nor the cause.
+
+    Only a genome carrying NO sequence is refused. `validate_genome` calls
+    anything under 100 kb "too short", and the shipped plasmid example is
+    6,157 bp, so length cannot be a hard gate without rejecting plasmids,
+    viruses, organelles and the tool's own example. A truncated download and a
+    small target are indistinguishable to this function; what it can do is state
+    the measured size, which is the signal a person who knows the organism can
+    act on. That is why the length is logged for every input rather than judged.
+    """
+    from neoswga.core.genome_io import GenomeLoader
+
+    problems = []
+    for path in paths or []:
+        if not os.path.exists(path):
+            problems.append(f"{path}: file not found")
+            continue
+        try:
+            loader = GenomeLoader()
+            sequence = loader.load_genome(path, return_stats=True)
+        except Exception as exc:
+            # An unreadable or non-FASTA file lands here: the HTML-error-page
+            # case reaches this branch rather than reaching jellyfish.
+            problems.append(f"{path}: could not be read as FASTA ({exc})")
+            continue
+
+        length = len(sequence)
+        usable = length - sequence.upper().count("N")
+        if length == 0:
+            problems.append(
+                f"{path}: contains no sequence (0 bp). A header with no bases is "
+                f"what a truncated or interrupted download leaves behind."
+            )
+            continue
+        if usable == 0:
+            # Same principle as 0 bp: nothing legitimate has no A, C, G or T.
+            # An all-N record is a placeholder or a masked file, and it fails
+            # two steps later with a message that names neither.
+            problems.append(
+                f"{path}: {length:,} bp but not one A, C, G or T. Every base is N, "
+                f"so no primer can bind anywhere in it."
+            )
+            continue
+
+        stats = getattr(loader, "last_stats", None)
+        n_fraction = getattr(stats, "n_fraction", 0.0) or 0.0
+        detail = f"{os.path.basename(path)}: {length:,} bp"
+        if n_fraction > 0.10:
+            detail += f", {n_fraction:.1%} N"
+        logger.info(f"  Genome {detail}")
+        if n_fraction > 0.10:
+            logger.warning(
+                f"{path}: {n_fraction:.1%} of bases are N. Primer sites in those "
+                f"regions are not real; coverage will be overstated."
+            )
+
+    return problems
+
+
 def step1():
     """
     Creates files of all k-mers of length 6 to 12 at the paths specified by --kmer-fore and --kmer-back.
     """
     _initialize()  # Lazy initialization
+
+    # Pre-flight the inputs. Counting a 3 Gb genome takes minutes and a bad
+    # file fails two steps later with a message that names neither.
+    _problems = check_genome_inputs(list(fg_genomes or []) + list(bg_genomes or []))
+    if _problems:
+        for _p in _problems:
+            logger.error(_p)
+        raise StepPrerequisiteError(
+            1,
+            StepValidationResult(
+                valid=False,
+                missing_files=_problems,
+                error_message="One or more genome files cannot be used as input.",
+                remediation=(
+                    "If a file was downloaded, check that it completed and holds "
+                    "the sequence you expect rather than an error page. A header "
+                    "with no bases is what an interrupted transfer leaves behind."
+                ),
+            ),
+        )
+
     for prefix in fg_prefixes + bg_prefixes:
         prefix_dir = os.path.dirname(prefix)
         if prefix_dir and not os.path.exists(prefix_dir):
@@ -846,7 +1127,13 @@ def step2(all_primers=None, validate_prerequisites=True):
         min_k = getattr(parameter, "min_k", 6)
         max_k = getattr(parameter, "max_k", 12)
         validation = validate_step2_prerequisites(
-            parameter.data_dir, fg_prefixes, bg_prefixes, min_k, max_k
+            parameter.data_dir,
+            fg_prefixes,
+            bg_prefixes,
+            min_k,
+            max_k,
+            fg_genomes=fg_genomes,
+            bg_genomes=bg_genomes,
         )
         if not validation.valid:
             raise StepPrerequisiteError(2, validation)
@@ -1031,24 +1318,48 @@ def step2(all_primers=None, validate_prerequisites=True):
 
 
 # RANK BY RANDOM FOREST
-def step3(validate_prerequisites=True):
+DEFAULT_MIN_AMP_PRED = 10.0
+
+
+def _candidate_carry_columns(step2_df):
+    """The step-2 measurements `step3_df.csv` carries forward.
+
+    `gini` is load-bearing: it leads the row order `order_step3_rows`
+    establishes, and that order reaches the optimizer.
     """
-    Filters primers according to primer efficacy. To adjust the threshold, use option -a or --min_amp_pred.
+    df = step2_df.set_index("primer")
+    keep = [c for c in ("ratio", "gini", "fg_count", "bg_count") if c in df.columns]
+    return df[keep]
 
-    Args:
-        validate_prerequisites: If True, validate that Step 2 outputs exist before running.
 
-    Returns:
-        joined_step3_df: Pandas dataframe of sequences passing step 3.
+def _warn_if_a_retired_gate_was_requested():
+    """`min_amp_pred` no longer gates anything. Say so rather than ignore it.
+
+    This repository's recurring defect is an option that is documented,
+    accepted, and read by nothing; retiring the gate must not create another
+    instance. Only fires when the value differs from the default, so an ordinary
+    run stays quiet -- the point is to catch someone who set a real gating value
+    and would otherwise receive a pool it never filtered.
     """
-    _initialize()  # Lazy initialization
+    threshold = getattr(parameter, "min_amp_pred", None)
+    if threshold is None or float(threshold) == DEFAULT_MIN_AMP_PRED:
+        return
+    logger.warning(
+        f"min_amp_pred={threshold} was given, but the amplification gate is "
+        "retired and does nothing. On the panels that settled this it removed 7 "
+        "of 1222 candidates, 0 of 449 and 0 of 319, and step 4 reads only the "
+        "primer column. Pass --amp-model to restore the score and its gate."
+    )
 
-    # Validate prerequisites
-    if validate_prerequisites:
-        validation = validate_step3_prerequisites(parameter.data_dir)
-        if not validation.valid:
-            raise StepPrerequisiteError(3, validation)
 
+def _score_with_amp_model(step2_df):
+    """The random-forest path, retired from the default pipeline.
+
+    Reachable with `--amp-model`. Kept rather than deleted because retiring a
+    stage from the default path is not the same as removing the capability, and
+    because `score --enable-qa` blends this score with the QA score at 0.7/0.3.
+    """
+    logger.info("Amplification model requested: scoring candidates")
     # Adaptive k-mer sampling: scale sample rate by genome size
     disable_sampling = getattr(parameter, "disable_kmer_sampling", False)
     explicit_rate = getattr(parameter, "sample_rate", None)
@@ -1078,8 +1389,6 @@ def step3(validate_prerequisites=True):
     else:
         rf_preprocessing.disable_kmer_sampling()
 
-    step2_df = pd.read_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
-
     primer_list = step2_df["primer"]
     logger.info(f"Scoring {len(primer_list)} primers...")
     fg_scale = sum(fg_seq_lengths) / 6200 if fg_seq_lengths else 1.0
@@ -1099,6 +1408,9 @@ def step3(validate_prerequisites=True):
 
     with progress_context("Predicting amplification efficacy"):
         results = rf_preprocessing.predict_new_primers(df_pred)
+    # Ordering here is for the gate and the median fallback below only. The
+    # file written at the end of this function is re-ordered by
+    # `order_step3_rows`, so this does not decide what the optimizer sees.
     results.sort_values(by=["on.target.pred"], ascending=[False], inplace=True)
 
     # min_amp_pred: unitless amplification prediction score (~0-20 scale).
@@ -1131,20 +1443,57 @@ def step3(validate_prerequisites=True):
             f"(first 3: {list(missing[:3])}). These will have NaN metrics."
         )
 
-    joined_step3_df = step3_df.join(
-        step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left"
-    ).sort_values(by="gini")
-
-    joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
-
+    joined_step3_df = step3_df.join(step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left")
     logger.info(
         f"Filtered {step2_df.shape[0] - joined_step3_df.shape[0]} primers based on efficacy"
     )
 
-    # Log thermodynamic cache performance
-    from neoswga.core.thermodynamics import log_cache_stats
+    return joined_step3_df
 
-    log_cache_stats("Step 3")
+
+def step3(validate_prerequisites=True):
+    """Prepare the candidate pool that step 4 optimizes over.
+
+    This stage used to score every candidate with a random forest and gate on
+    `min_amp_pred`. Audit finding F0 retired that on 2026-09-05. The gate removed
+    7 of 1222 candidates on the S. aureus panel and none at all on the E. coli
+    and M. tuberculosis panels, and every step-4 consumer reads only the primer
+    column, so the score was computed for each candidate and then discarded
+    before selection. Asked whether it identified good primers, the top half of
+    a pool by `amp_pred` optimized to the WORST of five half-pools.
+
+    What the stage still does, and why it is not simply deleted: it writes
+    `step3_df.csv`, a required intermediate that six modules read, carrying the
+    step-2 measurements and the deterministic order from `order_step3_rows`.
+    That order is what makes an unseeded run reproducible.
+
+    `--amp-model` restores the old behaviour, score column and gate included.
+
+    Args:
+        validate_prerequisites: If True, validate that Step 2 outputs exist first.
+
+    Returns:
+        joined_step3_df: the candidate pool, deterministically ordered.
+    """
+    _initialize()  # Lazy initialization
+
+    # Validate prerequisites
+    if validate_prerequisites:
+        validation = validate_step3_prerequisites(parameter.data_dir)
+        if not validation.valid:
+            raise StepPrerequisiteError(3, validation)
+
+    step2_df = pd.read_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
+
+    if getattr(parameter, "use_amp_model", False):
+        joined_step3_df = _score_with_amp_model(step2_df)
+    else:
+        _warn_if_a_retired_gate_was_requested()
+        logger.info(f"Carrying {len(step2_df)} candidates forward (scoring retired)")
+        joined_step3_df = _candidate_carry_columns(step2_df)
+
+    joined_step3_df = order_step3_rows(joined_step3_df)
+    joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
 
     if parameter.verbose:
         logger.debug(f"Step 3 results:\n{joined_step3_df}")

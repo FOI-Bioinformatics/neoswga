@@ -105,14 +105,22 @@ def plasmid_scored_workdir():
 # ---------------------------------------------------------------------------
 
 
-# The genuinely under-covered integration paths: the ensemble pseudo-method
-# (only unit-tested with stubs) plus the registered methods, run end-to-end.
+# Every registered method plus the `ensemble` pseudo-method, run end-to-end.
 # Unregistered names are skipped inside the test body.
+#
+# `hybrid` and `clique` were both missing from this list, which is to say the
+# sweep covered every method except the DEFAULT one and the only one that makes
+# a hard guarantee. The rationale was that the base methods have dedicated unit
+# tests, but those construct optimizers directly and so cannot see anything the
+# CLI-to-optimizer wiring drops -- which is exactly the defect class this
+# repository keeps producing.
 UNDER_TESTED_METHODS = [
     "ensemble",
+    "hybrid",
     "dominating-set",
     "network",
     "background-aware",
+    "clique",
 ]
 
 

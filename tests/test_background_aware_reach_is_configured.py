@@ -20,6 +20,17 @@ And the module header advertises "Maintains excellent target coverage (>95%)".
 That is a claim about outcomes, made on the strength of the floor above -- which
 is measured on a third definition of coverage from the one reported. The floor
 is a *setting*, and one the caller can lower.
+
+NOTE ON SCOPE: this file exercises `BackgroundAwareOptimizer`, the standalone
+three-stage class. No CLI run reaches it -- `--optimization-method
+background-aware` resolves to `BackgroundAwareBaseOptimizer`, which delegates to
+`HybridOptimizer` -- and nothing outside tests references it. So these tests
+say the algorithm is right; they cannot say the algorithm the user gets is
+right, and they passed throughout the period when the live wrapper was dropping
+the configured Tm window, the extension reach and every selection weight.
+`tests/test_background_aware_live_path.py` covers the object the factory
+actually returns. Keep both: this one pins the algorithm, that one pins the
+wiring.
 """
 
 import numpy as np

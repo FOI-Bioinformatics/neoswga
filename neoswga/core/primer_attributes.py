@@ -14,14 +14,24 @@ logger = logging.getLogger(__name__)
 
 
 def get_melting_tm(primer):
-    """
-    Gets the predicted melting temperature of a primer using the melt package (https://pypi.org/project/melt/).
+    """Tm on the bundled model's fixed scale. NOT the Tm of your reaction.
+
+    This returns `melting_temp.temp` at its defaults, 10 mM Na and 20 mM Mg.
+    Those are the conditions the random forest's `melting_tm` feature is defined
+    on, and they do not move with `na_conc`, `mg_conc`, the polymerase or any
+    additive. On a run configured for 50 mM Na and 10 mM Mg the value is about
+    7.9 C away from the reaction.
+
+    It has no caller on the pipeline path, and is kept because it names the
+    model's scale. For the Tm of a primer under the reaction actually being run,
+    use `ReactionConditions.calculate_effective_tm` (what `filter.filter_extra`
+    gates on) or `thermodynamics.calculate_tm_with_salt`.
 
     Args:
         primer: The sequence of the primer.
 
     Returns:
-        The predicted melting temperature.
+        Predicted melting temperature at 10 mM Na / 20 mM Mg.
     """
     return _melting_temp(primer)
 

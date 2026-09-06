@@ -123,7 +123,18 @@ count-kmers            filter                 score                  optimize
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
 - `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
   effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics)
+  Also `unindexed_candidates`: how many candidates the foreground position
+  index could not place. Those cover nothing and so are invisible to
+  selection; the pipeline path refuses rather than reporting a coverage
+  figure that describes only the rest of the pool.
 - `*_positions.h5`: HDF5 files with primer binding positions
+- `*_{k}mer_all.provenance.json`: A sidecar recording the genome each k-mer
+  table was counted from (absolute path, content fingerprint, k). `count-kmers`
+  writes it and reuses a table only when it matches; `filter` checks the same
+  record before it starts. Without it, repointing `fg_genomes` at a new assembly
+  and skipping `count-kmers` built the design from the previous organism's
+  counts. Tables written before the sidecar existed have none, which is treated
+  as unknown rather than stale: `count-kmers` recounts them once.
 - `run_manifest.json`: One appended entry per step (version, git SHA, seed, input
   checksums, CLI invocation). `resolved_params` is a copy of params.json;
   `effective_conditions` is the reaction the step actually ran under, which is
@@ -141,6 +152,15 @@ neoswga filter -j params.json       # Step 2: Filter candidate primers
 neoswga score -j params.json        # Step 3: Score amplification efficacy
 neoswga optimize -j params.json     # Step 4: Find optimal primer sets
 ```
+
+`optimize` can refuse with a step-4 prerequisite error rather than produce a
+set. It does so when `step3_df.csv` is missing or empty, when the position
+files are absent, and when the position index covers only part of the
+candidate pool. The last case used to return a plausible result: the
+unindexed candidates cover nothing, so selection never picks one and the
+coverage reported is correct for the smaller panel actually delivered. The
+remediation is to re-run `neoswga filter`. A caller that passes its own
+candidate list programmatically is not subject to these checks.
 
 ### Quality Assurance (`--enable-qa`)
 

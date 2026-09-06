@@ -253,3 +253,196 @@ def test_network_optimizer_receives_the_configured_dimer_threshold(monkeypatch, 
         "configured max_dimer_bp=3 did not reach the inner NetworkOptimizer; "
         f"it is using {optimizer._network.max_dimer_bp}"
     )
+
+
+# ----------------------------------------------------------------------
+# The same question, asked of every method and every scoring parameter
+# ----------------------------------------------------------------------
+#
+# The test above asks it once, for `network` and `max_dimer_bp`, and that is
+# how the ninth instance of this defect class was found. The tenth, eleventh
+# and twelfth were sitting one constructor further along the same path and went
+# unnoticed because nothing asked the same question of `hybrid` -- the DEFAULT
+# method -- or of the other four parameters.
+#
+# What reaches the user is decided by the object that scores primers, not by
+# the adapter the factory returns and not by the config the adapter holds. So
+# these assert on the innermost engine, and they are parameterised so that a
+# newly wired parameter, or a newly registered method, produces a named failing
+# test rather than a silent drop.
+#
+# Measured on this tree before the fix (--application clinical, max_dimer_bp 3,
+# --max-extension 25000):
+#
+#     parameter          requested  network  hybrid  background-aware
+#     tm_weight               0.30     0.30    0.00              0.00
+#     dimer_penalty           0.45     0.45    0.00              0.00
+#     uniformity_weight       0.05     0.05    0.00              0.00
+#     max_dimer_bp               3        3       4                 4
+#     max_extension          25000    25000   25000             70000
+#
+# while the run log said "selection weights applied: tm=0.30, uniformity=0.05,
+# dimer_penalty=0.45".
+
+
+#: Methods whose selection is ultimately performed by a `NetworkOptimizer`,
+#: and the attribute path from the factory-returned adapter to it.
+_SCORING_ENGINE_PATH = {
+    "network": ("_network",),
+    "hybrid": ("_hybrid", "network_optimizer"),
+    "background-aware": ("_hybrid", "network_optimizer"),
+}
+
+
+def scoring_engine(optimizer, method):
+    """The object that actually scores primers for `method`.
+
+    Asserting on the adapter, or on the `OptimizerConfig` it holds, is what let
+    these defects through: the value arrives there and is then dropped on the
+    way in.
+    """
+    engine = optimizer
+    for attribute in _SCORING_ENGINE_PATH[method]:
+        engine = getattr(engine, attribute, None)
+        assert engine is not None, (
+            f"{method}: could not reach the scoring engine, "
+            f"{type(optimizer).__name__} has no '{attribute}'. If the "
+            f"attribute was renamed, update _SCORING_ENGINE_PATH."
+        )
+    return engine
+
+
+def build(prefix, planted, method, **kwargs):
+    """Construct `method` through the real dispatch path and return it."""
+    from neoswga.core import unified_optimizer as uo
+
+    seen = {}
+    original = uo.OptimizerFactory.create
+
+    def spy(*args, **create_kwargs):
+        optimizer = original(*args, **create_kwargs)
+        seen["optimizer"] = optimizer
+        return optimizer
+
+    uo.OptimizerFactory.create = staticmethod(spy)
+    try:
+        run(prefix, planted, method=method, **kwargs)
+    finally:
+        uo.OptimizerFactory.create = original
+
+    assert "optimizer" in seen, f"{method}: no optimizer reached the spy"
+    return seen["optimizer"]
+
+
+#: (parameter, configured value, attribute on the scoring engine).
+#: Every one of these is settable from params.json or a CLI flag, and every one
+#: is read by `NetworkOptimizer` when it scores a candidate.
+SCORING_PARAMETERS = [
+    ("tm_weight", 0.30, "tm_weight"),
+    ("dimer_penalty", 0.45, "dimer_penalty"),
+    ("uniformity_weight", 0.05, "uniformity_weight"),
+    ("max_dimer_bp", 3, "max_dimer_bp"),
+    ("max_extension", 25_000, "max_extension"),
+]
+
+
+@pytest.mark.parametrize("method", sorted(_SCORING_ENGINE_PATH))
+@pytest.mark.parametrize("name,value,attribute", SCORING_PARAMETERS, ids=lambda p: str(p))
+def test_the_scoring_engine_uses_the_configured_value(
+    prefix, planted, method, name, value, attribute
+):
+    """A parameter the user set has to reach the object that scores primers.
+
+    `dimer_penalty` is the one worth reading twice: it is the ONLY dimer
+    consideration in hybrid's stage-2 refinement, so when it does not arrive the
+    default method weighs dimers at zero whatever `--application` reports.
+    """
+    optimizer = build(prefix, planted, method, **{name: value})
+    engine = scoring_engine(optimizer, method)
+
+    actual = getattr(engine, attribute, None)
+    assert actual == value, (
+        f"{method}: {name}={value} did not reach {type(engine).__name__}."
+        f"{attribute}; it is using {actual!r}. The value reaches the adapter and "
+        f"is dropped when the adapter builds its inner engine."
+    )
+
+
+# ----------------------------------------------------------------------
+# Optimizer-specific configuration
+# ----------------------------------------------------------------------
+#
+# Two optimizers declare their own `OptimizerConfig` subclass and then branch on
+# `isinstance` to read it. `OptimizerFactory.create` always built the BASE class,
+# so both branches were constant-false in production and every subclass field sat
+# at its dataclass default, unreachable from params.json or the CLI.
+#
+# `CliqueOptimizerConfig.max_pool_size` is the one that costs something: it
+# defaults to 200, so with the shipped `max_primer` of 500 the optimizer sold on
+# a hard dimer-free guarantee silently discarded 300 candidates and ranked the
+# rest on raw foreground abundance, with no background term.
+#
+# `CliqueOptimizerConfig` is instantiated nowhere outside tests/test_clique_optimizer.py,
+# which is why nothing noticed.
+
+
+def test_the_clique_optimizer_receives_its_own_config_class():
+    """The factory has to build the subclass the optimizer branches on.
+
+    A BASE `OptimizerConfig` is passed deliberately, because that is what
+    production does -- `run_optimization` always builds the base class. Passing
+    `None` here would take the `config or CliqueOptimizerConfig()` default in
+    `__init__` and the test would pass against the broken factory.
+    """
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.clique_optimizer import CliqueOptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            import numpy as np
+
+            return np.array([], dtype=np.int64)
+
+    optimizer = OptimizerFactory.create(
+        name="clique",
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6, max_dimer_bp=3),
+        conditions=None,
+    )
+    assert optimizer.config.max_dimer_bp == 3, (
+        "upgrading the config to the optimizer's own subclass must carry the "
+        "base fields across, not reset them to defaults"
+    )
+    assert isinstance(optimizer.clique_config, CliqueOptimizerConfig), (
+        "clique fell back to a throwaway default config; its isinstance branch "
+        "is constant-false whenever the factory hands it a base OptimizerConfig"
+    )
+
+
+@pytest.mark.parametrize("value", [50, 400])
+def test_max_pool_size_configured_in_params_json_reaches_the_clique_optimizer(
+    monkeypatch, prefix, planted, value
+):
+    """A pool cap the user set has to be the cap the optimizer applies.
+
+    Pinned at both a smaller and a larger value than the 200 default, because a
+    test that only tightens it would pass against code that ignores the setting
+    and truncates to 200 anyway whenever the pool is smaller than that.
+    """
+    from neoswga.core import parameter
+
+    monkeypatch.setattr(parameter, "max_pool_size", value, raising=False)
+    optimizer = build(prefix, planted, "clique")
+
+    assert optimizer.clique_config.max_pool_size == value, (
+        f"max_pool_size={value} did not reach the clique optimizer; "
+        f"it is using {optimizer.clique_config.max_pool_size}"
+    )

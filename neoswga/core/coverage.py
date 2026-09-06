@@ -254,6 +254,33 @@ def resolve_coverage_reach(polymerase, override=None, default=3000):
     return polymerase_extension_reach(polymerase, default=default, coverage_metric="realistic")
 
 
+def resolve_extension_reach(kwargs, verbose: bool = False) -> int:
+    """The reach a run computes coverage at, resolved from kwargs and params.
+
+    Wraps `resolve_coverage_reach` with the precedence an optimizer run needs:
+    an explicit kwarg, then the `parameter` global set from params.json or
+    `--coverage-reach`, then the polymerase's realistic per-primer reach.
+    Extracted from `unified_optimizer.run_optimization` so the resolution sits
+    beside the function it defers to.
+    """
+    import logging
+
+    from . import parameter
+
+    polymerase = kwargs.get("polymerase") or getattr(parameter, "polymerase", "phi29")
+    override = kwargs.get("coverage_reach")
+    if override is None:
+        override = getattr(parameter, "coverage_reach", None)
+    reach = resolve_coverage_reach(polymerase, override=override)
+    if override is not None and verbose:
+        logging.getLogger(__name__).info(
+            f"Coverage reach: {reach:,} bp (explicit; polymerase default would be "
+            f"used otherwise). Coverage figures are not comparable across "
+            f"different reaches."
+        )
+    return reach
+
+
 # Benchmark reference points, from the two published set-level datasets with
 # wet-lab outcomes. See docs/validation/published_primer_sets.md.
 #

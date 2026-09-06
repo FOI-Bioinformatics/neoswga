@@ -349,6 +349,21 @@ def run_analyze_dimers(args):
 
     logger.info(f"Analyzing dimer network for {len(args.primers)} primers")
 
+    # `--threshold` is a SEVERITY on a 0-1 scale, not a base-pair count. Passing
+    # a bp value -- 3, say, which is what `max_dimer_bp` is set to elsewhere in
+    # this tool -- was silently accepted, and produced a report that reads as
+    # self-contradictory: nothing can exceed a threshold of 3, so every
+    # interaction count is zero, while the max-severity figure and the pass/fail
+    # verdict are computed independently of the threshold and still report 1.00
+    # and FAIL. Rejecting the value is better than explaining the output.
+    if not 0.0 <= args.threshold <= 1.0:
+        logger.error(
+            f"--threshold must be a severity between 0 and 1, got {args.threshold}. "
+            f"It is not a base-pair count; for that see --max-dimer-bp on the "
+            f"filter and optimize steps."
+        )
+        sys.exit(1)
+
     try:
         analyzer = DimerNetworkAnalyzer(severity_threshold=args.threshold)
         metrics, profiles, matrix = analyzer.analyze_primer_set(args.primers)
@@ -542,7 +557,10 @@ def add_parsers(subparsers):
         "--output", "-o", required=True, help="Output directory for network visualization"
     )
     analyze_dimers_parser.add_argument(
-        "--threshold", type=float, default=0.3, help="Dimer severity threshold (default: 0.3)"
+        "--threshold",
+        type=float,
+        default=0.3,
+        help="Dimer severity threshold, 0-1 (default: 0.3). NOT a base-pair count.",
     )
     analyze_dimers_parser.add_argument(
         "--visualize", action="store_true", help="Generate network visualization"

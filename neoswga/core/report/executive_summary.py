@@ -18,6 +18,7 @@ from typing import List, Optional
 from neoswga.core.report.metrics import (
     PipelineMetrics,
     PrimerMetrics,
+    amp_pred_is_available,
     collect_pipeline_metrics,
 )
 from neoswga.core.report.quality import (
@@ -426,7 +427,7 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
             </div>
             <div class="metric-card">
                 <div class="label">Enrichment</div>
-                <div class="value">{enrichment:.0f}x</div>
+                <div class="value">{enrichment_display}</div>
                 <div class="progress-container">
                     <div class="progress-bar {enrichment_progress_class}"
                          style="width: {enrichment_bar_pct:.0f}%"></div>
@@ -470,7 +471,7 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
                         <th>Tm (C)</th>
                         <th>GC%</th>
                         <th>Specificity</th>
-                        <th>Quality</th>
+                        {quality_header}
                     </tr>
                 </thead>
                 <tbody>
@@ -497,21 +498,25 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-def _format_primer_row(idx: int, primer: PrimerMetrics) -> str:
-    """Format a single primer as a table row."""
-    # Calculate quality stars (1-5)
-    quality_score = primer.amp_pred if primer.amp_pred > 0 else 0.5
-    stars = min(5, max(1, int(quality_score * 5 + 0.5)))
-    quality_stars = "★" * stars + "☆" * (5 - stars)
+def _format_primer_row(idx: int, primer: PrimerMetrics, show_quality: bool) -> str:
+    """Format a single primer as a table row.
 
-    # Format specificity
+    `show_quality` is False when no primer in the run carries an amplification
+    score. The column is then omitted rather than filled with a midpoint that
+    renders identically for every primer.
+    """
     if primer.specificity > 1000:
         spec_str = f"{primer.specificity/1000:.1f}k"
     else:
         spec_str = f"{primer.specificity:.0f}x"
 
-    # Escape sequence to prevent XSS
     safe_sequence = html_escape(primer.sequence)
+
+    quality_cell = ""
+    if show_quality:
+        stars = min(5, max(1, int(primer.amp_pred * 5 + 0.5)))
+        quality_stars = "★" * stars + "☆" * (5 - stars)
+        quality_cell = f'\n        <td class="quality-stars">{quality_stars}</td>'
 
     return f"""<tr>
         <td>{idx}</td>
@@ -519,8 +524,7 @@ def _format_primer_row(idx: int, primer: PrimerMetrics) -> str:
         <td>{primer.length}</td>
         <td>{primer.tm:.1f}</td>
         <td>{primer.gc_content*100:.0f}</td>
-        <td>{spec_str}</td>
-        <td class="quality-stars">{quality_stars}</td>
+        <td>{spec_str}</td>{quality_cell}
     </tr>"""
 
 
@@ -631,6 +635,12 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     # Calculate display values
     coverage_pct = coverage_comp.raw_value * 100 if coverage_comp else 0
     enrichment = specificity_comp.raw_value if specificity_comp else 0
+    # `MAX_SELECTIVITY` (1e6) stands in for "no background binding was
+    # detected", so printing it as "1000000x" claims a measurement that was
+    # never made. Rendered as text instead, matching `condition_sweep`.
+    from neoswga.core.base_optimizer import MAX_SELECTIVITY
+
+    enrichment_display = "no bg binding" if enrichment >= MAX_SELECTIVITY else f"{enrichment:.0f}x"
     uniformity = uniformity_comp.raw_value if uniformity_comp else 0.5
     dimer_risk = dimer_comp.raw_value if dimer_comp else 0
 
@@ -650,13 +660,17 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
     # Format primer rows (limit to 20 for readability)
     MAX_PRIMERS_IN_TABLE = 20
     displayed_primers = metrics.primers[:MAX_PRIMERS_IN_TABLE]
-    primer_rows = "\n".join(_format_primer_row(i + 1, p) for i, p in enumerate(displayed_primers))
+    show_quality = amp_pred_is_available(metrics.primers)
+    quality_header = "<th>Quality</th>" if show_quality else ""
+    n_columns = 7 if show_quality else 6
+    primer_rows = "\n".join(
+        _format_primer_row(i + 1, p, show_quality) for i, p in enumerate(displayed_primers)
+    )
 
-    # Add truncation notice if needed
     if len(metrics.primers) > MAX_PRIMERS_IN_TABLE:
         truncated_count = len(metrics.primers) - MAX_PRIMERS_IN_TABLE
         primer_rows += f"""<tr>
-            <td colspan="7" style="text-align: center; font-style: italic; color: #6c757d;">
+            <td colspan="{n_columns}" style="text-align: center; font-style: italic; color: #6c757d;">
                 ... and {truncated_count} more primer(s) not shown
             </td>
         </tr>"""
@@ -742,6 +756,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         gap_analysis_html=gap_analysis_html,
         # Enrichment
         enrichment=enrichment,
+        enrichment_display=enrichment_display,
         enrichment_bar_pct=enrichment_bar,
         enrichment_rating=specificity_comp.rating if specificity_comp else "N/A",
         enrichment_rating_class=get_rating_class(
@@ -767,6 +782,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
         # Primers
         primer_count=metrics.primer_count,
         primer_rows=primer_rows,
+        quality_header=quality_header,
         # Recommendation (escaped for XSS and format string injection)
         recommendation=escape_format_braces(html_escape(quality.recommendation)),
         recommendation_details=escape_format_braces(html_escape(quality.recommendation_details)),

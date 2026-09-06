@@ -396,6 +396,17 @@ def get_features(primer, target=None, molarity=2.5):
 
     feature_dict["target"] = target
 
+    # Deliberately called with no salt arguments. `melting_temp.temp` defaults to
+    # 10 mM Na and 20 mM Mg, and those defaults ARE the definition of this
+    # feature: they are the conditions the bundled model was fitted on, not a
+    # description of any particular reaction. Passing a run's configured
+    # chemistry here would move the served value off the trained scale and make
+    # the model's splits meaningless -- it looks like a bug fix and is the
+    # opposite. The reaction's real Tm is computed elsewhere and correctly:
+    # `filter.filter_extra` gates on `ReactionConditions.calculate_effective_tm`,
+    # and `NetworkOptimizer._get_primer_tm` uses `calculate_tm_with_salt` plus
+    # the additive correction. Pinned by
+    # `tests/test_rf_training_features_match_serving.py`.
     feature_dict["melting_tm"] = _melting_temp(primer)
     # GC clamp: count G and C in the last 5 bases (3' end)
     last_five_end = primer[-5:]  # Fixed: was primer[:-5] which excluded last 5

@@ -137,21 +137,27 @@ class TestPipelineE2E:
 
         assert os.path.exists(step3_output), "step3_df.csv was not created"
         assert len(df) > 0, "Score step produced no primers"
-        # step3 returns a DataFrame with primer sequences as the index
+        # The amplification model is retired from the default path (finding F0),
+        # so the stage carries candidates rather than scoring them.
         assert (
-            "on.target.pred" in df.columns
-        ), f"Expected 'on.target.pred' column in step3 output, got: {list(df.columns)}"
+            "on.target.pred" not in df.columns
+        ), f"the retired score column is back in step3 output: {list(df.columns)}"
 
-    def test_step3_has_amp_pred_scores(self, pipeline_workdir):
-        """step3_df.csv should include amplification prediction scores."""
+    def test_step3_carries_the_step2_measurements(self, pipeline_workdir):
+        """What step3_df.csv holds now: the candidates and their step-2
+        measurements, in the deterministic order `order_step3_rows` sets.
+
+        This test previously required an `on.target.pred` column. Finding F0
+        retired the scoring: the gate passed essentially every candidate and the
+        optimizer read only the primer column.
+        """
         step3_csv = os.path.join(pipeline_workdir, "step3_df.csv")
         assert os.path.exists(step3_csv), "step3_df.csv required"
 
         df = pd.read_csv(step3_csv, index_col=0)
-        assert (
-            "on.target.pred" in df.columns
-        ), f"Expected 'on.target.pred' column in step3 output, got: {list(df.columns)}"
-        assert df["on.target.pred"].notna().any(), "All amp_pred scores are NaN"
+        assert "on.target.pred" not in df.columns
+        assert "gini" in df.columns, f"step3 lost gini: {list(df.columns)}"
+        assert df["gini"].is_monotonic_increasing, "the deterministic order was lost"
 
     def test_step4_optimize_produces_output(self, pipeline_workdir, reset_pipeline_state):
         """Step 4 (optimize) should produce a non-empty step4_improved_df.csv."""

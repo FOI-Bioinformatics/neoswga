@@ -113,22 +113,32 @@ def generate_primer_sequence(length=12, gc_target=None):
 
 
 def compute_melting_temp(seq):
-    """Simple Tm calculation using basic nearest-neighbor approximation."""
-    # Wallace rule for short primers
-    a_count = seq.count("A")
-    t_count = seq.count("T")
-    g_count = seq.count("G")
-    c_count = seq.count("C")
+    """Tm for the `melting_tm` feature, computed exactly as serving computes it.
 
-    if len(seq) < 14:
-        # Wallace rule
-        tm = 2 * (a_count + t_count) + 4 * (g_count + c_count)
-    else:
-        # Marmur-Doty approximation
-        gc_content = (g_count + c_count) / len(seq)
-        tm = 64.9 + 41 * (gc_content - 0.16)
+    This MUST stay the same function `rf_preprocessing.py` calls when it builds
+    a feature row, because a model is only meaningful on the feature
+    distribution it was fitted to. `tests/test_rf_training_features_match_serving.py`
+    pins the two together.
 
-    return tm
+    It previously applied the Wallace rule below 14 bp and a Marmur-Doty GC
+    regression at or above it. Two problems followed. The branches did not meet,
+    so a 13-mer scored 38.0 and a 14-mer 78.8 -- a 40.8 C step from adding one
+    base, which left a band of Tm values that no training primer of any length
+    could occupy. And serving supplied nearest-neighbour values on a continuous
+    scale, putting 99% of a real 12-mer pool inside precisely that empty band.
+    Since the band was what separated short primers from long ones in training,
+    every one of those 12-mers presented to the model as a 14-mer or longer,
+    contradicting `sequence.length` in the same row.
+
+    Calling the serving function removes both problems at once. Note that its
+    salt defaults (10 mM Na, 20 mM Mg) are deliberate and load-bearing: they are
+    the conditions the feature is defined on, not a description of any
+    particular reaction. Passing a run's configured chemistry here would put
+    training and serving back on different scales.
+    """
+    from neoswga.core.melting_temp import temp as _serving_melting_temp
+
+    return _serving_melting_temp(seq)
 
 
 def extract_features(seq, molarity=2.5):
@@ -189,7 +199,7 @@ def extract_features(seq, molarity=2.5):
     quality = 0.5
     if 0.4 <= gc <= 0.6:
         quality += 0.2
-    if 30 <= tm <= 42:
+    if 45 <= tm <= 65:  # same band as compute_target_score; see its docstring
         quality += 0.2
     if features["GC.clamp"] >= 2:
         quality += 0.1
@@ -211,21 +221,32 @@ def compute_target_score(features):
     Compute target amplification score based on primer features.
 
     This follows known SWGA principles:
-    - Optimal Tm for MDA/EquiPhi29: 30-45C
+    - Primers should melt well above the reaction temperature (25-45C for the
+      supported polymerases) without being so stable that they misprime
     - Optimal GC content: 40-60%
     - GC clamp at 3' end improves binding
     - Long homopolymer runs reduce specificity
     - Strong binding (low delta-G) improves amplification
+
+    The Tm bands below are heuristic, not a thermodynamic claim, and they are
+    stated on the scale `compute_melting_temp` actually produces. They were
+    previously 30-42C, which suited the Wallace rule the feature used to be
+    computed with. On the nearest-neighbour scale that serving supplies, a real
+    12-mer pool sits at 49.7-67.5C, so the old band never fired and every primer
+    collected the same Tm contribution -- a label term constant across the pool
+    teaches the model nothing. The band below covers 49% of the generated
+    training rows and brackets that measured pool, so it separates rather than
+    saturates.
     """
     score = 10.0  # baseline
 
     # Melting temperature effect
     tm = features["melting_tm"]
-    if 30 <= tm <= 42:
+    if 45 <= tm <= 65:
         score += 3.0
-    elif 25 <= tm < 30 or 42 < tm <= 50:
+    elif 35 <= tm < 45 or 65 < tm <= 72:
         score += 1.5
-    elif tm < 20 or tm > 55:
+    elif tm < 28 or tm > 78:
         score -= 3.0
 
     # GC content effect

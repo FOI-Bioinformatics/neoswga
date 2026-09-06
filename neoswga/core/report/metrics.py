@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,22 @@ def _normalize_amp_pred(raw_score: float) -> float:
         return 0.0
     # Model outputs ~0-20; normalize to 0-1
     return min(1.0, raw_score / 20.0)
+
+
+def amp_pred_is_available(primers: Sequence["PrimerMetrics"]) -> bool:
+    """Whether this run produced an amplification score at all.
+
+    The default pipeline retired the random forest on 2026-09-05, so
+    `step3_df.csv` no longer carries `amp_pred` and `_backfill_primer_amp_pred`
+    finds nothing to backfill. Every rendering site used to substitute 0.5 for a
+    falsy score, which rendered as an identical three-star rating for every
+    primer in every report.
+
+    Reporting a constant is worse than reporting nothing, so the surfaces ask
+    here first and omit the column when the answer is False. `--amp-model`
+    restores the score and with it the column.
+    """
+    return any(p.amp_pred > 0 for p in primers)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -758,6 +774,49 @@ def _backfill_primer_tm(
             primer.tm = tm
 
 
+def _backfill_primer_amp_pred(primers: List["PrimerMetrics"], results_path: Path) -> None:
+    """Give each primer the amplification score its step-4 row does not carry.
+
+    `step4_improved_df.csv` holds the set-level result and seventeen columns,
+    none of them `amp_pred` or `on.target.pred`, so the lookup in
+    `_primer_from_row` fell through to 0 for EVERY primer in EVERY run --
+    verified on a 160-primer panel where the set of distinct values was exactly
+    `{0.0}`.
+
+    Two surfaces read it. The executive summary computes
+    `quality_score = amp_pred if amp_pred > 0 else 0.5`, so every primer in
+    every report rendered three stars; a per-primer column that never varies is
+    worse than no column. And the technical report weights it at 0.2 of the
+    contribution score, permanently zero.
+
+    The score is measured, per primer, in `step3_df.csv`. Read from there, the
+    way `_backfill_primer_tm` and `_backfill_primer_sites` already do for the
+    other columns step 4 does not carry.
+
+    This reports a number the pipeline computed. It is NOT a claim that
+    `amp_pred` should influence which primers are SELECTED -- it should not, and
+    `tests/test_step3_order_is_deterministic.py` records why.
+    """
+    missing = [p for p in primers if p.sequence and not p.amp_pred]
+    if not missing:
+        return
+
+    step3 = results_path / "step3_df.csv"
+    if not step3.exists():
+        return
+    by_primer = {str(row.get("primer", "")): row for row in _load_csv(step3)}
+    if not by_primer:
+        return
+
+    for primer in missing:
+        row = by_primer.get(primer.sequence)
+        if row is None:
+            continue
+        primer.amp_pred = _normalize_amp_pred(
+            _safe_float(row.get("amp_pred", row.get("on.target.pred", 0)))
+        )
+
+
 def _backfill_primer_sites(
     primers: List["PrimerMetrics"], results_path: Path, params: Dict[str, Any]
 ) -> None:
@@ -881,6 +940,7 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     metrics.primer_count = len(metrics.primers)
     _backfill_primer_tm(metrics.primers, metrics.parameters, results_path)
     _backfill_primer_sites(metrics.primers, results_path, metrics.parameters)
+    _backfill_primer_amp_pred(metrics.primers, results_path)
 
     # Calculate derived metrics
     metrics.coverage = _calculate_coverage_metrics(metrics.primers, metrics.parameters)

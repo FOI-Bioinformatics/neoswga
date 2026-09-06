@@ -298,6 +298,25 @@ class DominatingSetOptimizer:
         total = self._total_bins()
         return len(covered_regions) / total if total else 0.0
 
+    def _warn_if_empty_graph(self, graph: BipartiteGraph, candidates: List[str]) -> None:
+        """Warn if coverage graph has no regions.
+
+        An empty graph means no candidates have cached binding positions.
+        The break condition `covered_regions == graph.regions` is vacuously
+        true of an empty set, so an index with no positions would announce
+        "Full coverage achieved" then report 0.0%. Instead warn and direct
+        the user to build the positions.
+        """
+        if not graph.regions:
+            logger.warning(
+                "The coverage graph has no coverage regions: none of the "
+                "%d candidates has a cached binding position. Coverage cannot "
+                "be computed. Run 'neoswga filter' to build the position files "
+                "for every primer length in the pool; it needs the k-mer tables "
+                "from 'neoswga count-kmers' first.",
+                len(candidates),
+            )
+
     def optimize_greedy(
         self,
         candidates: List[str],
@@ -402,7 +421,7 @@ class DominatingSetOptimizer:
         if verbose and n_fixed > 0:
             coverage_so_far = self._genome_fraction(covered_regions)
             logger.info(f"  Fixed primer coverage: {coverage_so_far:.1%}")
-
+        self._warn_if_empty_graph(graph, candidates)
         for iteration in range(max_primers):
             if len(covered_regions) == len(graph.regions):
                 if verbose:

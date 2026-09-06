@@ -297,16 +297,31 @@ class TestCalculateQualityGrade:
         assert spec_component.raw_value == 10000.0
 
     def test_dimer_risk_from_primers(self, sample_pipeline_metrics):
-        """Dimer risk is calculated from primer dimer scores."""
-        # Modify primers to have significant dimer scores
+        """Dimer risk is the WORST primer's risk, on the 0-1 scale it is written on.
+
+        `dimer_score` is filled from the `dimer_risk_score` column, a positive
+        0-1 risk where higher is worse, and `DIMER_THRESHOLDS` is calibrated on
+        that same scale. Free energies are carried separately, in `hairpin_dg`
+        and `self_dimer_dg`.
+
+        This test used to set -8.0 and expect 0.8, because the grade read the
+        value as a free energy: it took `min()` -- which on a positive scale
+        picks the LEAST risky primer -- and divided by 10.0. Both errors pushed
+        the same way, so a real set measured at 0.4667, which rates "poor",
+        was graded 0.0467 and printed "Excellent". That set contained a 10 bp
+        heterodimer against a configured max_dimer_bp of 3.
+        """
         for primer in sample_pipeline_metrics.primers:
-            primer.dimer_score = -8.0
+            primer.dimer_score = 0.2
+        sample_pipeline_metrics.primers[0].dimer_score = 0.8
 
         assessment = calculate_quality_grade(sample_pipeline_metrics)
 
         dimer_component = next(c for c in assessment.components if c.name == "Dimer Risk")
-        # -8.0 / 10.0 = 0.8 risk
-        assert dimer_component.raw_value == pytest.approx(0.8, abs=0.01)
+        assert dimer_component.raw_value == pytest.approx(0.8, abs=0.01), (
+            "the grade must take the worst primer, not the best; "
+            f"got {dimer_component.raw_value}"
+        )
 
 
 class TestFormatGradeDisplay:
@@ -387,18 +402,26 @@ class TestEdgeCases:
         uniform_comp = next(c for c in assessment.components if c.name == "Uniformity")
         assert uniform_comp.raw_value == 0.5  # 1 - 0.5 gini
 
-    def test_negative_dimer_scores(self, sample_pipeline_metrics):
-        """Handle negative dimer scores correctly."""
-        # Set very negative dimer scores
+    def test_out_of_contract_dimer_scores_are_clamped(self, sample_pipeline_metrics):
+        """A value outside 0-1 must not be able to grade well by accident.
+
+        No pipeline path writes one -- `dimer_risk_score` is a positive 0-1
+        quantity everywhere it is produced -- so this pins the defensive clamp
+        rather than a supported input. A negative reaching the grade unclamped
+        is how a free-energy reading of this field used to score "Excellent".
+        """
         for primer in sample_pipeline_metrics.primers:
-            primer.dimer_score = -12.0
-
+            primer.dimer_score = 12.0
         assessment = calculate_quality_grade(sample_pipeline_metrics)
-
         dimer_comp = next(c for c in assessment.components if c.name == "Dimer Risk")
-        # abs(-12.0) / 10.0 = 1.2, capped to 1.0
         assert dimer_comp.raw_value == 1.0
         assert dimer_comp.rating == "Critical"
+
+        for primer in sample_pipeline_metrics.primers:
+            primer.dimer_score = -12.0
+        assessment = calculate_quality_grade(sample_pipeline_metrics)
+        dimer_comp = next(c for c in assessment.components if c.name == "Dimer Risk")
+        assert dimer_comp.raw_value == 0.0
 
 
 class TestUniformityUsesTheMeasuredSetGini:

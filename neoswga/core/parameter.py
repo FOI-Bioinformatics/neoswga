@@ -846,12 +846,20 @@ def _apply_params_only_keys(data: dict) -> None:
     global occupancy_shortlist
     global max_mismatches
     global sampled_index_path
+    global optimization_method
 
     coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
     occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")
     max_mismatches = data["max_mismatches"] = data.get("max_mismatches")
     sampled_index_path = data["sampled_index_path"] = data.get("sampled_index_path")
+    # Known Issue 8, and the last instance of this defect class. The key was
+    # declared in the schema, documented, accepted by the validator, and
+    # assigned to no global -- so `run_step4` fell through to the argparse
+    # default and every params.json user ran `hybrid` whatever they asked
+    # for. Left as None when absent, so `resolve_optimization_method` can
+    # tell "not configured" from "configured as hybrid".
+    optimization_method = data["optimization_method"] = data.get("optimization_method")
 
 
 def get_params(args):

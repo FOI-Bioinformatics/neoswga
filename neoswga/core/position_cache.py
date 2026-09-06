@@ -607,13 +607,24 @@ class StreamingPositionCache:
         self.file_handles: Dict[str, h5py.File] = {}
         self.preloaded: Dict[Tuple[str, str, str], np.ndarray] = {}
 
-        # Open HDF5 files in read-only mode with memory mapping
+        # Open HDF5 files in read-only mode with memory mapping.
+        #
+        # Discovered by glob rather than by `for k in range(6, 13)`. That range
+        # covers phi29 (6-12) and nothing else: equiphi29 runs at 12-18 and bst
+        # at 15-25, both shipped presets, and for those this opened no files at
+        # all. Every lookup then returned an empty array, which downstream is
+        # indistinguishable from a primer that does not bind -- the same
+        # silent-zero failure this module has produced before.
+        import glob as _glob
+        import re as _re
+
         for prefix in fname_prefixes:
-            for k in range(6, 13):
-                path = f"{prefix}_{k}mer_positions.h5"
-                if os.path.exists(path):
-                    # Open with driver for memory mapping
-                    self.file_handles[path] = h5py.File(path, "r", rdcc_nbytes=1024**2)
+            pattern = f"{prefix}_*mer_positions.h5"
+            for path in sorted(_glob.glob(pattern)):
+                if not _re.fullmatch(rf"{_re.escape(prefix)}_\d+mer_positions\.h5", path):
+                    continue
+                # Open with driver for memory mapping
+                self.file_handles[path] = h5py.File(path, "r", rdcc_nbytes=1024**2)
 
         # Preload small subset if provided
         if primers and len(primers) < 100:

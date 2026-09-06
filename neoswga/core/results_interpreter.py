@@ -181,6 +181,60 @@ class ResultsInterpreter:
         self.results_dir = Path(results_dir)
         self.step4_file = self.results_dir / "step4_improved_df.csv"
         self.step3_file = self.results_dir / "step3_df.csv"
+        # The optimizer's own findings about the set it just produced. This
+        # command read neither this file nor the summary, so it happily rated a
+        # run EXCELLENT and told the user to order primers while the optimizer
+        # had already recorded that the headline coverage was saturation-bounded
+        # and unreliable, and that the pool broke its own dimer threshold.
+        # `neoswga report` reads it and renders the warnings; this did not.
+        self.validation_file = self.results_dir / "step4_improved_df_validation.json"
+
+    def _validator_warnings(self) -> List[str]:
+        """Human-readable findings the optimizer recorded about this set."""
+        if not self.validation_file.exists():
+            return []
+        try:
+            import json
+
+            with open(self.validation_file) as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError) as exc:
+            logger.debug(f"Could not read {self.validation_file}: {exc}")
+            return []
+
+        messages = []
+        for issue in payload.get("issues", []) or []:
+            detail = str(issue.get("detail", "")).strip()
+            code = str(issue.get("code", "")).strip()
+            if detail:
+                messages.append(detail)
+            elif code:
+                messages.append(code)
+        return messages
+
+    def _blocks_synthesis(self) -> bool:
+        """Whether a recorded finding makes "ready to order" the wrong verdict.
+
+        A pool that breaks the dimer threshold the user configured is not ready
+        to synthesise whatever the composite rating says.
+
+        Deliberately narrow. `coverage_saturated_on_small_genome` is reported as
+        a warning but does not block: it says a metric is untrustworthy on a
+        small target, which is inherent to plasmid-scale design rather than a
+        fault in the pool, and blocking on it would refuse every such design.
+        """
+        if not self.validation_file.exists():
+            return False
+        try:
+            import json
+
+            with open(self.validation_file) as handle:
+                payload = json.load(handle)
+        except (OSError, ValueError):
+            return False
+
+        blocking = {"delivered_pool_exceeds_max_dimer_bp"}
+        return any(issue.get("code") in blocking for issue in payload.get("issues", []) or [])
 
     def analyze(self) -> ResultsReport:
         """
@@ -270,6 +324,11 @@ class ResultsInterpreter:
             )
             if rating in (QualityRating.POOR, QualityRating.CRITICAL):
                 warnings.append("High dimer risk may reduce amplification efficiency")
+
+        # Findings the optimizer recorded about this set, verbatim. They are
+        # more specific than anything derivable from the CSV -- they name the
+        # offending pair, or the reason a coverage figure cannot be trusted.
+        warnings.extend(self._validator_warnings())
 
         # Calculate overall rating
         if not assessments:
@@ -383,7 +442,14 @@ class ResultsInterpreter:
 
     def _calculate_dimer_score(self, primers: List[Dict]) -> Optional[float]:
         """Calculate dimer risk score from primer data."""
-        for key in ["dimer_score", "dimer_risk", "heterodimer_score"]:
+        # `dimer_risk_score` is the column step 4 actually writes, and is pinned
+        # as canonical by tests/integration/test_output_column_parity.py. It was
+        # absent from this list, and the lookup is an exact match, so the
+        # function returned None on every real run and the dimer assessment
+        # below it never executed. The unit tests did not catch that because
+        # their fixture rows carry a `dimer_score` column the pipeline never
+        # produces.
+        for key in ["dimer_risk_score", "dimer_score", "dimer_risk", "heterodimer_score"]:
             values = [float(p.get(key, 0)) for p in primers if key in p]
             if values:
                 return max(values)  # Worst case dimer risk
@@ -491,6 +557,22 @@ class ResultsInterpreter:
         self, overall: QualityRating, warnings: List[str]
     ) -> Tuple[str, List[str]]:
         """Generate recommendation and next steps based on assessment."""
+        # A finding the optimizer recorded about this very set outranks the
+        # composite rating. Telling someone to order oligos that break the
+        # threshold they configured is the one verdict this command must not
+        # give, and it used to give it.
+        if self._blocks_synthesis():
+            return (
+                "Not ready for synthesis. The optimizer recorded findings about "
+                "this set that have to be resolved first.",
+                [
+                    "Read the findings above and fix what they name",
+                    "For a dimerising pair, re-run with "
+                    "--optimization-method clique, which constrains the set "
+                    "structurally, or break the pair by hand",
+                    "Re-run `neoswga interpret` once the findings are cleared",
+                ],
+            )
         if overall == QualityRating.EXCELLENT:
             recommendation = "Ready for synthesis. Excellent primer set quality."
             next_steps = [
@@ -550,6 +632,11 @@ class ResultsInterpreter:
                 # line reading ">95% excellent".
                 if assessment.unit == "%":
                     shown = f"{assessment.value:.1%}"
+                elif len(assessment.unit) > 1 and assessment.unit.isalpha():
+                    # A word-like unit ("score", "Gini") needs a separator;
+                    # gluing it on printed "0.47score". A single-letter suffix
+                    # ("x" for a ratio) is written closed up, as "73.55x".
+                    shown = f"{assessment.value:.2f} {assessment.unit}"
                 else:
                     shown = f"{assessment.value:.2f}{assessment.unit}"
                 print(f"\n{assessment.name}: {shown}")

@@ -151,3 +151,31 @@ def polymerase_from_params(parameter, default="phi29", args=None):
             )
         return default
     return resolved
+
+
+def optimization_method_from_params(parameter, default="hybrid", args=None):
+    """Which optimizer to run: the flag, then params.json, then the default.
+
+    Sits beside the other pre-read resolvers because it has the same problem
+    they do: `run_step4` builds its argument list BEFORE `optimize_step4`
+    triggers `get_params`, so reading the module global at that point sees the
+    value from the previous run or nothing at all. `_preread` answers from the
+    file when the globals are not yet populated.
+
+    The flag's sentinel is load-bearing. `"hybrid"` is both the sensible default
+    and a legitimate explicit choice, so `--optimization-method` defaults to
+    None; comparing against a default of `"hybrid"` could not tell "the user
+    typed hybrid", which must beat a configured `dominating-set`, from "the user
+    said nothing", which must not.
+    """
+    chosen = getattr(args, "optimization_method", None) if args is not None else None
+    if chosen:
+        return chosen
+
+    loaded, json_data = _preread(parameter, "optimization_method")
+    if loaded:
+        configured = getattr(parameter, "optimization_method", None)
+        if configured:
+            return configured
+    configured = json_data.get("optimization_method")
+    return configured or default
