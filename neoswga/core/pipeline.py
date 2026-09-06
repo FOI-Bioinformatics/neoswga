@@ -459,6 +459,29 @@ def reset_pipeline_state():
         logger.debug(f"reset_reaction_conditions skipped: {e}")
 
 
+def _apply_adaptive_additives(adaptive_params) -> None:
+    """Apply the strategy's additive recommendations, but not over a user's choice.
+
+    The guards used to read `getattr(parameter, "betaine_m", 0.0) == 0.0`, which
+    is true both when the user wrote 0.0 and when the user wrote nothing. A
+    params.json excluding betaine was therefore run at the recommended
+    concentration, and every melting temperature in that design was computed
+    against a buffer the user had ruled out. Key presence is the only thing that
+    distinguishes the two cases, and the k-mer branch above already uses it.
+    """
+    if "betaine_m" not in parameter._json_data and adaptive_params.betaine_concentration > 0:
+        parameter.betaine_m = adaptive_params.betaine_concentration
+        logger.info(f"GC-adaptive: Setting betaine to {adaptive_params.betaine_concentration}M")
+    elif "betaine_m" in parameter._json_data:
+        logger.info(f"GC-adaptive: Preserving user-specified betaine {parameter.betaine_m}M")
+
+    if "dmso_percent" not in parameter._json_data and adaptive_params.dmso_concentration > 0:
+        parameter.dmso_percent = adaptive_params.dmso_concentration
+        logger.info(f"GC-adaptive: Setting DMSO to {adaptive_params.dmso_concentration}%")
+    elif "dmso_percent" in parameter._json_data:
+        logger.info(f"GC-adaptive: Preserving user-specified DMSO {parameter.dmso_percent}%")
+
+
 def _apply_gc_adaptive_defaults():
     """
     Apply GC-adaptive parameter defaults if genome_gc is set.
@@ -555,17 +578,7 @@ def _apply_gc_adaptive_defaults():
                 f"{parameter.min_k}-{parameter.max_k}bp"
             )
 
-        # Apply betaine if not explicitly set and recommended
-        current_betaine = getattr(parameter, "betaine_m", 0.0)
-        if current_betaine == 0.0 and adaptive_params.betaine_concentration > 0:
-            parameter.betaine_m = adaptive_params.betaine_concentration
-            logger.info(f"GC-adaptive: Setting betaine to {adaptive_params.betaine_concentration}M")
-
-        # Apply DMSO if not explicitly set and recommended
-        current_dmso = getattr(parameter, "dmso_percent", 0.0)
-        if current_dmso == 0.0 and adaptive_params.dmso_concentration > 0:
-            parameter.dmso_percent = adaptive_params.dmso_concentration
-            logger.info(f"GC-adaptive: Setting DMSO to {adaptive_params.dmso_concentration}%")
+        _apply_adaptive_additives(adaptive_params)
 
         # Log overall strategy
         logger.info(
