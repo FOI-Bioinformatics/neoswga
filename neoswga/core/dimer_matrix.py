@@ -1,9 +1,15 @@
 """The pairwise dimer relation for a pool of primers, as one boolean matrix.
 
-`dimer.is_dimer_fast` answers the same question one pair at a time, at 105 us a
-pair. That is 7.9 minutes for the 4.5 million pairs of a 3000-candidate pool, so
-the screen that used it could not run over a whole pool and the greedy that
-needed it did not have one.
+Measured on the real 449-candidate E. coli pool (`runs/gc_tiers/mid_ecoli/step3_df.csv`)
+on an unloaded machine, `dimer.is_dimer_fast` costs 12.9 us a pair against
+`secondary_structure.check_heterodimer`'s 627.1 us a pair -- the substring test is
+49x cheaper. At 12.9 us, `is_dimer_fast` is not itself the bottleneck; it is merely
+too slow to run 4.5 million times (the pair count of a 3000-candidate pool) inside
+an optimizer that calls it once per alternative set. The thermodynamic screen at
+627 us a pair is the dominant cost this module removes: about 1.0 minute pairwise
+for the substring test against about 47 minutes for the thermodynamic one, over
+those 4.5 million pairs. Neither screen could run over a whole pool at that cost,
+so the greedy that needed one did not have one.
 
 The reformulation here is exact. `is_dimer_fast(a, b, m)` is True when the
 longest common substring of `a` and the reverse complement of `b` is longer than

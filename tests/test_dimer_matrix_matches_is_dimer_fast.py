@@ -1,11 +1,15 @@
 """The vectorised dimer relation agrees with is_dimer_fast on every pair.
 
-Finding A1. is_dimer_fast costs 105 us per pair, which is 7.9 minutes for the
-4.5 million pairs of a 3000-candidate pool, so it cannot be used as a pre-screen
-for the thermodynamic check. The matrix form is an exact reformulation, not an
-approximation: a common substring of length t between seq_1 and revcomp(seq_2)
-exists exactly when some t-mer of seq_1 is the reverse complement of some t-mer
-of seq_2.
+Finding A1. Measured on the real 449-candidate E. coli pool
+(runs/gc_tiers/mid_ecoli/step3_df.csv) on an unloaded machine, is_dimer_fast costs
+12.9 us per pair against secondary_structure.check_heterodimer's 627.1 us per pair
+-- 49x cheaper. Neither is affordable 4.5 million times over (the pair count of a
+3000-candidate pool): about 1.0 minute pairwise for the substring test, about 47
+minutes for the thermodynamic one. It is the thermodynamic screen's cost this
+module lets an optimizer avoid paying by pre-screening with the substring test
+first. The matrix form is an exact reformulation, not an approximation: a common
+substring of length t between seq_1 and revcomp(seq_2) exists exactly when some
+t-mer of seq_1 is the reverse complement of some t-mer of seq_2.
 """
 
 import itertools
