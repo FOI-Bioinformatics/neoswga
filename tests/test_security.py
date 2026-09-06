@@ -72,29 +72,39 @@ class TestCommandInjectionPrevention:
             except Exception:
                 pass
 
+            # subprocess.run must actually have been invoked: with jellyfish
+            # availability mocked out and os.path.exists patched to True, the
+            # counting path is not gated on anything real in this test, so a
+            # count that never reaches subprocess.run means the test asserted
+            # nothing about command injection at all.
+            assert mock_run.called, (
+                "subprocess.run was never invoked, so this test verified "
+                "nothing about command injection -- the counting path was "
+                "skipped in this mocked scenario"
+            )
+
             # Verify subprocess.run was called with list arguments (safe)
             # not with shell=True (unsafe). Check every recorded call, not just
             # the most recent one: a single genome may be counted through more
             # than one subprocess.run invocation (count, then dump), and only
             # the count command carries the genome path.
-            if mock_run.called:
-                found_path = False
-                for call_args in mock_run.call_args_list:
-                    cmd = call_args[0][0]  # First positional arg is the command
+            found_path = False
+            for call_args in mock_run.call_args_list:
+                cmd = call_args[0][0]  # First positional arg is the command
 
-                    # Command should be a list (safe) not a string (unsafe)
-                    assert isinstance(cmd, list), "Command should be a list, not a string"
+                # Command should be a list (safe) not a string (unsafe)
+                assert isinstance(cmd, list), "Command should be a list, not a string"
 
-                    # The malicious path should be passed as a single element
-                    # If command injection worked, it would be split at ";"
-                    for arg in cmd:
-                        if malicious_path in arg:
-                            found_path = True
-                            # If the path is in args, it should be the whole path as one arg
-                            assert (
-                                arg == malicious_path
-                            ), "Path should be single argument, not split"
-                assert found_path, "Malicious path should be found as single argument"
+                # The malicious path should be passed as a single element
+                # If command injection worked, it would be split at ";"
+                for arg in cmd:
+                    if malicious_path in arg:
+                        found_path = True
+                        # If the path is in args, it should be the whole path as one arg
+                        assert (
+                            arg == malicious_path
+                        ), "Path should be single argument, not split"
+            assert found_path, "Malicious path should be found as single argument"
 
 
 # =============================================================================
