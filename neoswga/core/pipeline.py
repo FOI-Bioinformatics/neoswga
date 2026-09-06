@@ -190,14 +190,53 @@ def validate_step1_prerequisites(
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
 
 
+def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> List[str]:
+    """K-mer tables whose provenance record names a genome other than this one.
+
+    Step 1 records what each table was counted from and refuses to reuse a
+    table that does not match. Nothing else read that record, so repointing
+    `fg_genomes` at a new assembly and running `filter` without re-running
+    `count-kmers` built the whole design from the previous organism's counts.
+
+    A table with NO provenance record is not treated as stale. Every table
+    written before the record was introduced lacks one, so refusing on absence
+    would reject working data directories over a fact that is unknown rather
+    than wrong. Step 1 already recounts in that case and writes the record,
+    which is where the gap closes.
+    """
+    from neoswga.core.kmer_counter import _table_is_current, table_provenance_path
+
+    if not genomes or len(genomes) != len(prefixes):
+        return []
+
+    stale = []
+    for prefix, genome in zip(prefixes, genomes):
+        if not os.path.exists(genome):
+            continue
+        for k in range(min_k, max_k + 1):
+            if not os.path.exists(table_provenance_path(prefix, k)):
+                continue
+            if not _table_is_current(prefix, genome, k):
+                stale.append(f"{prefix}_{k}mer_all.txt")
+    return stale
+
+
 def validate_step2_prerequisites(
-    data_dir: str, fg_prefixes: List[str], bg_prefixes: List[str], min_k: int = 6, max_k: int = 12
+    data_dir: str,
+    fg_prefixes: List[str],
+    bg_prefixes: List[str],
+    min_k: int = 6,
+    max_k: int = 12,
+    fg_genomes: Optional[List[str]] = None,
+    bg_genomes: Optional[List[str]] = None,
 ) -> StepValidationResult:
     """
     Validate prerequisites for Step 2 (filtering).
 
     Checks:
     - K-mer count files exist from Step 1
+    - Those tables were counted from the genomes now configured, when the
+      genome paths are supplied and the tables carry a provenance record
     """
     missing = []
 
@@ -214,6 +253,24 @@ def validate_step2_prerequisites(
             missing_files=missing,
             error_message="K-mer count files not found. Step 2 requires output from Step 1.",
             remediation="Run 'neoswga count-kmers -j params.json' (Step 1) first.",
+        )
+
+    stale = _tables_counted_from_another_genome(
+        fg_prefixes, fg_genomes, min_k, max_k
+    ) + _tables_counted_from_another_genome(bg_prefixes, bg_genomes, min_k, max_k)
+    if stale:
+        return StepValidationResult(
+            valid=False,
+            missing_files=stale,
+            error_message=(
+                f"{len(stale)} k-mer count file(s) were counted from a different "
+                f"genome than the one now configured. Step 2 would build the "
+                f"whole design from the other organism's counts."
+            ),
+            remediation=(
+                "Run 'neoswga count-kmers -j params.json' (Step 1) again so the "
+                "tables match the configured genomes."
+            ),
         )
 
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
@@ -1070,7 +1127,13 @@ def step2(all_primers=None, validate_prerequisites=True):
         min_k = getattr(parameter, "min_k", 6)
         max_k = getattr(parameter, "max_k", 12)
         validation = validate_step2_prerequisites(
-            parameter.data_dir, fg_prefixes, bg_prefixes, min_k, max_k
+            parameter.data_dir,
+            fg_prefixes,
+            bg_prefixes,
+            min_k,
+            max_k,
+            fg_genomes=fg_genomes,
+            bg_genomes=bg_genomes,
         )
         if not validation.valid:
             raise StepPrerequisiteError(2, validation)
