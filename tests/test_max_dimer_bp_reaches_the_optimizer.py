@@ -166,26 +166,29 @@ def test_relaxation_warning_wording_when_nothing_was_admitted(caplog):
     was delivered.
 
     This calls `_log_dimer_relaxation_outcome` directly rather than driving it
-    through a live `optimize_greedy` run. Attempting the live version first
-    (a redundant, dimerising second primer at the same binding position as
-    the first) never logged anything: `graph.regions` is defined purely by
-    what the candidates contribute, so if a redundant candidate is the only
-    thing left, `covered_regions == graph.regions` already holds and the
-    "Full coverage achieved" branch fires before selection is even attempted
-    -- correctly, since nothing was actually left to gain. A 3,000-trial
-    randomised search over synthetic pools (varying primer count, dimer
-    pairs, and binding positions) found no live case where the stall fires,
-    the graph is not yet fully covered, and the retry still admits nothing:
-    whenever `covered_regions != graph.regions`, some not-yet-selected
-    candidate accounts for the gap, and relaxation lifts the dimer check for
-    every remaining candidate at once, so that candidate always scores
-    positively on retry. The report that this branch fired live was against
-    the round-1 code, where the *other* bug (the relaxation consuming a loop
-    iteration) could end the run before the retry ran at all -- which looked
-    like "nothing admitted" but was actually that bug, now fixed above. The
-    branch is still real, reachable code (a future caller could set
-    `relax_dimer_constraint_when_stuck` False mid-run, or a subclass could
-    change what "stuck" means), so its wording is pinned directly here.
+    through a live `optimize_greedy` run, because the branch is unreachable
+    there by construction, not merely unobserved: `graph.regions` is built
+    entirely from the candidates' own binding positions, so no region in it is
+    orphaned -- every region exists because some candidate covers it. Combined
+    with the full-coverage break at the top of the selection loop, the case is
+    closed. If coverage is complete, that break fires before any scan, so
+    there is no stall and nothing to relax. If coverage is incomplete, some
+    region is uncovered, and by construction some not-yet-selected candidate
+    covers it: either it was skipped for dimer reasons, in which case relaxing
+    admits it and it scores on retry, or it was not skipped, in which case
+    there was no dimer stall to relax in the first place. Either way, whenever
+    the stall condition holds, the retry has something to admit. (Attempting a
+    live repro confirms this: a redundant, dimerising second primer at the
+    same binding position as the first never logs anything, because the
+    "Full coverage achieved" branch fires first, before selection is even
+    attempted.) The round-1 report of this branch firing live was almost
+    certainly finding 1 itself: under the old code, the relaxation's
+    `continue` could exhaust the iteration budget before the retry ever ran,
+    which presents identically to "nothing admitted" without being that
+    branch. The branch stays as real, reachable code regardless
+    (`relax_dimer_constraint_when_stuck` could be set False mid-run by a
+    subclass or a future caller, or `graph.regions` could stop being built
+    this way), so its wording is pinned directly here.
     """
     optimizer = _dimer_stall_optimizer()
 

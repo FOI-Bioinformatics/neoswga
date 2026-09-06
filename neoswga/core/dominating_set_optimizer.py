@@ -397,6 +397,25 @@ class DominatingSetOptimizer:
         nothing remaining could add coverage either way (the set is short of
         what was requested). Called only after the retry resolves, so it never
         promises a consequence the code has not yet established.
+
+        The `admitted_primer is None` branch is defensive rather than reached
+        by any live run, and that is a construction argument, not a sampling
+        one: `graph.regions` is built entirely from the candidates' own
+        binding positions (see the graph-building loops above), so no region
+        in it is orphaned -- every region exists because some candidate covers
+        it. Combined with the full-coverage break at the top of
+        `_run_greedy_selection`'s loop, the case is closed. If coverage is
+        complete, that break fires before any scan, so there is no stall and
+        nothing to relax. If coverage is incomplete, some region is uncovered,
+        and by construction some not-yet-selected candidate covers it: either
+        it was skipped for dimer reasons, in which case relaxing admits it and
+        it scores on retry, or it was not skipped, in which case there was no
+        dimer stall to relax in the first place. Either way, whenever
+        `_dimer_stall_should_relax` returns True, the retry has something to
+        admit. This branch stays in the code because the argument depends on
+        `relax_dimer_constraint_when_stuck` staying True through the retry and
+        on `graph.regions` staying built this way -- a subclass or a future
+        caller could change either.
         """
         if admitted_primer is not None:
             logger.warning(
