@@ -255,6 +255,30 @@ def test_network_optimizer_receives_the_configured_dimer_threshold(monkeypatch, 
     )
 
 
+def test_hybrid_resolves_the_stage0_dimer_threshold(prefix, planted):
+    """The Stage-0 thermodynamic pre-screen has to see the configured value too.
+
+    The test above shows max_dimer_bp reaching Stage-2's NetworkOptimizer.
+    Before task 4 that is where it stopped: the Stage-0 screen (which decides
+    which candidate pairs are cheap enough to run the free-energy calculation
+    on at all) gated on a hardcoded -10.0 kcal/mol threshold that no
+    params.json value touched. The pipeline spent its largest cost computing
+    one dimer criterion and reported the delivered pool against another.
+
+    `HybridOptimizer.max_dimer_bp` is the attribute the Stage-0 screen now
+    reads (see `_thermo_filter_candidates`), so this asserts on it directly
+    rather than on the `OptimizerConfig` the adapter holds -- the config
+    already carried the value before this fix; the gap was one constructor
+    further in.
+    """
+    optimizer = build(prefix, planted, "hybrid", max_dimer_bp=3)
+    assert optimizer._hybrid.max_dimer_bp == 3, (
+        "configured max_dimer_bp=3 did not reach HybridOptimizer.max_dimer_bp, "
+        f"the attribute the Stage-0 thermodynamic screen reads; it is using "
+        f"{optimizer._hybrid.max_dimer_bp!r}"
+    )
+
+
 # ----------------------------------------------------------------------
 # The same question, asked of every method and every scoring parameter
 # ----------------------------------------------------------------------

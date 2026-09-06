@@ -241,7 +241,7 @@ class HybridOptimizer:
         reaction_temp: Optional[float] = None,
         tm_weight: float = 0.0,
         dimer_penalty: float = 0.0,
-        max_dimer_bp: int = 4,
+        max_dimer_bp: Optional[int] = None,
         template_gc: float = 0.5,
     ):
         """
@@ -274,7 +274,11 @@ class HybridOptimizer:
                 is the only dimer consideration in Stage-2, so a value of 0.0
                 means refinement weighs dimers not at all.
             max_dimer_bp: Longest complementary stretch tolerated between two
-                primers before the dimer term applies.
+                primers before the dimer term applies. Resolved from this
+                argument, then `parameter.max_dimer_bp`, then 3 -- the same
+                threshold is then used to gate the Stage-0 thermodynamic
+                pre-screen, so the pipeline no longer computes one criterion
+                and reports the delivered pool against another.
             template_gc: Template GC fraction used by the mechanistic term.
         """
         self.position_cache = position_cache
@@ -330,6 +334,13 @@ class HybridOptimizer:
         self.min_coverage_drop = min_coverage_drop
         self._absolute_coverage_floor = absolute_coverage_floor
 
+        # The configured dimer limit, resolved once. Before this it reached
+        # dimer.is_dimer and nothing else, so the Stage-0 screen ran on a
+        # hardcoded free-energy threshold that no user could set and the
+        # delivered pool was then reported against max_dimer_bp, which nothing
+        # had enforced.
+        self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
+
         # Initialize both optimizers
         self.dominating_optimizer = DominatingSetOptimizer(
             cache=position_cache,
@@ -364,7 +375,7 @@ class HybridOptimizer:
             reaction_temp=reaction_temp,
             tm_weight=tm_weight,
             dimer_penalty=dimer_penalty,
-            max_dimer_bp=max_dimer_bp,
+            max_dimer_bp=self.max_dimer_bp,
             template_gc=template_gc,
         )
         # Retain for introspection / rescoring hooks.
@@ -386,6 +397,25 @@ class HybridOptimizer:
             logger.info(f"  Thermo-filtering: enabled ({self.poly_config.reaction_temp}C)")
         if background_pruning:
             logger.info(f"  Background pruning: enabled (weight={background_weight})")
+
+    @staticmethod
+    def _resolve_max_dimer_bp(max_dimer_bp: Optional[int]) -> int:
+        """Resolve the dimer limit: constructor argument, then params.json, then 3.
+
+        `isinstance(..., int) and not isinstance(..., bool)` rather than a
+        truthiness check, because several test modules replace the `parameter`
+        module with a mock whose every attribute is truthy -- `getattr(...) or
+        default` would silently reconfigure the threshold from such a mock.
+        """
+        if max_dimer_bp is not None:
+            return int(max_dimer_bp)
+
+        from neoswga.core import parameter as _parameter
+
+        configured = getattr(_parameter, "max_dimer_bp", None)
+        if isinstance(configured, int) and not isinstance(configured, bool):
+            return int(configured)
+        return 3
 
     def _adjust_for_gc(self, gc: float):
         """
@@ -1185,6 +1215,7 @@ class HybridOptimizer:
                 candidates,
                 check_heterodimers=True,
                 max_heterodimer_fraction=0.3,
+                max_dimer_bp=self.max_dimer_bp,
             )
 
             if verbose:
