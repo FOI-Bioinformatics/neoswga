@@ -282,8 +282,12 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             return StepValidationResult(
                 valid=False,
                 missing_files=[],
-                error_message="Step 3 output is empty (no primers passed scoring threshold).",
-                remediation="Lower --min-amp-pred threshold and re-run Step 3.",
+                error_message="Step 3 output is empty: no candidate primers reached step 4.",
+                remediation=(
+                    "Relax the filter step: raise max_bg_freq or max_gini, widen "
+                    "min_k-max_k, or raise max_primer, then re-run "
+                    "'neoswga filter -j params.json' and 'neoswga score -j params.json'."
+                ),
             )
     except Exception as e:
         return StepValidationResult(

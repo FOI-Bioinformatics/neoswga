@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 from neoswga.core.base_optimizer import OptimizationStatus
+from neoswga.core.pipeline import StepPrerequisiteError
 from neoswga.core.unified_optimizer import run_optimization
 
 
@@ -40,9 +41,12 @@ def test_empty_candidate_list_returns_failure_with_actionable_message():
 
 
 def test_empty_step3_csv_returns_failure(tmp_path, monkeypatch):
-    """If candidates is None, run_optimization loads from step3_df.csv.
-    An empty CSV (header only) must trigger the guard, not a crash
-    downstream in the optimizer."""
+    """If candidates is None, run_optimization loads from step3_df.csv via
+    validate_step4_prerequisites. An empty CSV (header only) is now caught by
+    that prerequisite check before the file is even read for candidates, so
+    it raises StepPrerequisiteError rather than falling through to the
+    empty-candidate-list guard (see Finding E3: step 4 never used to check
+    what it scores against)."""
     # Write a step3_df.csv with no rows.
     data_dir = tmp_path
     (data_dir / "step3_df.csv").write_text("primer\n")
@@ -52,16 +56,16 @@ def test_empty_step3_csv_returns_failure(tmp_path, monkeypatch):
 
     monkeypatch.setattr(param_mod, "data_dir", str(data_dir), raising=False)
 
-    result = run_optimization(
-        method="hybrid",
-        candidates=None,
-        fg_prefixes=["fake"],
-        fg_seq_lengths=[100000],
-        target_size=6,
-        verbose=False,
-    )
-    assert result.status == OptimizationStatus.ERROR
-    assert "no candidate primers" in result.message.lower()
+    with pytest.raises(StepPrerequisiteError) as excinfo:
+        run_optimization(
+            method="hybrid",
+            candidates=None,
+            fg_prefixes=["fake"],
+            fg_seq_lengths=[100000],
+            target_size=6,
+            verbose=False,
+        )
+    assert "no candidate primers reached step 4" in str(excinfo.value).lower()
 
 
 def test_failure_result_still_has_valid_metrics():

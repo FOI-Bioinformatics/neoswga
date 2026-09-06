@@ -927,11 +927,18 @@ def run_optimization(
             )
             conditions = None
 
-    # Load candidates from step3 if not provided
+    # Load candidates from step3, after checking that the index step 4 will
+    # score against actually exists. Without this the position cache falls back
+    # to on_missing="warn", which says the coverage number is "meaningless, not
+    # low" and then lets the run select a set and report it.
     if candidates is None:
+        from .pipeline import StepPrerequisiteError, validate_step4_prerequisites
+
+        validation = validate_step4_prerequisites(parameter.data_dir, list(fg_prefixes or []))
+        if not validation.valid:
+            raise StepPrerequisiteError(4, validation)
+
         step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
-        if not os.path.exists(step3_path):
-            return OptimizationResult.failure(method, f"Step 3 output not found: {step3_path}")
         step3_df = pd.read_csv(step3_path)
         candidates = step3_df["primer"].tolist()
 
