@@ -7,9 +7,11 @@ Finding A1. Measured on the real 449-candidate E. coli pool
 3000-candidate pool): about 1.0 minute pairwise for the substring test, about 47
 minutes for the thermodynamic one. It is the thermodynamic screen's cost this
 module lets an optimizer avoid paying by pre-screening with the substring test
-first. The matrix form is an exact reformulation, not an approximation: a common
-substring of length t between seq_1 and revcomp(seq_2) exists exactly when some
-t-mer of seq_1 is the reverse complement of some t-mer of seq_2.
+first. The matrix form is an exact reformulation for primers over ACGT, not an
+approximation: a common substring of length t between seq_1 and revcomp(seq_2)
+exists exactly when some t-mer of seq_1 is the reverse complement of some t-mer
+of seq_2. Outside ACGT it is conservative rather than exact; see
+test_ambiguity_codes_diverge_from_the_oracle_by_missing_a_pair below.
 """
 
 import itertools
@@ -78,3 +80,31 @@ def test_a_threshold_no_primer_can_reach_short_circuits():
     matrix = dimer_matrix.build(["AAACCCGGGTTT", "ACCCGGGTTTAA"], 15)
     assert matrix.pairs.shape == (2, 2)
     assert not matrix.pairs.any()
+
+
+def test_ambiguity_codes_diverge_from_the_oracle_by_missing_a_pair():
+    """The reformulation is exact only for primers over ACGT.
+
+    is_dimer_fast matches "N" against "N" by plain character equality, so an
+    aligned pair of ambiguity codes can extend a run past the threshold. This
+    module's t-mer codes skip any t-mer containing a character outside ACGT,
+    so it contributes nothing there. The two answers disagree on this pair and
+    only in this direction: the matrix can miss a pair the oracle flags, never
+    invent one the oracle does not. This is deliberate -- see the module
+    docstring -- and pinned here so the divergence cannot change silently.
+    """
+    assert is_dimer_fast("ACGNT", "ANCGT", 3) is True
+    matrix = dimer_matrix.build(["ACGNT", "ANCGT"], 3)
+    assert bool(matrix.pairs[0, 1]) is False
+
+
+def test_a_threshold_too_loose_for_the_code_space_raises():
+    """params.schema.json allows max_dimer_bp up to 15 and max_k up to 30; the
+    EquiPhi29 and Bst presets alone reach 15-25 base primers, so a combination
+    that needs more t-mer codes than MAX_CODES allocates is realistic, not
+    hypothetical. The error names both the parameter and the fallback so a
+    caller (Tasks 2 and 5) can catch it and route to is_dimer_fast pairwise.
+    """
+    with pytest.raises(ValueError, match="max_dimer_bp") as excinfo:
+        dimer_matrix.build(["A" * 20, "T" * 20], 10)
+    assert "is_dimer_fast" in str(excinfo.value)

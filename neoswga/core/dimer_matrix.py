@@ -11,11 +11,21 @@ for the substring test against about 47 minutes for the thermodynamic one, over
 those 4.5 million pairs. Neither screen could run over a whole pool at that cost,
 so the greedy that needed one did not have one.
 
-The reformulation here is exact. `is_dimer_fast(a, b, m)` is True when the
-longest common substring of `a` and the reverse complement of `b` is longer than
-`m`. Writing `t = m + 1`, such a substring exists exactly when some `t`-mer of
-`a` equals some `t`-mer of `revcomp(b)`, which is exactly when some `t`-mer of
-`a` is the reverse complement of some `t`-mer of `b`.
+The reformulation here is exact for primers over ACGT. `is_dimer_fast(a, b, m)`
+is True when the longest common substring of `a` and the reverse complement of
+`b` is longer than `m`. Writing `t = m + 1`, such a substring exists exactly when
+some `t`-mer of `a` equals some `t`-mer of `revcomp(b)`, which is exactly when
+some `t`-mer of `a` is the reverse complement of some `t`-mer of `b`.
+
+Outside ACGT the two disagree, and only in one direction. `_codes()` skips any
+t-mer containing a character it does not recognise, so an ambiguity code such as
+`N` contributes nothing here, while `is_dimer_fast` matches `N` against `N` by
+plain character equality and can count a run through one as a dimer. The
+relation built here is therefore conservative on such input: it can miss a pair
+`is_dimer_fast` would flag, never the reverse. This is deliberate -- a run that
+passes through an ambiguous base is not a duplex this module will vouch for --
+and does not matter in practice, because jellyfish does not emit k-mers spanning
+an N, so the primers reaching this module are ACGT.
 
 So the relation is a product of two indicator matrices over the `4**t` possible
 `t`-mers, and numpy computes the whole thing at once. At the default
@@ -34,9 +44,10 @@ _BASE_CODE = {"A": 0, "C": 1, "G": 2, "T": 3}
 _COMPLEMENT_CODE = {0: 3, 1: 2, 2: 1, 3: 0}
 
 # Above this many t-mer codes the indicator matrices stop being the cheap
-# option. 4**8 is 65536 columns, which is 196 MB of bool for a 3000-primer
-# pool. Callers asking for a larger max_dimer_bp fall back to the pairwise
-# function rather than allocating that.
+# option. 4**8 is 65536 columns; build() allocates two such arrays (contains
+# and contains_rc), which is about 393 MB of bool for a 3000-primer pool.
+# Callers asking for a larger max_dimer_bp fall back to the pairwise function
+# rather than allocating that.
 MAX_CODES = 4**8
 
 
@@ -76,9 +87,10 @@ def _revcomp_code(code: int, t: int) -> int:
 class DimerMatrix:
     """Which primers in a pool dimerise with which others.
 
-    `pairs` is symmetric and its diagonal is meaningless: a primer against
-    itself is a self-dimer, governed by `max_self_dimer_bp`, and is not this
-    class's question.
+    `pairs` is symmetric. Its diagonal is deliberately set False by `build()`,
+    not left to whatever the matrix product happens to produce there: a primer
+    against itself is a self-dimer, governed by `max_self_dimer_bp`, and is not
+    this class's question.
     """
 
     pairs: np.ndarray
@@ -137,8 +149,14 @@ def build(primers: Sequence[str], max_dimer_bp: int) -> DimerMatrix:
     # One matmul over uint8 rather than a boolean product, because numpy
     # dispatches the integer form to BLAS and the boolean form to a Python-level
     # loop over the object dtype.
+    #
+    # This product is already symmetric, so no separate `pairs | pairs.T` step
+    # is needed. pairs[i, j] is true exactly when some t-mer c of primer i has
+    # its reverse complement present in primer j. Reverse complementation is an
+    # involution, so that condition is unchanged by swapping i and j: it holds
+    # exactly when some t-mer of primer j has its reverse complement present in
+    # primer i, which is pairs[j, i]'s condition, verbatim.
     pairs = (contains.astype(np.uint8) @ contains_rc.astype(np.uint8).T) > 0
-    pairs = pairs | pairs.T
     np.fill_diagonal(pairs, False)
 
     index = {sequence: i for i, sequence in enumerate(upper)}
