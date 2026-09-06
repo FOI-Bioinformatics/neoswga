@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +36,22 @@ def _normalize_amp_pred(raw_score: float) -> float:
         return 0.0
     # Model outputs ~0-20; normalize to 0-1
     return min(1.0, raw_score / 20.0)
+
+
+def amp_pred_is_available(primers: Sequence["PrimerMetrics"]) -> bool:
+    """Whether this run produced an amplification score at all.
+
+    The default pipeline retired the random forest on 2026-09-05, so
+    `step3_df.csv` no longer carries `amp_pred` and `_backfill_primer_amp_pred`
+    finds nothing to backfill. Every rendering site used to substitute 0.5 for a
+    falsy score, which rendered as an identical three-star rating for every
+    primer in every report.
+
+    Reporting a constant is worse than reporting nothing, so the surfaces ask
+    here first and omit the column when the answer is False. `--amp-model`
+    restores the score and with it the column.
+    """
+    return any(p.amp_pred > 0 for p in primers)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:

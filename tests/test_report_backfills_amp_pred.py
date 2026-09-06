@@ -113,13 +113,17 @@ def test_a_missing_step3_file_is_not_an_error(tmp_path):
 def test_the_star_rating_varies_between_primers(results_dir):
     """The surface a reader actually sees.
 
-    Every report ever produced showed three stars against every primer.
+    Every report ever produced showed three stars against every primer. This
+    fixture backfills a real, varying amp_pred from step3_df.csv, so
+    show_quality is True here and the column is rendered.
     """
     from neoswga.core.report.executive_summary import _format_primer_row
-    from neoswga.core.report.metrics import collect_pipeline_metrics
+    from neoswga.core.report.metrics import amp_pred_is_available, collect_pipeline_metrics
 
     metrics = collect_pipeline_metrics(str(results_dir))
-    rendered = [_format_primer_row(i, p) for i, p in enumerate(metrics.primers)]
+    show_quality = amp_pred_is_available(metrics.primers)
+    assert show_quality, "fixture is supposed to carry a real, varying amp_pred"
+    rendered = [_format_primer_row(i, p, show_quality) for i, p in enumerate(metrics.primers)]
     star_counts = {row.count("★") for row in rendered}
 
     assert len(star_counts) > 1, (

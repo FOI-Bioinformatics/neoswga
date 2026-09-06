@@ -23,6 +23,7 @@ from neoswga.core.report.metrics import (
     FilteringStats,
     PipelineMetrics,
     PrimerMetrics,
+    amp_pred_is_available,
     collect_pipeline_metrics,
 )
 from neoswga.core.report.quality import (
@@ -174,23 +175,34 @@ def _estimate_binding_dg(sequence: str, tm: float) -> float:
     return max(-25.0, min(0.0, dg_estimate))  # Clamp to reasonable range
 
 
-def _calculate_primer_profile(primer: PrimerMetrics, rank: int) -> PrimerProfile:
+def _contribution_score(primer: PrimerMetrics, amp_available: bool) -> float:
+    """Weighted contribution of one primer to the set.
+
+    The amplification term is 0.2 of four. When the run produced no
+    amplification score, including it as zero would shrink every primer's
+    contribution by a fifth and make the column look like a finding. The three
+    remaining terms are renormalised to sum to one instead.
+    """
+    specificity_score = min(primer.specificity / 100, 1.0)
+    uniformity_score = max(0.0, 1.0 - primer.gini)
+    strand_deviation = min(abs(primer.strand_ratio - 1.0), 1.0)
+    strand_score = 1.0 - strand_deviation
+
+    if not amp_available:
+        return 0.5 * specificity_score + 0.375 * uniformity_score + 0.125 * strand_score
+
+    amp_score = max(0.0, min(primer.amp_pred, 1.0))
+    return 0.4 * specificity_score + 0.3 * uniformity_score + 0.2 * amp_score + 0.1 * strand_score
+
+
+def _calculate_primer_profile(
+    primer: PrimerMetrics, rank: int, amp_available: bool
+) -> PrimerProfile:
     """Create detailed primer profile."""
     # Get 3' end sequence (last 3 bases)
     three_prime = primer.sequence[-3:] if len(primer.sequence) >= 3 else primer.sequence
 
-    # Estimate contribution score (weighted combination)
-    # Clamp individual components to [0, 1] to prevent negative total
-    specificity_score = min(primer.specificity / 100, 1.0)
-    uniformity_score = max(0.0, 1.0 - primer.gini)  # Gini is 0-1
-    amp_score = max(0.0, min(primer.amp_pred, 1.0))  # amp_pred normalized to 0-1 in metrics.py
-    # Strand ratio contribution: 1.0 is ideal, penalize deviation but clamp to [0, 1]
-    strand_deviation = min(abs(primer.strand_ratio - 1.0), 1.0)
-    strand_score = 1.0 - strand_deviation
-
-    contribution = (
-        0.4 * specificity_score + 0.3 * uniformity_score + 0.2 * amp_score + 0.1 * strand_score
-    )
+    contribution = _contribution_score(primer, amp_available)
 
     # Estimate binding delta G from Tm (replaces hardcoded placeholder)
     delta_g = _estimate_binding_dg(primer.sequence, primer.tm)
@@ -331,8 +343,9 @@ def collect_technical_report_data(results_dir: str) -> TechnicalReportData:
         data.filtering_stages = []
 
     # Create primer profiles
+    amp_available = amp_pred_is_available(metrics.primers)
     data.primer_profiles = [
-        _calculate_primer_profile(p, i + 1) for i, p in enumerate(metrics.primers)
+        _calculate_primer_profile(p, i + 1, amp_available) for i, p in enumerate(metrics.primers)
     ]
 
     # Estimate interactions
