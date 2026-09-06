@@ -261,6 +261,7 @@ class ThermodynamicFilter:
         candidates: List[str],
         check_heterodimers: bool = True,
         max_heterodimer_fraction: float = 0.3,
+        max_dimer_bp: Optional[int] = None,
     ) -> Tuple[List[str], Dict]:
         """
         Filter list of primer candidates.
@@ -269,6 +270,9 @@ class ThermodynamicFilter:
             candidates: List of primer sequences
             check_heterodimers: Also check for cross-primer dimers
             max_heterodimer_fraction: Max fraction of heterodimers allowed (0-1)
+            max_dimer_bp: When given, only pairs sharing a complementary run
+                longer than this are sent to the free-energy calculation.
+                `None` keeps the previous behaviour of screening every pair.
 
         Returns:
             (passing_primers, statistics_dict)
@@ -299,39 +303,91 @@ class ThermodynamicFilter:
         # Check heterodimers if requested
         heterodimer_issues = 0
         if check_heterodimers and len(passing) > 1:
-            logger.info(f"  Checking heterodimers between {len(passing)} primers...")
+            sequences = [a.sequence for a in passing]
 
-            # Create reaction conditions
+            # Which pairs are worth a thermodynamic calculation. The exact
+            # substring relation costs a single matrix product over the whole
+            # pool; the free-energy calculation costs 627 us a pair, so
+            # visiting all n(n-1)/2 of them was the dominant cost of the whole
+            # pipeline. A pair that shares no complementary run of
+            # max_dimer_bp+1 bases cannot form the duplex the calculation would
+            # be scoring.
+            if max_dimer_bp is None:
+                candidate_pairs = [
+                    (i, j) for i in range(len(sequences)) for j in range(i + 1, len(sequences))
+                ]
+            else:
+                from neoswga.core import dimer_matrix as _dimer_matrix
+
+                try:
+                    candidate_pairs = list(
+                        _dimer_matrix.build(sequences, max_dimer_bp).flagged_pairs()
+                    )
+                except ValueError:
+                    # dimer_matrix.build refuses a threshold that would need
+                    # more t-mer codes than it allocates (params.schema.json
+                    # allows max_dimer_bp up to 15 and max_k up to 30, and the
+                    # EquiPhi29/Bst presets alone reach 15-25 base primers, so
+                    # this is reachable with legal configuration). Fall back to
+                    # the pairwise substring test rather than screening every
+                    # pair thermodynamically: is_dimer_fast is 49x cheaper than
+                    # the free-energy calculation, so the pairwise fallback is
+                    # still far short of running the thermodynamic check on
+                    # every pair.
+                    logger.warning(
+                        "  max_dimer_bp=%s needs more t-mer codes than the dimer "
+                        "matrix allocates; falling back to the substring test "
+                        "(is_dimer_fast) pairwise instead of the matrix screen",
+                        max_dimer_bp,
+                    )
+                    from neoswga.core.dimer import is_dimer_fast
+
+                    candidate_pairs = [
+                        (i, j)
+                        for i in range(len(sequences))
+                        for j in range(i + 1, len(sequences))
+                        if is_dimer_fast(sequences[i], sequences[j], max_dimer_bp)
+                    ]
+
+            logger.info(
+                "  Checking heterodimers: %d of %d pairs among %d primers",
+                len(candidate_pairs),
+                len(sequences) * (len(sequences) - 1) // 2,
+                len(sequences),
+            )
+
             conditions = self._get_conditions()
-
-            # Calculate pairwise heterodimer potential
-            problematic_pairs = set()
 
             # Carries every field across the process boundary. With three
             # keys the worker rebuilt conditions without additives, so the
             # parallel path (>100 pairs) and the serial path disagreed on the
             # same primers.
             conditions_dict = _conditions_to_kwargs(conditions)
+            problematic_pairs = set()
 
-            pairs = [
-                (passing[i].sequence, passing[j].sequence, i, j, conditions_dict)
-                for i in range(len(passing))
-                for j in range(i + 1, len(passing))
-            ]
+            def _pair_args():
+                """Stream the work rather than materialising it.
 
-            if len(pairs) > 100:
+                The list this replaces held one tuple per pair, which measured
+                2.0 GB for 2789 primers, allocated before the first pair was
+                examined.
+                """
+                for i, j in candidate_pairs:
+                    yield (sequences[i], sequences[j], i, j, conditions_dict)
+
+            if len(candidate_pairs) > 100:
                 # Parallel path for large sets (ProcessPoolExecutor for CPU-bound work)
                 n_workers = min(os.cpu_count() or 1, 8)
                 with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
                     for i, j, dimer_dg in executor.map(
-                        _check_heterodimer_pair, pairs, chunksize=50
+                        _check_heterodimer_pair, _pair_args(), chunksize=50
                     ):
                         if dimer_dg < self.criteria.max_heterodimer_dg:
                             problematic_pairs.add((i, j))
                             heterodimer_issues += 1
             else:
                 # Sequential path for small sets
-                for seq1, seq2, i, j, _ in pairs:
+                for seq1, seq2, i, j, _ in _pair_args():
                     try:
                         dimer_result = check_heterodimer(seq1, seq2, conditions)
                         dimer_dg = dimer_result.get("energy", 0.0)
