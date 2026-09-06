@@ -18,6 +18,7 @@ Version: 3.0 - Phase 1.3
 """
 
 import concurrent.futures
+import itertools
 import logging
 import os
 from dataclasses import dataclass
@@ -304,57 +305,7 @@ class ThermodynamicFilter:
         heterodimer_issues = 0
         if check_heterodimers and len(passing) > 1:
             sequences = [a.sequence for a in passing]
-
-            # Which pairs are worth a thermodynamic calculation. The exact
-            # substring relation costs a single matrix product over the whole
-            # pool; the free-energy calculation costs 627 us a pair, so
-            # visiting all n(n-1)/2 of them was the dominant cost of the whole
-            # pipeline. A pair that shares no complementary run of
-            # max_dimer_bp+1 bases cannot form the duplex the calculation would
-            # be scoring.
-            if max_dimer_bp is None:
-                candidate_pairs = [
-                    (i, j) for i in range(len(sequences)) for j in range(i + 1, len(sequences))
-                ]
-            else:
-                from neoswga.core import dimer_matrix as _dimer_matrix
-
-                try:
-                    candidate_pairs = list(
-                        _dimer_matrix.build(sequences, max_dimer_bp).flagged_pairs()
-                    )
-                except ValueError:
-                    # dimer_matrix.build refuses a threshold that would need
-                    # more t-mer codes than it allocates (params.schema.json
-                    # allows max_dimer_bp up to 15 and max_k up to 30, and the
-                    # EquiPhi29/Bst presets alone reach 15-25 base primers, so
-                    # this is reachable with legal configuration). Fall back to
-                    # the pairwise substring test rather than screening every
-                    # pair thermodynamically: is_dimer_fast is 49x cheaper than
-                    # the free-energy calculation, so the pairwise fallback is
-                    # still far short of running the thermodynamic check on
-                    # every pair.
-                    logger.warning(
-                        "  max_dimer_bp=%s needs more t-mer codes than the dimer "
-                        "matrix allocates; falling back to the substring test "
-                        "(is_dimer_fast) pairwise instead of the matrix screen",
-                        max_dimer_bp,
-                    )
-                    from neoswga.core.dimer import is_dimer_fast
-
-                    candidate_pairs = [
-                        (i, j)
-                        for i in range(len(sequences))
-                        for j in range(i + 1, len(sequences))
-                        if is_dimer_fast(sequences[i], sequences[j], max_dimer_bp)
-                    ]
-
-            logger.info(
-                "  Checking heterodimers: %d of %d pairs among %d primers",
-                len(candidate_pairs),
-                len(sequences) * (len(sequences) - 1) // 2,
-                len(sequences),
-            )
+            candidate_pairs = self._select_heterodimer_candidate_pairs(sequences, max_dimer_bp)
 
             conditions = self._get_conditions()
 
@@ -363,43 +314,11 @@ class ThermodynamicFilter:
             # parallel path (>100 pairs) and the serial path disagreed on the
             # same primers.
             conditions_dict = _conditions_to_kwargs(conditions)
-            problematic_pairs = set()
 
-            def _pair_args():
-                """Stream the work rather than materialising it.
-
-                The list this replaces held one tuple per pair, which measured
-                2.0 GB for 2789 primers, allocated before the first pair was
-                examined.
-                """
-                for i, j in candidate_pairs:
-                    yield (sequences[i], sequences[j], i, j, conditions_dict)
-
-            if len(candidate_pairs) > 100:
-                # Parallel path for large sets (ProcessPoolExecutor for CPU-bound work)
-                n_workers = min(os.cpu_count() or 1, 8)
-                with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
-                    for i, j, dimer_dg in executor.map(
-                        _check_heterodimer_pair, _pair_args(), chunksize=50
-                    ):
-                        if dimer_dg < self.criteria.max_heterodimer_dg:
-                            problematic_pairs.add((i, j))
-                            heterodimer_issues += 1
-            else:
-                # Sequential path for small sets
-                for seq1, seq2, i, j, _ in _pair_args():
-                    try:
-                        dimer_result = check_heterodimer(seq1, seq2, conditions)
-                        dimer_dg = dimer_result.get("energy", 0.0)
-                        if dimer_dg == float("inf") or dimer_dg > 0:
-                            dimer_dg = 0.0
-                    except Exception as e:
-                        logger.warning(f"Heterodimer check failed for {seq1}/{seq2}: {e}")
-                        dimer_dg = 0.0
-
-                    if dimer_dg < self.criteria.max_heterodimer_dg:
-                        problematic_pairs.add((i, j))
-                        heterodimer_issues += 1
+            problematic_pairs, pair_dg_issues = self._screen_candidate_pairs_for_dimers(
+                sequences, candidate_pairs, conditions, conditions_dict
+            )
+            heterodimer_issues += pair_dg_issues
 
             # Remove primers involved in too many heterodimers
             if problematic_pairs:
@@ -451,6 +370,148 @@ class ThermodynamicFilter:
             logger.info(f"  Mean GC: {stats['mean_gc']:.1%}")
 
         return passing_seqs, stats
+
+    def _select_heterodimer_candidate_pairs(
+        self, sequences: List[str], max_dimer_bp: Optional[int]
+    ) -> List[Tuple[int, int]]:
+        """Which pairs are worth a thermodynamic calculation.
+
+        The exact substring relation costs a single matrix product over the
+        whole pool; the free-energy calculation costs 627 us a pair, so
+        visiting all n(n-1)/2 of them was the dominant cost of the whole
+        pipeline. A pair that shares no complementary run of max_dimer_bp+1
+        bases cannot form the duplex the calculation would be scoring.
+
+        `max_dimer_bp=None` keeps every pair a candidate (today's behaviour,
+        preserved for callers that do not pass the new argument).
+        """
+        if max_dimer_bp is None:
+            candidate_pairs = [
+                (i, j) for i in range(len(sequences)) for j in range(i + 1, len(sequences))
+            ]
+        else:
+            from neoswga.core import dimer_matrix as _dimer_matrix
+
+            try:
+                candidate_pairs = list(_dimer_matrix.build(sequences, max_dimer_bp).flagged_pairs())
+            except ValueError:
+                # dimer_matrix.build refuses a threshold that would need more
+                # t-mer codes than it allocates (params.schema.json allows
+                # max_dimer_bp up to 15 and max_k up to 30, and the
+                # EquiPhi29/Bst presets alone reach 15-25 base primers, so
+                # this is reachable with legal configuration). Fall back to
+                # the pairwise substring test rather than screening every
+                # pair thermodynamically: is_dimer_fast is 49x cheaper than
+                # the free-energy calculation, so the pairwise fallback is
+                # still far short of running the thermodynamic check on every
+                # pair.
+                logger.warning(
+                    "  max_dimer_bp=%s needs more t-mer codes than the dimer "
+                    "matrix allocates; falling back to the substring test "
+                    "(is_dimer_fast) pairwise instead of the matrix screen",
+                    max_dimer_bp,
+                )
+                from neoswga.core.dimer import is_dimer_fast
+
+                candidate_pairs = [
+                    (i, j)
+                    for i in range(len(sequences))
+                    for j in range(i + 1, len(sequences))
+                    if is_dimer_fast(sequences[i], sequences[j], max_dimer_bp)
+                ]
+
+        logger.info(
+            "  Checking heterodimers: %d of %d pairs among %d primers",
+            len(candidate_pairs),
+            len(sequences) * (len(sequences) - 1) // 2,
+            len(sequences),
+        )
+        return candidate_pairs
+
+    def _screen_candidate_pairs_for_dimers(
+        self,
+        sequences: List[str],
+        candidate_pairs: List[Tuple[int, int]],
+        conditions,
+        conditions_dict: dict,
+    ) -> Tuple[set, int]:
+        """Run the thermodynamic heterodimer check over `candidate_pairs`.
+
+        Returns (problematic_pairs, heterodimer_issues). Both branches below
+        must consume the same `conditions_dict`, built once by the caller:
+        with three keys the worker rebuilt conditions without additives, so
+        the parallel path (>100 pairs) and the serial path disagreed on the
+        same primers.
+        """
+        problematic_pairs = set()
+        heterodimer_issues = 0
+
+        def _pair_args():
+            """Stream the work rather than materialising it.
+
+            The list this replaces held one tuple per pair, which measured
+            2.0 GB for 2789 primers, allocated before the first pair was
+            examined.
+            """
+            for i, j in candidate_pairs:
+                yield (sequences[i], sequences[j], i, j, conditions_dict)
+
+        if len(candidate_pairs) > 100:
+            # Parallel path for large sets (ProcessPoolExecutor for CPU-bound
+            # work).
+            #
+            # Do NOT hand the generator to the executor's `map` method.
+            # `Executor.map` builds
+            # `fs = [self.submit(fn, *args) for args in zip(*iterables)]`
+            # before it returns a single result, so it drains its iterable
+            # eagerly -- verified empirically: with a 500-item generator, all
+            # 500 items had been produced before the first result could be
+            # consumed. That reintroduces the eager-materialisation problem
+            # this function exists to remove, because each drained item is a
+            # five-tuple carrying two full primer sequences.
+            #
+            # Instead, submit through a bounded sliding window: cap how many
+            # futures are in flight so resident submitted work is bounded by
+            # the window rather than by len(candidate_pairs).
+            n_workers = min(os.cpu_count() or 1, 8)
+            chunksize = 50
+            max_in_flight = n_workers * chunksize * 2  # bounds resident work, not the pair count
+            pair_source = _pair_args()
+            with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
+                in_flight = {
+                    executor.submit(_check_heterodimer_pair, args): None
+                    for args in itertools.islice(pair_source, max_in_flight)
+                }
+                while in_flight:
+                    done, _ = concurrent.futures.wait(
+                        in_flight, return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    for future in done:
+                        del in_flight[future]
+                        i, j, dimer_dg = future.result()
+                        if dimer_dg < self.criteria.max_heterodimer_dg:
+                            problematic_pairs.add((i, j))
+                            heterodimer_issues += 1
+                    # Top the window back up from the generator.
+                    for args in itertools.islice(pair_source, len(done)):
+                        in_flight[executor.submit(_check_heterodimer_pair, args)] = None
+        else:
+            # Sequential path for small sets
+            for seq1, seq2, i, j, _ in _pair_args():
+                try:
+                    dimer_result = check_heterodimer(seq1, seq2, conditions)
+                    dimer_dg = dimer_result.get("energy", 0.0)
+                    if dimer_dg == float("inf") or dimer_dg > 0:
+                        dimer_dg = 0.0
+                except Exception as e:
+                    logger.warning(f"Heterodimer check failed for {seq1}/{seq2}: {e}")
+                    dimer_dg = 0.0
+
+                if dimer_dg < self.criteria.max_heterodimer_dg:
+                    problematic_pairs.add((i, j))
+                    heterodimer_issues += 1
+
+        return problematic_pairs, heterodimer_issues
 
     def adjust_criteria_for_conditions(
         self, temperature: float, gc_content: float, betaine_m: float = 0.0
