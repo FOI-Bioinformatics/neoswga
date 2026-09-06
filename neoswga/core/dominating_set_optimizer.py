@@ -298,7 +298,7 @@ class DominatingSetOptimizer:
         total = self._total_bins()
         return len(covered_regions) / total if total else 0.0
 
-    def _warn_if_empty_graph(self, graph, candidates) -> None:
+    def _warn_if_empty_graph(self, graph: BipartiteGraph, candidates: List[str]) -> None:
         """Warn if coverage graph has no regions.
 
         An empty graph means no candidates have cached binding positions.

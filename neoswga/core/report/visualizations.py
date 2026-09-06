@@ -388,8 +388,9 @@ def render_coverage_specificity_scatter(
         colorbar_title = "Amplification score"
         hover_quality = [f"Quality: {p.amp_pred:.2f}" for p in primers]
     else:
+        # No colorbar_title here: it is read only inside the `colors is not
+        # None` branch that builds the colorbar.
         colors = None
-        colorbar_title = None
         hover_quality = ["" for _ in primers]
 
     # Create hover text
