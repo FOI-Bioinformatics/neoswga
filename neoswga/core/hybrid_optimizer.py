@@ -370,6 +370,14 @@ class HybridOptimizer:
         # Retain for introspection / rescoring hooks.
         self.conditions = conditions
 
+        # The Stage-0 screen is a pure function of the candidate sequences and
+        # the reaction conditions, and every pool after the first is a subset of
+        # the first. collect_alternative_sets re-enters optimize() once per
+        # alternative set, so without this the screen ran up to nine times over
+        # nearly the same pool. Measured at 1372 us a pair before Task 2's
+        # pre-screen, that was the dominant cost of the pipeline.
+        self._thermo_filter_cache = None
+
         logger.info("Hybrid optimizer initialized")
         logger.info(f"  Polymerase: {polymerase}")
         logger.info(f"  Bin size: {bin_size:,} bp")
@@ -483,7 +491,7 @@ class HybridOptimizer:
         # PRE-STAGE: Thermodynamic Filtering (polymerase-dependent)
         # =================================================================
         if self.poly_config.thermo_filter and candidates_filtered:
-            candidates_filtered = self._thermo_filter_candidates(
+            candidates_filtered = self._thermo_filter_with_cache(
                 candidates_filtered, verbose=verbose
             )
 
@@ -1197,6 +1205,33 @@ class HybridOptimizer:
         except ImportError:
             logger.warning("Thermodynamic filter not available, skipping")
             return candidates
+
+    def _thermo_filter_with_cache(self, candidates: List[str], verbose: bool = True) -> List[str]:
+        """The Stage-0 screen, computed once per pool and reused for subsets.
+
+        Returns the members of `candidates` that passed. A pool that is not a
+        subset of the cached one recomputes, which is what a caller supplying a
+        genuinely different candidate list should get.
+        """
+        wanted = frozenset(c.upper() for c in candidates)
+
+        if self._thermo_filter_cache is not None:
+            screened_pool, passed = self._thermo_filter_cache
+            if wanted <= screened_pool:
+                kept = [c for c in candidates if c.upper() in passed]
+                if verbose:
+                    logger.info(
+                        "PRE-STAGE: reusing the thermodynamic screen computed over "
+                        "%d candidates; %d of %d in this pool passed it",
+                        len(screened_pool),
+                        len(kept),
+                        len(candidates),
+                    )
+                return kept if kept else list(candidates)
+
+        result = self._thermo_filter_candidates(candidates, verbose=verbose)
+        self._thermo_filter_cache = (wanted, frozenset(c.upper() for c in result))
+        return result
 
     def _prune_background(
         self, primers: List[str], target_size: int, verbose: bool = False

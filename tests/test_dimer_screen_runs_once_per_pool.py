@@ -298,3 +298,31 @@ def test_screen_falls_back_to_the_substring_test_when_the_matrix_would_be_too_bi
     warning_text = " ".join(r.message for r in caplog.records if r.levelno >= 30)
     assert "10" in warning_text
     assert "substring" in warning_text.lower()
+
+
+def test_pre_stage_is_computed_once_across_alternative_sets(monkeypatch):
+    """collect_alternative_sets re-enters optimize() per set; the screen must not
+    re-run. Finding A1: a max_sets 3 run logged three full passes."""
+    from neoswga.core import hybrid_optimizer
+
+    calls = []
+
+    def _counting_filter(self, candidates, verbose=True):
+        calls.append(len(candidates))
+        return list(candidates)
+
+    monkeypatch.setattr(
+        hybrid_optimizer.HybridOptimizer, "_thermo_filter_candidates", _counting_filter
+    )
+
+    # position_cache is the first positional argument and is not touched by the
+    # screen, so None is enough here.
+    optimizer = hybrid_optimizer.HybridOptimizer(
+        None, fg_prefixes=["x"], fg_seq_lengths=[10000], polymerase="equiphi29"
+    )
+    pool = _pool(50, seed=5)
+    optimizer._thermo_filter_with_cache(pool)
+    optimizer._thermo_filter_with_cache(pool[:40])
+    optimizer._thermo_filter_with_cache(pool[:30])
+
+    assert calls == [50], f"screen ran {len(calls)} times, expected once: {calls}"
