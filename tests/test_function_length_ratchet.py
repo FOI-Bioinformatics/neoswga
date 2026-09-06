@@ -43,6 +43,7 @@ _BUDGETS = {
     "cli/iterate.py::run_expand_primers": 245,
     "cli/pipeline.py::run_step2": 215,
     "core/additive_interactions.py::load_defaults": 215,
+    "core/dominating_set_optimizer.py::optimize_greedy": 215,
     "core/pipeline.py::step2": 210,
 }
 

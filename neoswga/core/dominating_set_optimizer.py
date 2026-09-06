@@ -403,6 +403,21 @@ class DominatingSetOptimizer:
             coverage_so_far = self._genome_fraction(covered_regions)
             logger.info(f"  Fixed primer coverage: {coverage_so_far:.1%}")
 
+        if not graph.regions:
+            # The break condition below is `covered == regions`, which is
+            # vacuously true of an empty region set, so an index that produced
+            # no positions used to announce "Full coverage achieved" and then
+            # report 0.0%. An empty graph means the candidates have no cached
+            # positions, not that they cover everything.
+            logger.warning(
+                "The coverage graph has no coverage regions: none of the "
+                "%d candidates has a cached binding position. Coverage cannot "
+                "be computed. Run 'neoswga filter' to build the position files "
+                "for every primer length in the pool; it needs the k-mer tables "
+                "from 'neoswga count-kmers' first.",
+                len(candidates),
+            )
+
         for iteration in range(max_primers):
             if len(covered_regions) == len(graph.regions):
                 if verbose:
