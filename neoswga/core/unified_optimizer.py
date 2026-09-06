@@ -841,12 +841,9 @@ def run_optimization(
     """
     Run primer set optimization using specified method.
 
-    This is the main entry point for optimization. It:
-    1. Loads candidates if not provided
-    2. Creates position cache
-    3. Instantiates optimizer via factory
-    4. Runs optimization
-    5. Returns typed result
+    The main entry point for optimization: loads candidates if they were not
+    provided, builds the position cache, instantiates the optimizer via the
+    factory, runs it, and returns a typed result.
 
     Args:
         method: Optimizer method name ('greedy', 'dominating-set', etc.)
@@ -861,6 +858,13 @@ def run_optimization(
 
     Returns:
         OptimizationResult with selected primers and metrics
+
+    Raises:
+        StepPrerequisiteError: only when `candidates` is None, so the pool is
+            read from step3_df.csv here. Raised when that file is missing or
+            empty, when the position files are absent, or when the index covers
+            only part of the pool. A caller supplying its own candidates is
+            never blocked and gets a failure OptimizationResult instead.
 
     Example:
         result = run_optimization(
