@@ -438,26 +438,37 @@ def test_the_coverage_floor_is_relative_to_where_pruning_started():
             return 0
 
     class _FakeSizeCounter:
-        """Coverage depends only on how many primers remain, not on which."""
+        """Coverage depends only on how many primers remain, not on which.
+
+        Members carry the real `CoverageCounter`'s types and meaning rather
+        than just its composed output: `covered_count()` is an int bin count,
+        `total_bins` is a real (large) denominator rather than 1, and
+        `covered_fraction()` actually divides by it. A `total_bins` of 1 would
+        make that division a no-op and hide a misplaced-division bug in the
+        pruning loop; at 100k bins the curve still matches the old stub's
+        `coverage * (len(s) / 12.0) ** 0.05` to five decimal places.
+        """
 
         def __init__(self, coverage_at_12, remaining):
             self._coverage_at_12 = coverage_at_12
             self._remaining = list(remaining)
-            self.total_bins = 1
+            self.total_bins = 100_000
 
-        def _fraction_for(self, n):
-            return self._coverage_at_12 * (n / 12.0) ** 0.05 if n > 0 else 0.0
+        def _count_for(self, n):
+            return (
+                round(self._coverage_at_12 * (n / 12.0) ** 0.05 * self.total_bins) if n > 0 else 0
+            )
 
         def covered_count(self):
-            return self._fraction_for(len(self._remaining))
+            return self._count_for(len(self._remaining))
 
         def covered_fraction(self):
-            return self.covered_count()
+            return self.covered_count() / self.total_bins
 
         def loss_if_removed(self, primer):
             if primer not in self._remaining:
                 return 0
-            return self.covered_count() - self._fraction_for(len(self._remaining) - 1)
+            return self.covered_count() - self._count_for(len(self._remaining) - 1)
 
         def remove(self, primer):
             if primer in self._remaining:

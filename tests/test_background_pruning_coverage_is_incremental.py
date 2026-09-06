@@ -7,11 +7,19 @@ arithmetic-identical: the coverage lost by removing a primer is the number of
 bins it is the only coverer of.
 """
 
-import json
+import random
 
 import pytest
 
 from neoswga.core.coverage_counter import CoverageCounter
+
+h5py = pytest.importorskip("h5py")
+
+import numpy as np
+
+from neoswga.core.hybrid_optimizer import HybridOptimizer
+from neoswga.core.position_cache import PositionCache
+from neoswga.core.thermodynamics import reverse_complement
 
 
 def test_counter_matches_a_recount_after_each_removal():
@@ -56,40 +64,105 @@ def test_empty_counter_reports_zero_not_one():
     assert counter.covered_fraction() == 0.0
 
 
-def test_counter_fraction_matches_calculate_coverage_on_a_real_pool():
-    """The counter must compute the same number the rebuild computed.
+def _build_optimizer_and_primers(tmp_path):
+    """A real `HybridOptimizer` over synthetic HDF5 position data.
 
-    Uses the plasmid example, which conftest primes, so the position files
-    exist.
+    Mirrors the genome/cache pattern in tests/test_hybrid_optimizer_run.py so
+    the tests below need no jellyfish. The previous version of this test read
+    `examples/plasmid_example`, which `tests/conftest.py` only primes when
+    jellyfish is on PATH -- so on a runner without it, this was the only test
+    pinning the `CoverageCounter` denominator against `_calculate_coverage`,
+    and it disappeared silently. h5py is a core dependency (unlike jellyfish,
+    an external binary), so `pytest.importorskip` on it above is not expected
+    to skip in practice; the fixture itself needs no external tool at all.
     """
-    pytest.importorskip("h5py")
-    import os
+    genome_length = 200_000
+    rng = random.Random(4471)
+    seq = list("".join(rng.choice("ACGT") for _ in range(genome_length)))
 
-    example = os.path.join(os.path.dirname(__file__), "..", "examples", "plasmid_example")
-    if not os.path.exists(os.path.join(example, "step3_df.csv")):
-        pytest.skip("plasmid example not primed")
+    primers = []
+    for i in range(14):
+        primer = "".join(rng.choice("ACGT") for _ in range(10))
+        if primer in primers:
+            continue
+        primers.append(primer)
+        # Each primer gets 2-4 sites, clustered differently per primer.
+        for j in range(2 + (i % 3)):
+            pos = (i * 14_000 + j * 700) % (genome_length - 20)
+            seq[pos : pos + 10] = list(primer)
+    seq = "".join(seq)
 
-    import pandas as pd
+    prefix = str(tmp_path / "target")
+    with h5py.File(f"{prefix}_10mer_positions.h5", "w") as f:
+        for primer in primers:
+            for key in {primer, reverse_complement(primer)}:
+                positions, i = [], seq.find(key)
+                while i != -1:
+                    positions.append(i)
+                    i = seq.find(key, i + 1)
+                if positions:
+                    f.create_dataset(key, data=np.array(positions, dtype=np.int32))
 
-    from neoswga.core.hybrid_optimizer import HybridOptimizer
-
-    params = json.load(open(os.path.join(example, "params.json")))
-    primers = pd.read_csv(os.path.join(example, "step3_df.csv"))["primer"].tolist()[:12]
-
-    from neoswga.core.position_cache import PositionCache
-
-    # fg_prefixes in the plasmid params is the relative "pcDNA"; the HDF5 files
-    # sit beside params.json, so resolve against the example directory.
-    prefixes = [os.path.join(example, p) for p in params["fg_prefixes"]]
-
-    cache = PositionCache(prefixes, primers)
+    cache = PositionCache([prefix], primers)
     optimizer = HybridOptimizer(
-        cache,
-        fg_prefixes=prefixes,
-        fg_seq_lengths=params["fg_seq_lengths"],
-        polymerase=params.get("polymerase", "phi29"),
+        position_cache=cache,
+        fg_prefixes=[prefix],
+        fg_seq_lengths=[genome_length],
+        bin_size=1_000,
+        coverage_reach=3_000,
     )
+    return optimizer, primers
+
+
+def test_counter_fraction_matches_calculate_coverage_through_several_removals(tmp_path):
+    """The counter must track `_calculate_coverage` through a sequence of
+    removals, not just at the entry state.
+
+    Finding 2. The committed version of this test compared a single number at
+    the entry-state counter and never called `remove()`, so the incremental
+    property this whole module exists to make cheap -- exactness after a
+    removal, not just at the start -- was pinned only abstractly, by the
+    hand-built dict in `test_counter_matches_a_recount_after_each_removal`.
+    This walks every primer out one at a time and checks agreement with a real
+    `_calculate_coverage` rebuild of the true remaining set at every step,
+    ending at the empty set.
+
+    Finding 3. Rebuilt on synthetic HDF5 data (see `_build_optimizer_and_primers`)
+    rather than the plasmid example, which needs jellyfish to have been primed.
+    """
+    optimizer, primers = _build_optimizer_and_primers(tmp_path)
+
     counter = optimizer._build_coverage_counter(primers)
+    remaining = list(primers)
     assert counter.covered_fraction() == pytest.approx(
-        optimizer._calculate_coverage(primers), abs=1e-9
+        optimizer._calculate_coverage(remaining), abs=1e-9
     )
+
+    for primer in list(primers):
+        counter.remove(primer)
+        remaining.remove(primer)
+        assert counter.covered_fraction() == pytest.approx(
+            optimizer._calculate_coverage(remaining), abs=1e-9
+        )
+
+
+def test_duplicate_primers_do_not_corrupt_the_counter(tmp_path):
+    """A duplicated primer in the input must not desynchronise the counter
+    from the true remaining set.
+
+    Finding 4. `_prune_background` used to rebuild `_calculate_coverage` from
+    `current_primers` on every step, so a duplicate entry was harmless -- the
+    rebuild always saw the true remaining set. The counter is keyed by primer
+    sequence: `current_primers.remove(p)` drops one occurrence of a duplicate
+    while `counter.remove(p)` drops that primer's bins entirely, so the two
+    disagreed once a duplicate reached the loop. `_prune_background` now
+    dedupes its input at entry so the list and the counter start, and stay, in
+    agreement.
+    """
+    optimizer, primers = _build_optimizer_and_primers(tmp_path)
+    duplicated = primers[:6] + [primers[0]]
+
+    kept, coverage, _bg = optimizer._prune_background(duplicated, target_size=4, verbose=False)
+
+    assert len(kept) == len(set(kept)), "a duplicate survived pruning"
+    assert coverage == pytest.approx(optimizer._calculate_coverage(kept), abs=1e-9)

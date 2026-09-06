@@ -1327,7 +1327,13 @@ class HybridOptimizer:
         Returns:
             (pruned_primers, final_coverage, final_background_sites)
         """
-        current_primers = list(primers)
+        # Deduped up front: the counter is keyed by primer sequence, so a
+        # duplicate entry would desync it from `current_primers` the moment
+        # one copy was removed -- `list.remove` drops a single occurrence
+        # while `counter.remove` drops that primer's bins entirely. The old
+        # rebuild-per-step code had no such gap (it always saw the true
+        # remaining set), so the two structures must agree from here on.
+        current_primers = list(dict.fromkeys(primers))
         counter = self._build_coverage_counter(current_primers)
         current_coverage = counter.covered_fraction()
         # Both floors apply; the relative one is what normally binds.
