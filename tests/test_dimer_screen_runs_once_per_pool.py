@@ -209,18 +209,56 @@ def test_parallel_branch_bounds_submissions_in_flight(monkeypatch):
 
 
 def test_screen_does_not_build_a_full_pair_list(monkeypatch):
-    """A list comprehension over all pairs is the allocation this removes."""
+    """Neither eager allocation this task removed is allowed back anywhere in
+    the module -- deliberately checked at module scope, not against a single
+    function's source.
+
+    Fix round 1 moved the dimer-screening logic out of filter_candidates and
+    into _select_heterodimer_candidate_pairs / _screen_candidate_pairs_for_dimers
+    (the function-length ratchet). A check against filter_candidates alone
+    would now watch a function where neither risk lives any more, and a
+    regression reintroduced in the extracted methods would sail past it.
+
+    This has already happened once in this task: the original version of
+    this assertion matched the literal text "for j in range(i + 1,
+    len(passing))", and when the eager comprehension was rewritten to use a
+    local named `sequences` instead of `passing`, the assertion kept passing
+    while it still needed to catch a real regression risk -- it was simply
+    checking the wrong thing, the same failure mode fix round 2 is about.
+    So the checks below match on shape, not on a variable name that can be
+    renamed out from under them:
+
+    - `executor.map(...)`, however the executor variable is named, drains
+      its whole iterable before returning a single result (verified
+      empirically in fix round 1) and must not reappear.
+    - The original bug's shape was a tuple built from two `.sequence`
+      attribute lookups indexed by the pair's two loop variables, e.g.
+      `passing[i].sequence, passing[j].sequence`, materialised for every
+      pair before any pair was examined. The current code only ever indexes
+      a plain string list (`sequences[i]`, no `.sequence` attribute, because
+      `sequences = [a.sequence for a in passing]` already unwrapped it once),
+      so this pattern matching `X[i].sequence, X[j].sequence` for any name X
+      cannot appear in working code; if it does, the eager five-tuple
+      allocation is back.
+    """
     import inspect
+    import re
 
     import neoswga.core.thermodynamic_filter as tf
 
-    source = inspect.getsource(tf.ThermodynamicFilter.filter_candidates)
-    assert (
-        "for j in range(i + 1, len(passing))" not in source
-    ), "the eager pair comprehension is back"
-    assert "executor.map(" not in source, (
-        "executor.map() drains its iterable eagerly before returning a "
+    module_source = inspect.getsource(tf)
+
+    assert re.search(r"\.map\(", module_source) is None, (
+        "executor.map(...) drains its iterable eagerly before returning a "
         "single result -- the bounded sliding window must be used instead"
+    )
+
+    eager_pair_of_sequences = re.search(
+        r"\w+\[\w+\]\.sequence,\s*\w+\[\w+\]\.sequence", module_source
+    )
+    assert eager_pair_of_sequences is None, (
+        "found `X[i].sequence, X[j].sequence` -- the eager all-pairs "
+        "comprehension carrying full primer sequences is back"
     )
 
 
