@@ -6,6 +6,8 @@ Jellyfish is a required dependency - the module will raise an error if not avail
 """
 
 import concurrent.futures
+import hashlib
+import json
 import logging
 import os
 import shutil
@@ -183,10 +185,11 @@ class MultiGenomeKmerCounter:
         work_dir = self._get_work_dir()
 
         # Run jellyfish count
+        output_prefix = os.path.join(work_dir, genome_name)
         jf_file = os.path.join(work_dir, f"{genome_name}_{k}mer.jf")
         txt_file = os.path.join(work_dir, f"{genome_name}_{k}mer_all.txt")
 
-        if not os.path.exists(txt_file):
+        if not _table_is_current(output_prefix, fasta_path, k):
             # Run jellyfish count
             count_cmd = [
                 "jellyfish",
@@ -208,6 +211,8 @@ class MultiGenomeKmerCounter:
             dump_cmd = ["jellyfish", "dump", "-c", jf_file]
             with open(txt_file, "w") as f:
                 subprocess.run(dump_cmd, check=True, stdout=f)
+
+            _write_table_provenance(output_prefix, fasta_path, k)
 
             # Clean up .jf file
             if os.path.exists(jf_file):
@@ -314,6 +319,82 @@ def count_kmers_in_sequence(sequence: str, k: int) -> Dict[str, int]:
 _JELLYFISH_TIMEOUT = 3600  # 1 hour per k-value
 
 
+def table_provenance_path(output_prefix: str, k: int) -> str:
+    """Where the record of what a k-mer table was counted from lives."""
+    return f"{output_prefix}_{k}mer_all.provenance.json"
+
+
+def genome_fingerprint(genome_fname: str) -> str:
+    """A cheap, stable identifier for the contents of a genome file.
+
+    A full SHA-256 of hg38 costs several seconds on every invocation, which is
+    the wrong trade for a guard that runs before a step that may take minutes
+    but usually skips. This hashes the size, the first 1 MB and the last 1 MB,
+    which distinguishes any two assemblies in practice and catches the
+    truncated-download case the pre-flight already looks for.
+    """
+    size = os.path.getsize(genome_fname)
+    digest = hashlib.sha256(str(size).encode())
+    window = 1024 * 1024
+    with open(genome_fname, "rb") as fh:
+        digest.update(fh.read(window))
+        if size > 2 * window:
+            fh.seek(-window, os.SEEK_END)
+            digest.update(fh.read(window))
+    return digest.hexdigest()
+
+
+def _table_is_current(output_prefix: str, genome_fname: str, k: int) -> bool:
+    """Whether an existing table was counted from this genome.
+
+    The existence check this replaces keyed on the output prefix, which comes
+    from params.json and not from the genome. Repointing `fg_genomes` at a new
+    assembly while leaving `fg_prefixes` alone therefore reused the previous
+    organism's counts through the whole design, silently.
+    """
+    txt_file = f"{output_prefix}_{k}mer_all.txt"
+    if not os.path.exists(txt_file):
+        return False
+
+    record_path = table_provenance_path(output_prefix, k)
+    if not os.path.exists(record_path):
+        logger.warning(
+            f"{txt_file} exists but has no provenance record, so it cannot be "
+            f"matched to {genome_fname}. Recounting. Tables written before this "
+            f"check was added will each be recounted once."
+        )
+        return False
+
+    try:
+        with open(record_path) as fh:
+            record = json.load(fh)
+    except (OSError, ValueError) as exc:
+        logger.warning(f"Could not read {record_path} ({exc}). Recounting.")
+        return False
+
+    if record.get("fingerprint") != genome_fingerprint(genome_fname):
+        logger.warning(
+            f"{txt_file} was counted from a different genome "
+            f"({record.get('genome', 'unrecorded')}), not from {genome_fname}. "
+            f"Recounting. Reusing it would have built this design from the "
+            f"other genome's k-mer counts."
+        )
+        return False
+
+    return True
+
+
+def _write_table_provenance(output_prefix: str, genome_fname: str, k: int) -> None:
+    """Record what this table was counted from, for the next run's check."""
+    record = {
+        "genome": os.path.abspath(genome_fname),
+        "fingerprint": genome_fingerprint(genome_fname),
+        "k": k,
+    }
+    with open(table_provenance_path(output_prefix, k), "w") as fh:
+        json.dump(record, fh, indent=2)
+
+
 def _run_jellyfish_for_k(
     output_prefix: str, genome_fname: str, k: int, cpus: int, hash_size: int
 ) -> None:
@@ -333,7 +414,7 @@ def _run_jellyfish_for_k(
     jf_file = f"{output_prefix}_{k}mer_all.jf"
     txt_file = f"{output_prefix}_{k}mer_all.txt"
 
-    if not os.path.exists(txt_file):
+    if not _table_is_current(output_prefix, genome_fname, k):
         count_cmd = [
             "jellyfish",
             "count",
@@ -388,6 +469,8 @@ def _run_jellyfish_for_k(
             if os.path.exists(txt_file):
                 os.remove(txt_file)
             raise
+
+        _write_table_provenance(output_prefix, genome_fname, k)
 
     if os.path.exists(jf_file):
         os.remove(jf_file)
