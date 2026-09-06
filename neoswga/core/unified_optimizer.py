@@ -942,18 +942,17 @@ def run_optimization(
         step3_df = pd.read_csv(step3_path)
         candidates = step3_df["primer"].tolist()
 
-    # Empty candidate pool guard. If filter/score removed every primer,
-    # downstream optimizers behave inconsistently (some crash, some
-    # return empty results silently). Fail with an actionable message
-    # instead of dispatching into the factory with zero candidates.
+    # Empty candidate pool guard: downstream optimizers behave inconsistently
+    # on an empty pool (some raise, some return an empty result without saying
+    # why). A pipeline run cannot reach this branch -- with candidates=None the
+    # step-4 validator above rejects a missing or empty step3_df.csv first, and
+    # names the file -- so the only caller here is one that passed [] itself.
     if not candidates:
         msg = (
-            "No candidate primers available for optimization. "
-            "Common causes: (1) `neoswga filter` produced an empty "
-            "step2_df.csv (try relaxing max_bg_freq / max_gini or "
-            "widening min_k-max_k); (2) `neoswga score` filtered all "
-            "candidates below min_amp_pred (try lowering min_amp_pred); "
-            "(3) caller passed an empty candidate list. Status: "
+            "No candidate primers available for optimization: the caller "
+            "passed an empty candidate list. Pass a non-empty list of primer "
+            "sequences, or pass candidates=None to load the pool from "
+            "step3_df.csv in data_dir. Status: "
             f"data_dir={getattr(parameter, 'data_dir', '?')}, "
             f"method={method}."
         )

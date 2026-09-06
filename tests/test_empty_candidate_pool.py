@@ -21,7 +21,13 @@ from neoswga.core.unified_optimizer import run_optimization
 
 def test_empty_candidate_list_returns_failure_with_actionable_message():
     """Passing candidates=[] explicitly must short-circuit with
-    status=error and a message that tells the user where to look."""
+    status=error and a message that tells the user where to look.
+
+    The message used to blame `filter` and `score` for the empty pool. Neither
+    is reachable from here any more: with candidates=None the step-4
+    prerequisite validator rejects a missing or empty step3_df.csv first. A
+    caller who lands on this branch passed [] itself, so that is what it says.
+    """
     result = run_optimization(
         method="hybrid",
         candidates=[],
@@ -32,10 +38,14 @@ def test_empty_candidate_list_returns_failure_with_actionable_message():
     )
     assert result.status == OptimizationStatus.ERROR
     msg = result.message.lower()
-    # The message should name the likely cause(s) so the user does not
-    # have to read source code to debug.
+    # The message should name the actual cause so the user does not have to
+    # read source code to debug.
     assert "no candidate primers" in msg
-    assert "max_bg_freq" in msg or "filter" in msg
+    assert "empty candidate list" in msg
+    assert "step3_df.csv" in msg
+    # And it must not send the reader after a gate that was retired with the
+    # amplification model on 2026-09-05.
+    assert "min_amp_pred" not in msg
     # And the optimizer name must still be set so CLI error reporting works.
     assert result.optimizer_name == "hybrid"
 
