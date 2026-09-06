@@ -31,6 +31,27 @@ def test_explicit_zero_dmso_is_preserved(monkeypatch):
     assert parameter.dmso_percent == 0.0
 
 
+def test_explicit_nonzero_betaine_is_not_raised_to_the_recommendation(monkeypatch):
+    """A user asking for 0.5 M betaine keeps 0.5 M, not the strategy's 1.0 M.
+
+    The explicit-zero tests above exercise the same `elif` branch, but only at
+    the value the buggy `== 0.0` guard also happened to leave alone. This pins
+    the branch at a value where the two differ.
+    """
+    monkeypatch.setattr(parameter, "_json_data", {"betaine_m": 0.5}, raising=False)
+    monkeypatch.setattr(parameter, "betaine_m", 0.5, raising=False)
+    pipeline_mod._apply_adaptive_additives(_AdaptiveParams())
+    assert parameter.betaine_m == 0.5
+
+
+def test_explicit_nonzero_dmso_is_not_raised_to_the_recommendation(monkeypatch):
+    """Same for DMSO: 2.0% stays 2.0% where the strategy recommends 5.0%."""
+    monkeypatch.setattr(parameter, "_json_data", {"dmso_percent": 2.0}, raising=False)
+    monkeypatch.setattr(parameter, "dmso_percent", 2.0, raising=False)
+    pipeline_mod._apply_adaptive_additives(_AdaptiveParams())
+    assert parameter.dmso_percent == 2.0
+
+
 def test_unset_betaine_still_takes_the_recommendation(monkeypatch):
     monkeypatch.setattr(parameter, "_json_data", {}, raising=False)
     monkeypatch.setattr(parameter, "betaine_m", 0.0, raising=False)
