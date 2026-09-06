@@ -365,33 +365,138 @@ class DominatingSetOptimizer:
 
         return best_primer, best_new_coverage, skipped_for_dimer
 
-    def _relax_dimer_constraint_if_stuck(
-        self, best_primer, best_new_coverage, skipped_for_dimer, dimers, selected
-    ):
+    def _dimer_stall_should_relax(self, best_primer, best_new_coverage, skipped_for_dimer, dimers):
         """Whether the dimer constraint, not exhausted coverage, caused this stall.
 
-        True tells the caller to clear `dimers` and continue the loop rather
-        than treating this as "no more coverage gains possible": an undersized
-        panel loses coverage silently, whereas a named dimerising pair can be
+        A pure predicate: no logging here, because at this point the retry has
+        not run yet and the outcome -- whether relaxing actually admits
+        anything -- is not yet known. See `_log_dimer_relaxation_outcome`,
+        which reports what happened rather than what might.
+
+        True tells the caller to clear `dimers` and retry without spending a
+        slot of `max_primers` budget on the retry itself: an undersized panel
+        loses coverage silently, whereas a named dimerising pair can be
         swapped by hand at ordering time, and the step-4 summary records it as
-        `worst_heterodimer`.
+        `worst_heterodimer`. `dimers is not None` also bounds this to fire at
+        most once per run -- the retry runs with `dimers` cleared, so a second
+        stall can never again satisfy `skipped_for_dimer`.
         """
-        if not (
+        return (
             (best_primer is None or best_new_coverage == 0)
             and skipped_for_dimer
             and dimers is not None
             and self.relax_dimer_constraint_when_stuck
-        ):
-            return False
-        logger.warning(
-            "No remaining candidate is both dimer-free against the %d "
-            "primers selected so far and able to add coverage. "
-            "Continuing without the dimer constraint; the delivered pool "
-            "will contain at least one pair above max_dimer_bp=%d.",
-            len(selected),
-            self.max_dimer_bp,
         )
-        return True
+
+    def _log_dimer_relaxation_outcome(self, admitted_primer, n_selected, requested):
+        """What actually happened after the dimer constraint was lifted.
+
+        Two distinct things, not one: a primer was admitted under the relaxed
+        constraint (name it -- the delivered pool now carries a pair above
+        `max_dimer_bp`), or lifting the constraint did not help because
+        nothing remaining could add coverage either way (the set is short of
+        what was requested). Called only after the retry resolves, so it never
+        promises a consequence the code has not yet established.
+        """
+        if admitted_primer is not None:
+            logger.warning(
+                "No remaining candidate was both dimer-free against the %d "
+                "primers already selected and able to add coverage. Admitted "
+                "%s without the dimer constraint; the delivered pool contains "
+                "at least one pair above max_dimer_bp=%d.",
+                n_selected,
+                admitted_primer,
+                self.max_dimer_bp,
+            )
+        else:
+            logger.warning(
+                "Dimer constraint lifted after %d primers selected, but no "
+                "further candidate could add coverage either way; delivering "
+                "fewer than the %d primers requested.",
+                n_selected,
+                requested,
+            )
+
+    def _run_greedy_selection(
+        self,
+        scan_order,
+        selected,
+        order,
+        covered_regions,
+        graph,
+        dimers,
+        max_primers,
+        min_coverage,
+        n_fixed,
+        verbose,
+    ):
+        """The greedy loop: repeatedly add the primer with the largest marginal
+        coverage until `max_primers` new primers are added, coverage is
+        exhausted, or `min_coverage` is met.
+
+        Mutates `selected`, `order`, and `covered_regions` in place -- the
+        caller pre-fills them with the fixed-primer state and reads the final
+        contents afterward, so there is nothing to return.
+
+        Keyed on primers actually added (`new_primers_added`), not on loop
+        passes: a dimer-stall retry below must not spend a slot of this
+        budget, or a stall landing on the last slot would end the run one
+        primer short -- exactly the failure the relaxation exists to prevent.
+        """
+        new_primers_added = 0
+        relaxed = False
+        while new_primers_added < max_primers:
+            if len(covered_regions) == len(graph.regions):
+                if verbose:
+                    logger.info("Full coverage achieved")
+                break
+
+            # Find primer that covers most uncovered regions
+            best_primer, best_new_coverage, skipped_for_dimer = self._select_next_primer(
+                scan_order, selected, covered_regions, graph, dimers
+            )
+
+            if self._dimer_stall_should_relax(
+                best_primer, best_new_coverage, skipped_for_dimer, dimers
+            ):
+                dimers = None
+                relaxed = True
+                continue
+
+            if best_primer is None or best_new_coverage == 0:
+                if relaxed:
+                    self._log_dimer_relaxation_outcome(None, len(selected) - n_fixed, max_primers)
+                if verbose:
+                    logger.info("No more coverage gains possible")
+                break
+
+            if relaxed:
+                self._log_dimer_relaxation_outcome(
+                    best_primer, len(selected) - n_fixed, max_primers
+                )
+                relaxed = False
+
+            # Add primer
+            selected.add(best_primer)
+            order.append(best_primer)
+            covered_regions.update(graph.primer_to_regions[best_primer])
+            new_primers_added += 1
+
+            if verbose and new_primers_added % 5 == 0:
+                coverage = self._genome_fraction(covered_regions)
+                logger.info(f"  {new_primers_added} primers: {coverage:.1%} coverage")
+
+            # Check if coverage target is met
+            if min_coverage is not None and graph.regions:
+                current_coverage = self._genome_fraction(covered_regions)
+                if current_coverage >= min_coverage:
+                    if verbose:
+                        logger.info(
+                            f"Coverage target {min_coverage:.1%} met "
+                            f"({current_coverage:.1%}) with "
+                            f"{new_primers_added} new primers"
+                        )
+                    break
 
     def _total_bins(self) -> int:
         """Bins in the genome, not bins some candidate happens to reach.
@@ -537,48 +642,18 @@ class DominatingSetOptimizer:
             coverage_so_far = self._genome_fraction(covered_regions)
             logger.info(f"  Fixed primer coverage: {coverage_so_far:.1%}")
         self._warn_if_empty_graph(graph, candidates)
-        for iteration in range(max_primers):
-            if len(covered_regions) == len(graph.regions):
-                if verbose:
-                    logger.info("Full coverage achieved")
-                break
-
-            # Find primer that covers most uncovered regions
-            best_primer, best_new_coverage, skipped_for_dimer = self._select_next_primer(
-                scan_order, selected, covered_regions, graph, dimers
-            )
-
-            if self._relax_dimer_constraint_if_stuck(
-                best_primer, best_new_coverage, skipped_for_dimer, dimers, selected
-            ):
-                dimers = None
-                continue
-
-            if best_primer is None or best_new_coverage == 0:
-                if verbose:
-                    logger.info("No more coverage gains possible")
-                break
-
-            # Add primer
-            selected.add(best_primer)
-            order.append(best_primer)
-            covered_regions.update(graph.primer_to_regions[best_primer])
-
-            if verbose and (iteration + 1) % 5 == 0:
-                coverage = self._genome_fraction(covered_regions)
-                logger.info(f"  {iteration + 1} primers: {coverage:.1%} coverage")
-
-            # Check if coverage target is met
-            if min_coverage is not None and graph.regions:
-                current_coverage = self._genome_fraction(covered_regions)
-                if current_coverage >= min_coverage:
-                    if verbose:
-                        logger.info(
-                            f"Coverage target {min_coverage:.1%} met "
-                            f"({current_coverage:.1%}) with "
-                            f"{len(selected) - n_fixed} new primers"
-                        )
-                    break
+        self._run_greedy_selection(
+            scan_order,
+            selected,
+            order,
+            covered_regions,
+            graph,
+            dimers,
+            max_primers,
+            min_coverage,
+            n_fixed,
+            verbose,
+        )
 
         # Final statistics
         coverage = self._genome_fraction(covered_regions)

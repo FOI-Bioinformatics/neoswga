@@ -7,6 +7,9 @@ consequence: the shipped E. coli panel carries an 11 bp heterodimer against a
 configured 3, and the fresh Wolbachia panel carries 10 bp.
 """
 
+import logging
+
+import numpy as np
 import pytest
 
 from neoswga.core import hybrid_optimizer, parameter
@@ -74,12 +77,122 @@ def test_greedy_does_not_select_a_primer_that_dimerises_with_the_set():
     assert optimizer._would_dimerise("CGCGATCGCGAT", ["AAAATTTTAAAA"], matrix) is False
 
 
-def test_greedy_falls_back_rather_than_returning_an_undersized_set():
-    """If every remaining candidate dimerises, the run must say so and continue
-    rather than silently deliver fewer primers than asked for."""
+class _StaticCache:
+    """Minimal position-cache stand-in: one forward binding site per primer."""
+
+    def __init__(self, positions_by_primer):
+        self._by_primer = positions_by_primer
+
+    def get_positions(self, prefix, primer, strand="both"):
+        pos = self._by_primer.get(primer, [])
+        if strand == "reverse":
+            return np.array([], dtype=np.int64)
+        return np.asarray(pos, dtype=np.int64)
+
+
+# Three primers, non-overlapping single-site coverage windows, one dimerising
+# pair (AAAACCCCGGGG x TTTTGGGGCCCC, same pair as the unit test above).
+# CGCGATCGCGAT is dimer-free against both. A working greedy must eventually
+# select all three: TTTTGGGGCCCC is not redundant, it is simply blocked until
+# the relaxation admits it.
+_GENOME = 1_000_000
+_REACH = 3000
+_DIMER_STALL_POSITIONS = {
+    "AAAACCCCGGGG": [10_000],
+    "TTTTGGGGCCCC": [50_000],
+    "CGCGATCGCGAT": [90_000],
+}
+
+
+def _dimer_stall_optimizer():
     from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 
-    optimizer = DominatingSetOptimizer(
-        None, fg_prefixes=["x"], fg_seq_lengths=[10000], max_dimer_bp=3
+    return DominatingSetOptimizer(
+        cache=_StaticCache(_DIMER_STALL_POSITIONS),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[_GENOME],
+        bin_size=_REACH // 4,
+        extension_reach=_REACH,
+        max_dimer_bp=3,
     )
-    assert optimizer.relax_dimer_constraint_when_stuck is True
+
+
+def test_greedy_falls_back_rather_than_returning_an_undersized_set():
+    """If every remaining candidate dimerises, the run must say so and continue
+    rather than silently deliver fewer primers than asked for.
+
+    Replaces a vacuous version of this test that asserted only
+    `relax_dimer_constraint_when_stuck is True` without ever calling
+    `optimize_greedy`, so it could not catch the bug below: the relaxation
+    used to consume a loop iteration via `continue` inside
+    `for iteration in range(max_primers)`, so a stall landing on the last
+    iteration ended the run one primer short -- exactly the failure the
+    relaxation exists to prevent. Reproduced before the fix: `max_primers=3`
+    on this three-primer pool returned only 2 primers, while `max_primers=4`
+    on the same pool correctly returned all 3 -- the difference was purely one
+    spare iteration of budget.
+    """
+    optimizer = _dimer_stall_optimizer()
+
+    result = optimizer.optimize_greedy(
+        candidates=list(_DIMER_STALL_POSITIONS), max_primers=3, verbose=False
+    )
+
+    assert len(result["primers"]) == 3
+    assert set(result["primers"]) == set(_DIMER_STALL_POSITIONS)
+
+
+def test_relaxation_warning_names_the_primer_it_actually_admitted(caplog):
+    """The warning used to fire before the retry resolved, so it promised a
+    dimerising pair would be delivered even on a run where nothing ended up
+    admitted. It must describe what happened, not what might: here a primer
+    genuinely is admitted, so it must be named."""
+    optimizer = _dimer_stall_optimizer()
+
+    with caplog.at_level(logging.WARNING, logger="neoswga.core.dominating_set_optimizer"):
+        result = optimizer.optimize_greedy(
+            candidates=list(_DIMER_STALL_POSITIONS), max_primers=3, verbose=False
+        )
+
+    assert len(result["primers"]) == 3
+    assert "TTTTGGGGCCCC" in caplog.text
+    assert "at least one pair above max_dimer_bp=3" in caplog.text
+
+
+def test_relaxation_warning_wording_when_nothing_was_admitted(caplog):
+    """The other branch of the same wording fix: lifting the constraint does
+    not by itself admit anything, because a candidate must still add
+    coverage, and the warning must say so rather than claim a dimerising pair
+    was delivered.
+
+    This calls `_log_dimer_relaxation_outcome` directly rather than driving it
+    through a live `optimize_greedy` run. Attempting the live version first
+    (a redundant, dimerising second primer at the same binding position as
+    the first) never logged anything: `graph.regions` is defined purely by
+    what the candidates contribute, so if a redundant candidate is the only
+    thing left, `covered_regions == graph.regions` already holds and the
+    "Full coverage achieved" branch fires before selection is even attempted
+    -- correctly, since nothing was actually left to gain. A 3,000-trial
+    randomised search over synthetic pools (varying primer count, dimer
+    pairs, and binding positions) found no live case where the stall fires,
+    the graph is not yet fully covered, and the retry still admits nothing:
+    whenever `covered_regions != graph.regions`, some not-yet-selected
+    candidate accounts for the gap, and relaxation lifts the dimer check for
+    every remaining candidate at once, so that candidate always scores
+    positively on retry. The report that this branch fired live was against
+    the round-1 code, where the *other* bug (the relaxation consuming a loop
+    iteration) could end the run before the retry ran at all -- which looked
+    like "nothing admitted" but was actually that bug, now fixed above. The
+    branch is still real, reachable code (a future caller could set
+    `relax_dimer_constraint_when_stuck` False mid-run, or a subclass could
+    change what "stuck" means), so its wording is pinned directly here.
+    """
+    optimizer = _dimer_stall_optimizer()
+
+    with caplog.at_level(logging.WARNING, logger="neoswga.core.dominating_set_optimizer"):
+        optimizer._log_dimer_relaxation_outcome(None, n_selected=2, requested=4)
+
+    assert "no further candidate could add coverage" in caplog.text.lower()
+    assert "2 primers selected" in caplog.text
+    assert "4 primers requested" in caplog.text
+    assert "TTTTGGGGCCCC" not in caplog.text
