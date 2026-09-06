@@ -415,6 +415,16 @@ def test_the_coverage_floor_is_relative_to_where_pruning_started():
 
     Driven with a controlled coverage function rather than a genome, because
     the point is the shape of the floor and not any particular target.
+
+    `_prune_background` now reads coverage from a `CoverageCounter` (Finding
+    A3) built once per call by `_build_coverage_counter`, rather than calling
+    `_calculate_coverage` once per candidate per removal. The synthetic decay
+    curve is therefore installed on that seam instead: `_FakeSizeCounter`
+    implements the `CoverageCounter` surface the loop uses
+    (`covered_count`/`covered_fraction`/`loss_if_removed`/`remove`/
+    `total_bins`) over the same `coverage * (len(s) / 12.0) ** 0.05` curve the
+    old stub drove `_calculate_coverage` with, so this test still exercises
+    only the floor logic and not any real bin arithmetic.
     """
     from neoswga.core.hybrid_optimizer import HybridOptimizer
 
@@ -427,6 +437,32 @@ def test_the_coverage_floor_is_relative_to_where_pruning_started():
         except TypeError:  # the loop also probes with non-primer values
             return 0
 
+    class _FakeSizeCounter:
+        """Coverage depends only on how many primers remain, not on which."""
+
+        def __init__(self, coverage_at_12, remaining):
+            self._coverage_at_12 = coverage_at_12
+            self._remaining = list(remaining)
+            self.total_bins = 1
+
+        def _fraction_for(self, n):
+            return self._coverage_at_12 * (n / 12.0) ** 0.05 if n > 0 else 0.0
+
+        def covered_count(self):
+            return self._fraction_for(len(self._remaining))
+
+        def covered_fraction(self):
+            return self.covered_count()
+
+        def loss_if_removed(self, primer):
+            if primer not in self._remaining:
+                return 0
+            return self.covered_count() - self._fraction_for(len(self._remaining) - 1)
+
+        def remove(self, primer):
+            if primer in self._remaining:
+                self._remaining.remove(primer)
+
     def optimizer_at(coverage):
         opt = HybridOptimizer.__new__(HybridOptimizer)
         opt.min_coverage_threshold = 0.95
@@ -436,7 +472,7 @@ def test_the_coverage_floor_is_relative_to_where_pruning_started():
         opt.fg_prefixes, opt.fg_seq_lengths = ["fg"], [1_000_000]
         opt.bg_prefixes, opt.bg_seq_lengths = ["bg"], [1_000_000]
         # Coverage decays gently as primers are dropped, anchored at `coverage`.
-        opt._calculate_coverage = lambda s: coverage * (len(s) / 12.0) ** 0.05
+        opt._build_coverage_counter = lambda s: _FakeSizeCounter(coverage, s)
         opt._count_background_sites = count_background
         return opt
 

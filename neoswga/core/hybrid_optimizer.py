@@ -27,6 +27,7 @@ from typing import Dict, List, Optional, Tuple
 import networkx as nx
 import numpy as np
 
+from neoswga.core.coverage_counter import CoverageCounter
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
 from neoswga.core.registry import POLYMERASES as _POLYMERASES
@@ -1264,6 +1265,27 @@ class HybridOptimizer:
         self._thermo_filter_cache = (wanted, frozenset(c.upper() for c in result))
         return result
 
+    def _build_coverage_counter(self, primers: List[str]) -> CoverageCounter:
+        """A `CoverageCounter` over the same bins `_calculate_coverage` counts.
+
+        Delegates the graph-building to `_coverage_bins_by_primer`, which
+        already builds ONE shared `BipartiteGraph` for the whole set rather
+        than one per primer -- that method's docstring records what a
+        per-primer graph does to `CoverageRegion` equality. Bins are keyed here
+        by `_bin_key` (coordinates) rather than by the region object, matching
+        `_bin_occupancy`'s convention, for the same reason.
+
+        The denominator is `_total_coverage_bins`, the same genome-bin total
+        `_calculate_coverage` divides by -- NOT the graph's own covered-region
+        count, which would always equal the numerator (every region the graph
+        holds came from these primers) and read a constant 1.0.
+        """
+        bins_by_primer = self._coverage_bins_by_primer(primers)
+        counter = CoverageCounter(total_bins=self._total_coverage_bins())
+        for primer, bins in bins_by_primer.items():
+            counter.add(primer, {self._bin_key(b) for b in bins})
+        return counter
+
     def _prune_background(
         self, primers: List[str], target_size: int, verbose: bool = False
     ) -> Tuple[List[str], float, int]:
@@ -1306,7 +1328,8 @@ class HybridOptimizer:
             (pruned_primers, final_coverage, final_background_sites)
         """
         current_primers = list(primers)
-        current_coverage = self._calculate_coverage(current_primers)
+        counter = self._build_coverage_counter(current_primers)
+        current_coverage = counter.covered_fraction()
         # Both floors apply; the relative one is what normally binds.
         floor = max(
             self.min_coverage_threshold if self._absolute_coverage_floor else 0.0,
@@ -1327,8 +1350,12 @@ class HybridOptimizer:
             best_score = -np.inf
 
             for primer in current_primers:
-                test_set = [p for p in current_primers if p != primer]
-                test_coverage = self._calculate_coverage(test_set)
+                lost_bins = counter.loss_if_removed(primer)
+                test_coverage = (
+                    (counter.covered_count() - lost_bins) / counter.total_bins
+                    if counter.total_bins
+                    else 0.0
+                )
                 coverage_loss = current_coverage - test_coverage
 
                 if test_coverage < floor:
@@ -1368,7 +1395,8 @@ class HybridOptimizer:
                 break
 
             current_primers.remove(best_removal)
-            current_coverage = self._calculate_coverage(current_primers)
+            counter.remove(best_removal)
+            current_coverage = counter.covered_fraction()
             removed_count += 1
 
             if verbose and removed_count % 2 == 0:
@@ -1378,7 +1406,11 @@ class HybridOptimizer:
                     f"background={self._count_background_sites(current_primers)} sites"
                 )
 
-        final_coverage = self._calculate_coverage(current_primers)
+        # current_coverage already reflects this exact set: it is updated from
+        # the counter after every removal (and, if the loop never ran, from the
+        # counter built at entry), so a fresh rebuild here would just recompute
+        # the same number -- the thing this method exists to stop doing.
+        final_coverage = current_coverage
         final_bg_sites = self._count_background_sites(current_primers)
 
         return current_primers, final_coverage, final_bg_sites
