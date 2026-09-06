@@ -50,3 +50,36 @@ def test_screen_receives_the_configured_threshold(monkeypatch):
     )
     _optimizer(max_dimer_bp=4)._thermo_filter_candidates(["AAACCCGGGTTT", "ACCCGGGTTTAA"])
     assert seen.get("max_dimer_bp") == 4
+
+
+def test_greedy_does_not_select_a_primer_that_dimerises_with_the_set():
+    """Finding B6: no default path screened a primer against another primer."""
+    from neoswga.core.dimer_matrix import build
+
+    # AAAATTTTAAAA and TTTTAAAATTTT share a long complementary run.
+    primers = ["AAAATTTTAAAA", "TTTTAAAATTTT", "CGCGATCGCGAT"]
+    matrix = build(primers, 3)
+    assert bool(matrix.pairs[0, 1]) is True
+    assert bool(matrix.pairs[0, 2]) is False
+
+    from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
+
+    # The real signature is DominatingSetOptimizer(cache, fg_prefixes,
+    # fg_seq_lengths, bin_size=10000, extension_reach=0). There is no
+    # bg_prefixes parameter; the cache is positional and first.
+    optimizer = DominatingSetOptimizer(
+        None, fg_prefixes=["x"], fg_seq_lengths=[10000], max_dimer_bp=3
+    )
+    assert optimizer._would_dimerise("TTTTAAAATTTT", ["AAAATTTTAAAA"], matrix) is True
+    assert optimizer._would_dimerise("CGCGATCGCGAT", ["AAAATTTTAAAA"], matrix) is False
+
+
+def test_greedy_falls_back_rather_than_returning_an_undersized_set():
+    """If every remaining candidate dimerises, the run must say so and continue
+    rather than silently deliver fewer primers than asked for."""
+    from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
+
+    optimizer = DominatingSetOptimizer(
+        None, fg_prefixes=["x"], fg_seq_lengths=[10000], max_dimer_bp=3
+    )
+    assert optimizer.relax_dimer_constraint_when_stuck is True

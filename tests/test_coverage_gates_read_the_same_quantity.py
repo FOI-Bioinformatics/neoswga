@@ -47,9 +47,18 @@ class _Cache:
 GENOME = 1_000_000
 REACH = 3000
 # Four primers, all binding inside the first 100 kb.
+#
+# Deliberately dimer-free against one another at max_dimer_bp=3: the greedy
+# now screens for that (Task 5, dimer-aware selection), and the original
+# TTTTGGGGCCCC shared a 4-base complementary run with AAAACCCCGGGG, so a
+# dimer-aware run legitimately dropped it, leaving only 3 of these 4 primers
+# selected and breaking the coverage-gate assertions below, which need all
+# four for the tests to still say anything. GGCCTTGGCCTT replaces it, keeps
+# the same GC content (8/12), and was verified pairwise dimer-free against the
+# other three with `dimer_matrix.build(CLUSTERED, 3).pairs.any() is False`.
 CLUSTERED = {
     "AAAACCCCGGGG": [5_000, 25_000],
-    "TTTTGGGGCCCC": [45_000, 65_000],
+    "GGCCTTGGCCTT": [45_000, 65_000],
     "ACGTACGTACGT": [15_000, 35_000],
     "TGCATGCATGCA": [55_000, 85_000],
 }

@@ -256,6 +256,7 @@ class DominatingSetOptimizer:
         fg_seq_lengths: List[int],
         bin_size: int = 10000,
         extension_reach: int = 0,
+        max_dimer_bp: Optional[int] = None,
     ):
         """
         Initialize optimizer.
@@ -268,6 +269,10 @@ class DominatingSetOptimizer:
             extension_reach: Polymerase extension distance in bp. When > 0,
                 each binding site covers all bins within this distance.
                 Use 70000 for phi29, 80000 for equiphi29.
+            max_dimer_bp: Longest complementary run tolerated between two
+                selected primers. Resolved constructor argument, then
+                `parameter.max_dimer_bp`, then 3 -- the same three-step rule
+                `HybridOptimizer._resolve_max_dimer_bp` uses.
         """
         self.cache = cache
         self.fg_prefixes = fg_prefixes
@@ -279,6 +284,114 @@ class DominatingSetOptimizer:
                 f"Bin size reduced {bin_size:,} -> {self.bin_size:,} bp to match the "
                 f"{extension_reach:,} bp extension reach"
             )
+        self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
+        # When every remaining candidate dimerises with the set, delivering
+        # fewer primers than asked for is worse than delivering one dimerising
+        # pair and saying so: an undersized panel silently loses coverage,
+        # whereas a named pair can be swapped by hand at ordering time.
+        self.relax_dimer_constraint_when_stuck = True
+
+    @staticmethod
+    def _resolve_max_dimer_bp(max_dimer_bp: Optional[int]) -> int:
+        """Resolve the dimer limit: constructor argument, then params.json, then 3.
+
+        `isinstance(..., int) and not isinstance(..., bool)` rather than a
+        truthiness check, because several test modules replace the `parameter`
+        module with a mock whose every attribute is truthy -- `getattr(...) or
+        default` would silently reconfigure the threshold from such a mock.
+        """
+        if max_dimer_bp is not None:
+            return int(max_dimer_bp)
+
+        from neoswga.core import parameter as _parameter
+
+        configured = getattr(_parameter, "max_dimer_bp", None)
+        if isinstance(configured, int) and not isinstance(configured, bool):
+            return int(configured)
+        return 3
+
+    def _would_dimerise(self, candidate, selected, matrix):
+        """Whether `candidate` forms a heterodimer with anything already chosen.
+
+        Cheap because it runs against the growing set rather than the pool:
+        selecting 160 primers costs at most 12,720 lookups, against the 4.5
+        million pairs a whole-pool screen would visit.
+        """
+        if matrix is None or not selected:
+            return False
+        return matrix.dimerises(candidate, selected)
+
+    def _build_dimer_matrix_for_greedy(self, candidates):
+        """The dimer matrix for this greedy run, or None if it cannot be built.
+
+        A `max_dimer_bp` above what `dimer_matrix`'s representation allocates
+        raises ValueError; selection then proceeds without the constraint
+        rather than failing, and says so.
+        """
+        from neoswga.core import dimer_matrix as _dimer_matrix
+
+        try:
+            return _dimer_matrix.build(list(candidates), self.max_dimer_bp)
+        except ValueError as exc:
+            logger.warning("Dimer-aware selection disabled: %s", exc)
+            return None
+
+    def _select_next_primer(self, scan_order, selected, covered_regions, graph, dimers):
+        """One greedy scan: the candidate with the largest marginal coverage.
+
+        Returns `(best_primer, best_new_coverage, skipped_for_dimer)`. A
+        candidate that dimerises with `selected` is skipped rather than
+        scored, and `skipped_for_dimer` records whether that happened this
+        scan -- the signal `optimize_greedy` uses to tell a dimer-caused stall
+        from a genuinely exhausted pool.
+        """
+        best_primer = None
+        best_new_coverage = 0
+        skipped_for_dimer = False
+
+        for primer in scan_order:
+            if primer in selected:
+                continue
+
+            if self._would_dimerise(primer, selected, dimers):
+                skipped_for_dimer = True
+                continue
+
+            # Count how many NEW regions this primer covers
+            new_regions = graph.primer_to_regions.get(primer, set()) - covered_regions
+            if len(new_regions) > best_new_coverage:
+                best_new_coverage = len(new_regions)
+                best_primer = primer
+
+        return best_primer, best_new_coverage, skipped_for_dimer
+
+    def _relax_dimer_constraint_if_stuck(
+        self, best_primer, best_new_coverage, skipped_for_dimer, dimers, selected
+    ):
+        """Whether the dimer constraint, not exhausted coverage, caused this stall.
+
+        True tells the caller to clear `dimers` and continue the loop rather
+        than treating this as "no more coverage gains possible": an undersized
+        panel loses coverage silently, whereas a named dimerising pair can be
+        swapped by hand at ordering time, and the step-4 summary records it as
+        `worst_heterodimer`.
+        """
+        if not (
+            (best_primer is None or best_new_coverage == 0)
+            and skipped_for_dimer
+            and dimers is not None
+            and self.relax_dimer_constraint_when_stuck
+        ):
+            return False
+        logger.warning(
+            "No remaining candidate is both dimer-free against the %d "
+            "primers selected so far and able to add coverage. "
+            "Continuing without the dimer constraint; the delivered pool "
+            "will contain at least one pair above max_dimer_bp=%d.",
+            len(selected),
+            self.max_dimer_bp,
+        )
+        return True
 
     def _total_bins(self) -> int:
         """Bins in the genome, not bins some candidate happens to reach.
@@ -418,6 +531,8 @@ class DominatingSetOptimizer:
 
         scan_order = _deterministic_scan_order(fixed_primers, candidates, graph.primers)
 
+        dimers = self._build_dimer_matrix_for_greedy(candidates)
+
         if verbose and n_fixed > 0:
             coverage_so_far = self._genome_fraction(covered_regions)
             logger.info(f"  Fixed primer coverage: {coverage_so_far:.1%}")
@@ -429,18 +544,15 @@ class DominatingSetOptimizer:
                 break
 
             # Find primer that covers most uncovered regions
-            best_primer = None
-            best_new_coverage = 0
+            best_primer, best_new_coverage, skipped_for_dimer = self._select_next_primer(
+                scan_order, selected, covered_regions, graph, dimers
+            )
 
-            for primer in scan_order:
-                if primer in selected:
-                    continue
-
-                # Count how many NEW regions this primer covers
-                new_regions = graph.primer_to_regions.get(primer, set()) - covered_regions
-                if len(new_regions) > best_new_coverage:
-                    best_new_coverage = len(new_regions)
-                    best_primer = primer
+            if self._relax_dimer_constraint_if_stuck(
+                best_primer, best_new_coverage, skipped_for_dimer, dimers, selected
+            ):
+                dimers = None
+                continue
 
             if best_primer is None or best_new_coverage == 0:
                 if verbose:
