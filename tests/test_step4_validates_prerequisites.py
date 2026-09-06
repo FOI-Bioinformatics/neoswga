@@ -17,11 +17,15 @@ from neoswga.core.pipeline import StepPrerequisiteError, validate_step4_prerequi
 
 @pytest.fixture
 def data_dir(tmp_path):
-    pd.DataFrame({"primer": ["AAACCCGGGTTT", "ACCCGGGTTTAA"],
-                  "ratio": [1.0, 2.0], "gini": [0.3, 0.4],
-                  "fg_count": [20, 15], "bg_count": [2, 3]}).to_csv(
-        tmp_path / "step3_df.csv", index=False
-    )
+    pd.DataFrame(
+        {
+            "primer": ["AAACCCGGGTTT", "ACCCGGGTTTAA"],
+            "ratio": [1.0, 2.0],
+            "gini": [0.3, 0.4],
+            "fg_count": [20, 15],
+            "bg_count": [2, 3],
+        }
+    ).to_csv(tmp_path / "step3_df.csv", index=False)
     return str(tmp_path)
 
 

@@ -101,9 +101,7 @@ class TestCommandInjectionPrevention:
                     if malicious_path in arg:
                         found_path = True
                         # If the path is in args, it should be the whole path as one arg
-                        assert (
-                            arg == malicious_path
-                        ), "Path should be single argument, not split"
+                        assert arg == malicious_path, "Path should be single argument, not split"
             assert found_path, "Malicious path should be found as single argument"
 
 
