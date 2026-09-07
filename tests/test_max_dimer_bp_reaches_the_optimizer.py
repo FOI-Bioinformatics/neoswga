@@ -156,7 +156,8 @@ def test_relaxation_warning_names_the_primer_it_actually_admitted(caplog):
 
     assert len(result["primers"]) == 3
     assert "TTTTGGGGCCCC" in caplog.text
-    assert "at least one pair above max_dimer_bp=3" in caplog.text
+    assert "unscreened against the already-selected set" in caplog.text
+    assert "above max_dimer_bp=3" in caplog.text
 
 
 def test_relaxation_warning_wording_when_nothing_was_admitted(caplog):
@@ -199,3 +200,89 @@ def test_relaxation_warning_wording_when_nothing_was_admitted(caplog):
     assert "2 primers selected" in caplog.text
     assert "4 primers requested" in caplog.text
     assert "TTTTGGGGCCCC" not in caplog.text
+
+
+# Four primers, all four mutually dimerising at max_dimer_bp=3, each with one
+# binding site in its own coverage window. Greedy therefore stalls on every
+# pick after the first: whichever primer it takes, the whole remainder of the
+# pool dimerises with the set. Three unscreened admissions, three warnings.
+_MULTI_STALL_POSITIONS = {
+    "AAAACCCCGGGG": [10_000],
+    "TTTTGGGGCCCC": [50_000],
+    "GGGGCCCCTTTT": [90_000],
+    "CCCCGGGGAAAA": [130_000],
+}
+
+
+def _multi_stall_optimizer():
+    from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
+
+    return DominatingSetOptimizer(
+        cache=_StaticCache(_MULTI_STALL_POSITIONS),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[_GENOME],
+        bin_size=_REACH // 4,
+        extension_reach=_REACH,
+        max_dimer_bp=3,
+    )
+
+
+def _violating_pairs(primers, max_dimer_bp):
+    """Delivered pairs above the threshold, by the exact pairwise relation."""
+    from neoswga.core.dimer import is_dimer_fast
+
+    return [
+        (a, b)
+        for i, a in enumerate(primers)
+        for b in primers[i + 1 :]
+        if is_dimer_fast(a, b, max_dimer_bp)
+    ]
+
+
+def _relaxation_warnings(caplog):
+    return [r for r in caplog.records if "unscreened against the already-selected set" in r.message]
+
+
+def test_every_unscreened_admission_is_logged_not_just_the_first(caplog):
+    """The relaxation must be re-armed after each admission it makes.
+
+    Setting the local `dimers` to None and clearing only the `relaxed` flag
+    turned the dimer screen off for the whole remainder of the run while the
+    log still described a single admission. On the 200-primer S. aureus panel
+    that delivered 9172 of 19900 pairs above a configured max_dimer_bp of 3
+    with five primers named. The three older relaxation tests above cannot see
+    it: their pool admits exactly one relaxed pick, so one warning is both the
+    correct and the incorrect answer.
+
+    Here the pool stalls on every pick after the first, so the number of
+    warnings is the number of primers admitted without a screen -- and the
+    property an operator actually needs holds: every delivered pair above the
+    threshold involves a primer the log named, so the log is a complete list
+    of what to swap by hand.
+    """
+    optimizer = _multi_stall_optimizer()
+
+    with caplog.at_level(logging.WARNING, logger="neoswga.core.dominating_set_optimizer"):
+        result = optimizer.optimize_greedy(
+            candidates=list(_MULTI_STALL_POSITIONS), max_primers=4, verbose=False
+        )
+
+    delivered = result["primers"]
+    assert set(delivered) == set(_MULTI_STALL_POSITIONS)
+
+    warnings = _relaxation_warnings(caplog)
+    named = {p for p in delivered if any(p in r.getMessage() for r in warnings)}
+
+    # One warning per primer admitted unscreened: the first pick is screened
+    # (nothing is selected yet), the other three are not.
+    assert len(warnings) == len(delivered) - 1 == 3
+    assert len(named) == len(warnings)
+
+    # And no delivered pair above the threshold is between two primers the log
+    # left unnamed. Under the unrestored constraint this fails: only the first
+    # relaxed admission was named, so the pairs among the later ones were
+    # silent.
+    violations = _violating_pairs(delivered, 3)
+    assert violations, "the pool must actually deliver violating pairs for this to test anything"
+    unnamed_pairs = [(a, b) for a, b in violations if a not in named and b not in named]
+    assert unnamed_pairs == []

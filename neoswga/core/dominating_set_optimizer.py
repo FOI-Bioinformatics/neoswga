@@ -286,9 +286,11 @@ class DominatingSetOptimizer:
             )
         self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
         # When every remaining candidate dimerises with the set, delivering
-        # fewer primers than asked for is worse than delivering one dimerising
-        # pair and saying so: an undersized panel silently loses coverage,
-        # whereas a named pair can be swapped by hand at ordering time.
+        # fewer primers than asked for is worse than admitting one unscreened
+        # primer and naming it: an undersized panel silently loses coverage,
+        # whereas a named primer can be swapped by hand at ordering time. The
+        # constraint is restored after each such admission, so the number of
+        # warnings equals the number of primers admitted unscreened.
         self.relax_dimer_constraint_when_stuck = True
 
     @staticmethod
@@ -373,13 +375,21 @@ class DominatingSetOptimizer:
         anything -- is not yet known. See `_log_dimer_relaxation_outcome`,
         which reports what happened rather than what might.
 
-        True tells the caller to clear `dimers` and retry without spending a
-        slot of `max_primers` budget on the retry itself: an undersized panel
-        loses coverage silently, whereas a named dimerising pair can be
-        swapped by hand at ordering time, and the step-4 summary records it as
-        `worst_heterodimer`. `dimers is not None` also bounds this to fire at
-        most once per run -- the retry runs with `dimers` cleared, so a second
-        stall can never again satisfy `skipped_for_dimer`.
+        True tells the caller to clear the armed matrix and retry without
+        spending a slot of `max_primers` budget on the retry itself: an
+        undersized panel loses coverage silently, whereas a named dimerising
+        pair can be swapped by hand at ordering time, and the step-4 summary
+        records it as `worst_heterodimer`.
+
+        The `dimers is not None` term bounds the relaxation to one unscreened
+        admission at a time, not to one per run: the retry scan runs with the
+        matrix cleared, so `skipped_for_dimer` is False on it and this cannot
+        fire twice in a row. The caller re-arms the matrix as soon as the
+        admitted primer is added, so a later stall relaxes again and logs
+        again. That is what keeps the warning count equal to the number of
+        primers admitted unscreened -- the argument above, that an operator
+        can hand-swap the named pairs, holds only if every such primer is
+        named.
         """
         return (
             (best_primer is None or best_new_coverage == 0)
@@ -421,8 +431,10 @@ class DominatingSetOptimizer:
             logger.warning(
                 "No remaining candidate was both dimer-free against the %d "
                 "primers already selected and able to add coverage. Admitted "
-                "%s without the dimer constraint; the delivered pool contains "
-                "at least one pair above max_dimer_bp=%d.",
+                "%s unscreened against the already-selected set: it may pair "
+                "with any of them above max_dimer_bp=%d. The constraint is "
+                "restored for the next pick, so every further unscreened "
+                "admission produces another warning like this one.",
                 n_selected,
                 admitted_primer,
                 self.max_dimer_bp,
@@ -461,8 +473,22 @@ class DominatingSetOptimizer:
         passes: a dimer-stall retry below must not spend a slot of this
         budget, or a stall landing on the last slot would end the run one
         primer short -- exactly the failure the relaxation exists to prevent.
+
+        `armed` is the matrix the scan runs against; `dimers` is kept intact so
+        it can be restored. The relaxation clears `armed` for exactly one pick
+        and puts it back as soon as that pick is added, so the constraint is
+        off for one primer rather than for the rest of the run. Clearing
+        `dimers` itself here instead disabled the screen permanently while
+        `relaxed = False` suppressed only the log: on the 200-primer S. aureus
+        panel that delivered 9172 of 19900 pairs above a configured
+        `max_dimer_bp` of 3, with five primers named in the log.
+
+        Termination is unaffected. `new_primers_added` advances on every add, a
+        relaxed scan cannot relax again (see `_dimer_stall_should_relax`), and
+        a relaxed scan that admits nothing breaks out of the loop.
         """
         new_primers_added = 0
+        armed = dimers
         relaxed = False
         while new_primers_added < max_primers:
             if len(covered_regions) == len(graph.regions):
@@ -472,13 +498,13 @@ class DominatingSetOptimizer:
 
             # Find primer that covers most uncovered regions
             best_primer, best_new_coverage, skipped_for_dimer = self._select_next_primer(
-                scan_order, selected, covered_regions, graph, dimers
+                scan_order, selected, covered_regions, graph, armed
             )
 
             if self._dimer_stall_should_relax(
-                best_primer, best_new_coverage, skipped_for_dimer, dimers
+                best_primer, best_new_coverage, skipped_for_dimer, armed
             ):
-                dimers = None
+                armed = None
                 relaxed = True
                 continue
 
@@ -494,6 +520,7 @@ class DominatingSetOptimizer:
                     best_primer, len(selected) - n_fixed, max_primers
                 )
                 relaxed = False
+                armed = dimers
 
             # Add primer
             selected.add(best_primer)
