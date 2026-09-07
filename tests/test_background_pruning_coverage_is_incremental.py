@@ -158,11 +158,22 @@ def test_duplicate_primers_do_not_corrupt_the_counter(tmp_path):
     disagreed once a duplicate reached the loop. `_prune_background` now
     dedupes its input at entry so the list and the counter start, and stay, in
     agreement.
+
+    `target_size=6` is load-bearing, not arbitrary. At `target_size=4` on this
+    7-primer, one-duplicate input, both copies of the duplicate are gone
+    before the loop ends, so the list and the counter never get a chance to
+    disagree -- the dedupe fix could be deleted and this would still pass.
+    `target_size=6` (one removal from a 7-entry, 6-distinct-primer list) is
+    the smallest size that discriminates: with the dedupe removed, one
+    duplicate copy of the surviving primer is still present after that single
+    removal, so `current_primers.remove` and `counter.remove` disagree and the
+    reported coverage understates the true rebuild by about 7.6%. Verified by
+    temporarily removing the dedupe line and confirming this assertion fails.
     """
     optimizer, primers = _build_optimizer_and_primers(tmp_path)
     duplicated = primers[:6] + [primers[0]]
 
-    kept, coverage, _bg = optimizer._prune_background(duplicated, target_size=4, verbose=False)
+    kept, coverage, _bg = optimizer._prune_background(duplicated, target_size=6, verbose=False)
 
     assert len(kept) == len(set(kept)), "a duplicate survived pruning"
     assert coverage == pytest.approx(optimizer._calculate_coverage(kept), abs=1e-9)
