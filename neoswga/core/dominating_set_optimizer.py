@@ -529,9 +529,15 @@ class DominatingSetOptimizer:
                 break
 
             if relaxed:
-                self._log_dimer_relaxation_outcome(
-                    best_primer, len(selected) - n_fixed, max_primers
-                )
+                # `len(selected)`, not `len(selected) - n_fixed`: this warning
+                # reports the set the candidate was screened AGAINST, and since
+                # the matrix is built over the fixed primers as well as the
+                # candidates, that set includes them. Subtracting n_fixed here
+                # reported "the 0 primers already selected" on an expand-primers
+                # run that was in fact screening against one fixed primer. The
+                # other call site keeps the subtraction, because there the count
+                # is compared against `max_primers`, which counts new primers.
+                self._log_dimer_relaxation_outcome(best_primer, len(selected), max_primers)
                 relaxed = False
                 armed = dimers
 
