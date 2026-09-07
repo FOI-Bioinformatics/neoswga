@@ -157,14 +157,31 @@ screen removed 16 hairpin primers out of 2805 and did not change the answer.
 
 **Proposed change (M).** Compute the pairwise verdict once for the pool and
 cache it. Every later pool is a subset of the first, so cached verdicts are
-reusable verbatim and nine passes become one. Then put a cheap test in front of
-the expensive one: `dimer.is_dimer_fast` costs 105 us against 1372 us, a 13x
+reusable and nine passes become one. Then put a cheap test in front of the
+expensive one: `dimer.is_dimer_fast` costs 12.9 us against 627 us, a 49x
 reduction, and only pairs it flags need the thermodynamic calculation. Even the
 cheap test should be vectorised, since a longest-common-substring test on
-12-mers has no business costing 105 us.
+12-mers has no business costing 12.9 us at scale.
+
+(This paragraph originally quoted 105 us, 1372 us and 13x. Those are the
+concurrent-load figures this section revises above; the ratio, which is what the
+proposal turns on, is 49x rather than 13x.)
+
+Two caveats on the caching half, both established after this audit was written.
+The reuse is not exact: `filter_candidates` removes heterodimer hubs at a
+threshold proportional to pool size, so reusing a full-pool verdict on a subset
+under-removes. Set 0 is computed from the first pool and is unaffected;
+alternative sets 1 to 4 can differ. See
+`hybrid_thermo_screen.ThermoScreenMixin._thermo_filter_with_cache`.
 
 **Verify.** Time `optimize -m hybrid` on the *S. aureus* pool (1222 candidates)
 before and after, and assert the delivered set is unchanged.
+
+That last criterion is settled and it did not hold: the delivered `hybrid` set
+changed (Jaccard 0.352 on *S. aureus*), by design, because the dimer rejection
+guard added in the same branch rejects primers the unguarded greedy accepted.
+The unchanged-set check applies to the caching and pre-screen work alone; see
+[docs/validation/optimizer_cost_2026-09.md](validation/optimizer_cost_2026-09.md).
 
 ### A2 (HIGH, pool quality) The expensive screen tests a criterion the user never configured, and the criterion the user did configure reaches no optimizer
 

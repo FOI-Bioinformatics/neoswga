@@ -5,8 +5,9 @@ This records what the September 2026 optimizer work (branch
 the three GC-tier designs. Six changes went in: an exact vectorised form of the
 pairwise dimer relation, a bounded-memory heterodimer screen with a cheap
 pre-screen, a screen computed once per pool instead of once per alternative set,
-a dimer rejection guard in the greedy selection, and an incremental coverage
-counter for background pruning. One of them (the guard) is expected to change
+the configured `max_dimer_bp` threaded into that screen in place of a hardcoded
+free-energy cutoff, a dimer rejection guard in the greedy selection, and an
+incremental coverage counter for background pruning. One of them (the guard) is expected to change
 which primers are selected. The others are not. Both claims are tested below,
 and one headline claim the plan was written around is not supported.
 
@@ -52,6 +53,13 @@ optimizer reduces it to 972 with a background pre-filter before selection.
 | *M. tuberculosis* | `network` | 27.83 | 29.02 | 1.04 |
 | *M. tuberculosis* | `dominating-set` | 11.26 | 10.69 | 0.95 |
 | *S. aureus* | `hybrid` | 2499.91 | 2392.31 | 0.96 |
+
+These are the figures as measured on 2026-09-06. The 2026-09-07 fix to the
+relaxation scope (see "What the log said, and what it says now" below) adds
+about 21% to the two `dominating-set` S. aureus columns, because the dimer
+matrix is consulted for the whole run rather than being switched off partway.
+The other rows are unaffected: the relaxation never fires on the *E. coli* or
+*M. tuberculosis* pools.
 
 **The plan's headline speed claim is not met.** It was written expecting
 `hybrid` to finish on this pool in time comparable to `dominating-set`. It does
@@ -160,20 +168,66 @@ in `DominatingSetOptimizer.optimize_greedy`. It is met in every such pool:
 - ***M. tuberculosis*, `dominating-set`: met outright.** 3 bp, down from 10. No
   relaxation warning in set 0. This is the run that answers whether the guard
   works on this genome, and it does.
-- ***S. aureus*, `dominating-set`: met by the documented escape.** The worst
-  heterodimer stays at 11 bp, and the log says why. After 29 primers were
-  selected, no remaining candidate was both dimer-free against them and able to
-  add coverage, so the constraint was lifted to admit `ATTTTCGCAAAA` and the
-  warning fired: `the delivered pool contains at least one pair above
-  max_dimer_bp=3`. The same relaxation fires once in each of the five
-  alternative sets. This is the intended behaviour - a 96-primer panel is large
-  relative to a 972-candidate pool, and the constraint cannot be held that far.
-- ***S. aureus*, `hybrid`: met by the same escape,** with the warning firing in
-  set 0 after 29 primers and once in each later set.
+- ***S. aureus*, `dominating-set`: not met, and the escape is doing most of the
+  work.** The worst heterodimer stays at 11 bp. Selection holds the constraint
+  for the first 29 primers; from primer 30 to primer 96 every pick stalls, so
+  every one of those 67 primers is admitted without being screened against the
+  set. The delivered 96-primer panel carries **1911 pairs above `max_dimer_bp`
+  of 3, out of 4560** (41.9%). At `-n 200`, the size of the shipped design, it
+  is **9172 of 19900** (46.1%), with 171 unscreened admissions.
+- ***S. aureus*, `hybrid`: the same, through the same Stage-1 greedy.**
 
 So on the two designs where a set of the requested size can be built inside the
-constraint, it now is. On the design where it cannot, the relaxation reports
-that in the log rather than delivering a silently non-conforming pool.
+constraint, it is. On *S. aureus* it is not: a 96-primer panel is large relative
+to a 972-candidate pool and the constraint cannot be held that far, so from
+primer 30 onward the run is effectively unguarded.
+
+### What the log said, and what it says now (2026-09-07)
+
+This section previously read: "the constraint was lifted to admit
+`ATTTTCGCAAAA` and the warning fired ... the same relaxation fires once in each
+of the five alternative sets", and concluded that "the relaxation reports that
+in the log rather than delivering a silently non-conforming pool". Both
+statements described the log, and the log was wrong.
+
+`_run_greedy_selection` cleared its local dimer matrix on the first stall and
+never restored it, while the flag that gates the warning was cleared after the
+first admission. So the constraint was off for the whole remainder of the run
+and exactly one primer was named. On the 200-primer panel: five warnings
+against 9172 violating pairs.
+
+With the constraint restored after each admission, the counts line up:
+
+| run | unscreened admissions | warnings | pairs above 3 bp | pairs with neither primer named |
+|---|---|---|---|---|
+| `-n 96`, set 0 | 67 | 67 | 1911 of 4560 | 0 |
+| `-n 200`, set 0 | 171 | 171 | 9172 of 19900 | 0 |
+
+**The delivered panel does not change.** `-n 96` returns the same 96 primers at
+the same `fg_coverage` (0.8803), the same `selectivity_density` (10.7) and the
+same 11 bp worst heterodimer as the pre-fix run; `-n 200` likewise (Jaccard
+1.000, `fg_coverage` 0.9899). On this pool, relaxing per pick and relaxing
+permanently select identically, because the stall recurs on essentially every
+pick once it starts. What changes is that the log now names every primer
+admitted unscreened, and every violating pair in the delivered panel involves at
+least one named primer - so the list is complete, which is the property the
+"swap it by hand at ordering time" rationale depends on.
+
+It costs time, because the matrix is now consulted for the whole run instead of
+being switched off at primer 29. Paired runs alternating the two versions on the
+same machine, `-n 96`: 15.50 / 15.60 / 16.69 s restored against 12.59 / 12.74 /
+14.18 s unrestored, about +21%. Load average was 6 to 8 throughout, so these are
+inflated against the 13.05 s in the wall-time table above, which was measured on
+a quiet machine; the ratio is the part to read, not the absolute values.
+
+**This does not make the S. aureus panel fit for ordering at
+`max_dimer_bp: 3`.** 171 named primers is not a hand-swap list. The honest
+reading is that the escape hatch's justification holds for a handful of
+admissions and not for this design, where the constraint is inoperative over
+two thirds of the panel. Either the pool is too small for a 96- or 200-primer
+set at this threshold, or `-m clique` (the only method that constrains dimers
+structurally) is the right method here. Both are decisions for a follow-up, not
+for this branch.
 
 ### Two gaps, both out of scope here
 
@@ -201,8 +255,9 @@ module alongside the new one and ran both on the same input. They are
 time in the tables above, and the background pruning figure in particular is a
 measurement of one loop, not of an optimizer run.
 
-- Background pruning, reducing 50 primers to 20: 4.14 s before, 0.01 s after,
-  about 404x, returning the same set at the same coverage.
+- Background pruning, reducing 50 primers to 20: 4.14 s before, 0.01 s after.
+  The `after` figure carries one significant figure, so the ratio is about 400x
+  rather than the 414x the two numbers divide to. Same set, same coverage.
 - The incremental counter is exact, not an approximation. On a 14-primer pool
   over 267 bins across 8 successive removals, the counter's coverage fraction
   and `HybridOptimizer._calculate_coverage` differed by 0.000e+00 at every step,
@@ -234,6 +289,8 @@ wrong, which is why the base re-runs were made.
 ```bash
 # after
 neoswga optimize -j runs/gc_tiers/low_saureus/params.json -m dominating-set
+# the shipped 200-primer S. aureus design, from its run manifest:
+# neoswga optimize -j runs/gc_tiers/low_saureus/params.json -m dominating-set -n 200
 neoswga optimize -j runs/gc_tiers/mid_ecoli/params.json   -m dominating-set
 neoswga optimize -j runs/gc_tiers/high_mtb/params.json    -m network
 
