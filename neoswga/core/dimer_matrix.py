@@ -163,9 +163,28 @@ def build(primers: Sequence[str], max_dimer_bp: int) -> DimerMatrix:
             contains[i, code] = True
             contains_rc[i, _revcomp_code(code, t)] = True
 
-    # One matmul over uint8 rather than a boolean product, because numpy
-    # dispatches the integer form to BLAS and the boolean form to a Python-level
-    # loop over the object dtype.
+    # One boolean matmul. numpy computes it as an OR of ANDs, which is the
+    # relation wanted: pairs[i, j] is True when primer i and primer j share at
+    # least one t-mer code in the complementary sense.
+    #
+    # This used to run over uint8, on the stated grounds that numpy dispatches
+    # the integer form to BLAS and the boolean form to a Python-level loop. It
+    # does not, and the uint8 form was both slower and wrong at the edge:
+    #
+    #   - numpy accumulates an integer matmul in the input dtype, so a pair
+    #     sharing exactly 256 (or 512, ...) codes summed to 0 and was reported
+    #     as not dimerising. `np.ones((1, 256), np.uint8) @ ...` gives 0 where
+    #     the boolean product gives True. Not reachable with legal primers --
+    #     the dot product is bounded by len(p) - t + 1 and params.schema.json
+    #     caps max_k at 30 -- but it is a wrong answer with no error.
+    #   - Measured here on numpy 2.4.1, 2% density: 300 x 65536 took 0.069 s
+    #     boolean against 1.756 s uint8; at the default 256 columns the two are
+    #     within noise (0.018 s against 0.017 s for 449 x 256). The uint8 form
+    #     also allocates two full integer copies of the indicator matrices.
+    #
+    # The two agree exactly on non-overflowing input, which is what
+    # tests/test_dimer_matrix_matches_is_dimer_fast.py pins against the pairwise
+    # relation directly.
     #
     # This product is already symmetric, so no separate `pairs | pairs.T` step
     # is needed. pairs[i, j] is true exactly when some t-mer c of primer i has
@@ -173,7 +192,7 @@ def build(primers: Sequence[str], max_dimer_bp: int) -> DimerMatrix:
     # involution, so that condition is unchanged by swapping i and j: it holds
     # exactly when some t-mer of primer j has its reverse complement present in
     # primer i, which is pairs[j, i]'s condition, verbatim.
-    pairs = (contains.astype(np.uint8) @ contains_rc.astype(np.uint8).T) > 0
+    pairs = contains @ contains_rc.T
     np.fill_diagonal(pairs, False)
 
     index = {sequence: i for i, sequence in enumerate(upper)}

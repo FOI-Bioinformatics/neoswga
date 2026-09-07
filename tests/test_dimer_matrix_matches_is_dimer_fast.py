@@ -108,3 +108,29 @@ def test_a_threshold_too_loose_for_the_code_space_raises():
     with pytest.raises(ValueError, match="max_dimer_bp") as excinfo:
         dimer_matrix.build(["A" * 20, "T" * 20], 10)
     assert "is_dimer_fast" in str(excinfo.value)
+
+
+def test_a_pair_sharing_exactly_256_codes_is_still_flagged():
+    """The matrix product accumulates in bool, not uint8.
+
+    numpy accumulates an integer matmul in the input dtype, so the uint8 form
+    this replaced summed a pair sharing exactly 256 (or 512, ...) distinct
+    t-mer codes to 0 and reported it as not dimerising -- a wrong answer with
+    no error and no warning. Constructed here rather than searched for: the
+    concatenation of all 256 4-mers contains every 4-mer, so two orderings of
+    that concatenation share all 256 codes exactly.
+
+    Not reachable with a legal primer -- the shared count is bounded by the
+    number of distinct t-mers in a primer and params.schema.json caps max_k at
+    30 -- so this pins the arithmetic rather than a live design defect. The
+    boolean form is also the faster of the two at the code-space ceiling; see
+    the comment in dimer_matrix.build.
+    """
+    kmers = ["".join(p) for p in itertools.product("ACGT", repeat=4)]
+    first = "".join(kmers)
+    second = "".join(reversed(kmers))
+    assert first != second
+
+    matrix = dimer_matrix.build([first, second], 3)
+    assert bool(matrix.pairs[0, 1]) is True
+    assert is_dimer_fast(first, second, 3) is True
