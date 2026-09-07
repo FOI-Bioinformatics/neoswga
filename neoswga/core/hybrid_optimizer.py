@@ -29,6 +29,7 @@ import numpy as np
 
 from neoswga.core.coverage_counter import CoverageCounter
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
+from neoswga.core.hybrid_thermo_screen import ThermoScreenMixin
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
 from neoswga.core.registry import POLYMERASES as _POLYMERASES
 
@@ -181,7 +182,7 @@ class HybridResult:
         return base
 
 
-class HybridOptimizer:
+class HybridOptimizer(ThermoScreenMixin):
     """
     Two-stage hybrid optimizer combining coverage and network approaches.
 
@@ -335,11 +336,11 @@ class HybridOptimizer:
         self.min_coverage_drop = min_coverage_drop
         self._absolute_coverage_floor = absolute_coverage_floor
 
-        # The configured dimer limit, resolved once. Before this it reached
-        # dimer.is_dimer and nothing else, so the Stage-0 screen ran on a
-        # hardcoded free-energy threshold that no user could set and the
-        # delivered pool was then reported against max_dimer_bp, which nothing
-        # had enforced.
+        # The configured dimer limit, resolved once and passed to all three
+        # stages below. Before this it reached dimer.is_dimer and nothing else:
+        # the Stage-0 screen ran on a hardcoded free-energy threshold no user
+        # could set, and the delivered pool was reported against max_dimer_bp,
+        # which nothing had enforced.
         self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
 
         # Initialize both optimizers
@@ -351,6 +352,9 @@ class HybridOptimizer:
             # Stage-1 coverage uses the realistic per-primer reach so the
             # selection objective matches how the result is scored.
             extension_reach=self.coverage_reach,
+            # Omitting this let Stage 1 re-resolve its own threshold, so a
+            # config supplying 4 selected under 3 here and reported against 4.
+            max_dimer_bp=self.max_dimer_bp,
         )
 
         self.network_optimizer = NetworkOptimizer(
@@ -382,14 +386,18 @@ class HybridOptimizer:
         # Retain for introspection / rescoring hooks.
         self.conditions = conditions
 
-        # The Stage-0 screen is a pure function of the candidate sequences and
-        # the reaction conditions, and every pool after the first is a subset of
-        # the first. collect_alternative_sets re-enters optimize() once per
-        # alternative set, so without this the screen ran up to nine times over
-        # nearly the same pool. Measured at 1372 us a pair before Task 2's
-        # pre-screen, that was the dominant cost of the pipeline.
+        # collect_alternative_sets re-enters optimize() once per alternative
+        # set over what is nearly the same pool, so without this the screen ran
+        # up to nine times. Measured at 1372 us a pair before Task 2's
+        # pre-screen, that was the dominant cost of the pipeline. The reuse is
+        # an approximation, not an identity: see
+        # ThermoScreenMixin._thermo_filter_with_cache.
         self._thermo_filter_cache = None
 
+        self._log_configuration(polymerase, bin_size, background_pruning, background_weight)
+
+    def _log_configuration(self, polymerase, bin_size, background_pruning, background_weight):
+        """What this optimizer was constructed with, at INFO."""
         logger.info("Hybrid optimizer initialized")
         logger.info(f"  Polymerase: {polymerase}")
         logger.info(f"  Bin size: {bin_size:,} bp")
@@ -1146,124 +1154,6 @@ class HybridOptimizer:
 
         coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
         return coverage
-
-    def _thermo_criteria(self):
-        """Criteria for the Stage-0 thermodynamic screen.
-
-        Two things used to be wrong here and both were invisible.
-
-        The Tm bounds came from the polymerase preset alone, so a window
-        widened in params.json was honoured by the filter step and then
-        narrowed back by the optimizer. An explicitly configured bound now
-        wins; the preset remains the default when nothing is configured.
-
-        `na_conc=50.0, mg_conc=0.0` were hardcoded. Every hairpin, homodimer
-        and heterodimer energy this screen rejects primers on was therefore
-        computed for a reaction containing no magnesium -- the same
-        zero-magnesium fault schema v2 corrected in the presets, and Mg2+ is
-        the dominant term in the salt correction. The configured buffer is
-        used instead.
-        """
-        from neoswga.core.thermodynamic_filter import ThermodynamicCriteria
-
-        conditions = getattr(self, "conditions", None)
-        if conditions is not None:
-            na_conc = conditions.na_conc
-            mg_conc = conditions.mg_conc
-        else:
-            from neoswga.core.parameter import default_mg_conc
-
-            na_conc = 50.0
-            mg_conc = default_mg_conc(self.polymerase)
-
-        return ThermodynamicCriteria(
-            min_tm=self.min_tm if self.min_tm is not None else self.poly_config.min_primer_tm,
-            max_tm=self.max_tm if self.max_tm is not None else self.poly_config.max_primer_tm,
-            target_tm=self.poly_config.reaction_temp + 5,
-            na_conc=na_conc,
-            mg_conc=mg_conc,
-            max_homodimer_dg=-10.0,
-            max_heterodimer_dg=-10.0,
-            max_hairpin_dg=-3.0,
-            min_gc=self.poly_config.min_gc,
-            max_gc=self.poly_config.max_gc,
-            reaction_temp=self.poly_config.reaction_temp,
-            polymerase=self.polymerase,
-        )
-
-    def _thermo_filter_candidates(self, candidates: List[str], verbose: bool = True) -> List[str]:
-        """
-        Apply thermodynamic filtering based on polymerase requirements.
-
-        Filters candidates by Tm range and GC content appropriate for
-        the configured polymerase.
-        """
-        if verbose:
-            logger.info("\n" + "-" * 80)
-            logger.info(
-                f"PRE-STAGE: Thermodynamic Filtering ({self.polymerase}, "
-                f"{self.poly_config.reaction_temp}C)"
-            )
-            logger.info("-" * 80)
-
-        try:
-            from neoswga.core.thermodynamic_filter import ThermodynamicCriteria, ThermodynamicFilter
-
-            criteria = self._thermo_criteria()
-
-            thermo_filter = ThermodynamicFilter(criteria)
-            filtered, stats = thermo_filter.filter_candidates(
-                candidates,
-                check_heterodimers=True,
-                max_heterodimer_fraction=0.3,
-                max_dimer_bp=self.max_dimer_bp,
-            )
-
-            if verbose:
-                logger.info(f"Filtered: {len(filtered)}/{len(candidates)} passed")
-                if stats.get("mean_tm") is not None:
-                    logger.info(f"  Mean Tm: {stats['mean_tm']:.1f}C")
-                if stats.get("mean_gc") is not None:
-                    logger.info(f"  Mean GC: {stats['mean_gc']:.1%}")
-
-            if len(filtered) == 0:
-                logger.warning(
-                    "No primers passed thermodynamic filtering, " "using unfiltered candidates"
-                )
-                return candidates
-
-            return filtered
-
-        except ImportError:
-            logger.warning("Thermodynamic filter not available, skipping")
-            return candidates
-
-    def _thermo_filter_with_cache(self, candidates: List[str], verbose: bool = True) -> List[str]:
-        """The Stage-0 screen, computed once per pool and reused for subsets.
-
-        Returns the members of `candidates` that passed. A pool that is not a
-        subset of the cached one recomputes, which is what a caller supplying a
-        genuinely different candidate list should get.
-        """
-        wanted = frozenset(c.upper() for c in candidates)
-
-        if self._thermo_filter_cache is not None:
-            screened_pool, passed = self._thermo_filter_cache
-            if wanted <= screened_pool:
-                kept = [c for c in candidates if c.upper() in passed]
-                if verbose:
-                    logger.info(
-                        "PRE-STAGE: reusing the thermodynamic screen computed over "
-                        "%d candidates; %d of %d in this pool passed it",
-                        len(screened_pool),
-                        len(kept),
-                        len(candidates),
-                    )
-                return kept if kept else list(candidates)
-
-        result = self._thermo_filter_candidates(candidates, verbose=verbose)
-        self._thermo_filter_cache = (wanted, frozenset(c.upper() for c in result))
-        return result
 
     def _build_coverage_counter(self, primers: List[str]) -> CoverageCounter:
         """A `CoverageCounter` over the same bins `_calculate_coverage` counts.

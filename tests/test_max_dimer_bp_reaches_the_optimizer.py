@@ -37,6 +37,22 @@ def test_default_is_three_when_nothing_is_configured(monkeypatch):
     assert _optimizer().max_dimer_bp == 3
 
 
+def test_stage_one_greedy_receives_the_configured_threshold(monkeypatch):
+    """Stages 0 and 2 read `self.max_dimer_bp`; Stage 1 must too.
+
+    `HybridOptimizer` built its own `DominatingSetOptimizer` without passing
+    the threshold, so the Stage-1 greedy re-resolved one from
+    `parameter.max_dimer_bp` (or 3). A config supplying 4 therefore selected
+    under 3 in the middle stage and was reported against 4 -- the same defect
+    class as the screen reading a hardcoded free-energy cutoff.
+    """
+    monkeypatch.setattr(parameter, "max_dimer_bp", 3, raising=False)
+    optimizer = _optimizer(max_dimer_bp=6)
+    assert optimizer.max_dimer_bp == 6
+    assert optimizer.dominating_optimizer.max_dimer_bp == 6
+    assert optimizer.network_optimizer.max_dimer_bp == 6
+
+
 def test_screen_receives_the_configured_threshold(monkeypatch):
     seen = {}
 
