@@ -1,35 +1,43 @@
 # Optimizer cost and the dimer criterion: what changed on three real designs
 
 This records what the September 2026 optimizer work (branch
-`optimizer-cost-and-dimer-criterion`, commits `dd083c7` through `8194721`) did to
-the three GC-tier designs. Six changes went in: an exact vectorised form of the
-pairwise dimer relation, a bounded-memory heterodimer screen with a cheap
-pre-screen, a screen computed once per pool instead of once per alternative set,
-the configured `max_dimer_bp` threaded into that screen in place of a hardcoded
-free-energy cutoff, a dimer rejection guard in the greedy selection, and an
-incremental coverage counter for background pruning. One of them (the guard) is expected to change
-which primers are selected. The others are not.
+`optimizer-cost-and-dimer-criterion`, `dd083c7` through `4cdd3a1`) did to the
+three GC-tier designs. The work added an exact vectorised form of the pairwise
+dimer relation, a bounded-memory heterodimer screen with a cheap pre-screen, a
+screen computed once per pool instead of once per alternative set, the
+configured `max_dimer_bp` threaded into that screen and into every stage of the
+hybrid optimizer, a dimer rejection guard in the greedy selection, and an
+incremental coverage counter for background pruning. The guard is expected to
+change which primers are selected. Nothing else is.
 
-The short version: the control holds, the guard changes selection as intended,
-and the acceptance condition is met in every guarded pool - but met by the
-relaxation escape in every one of them, never outright. At the panel sizes these
-designs actually use, the configured `max_dimer_bp` of 3 cannot be held, and the
-log says so on every run. Two claims the plan was written around are not
-supported, and both are recorded below.
+The short version, and it is mostly a negative result:
+
+- The control holds. The one method that never reaches the guard returns a
+  byte-identical panel, so the other changes do not perturb selection.
+- The guard works on the small panel and not on the large ones. On the
+  36-primer *M. tuberculosis* design it cuts dimerising pairs from 72.4% to
+  27.6% of the panel. On the 160- and 200-primer designs it changes essentially
+  nothing: 41.2% to 41.7% and 47.3% to 46.1%.
+- No delivered design reaches its configured `max_dimer_bp` of 3. The
+  constraint holds for the first 26 to 31 primers of each panel and is then
+  inoperative for the rest, which on the *S. aureus* panel is 171 of 200
+  primers.
+- The branch does not make `hybrid` faster, and `hybrid` is not comparable in
+  cost to `dominating-set`. The screen it made cheaper was not the bottleneck.
 
 ## The invocation is part of the measurement
 
-Every number in this document names the full command that produced it, primer
-count included. That is not decoration. An earlier revision of this measurement
-omitted `-n`, the runs fell back to `num_primers` in params.json, and the three
-designs came out at 96, 24 and 16 primers against shipped panels of 200, 160 and
-36. Every metric moves with panel size, so nothing measured that way could be
-attributed to this branch. The *E. coli* worst heterodimer read 11 bp to 3 bp
-under that mistake and looked like the headline result; at the correct panel
-size of 160 it does not move at all. A 24-primer panel has 276 pairs where a
-160-primer one has 12,720.
+Every number here names the command that produced it, primer count included.
+That is not decoration. An earlier revision of this measurement omitted `-n`,
+the runs fell back to `num_primers` in params.json, and the three designs came
+out at 96, 24 and 16 primers against shipped panels of 200, 160 and 36. Every
+metric moves with panel size, so nothing measured that way could be attributed
+to this branch. The *E. coli* worst heterodimer read 11 bp to 3 bp under that
+mistake and looked like the plan's headline result; at the correct panel size of
+160 it does not move at all. A 24-primer panel has 276 pairs where a 160-primer
+one has 12,720.
 
-The counts below are the invocations that produced the shipped designs,
+The counts used below are the invocations that produced the shipped designs,
 recovered from the last `optimize` entry of `cli_invocation` in each run's
 `run_manifest.json`.
 
@@ -39,8 +47,8 @@ The `before` column is the same code path run at `0f1a560`, the commit this
 branch starts from, in a `git worktree`, on the identical `step3_df.csv`
 candidate pool, under the identical method and the identical `-n`. Those
 before-runs reproduce the shipped designs exactly: Jaccard 1.000 against the
-set-0 primers of all three backed-up `step4_improved_df.csv` files. The
-`after` column is `b3a00ba`.
+set-0 primers of all three backed-up `step4_improved_df.csv` files. The `after`
+column is the branch tip.
 
 Inputs, all with `max_dimer_bp: 3`:
 
@@ -50,9 +58,8 @@ Inputs, all with `max_dimer_bp: 3`:
 | `mid_ecoli` | *E. coli* | 449 | 160 | `dominating-set` |
 | `high_mtb` | *M. tuberculosis* | 319 | 36 | `network` |
 
-Note that the delivered panel is set by `-n`, not by `target_set_size` in
-params.json, which reads 96, 24 and 16 respectively and does not describe any of
-the three shipped designs.
+The delivered panel is set by `-n`, not by `target_set_size` in params.json,
+which reads 96, 24 and 16 respectively and describes none of the three designs.
 
 Each run produces `max_sets: 5` alternative sets; the tables describe set 0,
 which is the set the metrics and the summary describe. Wall times are the `real`
@@ -74,33 +81,44 @@ neoswga optimize -j runs/gc_tiers/low_saureus/params.json -m hybrid         -n 2
 
 | design | method | -n | before (s) | after (s) | ratio |
 |---|---|---|---|---|---|
-| *S. aureus* | `dominating-set` | 200 | 17.80 | 15.00 | 0.84 |
-| *E. coli* | `dominating-set` | 160 | 12.02 | 11.56 | 0.96 |
-| *M. tuberculosis* | `network` | 36 | 124.61 | 132.82 | 1.07 |
-| *M. tuberculosis* | `dominating-set` | 36 | 15.05 | 16.73 | 1.11 |
-| *S. aureus* | `hybrid` | 200 | not run | 2649.43 | - |
-| *S. aureus* | `hybrid` | 96 | 2499.91 | 2392.31 | 0.96 |
+| *S. aureus* | `dominating-set` | 200 | 17.80 | 20.14 | 1.13 |
+| *E. coli* | `dominating-set` | 160 | 12.02 | 10.83 | 0.90 |
+| *M. tuberculosis* | `network` | 36 | 124.61 | 126.58 | 1.02 |
+| *M. tuberculosis* | `dominating-set` | 36 | 15.05 | 14.49 | 0.96 |
+| *S. aureus* | `hybrid` | 200 | not run | 2770 (CPU) | - |
 
-The four fast runs move between 16% faster and 11% slower, in both directions,
-on runs of 12 to 133 seconds. That spread is run-to-run variation on this
-machine, not a measured effect. Building and consulting the dimer matrix during
-selection does not cost anything visible at this scale.
+The four fast runs move between 10% faster and 13% slower, in both directions,
+on runs of 11 to 127 seconds. Building and consulting the dimer matrix for the
+whole run costs something real - paired runs alternating the two versions put it
+at about +21% on the *S. aureus* `dominating-set` case - but at this scale it is
+not a practical concern.
 
 **The plan's headline speed claim is not met.** It was written expecting
 `hybrid` to finish on this pool in time comparable to `dominating-set`. It does
-not: 2649.43 s against 15.00 s at the delivered panel size of 200, a factor of
-177. Nor is the change from this branch large - the size-matched before/after
-pair is the 96-primer row, 2392.31 s after against 2499.91 s before, 4.3% apart,
-which is inside run-to-run variation and should not be read as a speedup.
+not: about 2770 s against 20.14 s at the delivered panel size of 200, a factor
+of roughly 138. Nor does this branch make `hybrid` faster. The size-matched
+before/after pair available for `hybrid` is a 96-primer run measured earlier on
+the branch, 2392.31 s after against 2499.91 s before, 4.3% apart, which is
+inside run-to-run variation.
 
-`hybrid` at `-n 200` also returns the **identical** 200-primer set that
-`dominating-set` returns (Jaccard 1.000, same 0.9899 coverage, same 10.6
-selectivity density, same 11 bp worst heterodimer) for that 177x. This is the
-behaviour Known Issue #8 in CLAUDE.md records, measured here on the current code
-at the panel size the design actually ships.
+The `hybrid` figure is CPU time, not elapsed time, and the distinction matters
+here. `/usr/bin/time -p` reported `real 9832.82` against `user 2770.46` and
+`sys 53.42`, because that run shared the machine with a test suite and several
+other optimize runs. Reporting 9832 s would overstate the cost by more than
+three times. The other rows in this table were taken one at a time and their
+real and CPU figures agree, so they are reported as elapsed.
+
+**What `hybrid` buys for that time, at this panel size, is nothing.** At the tip
+it returns the *identical* 200-primer set to `dominating-set`: Jaccard 1.000,
+the same `fg_coverage` of 0.9899, the same 9172 dimerising pairs. This is the
+behaviour Known Issue 8 in CLAUDE.md already records, and an earlier revision of
+this document reported that the dimer guard had broken the tie (Jaccard 0.455).
+That was measured on the 96-primer runs. At the panel size these designs
+actually use, the tie is intact, and `hybrid` costs about 138 times what
+`dominating-set` costs for a byte-identical answer.
 
 The per-set optimizer times say why. Summing the `Total runtime` lines the
-hybrid optimizer prints, one per alternative set, for the 96-primer pair:
+hybrid optimizer prints, one per alternative set, for that 96-primer pair:
 
 | set | before (s) | after (s) |
 |---|---|---|
@@ -140,109 +158,125 @@ before and after sets of primers.
 
 The *M. tuberculosis* `network` row is the control, and it is the cleanest
 result here. `network` has its own greedy and never reaches the guard, so it
-exercises the other five changes alone. It returns the identical 36 primers at
-identical coverage and identical selectivity density. **Tasks 1, 2, 3, 4 and 6
-do not change selection.**
+exercises every other change alone. It returns the identical 36 primers at
+identical coverage and identical selectivity density. **The non-selection
+changes do not change selection.**
 
-Both `dominating-set` rows return a different set, which is what the guard is
-for. The *E. coli* panel changes least (Jaccard 0.808) and the
-*M. tuberculosis* one most (0.241).
+Coverage falls by 0.3 and 0.4 points on the two large panels, which is inside
+the two-point level the plan set as a reporting threshold, and by 10.1 points on
+the 36-primer *M. tuberculosis* panel, which is not. Selectivity density falls
+with it there, from 418.2 to 336.3, so on that design the constraint is not
+buying specificity in exchange for the coverage it costs. It is buying a real
+reduction in dimerising pairs, which the next section quantifies.
 
-### Coverage
+## Does the guard deliver a less dimerising panel?
 
-The plan set two percentage points as the level above which a coverage fall
-should be reported rather than accepted. Three of the four runs are inside it
-and one is well outside:
+`worst_heterodimer` is a single worst pair and is a poor summary: one admitted
+primer pins it. Counting every pair in the delivered panel above the configured
+`max_dimer_bp` of 3 is the informative measure.
 
-- *S. aureus*, `dominating-set` at 200: -0.3 pp
-- *E. coli*, `dominating-set` at 160: -0.4 pp
-- *M. tuberculosis*, `network` at 36: 0.0 pp
-- *M. tuberculosis*, `dominating-set` at 36: **-10.1 pp**, with selectivity
-  density also falling from 418.2 to 336.3
+| design | method | -n | pairs above 3 bp, before | after |
+|---|---|---|---|---|
+| *S. aureus* | `dominating-set` | 200 | 9420 of 19900 (47.3%) | 9172 of 19900 (46.1%) |
+| *E. coli* | `dominating-set` | 160 | 5242 of 12720 (41.2%) | 5299 of 12720 (41.7%) |
+| *M. tuberculosis* | `dominating-set` | 36 | 456 of 630 (72.4%) | 174 of 630 (27.6%) |
+| *M. tuberculosis* | `network` | 36 | 450 of 630 (71.4%) | 450 of 630 (71.4%) |
 
-On the two large panels the guard is close to free in coverage terms. On the
-36-primer *M. tuberculosis* panel it is not, and it is not buying specificity in
-exchange either - both coverage and selectivity density fall. That design is
-also the one where the guard delivers least: 10 bp against a configured 3.
+**The guard works on the 36-primer panel and not on the two large ones.** On
+*M. tuberculosis* it removes about three fifths of the dimerising pairs. On
+*S. aureus* it removes 1.2 percentage points and on *E. coli* it adds 0.5 - a
+different panel of the same quality, not a better one.
+
+The reason is in the next section: on the large panels the constraint is
+inoperative over most of the selection.
 
 ## Is `max_dimer_bp` respected in each delivered pool?
 
+No. It is not met outright in any guarded pool, and the escape hatch carries all
+three.
+
 The acceptance condition binds only pools delivered by `dominating-set`,
-`hybrid` or `background-aware`, the three methods that route through the guard
-in `DominatingSetOptimizer.optimize_greedy`. **It is met in every such pool, and
-in every case by the relaxation escape rather than outright.** No guarded pool
-here reaches 3 bp.
+`hybrid` or `background-aware`, the three methods routing through the guard in
+`DominatingSetOptimizer.optimize_greedy`. It is satisfied in the narrow sense
+that every such pool's log carries the relaxation warning explaining why the
+worst heterodimer sits above 3 bp. It is not satisfied in the sense the plan
+intended.
 
-- ***S. aureus*, `dominating-set -n 200`: 11 bp, relaxation fired repeatedly.**
-  After 29 primers, no remaining candidate was both dimer-free against them and
-  able to add coverage, so the constraint was lifted to admit `ATTTTCGCAAAA`.
-  It was then lifted again for nearly every subsequent pick: set 0 records 171
-  unscreened admissions in a 200-primer panel, and 640 across all five
-  alternative sets.
+Counted on set 0 of each run at the branch tip:
 
-  An earlier revision of this section said the relaxation "fires once in each of
-  the five alternative sets" and quoted a warning reading `the delivered pool
-  contains at least one pair above max_dimer_bp=3`. Both were wrong, and the
-  second string no longer exists in `neoswga/`. The relaxation used to lift the
-  constraint permanently on the first stall while suppressing only the log, so
-  one primer was named and the rest were admitted unscreened and unrecorded.
-  That was fixed in `9ed10f3`: the constraint is now restored after each
-  admission, so one warning is emitted per unscreened primer.
+| design | method | -n | constraint holds through | admitted unscreened | pairs above 3 bp | violating pairs naming no admitted primer |
+|---|---|---|---|---|---|---|
+| *S. aureus* | `dominating-set` | 200 | 29 primers | 171 | 9172 of 19900 | 0 |
+| *E. coli* | `dominating-set` | 160 | 31 primers | 129 | 5299 of 12720 | 0 |
+| *M. tuberculosis* | `dominating-set` | 36 | 26 primers | 10 | 174 of 630 | 0 |
 
-  The accounting is now complete, and that is checkable rather than asserted. Of
-  the 9172 pairs in the delivered panel that bind above `max_dimer_bp=3`, the
-  number with neither primer named in the log is **zero**.
+So the guard holds for the first 26 to 31 picks of every panel and then stalls:
+no remaining candidate is both dimer-free against what is already selected and
+able to add coverage. From that point each further pick is admitted unscreened,
+with the constraint restored before the next one, so every unscreened admission
+is named in the log. The final column confirms the list is complete - every
+violating pair in every delivered panel involves at least one named primer.
 
-  The fix changes the record, not the panel. The delivered set is identical
-  before and after it (Jaccard 1.000, identical coverage), and that is a
-  property of the algorithm rather than of this pool: after a stall, every
-  candidate with positive marginal coverage dimerises with the selected set,
-  and since both coverage and the selected set only grow, the dimer-free
-  candidates that still add coverage can never come back. So every later pick
-  stalls too, and admitting one at a time reaches the same set as lifting the
-  constraint permanently. Checked over 400 random pools against the pre-fix
-  loop: zero divergences, with 200 runs relaxing and 132 of those making two or
-  more admissions.
+That completeness is the property the escape hatch's rationale depends on: a
+short list of named primers can be swapped by hand at ordering time. **171 named
+primers is not a hand-swap list.** For *M. tuberculosis* at 10 admissions out of
+36 it arguably is, which is the same design where the pair count actually
+improves. The honest reading is that the escape hatch's justification holds for
+a handful of admissions and not for the two large panels, where the constraint
+is inoperative across most of the selection.
 
-  It costs wall time, because the matrix is now consulted for the whole run
-  rather than abandoned at the first stall: 19.68 s against about 15.5 s on
-  this pool, roughly 21 percent. An independent re-run gave 21.84 s under
-  higher load. Read the ratio rather than the seconds.
-- ***E. coli*, `dominating-set -n 160`: 11 bp, relaxation fired.** Log line 45,
-  inside set 0 (closes at line 72), after 31 primers, admitting `AGGCCGGATAAG`.
-- ***M. tuberculosis*, `dominating-set -n 36`: 10 bp, relaxation fired.** Log
-  line 48, inside set 0 (closes at line 51), after 26 primers, admitting
-  `CGACGCCGACGA`. This is the run that answers whether the guard changes
-  anything on this genome. It moves the worst heterodimer by one base pair and
-  costs 10.1 points of coverage.
-- ***S. aureus*, `hybrid -n 200`: 11 bp, relaxation fired.** Log line 88, inside
-  set 0 (closes at line 161), after 29 primers, admitting `ATTTTCGCAAAA` - the
-  same primer at the same point as the `dominating-set` run, which is expected,
-  since hybrid's Stage 1 is that greedy.
+A fifth run answers the question the four above raise, and it is the clearest
+result in this document. The same *M. tuberculosis* pool at `-n 16` under
+`dominating-set` delivers a **completely dimer-free panel: 0 violating pairs of
+120**. The guard is not weak. The constraint is simply unsatisfiable once the
+requested panel outgrows what the candidate pool can support, and past that
+point the guard degrades from enforcing the threshold to reporting that it
+cannot hold it. Panel size, not the guard, is the variable that decides whether
+a design conforms:
 
-So the guard holds for the first 24 to 31 primers of each panel and then cannot
-hold any further. That is the honest result. It is the behaviour the relaxation
-was designed for - it reports rather than silently delivering a non-conforming
-pool - but it means **no delivered design in this repository currently respects
-its configured `max_dimer_bp`**, and the earlier reading that *E. coli* had been
-brought to 3 bp was an artefact of measuring a 24-primer panel.
+| design | method | -n | pairs above 3 bp | unscreened admissions |
+|---|---|---|---|---|
+| *M. tuberculosis* | `dominating-set` | 16 | 0 of 120 | 7 |
+| *M. tuberculosis* | `dominating-set` | 36 | 174 of 630 | 10 |
+| *E. coli* | `dominating-set` | 160 | 5299 of 12720 | 129 |
+| *S. aureus* | `dominating-set` | 200 | 9172 of 19900 | 171 |
 
-Whether that is a problem depends on the panel size a user wants. A dimer-free
-panel of roughly 26 to 31 primers is available from these pools today; a
-dimer-free panel of 160 or 200 is not. `max_dimer_bp: 3` at 12-mer primer length forbids
-any 4 bp complementary run between any pair, which is strict, and the right
-follow-up is to measure the achievable panel size across `max_dimer_bp` values
-rather than leaving 3 as an unexamined default.
+The first row is worth reading carefully, because it corrects an obvious
+reading of the other three. The relaxation fires seven times at `-n 16` and the
+delivered panel is still completely dimer-free. An unscreened admission is not a
+violation. The warning fires when the guard is lifted for a pick, and says the
+admitted primer *may* pair above the threshold with something already selected;
+whether it does is a separate question, answered by counting pairs. Treat the
+admission count as an upper bound on how much of the panel went unchecked, and
+the pair count as what was actually delivered.
+
+Either these pools are too small to yield a 160- or 200-primer panel at this
+threshold, or `-m clique`, the only method that constrains dimers structurally,
+is the right method for these designs. `max_dimer_bp: 3` at 12-mer primer length
+forbids any 4 bp complementary run between any pair, which is strict, and the
+achievable panel size across `max_dimer_bp` values has not been measured. All
+three are questions for a follow-up, not for this branch.
+
+### A note on the warning text
+
+The relaxation warning was reworded on this branch when the relaxation was
+scoped to a single pick (it previously stayed lifted for the rest of the run and
+named only the first primer). Anything grepping for the old string `without the
+dimer constraint` will silently find nothing on current logs and report zero
+relaxations against a log full of them. The current strings are `unscreened
+against the already-selected set`, `Dimer constraint lifted`, and `Dimer-aware
+selection disabled`.
 
 ### Two gaps, both out of scope here
 
 **`network` is unguarded.** It has its own `optimize_greedy`
 (`network_optimizer.py:824`), which applies `calculate_dimer_score` as a soft
-penalty and never builds the dimer matrix. Its *M. tuberculosis* set keeps an
-11 bp worst heterodimer against a configured 3, and no warning is emitted,
-because none is due - the guard is not on this path. The shipped
+penalty and never builds the dimer matrix. Its *M. tuberculosis* panel keeps
+450 of 630 pairs above the configured 3 bp, unchanged by this branch, and emits
+no warning, because none is due - the guard is not on this path. The shipped
 *M. tuberculosis* design came from `network`, so this is the method a user of
-that design is actually running.
+that design is actually running, and it is the one panel here that gets no
+benefit at all.
 
 **`background-aware` can reintroduce a dimerising pair.** Its Stage 1 calls the
 guarded greedy (`background_aware_optimizer.py:202`), but its Stage 3 is the
@@ -257,12 +291,11 @@ Neither was in this plan's scope. Both are findings for the next one.
 Two numbers below come from the Task 6 review, which loaded the pre-change
 module alongside the new one and ran both on the same input. They are
 **component measurements, not whole-run ones** - neither is visible as a wall
-time in the tables above, and the background pruning figure in particular is a
-measurement of one loop, not of an optimizer run.
+time in the tables above, and the background pruning figure in particular
+measures one loop, not an optimizer run.
 
 - Background pruning, reducing 50 primers to 20: 4.14 s before, 0.01 s after,
-  about 414x (4.14 divided by 0.01), returning the same set at the
-  same coverage.
+  about 404x, returning the same set at the same coverage.
 - The incremental counter is exact, not an approximation. On a 14-primer pool
   over 267 bins across 8 successive removals, the counter's coverage fraction
   and `HybridOptimizer._calculate_coverage` differed by 0.000e+00 at every step,
@@ -291,6 +324,3 @@ exactly.
 `worst_heterodimer` is a top-level object in `step4_improved_df_summary.json`,
 not a field of `metrics`, shaped `{"length_bp": int, "pair": [primer, primer]}`.
 It is written to the file only and never logged.
-
-Test suite at `b3a00ba`: 4100 passed, 24 skipped, 0 failed
-(`pytest tests/ -n 8 -q -p no:randomly`, 213 s).
