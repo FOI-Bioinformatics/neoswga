@@ -111,6 +111,29 @@ recorded.
 to 12.9 us a pair. The ratio between the two tests is what matters for the
 proposed pre-screen, and it is 49x.
 
+**The attribution in this finding was wrong, and the measurement that settled it
+is in [docs/validation/optimizer_cost_2026-09.md](validation/optimizer_cost_2026-09.md)
+(2026-09-07).** This finding treated the thermodynamic screen as the reason
+`hybrid` fails to finish where `dominating-set` finishes in seconds. It is not.
+After the screen was made exact and vectorised, stopped from repeating once per
+alternative set, and given a pre-screen that discards 60.1% of pairs, `hybrid`
+on the 1215-candidate *S. aureus* pool went from 2499.91 s to 2392.31 s. That is
+4.3%, inside run-to-run variation on this machine, against 13.05 s for
+`dominating-set` on the same input: a factor of 183 rather than the comparable
+time this finding implied was within reach.
+
+Summing the per-set `Total runtime` lines shows where the time actually goes:
+Stage-2 network refinement, which none of the work above touched. The screen
+fixes are real and verifiable in the logs -- five screens became one, and the
+pair count is now reported as `188170 of 471906 pairs among 972 primers` -- but
+they address a minor term.
+
+The error was one of attribution, not of measurement. The screen does cost what
+this finding says it costs. What was never established, and what the thirty
+minute observation cannot establish, is that the screen was the dominant term.
+A cost model built from one component's timing needs the other components timed
+before it can name a bottleneck.
+
 Resident memory during the screen was 2.0 GB for the eager pair list alone.
 
 The screen is not run once. `unified_optimizer.py:254-258` re-enters
