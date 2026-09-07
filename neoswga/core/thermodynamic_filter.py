@@ -473,9 +473,13 @@ class ThermodynamicFilter:
             # Instead, submit through a bounded sliding window: cap how many
             # futures are in flight so resident submitted work is bounded by
             # the window rather than by len(candidate_pairs).
+            # `window_multiplier` is not a chunk size: submission is one pair
+            # per task, so nothing is batched. It only sets how deep the
+            # sliding window of in-flight futures is, which is what bounds
+            # resident work rather than the pair count.
             n_workers = min(os.cpu_count() or 1, 8)
-            chunksize = 50
-            max_in_flight = n_workers * chunksize * 2  # bounds resident work, not the pair count
+            window_multiplier = 50
+            max_in_flight = n_workers * window_multiplier * 2
             pair_source = _pair_args()
             with concurrent.futures.ProcessPoolExecutor(max_workers=n_workers) as executor:
                 in_flight = {
