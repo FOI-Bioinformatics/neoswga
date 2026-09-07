@@ -286,3 +286,49 @@ def test_every_unscreened_admission_is_logged_not_just_the_first(caplog):
     assert violations, "the pool must actually deliver violating pairs for this to test anything"
     unnamed_pairs = [(a, b) for a, b in violations if a not in named and b not in named]
     assert unnamed_pairs == []
+
+
+def test_a_candidate_dimerising_with_a_fixed_primer_is_rejected():
+    """The greedy screened candidates against each other and not against the
+    panel they were being added to.
+
+    `_build_dimer_matrix_for_greedy` was built from `candidates` alone, while
+    `_would_dimerise` is called against `selected`, which `optimize_greedy`
+    pre-fills with `fixed_primers`. `DimerMatrix.dimerises` skips a name it
+    cannot resolve, so every candidate-against-fixed pair answered False.
+    `expand-primers` is the command whose entire purpose is adding primers to
+    an existing panel, so this was the one relationship it did not check.
+
+    TTTTGGGGCCCC dimerises with the fixed AAAACCCCGGGG and covers twice as
+    many bins as the dimer-free CGCGATCGCGAT, so an unscreened greedy prefers
+    it. A screened one must take CGCGATCGCGAT instead.
+    """
+    from neoswga.core.dimer import is_dimer_fast
+    from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
+
+    fixed = "AAAACCCCGGGG"
+    assert is_dimer_fast(fixed, "TTTTGGGGCCCC", 3) is True
+    assert is_dimer_fast(fixed, "CGCGATCGCGAT", 3) is False
+
+    positions = {
+        fixed: [10_000],
+        "TTTTGGGGCCCC": [50_000, 200_000],
+        "CGCGATCGCGAT": [90_000],
+    }
+    optimizer = DominatingSetOptimizer(
+        cache=_StaticCache(positions),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[_GENOME],
+        bin_size=_REACH // 4,
+        extension_reach=_REACH,
+        max_dimer_bp=3,
+    )
+
+    result = optimizer.optimize_greedy(
+        candidates=["TTTTGGGGCCCC", "CGCGATCGCGAT"],
+        max_primers=1,
+        fixed_primers=[fixed],
+        verbose=False,
+    )
+
+    assert result["new_primers"] == ["CGCGATCGCGAT"]

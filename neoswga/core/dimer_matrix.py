@@ -96,13 +96,30 @@ class DimerMatrix:
     pairs: np.ndarray
     index: Dict[str, int]
     max_dimer_bp: int
+    _warned_unindexed: bool = False
 
     def dimerises(self, primer: str, others: Sequence[str]) -> bool:
-        """Whether `primer` dimerises with any of `others`."""
+        """Whether `primer` dimerises with any of `others`.
+
+        A name absent from `index` cannot be answered and is skipped, which
+        makes the answer False rather than an error -- so a caller that builds
+        the matrix over a smaller pool than it later queries gets a silent
+        "no dimer" for everything outside it. `DominatingSetOptimizer` did
+        exactly that with its fixed primers. The count mismatch is logged once
+        per matrix so the next such caller sees it.
+        """
         i = self.index.get(primer.upper())
         if i is None or not others:
             return False
         cols = [self.index[o.upper()] for o in others if o.upper() in self.index]
+        if len(cols) != len(others) and not self._warned_unindexed:
+            self._warned_unindexed = True
+            logger.warning(
+                "Dimer matrix queried with %d sequence(s) it was not built "
+                "over; those pairs are reported as not dimerising. Build the "
+                "matrix over every sequence it will be queried with.",
+                len(others) - len(cols),
+            )
         if not cols:
             return False
         return bool(self.pairs[i, cols].any())

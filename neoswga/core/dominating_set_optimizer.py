@@ -323,8 +323,17 @@ class DominatingSetOptimizer:
             return False
         return matrix.dimerises(candidate, selected)
 
-    def _build_dimer_matrix_for_greedy(self, candidates):
+    def _build_dimer_matrix_for_greedy(self, candidates, fixed_primers=()):
         """The dimer matrix for this greedy run, or None if it cannot be built.
+
+        Built over the fixed primers as well as the candidates, because
+        `_would_dimerise` screens each candidate against `selected`, which
+        `optimize_greedy` pre-fills with the fixed primers.
+        `DimerMatrix.dimerises` ignores a name it cannot resolve, so a matrix
+        built from the candidates alone answered False for every
+        candidate-against-fixed pair -- and `expand-primers`, whose whole
+        purpose is adding primers to an existing panel, screened the new
+        primers against each other and not against the panel.
 
         A `max_dimer_bp` above what `dimer_matrix`'s representation allocates
         raises ValueError; selection then proceeds without the constraint
@@ -332,8 +341,12 @@ class DominatingSetOptimizer:
         """
         from neoswga.core import dimer_matrix as _dimer_matrix
 
+        # Deduplicated, order preserved: a primer appearing in both lists
+        # would otherwise take two rows, and the index would keep only the
+        # second.
+        pool = list(dict.fromkeys(list(fixed_primers) + list(candidates)))
         try:
-            return _dimer_matrix.build(list(candidates), self.max_dimer_bp)
+            return _dimer_matrix.build(pool, self.max_dimer_bp)
         except ValueError as exc:
             logger.warning("Dimer-aware selection disabled: %s", exc)
             return None
@@ -682,7 +695,7 @@ class DominatingSetOptimizer:
 
         scan_order = _deterministic_scan_order(fixed_primers, candidates, graph.primers)
 
-        dimers = self._build_dimer_matrix_for_greedy(candidates)
+        dimers = self._build_dimer_matrix_for_greedy(candidates, fixed_primers)
 
         if verbose and n_fixed > 0:
             coverage_so_far = self._genome_fraction(covered_regions)
