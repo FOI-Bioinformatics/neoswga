@@ -43,7 +43,9 @@ _BUDGETS = {
     "cli/iterate.py::run_expand_primers": 245,
     "cli/pipeline.py::run_step2": 215,
     "core/additive_interactions.py::load_defaults": 215,
-    "core/pipeline.py::step2": 210,
+    # core/pipeline.py::step2 dropped off this list when the position scans moved
+    # into _scan_foreground_positions and _scan_background_positions; it is now
+    # under DEFAULT_BUDGET and the ratchet rejects a stale entry.
 }
 
 

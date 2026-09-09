@@ -1108,6 +1108,52 @@ def _configured_positive_int(name, default):
     return default
 
 
+def _scan_foreground_positions(primers, fg_prefixes, fg_genomes):
+    """Write foreground binding positions for `primers`; return the position cache.
+
+    Separate from `_scan_background_positions` because the two run at different
+    points in `step2`. The Gini gate reads foreground positions, so this scan
+    has to precede it, and it therefore sees the full set of survivors.
+    """
+    k = parameter.min_k  # Use first k-mer size for check
+    # Check if position files exist for speedup. Require ALL foreground prefixes
+    # to have a cached position file, otherwise at least one multi-target genome
+    # would be scanned from scratch while the others skipped.
+    position_files_exist = all(
+        os.path.exists(f"{prefix}_{k}mer_positions.h5") for prefix in fg_prefixes
+    )
+    if position_files_exist:
+        logger.info("Reusing existing position files (incremental update only)")
+
+    with progress_context("Creating foreground position files"):
+        return string_search.get_positions(
+            primers, fg_prefixes, fg_genomes, circular=parameter.fg_circular
+        )
+
+
+def _scan_background_positions(primers, bg_prefixes, bg_genomes):
+    """Write background binding positions for the candidates that survived the cut.
+
+    Nothing between the foreground scan and `_rank_and_cut_candidates` reads
+    background positions: `filter.get_gini` uses the foreground only, and
+    `_rank_by_occupancy` reaches `occupancy.weighted_site_load`, which reads the
+    jellyfish count tables -- neither `occupancy.py` nor `mismatch_counts.py`
+    imports h5py. So this scan can run on the cut pool with no approximation.
+
+    Scanning before the cut meant scanning every survivor and keeping
+    `max_primer` of them: 20,301 scanned for 3,000 kept on the run that found
+    this. Aho-Corasick cost grows with the pattern count, so against a
+    whole-genome host that is the difference between about 15 minutes and about
+    1 minute.
+    """
+    if len(bg_prefixes) == 0 or len(bg_genomes) == 0:
+        return
+    with progress_context("Creating background position files"):
+        string_search.get_positions(
+            primers, bg_prefixes, bg_genomes, circular=parameter.bg_circular
+        )
+
+
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -1236,28 +1282,12 @@ def step2(all_primers=None, validate_prerequisites=True):
             f"Excluded {pre_bl_count - len(filtered_rate_df)} primers " f"binding blacklist genome"
         )
 
-    # Create position files BEFORE Gini calculation (Gini needs these files to exist)
-    # Check if position files exist for speedup. Require ALL foreground prefixes to
-    # have a cached position file, otherwise at least one multi-target genome would
-    # be scanned from scratch while the others skipped.
-    import os
-
-    k = parameter.min_k  # Use first k-mer size for check
-    position_files_exist = all(
-        os.path.exists(f"{prefix}_{k}mer_positions.h5") for prefix in fg_prefixes
+    # Foreground position files, written BEFORE the Gini gate below, which reads
+    # them. The background scan runs later, on the cut pool; see
+    # `_scan_background_positions`.
+    fg_position_cache = _scan_foreground_positions(
+        filtered_rate_df["primer"], fg_prefixes, fg_genomes
     )
-
-    if position_files_exist:
-        logger.info(f"Reusing existing position files (incremental update only)")
-
-    with progress_context("Creating position files"):
-        fg_position_cache = string_search.get_positions(
-            filtered_rate_df["primer"], fg_prefixes, fg_genomes, circular=parameter.fg_circular
-        )
-        if len(bg_prefixes) > 0 and len(bg_genomes) > 0:
-            string_search.get_positions(
-                filtered_rate_df["primer"], bg_prefixes, bg_genomes, circular=parameter.bg_circular
-            )
 
     # Count after exclusion/blacklist (before Gini) for the funnel.
     _funnel["after_background"] = len(filtered_rate_df)
@@ -1278,6 +1308,8 @@ def step2(all_primers=None, validate_prerequisites=True):
     gini_df["ratio"] = gini_df["bg_count"] / gini_df["fg_count"].replace(0, np.nan)
     gini_df["ratio"] = gini_df["ratio"].fillna(float("inf"))
     filtered_gini_df = _rank_and_cut_candidates(gini_df, parameter.max_primer)
+
+    _scan_background_positions(filtered_gini_df["primer"], bg_prefixes, bg_genomes)
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
