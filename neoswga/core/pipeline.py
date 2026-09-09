@@ -1115,16 +1115,13 @@ def _scan_foreground_positions(primers, fg_prefixes, fg_genomes):
     points in `step2`. The Gini gate reads foreground positions, so this scan
     has to precede it, and it therefore sees the full set of survivors.
     """
-    k = parameter.min_k  # Use first k-mer size for check
-    # Check if position files exist for speedup. Require ALL foreground prefixes
-    # to have a cached position file, otherwise at least one multi-target genome
-    # would be scanned from scratch while the others skipped.
-    position_files_exist = all(
-        os.path.exists(f"{prefix}_{k}mer_positions.h5") for prefix in fg_prefixes
-    )
-    if position_files_exist:
-        logger.info("Reusing existing position files (incremental update only)")
-
+    # This used to test whether a position file existed for every foreground
+    # prefix at `parameter.min_k` and log "Reusing existing position files
+    # (incremental update only)" when one did. The flag was read by nothing else
+    # and no reuse followed. `string_search.get_positions` now consults the HDF5
+    # files itself, per prefix and per k rather than for min_k alone, and reports
+    # what it actually reused and rescanned, so the announcement here has been
+    # removed rather than repaired.
     with progress_context("Creating foreground position files"):
         return string_search.get_positions(
             primers, fg_prefixes, fg_genomes, circular=parameter.fg_circular

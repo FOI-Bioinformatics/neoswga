@@ -3,37 +3,44 @@
 The audit surfaced two [0]-indexed sites that silently ignored additional
 target or background genomes:
 
-- pipeline.py position-file cache check (now checks all fg_prefixes)
+- the position-file cache check, which is now taken per foreground prefix in
+  string_search rather than once for all of them in pipeline.py
 - background_aware_optimizer.compare_optimizers (now aggregates all bg_prefixes)
 
 These tests lock in the fix.
 """
 
-import os
 import pytest
 
 
-def test_position_file_cache_requires_all_fg_prefixes(tmp_path):
-    """If one of several fg_prefixes lacks a cached HDF5, position_files_exist
-    must return False so the missing prefix is scanned."""
-    # Simulate the inline check in pipeline.step2
+def test_position_file_cache_is_decided_per_fg_prefix(tmp_path):
+    """A prefix without a cached HDF5 is scanned even when another prefix has one.
+
+    `pipeline.step2` used to answer this with one `all(...)` over the prefixes at
+    `parameter.min_k`, which was read by nothing but a log line. The decision now
+    lives in `string_search._split_already_scanned` and is taken per prefix and
+    per k, so this asserts it there.
+    """
+    import h5py
+
+    from neoswga.core import string_search
+
     k = 8
-    prefixes = [str(tmp_path / "fg_a"), str(tmp_path / "fg_b"), str(tmp_path / "fg_c")]
+    primers = ["ACGTACGT", "TTTTGGGG"]
+    cached = str(tmp_path / "fg_a")
+    uncached = str(tmp_path / "fg_b")
 
-    # Pre-create only the first cache
-    (tmp_path / "fg_a_8mer_positions.h5").write_text("")
+    with h5py.File(f"{cached}_{k}mer_positions.h5", "w") as handle:
+        for primer in primers:
+            handle.create_dataset(primer, data=[10])
 
-    position_files_exist = all(os.path.exists(f"{p}_{k}mer_positions.h5") for p in prefixes)
+    to_scan, reusable = string_search._split_already_scanned(primers, cached, k)
+    assert to_scan == [] and reusable == primers
+
+    to_scan, reusable = string_search._split_already_scanned(primers, uncached, k)
     assert (
-        position_files_exist is False
-    ), "All prefixes must have caches for the pipeline to skip position-file creation"
-
-    # Now create them all
-    (tmp_path / "fg_b_8mer_positions.h5").write_text("")
-    (tmp_path / "fg_c_8mer_positions.h5").write_text("")
-
-    position_files_exist = all(os.path.exists(f"{p}_{k}mer_positions.h5") for p in prefixes)
-    assert position_files_exist is True
+        to_scan == primers and reusable == []
+    ), "a prefix with no cached position file must still be scanned in full"
 
 
 def test_background_aware_optimizer_aggregates_all_bg_prefixes():

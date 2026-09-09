@@ -344,6 +344,60 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
     return filtered_primer_list
 
 
+def _split_already_scanned(primers, fname_prefix, k):
+    """Partition `primers` into (to_scan, reusable) against the HDF5 file.
+
+    A primer counts as already scanned when the file holds a dataset for it.
+    On the Aho-Corasick path that test is sound: `write_to_h5py` is handed
+    `all_positions.get(p, [])` for every pattern in the automaton, so a primer
+    that occurs nowhere still gets a key with an empty dataset, and key presence
+    means "this primer was scanned" rather than "this primer was found".
+
+    A file written by the fallback path can be missing keys for primers absent
+    from the genome, because `check_which_primers_absent_in_h5py` filters those
+    out before scanning. That costs a redundant scan, not a wrong answer.
+
+    Any read problem returns everything as unscanned, which is the previous
+    behaviour.
+    """
+    h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
+    if not os.path.exists(h5_path):
+        return list(primers), []
+    try:
+        with h5py.File(h5_path, "r") as handle:
+            present = set(handle.keys())
+    except (OSError, KeyError) as exc:
+        logger.debug(f"Could not read {h5_path} ({exc}); scanning all primers")
+        return list(primers), []
+    to_scan = [primer for primer in primers if primer not in present]
+    reusable = [primer for primer in primers if primer in present]
+    return to_scan, reusable
+
+
+def _positions_from_h5(primers, fname_prefix, k):
+    """Read positions for primers that were scanned on an earlier run.
+
+    This back-fill is what makes the reuse safe rather than merely faster.
+    `get_positions` documents its return value as a complete map, and
+    `primer_attributes.get_gini_from_txt_for_one_k` reads it with
+    `.get((prefix, primer), [])`: a primer left out of the map is read as a
+    primer with no binding sites, which the Gini gate turns into NaN and drops.
+    """
+    if not primers:
+        return {}
+    h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
+    positions = {}
+    try:
+        with h5py.File(h5_path, "r") as handle:
+            for primer in primers:
+                if primer in handle:
+                    positions[primer] = handle[primer][:].tolist()
+    except (OSError, KeyError) as exc:
+        logger.debug(f"Could not read {h5_path} ({exc}); positions will be rescanned")
+        return {}
+    return positions
+
+
 def get_positions(
     primer_list,
     fname_prefixes,
@@ -408,15 +462,62 @@ def get_positions(
     position_cache = {}
 
     if AHOCORASICK_AVAILABLE and not overwrite:
-        # Single-pass multi-k Aho-Corasick search
+        # Single-pass multi-k Aho-Corasick search.
+        #
+        # Primers whose positions are already in the HDF5 file are read back
+        # rather than rescanned. `pipeline.step2` has always logged "Reusing
+        # existing position files (incremental update only)" when the files were
+        # present, and until this branch consulted them the log line was the only
+        # thing that reused anything.
         for i, fg_prefix in enumerate(fname_prefixes):
             primer_lists_by_k = {}
+            reused_count = 0
             for k in k_range:
                 k_primers = [p for p in primer_list if len(p) == k]
                 if not k_primers:
                     continue
                 rc_primers = [reverse_complement(p) for p in k_primers]
-                primer_lists_by_k[k] = list(set(k_primers + rc_primers))
+                # Sorted rather than `list(set(...))`: the scan result does not
+                # depend on the order, but a stable order makes the pattern
+                # count reproducible across runs.
+                wanted = sorted(set(k_primers + rc_primers))
+
+                to_scan, reusable = _split_already_scanned(wanted, fg_prefix, k)
+                if reusable:
+                    backfilled = _positions_from_h5(reusable, fg_prefix, k)
+                    for primer, positions in backfilled.items():
+                        position_cache[(fg_prefix, primer)] = positions
+                    # The back-fill is the contract, not a shortcut: the returned
+                    # map has to hold every primer that was skipped. It can come
+                    # back short if the file became unreadable between the two
+                    # reads, so anything missing goes back into the scan rather
+                    # than out of the map, where it would read downstream as a
+                    # primer that binds nowhere.
+                    missing = [p for p in reusable if p not in backfilled]
+                    if missing:
+                        logger.debug(
+                            f"{len(missing):,} {k}-mer position set(s) for {fg_prefix} "
+                            "were listed in the HDF5 file but could not be read back; "
+                            "rescanning them"
+                        )
+                        to_scan = to_scan + missing
+                    reused_count += len(backfilled)
+                    logger.debug(
+                        f"Reusing {len(backfilled):,} cached {k}-mer position set(s) "
+                        f"for {fg_prefix}; scanning {len(to_scan):,}"
+                    )
+                if to_scan:
+                    primer_lists_by_k[k] = sorted(to_scan)
+
+            if reused_count:
+                # Reported with counts because the previous announcement of reuse
+                # in `pipeline.step2` was not conditional on anything being
+                # reused, and nothing was.
+                to_scan_count = sum(len(v) for v in primer_lists_by_k.values())
+                logger.info(
+                    f"Reusing {reused_count:,} position set(s) already in the HDF5 "
+                    f"file(s) for {fg_prefix}; scanning {to_scan_count:,}"
+                )
 
             if not primer_lists_by_k:
                 continue
