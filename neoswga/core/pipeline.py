@@ -1152,12 +1152,22 @@ def _scan_background_positions(primers, bg_prefixes, bg_genomes):
     1,000 primer datasets where they previously held 10,378, and `step2_df.csv`
     and `filter_stats.json` are byte-identical before and after.
     """
-    if len(bg_prefixes) == 0 or len(bg_genomes) == 0:
-        return
-    with progress_context("Creating background position files"):
-        string_search.get_positions(
-            primers, bg_prefixes, bg_genomes, circular=parameter.bg_circular
-        )
+    if len(bg_prefixes) > 0 and len(bg_genomes) > 0:
+        with progress_context("Creating background position files"):
+            string_search.get_positions(
+                primers, bg_prefixes, bg_genomes, circular=parameter.bg_circular
+            )
+
+    # The genome strings are not needed past this point: this is the last scan
+    # `step2` runs, whether or not a background was configured (a no-background
+    # run, e.g. phi29_baseline, still leaves the foreground genome cached
+    # otherwise). `_genome_cache` is module-level, so without this the
+    # foreground and background genomes stay resident for the rest of the
+    # process -- 3.3 GB for hg38, alongside the 1.24 GB k-mer count table
+    # `mismatch_counts` caches for the occupancy ranking. `step2` is called
+    # once per process (`cli/pipeline.py` and `adaptive_filters.py` are the
+    # only callers), so this releases nothing a later call would want back.
+    string_search.clear_genome_cache()
 
 
 def step2(all_primers=None, validate_prerequisites=True):

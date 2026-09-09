@@ -131,3 +131,51 @@ def test_the_foreground_is_still_scanned_before_the_gini_gate(plasmid, monkeypat
         "before the cut and would have no positions to measure"
     )
     assert result["gini"].notna().all(), "Gini came back unmeasurable"
+
+
+def test_the_genome_cache_is_released_when_the_scans_are_done(plasmid):
+    """Nothing past step 2's scans reads the genome strings.
+
+    `_genome_cache` is a module-level dict, so without a release the foreground
+    and background genomes stay resident for the rest of the process. For hg38
+    that is 3.3 GB held alongside the 1.24 GB k-mer count table
+    `mismatch_counts` caches for the occupancy ranking.
+
+    `clear_genome_cache` has existed since the cache did and had no caller
+    outside the tests.
+    """
+    assert string_search.get_genome_cache_stats()["num_genomes"] == 0
+
+    pipeline.step2()
+
+    stats = string_search.get_genome_cache_stats()
+    assert stats["num_genomes"] == 0, (
+        f"step 2 left {stats['num_genomes']} genome(s) and {stats['total_bp']:,} bp "
+        "resident after both scans finished"
+    )
+
+
+def test_the_release_happens_after_the_background_scan(plasmid, monkeypatch):
+    """Releasing too early would force the background genome to be re-parsed."""
+    seen = []
+    real_scan = string_search.get_positions
+    real_clear = string_search.clear_genome_cache
+
+    def scan_spy(primer_list, fname_prefixes, fname_genomes, circular, **kwargs):
+        seen.append(("scan", tuple(fname_prefixes)))
+        return real_scan(list(primer_list), fname_prefixes, fname_genomes, circular, **kwargs)
+
+    def clear_spy():
+        seen.append(("clear", ()))
+        return real_clear()
+
+    monkeypatch.setattr(string_search, "get_positions", scan_spy)
+    monkeypatch.setattr(string_search, "clear_genome_cache", clear_spy)
+
+    pipeline.step2()
+
+    assert seen == [
+        ("scan", ("pcDNA",)),
+        ("scan", ("pLTR",)),
+        ("clear", ()),
+    ], f"expected both scans then one release, got {seen}"
