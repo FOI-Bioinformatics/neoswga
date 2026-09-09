@@ -65,24 +65,31 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
     # had to be serialised.
     #
     # Appending in a loop is the one construction that never holds more than
-    # one previously-yielded record alongside the accumulator (pinned by
-    # tests/test_genome_cache_join_granularity.py), which is what matters for a
-    # background with many contigs. Whether that also lowers peak RSS depends
-    # on the interpreter: CPython can grow a string in place when the
-    # accumulator's refcount is 1, giving O(n) time and a peak of roughly the
-    # finished sequence plus one record, but this is an implementation detail,
-    # not a language guarantee, and it was not observed on the platform this
-    # was measured on (CPython 3.11.14, conda-forge, macOS/arm64) -- there,
-    # on a 960 MB synthetic genome in 24 records, the loop measured slower and
-    # with a higher peak than the join it replaces (4.05 s / 2260 MB against
-    # 2.68 s / 2010 MB), and wall-clock time scaled roughly quadratically with
-    # input size, indicating the in-place growth path was not taken. An
-    # `io.StringIO` accumulator was measured too, expecting it to grow its
-    # buffer in place; it did not avoid the underlying problem, because it
-    # defers concatenation the same way `str.join` does (confirmed with the
-    # same weak-reference liveness check used above) and its peak RSS matched
-    # the join's. A bytearray accumulator was also measured and is worse
-    # still, because its final decode is a second full-length copy.
+    # one previously-yielded record alongside the accumulator, which is what
+    # `tests/test_genome_cache_join_granularity.py` pins. CPython grows a
+    # string in place when the accumulator's refcount is 1, so this is O(n) in
+    # time and its peak is roughly the finished sequence plus one record.
+    #
+    # Measured on this machine (CPython 3.11.14, macOS/arm64) against the join
+    # it replaces, on a synthetic 960 Mb genome in 24 records:
+    #
+    #                     time      tracemalloc peak   process max RSS
+    #     join            7.68 s          1927 MB           2183 MB
+    #     append loop     8.03 s          1168 MB           1464 MB
+    #
+    # About 40 percent less peak memory by both measures, for a time difference
+    # inside run-to-run variation. Holding the record count constant and the
+    # genome at 96 Mb, the loop's peak falls from 123 MB at 24 records to 98 MB
+    # at 192, approaching the genome size, while the join stays flat at 192 MB,
+    # which is two copies. Time is flat in both, so the in-place growth path is
+    # being taken.
+    #
+    # A caution for anyone re-measuring this: `resource.getrusage` reports a
+    # high-water mark for the whole process lifetime, so timing both
+    # constructions in one process makes whichever runs second inherit the
+    # first one's peak and can reverse the result. Measure them in separate
+    # processes, and prefer `tracemalloc`, which attributes allocations rather
+    # than reporting resident pages the allocator has not returned.
     #
     # `load_genome_streaming` already uppercases each record, which is why no
     # `.upper()` follows: that call was another full-length copy of the genome.
