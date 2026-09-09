@@ -1141,10 +1141,16 @@ def _scan_background_positions(primers, bg_prefixes, bg_genomes):
     imports h5py. So this scan can run on the cut pool with no approximation.
 
     Scanning before the cut meant scanning every survivor and keeping
-    `max_primer` of them: 20,301 scanned for 3,000 kept on the run that found
-    this. Aho-Corasick cost grows with the pattern count, so against a
-    whole-genome host that is the difference between about 15 minutes and about
-    1 minute.
+    `max_primer` of them. Aho-Corasick cost grows with the pattern count, so on
+    a large host the saving is roughly the ratio of the two pool sizes.
+
+    Two figures are quoted for this and neither was re-measured here, so they
+    are attributed rather than stated as fact. Audit finding B1 records 20,301
+    primers scanned for 3,000 kept on the run that found it, and projects about
+    15 minutes against about 1 minute on a whole-genome host. What WAS measured
+    for this change, on the plasmid example: the background position files hold
+    1,000 primer datasets where they previously held 10,378, and `step2_df.csv`
+    and `filter_stats.json` are byte-identical before and after.
     """
     if len(bg_prefixes) == 0 or len(bg_genomes) == 0:
         return
