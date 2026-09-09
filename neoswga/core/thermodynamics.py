@@ -34,6 +34,23 @@ from neoswga.core.utility import reverse as _util_reverse
 
 logger = logging.getLogger(__name__)
 
+# Eviction ceiling for the two thermodynamic caches below.
+#
+# `lru_cache` allocates lazily, so this bounds eviction and not memory: a filter
+# step over 449 E. coli candidates reported holding 1,639 entries against this
+# figure, which is why it looked oversized.
+#
+# It is not. The largest shipped configuration is much larger than that run:
+# `tests/validation/genomes/filter_stats.json` records 369,459 candidates
+# reaching the position scan, and each candidate reaches this cache under
+# roughly 1.9 distinct keys. Measured on the plasmid example, step 2 makes
+# 22,175 enthalpy calls for 11,803 candidates, decomposing as one call per
+# candidate from `filter_extra`'s effective-Tm gate plus two per shortlisted
+# candidate from the occupancy ranking's foreground and background site loads.
+# Shrinking the ceiling below that product would introduce eviction on exactly
+# the runs that are already slowest.
+THERMO_CACHE_MAXSIZE = 1_000_000
+
 # Universal gas constant (cal/(mol*K))
 R = 1.987
 
@@ -179,13 +196,14 @@ def is_watson_crick(base1: str, base2: str) -> bool:
     return (base1, base2) in pairs
 
 
-@lru_cache(maxsize=1000000)
+@lru_cache(maxsize=THERMO_CACHE_MAXSIZE)
 def calculate_enthalpy_entropy_cached(
     seq: str, complementary: Optional[str] = None
 ) -> Tuple[float, float]:
     """
     Cached version of enthalpy/entropy calculation.
-    Uses LRU cache (1M entries) for 100-1000x speedup on repeated sequences.
+    Sized by `THERMO_CACHE_MAXSIZE`; see the comment there for the workload it
+    was matched to.
     """
     return _calculate_enthalpy_entropy_impl(seq, complementary)
 
@@ -798,11 +816,12 @@ def complement(base: str) -> str:
     return _COMPLEMENT_MAP.get(base, base)
 
 
-@lru_cache(maxsize=1000000)
+@lru_cache(maxsize=THERMO_CACHE_MAXSIZE)
 def compute_free_energy_for_two_strings_cached(x: str, y: str, penalty: float = 4.0) -> float:
     """
     Cached version of free energy calculation between two sequences.
-    Uses LRU cache for 10-100x speedup in Step 3 scoring.
+    Sized by `THERMO_CACHE_MAXSIZE`; see the comment there for the workload it
+    was matched to.
     """
     return _compute_free_energy_for_two_strings_impl(x, y, penalty)
 
@@ -917,8 +936,10 @@ def get_cache_stats() -> Dict[str, Any]:
 def log_cache_stats(label: str = "") -> None:
     """Log thermodynamic cache hit rates for performance monitoring.
 
-    Call at the end of each pipeline step to track cache effectiveness.
-    Low hit rates may indicate the cache size (1M entries) is too small.
+    Call at the end of each pipeline step to track cache effectiveness. A low
+    hit rate together with a `currsize` at the ceiling means eviction; the
+    ceiling is `THERMO_CACHE_MAXSIZE` and the comment there records the workload
+    it was sized against.
 
     Args:
         label: Optional label for the log message (e.g. "Step 2").
