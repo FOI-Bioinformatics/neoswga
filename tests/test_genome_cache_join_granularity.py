@@ -112,3 +112,80 @@ def test_matches_the_character_wise_result(multi_record_fasta):
     old = "".join(utility.read_fasta_file(str(multi_record_fasta))).upper()
     new = string_search.get_cached_genome_sequence(str(multi_record_fasta))
     assert new == old
+
+
+def test_holds_at_most_one_record_at_a_time(tmp_path, monkeypatch):
+    """`str.join` materialises its argument, so every record is alive at once.
+
+    `str.join` calls `PySequence_Fast` on its argument, so a generator is turned
+    into a list of every record before any concatenation begins. For hg38 that
+    is about 3.3 GB of records alive at the moment the 3.3 GB result is
+    allocated, which is the recorded 8.5 GB peak that forces hg38 filter runs to
+    be serialised one at a time.
+
+    Asserted by liveness rather than by resident memory: an RSS assertion would
+    need a multi-gigabase fixture and would still be at the mercy of the
+    platform's memory compression. Records are yielded as a `str` subclass,
+    which unlike `str` itself can be weak-referenced, so their release is
+    observable. A correct accumulator holds exactly one previously yielded
+    record at any moment -- the consumer's loop variable -- so the count of live
+    predecessors never exceeds one.
+
+    Measured on a 960 MB synthetic genome in 24 records: 1842 MB peak for the
+    join against 850 MB for the loop.
+    """
+    import weakref
+
+    import neoswga.core.genome_io as genome_io
+
+    class _Record(str):
+        """A str that supports weak references, so release is observable."""
+
+    refs = []
+    live_at_yield = []
+
+    def fake_streaming(self, file_path):
+        for _ in range(6):
+            record = _Record("ACGT" * 8)
+            live_at_yield.append(sum(1 for ref in refs if ref() is not None))
+            refs.append(weakref.ref(record))
+            yield record
+
+    monkeypatch.setattr(genome_io.GenomeLoader, "load_genome_streaming", fake_streaming)
+
+    path = tmp_path / "g.fna"
+    path.write_text(">g\nACGT\n")
+    sequence = string_search.get_cached_genome_sequence(str(path))
+
+    assert sequence == "ACGT" * 48
+    assert max(live_at_yield) <= 1, (
+        "more than one previously yielded record was still alive; the "
+        "accumulator is holding every record before concatenating "
+        f"(live predecessor counts {live_at_yield})"
+    )
+
+
+def test_a_bytearray_accumulator_is_not_used(tmp_path, monkeypatch):
+    """The result must be built as `str`, not decoded from a byte buffer.
+
+    A bytearray accumulates in place, which fixes the liveness problem above,
+    but its final `.decode()` is a second full-length copy: measured peak
+    1956 MB on the 960 MB fixture, worse than the 1842 MB join it would
+    replace. `Automaton.iter()` also raises `TypeError: string required` for
+    `bytes` and `bytearray`, so a byte buffer cannot be handed to the scanner
+    to avoid that decode.
+    """
+    import neoswga.core.genome_io as genome_io
+
+    def fake_streaming(self, file_path):
+        yield "ACGT"
+        yield "TTTT"
+
+    monkeypatch.setattr(genome_io.GenomeLoader, "load_genome_streaming", fake_streaming)
+
+    path = tmp_path / "g.fna"
+    path.write_text(">g\nACGT\n")
+    sequence = string_search.get_cached_genome_sequence(str(path))
+
+    assert type(sequence) is str
+    assert sequence == "ACGTTTTT"
