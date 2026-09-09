@@ -327,6 +327,22 @@ measures one loop, not an optimizer run.
   as did the loop's predicted coverage against a real rebuild of the reduced
   set.
 
+## Where the evidence is kept
+
+Nothing this document cites is in version control. `.gitignore` excludes
+`runs/`, so the run outputs and logs behind every number here live only on disk:
+
+- `runs/optcost_evidence_2026-09/` holds the run directories and the 24 logs for
+  the before, after and branch-tip measurements, including the relaxation
+  warnings the accounting column counts.
+- `runs/gc_tiers_pre_plan2_backup/` holds the three shipped designs as they stood
+  before any of this work overwrote them, verified by SHA-256 at the time.
+- `runs/gc_tiers/` holds the re-derived designs.
+
+These were originally written under `/tmp`, which does not survive a reboot, and
+were copied to `runs/` for that reason. If a number here is ever disputed, those
+directories are the record; if they are gone, the runs have to be repeated.
+
 ## Reproducing
 
 ```bash
