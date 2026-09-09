@@ -78,11 +78,14 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
     #     append loop     8.03 s          1168 MB           1464 MB
     #
     # About 40 percent less peak memory by both measures, for a time difference
-    # inside run-to-run variation. Holding the record count constant and the
-    # genome at 96 Mb, the loop's peak falls from 123 MB at 24 records to 98 MB
-    # at 192, approaching the genome size, while the join stays flat at 192 MB,
-    # which is two copies. Time is flat in both, so the in-place growth path is
-    # being taken.
+    # inside run-to-run variation. Five replicates each, in separate processes:
+    # every join run reported 1927.0 MB and every loop run 1167.6 MB, so the
+    # allocation figures are deterministic even though the wall times are not.
+    #
+    # Holding the GENOME at 96 Mb and varying the record count, the loop's peak
+    # falls from 123 MB at 24 records to 106 MB at 192, approaching the genome
+    # size, while the join stays flat at 199 MB, which is two copies. That is
+    # the signature of the in-place growth path being taken.
     #
     # A caution for anyone re-measuring this: `resource.getrusage` reports a
     # high-water mark for the whole process lifetime, so timing both
