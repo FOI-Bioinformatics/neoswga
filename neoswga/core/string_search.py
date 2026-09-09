@@ -87,10 +87,20 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
     # size, while the join stays flat at 199 MB, which is two copies. That is
     # the signature of the in-place growth path being taken.
     #
-    # A caution for anyone re-measuring this: `resource.getrusage` reports a
-    # high-water mark for the whole process lifetime, so timing both
-    # constructions in one process makes whichever runs second inherit the
-    # first one's peak and can reverse the result. Measure them in separate
+    # `sequence` MUST stay a function-local. CPython's in-place append is
+    # implemented for `STORE_FAST`/`LOAD_FAST`, so it does not fire for a
+    # module-level name, which goes through the globals dict instead. Move this
+    # accumulator to module scope and every `+=` becomes a full copy: the same
+    # code turns quadratic, silently, with no test failing.
+    #
+    # Two independent attempts to measure this reached the opposite conclusion
+    # by two different routes, which is why both cautions are recorded here. One
+    # used `resource.getrusage`, which reports a high-water mark for the whole
+    # process lifetime, so timing both constructions in one process makes
+    # whichever runs second inherit the first one's peak and can reverse the
+    # result. The other hand-wrote the loop at module scope in a benchmark
+    # script, and so measured the quadratic path rather than the one that ships.
+    # Measure them in separate
     # processes, and prefer `tracemalloc`, which attributes allocations rather
     # than reporting resident pages the allocator has not returned.
     #
