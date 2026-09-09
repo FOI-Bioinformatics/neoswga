@@ -50,6 +50,16 @@ before-runs reproduce the shipped designs exactly: Jaccard 1.000 against the
 set-0 primers of all three backed-up `step4_improved_df.csv` files. The `after`
 column is the branch tip.
 
+The delivered sets were first measured at `b3a00ba` and re-measured at the tip
+six commits later, after the fixes to the relaxation scope, the fixed-primer
+screen, the `uint8` accumulation in the dimer matrix, and the Stage-1 dimer
+limit landed. **All four re-runs return Jaccard 1.000 against their `b3a00ba`
+counterparts**, with identical worst heterodimer, foreground coverage and
+selectivity density in every case. Those six commits corrected real defects in
+what the run reports and in how the constraint is applied, and they changed no
+delivered panel on these three designs. The `after` numbers below are the tip
+ones; the earlier measurement would have given the same table.
+
 Inputs, all with `max_dimer_bp: 3`:
 
 | design | genome | candidates in step3_df.csv | delivered panel | method |
@@ -89,9 +99,24 @@ neoswga optimize -j runs/gc_tiers/low_saureus/params.json -m hybrid         -n 2
 
 The four fast runs move between 10% faster and 13% slower, in both directions,
 on runs of 11 to 127 seconds. Building and consulting the dimer matrix for the
-whole run costs something real - paired runs alternating the two versions put it
-at about +21% on the *S. aureus* `dominating-set` case - but at this scale it is
-not a practical concern.
+whole run costs something real, but how much is not settled, and the two
+measurements of it disagree:
+
+| measurement | *S. aureus* `dominating-set` cost |
+|---|---|
+| paired runs alternating the two versions, `-n 96` | about +21% |
+| the table above, 17.80 s before against 20.14 s after, `-n 200` | +34% |
+| an independent re-run of the same case under higher load | 21.84 s |
+
+These are not reconcilable into one figure and are not averaged here. The
+paired-run design controls for load by alternating the versions, which the
+single before/after pair in the table does not, so +21% is the better-controlled
+estimate; but it was taken at `-n 96` and the table row at `-n 200`, so they do
+not measure quite the same thing either. The 21.84 s re-run sits between the
+two and was taken under a loaded machine. The most defensible statement is that
+the cost is somewhere around a fifth to a third of the run, that the spread is
+dominated by machine load rather than by anything in the code, and that on runs
+of 11 to 127 seconds it is not a practical concern at any of these values.
 
 **The plan's headline speed claim is not met.** It was written expecting
 `hybrid` to finish on this pool in time comparable to `dominating-set`. It does
