@@ -1256,13 +1256,20 @@ def step2(all_primers=None, validate_prerequisites=True):
         max_k = getattr(parameter, "max_k", 12)
         kmer_lengths = range(min_k, max_k + 1)
         with progress_context("Loading candidate k-mers"):
+            # The window comes from `filter._resolve_tm_window()` rather than
+            # from `getattr(parameter, "min_tm", None) or 15`. Those two
+            # disagreed: `or` treats a configured 0.0 as absent, and the fixed
+            # 15-55 fallback ignores the polymerase. The loader and the gate
+            # reading the same window, under the same conditions, is the point.
+            loader_tm_min, loader_tm_max = filter_module._resolve_tm_window()
             all_primers = get_primer_list_from_kmers(
                 fg_prefixes,
                 kmer_lengths=kmer_lengths,
-                min_tm=getattr(parameter, "min_tm", None) or 15,
-                max_tm=getattr(parameter, "max_tm", None) or 55,
+                min_tm=loader_tm_min,
+                max_tm=loader_tm_max,
                 gc_min=max(0.10, gc_min - 0.10),
                 gc_max=min(0.90, gc_max + 0.10),
+                conditions=filter_module._get_reaction_conditions(),
             )
         logger.info(f"Loaded {len(all_primers)} candidate primers")
 

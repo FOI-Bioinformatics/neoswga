@@ -89,13 +89,20 @@ class TestFix1TmPreFilter:
         # The wide margin should retain more or equal primers
         assert len(result_wide) >= len(result_narrow)
 
-    def test_default_margin_is_15(self, tmp_path):
-        """Default wide_tm_margin should be 15.0."""
+    def test_default_margin_is_small(self):
+        """Changed by audit finding B5, 2026-09-10.
+
+        15 C existed to absorb disagreement between `melting_temp.temp` and the
+        SantaLucia Tm the gate applies, a systematic +10 C on 12-mers. The
+        loader now calls the gate's own estimator, so the margin is stated
+        headroom rather than a correction for two estimators disagreeing.
+        """
         import inspect
+
         from neoswga.core.kmer_counter import get_primer_list_from_kmers
 
         sig = inspect.signature(get_primer_list_from_kmers)
-        assert sig.parameters["wide_tm_margin"].default == 15.0
+        assert sig.parameters["wide_tm_margin"].default == 2.0
 
     def test_extreme_tm_still_rejected(self, tmp_path):
         """Primers with extremely high Tm should still be rejected even with margin."""
