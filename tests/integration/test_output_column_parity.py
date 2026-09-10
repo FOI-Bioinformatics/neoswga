@@ -41,7 +41,7 @@ def _reset_pipeline_state(params_file):
 
 
 @pytest.fixture
-def primed_workdir(tmp_path):
+def primed_workdir(tmp_path, monkeypatch):
     """Copy plasmid example and run step1 + step2 + step3 so optimizers have data."""
     if not EXAMPLE_DIR.is_dir():
         pytest.skip("plasmid example not available")
@@ -62,7 +62,9 @@ def primed_workdir(tmp_path):
     params["max_k"] = 10
     with open(params_path, "w") as fh:
         json.dump(params, fh, indent=2)
-    os.chdir(tmp_path)
+    # monkeypatch.chdir restores on teardown; a bare os.chdir leaks the working
+    # directory into every later test, and a relative data_dir then resolves there.
+    monkeypatch.chdir(tmp_path)
     _reset_pipeline_state(str(params_path))
     from neoswga.core.pipeline import step1, step2, step3
 

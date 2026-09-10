@@ -53,9 +53,11 @@ def _build_workdir(tmp_path):
     return params_path
 
 
-def _prepare(tmp_path):
+def _prepare(tmp_path, monkeypatch):
     params_file = _build_workdir(tmp_path)
-    os.chdir(tmp_path)
+    # monkeypatch.chdir restores on teardown; a bare os.chdir leaks the working
+    # directory into every later test, and a relative data_dir then resolves there.
+    monkeypatch.chdir(tmp_path)
     _reset_pipeline_state(str(params_file))
     from neoswga.core.pipeline import step2, step3
 
@@ -66,13 +68,13 @@ def _prepare(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_hybrid_same_seed_same_primers(tmp_path):
+def test_hybrid_same_seed_same_primers(tmp_path, monkeypatch):
     """Two runs of hybrid with seed=42 should produce identical primers.
 
     Hybrid stage 2 is the historically non-deterministic one; seeding at
     the unified_optimizer entry point sets python random + numpy RNGs,
     which covers the bulk of randomness sources."""
-    params_file = _prepare(tmp_path)
+    params_file = _prepare(tmp_path, monkeypatch)
 
     from neoswga.core.unified_optimizer import optimize_step4
 
@@ -111,11 +113,11 @@ def test_moea_factory_config_receives_seed():
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_different_seeds_may_differ(tmp_path):
+def test_different_seeds_may_differ(tmp_path, monkeypatch):
     """Different seeds may produce different sets — weaker but useful
     sanity. Tolerate identical output on the small plasmid example where
     the problem is nearly deterministic."""
-    params_file = _prepare(tmp_path)
+    params_file = _prepare(tmp_path, monkeypatch)
     from neoswga.core.unified_optimizer import optimize_step4
 
     _reset_pipeline_state(str(params_file))

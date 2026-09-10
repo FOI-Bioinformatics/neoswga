@@ -99,6 +99,24 @@ SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is d
   Pin values explicitly in params.json if you need to reproduce an older run."""
 
 
+def _resolve_data_dir(args, data):
+    """The run's output directory, as an absolute path.
+
+    `data_dir` is a module global that persists for the life of the process,
+    and the shipped plasmid example carries the relative "./". A relative value
+    re-resolves against whatever the working directory happens to be later, so
+    a value left behind by one test wrote another's pipeline outputs into the
+    repository root -- which `.gitignore` had a section for rather than a fix.
+
+    Absolute means a stale value points at the wrong run's directory, which is
+    visible, rather than at "here", which is not.
+    """
+    value = get_value_or_default(args.data_dir, data, "data_dir")
+    if isinstance(value, str) and value:
+        return os.path.abspath(value)
+    return value
+
+
 def _resolve_min_gini_sites(args, data) -> int:
     """The configured minimum site count for the Gini gate, always an int.
 
@@ -1059,7 +1077,7 @@ def get_params(args):
     num_primers = data.get("num_primers", data.get("target_set_size", 6))
     target_set_size = data.get("target_set_size", num_primers)
 
-    data_dir = data["data_dir"] = get_value_or_default(args.data_dir, data, "data_dir")
+    data_dir = data["data_dir"] = _resolve_data_dir(args, data)
     src_dir = data["src_dir"] = get_value_or_default(args.src_dir, data, "src_dir")
     min_fg_freq = data["min_fg_freq"] = get_value_or_default(args.min_fg_freq, data, "min_fg_freq")
     max_bg_freq = data["max_bg_freq"] = get_value_or_default(args.max_bg_freq, data, "max_bg_freq")

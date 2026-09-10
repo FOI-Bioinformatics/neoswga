@@ -136,3 +136,28 @@ def save_results(
 
     # Write audit trail for reproducibility
     _write_audit_trail(output_path, result)
+
+
+def _write_validation_report(validation):
+    """Write the step-4 validation report beside the run's other outputs.
+
+    No `data_dir` means no file. The previous form fell back to
+    `os.getcwd()`, so a run with no configured output directory wrote into
+    whatever directory the process happened to be in -- which under pytest is
+    the repository root, where `step4_improved_df_validation.json` duly
+    appeared. `.gitignore` had a root-anchored entry for it rather than a fix.
+
+    An unset `data_dir` is not a location. Skipping the write says so; writing
+    "here" invents one.
+    """
+    import json as _json
+
+    data_dir = getattr(parameter, "data_dir", None)
+    if not data_dir:
+        logger.debug("No data_dir configured; skipping the validation report")
+        return
+    try:
+        with open(os.path.join(data_dir, "step4_improved_df_validation.json"), "w") as fh:
+            _json.dump(validation, fh, indent=2)
+    except OSError as e:
+        logger.debug(f"Could not write validation report ({e}); continuing")

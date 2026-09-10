@@ -278,6 +278,13 @@ def test_the_flag_routes_to_the_parameter_module(tmp_path, monkeypatch):
         )
     )
 
+    # `_initialize` is stubbed below, so `get_params` never runs and never
+    # reads the `data_dir` in the params.json above. Without this line the
+    # handler records its manifest against whatever `parameter.data_dir` a
+    # previous test left on the module -- often the plasmid example's
+    # relative "./" -- and writes it into the repository root.
+    monkeypatch.setattr(parameter, "data_dir", str(tmp_path), raising=False)
+
     seen = {}
     monkeypatch.setattr(
         pipeline_mod,

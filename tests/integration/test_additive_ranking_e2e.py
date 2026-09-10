@@ -97,7 +97,9 @@ def test_additives_reach_network_optimizer_via_unified(tmp_path, monkeypatch):
             "max_k": 10,
         },
     )
-    os.chdir(tmp_path)
+    # monkeypatch.chdir restores on teardown; a bare os.chdir leaks the working
+    # directory into every later test, and a relative data_dir then resolves there.
+    monkeypatch.chdir(tmp_path)
     _run_filter_and_score(tmp_path, params_file)
 
     # Now run optimize via the unified entry point and inspect the created
@@ -178,7 +180,7 @@ def test_network_optimizer_tm_changes_with_additives():
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path):
+def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path, monkeypatch):
     """The outer HybridOptimizerFactory wrapper must forward conditions to
     its inner HybridOptimizer, which must forward them to the inner
     NetworkOptimizer."""
@@ -191,7 +193,9 @@ def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path):
             "max_k": 10,
         },
     )
-    os.chdir(tmp_path)
+    # monkeypatch.chdir restores on teardown; a bare os.chdir leaks the working
+    # directory into every later test, and a relative data_dir then resolves there.
+    monkeypatch.chdir(tmp_path)
     _run_filter_and_score(tmp_path, params_file)
 
     _reset_pipeline_state(str(params_file))

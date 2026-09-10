@@ -60,6 +60,13 @@ def test_fast_score_is_the_only_mode(monkeypatch, tmp_path):
         )
     )
 
+    # `_initialize` is stubbed below, so `get_params` never runs and never
+    # reads the `data_dir` in the params.json above. Without this line the
+    # handler records its manifest against whatever `parameter.data_dir` a
+    # previous test left on the module -- often the plasmid example's
+    # relative "./" -- and writes it into the repository root.
+    monkeypatch.setattr(parameter, "data_dir", str(tmp_path), raising=False)
+
     monkeypatch.setattr(pipeline_mod, "step3", lambda *a, **k: None)
     monkeypatch.setattr(pipeline_mod, "_initialize", lambda: None)
     monkeypatch.setattr(cli_pipeline, "setup_gpu_acceleration", lambda *a, **k: None)
