@@ -74,3 +74,95 @@ def test_an_empty_frame_is_not_an_error():
     from neoswga.core.pipeline_qa_integration import order_by_composite_score
 
     assert len(order_by_composite_score(_tied_pool().iloc[:0])) == 0
+
+
+# ---------------------------------------------------------------------------
+# 55% of the declared weight could not move
+# ---------------------------------------------------------------------------
+
+
+def _scorer():
+    from neoswga.core.integrated_quality_scorer import create_quality_scorer
+
+    return create_quality_scorer("moderate")
+
+
+def test_the_declared_weights_still_sum_to_one():
+    """Guard the guard. The renormalization is only meaningful against a
+    normalized declaration."""
+    assert sum(_scorer().weights.values()) == pytest.approx(1.0)
+
+
+def test_dimer_and_strand_are_the_larger_half_of_the_declaration():
+    """The size of the problem: 0.35 + 0.20 of a declared 1.0."""
+    weights = _scorer().weights
+    assert weights["dimer"] + weights["strand_bias"] == pytest.approx(0.55)
+
+
+def test_a_composite_over_a_subset_renormalizes_to_that_subset():
+    scorer = _scorer()
+    scores = {
+        "three_prime": 0.5,
+        "thermodynamics": 0.5,
+        "complexity": 0.5,
+        "dimer": 1.0,
+        "strand_bias": 1.0,
+    }
+    measured = ("three_prime", "thermodynamics", "complexity")
+    assert scorer._composite(scores, measured) == pytest.approx(0.5)
+
+
+def test_a_composite_over_every_component_matches_the_plain_weighted_sum():
+    scorer = _scorer()
+    scores = {
+        "three_prime": 0.4,
+        "thermodynamics": 0.6,
+        "complexity": 0.8,
+        "dimer": 0.2,
+        "strand_bias": 1.0,
+    }
+    expected = sum(scorer.weights[name] * value for name, value in scores.items())
+    assert scorer._composite(scores, scores.keys()) == pytest.approx(expected)
+
+
+def test_scoring_without_binding_sites_excludes_strand_and_dimer():
+    """The regression. Without binding sites, strand and dimer are constants,
+    so they must not carry 55% of the weight."""
+    scorer = _scorer()
+    score = scorer.score_primer("ACGTACGTACGT")
+    assert set(score.measured_components) == {"three_prime", "thermodynamics", "complexity"}
+
+
+def test_the_unmeasured_components_no_longer_prop_the_score_up():
+    """A primer that is poor on every component that CAN be measured must not
+    score 0.55 + 0.45 * poor."""
+    scorer = _scorer()
+    score = scorer.score_primer("ACGTACGTACGT")
+    measured_only = sum(
+        scorer.weights[name] * getattr(score, _FIELD[name]) for name in score.measured_components
+    ) / sum(scorer.weights[name] for name in score.measured_components)
+    assert score.overall_score == pytest.approx(measured_only)
+
+
+_FIELD = {
+    "three_prime": "three_prime_score",
+    "thermodynamics": "thermo_score",
+    "complexity": "complexity_score",
+    "dimer": "dimer_score",
+    "strand_bias": "strand_bias_score",
+}
+
+
+def test_a_set_analysis_measures_dimer_and_says_so():
+    """`analyze_primer_set` computes a real dimer score, so the composite must
+    include it again."""
+    scorer = _scorer()
+    primers = ["ACGTACGTACGT", "TTGACCATGACC", "GGCATTACGATC"]
+    primer_scores, _set_score = scorer.analyze_primer_set(primers, verbose=False)
+    for score in primer_scores:
+        assert "dimer" in score.measured_components
+
+
+def test_an_unmeasurable_composite_is_not_a_division_by_zero():
+    scorer = _scorer()
+    assert scorer._composite({"dimer": 1.0}, ()) == 0.0

@@ -417,21 +417,34 @@ class TestScoreDimensions(unittest.TestCase):
             self.assertGreaterEqual(dim_score, 0.0)
             self.assertLessEqual(dim_score, 1.0)
 
-    def test_overall_score_is_weighted(self):
-        """Test that overall score reflects weights."""
+    def test_overall_score_is_weighted_over_the_measured_components(self):
+        """Overall score is a weighted mean over what was actually measured.
+
+        Changed by audit finding D1d, 2026-09-10. This asserted the full
+        declared sum, including dimer at 0.35 and strand bias at 0.20. Called
+        without binding sites -- which is how rank_by_quality calls it -- both
+        of those are pinned at 1.0 for every primer, so 55% of the weight was a
+        constant and the composite spanned an 11% band. The score now
+        renormalizes over the components that can move.
+        """
         primer = "ACGTACGTACGC"
         score = self.scorer.score_primer(primer)
 
-        # Overall should be weighted average
-        weighted = (
-            self.scorer.weights["dimer"] * score.dimer_score
-            + self.scorer.weights["three_prime"] * score.three_prime_score
-            + self.scorer.weights["strand_bias"] * score.strand_bias_score
-            + self.scorer.weights["thermodynamics"] * score.thermo_score
-            + self.scorer.weights["complexity"] * score.complexity_score
-        )
+        measured = score.measured_components
+        assert "dimer" not in measured, "dimer is a set property, not measured here"
+        assert "strand_bias" not in measured, "strand bias needs binding sites"
 
-        self.assertAlmostEqual(score.overall_score, weighted, places=2)
+        component = {
+            "dimer": score.dimer_score,
+            "three_prime": score.three_prime_score,
+            "strand_bias": score.strand_bias_score,
+            "thermodynamics": score.thermo_score,
+            "complexity": score.complexity_score,
+        }
+        total = sum(self.scorer.weights[name] for name in measured)
+        expected = sum(self.scorer.weights[name] * component[name] for name in measured) / total
+
+        self.assertAlmostEqual(score.overall_score, expected, places=6)
 
 
 class TestSetLevelMetrics(unittest.TestCase):
