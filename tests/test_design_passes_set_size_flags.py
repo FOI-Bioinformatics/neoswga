@@ -311,7 +311,13 @@ def test_show_frontier_reports_a_real_number_end_to_end(tmp_path):
             timeout=900,
         )
         if proc.returncode != 0:
-            pytest.skip(f"{extra[0]} failed:\n{proc.stderr[-800:]}")
+            # A step that RAN and failed is a failure, not a skip. Skipping
+            # here turned a broken pipeline green: on 2026-09-10 two full-suite
+            # runs reported one more skip and one fewer pass than the runs
+            # either side, on a byte-identical tree, and these tests pass in
+            # isolation. The genuinely absent prerequisite, jellyfish, is
+            # checked before any of this runs.
+            raise AssertionError(f"{extra[0]} exited {proc.returncode}:\n{proc.stderr[-2000:]}")
         return proc
 
     _step("count-kmers")
