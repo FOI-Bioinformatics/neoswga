@@ -699,7 +699,11 @@ def expand_primers(
     candidates = step3_df["primer"].tolist()
 
     # Initialize position cache
-    cache = PositionCache(fg_prefixes, candidates + fixed_primers)
+    # Built over the background prefixes too. `get_positions` answers a
+    # prefix the cache was not built over with an empty array, silently, so an
+    # fg-only cache made every background lookup below read zero -- which is
+    # indistinguishable downstream from a perfectly specific panel.
+    cache = PositionCache(fg_prefixes + bg_prefixes, candidates + fixed_primers)
 
     # Create expander
     expander = PrimerExpander(

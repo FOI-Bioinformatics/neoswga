@@ -140,7 +140,11 @@ def run_expand_primers(args):
         if not quiet:
             logger.info("Loading position data...")
 
-        cache = PositionCache(fg_prefixes, all_primers)
+        # Built over the background prefixes too. `get_positions` answers a
+        # prefix the cache was not built over with an empty array, silently, so an
+        # fg-only cache made every background lookup below read zero -- which is
+        # indistinguishable downstream from a perfectly specific panel.
+        cache = PositionCache(fg_prefixes + bg_prefixes, all_primers)
 
         # Create expander
         expander = PrimerExpander(

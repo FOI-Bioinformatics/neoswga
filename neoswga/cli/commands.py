@@ -299,7 +299,11 @@ def run_analyze_coverage(args):
     bg_prefixes = core_pipeline.bg_prefixes
     bg_seq_lengths = core_pipeline.bg_seq_lengths
 
-    cache = PositionCache(fg_prefixes, list(set(primers)) or ["A" * 8])
+    # Built over the background prefixes too. `get_positions` answers a
+    # prefix the cache was not built over with an empty array, silently, so an
+    # fg-only cache made every background lookup below read zero -- which is
+    # indistinguishable downstream from a perfectly specific panel.
+    cache = PositionCache(fg_prefixes + bg_prefixes, list(set(primers)) or ["A" * 8])
     expander = PrimerExpander(
         position_cache=cache,
         fg_prefixes=fg_prefixes,
@@ -440,7 +444,11 @@ def run_predict_efficiency(args):
         # Initialize position cache
         if not quiet:
             logger.info("Loading position data...")
-        cache = PositionCache(fg_prefixes, primers)
+        # Built over the background prefixes too. `get_positions` answers a
+        # prefix the cache was not built over with an empty array, silently, so an
+        # fg-only cache made every background lookup below read zero -- which is
+        # indistinguishable downstream from a perfectly specific panel.
+        cache = PositionCache(fg_prefixes + bg_prefixes, primers)
 
         # Load genome sequence if simulation requested
         genome_sequence = None
