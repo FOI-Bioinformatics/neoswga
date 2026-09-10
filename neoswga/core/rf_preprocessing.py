@@ -58,8 +58,6 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-import sklearn
-import sklearn.ensemble
 
 from neoswga.core import parameter
 from neoswga.core import utility as _utility
@@ -162,6 +160,11 @@ def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
     # it (no InconsistentVersionWarning) and cannot execute arbitrary code:
     # skops.io.load() trusts only safe-by-default types and raises on anything
     # else (a tampered file with custom types is rejected).
+    # The alias fix used to run at module import. It runs here instead, on the
+    # only path that can need it, so importing this module does not import
+    # scikit-learn.
+    _fix_sklearn_module_aliases()
+
     if model_path.endswith(".skops"):
         from skops.io import load as _skops_load
 
@@ -230,10 +233,24 @@ def _init_kmer_worker(
                 logger.warning(f"K-mer file not found: {fpath}")
 
 
-# Fix for sklearn >= 1.0 compatibility with models pickled on older versions
-# Several internal modules were renamed with underscore prefix in sklearn 1.0
+# Fix for sklearn >= 1.0 compatibility with models pickled on older versions.
+# Several internal modules were renamed with an underscore prefix in sklearn
+# 1.0. This runs on the model-load path rather than at import time: importing
+# sklearn cost 0.62 s of a 1.14 s warm `import neoswga.core.pipeline`, and the
+# bundled model is skops, which reconstructs the estimator without unpickling
+# and so does not need the aliases at all. Only a user-supplied legacy .p model
+# does.
+_SKLEARN_ALIASES_FIXED = False
+
+
 def _fix_sklearn_module_aliases():
-    """Add module aliases for sklearn modules renamed in version 1.0+."""
+    """Add module aliases for sklearn modules renamed in version 1.0+.
+
+    Idempotent, and imports sklearn on first call only.
+    """
+    global _SKLEARN_ALIASES_FIXED
+    if _SKLEARN_ALIASES_FIXED:
+        return
     module_mappings = [
         ("sklearn.ensemble.forest", "sklearn.ensemble._forest"),
         ("sklearn.ensemble.weight_boosting", "sklearn.ensemble._weight_boosting"),
@@ -251,9 +268,8 @@ def _fix_sklearn_module_aliases():
             sys.modules[old_name] = mod
         except (ImportError, AttributeError):
             pass  # Module not available or already exists
+    _SKLEARN_ALIASES_FIXED = True
 
-
-_fix_sklearn_module_aliases()
 
 # Use new thermodynamics module (replaces deprecated thermo_estimation)
 from neoswga.core import thermodynamics as thermo
