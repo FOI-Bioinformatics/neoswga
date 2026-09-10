@@ -292,7 +292,6 @@ def test_the_flag_routes_to_the_parameter_module(tmp_path, monkeypatch):
         enable_qa = False
         amp_model = True
         min_amp_pred = None
-        full_score = False
         fast_score = False
 
     cli_pipeline.run_step3(_Args())

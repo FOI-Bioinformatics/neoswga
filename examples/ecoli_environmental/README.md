@@ -87,7 +87,7 @@ Note the explicit flags on `optimize`:
 |------|---------------|
 | count-kmers | a few seconds |
 | filter | about 90 seconds |
-| score | a few seconds (thermodynamic histogram features are skipped by default; add `--full-score` to include them, which takes 15-20 minutes) |
+| score | a few seconds (thermodynamic delta-G histogram features are not computed; measured at 767.6 s against 6.1 s for a mean score change of 0.0016 and an identical delivered order) |
 | optimize | under 1 second |
 
 ## Expected output

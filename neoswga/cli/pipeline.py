@@ -413,15 +413,13 @@ def run_step3(args):
 
         report_unimplemented_options(args)
 
-        # Scoring mode: fast (skip delta-G histograms) is the default.
-        # --full-score opts back in to the full RF feature set.
-        if getattr(args, "full_score", False):
-            parameter.fast_score = False
-            logger.info("Full scoring: computing thermodynamic histogram features (slow)")
-        else:
-            parameter.fast_score = True
-            if getattr(args, "fast_score", False):
-                logger.info("--fast-score is now the default; flag is a no-op")
+        # The delta-G histogram features are always skipped. The flag that
+        # computed them cost 767.6 s against 6.1 s on a 449-candidate pool for a
+        # mean absolute score change of 0.0016, Pearson 1.0000 and an identical
+        # delivered order, so it was removed on 2026-09-10.
+        parameter.fast_score = True
+        if getattr(args, "fast_score", False):
+            logger.info("--fast-score is now the default; flag is a no-op")
 
         # Run step3, then blend the QA scores into what it wrote
         pipeline.step3()
@@ -1602,15 +1600,6 @@ def add_parsers(subparsers):
         help="Minimum amplification prediction score (default: 10). "
         "Requires --amp-model; without it the gate is retired and this "
         "value does nothing.",
-    )
-    score_parser.add_argument(
-        "--full-score",
-        action="store_true",
-        help="Include thermodynamic delta-G histogram features in "
-        "random-forest scoring. These features contribute <2%% of "
-        "model accuracy but >99%% of scoring compute time, so they "
-        "are skipped by default. Pass this flag only if you need "
-        "the full histogram output for downstream analysis.",
     )
     score_parser.add_argument(
         "--fast-score",
