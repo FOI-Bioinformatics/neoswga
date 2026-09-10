@@ -19,14 +19,30 @@ def test_seed_flag_present_on_set_producing_commands(cmd):
     assert "--seed" in opts
 
 
-def test_expand_primers_accepts_ensemble():
+def test_expand_primers_offers_only_methods_it_implements():
+    """This test used to assert `"ensemble" in action.choices`.
+
+    It did accept it. `PrimerExpander.expand` then fell through to a branch
+    that ran hybrid and logged a warning, so the flag was accepted, documented
+    by its own choices list, and read by nothing -- the class CLAUDE.md Known
+    Issue 8 records as closed. What the parser offers has to be what the
+    command does, so that is what is asserted now.
+
+    The methods are named rather than derived from the implementation: a test
+    that reads the same list the code reads passes whatever that list says.
+    """
     sub = _subparsers()
     action = next(
         a
         for a in sub.choices["expand-primers"]._actions
         if "--optimization-method" in a.option_strings
     )
-    assert "ensemble" in action.choices
+
+    assert set(action.choices) == {"hybrid", "background-aware", "dominating-set"}
+
+    # The runtime guard is separate, because `expand` is also called
+    # programmatically. It is pinned in
+    # tests/test_expansion_uses_the_background.py.
 
 
 def test_apply_seed_is_reproducible():

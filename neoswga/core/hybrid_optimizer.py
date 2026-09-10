@@ -43,6 +43,96 @@ logger = logging.getLogger(__name__)
 # stage into a second set-cover pass.
 _STAGE2_COVERAGE_WEIGHT = 0.5
 
+# Share of the Stage-2 ranking given to host binding, and applied ONLY when the
+# optimizer was built background-aware (`background_pruning=True`, which is what
+# `--optimization-method background-aware` and `expand-primers` against a host
+# genome both set). At 0.0 the expression below reduces exactly to the two-term
+# one, so plain `hybrid` is untouched.
+#
+# Stage 1.5 pruning alone does not make a panel specific, because Stage 2 is
+# what chooses the panel. Measured on a 40-candidate expansion over a 300 kb
+# synthetic target and host, enabling pruning moved delivered host binding from
+# 32 sites to 45: pruning only shrank the pool Stage 2 drew from, and a
+# background-blind choice over a smaller pool is not a better choice. The
+# background has to be one of the axes the deciding stage ranks on.
+#
+# The remaining 0.75 is split between connectivity and coverage in the existing
+# 50/50 ratio, so adding this term re-weights the two rather than displacing
+# either.
+#
+# Measured on the three GC-tier designs against hg38, host sites in the
+# delivered panel before and after this term, with `hybrid` unchanged in every
+# case (identical panels):
+#
+#     design            bg-aware before   after   coverage before -> after
+#     low_saureus n=24             1674    1361      0.4014 -> 0.3830
+#     low_saureus n=36             2381    2003      0.5348 -> 0.5144
+#     mid_ecoli   n=24              746     669      0.4867 -> 0.4809
+#     mid_ecoli   n=36              928     787      0.5965 -> 0.5951
+#     high_mtb    n=24              215     199      0.7411 -> 0.7246
+#     high_mtb    n=36              336     218      0.8358 -> 0.8052
+#
+# Host binding falls 7-35% and coverage falls 0.1-3.1 points. That trade is the
+# reason the term is gated: it is what `background-aware` is for, and it is not
+# what a `hybrid` user asked for.
+#
+# At n=12 nothing moves on any of the three pools. Stage 1 returns 18-19
+# primers there, so almost every one is carrying coverage no other primer
+# supplies, and the coverage term decides every removal on its own. The
+# background only gets a say once the set has enough redundancy for the
+# coverage differences to narrow.
+_STAGE2_BACKGROUND_WEIGHT = 0.25
+
+
+def _rank_removal_candidates(
+    candidates: List[Tuple[str, float, int, int]], background_aware: bool
+) -> Tuple[Optional[str], float]:
+    """Pick which primer Stage 2 should drop this step.
+
+    Each candidate is `(primer, network_score, unique_bins, bg_sites)`. Rank
+    within the step rather than adding raw values: algebraic connectivity, a bin
+    count and a host-site count share no scale, and a fixed coefficient between
+    them would be arbitrary and input-dependent. Normalising per step keeps the
+    trade-off meaningful whatever the magnitudes happen to be.
+
+    Returns `(None, -inf)` for an empty candidate list, which the caller reads
+    as "nothing left that may be removed".
+    """
+    if not candidates:
+        return None, -float("inf")
+
+    net_values = [c[1] for c in candidates]
+    cost_values = [c[2] for c in candidates]
+    bg_values = [c[3] for c in candidates]
+    net_lo, net_hi = min(net_values), max(net_values)
+    cost_lo, cost_hi = min(cost_values), max(cost_values)
+    bg_lo, bg_hi = min(bg_values), max(bg_values)
+    net_span = (net_hi - net_lo) or 1.0
+    cost_span = (cost_hi - cost_lo) or 1.0
+    bg_span = (bg_hi - bg_lo) or 1.0
+
+    # The two original weights keep their ratio to each other and share whatever
+    # the background term leaves. With `bg_weight == 0` this is the previous
+    # two-term expression exactly, which is what keeps plain `hybrid` still.
+    bg_weight = _STAGE2_BACKGROUND_WEIGHT if background_aware else 0.0
+    net_weight = (1.0 - _STAGE2_COVERAGE_WEIGHT) * (1.0 - bg_weight)
+    cov_weight = _STAGE2_COVERAGE_WEIGHT * (1.0 - bg_weight)
+
+    best_primer = None
+    best_combined = -float("inf")
+    for primer, network_score, unique_bins, bg_sites in candidates:
+        norm_net = (network_score - net_lo) / net_span
+        # Cheap to remove == loses few unique bins == score 1.
+        norm_keep = 1.0 - (unique_bins - cost_lo) / cost_span
+        # Binds the host most == best to remove == score 1.
+        norm_bg = (bg_sites - bg_lo) / bg_span
+        combined = net_weight * norm_net + cov_weight * norm_keep + bg_weight * norm_bg
+        if combined > best_combined:
+            best_combined = combined
+            best_primer = primer
+
+    return best_primer, best_combined
+
 
 def _removal_network_score(connectivity: float, largest_component: int) -> float:
     """How good the amplification network left behind by a removal is.
@@ -685,6 +775,7 @@ class HybridOptimizer(ThermoScreenMixin):
                 stage1_primers,
                 target_size=bg_prune_target,
                 verbose=verbose,
+                fixed_primers=fixed_primers,
             )
             stage1_coverage = prune_coverage
             stage1_5_runtime = time.time() - stage1_5_start
@@ -884,11 +975,20 @@ class HybridOptimizer(ThermoScreenMixin):
         # count is 1.
         bins_by_primer = self._coverage_bins_by_primer(current_primers)
         bin_counts = self._bin_occupancy(bins_by_primer)
-        total_bins = self._total_coverage_bins()
+
+        # Host binding, the third axis, and the reason this stage stopped being
+        # background-blind. Counted once per primer here rather than inside the
+        # removal loop: a primer's host load does not depend on which other
+        # primers are still in the set, so recounting it every step would be the
+        # same number at O(steps) times the cost.
+        background_aware = bool(self.background_pruning and self.bg_prefixes)
+        bg_by_primer = (
+            {p: self._count_background_sites([p]) for p in current_primers}
+            if background_aware
+            else {}
+        )
 
         while len(current_primers) > target_count:
-            best_to_remove = None
-            best_score_after_removal = -float("inf")
             candidates = []
 
             # Try removing each primer using subgraph views (O(1) each)
@@ -920,35 +1020,9 @@ class HybridOptimizer(ThermoScreenMixin):
                 unique_bins = sum(
                     1 for b in bins_by_primer.get(primer, ()) if bin_counts[self._bin_key(b)] == 1
                 )
-                candidates.append((primer, network_score, unique_bins))
+                candidates.append((primer, network_score, unique_bins, bg_by_primer.get(primer, 0)))
 
-            if not candidates:
-                best_to_remove = None
-            else:
-                # Rank on both axes within this step rather than adding raw
-                # values: algebraic connectivity and a bin count share no
-                # scale, and a fixed coefficient between them would be
-                # arbitrary and input-dependent. Normalising per step keeps the
-                # trade-off meaningful whatever the magnitudes happen to be.
-                net_values = [c[1] for c in candidates]
-                cost_values = [c[2] for c in candidates]
-                net_lo, net_hi = min(net_values), max(net_values)
-                cost_lo, cost_hi = min(cost_values), max(cost_values)
-                net_span = (net_hi - net_lo) or 1.0
-                cost_span = (cost_hi - cost_lo) or 1.0
-
-                best_combined = -float("inf")
-                for primer, network_score, unique_bins in candidates:
-                    norm_net = (network_score - net_lo) / net_span
-                    # Cheap to remove == loses few unique bins == score 1.
-                    norm_keep = 1.0 - (unique_bins - cost_lo) / cost_span
-                    combined = (
-                        1.0 - _STAGE2_COVERAGE_WEIGHT
-                    ) * norm_net + _STAGE2_COVERAGE_WEIGHT * norm_keep
-                    if combined > best_combined:
-                        best_combined = combined
-                        best_to_remove = primer
-                best_score_after_removal = best_combined
+            best_to_remove, _best_score = _rank_removal_candidates(candidates, background_aware)
 
             if best_to_remove:
                 current_primers.remove(best_to_remove)
@@ -1177,7 +1251,11 @@ class HybridOptimizer(ThermoScreenMixin):
         return counter
 
     def _prune_background(
-        self, primers: List[str], target_size: int, verbose: bool = False
+        self,
+        primers: List[str],
+        target_size: int,
+        verbose: bool = False,
+        fixed_primers: Optional[List[str]] = None,
     ) -> Tuple[List[str], float, int]:
         """
         Greedy background pruning: remove primers with worst background/coverage ratio.
@@ -1239,13 +1317,26 @@ class HybridOptimizer(ThermoScreenMixin):
                 f"background={self._count_background_sites(current_primers)} sites"
             )
 
+        # Fixed primers are the caller's existing panel. `optimize` hands this
+        # stage `fixed_primers + newly_selected`, and the ranking below is
+        # purely background per unit of coverage, so a fixed primer that binds
+        # the host heavily is the first thing it would remove. That is worse
+        # than ignoring the background: `expand-primers` would silently drop
+        # part of the panel it was asked to extend. `_network_refine` already
+        # takes the same argument for the same reason.
+        protected = set(fixed_primers or [])
+
         removed_count = 0
 
         while len(current_primers) > target_size:
+            if len(current_primers) <= len(protected):
+                break
             best_removal = None
             best_score = -np.inf
 
             for primer in current_primers:
+                if primer in protected:
+                    continue
                 lost_bins = counter.loss_if_removed(primer)
                 test_coverage = (
                     (counter.covered_count() - lost_bins) / counter.total_bins

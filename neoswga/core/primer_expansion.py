@@ -444,17 +444,36 @@ class PrimerExpander:
                 for gap in gaps_before[:5]:
                     logger.info(f"  {gap.chromosome}: {gap.start:,}-{gap.end:,} ({gap.size:,} bp)")
 
-        # Select optimization method
+        # Select optimization method.
+        #
+        # `background-aware` used to fall through to the `else` below and run
+        # plain hybrid with a warning, so a user who asked for it got exactly
+        # the run they were trying to avoid. In this codebase background-aware
+        # IS hybrid with pruning switched on -- that is what the registered
+        # optimizer of that name does -- so honouring it is one argument.
+        #
+        # The remaining methods the CLI offers are not implemented here, and an
+        # unsupported method now RAISES. Substituting a different algorithm and
+        # logging about it is how a flag comes to mean nothing; the same class
+        # of defect as an inert params.json key.
         if optimization_method in ("hybrid", "two-stage"):
             result = self._expand_hybrid(candidates_filtered, fixed_primers, target_new, verbose)
+        elif optimization_method in ("background-aware", "bg-aware", "clinical"):
+            result = self._expand_hybrid(
+                candidates_filtered, fixed_primers, target_new, verbose, background_pruning=True
+            )
         elif optimization_method in ("dominating-set", "dominating_set", "ds"):
             result = self._expand_dominating_set(
                 candidates_filtered, fixed_primers, target_new, verbose
             )
         else:
-            # Default to hybrid
-            logger.warning(f"Unknown method '{optimization_method}', using hybrid")
-            result = self._expand_hybrid(candidates_filtered, fixed_primers, target_new, verbose)
+            raise ValueError(
+                f"expand-primers does not implement optimization method "
+                f"{optimization_method!r}. Supported: hybrid (the default), "
+                f"background-aware, dominating-set. It used to run hybrid here "
+                f"and log a warning, which meant asking for a different method "
+                f"changed nothing."
+            )
 
         # Calculate coverage improvement
         combined_set = list(fixed_set) + result["new_primers"]
@@ -547,7 +566,7 @@ class PrimerExpander:
                 kept.append(cand)
         return kept
 
-    def _build_hybrid_optimizer(self):
+    def _build_hybrid_optimizer(self, background_pruning=None):
         """Hybrid optimizer configured with both reaches, kept distinct.
 
         `coverage_reach` governs Stage-1 set cover and the reported coverage;
@@ -567,6 +586,16 @@ class PrimerExpander:
             bg_seq_lengths=self.bg_seq_lengths,
             bin_size=self.bin_size,
             coverage_reach=self.coverage_reach,
+            # Background pruning is the ONLY stage that reads `bg_prefixes`.
+            # It defaults to False, and this builder used to leave it there, so
+            # expansion was handed a host genome and never looked at it:
+            # measured on the plasmid example, a real run queried the target
+            # prefix 136 times and the background prefix zero times. Enabled
+            # whenever there is a background to read, because specificity is
+            # the property `expand-primers` exists to preserve.
+            background_pruning=(
+                background_pruning if background_pruning is not None else bool(self.bg_prefixes)
+            ),
         )
 
     def _expand_hybrid(
@@ -575,9 +604,10 @@ class PrimerExpander:
         fixed_primers: List[str],
         target_new: int,
         verbose: bool,
+        background_pruning=None,
     ) -> Dict:
         """Use hybrid optimizer for expansion."""
-        optimizer = self._build_hybrid_optimizer()
+        optimizer = self._build_hybrid_optimizer(background_pruning=background_pruning)
 
         # Target total = fixed + new
         total_target = len(fixed_primers) + target_new
