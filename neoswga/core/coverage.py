@@ -99,6 +99,92 @@ def compute_per_prefix_coverage(
     return agg, per_prefix
 
 
+def marginal_coverage_curve(
+    cache,
+    primers: Sequence[str],
+    prefixes: Sequence[str],
+    seq_lengths: Sequence[int],
+    extension: int = 3000,
+    strand: str = "both",
+    circular: bool = False,
+) -> List[Dict[str, float]]:
+    """Cumulative coverage as the delivered primers are added, one at a time.
+
+    Set size is the most consequential choice a user makes and nothing showed
+    the shape of the return curve. `--auto-size` estimates a size from a
+    closed-form coverage model without reading the candidate pool, and
+    `--show-frontier` stops at 20 primers, so a design at 96 or 160 had no way
+    to see where the gain flattened short of running a sweep by hand.
+
+    This is measured on ONE delivered set, in its delivered order: entry k is
+    the coverage of that set's first k primers. It is not a sweep. A prefix of
+    a 160-primer set is not the set an optimizer would return if asked for 160,
+    so each value is a lower bound on a re-optimization at that size. Read the
+    curve for its shape, not its level.
+
+    Cost is one pass over the positions plus one array sum per primer, on the
+    foreground genome only.
+
+    Args:
+        cache: PositionCache instance responding to
+            ``get_positions(prefix, primer, strand)``.
+        primers: primer sequences, in the order they should be added.
+        prefixes: HDF5 file prefixes, usually fg_prefixes.
+        seq_lengths: genome lengths matching `prefixes` elementwise.
+        extension: per-primer reach in bp. Pass the same value the run was
+            selected and scored on -- :func:`resolve_coverage_reach` -- or the
+            curve will not end at the reported `fg_coverage`.
+        strand: 'both' / 'forward' / 'reverse'.
+        circular: wrap windows that run off either end.
+
+    Returns:
+        One dict per primer with keys ``n`` (1-based count), ``primer``,
+        ``coverage`` (cumulative fraction over all prefixes) and
+        ``marginal_pp`` (the gain that primer added, in percentage points).
+        Empty inputs yield an empty list.
+    """
+    if not prefixes or not seq_lengths or cache is None or not primers:
+        return []
+
+    usable = [(p, int(n)) for p, n in zip(prefixes, seq_lengths) if int(n) > 0]
+    if not usable:
+        return []
+
+    occupied = {prefix: np.zeros(length, dtype=bool) for prefix, length in usable}
+    total_len = sum(length for _, length in usable)
+
+    curve: List[Dict[str, float]] = []
+    previous = 0.0
+    for index, primer in enumerate(primers, start=1):
+        for prefix, length in usable:
+            marks = occupied[prefix]
+            if circular and 2 * extension >= length:
+                marks[:] = True
+                continue
+            try:
+                positions = cache.get_positions(prefix, primer, strand)
+            except (KeyError, ValueError):
+                # Genuinely-absent primer in this prefix; skip it. Do NOT
+                # swallow I/O / HDF5 errors here.
+                continue
+            for pos in positions:
+                _mark_window(marks, int(pos), extension, length, circular)
+
+        covered = sum(int(occupied[prefix].sum()) for prefix, _ in usable)
+        coverage = covered / total_len if total_len else 0.0
+        curve.append(
+            {
+                "n": index,
+                "primer": primer,
+                "coverage": coverage,
+                "marginal_pp": (coverage - previous) * 100.0,
+            }
+        )
+        previous = coverage
+
+    return curve
+
+
 def _mark_window(
     occupied: "np.ndarray",
     pos: int,

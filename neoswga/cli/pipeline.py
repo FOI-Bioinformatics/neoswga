@@ -28,6 +28,10 @@ from neoswga.cli._params_preread import (
     polymerase_from_params,
     target_size_from_params,
 )
+from neoswga.cli._step4_reporting import (
+    _report_marginal_coverage,
+    _report_pareto_frontier,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -682,130 +686,6 @@ def _step4_optimizer_kwargs(args, **resolved):
     )
 
 
-def _report_pareto_frontier(
-    args,
-    parameter,
-    results,
-    cache,
-    show_frontier,
-    application,
-    quick_estimate,
-    min_fg_bg_ratio,
-):
-    """Build and report the coverage / specificity frontier.
-
-    Extracted from ``run_step4`` unchanged apart from the parameters it now
-    takes explicitly, to keep that function inside its length budget.
-    """
-    if show_frontier and results and cache is not None:
-        try:
-            import pandas as pd
-
-            from neoswga.core.pareto_frontier import (
-                generate_frontier_report,
-                plot_frontier,
-                summarize_frontier_for_cli,
-            )
-            from neoswga.core.set_size_optimizer import (
-                ParetoFrontierGenerator,
-                select_from_frontier,
-            )
-
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info("Pareto Frontier Analysis")
-            logger.info("=" * 60)
-
-            # Load step2 or step3 DataFrame for primer pool
-            data_dir = parameter.data_dir
-            step3_file = os.path.join(data_dir, "step3_df.csv")
-            step2_file = os.path.join(data_dir, "step2_df.csv")
-
-            if os.path.exists(step3_file):
-                primer_pool = pd.read_csv(step3_file)
-            elif os.path.exists(step2_file):
-                primer_pool = pd.read_csv(step2_file)
-            else:
-                raise FileNotFoundError("No primer pool CSV found")
-
-            # Get genome lengths
-            # `parameter.fg_lengths` is not a module attribute -- it is a
-            # local inside `get_params`. The global is `fg_seq_lengths`, so
-            # this read always fell through to its default and the frontier
-            # scored every design against a 1 Mb genome and no background.
-            fg_lengths = getattr(parameter, "fg_seq_lengths", []) or []
-            bg_lengths = getattr(parameter, "bg_seq_lengths", []) or []
-            if not fg_lengths:
-                raise ValueError(
-                    "No foreground genome lengths available; cannot build a "
-                    "coverage frontier. Run count-kmers first."
-                )
-            fg_prefixes = parameter.fg_prefixes
-            bg_prefixes = getattr(parameter, "bg_prefixes", [])
-
-            # Create frontier generator. The generator uses `processivity`
-            # as the coverage read-length, so pass the REALISTIC per-primer
-            # reach (phi29 ~3 kb), not single-molecule processivity (70 kb),
-            # which would inflate the frontier's coverage estimates.
-            from neoswga.core.coverage import polymerase_extension_reach
-
-            _frontier_reach = polymerase_extension_reach(
-                getattr(parameter, "polymerase", "phi29") or "phi29",
-                coverage_metric="realistic",
-            )
-            generator = ParetoFrontierGenerator(
-                primer_pool=primer_pool,
-                position_cache=cache,
-                fg_prefixes=fg_prefixes,
-                bg_prefixes=bg_prefixes,
-                fg_seq_lengths=fg_lengths,
-                bg_seq_lengths=bg_lengths,
-                processivity=_frontier_reach,
-            )
-
-            # Generate frontier (quick estimation only if requested)
-            frontier_result = generator.generate_frontier(
-                min_size=4,
-                max_size=min(20, len(primer_pool)),
-                quick_only=quick_estimate,
-                verbose=not args.quiet,
-            )
-
-            # Select from frontier based on application
-            selected, explanation = select_from_frontier(
-                frontier_result.pareto_points,
-                application=application,
-                min_fg_bg_ratio=min_fg_bg_ratio,
-            )
-            frontier_result.selected_point = selected
-            frontier_result.selection_explanation = explanation
-
-            # Display summary
-            logger.info(summarize_frontier_for_cli(frontier_result, application))
-            logger.info("")
-            logger.info(explanation)
-
-            # Try to save plot
-            try:
-                fig = plot_frontier(frontier_result, application=application)
-                plot_path = os.path.join(data_dir, "pareto_frontier.png")
-                fig.savefig(plot_path, dpi=150, bbox_inches="tight")
-                logger.info(f"Pareto frontier plot saved to: {plot_path}")
-                import matplotlib.pyplot as plt
-
-                plt.close(fig)
-            except Exception as e:
-                logger.debug(f"Could not save frontier plot: {e}")
-
-            logger.info("=" * 60)
-
-        except Exception as e:
-            logger.warning(f"Pareto frontier analysis failed: {e}")
-            import traceback
-
-            logger.debug(traceback.format_exc())
-
-
 @params_command(merge=None)
 def run_step4(args):
     """Run step 4: Primer set optimization (network-based + experimental)"""
@@ -1055,6 +935,7 @@ def run_step4(args):
                     num_found, target_size, resolve_optimization_method(args)
                 ):
                     logger.warning(line)
+            _report_marginal_coverage(parameter, cache, results[0])
         else:
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)
