@@ -336,7 +336,8 @@
     "max_dimer_bp": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 15
+      "maximum": 7,
+      "description": "Longest complementary run tolerated between two different primers in a delivered set. Capped at 7 because the pairwise screen represents t-mers in a 4**8 code space: at 8 and above the matrix cannot be built, and the screen was previously disabled for the whole run with only a warning. Note that a pool supports a bounded panel size at a given threshold; measured on the shipped pools, max_dimer_bp 3 supports 29, 31 and 26 primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and 55."
     },
     "max_self_dimer_bp": {
       "type": "integer",

@@ -58,7 +58,7 @@ neoswga schema --dump > params.schema.json
 | `long_primer_mode` | boolean | - | `False` | - |
 | `max_bg_freq` | number | min: 0.0; max: 1.0 | - | - |
 | `max_bl_freq` | number | min: 0.0; max: 1.0 | `0.0` | Maximum permissible blacklist frequency; 0 = zero tolerance. |
-| `max_dimer_bp` | integer | min: 1; max: 15 | - | - |
+| `max_dimer_bp` | integer | min: 1; max: 7 | - | Longest complementary run tolerated between two different primers in a delivered set. Capped at 7 because the pairwise screen represents t-mers in a 4**8 code space: at 8 and above the matrix cannot be built, and the screen was previously disabled for the whole run with only a warning. Note that a pool supports a bounded panel size at a given threshold; measured on the shipped pools, max_dimer_bp 3 supports 29, 31 and 26 primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and 55. |
 | `max_gc_in_clamp` | integer | min: 0; max: 12 | `3` | Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets. |
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
 | `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
