@@ -121,7 +121,7 @@ Repository = "https://github.com/FOI-Bioinformatics/neoswga"
 neoswga = "neoswga.cli_unified:main"
 
 [tool.setuptools]
-packages = ["neoswga", "neoswga.cli", "neoswga.core", "neoswga.core.report", "neoswga.core.schema"]
+packages = ["neoswga", "neoswga.cli", "neoswga.core", "neoswga.core.report", "neoswga.core.schema", "neoswga.core.smoke"]
 package-dir = {"" = "."}
 include-package-data = true
 
@@ -130,6 +130,7 @@ neoswga = ["*.md"]
 "neoswga.core" = ["*.md", "models/*.skops", "models/*.p", "models/*.json"]
 "neoswga.core.report" = ["templates/*.html"]
 "neoswga.core.schema" = ["*.json"]
+"neoswga.core.smoke" = ["*.fasta"]
 
 [tool.black]
 line-length = 100

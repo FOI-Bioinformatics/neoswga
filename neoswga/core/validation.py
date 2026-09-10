@@ -569,6 +569,226 @@ def quick_validation() -> bool:
     return all_passed
 
 
+def _smoke_check_user_params(params_path):
+    """Validate the user's params.json before anything is run.
+
+    Returns ``(ok, user_params)``. ``ok`` is False when the file has schema
+    errors, cannot be read, or names a genome that does not exist -- the single
+    most common real failure, and the one `--quick` never looked for.
+    """
+    import json
+    import os
+
+    from neoswga.core.param_validator import ParamValidator, ValidationLevel
+
+    messages = ParamValidator().validate_file(params_path)
+    errors = [m for m in messages if m.level == ValidationLevel.ERROR]
+    warnings = [m for m in messages if m.level == ValidationLevel.WARNING]
+    for m in warnings:
+        logger.warning(
+            "%s: %s%s",
+            m.parameter,
+            m.message,
+            f" {m.suggestion}" if m.suggestion else "",
+        )
+    for m in errors:
+        logger.error("%s: %s", m.parameter, m.message)
+    if errors:
+        logger.error("Configuration has errors; not running the pipeline.")
+        return False, {}
+
+    try:
+        with open(params_path) as fh:
+            user_params = json.load(fh)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error(f"Could not read {params_path}: {e}")
+        return False, {}
+
+    missing = [
+        g
+        for g in list(user_params.get("fg_genomes") or [])
+        + list(user_params.get("bg_genomes") or [])
+        if not os.path.exists(g)
+    ]
+    if missing:
+        for g in missing:
+            logger.warning(f"Genome file not found: {g}")
+        logger.error("Genome files are missing; a real run would fail here.")
+        return False, {}
+
+    return True, user_params
+
+
+# Reaction chemistry and primer geometry carried from the user's params.json
+# onto the packaged target. Anything that describes the genome itself -- the
+# file paths, prefixes, lengths, circularity -- must NOT be carried: the point
+# is to run the user's reaction against a target small enough to finish in
+# seconds.
+_SMOKE_CARRIED_KEYS = (
+    "polymerase",
+    "reaction_temp",
+    "na_conc",
+    "mg_conc",
+    "min_tm",
+    "max_tm",
+    "min_k",
+    "max_k",
+    "dmso_percent",
+    "betaine_m",
+    "trehalose_m",
+    "formamide_percent",
+    "ethanol_percent",
+    "urea_m",
+    "tmac_m",
+    "glycerol_percent",
+    "peg_percent",
+    "bsa_ug_ml",
+)
+
+
+def _smoke_params(workdir, carried):
+    """The params.json the smoke run uses, with the user's chemistry applied."""
+    import os
+
+    params = {
+        "schema_version": 2,
+        "fg_genomes": [os.path.join(workdir, "pcDNA.fasta")],
+        "bg_genomes": [os.path.join(workdir, "pLTR.fasta")],
+        "fg_prefixes": [os.path.join(workdir, "pcDNA")],
+        "bg_prefixes": [os.path.join(workdir, "pLTR")],
+        "data_dir": workdir,
+        "polymerase": "phi29",
+        "reaction_temp": 30.0,
+        "min_k": 6,
+        "max_k": 12,
+        "min_fg_freq": 1e-5,
+        "max_bg_freq": 5e-6,
+        "min_tm": 15,
+        "max_tm": 45,
+        "max_gini": 0.6,
+        "max_primer": 200,
+        "num_primers": 6,
+        "target_set_size": 6,
+        "iterations": 4,
+        "max_sets": 2,
+        "cpus": 1,
+        "fg_circular": True,
+        "bg_circular": False,
+    }
+    params.update(carried)
+    return params
+
+
+def _run_smoke_pipeline(workdir, smoke_params, verbose):
+    """Run the four steps in `workdir`. Returns True if all four completed."""
+    import os
+    import time
+
+    from neoswga import cli_unified
+
+    stages = [
+        ("count-kmers", cli_unified.run_step1),
+        ("filter", cli_unified.run_step2),
+        ("score", cli_unified.run_step3),
+        ("optimize", cli_unified.run_step4),
+    ]
+    previous = os.getcwd()
+    os.chdir(workdir)
+    try:
+        for name, handler in stages:
+            started = time.time()
+            args = cli_unified.create_parser().parse_args([name, "-j", smoke_params, "--quiet"])
+            try:
+                handler(args)
+            except SystemExit as e:
+                if e.code not in (0, None):
+                    logger.error(f"  [FAIL] {name} exited {e.code}")
+                    return False
+            except Exception as e:
+                logger.error(f"  [FAIL] {name}: {e}")
+                return False
+            if verbose:
+                logger.info(f"  [PASS] {name} ({time.time() - started:.2f}s)")
+    finally:
+        os.chdir(previous)
+    return True
+
+
+def smoke_validation(params_path: Optional[str] = None, verbose: bool = True) -> bool:
+    """Run all four pipeline steps against a packaged 6 kB target.
+
+    `quick_validation` runs three synthetic tests and opens no genome, no
+    params.json and no pipeline step, and `validate params` runs the schema
+    validator. Neither tells a user whether their configuration will survive a
+    thirty-second filter, let alone a sixteen-minute one against hg38.
+
+    This checks the configuration itself -- schema, unknown keys, file
+    existence -- and then runs count-kmers, filter, score and optimize end to
+    end on the packaged plasmid pair, under the reaction conditions from the
+    user's params.json.
+
+    Args:
+        params_path: The user's params.json. None runs with defaults.
+        verbose: Log each stage.
+
+    Returns:
+        True if the configuration checks found no error and all four steps ran.
+    """
+    import json
+    import os
+    import shutil
+    import tempfile
+
+    from neoswga.core.kmer_counter import check_jellyfish_available
+    from neoswga.core.smoke import BACKGROUND, FOREGROUND
+
+    logger.info("=" * 80)
+    logger.info("SMOKE VALIDATION (four steps, packaged 6 kb target)")
+    logger.info("=" * 80)
+
+    user_params = {}
+    if params_path:
+        ok, user_params = _smoke_check_user_params(params_path)
+        if not ok:
+            return False
+
+    if not check_jellyfish_available():
+        logger.error(
+            "Jellyfish is not in PATH. It is required for count-kmers.\n"
+            "  conda install -c bioconda jellyfish"
+        )
+        return False
+
+    carried = {
+        key: user_params[key] for key in _SMOKE_CARRIED_KEYS if user_params.get(key) is not None
+    }
+    if carried and verbose:
+        logger.info("Applying your reaction conditions: %s", carried)
+
+    workdir = tempfile.mkdtemp(prefix="neoswga-smoke-")
+    try:
+        shutil.copyfile(str(FOREGROUND), os.path.join(workdir, "pcDNA.fasta"))
+        shutil.copyfile(str(BACKGROUND), os.path.join(workdir, "pLTR.fasta"))
+
+        smoke_params = os.path.join(workdir, "params.json")
+        with open(smoke_params, "w") as fh:
+            json.dump(_smoke_params(workdir, carried), fh, indent=2)
+
+        if not _run_smoke_pipeline(workdir, smoke_params, verbose):
+            return False
+
+        if not os.path.exists(os.path.join(workdir, "step4_improved_df.csv")):
+            logger.error("The pipeline ran but wrote no step4_improved_df.csv")
+            return False
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    logger.info("=" * 80)
+    logger.info("Smoke validation PASSED")
+    logger.info("=" * 80)
+    return True
+
+
 if __name__ == "__main__":
     import argparse
 
