@@ -16,8 +16,7 @@ from neoswga.core import thermodynamics as thermo
 
 def test_both_caches_are_sized_from_the_same_constant():
     assert (
-        thermo.calculate_enthalpy_entropy_cached.cache_info().maxsize
-        == thermo.THERMO_CACHE_MAXSIZE
+        thermo.calculate_enthalpy_entropy_cached.cache_info().maxsize == thermo.THERMO_CACHE_MAXSIZE
     )
     assert (
         thermo.compute_free_energy_for_two_strings_cached.cache_info().maxsize
@@ -28,9 +27,12 @@ def test_both_caches_are_sized_from_the_same_constant():
 def test_the_ceiling_covers_the_largest_shipped_candidate_pool():
     """369,459 candidates reach the scan in tests/validation/genomes.
 
-    Measured on the plasmid example, each candidate reaches the enthalpy cache
-    about 1.9 times (22,175 calls for 11,803 candidates). Sizing below that
-    product would introduce eviction on the runs that are already slowest.
+    Measured on the plasmid example, step 2 makes about 1.9 enthalpy calls per
+    candidate (22,175 calls for 11,803 candidates). Calls bound the number of
+    distinct keys rather than counting them, since repeated calls on the same
+    sequence collapse, so two keys per candidate is a ceiling on the demand and
+    not a measurement of it. Sizing below that bound could introduce eviction on
+    the runs that are already slowest.
     """
     assert thermo.THERMO_CACHE_MAXSIZE >= 2 * 369_459
 
@@ -42,6 +44,6 @@ def test_the_reported_capacity_is_the_configured_one(caplog):
     with caplog.at_level(logging.INFO, logger="neoswga.core.thermodynamics"):
         thermo.log_cache_stats("test")
 
-    assert f"/{thermo.THERMO_CACHE_MAXSIZE:,} entries" in caplog.text, (
-        f"log_cache_stats did not report the configured ceiling; got {caplog.text!r}"
-    )
+    assert (
+        f"/{thermo.THERMO_CACHE_MAXSIZE:,} entries" in caplog.text
+    ), f"log_cache_stats did not report the configured ceiling; got {caplog.text!r}"

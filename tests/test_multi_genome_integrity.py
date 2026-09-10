@@ -35,10 +35,14 @@ def test_position_file_cache_is_decided_per_fg_prefix(tmp_path):
             handle.create_dataset(primer, data=[10])
     string_search.write_position_provenance(cached, str(genome), k, False)
 
-    reused, to_scan = string_search._reusable_positions(primers, cached, str(genome), k, False)
-    assert to_scan == [] and sorted(reused) == sorted(primers)
+    reused, to_scan, replace = string_search._reusable_positions(
+        primers, cached, str(genome), k, False
+    )
+    assert to_scan == [] and sorted(reused) == sorted(primers) and replace is False
 
-    reused, to_scan = string_search._reusable_positions(primers, uncached, str(genome), k, False)
+    reused, to_scan, replace = string_search._reusable_positions(
+        primers, uncached, str(genome), k, False
+    )
     assert (
         to_scan == primers and reused == {}
     ), "a prefix with no cached position file must still be scanned in full"

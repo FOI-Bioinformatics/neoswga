@@ -42,13 +42,15 @@ logger = logging.getLogger(__name__)
 #
 # It is not. The largest shipped configuration is much larger than that run:
 # `tests/validation/genomes/filter_stats.json` records 369,459 candidates
-# reaching the position scan, and each candidate reaches this cache under
-# roughly 1.9 distinct keys. Measured on the plasmid example, step 2 makes
-# 22,175 enthalpy calls for 11,803 candidates, decomposing as one call per
-# candidate from `filter_extra`'s effective-Tm gate plus two per shortlisted
-# candidate from the occupancy ranking's foreground and background site loads.
-# Shrinking the ceiling below that product would introduce eviction on exactly
-# the runs that are already slowest.
+# reaching the position scan. Measured on the plasmid example, step 2 makes
+# 22,175 enthalpy CALLS for 11,803 candidates, about 1.9 per candidate,
+# decomposing as one call per candidate from `filter_extra`'s effective-Tm gate
+# plus two per shortlisted candidate from the occupancy ranking's foreground and
+# background site loads. Calls are an upper bound on distinct keys, not a count
+# of them -- what an `lru_cache` holds is distinct keys, and repeated calls on
+# the same sequence collapse. So 1.9 per candidate bounds the demand rather than
+# stating it, and sizing the ceiling at roughly twice the largest candidate pool
+# keeps it above that bound on exactly the runs that are already slowest.
 THERMO_CACHE_MAXSIZE = 1_000_000
 
 # Universal gas constant (cal/(mol*K))

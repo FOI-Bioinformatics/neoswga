@@ -32,9 +32,7 @@ def multi_record_fasta(tmp_path):
     """Three records, mixed case, so soft-masked input is covered too."""
     path = tmp_path / "genome.fna"
     path.write_text(
-        ">chr1\n" + "acgt" * 8 + "\n"
-        ">chr2\n" + "GGCC" * 8 + "\n"
-        ">chr3\n" + "TtAa" * 8 + "\n"
+        ">chr1\n" + "acgt" * 8 + "\n" ">chr2\n" + "GGCC" * 8 + "\n" ">chr3\n" + "TtAa" * 8 + "\n"
     )
     return path
 
@@ -131,8 +129,11 @@ def test_holds_at_most_one_record_at_a_time(tmp_path, monkeypatch):
     record at any moment -- the consumer's loop variable -- so the count of live
     predecessors never exceeds one.
 
-    Measured on a 960 MB synthetic genome in 24 records: 1842 MB peak for the
-    join against 850 MB for the loop.
+    Measured on a 960 MB synthetic genome in 24 records: 1927 MB peak for the
+    join against 1168 MB for the loop, five deterministic replicates each in
+    separate processes. Those are the figures recorded above
+    `get_cached_genome_sequence`; an earlier unattributed pair, 1842 against
+    850, appeared here and did not come from that run.
     """
     import weakref
 
@@ -170,10 +171,10 @@ def test_a_bytearray_accumulator_is_not_used(tmp_path, monkeypatch):
 
     A bytearray accumulates in place, which fixes the liveness problem above,
     but its final `.decode()` is a second full-length copy: measured peak
-    1956 MB on the 960 MB fixture, worse than the 1842 MB join it would
-    replace. `Automaton.iter()` also raises `TypeError: string required` for
-    `bytes` and `bytearray`, so a byte buffer cannot be handed to the scanner
-    to avoid that decode.
+    1956 MB on the 960 MB fixture, worse than the join it would replace, which
+    peaks at 1927 MB on the same fixture. `Automaton.iter()` also raises
+    `TypeError: string required` for `bytes` and `bytearray`, so a byte buffer
+    cannot be handed to the scanner to avoid that decode.
     """
     import neoswga.core.genome_io as genome_io
 

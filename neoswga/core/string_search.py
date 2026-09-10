@@ -274,7 +274,7 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
     return kmer_dict
 
 
-def write_to_h5py(kmer_dict, fname_prefix):
+def write_to_h5py(kmer_dict, fname_prefix, replace=False):
     """
     Writes the kmer counts to an h5py file, which allows for efficient access in terms of looking up the
     frequency of a particular k-mer. If the kmer already exists in the dataset, the entry in the h5py file
@@ -284,12 +284,21 @@ def write_to_h5py(kmer_dict, fname_prefix):
         kmer_dict: A dictionary of all the k-mers and their respective frequencies.
         fname_prefix: The file path prefix for the output h5py file. If k=6, for example, '_6mer_positions.h5'
         will be appended to the file name.
+        replace: Discard whatever the file already holds instead of merging into
+            it. The reuse gate sets this when a file's provenance record does not
+            match the current run, so the datasets it holds for primers outside
+            this run's pool -- which were scanned from something else -- do not
+            survive. The old content is dropped here, at the moment the
+            replacement is in hand, rather than when the mismatch is detected: an
+            interrupted run then leaves the previous file intact rather than an
+            empty one, which the step-4 prerequisite check catches on the
+            foreground but not on the background.
     """
     if not kmer_dict:
         return  # Nothing to write
     k = len(next(iter(kmer_dict.keys())))
     h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
-    with h5py.File(h5_path, "r+") as f:
+    with h5py.File(h5_path, "w" if replace else "r+") as f:
         for kmer, positions in kmer_dict.items():
             if kmer not in f:
                 f.create_dataset(kmer, data=positions)
@@ -395,6 +404,24 @@ def _position_provenance(genome_fname, k, circular):
     }
 
 
+def _provenance_matches(stored, expected):
+    """Whether a stored record describes the scan this run is asking for.
+
+    Compared field by field rather than as whole dicts, because the record also
+    carries the genome path and the path is not part of the identity. It is
+    `os.path.abspath`, which normalises `..` and the working directory but not
+    symlinks, so the same file reached through a symlinked parent, an automount,
+    or `/tmp` against `/private/tmp` on macOS spells differently on the two runs.
+    Comparing whole dicts made that a mismatch: the file was truncated and fully
+    rescanned, and since the mismatch was neither absent nor a fingerprint
+    difference the diagnostic blamed `circular` and printed the same value twice.
+
+    The fingerprint is what identifies the genome, which is the reason for
+    having one. The path stays in the record for the message.
+    """
+    return all(stored[field] == expected[field] for field in ("fingerprint", "k", "circular"))
+
+
 def _stored_provenance(handle):
     """Read the provenance record off an open position file, or None."""
     attrs = handle.attrs
@@ -471,35 +498,38 @@ def _reusable_positions(primers, fname_prefix, genome_fname, k, circular):
     invariant is what the reuse rests on; a scan path that stopped writing empty
     entries would turn it into a silent wrong answer.
 
-    A file whose record is absent or does not match is truncated rather than
-    merely bypassed. Bypassing leaves the datasets that this run does not ask
-    about in place, and the file is then stamped with the current genome while
-    still holding another genome's positions for those primers, which a later
-    run with a different candidate pool would reuse.
+    Returns `(positions, to_scan, replace)`. `replace` says the existing file
+    must be discarded rather than merged into when the rescan is written, and it
+    is set whenever the record is absent or does not match. Merging would leave
+    the datasets this run does not ask about in place, and the file would then be
+    stamped with the current genome while still holding another genome's
+    positions for those primers, which a later run with a different candidate
+    pool would reuse. The discard happens at write time rather than here so that
+    an interrupted run leaves the previous file intact rather than an empty one.
 
     Any read problem returns everything for scanning, which is the behaviour
     before reuse existed.
     """
     h5_path = position_file_path(fname_prefix, k)
     if not os.path.exists(h5_path):
-        return {}, list(primers)
+        return {}, list(primers), False
 
     expected = _position_provenance(genome_fname, k, circular)
     if expected is None:
-        return {}, list(primers)
+        return {}, list(primers), True
 
     try:
         with h5py.File(h5_path, "r") as handle:
             stored = _stored_provenance(handle)
-            if stored == expected:
+            if stored is not None and _provenance_matches(stored, expected):
                 positions = {
                     primer: handle[primer][:].tolist() for primer in primers if primer in handle
                 }
                 to_scan = [primer for primer in primers if primer not in positions]
-                return positions, to_scan
+                return positions, to_scan, False
     except (OSError, KeyError) as exc:
         logger.debug(f"Could not read {h5_path} ({exc}); scanning all primers")
-        return {}, list(primers)
+        return {}, list(primers), True
 
     if stored is None:
         logger.warning(
@@ -514,19 +544,19 @@ def _reusable_positions(primers, fname_prefix, genome_fname, k, circular):
             f"Rescanning. Reusing it would have reported the other genome's "
             f"binding sites."
         )
-    else:
+    elif stored["circular"] != expected["circular"]:
         logger.warning(
             f"{h5_path} was scanned with circular={bool(stored['circular'])} and "
             f"this run is circular={bool(circular)}. Rescanning. Reusing it "
             f"would have missed or invented sites spanning the origin."
         )
+    else:
+        logger.warning(
+            f"{h5_path} records k={stored['k']} and this run asked for "
+            f"k={expected['k']}. Rescanning."
+        )
 
-    try:
-        with h5py.File(h5_path, "w"):
-            pass
-    except OSError as exc:
-        logger.debug(f"Could not truncate {h5_path} ({exc})")
-    return {}, list(primers)
+    return {}, list(primers), True
 
 
 def get_positions(
@@ -607,6 +637,7 @@ def get_positions(
         # gate; see its docstring for why a mismatch truncates the file.
         for i, fg_prefix in enumerate(fname_prefixes):
             primer_lists_by_k = {}
+            replace_k = set()
             reused_count = 0
             for k in k_range:
                 k_primers = [p for p in primer_list if len(p) == k]
@@ -618,9 +649,11 @@ def get_positions(
                 # count reproducible across runs.
                 wanted = sorted(set(k_primers + rc_primers))
 
-                reused, to_scan = _reusable_positions(
+                reused, to_scan, replace = _reusable_positions(
                     wanted, fg_prefix, fname_genomes[i], k, circular
                 )
+                if replace:
+                    replace_k.add(k)
                 for primer, positions in reused.items():
                     position_cache[(fg_prefix, primer)] = positions
                 if reused:
@@ -663,7 +696,7 @@ def get_positions(
             for k, primers in primer_lists_by_k.items():
                 k_dict = {p: all_positions.get(p, []) for p in primers}
                 if k_dict:
-                    write_to_h5py(k_dict, fg_prefix)
+                    write_to_h5py(k_dict, fg_prefix, replace=k in replace_k)
                 write_position_provenance(fg_prefix, fname_genomes[i], k, circular)
 
         return position_cache

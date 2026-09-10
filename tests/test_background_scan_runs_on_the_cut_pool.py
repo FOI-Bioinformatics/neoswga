@@ -11,10 +11,10 @@ reads the foreground only, and `_rank_and_cut_candidates` reaches
 neither `occupancy.py` nor `mismatch_counts.py` imports h5py. So the scan can
 move behind the cut with no approximation.
 
-Aho-Corasick cost grows with the pattern count, so on a whole-genome host this
-is the difference between about 15 minutes and about 1 minute, and it accounts
-for very nearly all of the 924 s the project has recorded for a filter step
-against a large host.
+Aho-Corasick cost grows with the pattern count. Audit finding B1 projects about
+15 minutes against about 1 minute on a whole-genome host; that projection was
+not re-measured here, and it is not the same quantity as the 924 s the project
+has recorded for a filter step against a large host.
 
 Observed by spying on `string_search.get_positions` and recording how many
 primers each call was handed. A timing assertion would not separate the two
@@ -179,3 +179,76 @@ def test_the_release_happens_after_the_background_scan(plasmid, monkeypatch):
         ("scan", ("pLTR",)),
         ("clear", ()),
     ], f"expected both scans then one release, got {seen}"
+
+
+@pytest.fixture
+def plasmid_without_background(plasmid):
+    """The same fixture with the background removed.
+
+    Every other test here carries `bg_prefixes: ["pLTR"]`, so a release placed
+    inside `if len(bg_prefixes) > 0` passes all of them while leaving the
+    foreground genome resident on a run that configures no background --
+    phi29_baseline is exactly that case.
+    """
+    params_path = plasmid / "params.json"
+    params = json.loads(params_path.read_text())
+    params["bg_genomes"] = []
+    params["bg_prefixes"] = []
+    params["bg_seq_lengths"] = []
+    params_path.write_text(json.dumps(params, indent=2))
+    _reset_pipeline_state(params_path)
+    string_search.clear_genome_cache()
+    return plasmid
+
+
+def test_the_genome_cache_is_released_when_no_background_is_configured(
+    plasmid_without_background,
+):
+    """The release is not conditional on there being a background to scan."""
+    assert string_search.get_genome_cache_stats()["num_genomes"] == 0
+
+    result = pipeline.step2()
+    assert len(result) > 0, "the fixture produced no candidates, so it measures nothing"
+
+    stats = string_search.get_genome_cache_stats()
+    assert stats["num_genomes"] == 0, (
+        f"a run with no background left {stats['num_genomes']} genome(s) and "
+        f"{stats['total_bp']:,} bp resident; the release is inside the "
+        "background branch"
+    )
+
+
+def test_a_second_step2_reuses_the_position_files(plasmid, monkeypatch):
+    """Reuse through the pipeline, not just through `get_positions`.
+
+    Every other reuse test calls `string_search.get_positions` directly. The
+    failure the reuse could cause is a step-2 outcome: a primer left out of the
+    returned map reaches the Gini gate as a primer that binds nowhere, scores
+    NaN and is dropped, which on a second run would empty the whole pool while
+    the step logged success.
+    """
+    first = pipeline.step2()
+    assert len(first) > 0
+
+    scanned = []
+    real = string_search.get_all_positions_multi_k
+
+    def spy(primer_lists_by_k, seq_fname, circular, chunk_size=None):
+        scanned.append(sum(len(v) for v in primer_lists_by_k.values()))
+        return real(primer_lists_by_k, seq_fname, circular, chunk_size)
+
+    monkeypatch.setattr(string_search, "get_all_positions_multi_k", spy)
+    string_search.clear_genome_cache()
+    _reset_pipeline_state(plasmid / "params.json")
+
+    second = pipeline.step2()
+
+    assert scanned == [], (
+        "the second step2 rescanned; pattern counts per automaton build were " f"{scanned}"
+    )
+    assert len(second) == len(first), (
+        f"the second run kept {len(second)} candidates where the first kept "
+        f"{len(first)}; a short position map empties the pool through the Gini gate"
+    )
+    assert second["gini"].notna().all(), "Gini came back unmeasurable on the reused run"
+    assert list(second["primer"]) == list(first["primer"])

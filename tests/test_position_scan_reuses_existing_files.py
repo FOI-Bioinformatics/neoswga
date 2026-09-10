@@ -370,3 +370,110 @@ def test_a_primer_that_binds_nowhere_is_still_recorded_as_scanned(genome):
     with h5py.File(ss.position_file_path(genome["prefix"], 12), "r") as handle:
         assert absent in handle, "a scanned primer with no sites must still be a key"
         assert len(handle[absent][:]) == 0
+
+
+def test_the_same_genome_by_another_path_spelling_is_still_reused(tmp_path):
+    """The fingerprint identifies the genome, so the path spelling must not.
+
+    The record also carries the genome path, and comparing whole records made a
+    path difference a mismatch: the file was rescanned in full and the warning
+    blamed `circular`, printing the same value twice, because a path difference
+    fell through to that arm. `os.path.abspath` does not resolve symlinks, so
+    the spellings differ after a symlinked parent directory, an automount, or
+    `/tmp` against `/private/tmp` on macOS.
+    """
+    ss.clear_genome_cache()
+    v1, expected = _assembly(copies=1)
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    link_dir = tmp_path / "link"
+    link_dir.symlink_to(real_dir)
+
+    fasta = _write_fasta(real_dir / "g.fasta", v1)
+    prefix = str(real_dir / "fg")
+    linked_fasta = str(link_dir / "g.fasta")
+
+    ss.get_positions([A12], [prefix], [fasta], circular=False)
+    ss.clear_genome_cache()
+
+    calls = []
+    real = ss.get_all_positions_multi_k
+
+    def spy(primer_lists_by_k, seq_fname, circular, chunk_size=None):
+        calls.append(sum(len(v) for v in primer_lists_by_k.values()))
+        return real(primer_lists_by_k, seq_fname, circular, chunk_size)
+
+    ss.get_all_positions_multi_k = spy
+    try:
+        result = ss.get_positions([A12], [prefix], [linked_fasta], circular=False)
+    finally:
+        ss.get_all_positions_multi_k = real
+    ss.clear_genome_cache()
+
+    assert calls == [], (
+        "the same genome reached by a second path spelling was rescanned; the "
+        f"path is not the identity, the fingerprint is. Scans were {calls}"
+    )
+    assert result[(prefix, A12)] == expected
+
+
+def test_a_run_that_does_not_finish_leaves_the_previous_position_file_intact(tmp_path):
+    """A rejected file is discarded when the replacement is in hand, not before.
+
+    Discarding at detection time left an empty position file if the rescan did
+    not complete. On the foreground the step-4 prerequisite check catches that
+    and refuses; on the background nothing does, and a background file holding
+    nothing reports `total_bg_sites: 0` and a perfect selectivity ratio, which
+    is Known Issue 5's symptom by another route.
+    """
+    ss.clear_genome_cache()
+    v1, before = _assembly(copies=1)
+    v2, _ = _assembly(copies=4)
+    prefix = str(tmp_path / "fg")
+    fasta_v1 = _write_fasta(tmp_path / "v1.fasta", v1)
+    fasta_v2 = _write_fasta(tmp_path / "v2.fasta", v2)
+
+    ss.get_positions([A12], [prefix], [fasta_v1], circular=False)
+    ss.clear_genome_cache()
+
+    real = ss.get_all_positions_multi_k
+
+    def die(primer_lists_by_k, seq_fname, circular, chunk_size=None):
+        raise KeyboardInterrupt("interrupted mid-scan")
+
+    ss.get_all_positions_multi_k = die
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            ss.get_positions([A12], [prefix], [fasta_v2], circular=False)
+    finally:
+        ss.get_all_positions_multi_k = real
+    ss.clear_genome_cache()
+
+    with h5py.File(ss.position_file_path(prefix, len(A12)), "r") as handle:
+        assert A12 in handle, (
+            "the interrupted run left an empty position file; the previous one "
+            "is stale but complete, and an empty background file is read "
+            "downstream as a panel that binds the host nowhere"
+        )
+        assert handle[A12][:].tolist() == before
+
+
+def test_a_position_file_that_cannot_be_opened_is_replaced_rather_than_fatal(tmp_path):
+    """An unreadable file is treated as nothing scanned, and then written over.
+
+    The reuse gate always returned everything for scanning here, but the write
+    that followed opened the same file "r+" and died on it. Discarding at write
+    time covers this case for free.
+    """
+    ss.clear_genome_cache()
+    v1, expected = _assembly(copies=1)
+    prefix = str(tmp_path / "fg")
+    fasta = _write_fasta(tmp_path / "v1.fasta", v1)
+
+    with open(ss.position_file_path(prefix, len(A12)), "wb") as fh:
+        fh.write(b"not an HDF5 file")
+
+    result = ss.get_positions([A12], [prefix], [fasta], circular=False)
+    ss.clear_genome_cache()
+
+    assert result[(prefix, A12)] == expected
