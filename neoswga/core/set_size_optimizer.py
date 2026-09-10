@@ -402,7 +402,16 @@ class ParetoFrontierGenerator:
             rate, resulting in more accurate predictions for reactions
             with additives.
         """
-        # Sort primers by fg/bg ratio (descending)
+        # Sort primers by fg/bg ratio (descending).
+        #
+        # `fg_count` / `bg_count` are what `step3_df.csv` actually carries: the
+        # score stage was retired on 2026-09-05 and the surviving columns are
+        # primer, ratio, gini, fg_count and bg_count. Note that its `ratio`
+        # column is bg/fg, so it is NOT `fg_bg_ratio` and must not be read as
+        # one. Without a branch for the counts this fell through to "just use
+        # order", and the estimate below fell through to a random-sequence
+        # model, so the frontier described a hypothetical k-mer rather than the
+        # pool it was given.
         if "fg_bg_ratio" in self.primer_pool.columns:
             sorted_pool = self.primer_pool.sort_values("fg_bg_ratio", ascending=False)
         elif "fg_freq" in self.primer_pool.columns and "bg_freq" in self.primer_pool.columns:
@@ -410,8 +419,12 @@ class ParetoFrontierGenerator:
             pool = self.primer_pool.copy()
             pool["fg_bg_ratio"] = pool["fg_freq"] / (pool["bg_freq"] + 1e-10)
             sorted_pool = pool.sort_values("fg_bg_ratio", ascending=False)
+        elif "fg_count" in self.primer_pool.columns and "bg_count" in self.primer_pool.columns:
+            pool = self.primer_pool.copy()
+            pool["fg_bg_ratio"] = pool["fg_count"] / (pool["bg_count"] + 1e-10)
+            sorted_pool = pool.sort_values("fg_bg_ratio", ascending=False)
         else:
-            # No frequency data, just use order
+            # No frequency or count data, just use order
             sorted_pool = self.primer_pool
 
         points = []
@@ -423,7 +436,17 @@ class ParetoFrontierGenerator:
             primers = tuple(top_n["primer"].tolist())
 
             # Estimate binding sites
-            if "fg_freq" in top_n.columns:
+            if "fg_count" in top_n.columns:
+                # Measured site counts. Preferred over the frequency path
+                # because these are what the filter step actually counted,
+                # rather than a frequency multiplied back up by a genome
+                # length, and over the random-sequence model below, which for
+                # a 12-mer on a 6.2 kb plasmid predicts 0.003 sites and
+                # truncates to zero.
+                fg_sites = int(top_n["fg_count"].sum())
+                bg_sites = int(top_n["bg_count"].sum()) if "bg_count" in top_n.columns else 0
+                bg_sites = max(1, bg_sites)
+            elif "fg_freq" in top_n.columns:
                 # Use frequency data if available
                 total_fg = top_n["fg_freq"].sum()
                 total_bg = top_n["bg_freq"].sum() if "bg_freq" in top_n.columns else 1e-10
