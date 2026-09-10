@@ -13,6 +13,7 @@ import pandas as pd
 
 from neoswga.core import filter as filter_module
 from neoswga.core import parameter, rf_preprocessing, string_search, utility
+from neoswga.core.filter import check_gini_stage_kept_something
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
 from neoswga.core.progress import progress_context
 
@@ -1324,6 +1325,7 @@ def step2(all_primers=None, validate_prerequisites=True):
             position_cache=fg_position_cache,
         )
     _funnel["after_gini"] = len(gini_df)
+    check_gini_stage_kept_something(filtered_rate_df, gini_df)
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)

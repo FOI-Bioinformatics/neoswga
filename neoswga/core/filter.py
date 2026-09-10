@@ -712,6 +712,47 @@ def _get_rate_for_one_file(task: Tuple[List[str], str, int]) -> Dict[str, int]:
     return {primer: primer_to_count.get(primer, 0) for primer in primer_list}
 
 
+def check_gini_stage_kept_something(before_df, after_df):
+    """Refuse an empty candidate pool, and name the reason it is empty.
+
+    The Gini index is NaN where evenness cannot be measured, and
+    `filter.get_gini`'s `.notna()` guard drops those rows. On a small target
+    that can be most of the pool: across the plasmid example's frequency
+    survivors, 92 of 10,532 position-file keys carry three or more combined
+    sites.
+
+    Writing an empty step2_df.csv defers the failure to step 3, which reports
+    it as a missing 'primer' column. Raising here names the parameter to change,
+    the same way `apply_qa_filter_to_step2_file` does for the QA pass. It
+    lives here rather than in `pipeline` because the rows it is about are the
+    ones `get_gini` below drops with its `.notna()` guard; `pipeline` imports
+    it under the same name. Since
+    `min_gini_sites` became configurable the first suggestion is to lower it,
+    because that is the gate that emptied the pool and the user can now change
+    it without editing the source.
+    """
+    if len(before_df) == 0 or len(after_df) > 0:
+        return
+
+    configured = getattr(parameter, "min_gini_sites", None)
+    threshold = (
+        int(configured)
+        if isinstance(configured, int) and not isinstance(configured, bool) and configured > 0
+        else primer_attributes.DEFAULT_MIN_GINI_SITES
+    )
+    raise ValueError(
+        f"The evenness (Gini) stage removed all {len(before_df)} candidates. "
+        f"Every one of them binds the target fewer than min_gini_sites "
+        f"({threshold}) times across both strands, so their spacing is not "
+        f"measurable.\n"
+        f"On a small target this is expected. Either lower the threshold, with "
+        f'"min_gini_sites": 1 in params.json or --min-gini-sites 1 on '
+        f"neoswga filter, which accepts single-site primers and their "
+        f"unmeasurable evenness; or admit more abundant k-mers by lowering "
+        f"min_k, raising max_bg_freq, or lowering min_fg_freq."
+    )
+
+
 def get_gini(
     fg_prefixes: List[str],
     fg_genomes: List[str],
