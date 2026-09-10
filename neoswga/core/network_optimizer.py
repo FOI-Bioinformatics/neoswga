@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 import bisect
 from collections import defaultdict
 
+from neoswga.core import dimer_matrix as _dimer_matrix
+
 logger = logging.getLogger(__name__)
 
 
@@ -852,6 +854,20 @@ class NetworkOptimizer:
         current_fg_network = AmplificationNetwork(self.max_extension)
         current_bg_network = AmplificationNetwork(self.max_extension)
 
+        # A hard dimer guard, matching the one in
+        # `DominatingSetOptimizer._select_next_primer`. This loop is the
+        # `network` method's own selection and never reached that one, so until
+        # 2026-09-10 the method had no dimer rejection at all: the soft
+        # multiplier below is gated on `dimer_penalty`, which defaults to 0.0,
+        # and even at 1.0 it downweights rather than excludes.
+        #
+        # Built once over the whole candidate pool rather than per iteration.
+        # A threshold the representation cannot hold raises rather than
+        # disabling the screen: `_build_dimer_matrix_for_greedy` catches that
+        # ValueError and continues unscreened, which is the behaviour audit
+        # finding A6's sweep found at max_dimer_bp 8 and above.
+        dimers = _dimer_matrix.build(list(candidates), self.max_dimer_bp) if candidates else None
+
         for iteration in range(num_primers):
             logger.info(f"Iteration {iteration+1}/{num_primers}")
 
@@ -865,8 +881,13 @@ class NetworkOptimizer:
             current_bg_network._rebuild_spatial_index()
 
             # Try each remaining candidate
+            skipped_for_dimer = False
             for primer in candidates:
                 if primer in selected:
+                    continue
+
+                if dimers is not None and selected and dimers.dimerises(primer, selected):
+                    skipped_for_dimer = True
                     continue
 
                 # Evaluate adding this primer (base network score)
@@ -903,7 +924,24 @@ class NetworkOptimizer:
                     best_primer = primer
 
             if best_primer is None:
-                logger.warning("No more primers can be added")
+                if skipped_for_dimer:
+                    # Deliberately NOT the relaxation the dominating-set greedy
+                    # performs. That relaxation admits an unscreened primer when
+                    # the pool is exhausted, and Plan 2's sweep measured it
+                    # admitting 171, 129 and 10 of them at set 0 on the three
+                    # shipped designs -- which is what produces their 11 bp
+                    # worst heterodimers against a configured 3. Stopping short
+                    # is the honest outcome; the panel size a pool can support
+                    # at a given threshold is a property of the pool.
+                    logger.warning(
+                        f"Stopping at {len(selected)} of {num_primers} primers: every "
+                        f"remaining candidate pairs with the selected set above "
+                        f"max_dimer_bp={self.max_dimer_bp}. Loosen it, or accept the "
+                        f"smaller set: a pool supports a bounded panel size at a given "
+                        f"threshold."
+                    )
+                else:
+                    logger.warning("No more primers can be added")
                 break
 
             # Add best primer
