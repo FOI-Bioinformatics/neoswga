@@ -337,6 +337,11 @@
       "minimum": 1,
       "maximum": 15
     },
+    "mismatch_penalty": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 20
+    },
     "num_primers": {
       "type": "integer",
       "minimum": 1,

@@ -820,9 +820,13 @@ def get_value_or_default(arg_value, data, key):
     if key in data:
         return data[key]
     else:
-        if key in OPTIONAL_PARAMS:
-            logger.debug("Missing optional parameter '%s' in params.json, using default.", key)
-        else:
+        # An absent OPTIONAL_PARAMS key is not news: every one of the twelve has
+        # a documented, static default. Seven are absent from the shipped
+        # example config, which put seven debug lines at the head of every step
+        # log, one of them announcing a default for min_amp_pred, a gate that no
+        # longer runs without --amp-model. The direction worth reporting is a
+        # key the schema does not declare, which `unknown_param_keys` handles.
+        if key not in OPTIONAL_PARAMS:
             logger.warning("Missing parameter '%s' in params.json. Please provide a value.", key)
         return None
 
@@ -860,6 +864,63 @@ def _apply_params_only_keys(data: dict) -> None:
     # for. Left as None when absent, so `resolve_optimization_method` can
     # tell "not configured" from "configured as hybrid".
     optimization_method = data["optimization_method"] = data.get("optimization_method")
+
+
+def _warn_about_schema_version(data):
+    """Warn when params.json declares no schema version, or a different one.
+
+    Extracted from ``get_params`` unchanged, to keep that function inside its
+    length budget. The messages and the three branches are as they were.
+    """
+    schema_version = data.get("schema_version", None) if isinstance(data, dict) else None
+    if schema_version is None:
+        logger.warning(
+            "params.json has no 'schema_version' field. "
+            "Defaults may differ between NeoSWGA versions. "
+            f"Add '\"schema_version\": {CURRENT_SCHEMA_VERSION}' to your "
+            "params.json for reproducibility."
+        )
+    elif schema_version < CURRENT_SCHEMA_VERSION:
+        logger.warning(
+            f"params.json declares schema_version {schema_version}; this "
+            f"NeoSWGA uses version {CURRENT_SCHEMA_VERSION}. Several "
+            f"scientific constants were corrected in v2 and results will "
+            f"differ from a v1 run:\n"
+            f"{SCHEMA_V2_MIGRATION_NOTE}"
+        )
+    elif schema_version > CURRENT_SCHEMA_VERSION:
+        logger.warning(
+            f"params.json schema_version {schema_version} is newer than "
+            f"this NeoSWGA version supports (max: {CURRENT_SCHEMA_VERSION}). "
+            f"Some parameters may not be recognized."
+        )
+
+
+def _warn_about_unknown_keys(data):
+    """Warn about params.json keys the schema does not declare.
+
+    `validate params` runs the same check, but a user who never runs it still
+    gets one line here rather than a silently applied default: the schema sets
+    `additionalProperties: true`, so `max_bg_freqency` was accepted in silence
+    and the default for `max_bg_freq` applied, changing the design.
+
+    Never raises. A failure to check is not a reason to fail the run.
+    """
+    try:
+        from neoswga.core.param_validator import unknown_param_keys
+
+        for key, suggestion in unknown_param_keys(data):
+            if suggestion:
+                logger.warning(
+                    "Unknown parameter '%s' in params.json; it will be ignored. "
+                    "Did you mean '%s'?",
+                    key,
+                    suggestion,
+                )
+            else:
+                logger.warning("Unknown parameter '%s' in params.json; it will be ignored.", key)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Unknown-key check skipped: {e}")
 
 
 def get_params(args):
@@ -952,32 +1013,9 @@ def get_params(args):
             # the same process does not leak prior params.json values.
             _json_data.clear()
             _json_data.update(data_extra)  # Store raw JSON for CLI access
+            _warn_about_unknown_keys(data_extra)
 
-            # Schema versioning
-            schema_version = (
-                data_extra.get("schema_version", None) if isinstance(data_extra, dict) else None
-            )
-            if schema_version is None:
-                logger.warning(
-                    "params.json has no 'schema_version' field. "
-                    "Defaults may differ between NeoSWGA versions. "
-                    f"Add '\"schema_version\": {CURRENT_SCHEMA_VERSION}' to your "
-                    "params.json for reproducibility."
-                )
-            elif schema_version < CURRENT_SCHEMA_VERSION:
-                logger.warning(
-                    f"params.json declares schema_version {schema_version}; this "
-                    f"NeoSWGA uses version {CURRENT_SCHEMA_VERSION}. Several "
-                    f"scientific constants were corrected in v2 and results will "
-                    f"differ from a v1 run:\n"
-                    f"{SCHEMA_V2_MIGRATION_NOTE}"
-                )
-            elif schema_version > CURRENT_SCHEMA_VERSION:
-                logger.warning(
-                    f"params.json schema_version {schema_version} is newer than "
-                    f"this NeoSWGA version supports (max: {CURRENT_SCHEMA_VERSION}). "
-                    f"Some parameters may not be recognized."
-                )
+            _warn_about_schema_version(data_extra)
 
             for k, v in data_extra.items():
                 if k not in data:
