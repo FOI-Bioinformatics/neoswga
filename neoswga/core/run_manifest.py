@@ -22,6 +22,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    import fcntl
+
+    HAS_FCNTL = True
+except ImportError:  # pragma: no cover - Windows
+    HAS_FCNTL = False
+
 logger = logging.getLogger(__name__)
 
 MANIFEST_FILENAME = "run_manifest.json"
@@ -162,21 +169,39 @@ def write_manifest(
     if extra:
         entry["extra"] = extra
 
-    existing: Dict[str, Any] = {"steps": []}
-    if os.path.exists(manifest_path):
-        try:
-            with open(manifest_path) as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict) and isinstance(loaded.get("steps"), list):
-                existing = loaded
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    existing["steps"].append(entry)
-
+    # Read, append and rewrite under an exclusive lock. Without it two runs
+    # sharing a data_dir both read the same list and both write their own
+    # append, losing one entry. The lock is held on the manifest file itself
+    # for the whole read-modify-write; ``experimental_tracker.py`` uses the
+    # same fcntl.flock shape. On a platform without fcntl this degrades to the
+    # previous unlocked behaviour rather than failing.
     try:
-        with open(manifest_path, "w") as f:
-            json.dump(existing, f, indent=2, sort_keys=True)
+        with open(manifest_path, "a+") as f:
+            if HAS_FCNTL:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                # "a+" positions at end of file, so rewind before reading.
+                f.seek(0)
+                raw = f.read()
+                existing: Dict[str, Any] = {"steps": []}
+                if raw.strip():
+                    try:
+                        loaded = json.loads(raw)
+                        if isinstance(loaded, dict) and isinstance(loaded.get("steps"), list):
+                            existing = loaded
+                    except json.JSONDecodeError:
+                        pass
+
+                existing["steps"].append(entry)
+
+                f.seek(0)
+                f.truncate()
+                json.dump(existing, f, indent=2, sort_keys=True)
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                if HAS_FCNTL:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     except OSError as e:
         logger.warning(f"Could not write run_manifest.json: {e}")
         return None
