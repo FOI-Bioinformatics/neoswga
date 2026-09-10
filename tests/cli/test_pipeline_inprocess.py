@@ -247,7 +247,9 @@ def test_score_carries_every_candidate_forward(filtered):
 
     assert len(step3) == len(step2), f"score dropped candidates: {len(step2)} -> {len(step3)}"
     assert set(step3["primer"]) == set(step2["primer"])
-    assert step3["gini"].is_monotonic_increasing, "the deterministic order was lost"
+    # step2_rank leads this order as of audit finding D1c (2026-09-10);
+    # gini is the tie-break and is no longer monotonic on its own.
+    assert step3["step2_rank"].is_monotonic_increasing, "the deterministic order was lost"
 
 
 # ----------------------------------------------------------------------

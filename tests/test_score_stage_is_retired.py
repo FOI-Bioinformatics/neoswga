@@ -123,14 +123,17 @@ def test_the_step2_measurements_are_carried_through(primed):
         assert col in out.columns, f"step3_df.csv lost {col!r} from step 2"
 
 
-def test_the_order_is_deterministic_and_led_by_gini(primed):
+def test_the_order_is_deterministic_and_led_by_step2s_rank(primed):
     """`order_step3_rows` is what makes an unseeded run reproducible; the
-    pass-through must not drop it."""
+    pass-through must not drop it.
+
+    Renamed and re-pointed by audit finding D1c, 2026-09-10. Gini used to lead
+    this order, which discarded the occupancy ranking step 2 spends up to 50 s
+    computing. Step 2's rank now leads and gini is the tie-break.
+    """
     out = _run(primed)
-    assert out["gini"].is_monotonic_increasing
-    for _gini, group in out.groupby("gini", sort=False):
-        primers = group["primer"].tolist()
-        assert primers == sorted(primers)
+    assert out["step2_rank"].is_monotonic_increasing
+    assert out["primer"].tolist() == [row[0] for row in _STEP2_ROWS]
 
 
 def test_running_twice_gives_the_same_file(primed):

@@ -16,6 +16,7 @@ from neoswga.core import parameter, rf_preprocessing, string_search, utility
 from neoswga.core.filter import check_gini_stage_kept_something
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
 from neoswga.core.progress import progress_context
+from neoswga.core.step3_ordering import _candidate_carry_columns, order_step3_rows
 
 logger = logging.getLogger(__name__)
 
@@ -705,34 +706,6 @@ def _apply_gc_adaptive_defaults():
         logger.warning(f"Error applying GC-adaptive defaults: {e}")
 
 
-def order_step3_rows(df):
-    """A deterministic total order for the scored candidate pool.
-
-    `step3_df.csv` was written with `sort_values(by="gini")` alone. On a real
-    pool almost every row ties: 496 of 500 on the plasmid example share a gini
-    value. `sort_values` defaults to quicksort, which is not stable, so for
-    those rows the order was whatever the algorithm produced from the order the
-    rows happened to arrive in -- the same data from two different input orders
-    gave two different files, sharing 7 of the first 50 primers.
-
-    That would not matter if the optimizer ignored order. It does not. On the
-    E. coli pool at target size 24, dominating-set returned a set with a Jaccard
-    of 0.600 against the as-written order when the candidates were reversed, and
-    0.920 when they were shuffled. Up to 40% of the delivered oligos were
-    decided by a tie-break nobody chose.
-
-    Gini leads, as before; the primer sequence breaks ties. It is unique, so the
-    order is total, and it claims nothing about primer quality -- which is the
-    point. `amp_pred` is the obvious alternative and the evidence is against it:
-    selecting the top half of a pool by `amp_pred` and optimizing over it
-    produced the WORST of five half-pools, behind all three random halves and
-    behind the bottom half by the same measure.
-    """
-    if len(df) == 0:
-        return df
-    return df.sort_values(by=["gini", "primer"], kind="mergesort")
-
-
 def check_genome_inputs(paths):
     """Pre-flight the genome files before an expensive count begins.
 
@@ -1390,17 +1363,6 @@ def step2(all_primers=None, validate_prerequisites=True):
 DEFAULT_MIN_AMP_PRED = 10.0
 
 
-def _candidate_carry_columns(step2_df):
-    """The step-2 measurements `step3_df.csv` carries forward.
-
-    `gini` is load-bearing: it leads the row order `order_step3_rows`
-    establishes, and that order reaches the optimizer.
-    """
-    df = step2_df.set_index("primer")
-    keep = [c for c in ("ratio", "gini", "fg_count", "bg_count") if c in df.columns]
-    return df[keep]
-
-
 def _warn_if_a_retired_gate_was_requested():
     """`min_amp_pred` no longer gates anything. Say so rather than ignore it.
 
@@ -1512,7 +1474,10 @@ def _score_with_amp_model(step2_df):
             f"(first 3: {list(missing[:3])}). These will have NaN metrics."
         )
 
-    joined_step3_df = step3_df.join(step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left")
+    carry = [
+        c for c in ("step2_rank", "ratio", "gini", "fg_count", "bg_count") if c in step2_df.columns
+    ]
+    joined_step3_df = step3_df.join(step2_df[carry], how="left")
     logger.info(
         f"Filtered {step2_df.shape[0] - joined_step3_df.shape[0]} primers based on efficacy"
     )
@@ -1553,6 +1518,12 @@ def step3(validate_prerequisites=True):
             raise StepPrerequisiteError(3, validation)
 
     step2_df = pd.read_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
+    # Step 2's ranking is the file's ROW ORDER, not a column: `step2` writes the
+    # frame `_rank_and_cut_candidates` returns, which is already sorted. Reading
+    # the order captures whichever key actually ran -- occupancy_ratio when the
+    # occupancy pass could run, ratio then fg_count when it could not -- without
+    # re-deriving either. See `order_step3_rows` and audit finding D1c.
+    step2_df["step2_rank"] = np.arange(len(step2_df), dtype=int)
 
     if getattr(parameter, "use_amp_model", False):
         joined_step3_df = _score_with_amp_model(step2_df)

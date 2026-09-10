@@ -71,13 +71,16 @@ def test_scored_output_carries_no_prediction_column(pipeline_run):
 
 def test_scored_output_still_carries_the_step2_measurements(pipeline_run):
     """What the stage does now: carry candidates and their measurements, in a
-    deterministic order. `gini` leads that order and must survive."""
+    deterministic order. `step2_rank` leads that order and must survive.
+
+    Re-pointed by audit finding D1c, 2026-09-10: gini used to lead, which
+    discarded the occupancy ranking step 2 computes."""
     import pandas as pd
 
     df = pd.read_csv(os.path.join(pipeline_run["data_dir"], "step3_df.csv"))
     for col in ("primer", "gini"):
         assert col in df.columns, f"step3_df.csv lost {col!r}: {list(df.columns)}"
-    assert df["gini"].is_monotonic_increasing
+    assert df["step2_rank"].is_monotonic_increasing
 
 
 def test_scoring_preserves_every_filtered_primer(pipeline_run):

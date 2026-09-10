@@ -157,7 +157,9 @@ class TestPipelineE2E:
         df = pd.read_csv(step3_csv, index_col=0)
         assert "on.target.pred" not in df.columns
         assert "gini" in df.columns, f"step3 lost gini: {list(df.columns)}"
-        assert df["gini"].is_monotonic_increasing, "the deterministic order was lost"
+        # step2_rank leads this order as of audit finding D1c (2026-09-10);
+        # gini is the tie-break and is no longer monotonic on its own.
+        assert df["step2_rank"].is_monotonic_increasing, "the deterministic order was lost"
 
     def test_step4_optimize_produces_output(self, pipeline_workdir, reset_pipeline_state):
         """Step 4 (optimize) should produce a non-empty step4_improved_df.csv."""
