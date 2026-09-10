@@ -31,14 +31,11 @@ from neoswga.cli._params_preread import (
 logger = logging.getLogger(__name__)
 
 # Catchable at module level so the step handlers' except clauses resolve it.
-try:
-    from neoswga.core.pipeline import StepPrerequisiteError
-except ImportError:  # pragma: no cover - defensive
-
-    class StepPrerequisiteError(Exception):
-        """Raised when a pipeline step's prerequisites are not satisfied."""
-
-        pass
+# Imported from `core.exceptions` rather than `core.pipeline`: the latter
+# reaches scikit-learn through `rf_preprocessing`. The previous try/except
+# ImportError fallback defined a *different* class, which would not have
+# caught what `core/pipeline.py` raises.
+from neoswga.core.exceptions import StepPrerequisiteError
 
 
 def run_step1(args):

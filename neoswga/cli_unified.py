@@ -54,17 +54,11 @@ import logging
 import os
 import sys
 
-# Import StepPrerequisiteError for proper exception handling
-# This is imported at module level so except clauses can catch it
-try:
-    from neoswga.core.pipeline import StepPrerequisiteError
-except ImportError:
-    # Define a fallback if pipeline module isn't available
-    class StepPrerequisiteError(Exception):
-        """Raised when a pipeline step's prerequisites are not satisfied."""
-
-        pass
-
+# `StepPrerequisiteError` lives in `core.exceptions`, which imports only
+# `typing` and `dataclasses`. It used to be imported from `core.pipeline`,
+# whose import chain reaches scikit-learn and cost about 0.6 s on every
+# invocation including `--help`.
+from neoswga.core.exceptions import StepPrerequisiteError  # noqa: F401
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")

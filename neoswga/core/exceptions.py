@@ -5,6 +5,7 @@ Provides a hierarchy of exceptions for different error conditions,
 enabling proper error handling and informative error messages.
 """
 
+from dataclasses import dataclass
 from typing import Any, List, Optional
 
 
@@ -411,3 +412,47 @@ class PipelineStateError(ValidationError):
             f"Cannot run '{operation}': requires '{required_state}' state, "
             f"but current state is '{current_state}'"
         )
+
+
+# =============================================================================
+# Pipeline step prerequisites
+# =============================================================================
+#
+# These lived in `core/pipeline.py` until 2026-09-06. They moved here because
+# `cli_unified.py` and `cli/pipeline.py` imported that module at module scope
+# for the single purpose of making the exception catchable, and importing it
+# pulls in `rf_preprocessing` and therefore scikit-learn: 0.60 s of a 1.14 s
+# warm import, paid by `--help` and by every step of a pipeline that no longer
+# runs the amplification model. `core/pipeline.py` re-exports both names, so
+# existing importers are unaffected.
+
+
+@dataclass
+class StepValidationResult:
+    """Result of step prerequisite validation."""
+
+    valid: bool
+    missing_files: List[str]
+    error_message: str
+    remediation: str
+
+
+class StepPrerequisiteError(NeoSWGAError):
+    """Raised when step prerequisites are not met."""
+
+    def __init__(self, step: int, validation: StepValidationResult):
+        self.step = step
+        self.validation = validation
+        message = f"\n{'='*60}\n"
+        message += f"STEP {step} PREREQUISITE ERROR\n"
+        message += f"{'='*60}\n"
+        message += f"\n{validation.error_message}\n"
+        if validation.missing_files:
+            message += "\nMissing files:\n"
+            for f in validation.missing_files[:5]:  # Show first 5
+                message += f"  - {f}\n"
+            if len(validation.missing_files) > 5:
+                message += f"  ... and {len(validation.missing_files) - 5} more\n"
+        message += f"\nTo fix this:\n  {validation.remediation}\n"
+        message += f"{'='*60}\n"
+        super().__init__(message)

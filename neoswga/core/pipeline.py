@@ -6,7 +6,6 @@ import os
 import pickle
 import sys
 import warnings
-from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -112,36 +111,16 @@ def _filter_blacklist_penalty(
 # Step Prerequisite Validation
 # =============================================================================
 
-
-@dataclass
-class StepValidationResult:
-    """Result of step prerequisite validation."""
-
-    valid: bool
-    missing_files: List[str]
-    error_message: str
-    remediation: str
-
-
-class StepPrerequisiteError(Exception):
-    """Raised when step prerequisites are not met."""
-
-    def __init__(self, step: int, validation: StepValidationResult):
-        self.step = step
-        self.validation = validation
-        message = f"\n{'='*60}\n"
-        message += f"STEP {step} PREREQUISITE ERROR\n"
-        message += f"{'='*60}\n"
-        message += f"\n{validation.error_message}\n"
-        if validation.missing_files:
-            message += f"\nMissing files:\n"
-            for f in validation.missing_files[:5]:  # Show first 5
-                message += f"  - {f}\n"
-            if len(validation.missing_files) > 5:
-                message += f"  ... and {len(validation.missing_files) - 5} more\n"
-        message += f"\nTo fix this:\n  {validation.remediation}\n"
-        message += f"{'='*60}\n"
-        super().__init__(message)
+# Both names are defined in `core/exceptions.py` and re-exported here. They
+# moved on 2026-09-06 so that `cli_unified.py` could catch the exception
+# without importing this module, which imports `rf_preprocessing` and so
+# scikit-learn. `tests/test_pipeline.py` and
+# `tests/test_genome_inputs_are_checked_before_counting.py` import them from
+# here, and the re-exported objects are identical, so `except` clauses match.
+from neoswga.core.exceptions import (  # noqa: F401,E402
+    StepPrerequisiteError,
+    StepValidationResult,
+)
 
 
 def validate_step1_prerequisites(
