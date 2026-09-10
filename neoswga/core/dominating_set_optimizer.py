@@ -59,6 +59,37 @@ def _deterministic_scan_order(fixed_primers, candidates, graph_primers) -> List[
     return order
 
 
+# A candidate whose covered bins are more than this fraction already covered by
+# the selected set is skipped in favour of one that is not.
+#
+# Delivered E. coli set 0 -- 160 primers from a 449-candidate pool -- held 9
+# pairs at Hamming distance 1 or less, and 5 primers sharing the 3' hexamer
+# GCGAAA. Primers differing by one base bind largely the same sites, so the
+# second buys little coverage while adding synthesis cost and dimer surface.
+#
+# The greedy picked the largest ABSOLUTE new coverage, which is not the same
+# thing: a primer with fifty sites, forty-eight already covered, beats a primer
+# with five sites all of which are new.
+#
+# The criterion is bin containment, not sequence similarity: the covered bin
+# sets are already in the graph, two primers can differ by one base and bind
+# different sites, and two unrelated sequences can bind the same places.
+# Hamming distance is the symptom, not the criterion. Set to 1.0 to disable.
+#
+# 0.9 means a candidate must contribute at least a tenth of its own covered
+# footprint as new coverage. That is deliberately permissive: the greedy already
+# prefers high marginal coverage, so this only has to catch a large redundant
+# primer outranking a small independent one, and a tighter value starts refusing
+# primers that genuinely extend the panel.
+#
+# This sits alongside the dimer rejection guard as a sibling test on the same
+# scan. It is checked AFTER that guard, so a primer the dimer screen rejected
+# can never return through the redundancy fallback below.
+#
+# Audit finding A6.
+DEFAULT_REDUNDANCY_THRESHOLD = 0.9
+
+
 def coverage_bin_size(bin_size: int, extension_reach: int) -> int:
     """Bin size that does not overstate what the polymerase reaches.
 
@@ -351,18 +382,46 @@ class DominatingSetOptimizer:
             logger.warning("Dimer-aware selection disabled: %s", exc)
             return None
 
-    def _select_next_primer(self, scan_order, selected, covered_regions, graph, dimers):
-        """One greedy scan: the candidate with the largest marginal coverage.
+    def _select_next_primer(
+        self,
+        scan_order,
+        selected,
+        covered_regions,
+        graph,
+        dimers,
+        redundancy_threshold=DEFAULT_REDUNDANCY_THRESHOLD,
+    ):
+        """One greedy scan: the candidate with the largest marginal coverage,
+        preferring one that is not already largely covered by what is selected.
 
         Returns `(best_primer, best_new_coverage, skipped_for_dimer)`. A
         candidate that dimerises with `selected` is skipped rather than
         scored, and `skipped_for_dimer` records whether that happened this
         scan -- the signal `optimize_greedy` uses to tell a dimer-caused stall
         from a genuinely exhausted pool.
+
+        `best_*` is the redundancy-filtered choice; `fallback_*` is the plain
+        argmax over the same candidates. When every remaining candidate is
+        redundant the fallback is taken, so this never terminates the loop
+        earlier than the unfiltered greedy would and never loses coverage the
+        plain rule would have delivered.
+
+        Both are tracked AFTER the dimer guard, so a primer that guard rejected
+        can never return through the fallback. Reordering the two guards would
+        silently undo the dimer constraint.
+
+        `redundant_skipped` is deliberately NOT `skipped_for_dimer`: that flag
+        means the DIMER constraint stalled the loop and drives the relaxation
+        in `optimize_greedy`, and a redundancy skip must not fire it.
+
+        Audit finding A6.
         """
         best_primer = None
         best_new_coverage = 0
         skipped_for_dimer = False
+        fallback_primer = None
+        fallback_new_coverage = 0
+        redundant_skipped = 0
 
         for primer in scan_order:
             if primer in selected:
@@ -372,11 +431,35 @@ class DominatingSetOptimizer:
                 skipped_for_dimer = True
                 continue
 
-            # Count how many NEW regions this primer covers
-            new_regions = graph.primer_to_regions.get(primer, set()) - covered_regions
-            if len(new_regions) > best_new_coverage:
-                best_new_coverage = len(new_regions)
+            # Count how many NEW regions this primer covers. The region set and
+            # this difference are the only inputs the redundancy test needs, so
+            # it costs no extra lookup.
+            primer_regions = graph.primer_to_regions.get(primer, set())
+            new_regions = primer_regions - covered_regions
+            n_new = len(new_regions)
+
+            if n_new > fallback_new_coverage:
+                fallback_new_coverage = n_new
+                fallback_primer = primer
+
+            if primer_regions:
+                redundancy = 1.0 - n_new / len(primer_regions)
+                if redundancy > redundancy_threshold:
+                    redundant_skipped += 1
+                    continue
+
+            if n_new > best_new_coverage:
+                best_new_coverage = n_new
                 best_primer = primer
+
+        if best_primer is None:
+            best_primer = fallback_primer
+            best_new_coverage = fallback_new_coverage
+        elif redundant_skipped:
+            logger.debug(
+                f"  skipped {redundant_skipped} candidates more than "
+                f"{redundancy_threshold:.0%} covered by the selected set"
+            )
 
         return best_primer, best_new_coverage, skipped_for_dimer
 
@@ -473,6 +556,7 @@ class DominatingSetOptimizer:
         min_coverage,
         n_fixed,
         verbose,
+        redundancy_threshold=DEFAULT_REDUNDANCY_THRESHOLD,
     ):
         """The greedy loop: repeatedly add the primer with the largest marginal
         coverage until `max_primers` new primers are added, coverage is
@@ -511,7 +595,7 @@ class DominatingSetOptimizer:
 
             # Find primer that covers most uncovered regions
             best_primer, best_new_coverage, skipped_for_dimer = self._select_next_primer(
-                scan_order, selected, covered_regions, graph, armed
+                scan_order, selected, covered_regions, graph, armed, redundancy_threshold
             )
 
             if self._dimer_stall_should_relax(
@@ -607,6 +691,7 @@ class DominatingSetOptimizer:
         fixed_primers: Optional[List[str]] = None,
         min_coverage: Optional[float] = None,
         verbose: bool = True,
+        redundancy_threshold: float = DEFAULT_REDUNDANCY_THRESHOLD,
     ) -> Dict:
         """
         Greedy set cover algorithm.
@@ -625,6 +710,10 @@ class DominatingSetOptimizer:
                 When set, the algorithm stops adding primers once the
                 coverage target is met, even if max_primers is not reached.
             verbose: Print progress
+            redundancy_threshold: Skip a candidate whose covered bins are more
+                than this fraction already covered. 1.0 disables the rule.
+                If every remaining candidate is redundant, the best one is
+                taken anyway, so the loop terminates where it did before.
 
         Returns:
             Dictionary with selected primers and coverage stats.
@@ -718,6 +807,7 @@ class DominatingSetOptimizer:
             min_coverage,
             n_fixed,
             verbose,
+            redundancy_threshold,
         )
 
         # Final statistics
