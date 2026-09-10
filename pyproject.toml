@@ -93,6 +93,11 @@ dev = [
     "mypy>=1.0",
     "isort==8.0.1",
     "pre-commit>=3.0.0",
+    # The scan path a normal install gets. It is an optional extra for users
+    # (`fast`, `all`), but leaving it out of `dev` meant CI ran only the
+    # per-k fallback, so tests written against the Aho-Corasick path passed
+    # on developer machines that happened to have it and failed on CI.
+    "pyahocorasick>=2.0.0",
     "build>=1.0.0",
     "twine>=5.0.0",
     "jsonschema>=4.0,<5",

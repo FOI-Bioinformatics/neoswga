@@ -26,6 +26,18 @@ import random
 import h5py
 import pytest
 
+# Every test here pins the Aho-Corasick scan path: `_record_scans` spies on
+# `get_all_positions_multi_k`, which only that path calls. Without the optional
+# package `get_positions` takes the per-k fallback, which reads a
+# `{prefix}_{k}mer_all.txt` count table these fixtures never write, and the file
+# failed with ten FileNotFoundErrors instead of saying what was missing.
+#
+# `pyahocorasick` is now in the `dev` extra so CI exercises this path rather
+# than the fallback. The skip stays for an install that does without it: an
+# honest skip naming the package beats a confusing failure. The fallback path's
+# own reuse semantics are not covered here.
+pytest.importorskip("ahocorasick", reason="these tests pin the Aho-Corasick scan path")
+
 from neoswga.core import parameter, primer_attributes
 from neoswga.core import string_search as ss
 
