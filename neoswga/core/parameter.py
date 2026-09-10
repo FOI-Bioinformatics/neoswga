@@ -322,7 +322,7 @@ class PipelineParameters:
     max_bg_freq: float = 5e-6
     min_tm: float = 15.0
     max_tm: float = 45.0
-    max_gini: float = 0.6
+    max_gini: float = 0.7
     min_gini_sites: int = 3
     max_primer: int = 500
     # Unitless amplification prediction score (scale ~0-20). Combines Tm
@@ -449,7 +449,7 @@ def get_current_config() -> PipelineParameters:
         max_bg_freq=globals().get("max_bg_freq", 5e-6),
         min_tm=globals().get("min_tm", 15.0),
         max_tm=globals().get("max_tm", 45.0),
-        max_gini=globals().get("max_gini", 0.6),
+        max_gini=globals().get("max_gini", 0.7),
         min_gini_sites=globals().get("min_gini_sites", _default_min_gini_sites()),
         max_primer=globals().get("max_primer", 500),
         min_amp_pred=globals().get("min_amp_pred", 10.0),

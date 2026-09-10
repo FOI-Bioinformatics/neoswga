@@ -444,7 +444,7 @@ def validate_index_covers_candidates(cache, fg_prefixes, n_candidates, refuse) -
 defaults = {
     "min_fg_freq": float(1 / 100000),
     "max_bg_freq": float(1 / 200000),
-    "max_gini": 0.6,
+    "max_gini": 0.7,
     "max_primer": 500,
     "min_amp_pred": 10,
     "min_tm": 15,

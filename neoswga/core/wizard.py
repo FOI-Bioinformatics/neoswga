@@ -609,7 +609,7 @@ class SetupWizard:
             # Filtering thresholds
             "min_fg_freq": 1e-5,
             "max_bg_freq": 5e-6,
-            "max_gini": 0.6,
+            "max_gini": 0.7,
             "max_primer": 500,
             # Thermodynamic filters. Also from the registry: a hardcoded
             # 10-45 / 20-55 contradicted every enzyme's `primer_tm_range`, and
