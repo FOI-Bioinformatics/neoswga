@@ -1378,29 +1378,43 @@ def get_params(args):
     # This enables adaptive GC filtering for extreme GC genomes
     if "genome_gc" not in data or data["genome_gc"] is None:
         if "fg_genomes" in data and len(data["fg_genomes"]) > 0:
-            try:
-                gc_count = 0
-                total_length = 0
+            # The FASTA read costs about 0.30 s on a 4.6 Mb target and scales
+            # with target size, and every one of the four pipeline steps does
+            # it for a value that cannot change within a run.
+            from neoswga.core.genome_gc_cache import read_cached_gc, write_cached_gc
 
-                # Use genome_io for automatic gzip/zip detection
-                import neoswga.core.genome_io as genome_io
+            cached = read_cached_gc(data.get("data_dir"), data["fg_genomes"])
+            if cached is not None:
+                data["genome_gc"] = cached
+            else:
+                try:
+                    gc_count = 0
+                    total_length = 0
 
-                loader = genome_io.GenomeLoader()
+                    # Use genome_io for automatic gzip/zip detection
+                    import neoswga.core.genome_io as genome_io
 
-                for fg_genome in data["fg_genomes"]:
-                    # Load genome with automatic compression detection
-                    sequence = loader.load_genome(fg_genome, return_stats=False)
-                    seq_upper = sequence.upper()
-                    gc_count += seq_upper.count("G") + seq_upper.count("C")
-                    total_length += len(seq_upper)
+                    loader = genome_io.GenomeLoader()
 
-                if total_length > 0:
-                    data["genome_gc"] = gc_count / total_length
-                else:
+                    for fg_genome in data["fg_genomes"]:
+                        # Load genome with automatic compression detection
+                        sequence = loader.load_genome(fg_genome, return_stats=False)
+                        seq_upper = sequence.upper()
+                        gc_count += seq_upper.count("G") + seq_upper.count("C")
+                        total_length += len(seq_upper)
+
+                    if total_length > 0:
+                        data["genome_gc"] = gc_count / total_length
+                        write_cached_gc(
+                            data.get("data_dir"),
+                            data["fg_genomes"],
+                            data["genome_gc"],
+                        )
+                    else:
+                        data["genome_gc"] = None
+                except Exception as e:
+                    logger.debug(f"Ignored error calculating genome GC: {e}")
                     data["genome_gc"] = None
-            except Exception as e:
-                logger.debug(f"Ignored error calculating genome GC: {e}")
-                data["genome_gc"] = None
         else:
             data["genome_gc"] = None
 
