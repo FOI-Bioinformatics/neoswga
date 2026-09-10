@@ -105,7 +105,12 @@ def test_a_and_b_are_the_near_duplicate_pair_the_audit_counted():
 def test_the_default_threshold_is_stated():
     from neoswga.core.dominating_set_optimizer import DEFAULT_REDUNDANCY_THRESHOLD
 
-    assert DEFAULT_REDUNDANCY_THRESHOLD == 0.9
+    # Disabled by default on measurement, 2026-09-10: at 0.9 the rule fired
+    # 328,846 times across a ten-case sweep of the three GC-tier pools and
+    # changed neither coverage nor either redundancy measure it exists to
+    # reduce. The mechanism is kept and every test below drives it with an
+    # explicit threshold.
+    assert DEFAULT_REDUNDANCY_THRESHOLD == 1.0
 
 
 def test_the_fixture_isolates_the_fault(optimizer):

@@ -60,34 +60,43 @@ def _deterministic_scan_order(fixed_primers, candidates, graph_primers) -> List[
 
 
 # A candidate whose covered bins are more than this fraction already covered by
-# the selected set is skipped in favour of one that is not.
+# the selected set is skipped in favour of one that is not. 1.0 disables the
+# rule, which is the default.
 #
-# Delivered E. coli set 0 -- 160 primers from a 449-candidate pool -- held 9
-# pairs at Hamming distance 1 or less, and 5 primers sharing the 3' hexamer
-# GCGAAA. Primers differing by one base bind largely the same sites, so the
-# second buys little coverage while adding synthesis cost and dimer surface.
+# DISABLED BY DEFAULT ON MEASUREMENT, 2026-09-10. It shipped at 0.9 on the
+# reasoning that a permissive value would catch a large redundant primer
+# outranking a small independent one without refusing primers that genuinely
+# extend the panel. Swept across the three GC-tier pools at ten combinations of
+# tier and panel size, 0.9 is inert:
 #
-# The greedy picked the largest ABSOLUTE new coverage, which is not the same
-# thing: a primer with fifty sites, forty-eight already covered, beats a primer
-# with five sites all of which are new.
+#   threshold  cases  mean coverage change  min     max     skips fired
+#        1.00     10                 +0.00  +0.00   +0.00             0
+#        0.90     10                 -0.01  -0.07   +0.00       328,846
+#        0.50     10                 -0.84  -4.67   +0.00       544,540
+#        0.10     10                 -1.39  -9.20   +2.83       699,898
 #
-# The criterion is bin containment, not sequence similarity: the covered bin
-# sets are already in the graph, two primers can differ by one base and bind
-# different sites, and two unrelated sequences can bind the same places.
-# Hamming distance is the symptom, not the criterion. Set to 1.0 to disable.
+# It fires 328,846 times across that sweep and changes nothing. The two things
+# it was built to reduce -- pairs of near-identical primers and shared 3'
+# hexamers -- come out identical in all six cases where they were counted, and
+# coverage is identical in five of six.
 #
-# 0.9 means a candidate must contribute at least a tenth of its own covered
-# footprint as new coverage. That is deliberately permissive: the greedy already
-# prefers high marginal coverage, so this only has to catch a large redundant
-# primer outranking a small independent one, and a tighter value starts refusing
-# primers that genuinely extend the panel.
+# No threshold beats disabled on average, and the gains sit beside large losses
+# in the same tier: M. tuberculosis at n=36 gains 5.53 coverage points at 0.05
+# and loses 10.72 at 0.00.
 #
-# This sits alongside the dimer rejection guard as a sibling test on the same
-# scan. It is checked AFTER that guard, so a primer the dimer screen rejected
-# can never return through the redundancy fallback below.
+# The reason is structural, which is why tuning the number is not the answer: a
+# candidate more than 90% already covered has a small marginal gain by
+# construction, so the greedy's own argmax was never going to pick it. The
+# criterion and the objective are nearly the same signal. If redundancy is worth
+# attacking -- the audit counted 9 near-duplicate pairs in a delivered panel --
+# the criterion has to be one the greedy is not already optimising.
+#
+# The mechanism, its tests and this record are kept. Set a value below 1.0 to
+# re-enable it; costs nothing when off, measured at 0.359 s either way on the
+# E. coli pool at n=96.
 #
 # Audit finding A6.
-DEFAULT_REDUNDANCY_THRESHOLD = 0.9
+DEFAULT_REDUNDANCY_THRESHOLD = 1.0
 
 
 def coverage_bin_size(bin_size: int, extension_reach: int) -> int:
