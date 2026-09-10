@@ -1146,6 +1146,57 @@ def _scan_background_positions(primers, bg_prefixes, bg_genomes):
     string_search.clear_genome_cache()
 
 
+def _apply_exclusion_and_blacklist(filtered_rate_df):
+    """Drop candidates binding an exclusion genome or an over-frequent blacklist.
+
+    Both gates are configuration-gated and absent from most runs. Extracted
+    from ``step2`` so that function stays inside its length budget; the logic
+    and the order are unchanged.
+
+    Returns ``(filtered_rate_df, configured)``, where ``configured`` says
+    whether either gate actually ran. The funnel records this stage only when
+    it did: with neither configured the count equals ``after_thermodynamic``,
+    and reporting it as a stage is what made the funnel read as though
+    background filtering did nothing.
+    """
+    # Exclusion genome filtering (zero-tolerance by default)
+    excl_prefixes_val = getattr(parameter, "excl_prefixes", [])
+    excl_threshold_val = getattr(parameter, "excl_threshold", 0)
+    if excl_prefixes_val:
+        logger.info(f"Applying exclusion genome filter (threshold={excl_threshold_val})")
+        pre_excl_count = len(filtered_rate_df)
+        excl_mask = _filter_exclusion_genome(
+            filtered_rate_df["primer"].tolist(), excl_prefixes_val, excl_threshold_val
+        )
+        filtered_rate_df = filtered_rate_df[excl_mask]
+        logger.info(
+            f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
+            f"binding exclusion genome"
+        )
+
+    # Blacklist genome filtering (penalty-weighted)
+    bl_prefixes_val = getattr(parameter, "bl_prefixes", [])
+    bl_seq_lengths_val = getattr(parameter, "bl_seq_lengths", [])
+    max_bl_freq_val = getattr(parameter, "max_bl_freq", 0.0)
+    if bl_prefixes_val:
+        logger.info(f"Applying blacklist genome filter (max_bl_freq={max_bl_freq_val})")
+        pre_bl_count = len(filtered_rate_df)
+        bl_mask, bl_freqs = _filter_blacklist_penalty(
+            filtered_rate_df["primer"].tolist(),
+            bl_prefixes_val,
+            bl_seq_lengths_val,
+            max_bl_freq_val,
+        )
+        filtered_rate_df = filtered_rate_df.copy()
+        filtered_rate_df["bl_freq"] = bl_freqs
+        filtered_rate_df = filtered_rate_df[bl_mask]
+        logger.info(
+            f"Excluded {pre_bl_count - len(filtered_rate_df)} primers " f"binding blacklist genome"
+        )
+
+    return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
+
+
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -1216,10 +1267,19 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     with progress_context("Computing foreground/background rates"):
         rate_df = filter_module.get_all_rates(all_primers, **kwargs)
+    # Funnel stage counts for filter_stats.json (real filtering funnel in
+    # reports). The two gates are recorded separately: the background gate is
+    # the bg_bool term here, not the later `after_background` stage, which sits
+    # between two configuration-gated blocks and so could not filter at all on a
+    # run without a blacklist. Both booleans are still columns at this point, so
+    # splitting the row is two calls to len.
+    _funnel = {
+        "total_kmers": len(all_primers),
+        "after_fg_frequency": int(rate_df["fg_bool"].sum()),
+        "after_bg_frequency": int((rate_df["fg_bool"] & rate_df["bg_bool"]).sum()),
+    }
     filtered_rate_df = rate_df[(rate_df["fg_bool"]) & (rate_df["bg_bool"])]
     filtered_rate_df = filtered_rate_df.drop(["fg_bool", "bg_bool"], axis=1)
-    # Funnel stage counts for filter_stats.json (real filtering funnel in reports).
-    _funnel = {"total_kmers": len(all_primers), "after_frequency": len(filtered_rate_df)}
     logger.info(
         f"Filtered {len(rate_df) - len(filtered_rate_df)} primers based on foreground/background rate"
     )
@@ -1239,40 +1299,7 @@ def step2(all_primers=None, validate_prerequisites=True):
             f"(Tm, homopolymer, GC clamp, self-dimer)"
         )
 
-    # Exclusion genome filtering (zero-tolerance by default)
-    excl_prefixes_val = getattr(parameter, "excl_prefixes", [])
-    excl_threshold_val = getattr(parameter, "excl_threshold", 0)
-    if excl_prefixes_val:
-        logger.info(f"Applying exclusion genome filter (threshold={excl_threshold_val})")
-        pre_excl_count = len(filtered_rate_df)
-        excl_mask = _filter_exclusion_genome(
-            filtered_rate_df["primer"].tolist(), excl_prefixes_val, excl_threshold_val
-        )
-        filtered_rate_df = filtered_rate_df[excl_mask]
-        logger.info(
-            f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
-            f"binding exclusion genome"
-        )
-
-    # Blacklist genome filtering (penalty-weighted)
-    bl_prefixes_val = getattr(parameter, "bl_prefixes", [])
-    bl_seq_lengths_val = getattr(parameter, "bl_seq_lengths", [])
-    max_bl_freq_val = getattr(parameter, "max_bl_freq", 0.0)
-    if bl_prefixes_val:
-        logger.info(f"Applying blacklist genome filter (max_bl_freq={max_bl_freq_val})")
-        pre_bl_count = len(filtered_rate_df)
-        bl_mask, bl_freqs = _filter_blacklist_penalty(
-            filtered_rate_df["primer"].tolist(),
-            bl_prefixes_val,
-            bl_seq_lengths_val,
-            max_bl_freq_val,
-        )
-        filtered_rate_df = filtered_rate_df.copy()
-        filtered_rate_df["bl_freq"] = bl_freqs
-        filtered_rate_df = filtered_rate_df[bl_mask]
-        logger.info(
-            f"Excluded {pre_bl_count - len(filtered_rate_df)} primers " f"binding blacklist genome"
-        )
+    filtered_rate_df, _excl_or_bl_configured = _apply_exclusion_and_blacklist(filtered_rate_df)
 
     # Foreground position files, written BEFORE the Gini gate below, which reads
     # them. The background scan runs later, on the cut pool; see
@@ -1281,8 +1308,12 @@ def step2(all_primers=None, validate_prerequisites=True):
         filtered_rate_df["primer"], fg_prefixes, fg_genomes
     )
 
-    # Count after exclusion/blacklist (before Gini) for the funnel.
-    _funnel["after_background"] = len(filtered_rate_df)
+    # Count after exclusion/blacklist (before Gini) for the funnel. Recorded
+    # only when one of those filters is configured: with neither, this equals
+    # `after_thermodynamic` on every run, and reporting it as a stage is what
+    # made the funnel read as though background filtering did nothing.
+    if _excl_or_bl_configured:
+        _funnel["after_exclusion_blacklist"] = len(filtered_rate_df)
     with progress_context("Computing Gini index"):
         gini_df = filter_module.get_gini(
             fg_prefixes,
@@ -1300,6 +1331,11 @@ def step2(all_primers=None, validate_prerequisites=True):
     gini_df["ratio"] = gini_df["bg_count"] / gini_df["fg_count"].replace(0, np.nan)
     gini_df["ratio"] = gini_df["ratio"].fillna(float("inf"))
     filtered_gini_df = _rank_and_cut_candidates(gini_df, parameter.max_primer)
+
+    # The max_primer cut is usually the largest single reduction in the whole
+    # step -- 20,301 to 3,000 on one run, 85% of survivors -- and it used to
+    # appear only as `final_candidates`, under no stage name.
+    _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
     _scan_background_positions(filtered_gini_df["primer"], bg_prefixes, bg_genomes)
 

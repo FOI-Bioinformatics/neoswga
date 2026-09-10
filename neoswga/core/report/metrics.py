@@ -195,29 +195,45 @@ class FilteringStats:
     """Statistics from the filtering step."""
 
     total_kmers: int = 0
+    # Split gates. `after_frequency` and `after_background` are the pre-2026-09
+    # names, kept so a results directory produced before the split still
+    # renders. `after_background` was set from the same dataframe as
+    # `after_thermodynamic` with only configuration-gated blocks between them,
+    # so it was equal to it on every run without a blacklist.
+    after_fg_frequency: int = 0
+    after_bg_frequency: int = 0
     after_frequency: int = 0
     after_background: int = 0
-    after_gini: int = 0
     after_thermodynamic: int = 0
+    after_exclusion_blacklist: int = 0
+    after_gini: int = 0
     after_complexity: int = 0
+    after_max_primer_cut: int = 0
     final_candidates: int = 0
 
     def as_funnel(self) -> List[tuple]:
         """Return filtering stages as a funnel list, in actual pipeline order.
 
-        Order matches how the filter step applies stages (frequency ->
-        thermodynamic/sequence-quality -> exclusion/blacklist -> Gini -> cap),
-        so the rendered funnel is monotonically non-increasing. Intermediate
-        stages with a 0 count (not recorded) are skipped; the total and final
-        are always shown.
+        Order matches how the filter step applies stages (foreground frequency
+        -> background frequency -> thermodynamic/sequence-quality ->
+        exclusion/blacklist -> Gini -> max_primer cap), so the rendered funnel
+        is monotonically non-increasing. Intermediate stages with a 0 count
+        (not recorded) are skipped; the total and final are always shown.
+
+        `After frequency filter` and `After background/blacklist` appear only
+        for a legacy filter_stats.json that predates the split.
         """
         ordered = [
             ("Total k-mers", self.total_kmers),
             ("After frequency filter", self.after_frequency),
+            ("After foreground frequency", self.after_fg_frequency),
+            ("After background frequency", self.after_bg_frequency),
             ("After thermodynamic filter", self.after_thermodynamic),
             ("After background/blacklist", self.after_background),
+            ("After exclusion/blacklist", self.after_exclusion_blacklist),
             ("After Gini filter", self.after_gini),
             ("After complexity filter", self.after_complexity),
+            ("After max_primer cut", self.after_max_primer_cut),
             ("Final candidates", self.final_candidates),
         ]
         # Keep the endpoints; drop zero-count intermediate stages.
@@ -1040,11 +1056,15 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
                 # Only use fields that FilteringStats accepts
                 valid_fields = {
                     "total_kmers",
+                    "after_fg_frequency",
+                    "after_bg_frequency",
                     "after_frequency",
                     "after_background",
                     "after_gini",
                     "after_thermodynamic",
+                    "after_exclusion_blacklist",
                     "after_complexity",
+                    "after_max_primer_cut",
                     "final_candidates",
                 }
                 filtered_stats = {k: v for k, v in stats.items() if k in valid_fields}
