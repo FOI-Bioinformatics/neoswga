@@ -58,7 +58,7 @@ neoswga schema --dump > params.schema.json
 | `long_primer_mode` | boolean | - | `False` | - |
 | `max_bg_freq` | number | min: 0.0; max: 1.0 | - | - |
 | `max_bl_freq` | number | min: 0.0; max: 1.0 | `0.0` | Maximum permissible blacklist frequency; 0 = zero tolerance. |
-| `max_dimer_bp` | integer | min: 1; max: 15 | - | - |
+| `max_dimer_bp` | integer | min: 1; max: 7 | - | Longest complementary run tolerated between two different primers in a delivered set. Capped at 7 because the pairwise screen represents t-mers in a 4**8 code space: at 8 and above the matrix cannot be built, and the screen was previously disabled for the whole run with only a warning. Note that a pool supports a bounded panel size at a given threshold; measured on the shipped pools, max_dimer_bp 3 supports 29, 31 and 26 primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and 55. |
 | `max_gc_in_clamp` | integer | min: 0; max: 12 | `3` | Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets. |
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
 | `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
@@ -71,9 +71,11 @@ neoswga schema --dump > params.schema.json
 | `mg_conc` | number | min: 0.0; max: 20.0 | - | Mg2+ concentration (mM). Polymerase-aware default is used if absent. |
 | `min_amp_pred` | number | - | - | - |
 | `min_fg_freq` | number | min: 0.0; max: 1.0 | - | - |
+| `min_gini_sites` | integer | min: 1 | `3` | Minimum recorded binding sites, counted across both strands, before the Gini index of gap lengths is treated as a measurement. Below it the index is NaN and the primer is dropped by the evenness gate. One site gives no gap and two give a single gap whose Gini is identically 0.0, the best score available, so an unmeasurable primer used to outrank an evenly spread one. Lower it to 2 or 1 for a small target where single-site primers are most of the pool. |
 | `min_k` | integer | min: 4; max: 30 | - | Minimum primer length (bp). Polymerase-aware default is used if absent. |
 | `min_sample_count` | integer | min: 1 | - | - |
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
+| `mismatch_penalty` | number | min: 0; max: 20 | `4.0` | Per-mismatch Tm penalty in Celsius, used by the occupancy-weighted ranking in the filter step. A linear penalty is a simplification: real destabilisation depends on which bases mismatch and where. |
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
 | `nh4_conc` | number | min: 0.0; max: 1000.0 | `0.0` | NH4+ concentration (mM). The standard phi29 buffer supplies 20 mM NH4+ as 10 mM (NH4)2SO4. |
 | `num_primers` | integer | min: 1; max: 200 | `6` | - |
@@ -108,4 +110,15 @@ neoswga schema --dump > params.schema.json
 - See `docs/SWGA_SCIENCE.md` for theoretical background.
 - Use `neoswga validate-params -j params.json` to check a configuration
   against all validation layers (schema + ranges + interdependencies).
+- `num_primers` has no good default. `neoswga optimize` prints a marginal
+  coverage table (`pp/primer`) at the delivered size, which shows where extra
+  primers stop buying coverage and has no size limit. `--auto-size` estimates a
+  size from a coverage model without reading the candidate pool and is clamped
+  at 20 primers; `--show-frontier` builds a coverage against fg/bg ratio
+  frontier over the real pool, also up to 20. Both work on `optimize` and on
+  `design`. Neither weighs cost, and `--auto-size` does not weigh specificity,
+  so read its answer as the size that reaches a coverage target rather than as
+  the best size. On the measured sweeps coverage rises monotonically while
+  selectivity density peaks near n=32 for M. tuberculosis and is already
+  falling by n=32 for E. coli.
 

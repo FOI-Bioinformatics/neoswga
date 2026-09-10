@@ -19,6 +19,7 @@ from neoswga.cli._common import (
     set_size_shortfall_advice,
     setup_gpu_acceleration,
     validate_params_json_file,
+    warn_on_condition_drift,
 )
 from neoswga.cli._optimize_parser import _add_optimize_option_groups
 from neoswga.cli._params_preread import (
@@ -27,18 +28,19 @@ from neoswga.cli._params_preread import (
     polymerase_from_params,
     target_size_from_params,
 )
+from neoswga.cli._step4_reporting import (
+    _report_marginal_coverage,
+    _report_pareto_frontier,
+)
 
 logger = logging.getLogger(__name__)
 
 # Catchable at module level so the step handlers' except clauses resolve it.
-try:
-    from neoswga.core.pipeline import StepPrerequisiteError
-except ImportError:  # pragma: no cover - defensive
-
-    class StepPrerequisiteError(Exception):
-        """Raised when a pipeline step's prerequisites are not satisfied."""
-
-        pass
+# Imported from `core.exceptions` rather than `core.pipeline`: the latter
+# reaches scikit-learn through `rf_preprocessing`. The previous try/except
+# ImportError fallback defined a *different* class, which would not have
+# caught what `core/pipeline.py` raises.
+from neoswga.core.exceptions import StepPrerequisiteError
 
 
 def run_step1(args):
@@ -135,9 +137,15 @@ def run_step1(args):
             + list(getattr(parameter, "bg_genomes", []) or [])
             + list(getattr(parameter, "bl_genomes", []) or [])
         )
-        _record_run_manifest("count-kmers", args, parameter, input_files=_step1_inputs)
 
         _elapsed = _time.time() - _t0
+        _record_run_manifest(
+            "count-kmers",
+            args,
+            parameter,
+            input_files=_step1_inputs,
+            extra={"elapsed_seconds": round(_elapsed, 3)},
+        )
         logger.info(f"Step 1 complete in {_elapsed:.1f}s")
         if not args.quiet:
             print("\nNext: neoswga filter -j params.json")
@@ -352,10 +360,16 @@ def run_step2(args):
         sys.exit(1)
     _data_dir = getattr(parameter, "data_dir", None)
     _step2_out = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
-    _record_run_manifest(
-        "filter", args, parameter, input_files=[_step2_out] if _step2_out else None
-    )
     _elapsed = _time.time() - _t0
+    _record_run_manifest(
+        "filter",
+        args,
+        parameter,
+        input_files=list(getattr(parameter, "fg_genomes", []) or [])
+        + list(getattr(parameter, "bg_genomes", []) or []),
+        output_files=[_step2_out] if _step2_out else None,
+        extra={"elapsed_seconds": round(_elapsed, 3)},
+    )
     logger.info(f"Step 2 complete in {_elapsed:.1f}s")
 
 
@@ -403,15 +417,13 @@ def run_step3(args):
 
         report_unimplemented_options(args)
 
-        # Scoring mode: fast (skip delta-G histograms) is the default.
-        # --full-score opts back in to the full RF feature set.
-        if getattr(args, "full_score", False):
-            parameter.fast_score = False
-            logger.info("Full scoring: computing thermodynamic histogram features (slow)")
-        else:
-            parameter.fast_score = True
-            if getattr(args, "fast_score", False):
-                logger.info("--fast-score is now the default; flag is a no-op")
+        # The delta-G histogram features are always skipped. The flag that
+        # computed them cost 767.6 s against 6.1 s on a 449-candidate pool for a
+        # mean absolute score change of 0.0016, Pearson 1.0000 and an identical
+        # delivered order, so it was removed on 2026-09-10.
+        parameter.fast_score = True
+        if getattr(args, "fast_score", False):
+            logger.info("--fast-score is now the default; flag is a no-op")
 
         # Run step3, then blend the QA scores into what it wrote
         pipeline.step3()
@@ -447,10 +459,15 @@ def run_step3(args):
     _data_dir = getattr(parameter, "data_dir", None)
     _step3_in = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
     _step3_out = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
-    _record_run_manifest(
-        "score", args, parameter, input_files=[p for p in [_step3_in, _step3_out] if p]
-    )
     _elapsed = _time.time() - _t0
+    _record_run_manifest(
+        "score",
+        args,
+        parameter,
+        input_files=[p for p in [_step3_in] if p],
+        output_files=[p for p in [_step3_out] if p],
+        extra={"elapsed_seconds": round(_elapsed, 3)},
+    )
     logger.info(f"Step 3 complete in {_elapsed:.1f}s")
 
 
@@ -898,6 +915,15 @@ def run_step4(args):
             )
         )
 
+        # `filter` carries sixteen chemistry flags and a --preset; this step
+        # carries none, so a preset applied there does not reach here. This is
+        # the first point at which the comparison is possible: `get_params`
+        # runs inside `optimize_step4`, so before that call every reaction
+        # global still holds its module default and the check compares the
+        # recorded filter step against nothing. See `cli/_params_preread.py`
+        # for the same trap in two other places.
+        warn_on_condition_drift(parameter, reference_step="filter")
+
         if results:
             target_size = getattr(parameter, "num_primers", 6)
             target_size = getattr(parameter, "target_set_size", target_size)
@@ -909,6 +935,7 @@ def run_step4(args):
                     num_found, target_size, resolve_optimization_method(args)
                 ):
                     logger.warning(line)
+            _report_marginal_coverage(parameter, cache, results[0])
         else:
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)
@@ -975,104 +1002,16 @@ def run_step4(args):
                     )
 
         # Show Pareto frontier analysis (optional)
-        if show_frontier and results and cache is not None:
-            try:
-                import pandas as pd
-
-                from neoswga.core.pareto_frontier import (
-                    generate_frontier_report,
-                    plot_frontier,
-                    summarize_frontier_for_cli,
-                )
-                from neoswga.core.set_size_optimizer import (
-                    ParetoFrontierGenerator,
-                    select_from_frontier,
-                )
-
-                logger.info("")
-                logger.info("=" * 60)
-                logger.info("Pareto Frontier Analysis")
-                logger.info("=" * 60)
-
-                # Load step2 or step3 DataFrame for primer pool
-                data_dir = parameter.data_dir
-                step3_file = os.path.join(data_dir, "step3_df.csv")
-                step2_file = os.path.join(data_dir, "step2_df.csv")
-
-                if os.path.exists(step3_file):
-                    primer_pool = pd.read_csv(step3_file)
-                elif os.path.exists(step2_file):
-                    primer_pool = pd.read_csv(step2_file)
-                else:
-                    raise FileNotFoundError("No primer pool CSV found")
-
-                # Get genome lengths
-                fg_lengths = getattr(parameter, "fg_lengths", [1_000_000])
-                bg_lengths = getattr(parameter, "bg_lengths", [])
-                fg_prefixes = parameter.fg_prefixes
-                bg_prefixes = getattr(parameter, "bg_prefixes", [])
-
-                # Create frontier generator. The generator uses `processivity`
-                # as the coverage read-length, so pass the REALISTIC per-primer
-                # reach (phi29 ~3 kb), not single-molecule processivity (70 kb),
-                # which would inflate the frontier's coverage estimates.
-                from neoswga.core.coverage import polymerase_extension_reach
-
-                _frontier_reach = polymerase_extension_reach(
-                    getattr(parameter, "polymerase", "phi29") or "phi29",
-                    coverage_metric="realistic",
-                )
-                generator = ParetoFrontierGenerator(
-                    primer_pool=primer_pool,
-                    position_cache=cache,
-                    fg_prefixes=fg_prefixes,
-                    bg_prefixes=bg_prefixes,
-                    fg_seq_lengths=fg_lengths,
-                    bg_seq_lengths=bg_lengths,
-                    processivity=_frontier_reach,
-                )
-
-                # Generate frontier (quick estimation only if requested)
-                frontier_result = generator.generate_frontier(
-                    min_size=4,
-                    max_size=min(20, len(primer_pool)),
-                    quick_only=quick_estimate,
-                    verbose=not args.quiet,
-                )
-
-                # Select from frontier based on application
-                selected, explanation = select_from_frontier(
-                    frontier_result.pareto_points,
-                    application=application,
-                    min_fg_bg_ratio=min_fg_bg_ratio,
-                )
-                frontier_result.selected_point = selected
-                frontier_result.selection_explanation = explanation
-
-                # Display summary
-                logger.info(summarize_frontier_for_cli(frontier_result, application))
-                logger.info("")
-                logger.info(explanation)
-
-                # Try to save plot
-                try:
-                    fig = plot_frontier(frontier_result, application=application)
-                    plot_path = os.path.join(data_dir, "pareto_frontier.png")
-                    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
-                    logger.info(f"Pareto frontier plot saved to: {plot_path}")
-                    import matplotlib.pyplot as plt
-
-                    plt.close(fig)
-                except Exception as e:
-                    logger.debug(f"Could not save frontier plot: {e}")
-
-                logger.info("=" * 60)
-
-            except Exception as e:
-                logger.warning(f"Pareto frontier analysis failed: {e}")
-                import traceback
-
-                logger.debug(traceback.format_exc())
+        _report_pareto_frontier(
+            args,
+            parameter,
+            results,
+            cache,
+            show_frontier,
+            application,
+            quick_estimate,
+            min_fg_bg_ratio,
+        )
 
         # Phase 5: Stochastic validation (optional)
         validate_simulation = getattr(args, "validate_simulation", False)
@@ -1161,11 +1100,23 @@ def run_step4(args):
         _data_dir = getattr(parameter, "data_dir", None)
         _step4_in = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
         _step4_out = os.path.join(_data_dir, "step4_improved_df.csv") if _data_dir else None
-        _record_run_manifest(
-            "optimize", args, parameter, input_files=[p for p in [_step4_in, _step4_out] if p]
-        )
 
         _elapsed = _time.time() - _t0
+        _record_run_manifest(
+            "optimize",
+            args,
+            parameter,
+            input_files=[p for p in [_step4_in] if p],
+            output_files=[p for p in [_step4_out] if p],
+            extra={
+                "elapsed_seconds": round(_elapsed, 3),
+                # resolved_params is a verbatim copy of params.json, so a run
+                # invoked with `-n 160` is recorded there as whatever the file
+                # said. This is the number the run actually used.
+                "effective_set_size": getattr(parameter, "num_primers", None),
+                "optimization_method": resolve_optimization_method(args),
+            },
+        )
         logger.info(f"Step 4 complete in {_elapsed:.1f}s")
         if not args.quiet:
             data_dir = getattr(parameter, "data_dir", ".")
@@ -1466,6 +1417,14 @@ def add_parsers(subparsers):
     step2_trad_group.add_argument(
         "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.6)"
     )
+    filter_parser.add_argument(
+        "--min-gini-sites",
+        type=int,
+        help="Minimum recorded binding sites before the Gini index is treated "
+        "as a measurement (default: 3). Below it the index is NaN and the "
+        "primer is dropped. Lower it to 2 or 1 for a small target where "
+        "single-site primers are most of the pool.",
+    )
     step2_trad_group.add_argument(
         "--max-primer", type=int, help="Number of top primers to keep (default: 500)"
     )
@@ -1566,15 +1525,6 @@ def add_parsers(subparsers):
         help="Minimum amplification prediction score (default: 10). "
         "Requires --amp-model; without it the gate is retired and this "
         "value does nothing.",
-    )
-    score_parser.add_argument(
-        "--full-score",
-        action="store_true",
-        help="Include thermodynamic delta-G histogram features in "
-        "random-forest scoring. These features contribute <2%% of "
-        "model accuracy but >99%% of scoring compute time, so they "
-        "are skipped by default. Pass this flag only if you need "
-        "the full histogram output for downstream analysis.",
     )
     score_parser.add_argument(
         "--fast-score",

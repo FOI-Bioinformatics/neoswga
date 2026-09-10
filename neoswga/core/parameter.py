@@ -99,6 +99,53 @@ SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is d
   Pin values explicitly in params.json if you need to reproduce an older run."""
 
 
+def _resolve_data_dir(args, data):
+    """The run's output directory, as an absolute path.
+
+    `data_dir` is a module global that persists for the life of the process,
+    and the shipped plasmid example carries the relative "./". A relative value
+    re-resolves against whatever the working directory happens to be later, so
+    a value left behind by one test wrote another's pipeline outputs into the
+    repository root -- which `.gitignore` had a section for rather than a fix.
+
+    Absolute means a stale value points at the wrong run's directory, which is
+    visible, rather than at "here", which is not.
+    """
+    value = get_value_or_default(args.data_dir, data, "data_dir")
+    if isinstance(value, str) and value:
+        return os.path.abspath(value)
+    return value
+
+
+def _resolve_min_gini_sites(args, data) -> int:
+    """The configured minimum site count for the Gini gate, always an int.
+
+    `getattr`, not `args.min_gini_sites`. Every other key resolved beside this
+    one predates any current caller, but this one is new, and a programmatic
+    caller that builds its own args object -- which several test modules and
+    any library user do -- would otherwise raise AttributeError on an option it
+    has never heard of. Seventeen tests did exactly that.
+
+    The explicit None test rather than `or`: 0 is not a meaningful site count,
+    but truthiness would also swallow it, and several test modules replace this
+    module with a MagicMock whose every attribute is truthy.
+    """
+    value = get_value_or_default(getattr(args, "min_gini_sites", None), data, "min_gini_sites")
+    return _default_min_gini_sites() if value is None else int(value)
+
+
+def _default_min_gini_sites() -> int:
+    """The default minimum site count for the Gini gate.
+
+    Imported lazily because `primer_attributes` reaches this module through its
+    own import chain, so a module-scope import here is a cycle. There is one
+    definition of the number and it lives beside the code that applies it.
+    """
+    from neoswga.core.primer_attributes import DEFAULT_MIN_GINI_SITES
+
+    return DEFAULT_MIN_GINI_SITES
+
+
 def default_mg_conc(polymerase: str) -> float:
     """Return the default Mg2+ concentration (mM) for a polymerase."""
     return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
@@ -293,7 +340,8 @@ class PipelineParameters:
     max_bg_freq: float = 5e-6
     min_tm: float = 15.0
     max_tm: float = 45.0
-    max_gini: float = 0.6
+    max_gini: float = 0.7
+    min_gini_sites: int = 3
     max_primer: int = 500
     # Unitless amplification prediction score (scale ~0-20). Combines Tm
     # optimality, GC content, 3' stability, and binding energy features.
@@ -419,7 +467,8 @@ def get_current_config() -> PipelineParameters:
         max_bg_freq=globals().get("max_bg_freq", 5e-6),
         min_tm=globals().get("min_tm", 15.0),
         max_tm=globals().get("max_tm", 45.0),
-        max_gini=globals().get("max_gini", 0.6),
+        max_gini=globals().get("max_gini", 0.7),
+        min_gini_sites=globals().get("min_gini_sites", _default_min_gini_sites()),
         max_primer=globals().get("max_primer", 500),
         min_amp_pred=globals().get("min_amp_pred", 10.0),
         max_dimer_bp=globals().get("max_dimer_bp", 3),
@@ -500,6 +549,7 @@ def set_from_config(config: PipelineParameters) -> None:
     g["min_tm"] = config.min_tm
     g["max_tm"] = config.max_tm
     g["max_gini"] = config.max_gini
+    g["min_gini_sites"] = config.min_gini_sites
     g["max_primer"] = config.max_primer
     g["min_amp_pred"] = config.min_amp_pred
 
@@ -814,15 +864,20 @@ def get_value_or_default(arg_value, data, key):
         "fg_circular",
         "bg_circular",
         "mismatch_penalty",
+        "min_gini_sites",
     }
     if arg_value is not None:
         return arg_value
     if key in data:
         return data[key]
     else:
-        if key in OPTIONAL_PARAMS:
-            logger.debug("Missing optional parameter '%s' in params.json, using default.", key)
-        else:
+        # An absent OPTIONAL_PARAMS key is not news: every one of the twelve has
+        # a documented, static default. Seven are absent from the shipped
+        # example config, which put seven debug lines at the head of every step
+        # log, one of them announcing a default for min_amp_pred, a gate that no
+        # longer runs without --amp-model. The direction worth reporting is a
+        # key the schema does not declare, which `unknown_param_keys` handles.
+        if key not in OPTIONAL_PARAMS:
             logger.warning("Missing parameter '%s' in params.json. Please provide a value.", key)
         return None
 
@@ -862,6 +917,63 @@ def _apply_params_only_keys(data: dict) -> None:
     optimization_method = data["optimization_method"] = data.get("optimization_method")
 
 
+def _warn_about_schema_version(data):
+    """Warn when params.json declares no schema version, or a different one.
+
+    Extracted from ``get_params`` unchanged, to keep that function inside its
+    length budget. The messages and the three branches are as they were.
+    """
+    schema_version = data.get("schema_version", None) if isinstance(data, dict) else None
+    if schema_version is None:
+        logger.warning(
+            "params.json has no 'schema_version' field. "
+            "Defaults may differ between NeoSWGA versions. "
+            f"Add '\"schema_version\": {CURRENT_SCHEMA_VERSION}' to your "
+            "params.json for reproducibility."
+        )
+    elif schema_version < CURRENT_SCHEMA_VERSION:
+        logger.warning(
+            f"params.json declares schema_version {schema_version}; this "
+            f"NeoSWGA uses version {CURRENT_SCHEMA_VERSION}. Several "
+            f"scientific constants were corrected in v2 and results will "
+            f"differ from a v1 run:\n"
+            f"{SCHEMA_V2_MIGRATION_NOTE}"
+        )
+    elif schema_version > CURRENT_SCHEMA_VERSION:
+        logger.warning(
+            f"params.json schema_version {schema_version} is newer than "
+            f"this NeoSWGA version supports (max: {CURRENT_SCHEMA_VERSION}). "
+            f"Some parameters may not be recognized."
+        )
+
+
+def _warn_about_unknown_keys(data):
+    """Warn about params.json keys the schema does not declare.
+
+    `validate params` runs the same check, but a user who never runs it still
+    gets one line here rather than a silently applied default: the schema sets
+    `additionalProperties: true`, so `max_bg_freqency` was accepted in silence
+    and the default for `max_bg_freq` applied, changing the design.
+
+    Never raises. A failure to check is not a reason to fail the run.
+    """
+    try:
+        from neoswga.core.param_validator import unknown_param_keys
+
+        for key, suggestion in unknown_param_keys(data):
+            if suggestion:
+                logger.warning(
+                    "Unknown parameter '%s' in params.json; it will be ignored. "
+                    "Did you mean '%s'?",
+                    key,
+                    suggestion,
+                )
+            else:
+                logger.warning("Unknown parameter '%s' in params.json; it will be ignored.", key)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Unknown-key check skipped: {e}")
+
+
 def get_params(args):
     """
     Writes the arguments of a pipeline instance to a json file for future use.
@@ -877,6 +989,7 @@ def get_params(args):
     global min_tm
     global max_tm
     global max_gini
+    global min_gini_sites
     global max_primer
     global min_amp_pred
     global cpus
@@ -952,32 +1065,9 @@ def get_params(args):
             # the same process does not leak prior params.json values.
             _json_data.clear()
             _json_data.update(data_extra)  # Store raw JSON for CLI access
+            _warn_about_unknown_keys(data_extra)
 
-            # Schema versioning
-            schema_version = (
-                data_extra.get("schema_version", None) if isinstance(data_extra, dict) else None
-            )
-            if schema_version is None:
-                logger.warning(
-                    "params.json has no 'schema_version' field. "
-                    "Defaults may differ between NeoSWGA versions. "
-                    f"Add '\"schema_version\": {CURRENT_SCHEMA_VERSION}' to your "
-                    "params.json for reproducibility."
-                )
-            elif schema_version < CURRENT_SCHEMA_VERSION:
-                logger.warning(
-                    f"params.json declares schema_version {schema_version}; this "
-                    f"NeoSWGA uses version {CURRENT_SCHEMA_VERSION}. Several "
-                    f"scientific constants were corrected in v2 and results will "
-                    f"differ from a v1 run:\n"
-                    f"{SCHEMA_V2_MIGRATION_NOTE}"
-                )
-            elif schema_version > CURRENT_SCHEMA_VERSION:
-                logger.warning(
-                    f"params.json schema_version {schema_version} is newer than "
-                    f"this NeoSWGA version supports (max: {CURRENT_SCHEMA_VERSION}). "
-                    f"Some parameters may not be recognized."
-                )
+            _warn_about_schema_version(data_extra)
 
             for k, v in data_extra.items():
                 if k not in data:
@@ -987,7 +1077,7 @@ def get_params(args):
     num_primers = data.get("num_primers", data.get("target_set_size", 6))
     target_set_size = data.get("target_set_size", num_primers)
 
-    data_dir = data["data_dir"] = get_value_or_default(args.data_dir, data, "data_dir")
+    data_dir = data["data_dir"] = _resolve_data_dir(args, data)
     src_dir = data["src_dir"] = get_value_or_default(args.src_dir, data, "src_dir")
     min_fg_freq = data["min_fg_freq"] = get_value_or_default(args.min_fg_freq, data, "min_fg_freq")
     max_bg_freq = data["max_bg_freq"] = get_value_or_default(args.max_bg_freq, data, "max_bg_freq")
@@ -996,6 +1086,7 @@ def get_params(args):
     max_tm = data["max_tm"] = get_value_or_default(args.max_tm, data, "max_tm")
 
     max_gini = data["max_gini"] = get_value_or_default(args.max_gini, data, "max_gini")
+    min_gini_sites = data["min_gini_sites"] = _resolve_min_gini_sites(args, data)
     max_primer = data["max_primer"] = get_value_or_default(args.max_primer, data, "max_primer")
     min_amp_pred = data["min_amp_pred"] = get_value_or_default(
         args.min_amp_pred, data, "min_amp_pred"
@@ -1340,29 +1431,43 @@ def get_params(args):
     # This enables adaptive GC filtering for extreme GC genomes
     if "genome_gc" not in data or data["genome_gc"] is None:
         if "fg_genomes" in data and len(data["fg_genomes"]) > 0:
-            try:
-                gc_count = 0
-                total_length = 0
+            # The FASTA read costs about 0.30 s on a 4.6 Mb target and scales
+            # with target size, and every one of the four pipeline steps does
+            # it for a value that cannot change within a run.
+            from neoswga.core.genome_gc_cache import read_cached_gc, write_cached_gc
 
-                # Use genome_io for automatic gzip/zip detection
-                import neoswga.core.genome_io as genome_io
+            cached = read_cached_gc(data.get("data_dir"), data["fg_genomes"])
+            if cached is not None:
+                data["genome_gc"] = cached
+            else:
+                try:
+                    gc_count = 0
+                    total_length = 0
 
-                loader = genome_io.GenomeLoader()
+                    # Use genome_io for automatic gzip/zip detection
+                    import neoswga.core.genome_io as genome_io
 
-                for fg_genome in data["fg_genomes"]:
-                    # Load genome with automatic compression detection
-                    sequence = loader.load_genome(fg_genome, return_stats=False)
-                    seq_upper = sequence.upper()
-                    gc_count += seq_upper.count("G") + seq_upper.count("C")
-                    total_length += len(seq_upper)
+                    loader = genome_io.GenomeLoader()
 
-                if total_length > 0:
-                    data["genome_gc"] = gc_count / total_length
-                else:
+                    for fg_genome in data["fg_genomes"]:
+                        # Load genome with automatic compression detection
+                        sequence = loader.load_genome(fg_genome, return_stats=False)
+                        seq_upper = sequence.upper()
+                        gc_count += seq_upper.count("G") + seq_upper.count("C")
+                        total_length += len(seq_upper)
+
+                    if total_length > 0:
+                        data["genome_gc"] = gc_count / total_length
+                        write_cached_gc(
+                            data.get("data_dir"),
+                            data["fg_genomes"],
+                            data["genome_gc"],
+                        )
+                    else:
+                        data["genome_gc"] = None
+                except Exception as e:
+                    logger.debug(f"Ignored error calculating genome GC: {e}")
                     data["genome_gc"] = None
-            except Exception as e:
-                logger.debug(f"Ignored error calculating genome GC: {e}")
-                data["genome_gc"] = None
         else:
             data["genome_gc"] = None
 

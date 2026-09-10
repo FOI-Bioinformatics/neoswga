@@ -50,6 +50,68 @@ def _overcount(st: str, pattern: str) -> int:
     return count
 
 
+# Allawi and SantaLucia (1997) nearest-neighbor parameters, at module scope so
+# they are built once rather than once per call.
+_DH_COEFFS = {
+    "AA": -7.9,
+    "TT": -7.9,
+    "AT": -7.2,
+    "TA": -7.2,
+    "CA": -8.5,
+    "TG": -8.5,
+    "GT": -8.4,
+    "AC": -8.4,
+    "CT": -7.8,
+    "AG": -7.8,
+    "GA": -8.2,
+    "TC": -8.2,
+    "CG": -10.6,
+    "GC": -9.8,
+    "GG": -8.0,
+    "CC": -8.0,
+}
+_DS_COEFFS = {
+    "AA": -22.2,
+    "TT": -22.2,
+    "AT": -20.4,
+    "TA": -21.3,
+    "CA": -22.7,
+    "TG": -22.7,
+    "GT": -22.4,
+    "AC": -22.4,
+    "CT": -21.0,
+    "AG": -21.0,
+    "GA": -22.2,
+    "TC": -22.2,
+    "CG": -27.2,
+    "GC": -24.4,
+    "GG": -19.9,
+    "CC": -19.9,
+}
+
+
+def _nn_sums(s: str):
+    """Nearest-neighbor enthalpy and entropy contributions, in one pass.
+
+    This replaces 32 calls to `_overcount` -- one per coefficient per table,
+    each a full `str.find` scan of the sequence. The result is identical:
+    overlapping occurrences of a 2-mer are exactly the sliding-window
+    matches this loop counts.
+
+    A dinucleotide absent from the tables (an ambiguous base, for instance)
+    contributes nothing, which is what the scan form did.
+    """
+    dh = 0.0
+    ds = 0.0
+    for i in range(len(s) - 1):
+        pair = s[i : i + 2]
+        coeff = _DH_COEFFS.get(pair)
+        if coeff is not None:
+            dh += coeff
+            ds += _DS_COEFFS[pair]
+    return dh, ds
+
+
 def _tercorr(st: str):
     """Terminal correction for initiation parameters."""
     dh = 0.0
@@ -102,45 +164,9 @@ def temp(
     k = DNA_c * 1e-9
 
     # Allawi and SantaLucia (1997) nearest-neighbor parameters.
-    dh_coeffs = {
-        "AA": -7.9,
-        "TT": -7.9,
-        "AT": -7.2,
-        "TA": -7.2,
-        "CA": -8.5,
-        "TG": -8.5,
-        "GT": -8.4,
-        "AC": -8.4,
-        "CT": -7.8,
-        "AG": -7.8,
-        "GA": -8.2,
-        "TC": -8.2,
-        "CG": -10.6,
-        "GC": -9.8,
-        "GG": -8.0,
-        "CC": -8.0,
-    }
-    ds_coeffs = {
-        "AA": -22.2,
-        "TT": -22.2,
-        "AT": -20.4,
-        "TA": -21.3,
-        "CA": -22.7,
-        "TG": -22.7,
-        "GT": -22.4,
-        "AC": -22.4,
-        "CT": -21.0,
-        "AG": -21.0,
-        "GA": -22.2,
-        "TC": -22.2,
-        "CG": -27.2,
-        "GC": -24.4,
-        "GG": -19.9,
-        "CC": -19.9,
-    }
-
-    dh += sum(_overcount(s, pair) * coeff for pair, coeff in dh_coeffs.items())
-    ds += sum(_overcount(s, pair) * coeff for pair, coeff in ds_coeffs.items())
+    _dh, _ds = _nn_sums(s)
+    dh += _dh
+    ds += _ds
 
     # GC fraction.
     # NOTE: The original ``melt`` package has a bug on this line:

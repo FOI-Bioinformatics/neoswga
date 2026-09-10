@@ -299,7 +299,11 @@ def run_analyze_coverage(args):
     bg_prefixes = core_pipeline.bg_prefixes
     bg_seq_lengths = core_pipeline.bg_seq_lengths
 
-    cache = PositionCache(fg_prefixes, list(set(primers)) or ["A" * 8])
+    # Built over the background prefixes too. `get_positions` answers a
+    # prefix the cache was not built over with an empty array, silently, so an
+    # fg-only cache made every background lookup below read zero -- which is
+    # indistinguishable downstream from a perfectly specific panel.
+    cache = PositionCache(fg_prefixes + bg_prefixes, list(set(primers)) or ["A" * 8])
     expander = PrimerExpander(
         position_cache=cache,
         fg_prefixes=fg_prefixes,
@@ -440,7 +444,11 @@ def run_predict_efficiency(args):
         # Initialize position cache
         if not quiet:
             logger.info("Loading position data...")
-        cache = PositionCache(fg_prefixes, primers)
+        # Built over the background prefixes too. `get_positions` answers a
+        # prefix the cache was not built over with an empty array, silently, so an
+        # fg-only cache made every background lookup below read zero -- which is
+        # indistinguishable downstream from a perfectly specific panel.
+        cache = PositionCache(fg_prefixes + bg_prefixes, primers)
 
         # Load genome sequence if simulation requested
         genome_sequence = None
@@ -586,8 +594,6 @@ def run_design(args):
         "no_background": False,
         "use_mechanistic_model": False,
         "mechanistic_weight": 0.3,
-        "auto_size": False,
-        "application": "enrichment",
         "validate_with_simulation": False,
         "method_guide": False,
         "no_bg_prefilter": False,
@@ -595,6 +601,13 @@ def run_design(args):
         "use_position_cache": True,
         "use_background_filter": False,
         "enable_qa": False,
+        # The set-size flags are registered on the design subparser, so a user
+        # who passes one gets it and the `hasattr` guard below leaves it alone.
+        # These remain for a caller that builds an args namespace by hand.
+        "show_frontier": False,
+        "quick_estimate": False,
+        "min_fg_bg_ratio": None,
+        "template_gc": None,
     }
     for attr, default in optimize_defaults.items():
         if not hasattr(args, attr):
@@ -667,16 +680,13 @@ def _add_calibrate_reach_parser(subparsers):
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
 
 
-def add_parsers(subparsers):
-    """Register this group's subcommands on the shared subparsers object.
+def _add_design_parser(subparsers):
+    """Register the one-shot `design` command.
 
-    Called by neoswga.cli_unified.create_parser(). Extracted from the former
-    monolithic create_parser() so each command group owns its argparse setup
-    next to its handlers.
+    Extracted from ``add_parsers`` unchanged, to keep that function inside
+    its length budget. `design` is the largest single parser block there.
     """
-    import argparse  # noqa: F401  (used by some command blocks)
-
-    from neoswga.cli._common import add_common_options  # noqa: F401
+    from neoswga.cli._common import add_common_options
 
     design_parser = subparsers.add_parser(
         "design", help="Run complete primer design pipeline (all 4 steps sequentially)"
@@ -710,6 +720,68 @@ def add_parsers(subparsers):
         choices=[1, 2, 3, 4],
         help="Stop at step: 1=count-kmers, 2=filter, 3=score, 4=optimize",
     )
+
+    # Set size. These reach `run_step4`, which is what `design` calls for step
+    # 4, but the design subparser did not define them and the defaults
+    # namespace below fixed auto_size False, so a one-shot user had no route to
+    # either. Registering them here is sufficient: that loop guards on
+    # `hasattr`, so a flag the user passed is left alone.
+    design_size_group = design_parser.add_argument_group("Set Size & Application")
+    design_size_group.add_argument(
+        "--auto-size",
+        action="store_true",
+        help="Estimate the primer count needed to reach the application "
+        "profile's target coverage under the configured chemistry, and use "
+        "it instead of num_primers. This is a coverage estimate: it does not "
+        "read the candidate pool and does not weigh specificity. Capped at 20.",
+    )
+    design_size_group.add_argument(
+        "--show-frontier",
+        action="store_true",
+        help="Build a coverage against fg/bg ratio frontier over the candidate "
+        "pool from 4 to 20 primers and report where the trade-off sits.",
+    )
+    design_size_group.add_argument(
+        "--quick-estimate",
+        action="store_true",
+        help="Use quick estimation only for --auto-size (skip full "
+        "optimization at multiple sizes)",
+    )
+    design_size_group.add_argument(
+        "--application",
+        type=str,
+        choices=["balanced", "discovery", "clinical", "enrichment", "metagenomics"],
+        default="enrichment",
+        help="Application profile: balanced, discovery (maximize sensitivity), "
+        "clinical (minimize false positives), enrichment (balanced, the "
+        "default), metagenomics (capture diversity). Drives --auto-size and "
+        "tunes normalized_score weights.",
+    )
+    design_size_group.add_argument(
+        "--min-fg-bg-ratio",
+        type=float,
+        help="Minimum foreground/background binding site ratio. Overrides the "
+        "application profile default.",
+    )
+    design_size_group.add_argument(
+        "--template-gc",
+        type=float,
+        help="Template genome GC content (0-1). Auto-detected if not specified.",
+    )
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    _add_design_parser(subparsers)
 
     # =========================================================================
     # UTILITY: Build background filter

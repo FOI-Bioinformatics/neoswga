@@ -140,7 +140,11 @@ def run_expand_primers(args):
         if not quiet:
             logger.info("Loading position data...")
 
-        cache = PositionCache(fg_prefixes, all_primers)
+        # Built over the background prefixes too. `get_positions` answers a
+        # prefix the cache was not built over with an empty array, silently, so an
+        # fg-only cache made every background lookup below read zero -- which is
+        # indistinguishable downstream from a perfectly specific panel.
+        cache = PositionCache(fg_prefixes + bg_prefixes, all_primers)
 
         # Create expander
         expander = PrimerExpander(
@@ -881,14 +885,14 @@ def add_parsers(subparsers):
     expand_parser.add_argument(
         "--optimization-method",
         default="hybrid",
-        choices=[
-            "hybrid",
-            "dominating-set",
-            "network",
-            "background-aware",
-            "clique",
-            "ensemble",
-        ],
+        # Only what `PrimerExpander.expand` implements. This listed all six
+        # methods `optimize` offers, and the three it does not implement fell
+        # through to a branch that ran hybrid and logged a warning, so
+        # `--optimization-method network` on this command was a no-op that
+        # looked like a choice. `expand` now raises on an unsupported method;
+        # argparse rejecting it here turns that into a message before the run
+        # rather than after the cache is built.
+        choices=["hybrid", "background-aware", "dominating-set"],
         help="Optimization method (default: hybrid)",
     )
     expand_parser.add_argument(

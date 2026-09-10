@@ -160,9 +160,14 @@ examples/**/filter_stats.json
 examples/**/*technical_report.html
 examples/ecoli_environmental/ecoli_K12_MG1655.fasta
 
-# Root-level pipeline run artifacts
-/step4_improved_df_validation.json
-/step*_df.csv
+# Diagnostic written only when the suite has failures; see
+# tests/test_failure_context_is_recorded.py.
+.pytest_failure_context.json
+
+# Root-level pipeline run artifacts used to be ignored here. They are not any
+# more: a run that writes into the repository root is a defect, and hiding the
+# file left the defect in place. tests/test_the_suite_leaves_no_files_behind.py
+# fails if one reappears.
 
 # Local planning/spec scratch (not part of the package)
 docs/superpowers/

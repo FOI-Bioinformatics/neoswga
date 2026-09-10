@@ -108,8 +108,42 @@ def _load_positions_from_h5(primer_list, fname_prefix):
 
 
 # This probably belongs in a different file--its not a primer attribute.
+# Below this many recorded binding sites, the Gini index of gap lengths is not
+# a measurement of anything. One site gives no gap; two give a single gap,
+# whose Gini is identically 0.0 -- the BEST score available. `filter.get_gini`
+# keeps a primer when `gini.notna() & (gini < max_gini)`, so a 0.0 from an
+# unmeasurable primer passed the evenness gate on an absence of evidence.
+#
+# Measured on the shipped pools: 86% of the 10,000-primer Prevotella-vs-chr21
+# pool and 96.2% of the 500-row plasmid pool scored exactly 0.0, and every one
+# of those had two or fewer foreground sites. The three whole-genome GC-tier
+# pools have no rows at 0.0 at all, which is why this was invisible there.
+#
+# Three is the first count at which the number can vary. Sites are counted
+# across both strands together; a per-strand rule would reject every primer
+# that binds one strand only, which is a larger and separate change.
+#
+# This widens a narrower rule taken deliberately on 2026-08-01 in 0a40533,
+# which held that only a TOTAL absence of positions is unmeasurable. That rule
+# left a single-site primer scoring 0.0, the best value the gate can see.
+#
+# This is the DEFAULT, not a fixed rule. `min_gini_sites` in params.json and
+# --min-gini-sites on `filter` override it. The value is threaded in as an
+# argument rather than read from a module global here, because this function
+# runs in a multiprocessing worker and macOS spawns rather than forks, so a
+# global read inside the worker would see this default and not the configured
+# value.
+DEFAULT_MIN_GINI_SITES = 3
+
+
 def get_gini_from_txt_for_one_k(
-    primer_list, fname_prefix, fname_genome, seq_length, circular, position_cache=None
+    primer_list,
+    fname_prefix,
+    fname_genome,
+    seq_length,
+    circular,
+    position_cache=None,
+    min_sites=None,
 ):
     """
     Measures the gini index of the gaps between all adjacent positions any primer in primer_list may bind to.
@@ -125,6 +159,10 @@ def get_gini_from_txt_for_one_k(
         circular: Whether the genome is circular.
         position_cache: Optional dict mapping (prefix, primer) -> positions
             from get_positions(). Avoids HDF5 round-trip when available.
+        min_sites: Minimum combined forward-plus-reverse site count at which
+            evenness is considered measurable. ``None`` means
+            :data:`DEFAULT_MIN_GINI_SITES`. Passed as data rather than read
+            from a global because this runs in a multiprocessing worker.
 
     Returns:
         primer_to_ginis: A dictionary of primers to a tuple of the gini indices (the first being computed from the
@@ -154,25 +192,22 @@ def get_gini_from_txt_for_one_k(
             fname_prefix=fname_prefix,
         )
 
+    # None means "the default". The caller resolves the configured value and
+    # passes it in, because this function runs in a multiprocessing worker.
+    min_sites = DEFAULT_MIN_GINI_SITES if min_sites is None else int(min_sites)
+
     ginis = []
 
     for primer in primer_list:
-        # A primer with NO recorded positions has no evenness to measure. The
-        # Gini of an empty gap list is 0, which is the BEST possible score, so
-        # such a primer used to pass the evenness filter as if it were ideally
-        # spaced. `filter.get_gini` already guards with `.notna()`, aimed at
-        # exactly this risk, but the value produced was 0.0 rather than NaN so
-        # the guard never fired. NaN is the honest answer -- not measurable --
-        # and it makes that existing check work.
-        #
-        # A primer with one or more positions but no gaps (a single site, or a
-        # single site on a linear genome) still scores 0: there is data, it
-        # simply has no spacing to be uneven about. Only a total absence of
-        # positions is unmeasurable.
+        # Evenness of spacing is only measurable from enough sites to have more
+        # than one gap. See DEFAULT_MIN_GINI_SITES: below the threshold the
+        # honest answer is "not measurable", and NaN is what makes
+        # `filter.get_gini`'s existing `.notna()` guard fire. Returning 0.0
+        # instead handed the gate the best score available on no evidence.
         forward_positions = kmer_dict.get(primer, [])
         reverse_positions = kmer_dict.get(reverse_complement(primer), [])
 
-        if len(forward_positions) == 0 and len(reverse_positions) == 0:
+        if len(forward_positions) + len(reverse_positions) < min_sites:
             ginis.append((float("nan"), float("nan")))
             continue
 
@@ -194,23 +229,29 @@ def get_gini_from_txt_for_one_k_helper(args):
     """Multiprocessing wrapper for :func:`get_gini_from_txt_for_one_k`.
 
     Unpacks a positional-argument tuple and delegates to the underlying
-    function. Accepts either 5 or 6 elements; when 6 are provided the
-    last element is used as the position cache.
+    function. Accepts 5, 6 or 7 elements; the sixth is the position cache and
+    the seventh is the minimum site count. The count is passed rather than read
+    from the parameter module because this runs in a spawned worker, which
+    would see the module's import-time default instead of the configured value.
 
     Args:
         args: Tuple of (primer_list, fname_prefix, fname_genome,
-            seq_length, circular[, position_cache]).
+            seq_length, circular[, position_cache[, min_sites]]).
 
     Returns:
         dict mapping each primer to a (gini_forward, gini_reverse) tuple.
     """
-    if len(args) == 6:
-        primer_list, fname_prefix, fname_genome, seq_length, circular, position_cache = args
-    else:
-        primer_list, fname_prefix, fname_genome, seq_length, circular = args
-        position_cache = None
+    primer_list, fname_prefix, fname_genome, seq_length, circular = args[:5]
+    position_cache = args[5] if len(args) > 5 else None
+    min_sites = args[6] if len(args) > 6 else None
     return get_gini_from_txt_for_one_k(
-        primer_list, fname_prefix, fname_genome, seq_length, circular, position_cache
+        primer_list,
+        fname_prefix,
+        fname_genome,
+        seq_length,
+        circular,
+        position_cache,
+        min_sites=min_sites,
     )
 
 
@@ -238,6 +279,17 @@ def get_gini_from_txt(
 
     k_range = range(parameter.min_k, parameter.max_k + 1)
 
+    # Resolved here, in the parent, and passed as data. See the helper: a
+    # spawned worker reading the module global would see the import-time
+    # default rather than the configured value, and the parallel path would
+    # then disagree with the serial one on the same primers.
+    configured = getattr(parameter, "min_gini_sites", None)
+    min_sites = (
+        int(configured)
+        if isinstance(configured, int) and not isinstance(configured, bool) and configured > 0
+        else DEFAULT_MIN_GINI_SITES
+    )
+
     # When we have an in-memory cache, compute directly (no multiprocessing
     # needed since the data is already loaded -- avoids pickle overhead)
     if position_cache is not None:
@@ -253,6 +305,7 @@ def get_gini_from_txt(
                         seq_lengths[i],
                         circular,
                         position_cache,
+                        min_sites=min_sites,
                     )
                     results.append(result)
     else:
@@ -261,8 +314,18 @@ def get_gini_from_txt(
             for k in k_range:
                 primer_list_a = [primer for primer in primer_list if len(primer) == k]
                 if len(primer_list_a) > 0:
+                    # The explicit None in sixth position: the helper unpacks
+                    # positionally, so the site count has to sit seventh.
                     tasks.append(
-                        [primer_list_a, fg_prefix, fname_genomes[i], seq_lengths[i], circular]
+                        [
+                            primer_list_a,
+                            fg_prefix,
+                            fname_genomes[i],
+                            seq_lengths[i],
+                            circular,
+                            None,
+                            min_sites,
+                        ]
                     )
 
         # Use context manager to ensure proper pool cleanup (prevents resource leaks)

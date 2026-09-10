@@ -56,6 +56,12 @@ def test_position_cache_both_dedups_palindrome():
 
     pc = PositionCache.__new__(PositionCache)  # bypass HDF5 loading
     pc.cache = {}
+    # `get_positions` refuses a prefix the cache was not built over, so a
+    # hand-built object has to say which prefixes it stands for. Bypassing
+    # __init__ is the point of this test; without these two lines it would fail
+    # on the guard rather than on the merge logic it is about.
+    pc._indexed_prefixes = {"fg"}
+    pc.on_unindexed_prefix = "error"
     # A palindromic primer: forward and reverse keys hold the SAME positions.
     sites = np.array([10, 50, 90], dtype=np.int32)
     pc.cache[("fg", "AATT", "forward")] = sites
@@ -70,6 +76,12 @@ def test_position_cache_both_keeps_distinct_sites():
 
     pc = PositionCache.__new__(PositionCache)
     pc.cache = {}
+    # `get_positions` refuses a prefix the cache was not built over, so a
+    # hand-built object has to say which prefixes it stands for. Bypassing
+    # __init__ is the point of this test; without these two lines it would fail
+    # on the guard rather than on the merge logic it is about.
+    pc._indexed_prefixes = {"fg"}
+    pc.on_unindexed_prefix = "error"
     pc.cache[("fg", "ATCG", "forward")] = np.array([10, 20], dtype=np.int32)
     pc.cache[("fg", "ATCG", "reverse")] = np.array([30, 40], dtype=np.int32)
 

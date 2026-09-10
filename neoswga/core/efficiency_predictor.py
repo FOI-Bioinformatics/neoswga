@@ -650,7 +650,11 @@ def predict_efficiency(
     bg_seq_lengths = core_pipeline.bg_seq_lengths
 
     # Load position cache
-    cache = PositionCache(fg_prefixes, primers)
+    # Built over the background prefixes too. `get_positions` answers a
+    # prefix the cache was not built over with an empty array, silently, so an
+    # fg-only cache made every background lookup below read zero -- which is
+    # indistinguishable downstream from a perfectly specific panel.
+    cache = PositionCache(fg_prefixes + bg_prefixes, primers)
 
     # Load genome sequence if simulation requested
     genome_sequence = None

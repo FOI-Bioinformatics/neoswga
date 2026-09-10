@@ -6,7 +6,6 @@ import os
 import pickle
 import sys
 import warnings
-from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -14,8 +13,10 @@ import pandas as pd
 
 from neoswga.core import filter as filter_module
 from neoswga.core import parameter, rf_preprocessing, string_search, utility
+from neoswga.core.filter import check_gini_stage_kept_something
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
 from neoswga.core.progress import progress_context
+from neoswga.core.step3_ordering import _candidate_carry_columns, order_step3_rows
 
 logger = logging.getLogger(__name__)
 
@@ -112,36 +113,16 @@ def _filter_blacklist_penalty(
 # Step Prerequisite Validation
 # =============================================================================
 
-
-@dataclass
-class StepValidationResult:
-    """Result of step prerequisite validation."""
-
-    valid: bool
-    missing_files: List[str]
-    error_message: str
-    remediation: str
-
-
-class StepPrerequisiteError(Exception):
-    """Raised when step prerequisites are not met."""
-
-    def __init__(self, step: int, validation: StepValidationResult):
-        self.step = step
-        self.validation = validation
-        message = f"\n{'='*60}\n"
-        message += f"STEP {step} PREREQUISITE ERROR\n"
-        message += f"{'='*60}\n"
-        message += f"\n{validation.error_message}\n"
-        if validation.missing_files:
-            message += f"\nMissing files:\n"
-            for f in validation.missing_files[:5]:  # Show first 5
-                message += f"  - {f}\n"
-            if len(validation.missing_files) > 5:
-                message += f"  ... and {len(validation.missing_files) - 5} more\n"
-        message += f"\nTo fix this:\n  {validation.remediation}\n"
-        message += f"{'='*60}\n"
-        super().__init__(message)
+# Both names are defined in `core/exceptions.py` and re-exported here. They
+# moved on 2026-09-06 so that `cli_unified.py` could catch the exception
+# without importing this module, which imports `rf_preprocessing` and so
+# scikit-learn. `tests/test_pipeline.py` and
+# `tests/test_genome_inputs_are_checked_before_counting.py` import them from
+# here, and the re-exported objects are identical, so `except` clauses match.
+from neoswga.core.exceptions import (  # noqa: F401,E402
+    StepPrerequisiteError,
+    StepValidationResult,
+)
 
 
 def validate_step1_prerequisites(
@@ -463,7 +444,7 @@ def validate_index_covers_candidates(cache, fg_prefixes, n_candidates, refuse) -
 defaults = {
     "min_fg_freq": float(1 / 100000),
     "max_bg_freq": float(1 / 200000),
-    "max_gini": 0.6,
+    "max_gini": 0.7,
     "max_primer": 500,
     "min_amp_pred": 10,
     "min_tm": 15,
@@ -723,34 +704,6 @@ def _apply_gc_adaptive_defaults():
         logger.warning(f"Could not import GCAdaptiveStrategy: {e}")
     except Exception as e:
         logger.warning(f"Error applying GC-adaptive defaults: {e}")
-
-
-def order_step3_rows(df):
-    """A deterministic total order for the scored candidate pool.
-
-    `step3_df.csv` was written with `sort_values(by="gini")` alone. On a real
-    pool almost every row ties: 496 of 500 on the plasmid example share a gini
-    value. `sort_values` defaults to quicksort, which is not stable, so for
-    those rows the order was whatever the algorithm produced from the order the
-    rows happened to arrive in -- the same data from two different input orders
-    gave two different files, sharing 7 of the first 50 primers.
-
-    That would not matter if the optimizer ignored order. It does not. On the
-    E. coli pool at target size 24, dominating-set returned a set with a Jaccard
-    of 0.600 against the as-written order when the candidates were reversed, and
-    0.920 when they were shuffled. Up to 40% of the delivered oligos were
-    decided by a tie-break nobody chose.
-
-    Gini leads, as before; the primer sequence breaks ties. It is unique, so the
-    order is total, and it claims nothing about primer quality -- which is the
-    point. `amp_pred` is the obvious alternative and the evidence is against it:
-    selecting the top half of a pool by `amp_pred` and optimizing over it
-    produced the WORST of five half-pools, behind all three random halves and
-    behind the bottom half by the same measure.
-    """
-    if len(df) == 0:
-        return df
-    return df.sort_values(by=["gini", "primer"], kind="mergesort")
 
 
 def check_genome_inputs(paths):
@@ -1167,6 +1120,57 @@ def _scan_background_positions(primers, bg_prefixes, bg_genomes):
     string_search.clear_genome_cache()
 
 
+def _apply_exclusion_and_blacklist(filtered_rate_df):
+    """Drop candidates binding an exclusion genome or an over-frequent blacklist.
+
+    Both gates are configuration-gated and absent from most runs. Extracted
+    from ``step2`` so that function stays inside its length budget; the logic
+    and the order are unchanged.
+
+    Returns ``(filtered_rate_df, configured)``, where ``configured`` says
+    whether either gate actually ran. The funnel records this stage only when
+    it did: with neither configured the count equals ``after_thermodynamic``,
+    and reporting it as a stage is what made the funnel read as though
+    background filtering did nothing.
+    """
+    # Exclusion genome filtering (zero-tolerance by default)
+    excl_prefixes_val = getattr(parameter, "excl_prefixes", [])
+    excl_threshold_val = getattr(parameter, "excl_threshold", 0)
+    if excl_prefixes_val:
+        logger.info(f"Applying exclusion genome filter (threshold={excl_threshold_val})")
+        pre_excl_count = len(filtered_rate_df)
+        excl_mask = _filter_exclusion_genome(
+            filtered_rate_df["primer"].tolist(), excl_prefixes_val, excl_threshold_val
+        )
+        filtered_rate_df = filtered_rate_df[excl_mask]
+        logger.info(
+            f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
+            f"binding exclusion genome"
+        )
+
+    # Blacklist genome filtering (penalty-weighted)
+    bl_prefixes_val = getattr(parameter, "bl_prefixes", [])
+    bl_seq_lengths_val = getattr(parameter, "bl_seq_lengths", [])
+    max_bl_freq_val = getattr(parameter, "max_bl_freq", 0.0)
+    if bl_prefixes_val:
+        logger.info(f"Applying blacklist genome filter (max_bl_freq={max_bl_freq_val})")
+        pre_bl_count = len(filtered_rate_df)
+        bl_mask, bl_freqs = _filter_blacklist_penalty(
+            filtered_rate_df["primer"].tolist(),
+            bl_prefixes_val,
+            bl_seq_lengths_val,
+            max_bl_freq_val,
+        )
+        filtered_rate_df = filtered_rate_df.copy()
+        filtered_rate_df["bl_freq"] = bl_freqs
+        filtered_rate_df = filtered_rate_df[bl_mask]
+        logger.info(
+            f"Excluded {pre_bl_count - len(filtered_rate_df)} primers " f"binding blacklist genome"
+        )
+
+    return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
+
+
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -1225,22 +1229,38 @@ def step2(all_primers=None, validate_prerequisites=True):
         max_k = getattr(parameter, "max_k", 12)
         kmer_lengths = range(min_k, max_k + 1)
         with progress_context("Loading candidate k-mers"):
+            # The window comes from `filter._resolve_tm_window()` rather than
+            # from `getattr(parameter, "min_tm", None) or 15`. Those two
+            # disagreed: `or` treats a configured 0.0 as absent, and the fixed
+            # 15-55 fallback ignores the polymerase. The loader and the gate
+            # reading the same window, under the same conditions, is the point.
+            loader_tm_min, loader_tm_max = filter_module._resolve_tm_window()
             all_primers = get_primer_list_from_kmers(
                 fg_prefixes,
                 kmer_lengths=kmer_lengths,
-                min_tm=getattr(parameter, "min_tm", None) or 15,
-                max_tm=getattr(parameter, "max_tm", None) or 55,
+                min_tm=loader_tm_min,
+                max_tm=loader_tm_max,
                 gc_min=max(0.10, gc_min - 0.10),
                 gc_max=min(0.90, gc_max + 0.10),
+                conditions=filter_module._get_reaction_conditions(),
             )
         logger.info(f"Loaded {len(all_primers)} candidate primers")
 
     with progress_context("Computing foreground/background rates"):
         rate_df = filter_module.get_all_rates(all_primers, **kwargs)
+    # Funnel stage counts for filter_stats.json (real filtering funnel in
+    # reports). The two gates are recorded separately: the background gate is
+    # the bg_bool term here, not the later `after_background` stage, which sits
+    # between two configuration-gated blocks and so could not filter at all on a
+    # run without a blacklist. Both booleans are still columns at this point, so
+    # splitting the row is two calls to len.
+    _funnel = {
+        "total_kmers": len(all_primers),
+        "after_fg_frequency": int(rate_df["fg_bool"].sum()),
+        "after_bg_frequency": int((rate_df["fg_bool"] & rate_df["bg_bool"]).sum()),
+    }
     filtered_rate_df = rate_df[(rate_df["fg_bool"]) & (rate_df["bg_bool"])]
     filtered_rate_df = filtered_rate_df.drop(["fg_bool", "bg_bool"], axis=1)
-    # Funnel stage counts for filter_stats.json (real filtering funnel in reports).
-    _funnel = {"total_kmers": len(all_primers), "after_frequency": len(filtered_rate_df)}
     logger.info(
         f"Filtered {len(rate_df) - len(filtered_rate_df)} primers based on foreground/background rate"
     )
@@ -1260,40 +1280,7 @@ def step2(all_primers=None, validate_prerequisites=True):
             f"(Tm, homopolymer, GC clamp, self-dimer)"
         )
 
-    # Exclusion genome filtering (zero-tolerance by default)
-    excl_prefixes_val = getattr(parameter, "excl_prefixes", [])
-    excl_threshold_val = getattr(parameter, "excl_threshold", 0)
-    if excl_prefixes_val:
-        logger.info(f"Applying exclusion genome filter (threshold={excl_threshold_val})")
-        pre_excl_count = len(filtered_rate_df)
-        excl_mask = _filter_exclusion_genome(
-            filtered_rate_df["primer"].tolist(), excl_prefixes_val, excl_threshold_val
-        )
-        filtered_rate_df = filtered_rate_df[excl_mask]
-        logger.info(
-            f"Excluded {pre_excl_count - len(filtered_rate_df)} primers "
-            f"binding exclusion genome"
-        )
-
-    # Blacklist genome filtering (penalty-weighted)
-    bl_prefixes_val = getattr(parameter, "bl_prefixes", [])
-    bl_seq_lengths_val = getattr(parameter, "bl_seq_lengths", [])
-    max_bl_freq_val = getattr(parameter, "max_bl_freq", 0.0)
-    if bl_prefixes_val:
-        logger.info(f"Applying blacklist genome filter (max_bl_freq={max_bl_freq_val})")
-        pre_bl_count = len(filtered_rate_df)
-        bl_mask, bl_freqs = _filter_blacklist_penalty(
-            filtered_rate_df["primer"].tolist(),
-            bl_prefixes_val,
-            bl_seq_lengths_val,
-            max_bl_freq_val,
-        )
-        filtered_rate_df = filtered_rate_df.copy()
-        filtered_rate_df["bl_freq"] = bl_freqs
-        filtered_rate_df = filtered_rate_df[bl_mask]
-        logger.info(
-            f"Excluded {pre_bl_count - len(filtered_rate_df)} primers " f"binding blacklist genome"
-        )
+    filtered_rate_df, _excl_or_bl_configured = _apply_exclusion_and_blacklist(filtered_rate_df)
 
     # Foreground position files, written BEFORE the Gini gate below, which reads
     # them. The background scan runs later, on the cut pool; see
@@ -1302,8 +1289,12 @@ def step2(all_primers=None, validate_prerequisites=True):
         filtered_rate_df["primer"], fg_prefixes, fg_genomes
     )
 
-    # Count after exclusion/blacklist (before Gini) for the funnel.
-    _funnel["after_background"] = len(filtered_rate_df)
+    # Count after exclusion/blacklist (before Gini) for the funnel. Recorded
+    # only when one of those filters is configured: with neither, this equals
+    # `after_thermodynamic` on every run, and reporting it as a stage is what
+    # made the funnel read as though background filtering did nothing.
+    if _excl_or_bl_configured:
+        _funnel["after_exclusion_blacklist"] = len(filtered_rate_df)
     with progress_context("Computing Gini index"):
         gini_df = filter_module.get_gini(
             fg_prefixes,
@@ -1314,6 +1305,7 @@ def step2(all_primers=None, validate_prerequisites=True):
             position_cache=fg_position_cache,
         )
     _funnel["after_gini"] = len(gini_df)
+    check_gini_stage_kept_something(filtered_rate_df, gini_df)
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)
@@ -1321,6 +1313,11 @@ def step2(all_primers=None, validate_prerequisites=True):
     gini_df["ratio"] = gini_df["bg_count"] / gini_df["fg_count"].replace(0, np.nan)
     gini_df["ratio"] = gini_df["ratio"].fillna(float("inf"))
     filtered_gini_df = _rank_and_cut_candidates(gini_df, parameter.max_primer)
+
+    # The max_primer cut is usually the largest single reduction in the whole
+    # step -- 20,301 to 3,000 on one run, 85% of survivors -- and it used to
+    # appear only as `final_candidates`, under no stage name.
+    _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
     _scan_background_positions(filtered_gini_df["primer"], bg_prefixes, bg_genomes)
 
@@ -1364,17 +1361,6 @@ def step2(all_primers=None, validate_prerequisites=True):
 
 # RANK BY RANDOM FOREST
 DEFAULT_MIN_AMP_PRED = 10.0
-
-
-def _candidate_carry_columns(step2_df):
-    """The step-2 measurements `step3_df.csv` carries forward.
-
-    `gini` is load-bearing: it leads the row order `order_step3_rows`
-    establishes, and that order reaches the optimizer.
-    """
-    df = step2_df.set_index("primer")
-    keep = [c for c in ("ratio", "gini", "fg_count", "bg_count") if c in df.columns]
-    return df[keep]
 
 
 def _warn_if_a_retired_gate_was_requested():
@@ -1488,7 +1474,10 @@ def _score_with_amp_model(step2_df):
             f"(first 3: {list(missing[:3])}). These will have NaN metrics."
         )
 
-    joined_step3_df = step3_df.join(step2_df[["ratio", "gini", "fg_count", "bg_count"]], how="left")
+    carry = [
+        c for c in ("step2_rank", "ratio", "gini", "fg_count", "bg_count") if c in step2_df.columns
+    ]
+    joined_step3_df = step3_df.join(step2_df[carry], how="left")
     logger.info(
         f"Filtered {step2_df.shape[0] - joined_step3_df.shape[0]} primers based on efficacy"
     )
@@ -1529,6 +1518,12 @@ def step3(validate_prerequisites=True):
             raise StepPrerequisiteError(3, validation)
 
     step2_df = pd.read_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
+    # Step 2's ranking is the file's ROW ORDER, not a column: `step2` writes the
+    # frame `_rank_and_cut_candidates` returns, which is already sorted. Reading
+    # the order captures whichever key actually ran -- occupancy_ratio when the
+    # occupancy pass could run, ratio then fg_count when it could not -- without
+    # re-deriving either. See `order_step3_rows` and audit finding D1c.
+    step2_df["step2_rank"] = np.arange(len(step2_df), dtype=int)
 
     if getattr(parameter, "use_amp_model", False):
         joined_step3_df = _score_with_amp_model(step2_df)

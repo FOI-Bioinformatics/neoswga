@@ -30,6 +30,7 @@ import pytest
 
 import neoswga.core.pipeline as pipeline
 from neoswga.core import parameter, string_search
+from tests.conftest import plasmid_example_ready
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
@@ -51,7 +52,7 @@ def _reset_pipeline_state(params_file):
 @pytest.fixture
 def plasmid(tmp_path, monkeypatch):
     """The plasmid example, copied out and cut hard enough to be observable."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
 
     for name in os.listdir(EXAMPLE_DIR):

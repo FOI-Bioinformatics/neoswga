@@ -30,7 +30,11 @@ class TestPipelineParameters:
         assert params.min_k == 6
         assert params.max_k == 12
         assert params.min_fg_freq == 1e-5
-        assert params.max_gini == 0.6
+        # Re-derived 2026-09-10 (audit finding B4): 0.6 discarded primers
+        # the optimizer had selected on all three GC tiers, up to 13.9%
+        # of the M. tuberculosis panel, and every shipped config already
+        # overrode it to 0.7.
+        assert params.max_gini == 0.7
         assert params.polymerase == "phi29"
         assert params.fg_circular is True
         assert params.verbose is False

@@ -10,6 +10,7 @@ Literature references:
     - Owczarzy et al. (2008) Biochemistry 47:5336-5353 (salt corrections)
 """
 
+import os
 import time
 import warnings
 
@@ -411,29 +412,68 @@ class TestBatchOperations:
 # =============================================================================
 
 
+TIMING = "NEOSWGA_RUN_TIMING_TESTS"
+
+
 class TestBatchPerformance:
     """Performance tests for batch calculations."""
 
-    def test_batch_not_slower_than_5x_loop(self):
-        """Test that batch calculation is not significantly slower than a loop."""
+    @staticmethod
+    def _sequences():
         np.random.seed(42)
-        sequences = [
+        return [
             "".join(np.random.choice(list("ATCG"), np.random.randint(8, 12))) for _ in range(50)
         ]
 
-        start = time.time()
+    def test_batch_agrees_with_the_loop(self):
+        """The contract worth pinning, and it has no clock in it.
+
+        This assertion used to sit underneath a wall-clock ratio in the same
+        test, so a loaded machine took the agreement check down with the
+        timing. Split on 2026-09-10: batch and loop must agree on every run,
+        and the timing comparison is opt-in below.
+        """
+        sequences = self._sequences()
+
         batch_result = calculate_tm_batch(sequences)
+        clear_thermodynamic_caches()
+        individual_results = [calculate_tm_with_salt(seq) for seq in sequences]
+
+        for i in range(len(sequences)):
+            assert abs(batch_result[i] - individual_results[i]) < 0.1
+
+    @pytest.mark.slow
+    @pytest.mark.skipif(
+        os.environ.get(TIMING) != "1",
+        reason=f"wall-clock comparison; set {TIMING}=1 to run",
+    )
+    def test_batch_not_slower_than_5x_loop(self):
+        """Opt-in, because a wall clock measures the machine as well as the code.
+
+        Two flaws beyond load sensitivity, both recorded rather than fixed
+        because the measurement is what it is. The caches are cleared only
+        BETWEEN the two legs, so the batch may run warm and the loop cold. And
+        fifty sequences of eight to eleven bases is small enough that scheduler
+        noise dominates the 5x headroom.
+
+        Not converted to an operation count: `calculate_tm_batch` and the loop
+        reach the same primitive the same number of times, so there is nothing
+        countable that distinguishes them. The claim really is about elapsed
+        time, and a claim about elapsed time belongs behind a flag.
+        """
+        sequences = self._sequences()
+
+        start = time.time()
+        calculate_tm_batch(sequences)
         batch_time = time.time() - start
 
         clear_thermodynamic_caches()
 
         start = time.time()
-        individual_results = [calculate_tm_with_salt(seq) for seq in sequences]
+        [calculate_tm_with_salt(seq) for seq in sequences]
         individual_time = time.time() - start
 
         assert batch_time < individual_time * 5
-        for i in range(len(sequences)):
-            assert abs(batch_result[i] - individual_results[i]) < 0.1
 
 
 # =============================================================================

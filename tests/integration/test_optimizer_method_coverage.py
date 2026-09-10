@@ -24,6 +24,8 @@ import tempfile
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "plasmid_example")
 
 
@@ -38,7 +40,7 @@ def plasmid_scored_workdir():
     leave step3_df.csv on disk for every parametrised optimizer call
     to consume.
     """
-    if not os.path.isdir(EXAMPLE_DIR):
+    if not plasmid_example_ready():
         pytest.skip("Plasmid example data not available")
 
     from neoswga.core.kmer_counter import check_jellyfish_available
@@ -144,8 +146,8 @@ def test_under_tested_optimizer_smoke(plasmid_scored_workdir, method):
     # legitimate outcome we want surfaced.
     _maybe_skip_on_missing_optional_dep(method)
 
-    from neoswga.core.unified_optimizer import optimize_step4
     from neoswga.core.exceptions import OptimizerNotFoundError
+    from neoswga.core.unified_optimizer import optimize_step4
 
     try:
         primer_sets, scores, _cache = optimize_step4(

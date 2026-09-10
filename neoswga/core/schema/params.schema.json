@@ -160,6 +160,12 @@
       "minimum": 0.0,
       "maximum": 1.0
     },
+    "min_gini_sites": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "Minimum recorded binding sites, counted across both strands, before the Gini index of gap lengths is treated as a measurement. Below it the index is NaN and the primer is dropped by the evenness gate. One site gives no gap and two give a single gap whose Gini is identically 0.0, the best score available, so an unmeasurable primer used to outrank an evenly spread one. Lower it to 2 or 1 for a small target where single-site primers are most of the pool."
+    },
     "max_primer": {
       "type": "integer",
       "minimum": 1,
@@ -330,12 +336,20 @@
     "max_dimer_bp": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 15
+      "maximum": 7,
+      "description": "Longest complementary run tolerated between two different primers in a delivered set. Capped at 7 because the pairwise screen represents t-mers in a 4**8 code space: at 8 and above the matrix cannot be built, and the screen was previously disabled for the whole run with only a warning. Note that a pool supports a bounded panel size at a given threshold; measured on the shipped pools, max_dimer_bp 3 supports 29, 31 and 26 primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and 55."
     },
     "max_self_dimer_bp": {
       "type": "integer",
       "minimum": 1,
       "maximum": 15
+    },
+    "mismatch_penalty": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 20,
+      "default": 4.0,
+      "description": "Per-mismatch Tm penalty in Celsius, used by the occupancy-weighted ranking in the filter step. A linear penalty is a simplification: real destabilisation depends on which bases mismatch and where."
     },
     "num_primers": {
       "type": "integer",

@@ -71,31 +71,13 @@ def test_multi_genome_result_allows_none_metrics():
         assert "Optional" in str(fields[name].type)
 
 
-# ---------------------------------------------------------------------------
-# background-aware connectivity is computed from the network, not len/10
-# ---------------------------------------------------------------------------
-
-
-def test_bg_aware_connectivity_uses_network(monkeypatch):
-    from neoswga.core import background_aware_optimizer as bao
-
-    opt = bao.BackgroundAwareOptimizer.__new__(bao.BackgroundAwareOptimizer)
-    opt.fg_prefixes = ["fg"]
-
-    class _Net:
-        def connectivity_score(self):
-            return 0.42
-
-    class _NetOpt:
-        def _build_network(self, primers, prefixes):
-            return _Net()
-
-    opt.network_optimizer = _NetOpt()
-
-    assert opt._calculate_connectivity(["A", "B"]) == pytest.approx(0.42)  # not 2/10=0.2
-    assert opt._calculate_connectivity([]) == 0.0
-
-
+# `test_bg_aware_connectivity_uses_network` was removed on 2026-09-10 with
+# `BackgroundAwareOptimizer._calculate_connectivity`. The class no dispatch path
+# reached was deleted; the method existed only on it, so there is no live
+# behaviour left for the test to pin. Recorded here rather than silently
+# dropped: the assertion was that connectivity comes from the network rather
+# than from len(primers)/10, and if that shortcut ever reappears elsewhere it
+# wants a test again.
 # ---------------------------------------------------------------------------
 # Determinism: stochastic simulator RNG is seeded
 # ---------------------------------------------------------------------------

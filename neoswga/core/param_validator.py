@@ -14,6 +14,7 @@ Provides three levels of feedback:
 - INFO: Suggestions for improvement
 """
 
+import difflib
 import json
 import logging
 from dataclasses import dataclass
@@ -221,6 +222,9 @@ class ParamValidator:
         # kept soft: if jsonschema is not installed we skip (no hard optional
         # dependency) and fall through to the range / interdependency checks.
         self._check_schema(params)
+        # Unknown / misspelled keys. `additionalProperties` stays true, so this
+        # warns rather than rejecting.
+        self._check_unknown_keys(params)
 
         # Check types and ranges
         self._check_ranges(params)
@@ -307,6 +311,29 @@ class ParamValidator:
                     level=ValidationLevel.ERROR,
                     parameter=str(loc),
                     message=f"Schema violation: {err.message}",
+                )
+            )
+
+    def _check_unknown_keys(self, params: Dict) -> None:
+        """Warn about keys the schema does not declare.
+
+        `additionalProperties: true` means jsonschema accepts anything, so a
+        typo like `max_bg_freqency` passed validation and the default for
+        `max_bg_freq` applied, silently changing the design. This is a warning:
+        the schema deliberately allows extra keys, and rejecting them would
+        break configs that carry their own annotations.
+        """
+        for key, suggestion in unknown_param_keys(params):
+            self.messages.append(
+                ValidationMessage(
+                    level=ValidationLevel.WARNING,
+                    parameter=key,
+                    message="Not a recognised parameter; it will be ignored",
+                    suggestion=(
+                        f"Did you mean '{suggestion}'?"
+                        if suggestion
+                        else "Remove it, or check docs/params-reference.md"
+                    ),
                 )
             )
 
@@ -592,6 +619,42 @@ class ParamValidator:
                         suggestion="phi29 at 30C works well for AT-rich genomes with shorter primers",
                     )
                 )
+
+
+def unknown_param_keys(params: Dict[str, Any]) -> List[Tuple[str, Optional[str]]]:
+    """Keys in `params` that the shipped schema does not declare.
+
+    The schema sets `additionalProperties: true` and nothing checked the other
+    direction, so `max_bg_freqency` was accepted in silence and the default
+    applied, changing the design. Each result pairs the unknown key with the
+    closest declared property name, or None when nothing is close.
+
+    Returns an empty list if the schema cannot be loaded: this is advisory.
+    """
+    try:
+        from neoswga.core.schema import load_schema
+
+        declared = set(load_schema().get("properties", {}))
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"Skipped unknown-key check (could not load schema): {e}")
+        return []
+
+    if not declared:
+        return []
+
+    found: List[Tuple[str, Optional[str]]] = []
+    for key in params:
+        if key in declared:
+            continue
+        # A leading underscore marks a deliberate annotation. Two shipped
+        # example configs carry `_comment`, and JSON has no comment syntax, so
+        # this is the convention people reach for. Warning about it would train
+        # readers to ignore the warning.
+        if key.startswith("_"):
+            continue
+        close = difflib.get_close_matches(key, sorted(declared), n=1, cutoff=0.8)
+        found.append((key, close[0] if close else None))
+    return sorted(found)
 
 
 def validate_params_file(

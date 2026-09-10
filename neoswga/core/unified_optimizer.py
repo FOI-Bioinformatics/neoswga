@@ -34,7 +34,7 @@ from .dimer import dimer_validation_issue, worst_heterodimer
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
 from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
-from .step4_output import save_results
+from .step4_output import _write_validation_report, save_results
 
 logger = logging.getLogger(__name__)
 
@@ -1254,15 +1254,7 @@ def run_optimization(
         )
 
     if validation is not None:
-        try:
-            import json as _json
-
-            data_dir = getattr(parameter, "data_dir", None) or os.getcwd()
-            out_path = os.path.join(data_dir, "step4_improved_df_validation.json")
-            with open(out_path, "w") as fh:
-                _json.dump(validation, fh, indent=2)
-        except Exception as e:
-            logger.debug(f"Could not write validation report ({e}); continuing")
+        _write_validation_report(validation)
 
     if verbose:
         if result.is_success:

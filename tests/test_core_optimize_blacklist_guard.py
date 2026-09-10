@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -38,7 +40,7 @@ def _reset_pipeline_state(params_file):
 @pytest.fixture
 def plasmid_with_aliased_blacklist(tmp_path):
     """Duplicate the plasmid example with pLTR aliased as a blacklist."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
 
     for fname in os.listdir(EXAMPLE_DIR):

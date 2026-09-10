@@ -85,6 +85,13 @@ neoswga optimize -j params.json       # Find optimal primer sets
 
 # Host-free optimization (no background genome required):
 neoswga optimize -j params.json --no-background
+
+# Not sure how many primers to ask for? `optimize` always prints a marginal
+# coverage table (pp/primer) showing where extra primers stop paying, at any
+# set size. For an estimate before the run, or a coverage-against-specificity
+# frontier, both of which stop at 20 primers:
+neoswga optimize -j params.json --auto-size       # coverage estimate, up to 20
+neoswga optimize -j params.json --show-frontier   # trade-off frontier, 4 to 20
 ```
 
 Example `params.json`:

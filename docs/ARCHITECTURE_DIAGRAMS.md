@@ -327,12 +327,9 @@ classDiagram
         -_solve() List[str]
     }
 
-    class BackgroundAwareOptimizer {
-        +stages: int
+    class BackgroundAwareBaseOptimizer {
         +optimize(candidates, target_size) OptimizationResult
-        -_stage1_coverage() List[str]
-        -_stage2_background() List[str]
-        -_stage3_dimers() List[str]
+        -_hybrid: HybridOptimizer
     }
 
     class OptimizationResult {
@@ -392,7 +389,7 @@ classDiagram
     BaseOptimizer <|-- HybridOptimizer
     BaseOptimizer <|-- DominatingSetOptimizer
     BaseOptimizer <|-- MILPOptimizer
-    BaseOptimizer <|-- BackgroundAwareOptimizer
+    BaseOptimizer <|-- BackgroundAwareBaseOptimizer
     BaseOptimizer <|-- TilingOptimizer
     BaseOptimizer <|-- NormalizedOptimizer
     BaseOptimizer <|-- CliqueOptimizer

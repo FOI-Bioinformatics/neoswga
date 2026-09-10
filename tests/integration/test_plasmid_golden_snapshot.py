@@ -21,6 +21,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "plasmid_example")
 
 
@@ -28,7 +30,7 @@ EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "p
 def plasmid_workdir():
     """Copy the plasmid example into a tmpdir so the pipeline runs in
     isolation and cleanup is automatic."""
-    if not os.path.isdir(EXAMPLE_DIR):
+    if not plasmid_example_ready():
         pytest.skip("Plasmid example data not available")
 
     tmpdir = tempfile.mkdtemp(prefix="neoswga_golden_")

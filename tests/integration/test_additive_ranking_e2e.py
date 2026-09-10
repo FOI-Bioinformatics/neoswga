@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plasmid_example"
 
 
@@ -39,7 +41,7 @@ def _reset_pipeline_state(params_file):
 
 
 def _build_scenario(tmp_path, overrides):
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("examples/plasmid_example not available")
 
     for fname in os.listdir(EXAMPLE_DIR):
@@ -97,7 +99,9 @@ def test_additives_reach_network_optimizer_via_unified(tmp_path, monkeypatch):
             "max_k": 10,
         },
     )
-    os.chdir(tmp_path)
+    # monkeypatch.chdir restores on teardown; a bare os.chdir leaks the working
+    # directory into every later test, and a relative data_dir then resolves there.
+    monkeypatch.chdir(tmp_path)
     _run_filter_and_score(tmp_path, params_file)
 
     # Now run optimize via the unified entry point and inspect the created
@@ -178,7 +182,7 @@ def test_network_optimizer_tm_changes_with_additives():
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path):
+def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path, monkeypatch):
     """The outer HybridOptimizerFactory wrapper must forward conditions to
     its inner HybridOptimizer, which must forward them to the inner
     NetworkOptimizer."""
@@ -191,16 +195,18 @@ def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path):
             "max_k": 10,
         },
     )
-    os.chdir(tmp_path)
+    # monkeypatch.chdir restores on teardown; a bare os.chdir leaks the working
+    # directory into every later test, and a relative data_dir then resolves there.
+    monkeypatch.chdir(tmp_path)
     _run_filter_and_score(tmp_path, params_file)
 
     _reset_pipeline_state(str(params_file))
-    from neoswga.core.unified_optimizer import run_optimization
-    from neoswga.core.position_cache import PositionCache
-    from neoswga.core import parameter
-
     # Collect candidates from step2 output
     import pandas as pd
+
+    from neoswga.core import parameter
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.unified_optimizer import run_optimization
 
     step2_csv = tmp_path / "step2_df.csv"
     candidates = pd.read_csv(step2_csv)["primer"].astype(str).tolist()[:20]

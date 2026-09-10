@@ -47,6 +47,17 @@ FOOTER = """
 - See `docs/SWGA_SCIENCE.md` for theoretical background.
 - Use `neoswga validate-params -j params.json` to check a configuration
   against all validation layers (schema + ranges + interdependencies).
+- `num_primers` has no good default. `neoswga optimize` prints a marginal
+  coverage table (`pp/primer`) at the delivered size, which shows where extra
+  primers stop buying coverage and has no size limit. `--auto-size` estimates a
+  size from a coverage model without reading the candidate pool and is clamped
+  at 20 primers; `--show-frontier` builds a coverage against fg/bg ratio
+  frontier over the real pool, also up to 20. Both work on `optimize` and on
+  `design`. Neither weighs cost, and `--auto-size` does not weigh specificity,
+  so read its answer as the size that reaches a coverage target rather than as
+  the best size. On the measured sweeps coverage rises monotonically while
+  selectivity density peaks near n=32 for M. tuberculosis and is already
+  falling by n=32 for E. coli.
 """
 
 

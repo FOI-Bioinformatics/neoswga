@@ -18,6 +18,7 @@ import h5py
 
 from neoswga.core.position_cache import (
     BindingSite,
+    MissingPositionsError,
     PositionCache,
     StreamingPositionCache,
 )
@@ -523,3 +524,84 @@ class TestPositionsSurviveTheRoundTripToDisk:
         got = cache.get_positions(prefix, primer, strand="forward")
 
         assert sorted(got.tolist()) == sorted(far)
+
+
+class TestQueryingAPrefixTheCacheDoesNotHold:
+    """An unindexed prefix was answered with zero, silently.
+
+    `PositionCache` already treats "unknown" and "genuinely zero" as different
+    things for PRIMERS: `_resolve_missing` drives an `on_missing` policy and
+    `MissingPositionsError` exists precisely to stop a zero that is really an
+    absence. That machinery iterates `self.fname_prefixes`, so it could never
+    fire for a prefix the cache was never built over.
+
+    Five commands shipped with that shape, each handing a background prefix to
+    an optimizer whose cache held only the foreground. Every background lookup
+    read zero, which is indistinguishable downstream from a perfectly specific
+    panel. The four-site figure in the roadmap was itself an undercount.
+
+    Extending the same policy to prefixes is what stops a sixth.
+    """
+
+    PRIMER = "ACGTACGTAC"
+
+    def _cache(self, tmp_path, **kwargs):
+        import h5py
+        import numpy as np
+
+        prefix = str(tmp_path / "fg")
+        with h5py.File(f"{prefix}_10mer_positions.h5", "w") as fh:
+            fh.create_dataset(self.PRIMER, data=np.array([100, 5000], dtype=np.int64))
+        return PositionCache([prefix], [self.PRIMER], **kwargs), prefix
+
+    def test_an_indexed_prefix_still_answers(self, tmp_path):
+        cache, prefix = self._cache(tmp_path)
+        assert len(cache.get_positions(prefix, self.PRIMER, "both")) == 2
+
+    def test_an_unindexed_prefix_raises_by_default(self, tmp_path):
+        """The regression. This returned an empty array."""
+        cache, _prefix = self._cache(tmp_path)
+
+        with pytest.raises(MissingPositionsError) as excinfo:
+            cache.get_positions("never_indexed", self.PRIMER, "both")
+
+        message = str(excinfo.value)
+        assert "never_indexed" in message
+        assert "fg" in message, "the message must name the prefixes it does hold"
+
+    def test_every_strand_argument_raises(self, tmp_path):
+        """`both` takes a different branch from the named strands, so an
+        exception on one of them is not evidence about the others."""
+        cache, _prefix = self._cache(tmp_path)
+
+        for strand in ("both", "forward", "reverse"):
+            with pytest.raises(MissingPositionsError):
+                cache.get_positions("never_indexed", self.PRIMER, strand)
+
+    def test_a_caller_can_opt_out(self, tmp_path):
+        """A caller that genuinely queries prefixes it may not hold says so.
+
+        A separate knob from `on_missing`, and the defaults differ on purpose:
+        a primer with no hits on an INDEXED prefix is a plausible zero and
+        warns, while a prefix nobody indexed is a caller error and raises.
+        Sharing one knob would force those two to agree, and the primer default
+        is `warn`.
+        """
+        cache, _prefix = self._cache(tmp_path, on_unindexed_prefix="warn")
+
+        assert len(cache.get_positions("never_indexed", self.PRIMER, "both")) == 0
+
+    def test_an_unknown_primer_on_a_known_prefix_is_still_zero(self, tmp_path):
+        """Not every absence is an error. A primer the cache holds no hits for
+        on a prefix it DID index is a measurement of zero, and the existing
+        behaviour for that must not change."""
+        cache, prefix = self._cache(tmp_path)
+
+        assert len(cache.get_positions(prefix, "TTTTTTTTTT", "both")) == 0
+
+    def test_a_bad_strand_still_raises_value_error(self, tmp_path):
+        """The pre-existing guard on the strand vocabulary is unaffected."""
+        cache, prefix = self._cache(tmp_path)
+
+        with pytest.raises(ValueError):
+            cache.get_positions(prefix, self.PRIMER, "sideways")

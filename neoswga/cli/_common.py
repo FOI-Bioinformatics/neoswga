@@ -716,11 +716,68 @@ def _effective_conditions(parameter):
     return conditions or None
 
 
-def _record_run_manifest(step: str, args, parameter, input_files=None):
+def warn_on_condition_drift(parameter, reference_step: str = "filter"):
+    """Warn when this step's reaction differs from an earlier step's.
+
+    The `filter` subparser registers sixteen chemistry flags plus `--preset`;
+    `optimize` registers none and inherits only `--polymerase`. So
+    `filter --preset high_gc_genome` followed by a plain `optimize` filters
+    under one reaction and scores under another, with nothing said. The
+    candidate pool was then selected under a Tm model the optimizer does not
+    share.
+
+    Returns the names of the fields that differ, empty when they agree or when
+    the reference step has no recorded conditions.
+    """
+    data_dir = getattr(parameter, "data_dir", None)
+    if not data_dir:
+        return []
+
+    try:
+        from neoswga.core.run_manifest import read_effective_conditions
+
+        recorded = read_effective_conditions(str(data_dir), step=reference_step)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"condition-drift check skipped: {e}")
+        return []
+
+    if not recorded:
+        return []
+
+    current = _effective_conditions(parameter) or {}
+    differing = sorted(name for name, value in recorded.items() if current.get(name) != value)
+    if not differing:
+        return []
+
+    logger.warning(
+        "Reaction conditions differ from the recorded '%s' step: %s. "
+        "Chemistry flags (--preset, --betaine-m, --dmso-percent and the rest) "
+        "exist on `filter` and not on this step, so a preset applied there does "
+        "not carry over. The candidate pool was selected under one Tm model and "
+        "is being scored under another.",
+        reference_step,
+        ", ".join(
+            f"{name}: {reference_step}={recorded[name]!r} now={current.get(name)!r}"
+            for name in differing
+        ),
+    )
+    return differing
+
+
+def _record_run_manifest(
+    step: str, args, parameter, input_files=None, output_files=None, extra=None
+):
     """Best-effort wrapper around run_manifest.write_manifest.
 
     Failures are swallowed so manifest issues never break a pipeline that
     otherwise succeeded.
+
+    ``output_files`` is separate from ``input_files`` because every step
+    handler used to pass its own output as an input, so an entry could not be
+    matched to the file it wrote. ``extra`` carries the step's wall time and,
+    for optimize, the set size actually used -- ``resolved_params`` is a
+    verbatim copy of params.json, so a run invoked with ``-n 160`` was recorded
+    there as whatever number the file happened to hold.
     """
     try:
         from neoswga.core.run_manifest import write_manifest
@@ -731,6 +788,8 @@ def _record_run_manifest(step: str, args, parameter, input_files=None):
             data_dir=getattr(parameter, "data_dir", None),
             params_path=getattr(args, "json_file", None),
             input_files=input_files,
+            output_files=output_files,
+            extra=extra,
             # The CLI seed lives on args (--seed), not parameter; the previous
             # getattr(parameter, "seed") recorded None even when --seed was set.
             seed=getattr(args, "seed", None) or getattr(parameter, "seed", None),

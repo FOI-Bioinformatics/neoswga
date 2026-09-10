@@ -16,7 +16,14 @@ min_fg_freq = float(1 / 100000)
 max_bg_freq = 5e-6
 min_tm = 15
 max_tm = 45
-max_gini = 0.6
+# Re-derived from measurement on 2026-09-10 (audit finding B4, plan task 9).
+# 0.6 discarded primers the optimizer had actually selected: 8 of 160 on
+# E. coli, 1 of 200 on S. aureus and 5 of 36 on M. tuberculosis, the last
+# being 13.9% of a delivered panel. All three shipped GC-tier configs
+# already override this to 0.7, so the default was stricter than every
+# real use of the tool. The kept pools top out at 0.6877, 0.6932 and
+# 0.6985, so 0.7 admits them all and 0.8 would be slack.
+max_gini = 0.7
 max_primer = 500
 min_amp_pred = 5
 max_dimer_bp = 3

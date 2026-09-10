@@ -87,6 +87,14 @@ class PrimerQualityScore:
     # Rank among all primers (1 = best)
     rank: Optional[int] = None
 
+    # Which weighted components the overall score was actually computed from.
+    # `score_primer` called without binding sites cannot measure strand bias,
+    # and it never measures dimers -- those are a property of the set, filled
+    # in later by `analyze_primer_set`. Recording the subset lets the composite
+    # renormalize over it instead of carrying 55% of the declared weight as a
+    # constant 1.0. Audit finding D1d.
+    measured_components: Tuple[str, ...] = ()
+
     def __str__(self):
         status = "PASS" if self.passes_all else "FAIL"
         return (
@@ -223,6 +231,30 @@ class IntegratedQualityScorer:
             logger.warning(f"Weights sum to {total}, normalizing to 1.0")
             self.weights = {k: v / total for k, v in self.weights.items()}
 
+    def _composite(self, scores, measured):
+        """Weighted mean over the components that were actually measured.
+
+        The declared weights are dimer 0.35, three_prime 0.25, strand_bias
+        0.20, thermodynamics 0.15, complexity 0.05. But `score_primer` sets
+        dimer and strand bias to 1.0 for every primer when it is called without
+        binding sites, which is how `rank_by_quality` calls it. Measured over
+        the 449 E. coli candidates, dimer and strand each took exactly one
+        distinct value, so 55% of the declared weight could not move and the
+        composite spanned 0.8505 to 0.9644 -- an 11% band.
+
+        Renormalizing over the measured subset makes the number mean what its
+        weights say it means. It is a ranking key and a multiplier on
+        `qa_score`; the pass/fail decision reads the `passes_*` flags and is
+        unaffected.
+
+        Audit finding D1d.
+        """
+        names = [name for name in measured if name in self.weights]
+        total_weight = sum(self.weights[name] for name in names)
+        if total_weight <= 0:
+            return 0.0
+        return sum(self.weights[name] * scores[name] for name in names) / total_weight
+
     def score_primer(
         self, primer: str, binding_sites: Optional[List[StrandBindingSite]] = None
     ) -> PrimerQualityScore:
@@ -270,13 +302,20 @@ class IntegratedQualityScorer:
         passes_dimer = True
 
         # Calculate overall composite score
-        overall_score = (
-            self.weights["strand_bias"] * strand_score
-            + self.weights["three_prime"] * three_prime_score
-            + self.weights["complexity"] * complexity_score
-            + self.weights["thermodynamics"] * thermo_score
-            + self.weights["dimer"] * dimer_score
-        )
+        # Only the components that were actually measured contribute. Dimers
+        # are a property of the set and are filled in by `analyze_primer_set`;
+        # strand bias needs binding sites. See `_composite`.
+        component_scores = {
+            "strand_bias": strand_score,
+            "three_prime": three_prime_score,
+            "complexity": complexity_score,
+            "thermodynamics": thermo_score,
+            "dimer": dimer_score,
+        }
+        measured_components = ["three_prime", "complexity", "thermodynamics"]
+        if binding_sites:
+            measured_components.insert(0, "strand_bias")
+        overall_score = self._composite(component_scores, measured_components)
 
         return PrimerQualityScore(
             primer=primer,
@@ -291,6 +330,7 @@ class IntegratedQualityScorer:
             passes_three_prime=passes_three_prime,
             passes_all=(passes_strand and passes_dimer and passes_three_prime),
             failure_reasons=failure_reasons,
+            measured_components=tuple(measured_components),
         )
 
     def analyze_primer_set(
@@ -335,14 +375,20 @@ class IntegratedQualityScorer:
             primer_scores[primer].dimer_score = dimer_score
             primer_scores[primer].passes_dimer = not profile.is_hub
 
-            # Recalculate overall score with updated dimer score
+            # Recalculate overall score with updated dimer score. Dimer is now
+            # measured, so it re-enters the composite; see `_composite`.
             score = primer_scores[primer]
-            score.overall_score = (
-                self.weights["strand_bias"] * score.strand_bias_score
-                + self.weights["three_prime"] * score.three_prime_score
-                + self.weights["complexity"] * score.complexity_score
-                + self.weights["thermodynamics"] * score.thermo_score
-                + self.weights["dimer"] * score.dimer_score
+            measured = tuple(dict.fromkeys(score.measured_components + ("dimer",)))
+            score.measured_components = measured
+            score.overall_score = self._composite(
+                {
+                    "strand_bias": score.strand_bias_score,
+                    "three_prime": score.three_prime_score,
+                    "complexity": score.complexity_score,
+                    "thermodynamics": score.thermo_score,
+                    "dimer": score.dimer_score,
+                },
+                measured,
             )
 
             # Update pass/fail

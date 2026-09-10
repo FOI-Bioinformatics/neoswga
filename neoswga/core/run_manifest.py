@@ -22,6 +22,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+try:
+    import fcntl
+
+    HAS_FCNTL = True
+except ImportError:  # pragma: no cover - Windows
+    HAS_FCNTL = False
+
 logger = logging.getLogger(__name__)
 
 MANIFEST_FILENAME = "run_manifest.json"
@@ -83,6 +90,7 @@ def write_manifest(
     params_path: Optional[str] = None,
     resolved_params: Optional[Dict[str, Any]] = None,
     input_files: Optional[List[str]] = None,
+    output_files: Optional[List[str]] = None,
     seed: Optional[int] = None,
     extra: Optional[Dict[str, Any]] = None,
     effective_conditions: Optional[Dict[str, Any]] = None,
@@ -96,6 +104,11 @@ def write_manifest(
         resolved_params: Resolved parameter dict; loaded from ``params_path``
             if not provided.
         input_files: Paths to checksum. Missing paths are skipped silently.
+        output_files: Paths the step wrote, checksummed into
+            ``output_checksums``. Separate from ``input_files`` because the
+            step handlers used to pass their output there, which is what made
+            three ``optimize`` entries under two git SHAs all hash-match the
+            single result file beside them.
         seed: Resolved RNG seed used for this step.
         extra: Step-specific fields to merge into the entry.
         effective_conditions: The reaction conditions this step actually ran
@@ -132,6 +145,11 @@ def write_manifest(
         if path and os.path.exists(path):
             input_checksums[path] = _sha256(path)
 
+    output_checksums: Dict[str, Optional[str]] = {}
+    for path in output_files or []:
+        if path and os.path.exists(path):
+            output_checksums[path] = _sha256(path)
+
     entry: Dict[str, Any] = {
         "step": step,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -146,25 +164,44 @@ def write_manifest(
         "resolved_params": resolved_params,
         "effective_conditions": effective_conditions,
         "input_checksums": input_checksums,
+        "output_checksums": output_checksums,
     }
     if extra:
         entry["extra"] = extra
 
-    existing: Dict[str, Any] = {"steps": []}
-    if os.path.exists(manifest_path):
-        try:
-            with open(manifest_path) as f:
-                loaded = json.load(f)
-            if isinstance(loaded, dict) and isinstance(loaded.get("steps"), list):
-                existing = loaded
-        except (OSError, json.JSONDecodeError):
-            pass
-
-    existing["steps"].append(entry)
-
+    # Read, append and rewrite under an exclusive lock. Without it two runs
+    # sharing a data_dir both read the same list and both write their own
+    # append, losing one entry. The lock is held on the manifest file itself
+    # for the whole read-modify-write; ``experimental_tracker.py`` uses the
+    # same fcntl.flock shape. On a platform without fcntl this degrades to the
+    # previous unlocked behaviour rather than failing.
     try:
-        with open(manifest_path, "w") as f:
-            json.dump(existing, f, indent=2, sort_keys=True)
+        with open(manifest_path, "a+") as f:
+            if HAS_FCNTL:
+                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                # "a+" positions at end of file, so rewind before reading.
+                f.seek(0)
+                raw = f.read()
+                existing: Dict[str, Any] = {"steps": []}
+                if raw.strip():
+                    try:
+                        loaded = json.loads(raw)
+                        if isinstance(loaded, dict) and isinstance(loaded.get("steps"), list):
+                            existing = loaded
+                    except json.JSONDecodeError:
+                        pass
+
+                existing["steps"].append(entry)
+
+                f.seek(0)
+                f.truncate()
+                json.dump(existing, f, indent=2, sort_keys=True)
+                f.flush()
+                os.fsync(f.fileno())
+            finally:
+                if HAS_FCNTL:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
     except OSError as e:
         logger.warning(f"Could not write run_manifest.json: {e}")
         return None
@@ -173,14 +210,22 @@ def write_manifest(
     return manifest_path
 
 
-def read_effective_conditions(data_dir: str) -> Optional[Dict[str, Any]]:
-    """The reaction conditions the most recent step recorded, if any.
+def read_effective_conditions(
+    data_dir: str, step: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """The reaction conditions a recorded step ran under, if any.
 
     `export` and `report` otherwise reconstruct conditions from params.json,
     which omits anything the run decided for itself -- so they reported a Tm
     corrected for a different buffer than the one the design was optimized
-    under. The latest step wins: later steps run under the same resolved
-    parameters, and a rerun should not be read through an older reaction.
+    under.
+
+    With no ``step``, the latest entry carrying conditions wins, which is the
+    historical behaviour and what `export` and `report` use. Pass a step name
+    to read that step's own reaction: the manifest is append-only and a rerun
+    interleaves steps, so in one real run two ``score`` entries sat after an
+    ``optimize`` entry and the unfiltered read described the optimize result
+    under the score step's reaction.
     """
     manifest_path = os.path.join(data_dir, MANIFEST_FILENAME)
     if not os.path.exists(manifest_path):
@@ -196,6 +241,10 @@ def read_effective_conditions(data_dir: str) -> Optional[Dict[str, Any]]:
     if not isinstance(steps, list):
         return None
     for entry in reversed(steps):
-        if isinstance(entry, dict) and isinstance(entry.get("effective_conditions"), dict):
+        if not isinstance(entry, dict):
+            continue
+        if step is not None and entry.get("step") != step:
+            continue
+        if isinstance(entry.get("effective_conditions"), dict):
             return entry["effective_conditions"]
     return None

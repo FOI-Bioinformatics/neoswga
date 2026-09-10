@@ -576,6 +576,9 @@ def get_kmer_to_count_dict(f_in_name: str) -> Dict[str, int]:
     return kmer_to_count
 
 
+_UNAMBIGUOUS_BASES = frozenset("ACGT")
+
+
 def _gc_content(seq: str) -> float:
     """Fast GC fraction for a DNA sequence (no validation)."""
     gc = 0
@@ -590,36 +593,57 @@ def get_primer_list_from_kmers(
     kmer_lengths: Optional[range] = None,
     min_tm: float = 15.0,
     max_tm: float = 55.0,
-    wide_tm_margin: float = 15.0,
+    wide_tm_margin: float = 2.0,
     gc_min: float = 0.10,
     gc_max: float = 0.90,
+    conditions=None,
 ) -> List[str]:
     """
     Get all k-mers from jellyfish output files, filtered by GC content and Tm.
 
-    Applies a fast GC pre-filter before the expensive Tm calculation.
-    Uses a wide margin around the Tm window because melting.temp() (simple
-    approximation) can disagree with the SantaLucia nearest-neighbor Tm used
-    in filter_extra() by 10-20C for long primers. The precise Tm filter in
-    filter_extra() makes the final decision.
+    Applies a fast GC pre-filter before the Tm calculation.
+
+    The Tm is `ReactionConditions.calculate_effective_tm`, which is the same
+    call `filter.filter_extra` makes when it decides which candidates survive.
+    It used to be `melting_temp.temp`, whose docstring records a deliberate bug
+    kept "so that Tm values remain consistent with the RF model". That model was
+    retired from the default path on 2026-09-05, and the bug outlived its
+    purpose: measured on 20,000 random 12-mers under the E. coli tier's
+    conditions the shim reads 10.12 C higher (sd 0.30 C).
+
+    With a systematic +10 C offset and the old symmetric 15 C margin, the
+    window this loader applied was `[min_tm - 25, max_tm + 5]` in true-Tm terms.
+    That lost nothing on plain phi29 and grew with additives -- 9.6% of k=12
+    candidates that pass the real window were discarded under DMSO 10% plus
+    betaine 1.5 M, silently.
+
+    The margin is now 2 C of stated headroom rather than a correction for
+    disagreement between two estimators, because there is only one estimator.
 
     Args:
         prefixes: List of path prefixes for jellyfish output files
         kmer_lengths: Range of k-mer lengths (default: 6-12)
         min_tm: Minimum melting temperature (default: 15.0)
         max_tm: Maximum melting temperature (default: 55.0)
-        wide_tm_margin: Margin added to both sides of the Tm window to
-            avoid premature rejection of long primers (default: 15.0)
+        wide_tm_margin: Headroom added to both sides of the Tm window
+            (default: 2.0)
         gc_min: Minimum GC fraction for pre-filter (default: 0.10)
         gc_max: Maximum GC fraction for pre-filter (default: 0.90)
+        conditions: ReactionConditions to measure Tm under. Defaults to a
+            plain reaction, for library callers that reach this without a
+            configured run.
 
     Returns:
         List of k-mer sequences that pass GC and Tm pre-filters
     """
-    from neoswga.core.melting_temp import temp as _melting_temp
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    if conditions is None:
+        conditions = ReactionConditions()
 
     primer_list = []
     gc_rejected = 0
+    ambiguous_rejected = 0
 
     if kmer_lengths is None:
         kmer_lengths = range(6, 13)
@@ -637,25 +661,34 @@ def get_primer_list_from_kmers(
             with open(fpath, "r") as f_in:
                 for line in f_in:
                     parts = line.strip().split()
-                    if parts:
-                        curr_kmer = parts[0]
-                        # Fast GC pre-filter (avoids expensive Tm calculation)
-                        gc = _gc_content(curr_kmer)
-                        if gc < gc_min or gc > gc_max:
-                            gc_rejected += 1
-                            continue
-                        try:
-                            tm = _melting_temp(curr_kmer)
-                            if wide_min < tm < wide_max:
-                                primer_list.append(curr_kmer)
-                        except (ValueError, TypeError, KeyError) as e:
-                            # Skip k-mers with invalid sequences (e.g. ambiguous bases
-                            # cause KeyError in the melting library's complement lookup)
-                            logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
+                    if not parts:
+                        continue
+                    curr_kmer = parts[0]
+                    # Fast GC pre-filter (avoids the Tm calculation)
+                    gc = _gc_content(curr_kmer)
+                    if gc < gc_min or gc > gc_max:
+                        gc_rejected += 1
+                        continue
+                    # `calculate_effective_tm` warns and substitutes penalty
+                    # values for an unknown base rather than raising, so an
+                    # ambiguous k-mer would otherwise be admitted with a
+                    # meaningless number.
+                    if not set(curr_kmer.upper()) <= _UNAMBIGUOUS_BASES:
+                        ambiguous_rejected += 1
+                        continue
+                    try:
+                        tm = conditions.calculate_effective_tm(curr_kmer)
+                    except (ValueError, TypeError, KeyError) as e:
+                        logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
+                        continue
+                    if wide_min < tm < wide_max:
+                        primer_list.append(curr_kmer)
 
     if gc_rejected > 0:
         logger.info(
             f"GC pre-filter removed {gc_rejected} k-mers outside {gc_min:.0%}-{gc_max:.0%} range"
         )
+    if ambiguous_rejected > 0:
+        logger.info(f"Removed {ambiguous_rejected} k-mers containing ambiguous bases")
 
     return primer_list

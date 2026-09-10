@@ -134,3 +134,70 @@ def test_a_pair_sharing_exactly_256_codes_is_still_flagged():
     matrix = dimer_matrix.build([first, second], 3)
     assert bool(matrix.pairs[0, 1]) is True
     assert is_dimer_fast(first, second, 3) is True
+
+
+# ---------------------------------------------------------------------------
+# A threshold the representation cannot hold must be refused, not ignored
+# ---------------------------------------------------------------------------
+
+
+def test_the_schema_refuses_a_threshold_the_matrix_cannot_represent():
+    """`max_dimer_bp` 8 and above silently disabled the screen for a whole run.
+
+    `MAX_CODES = 4**8` caps the representation at 7. Above it `build` raises,
+    `DominatingSetOptimizer._build_dimer_matrix_for_greedy` catches the
+    ValueError, logs `Dimer-aware selection disabled` at WARNING and returns
+    None -- so the guard is off for the rest of the run, with one line among
+    many to say so. Plan 2's threshold sweep confirmed this in all three pools
+    at 8 and in no run at 3 through 7.
+
+    The schema permitted up to 15, so a user could configure a value that
+    removes the screen. It is now refused at validation time, where the message
+    reaches the person who wrote it.
+    """
+    from neoswga.core.schema import load_schema
+
+    prop = load_schema()["properties"]["max_dimer_bp"]
+    assert prop["maximum"] == 7, "the schema admits a threshold the guard cannot enforce"
+    assert prop["minimum"] == 1
+
+
+def test_the_representation_ceiling_and_the_schema_agree():
+    """Pin the two together, so raising MAX_CODES without the schema, or the
+    schema without MAX_CODES, fails here rather than in a user's run.
+
+    `build` uses `t = max_dimer_bp + 1` codes, so the highest representable
+    threshold is one below log4(MAX_CODES), not equal to it. Derived here
+    rather than written as a literal, and confirmed against `build` itself
+    below so the derivation cannot drift from the behaviour.
+    """
+    import math
+
+    from neoswga.core import dimer_matrix
+    from neoswga.core.schema import load_schema
+
+    highest = int(math.log(dimer_matrix.MAX_CODES, 4)) - 1
+    assert load_schema()["properties"]["max_dimer_bp"]["maximum"] == highest
+
+    primers = ["ACGTACGTACGT", "TTTTTTTTTTTT"]
+    dimer_matrix.build(primers, highest)
+    with pytest.raises(ValueError):
+        dimer_matrix.build(primers, highest + 1)
+
+
+def test_a_validator_run_rejects_the_disabling_value(tmp_path):
+    """End to end through the validator a user actually runs."""
+    from neoswga.core.param_validator import ParamValidator, ValidationLevel
+
+    messages = ParamValidator().validate_params(
+        {
+            "data_dir": str(tmp_path),
+            "fg_genomes": ["fg.fna"],
+            "fg_prefixes": ["fg"],
+            "max_dimer_bp": 8,
+        }
+    )
+    errors = [m for m in messages if m.level == ValidationLevel.ERROR]
+    assert any("max_dimer_bp" in (m.parameter or "") for m in errors), [
+        (m.level, m.parameter, m.message) for m in messages
+    ]

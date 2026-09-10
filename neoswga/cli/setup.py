@@ -44,7 +44,15 @@ def _run_validate_installation(args):
     else:
         logger.info("  GPU: Not available (install CuPy for GPU acceleration)")
 
-    if args.quick:
+    if getattr(args, "smoke", False):
+        from neoswga.core.validation import smoke_validation
+
+        logger.info("Running smoke validation...")
+        success = smoke_validation(
+            params_path=getattr(args, "json_file", None),
+            verbose=not getattr(args, "quiet", False),
+        )
+    elif args.quick:
         logger.info("Running quick validation...")
         success = quick_validation()
     elif args.all:
@@ -422,17 +430,13 @@ def run_interpret(args):
         sys.exit(1)
 
 
-def add_parsers(subparsers):
-    """Register this group's subcommands on the shared subparsers object.
+def _add_validate_parser(subparsers):
+    """Register `validate` and its install/params/model subcommands.
 
-    Called by neoswga.cli_unified.create_parser(). Extracted from the former
-    monolithic create_parser() so each command group owns its argparse setup
-    next to its handlers.
+    Extracted from ``add_parsers`` unchanged, to keep that function inside
+    its length budget. `validate` owns three subcommands plus the historical
+    no-subcommand flags, so it is the largest single block there.
     """
-    import argparse  # noqa: F401  (used by some command blocks)
-
-    from neoswga.cli._common import add_common_options  # noqa: F401
-
     validate_parser = subparsers.add_parser(
         "validate",
         help="Validate the installation, a params.json file, or the "
@@ -446,6 +450,20 @@ def add_parsers(subparsers):
     )
     validate_parser.add_argument(
         "--all", action="store_true", help="Run all installation tests including benchmarks"
+    )
+    validate_parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run all four pipeline steps against a packaged 6 kb target, "
+        "under the reaction conditions in -j params.json. Checks a "
+        "configuration in seconds before committing to a long run.",
+    )
+    validate_parser.add_argument(
+        "-j",
+        "--json-file",
+        type=str,
+        default=None,
+        help="params.json whose configuration and chemistry --smoke should use",
     )
 
     validate_sub = validate_parser.add_subparsers(
@@ -463,6 +481,18 @@ def add_parsers(subparsers):
     )
     validate_install_sub.add_argument(
         "--all", action="store_true", help="Run all tests including benchmarks"
+    )
+    validate_install_sub.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Run all four pipeline steps against a packaged 6 kb target",
+    )
+    validate_install_sub.add_argument(
+        "-j",
+        "--json-file",
+        type=str,
+        default=None,
+        help="params.json whose configuration and chemistry --smoke should use",
     )
 
     validate_params_sub = validate_sub.add_parser(
@@ -483,6 +513,20 @@ def add_parsers(subparsers):
     validate_model_sub.add_argument(
         "--output-json", action="store_true", help="Output results as JSON"
     )
+
+
+def add_parsers(subparsers):
+    """Register this group's subcommands on the shared subparsers object.
+
+    Called by neoswga.cli_unified.create_parser(). Extracted from the former
+    monolithic create_parser() so each command group owns its argparse setup
+    next to its handlers.
+    """
+    import argparse  # noqa: F401  (used by some command blocks)
+
+    from neoswga.cli._common import add_common_options  # noqa: F401
+
+    _add_validate_parser(subparsers)
 
     # =========================================================================
     # UTILITY: Show presets

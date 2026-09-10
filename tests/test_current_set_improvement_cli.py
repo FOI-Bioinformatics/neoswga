@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -29,7 +31,7 @@ def example_workdir(tmp_path_factory):
     full suite, and passed again once the directory was cleaned: an order
     dependency on the previous invocation rather than on anything in the run.
     """
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
 
     workdir = tmp_path_factory.mktemp("example")
@@ -58,7 +60,7 @@ def test_help_is_available(cmd):
 
 def test_rescore_set_additives_shift_tm(example_workdir):
     """Under 1.5 M betaine the effective Tm should drop vs no additive."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
 
     primer_args = ["AAACGCT", "CATCCGTAAG", "AGGAAAGGAC"]
@@ -112,7 +114,7 @@ def test_rescore_set_additives_shift_tm(example_workdir):
 
 def test_contract_set_smoke(example_workdir):
     """contract-set runs end-to-end and emits valid JSON with expected keys."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
     result = _run(
         [
@@ -144,7 +146,7 @@ def test_contract_set_smoke(example_workdir):
 
 def test_swap_primer_smoke(example_workdir):
     """swap-primer runs end-to-end on the plasmid example."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
     result = _run(
         [

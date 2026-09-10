@@ -5,6 +5,7 @@ so schema changes require regenerating the doc (and the CI can fail
 loudly if someone forgets).
 """
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -19,21 +20,44 @@ def test_render_schema_script_exists():
 
 
 def test_params_reference_is_generated():
-    """docs/params-reference.md must exist and be regeneratable."""
+    """docs/params-reference.md must be exactly what the renderer emits.
+
+    This used to RUN scripts/render_schema.py, which WRITES the tracked file,
+    and then assert that a few strings appeared in the result. It therefore
+    asserted against content it had just written and could not fail: a stale
+    doc passed, and the run left the repository dirty instead of reporting
+    anything. Verified on 2026-09-10 by deleting a parameter row -- the old
+    test passed and put the row back.
+
+    It cost more than tidiness. A hand-written addition to the "Additional
+    guidance" section was silently reverted by a suite run, so the commit
+    meant to carry it carried nothing. Prose for that file belongs in the
+    renderer's FOOTER, which is where it now lives.
+
+    Comparing in memory instead: the renderer exposes `render()` as a pure
+    function, so nothing needs to be written to check the committed file.
+    """
+    import importlib.util
+
     ref = ROOT / "docs" / "params-reference.md"
     assert ref.is_file(), "docs/params-reference.md missing; run scripts/render_schema.py"
 
-    # Regenerate into a temporary buffer and compare
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "render_schema.py")],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        cwd=ROOT,
+    spec = importlib.util.spec_from_file_location(
+        "_render_schema", ROOT / "scripts" / "render_schema.py"
     )
-    assert result.returncode == 0, result.stderr
-    assert ref.is_file()
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    with (ROOT / "neoswga" / "core" / "schema" / "params.schema.json").open() as fh:
+        schema = json.load(fh)
+    expected = module.render(schema)
+
     content = ref.read_text()
+    assert content == expected, (
+        "docs/params-reference.md is out of date with params.schema.json. "
+        "Regenerate it: python scripts/render_schema.py"
+    )
+
     # Structural assertions that both schema and renderer emit
     assert "## Required parameters" in content
     assert "## Optional parameters" in content

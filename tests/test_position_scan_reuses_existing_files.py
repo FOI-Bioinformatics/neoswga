@@ -135,6 +135,11 @@ def test_a_second_run_does_not_empty_the_candidate_pool(genome):
         seq_length=6_000,
         circular=False,
         position_cache=reused,
+        # This fixture plants each primer once, and the default threshold of
+        # three sites would make both unmeasurable for a reason that has
+        # nothing to do with reuse. Pinning it to 1 keeps the test on its
+        # subject: a short position map, whatever produced it.
+        min_sites=1,
     )
 
     survivors = [
