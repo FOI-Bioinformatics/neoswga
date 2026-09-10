@@ -76,17 +76,32 @@ def test_the_exception_still_formats_its_remediation():
     assert "neoswga count-kmers" in text
 
 
-def test_cli_pipeline_has_no_module_scope_fallback_class():
-    """The try/except ImportError fallback defined a *different* class, so a
-    raised StepPrerequisiteError would not have been caught by it."""
-    from pathlib import Path
+def test_cli_pipeline_binds_the_canonical_exception_not_a_fallback():
+    """Whatever `cli/pipeline.py` binds for this name must BE the canonical
+    class, not merely look like it.
 
+    The defect this pins is a `try/except ImportError` fallback that defined a
+    second class of the same name. `except` matches on identity, so a
+    `StepPrerequisiteError` raised by the pipeline would sail straight past a
+    handler catching the fallback, and the step would abort with a traceback
+    instead of the prerequisite message.
+
+    An earlier version of this test asserted that the literal source text
+    `class StepPrerequisiteError(Exception):` was absent from the file. That
+    passes against any fallback spelled differently -- inheriting from
+    `NeoSWGAError`, or wrapped in a conditional -- which is to say it passes
+    against the same defect wearing another name. Identity is the property
+    that matters, so assert identity.
+    """
     import neoswga.cli.pipeline as cli_pipeline
+    from neoswga.core.exceptions import StepPrerequisiteError as canonical
 
-    source = Path(cli_pipeline.__file__).read_text()
-    assert "class StepPrerequisiteError(Exception):" not in source, (
-        "cli/pipeline.py still defines a fallback exception class that would "
-        "not catch the one core/pipeline.py raises"
+    bound = getattr(cli_pipeline, "StepPrerequisiteError", None)
+    assert bound is not None, "cli/pipeline.py no longer binds the name at all"
+    assert bound is canonical, (
+        "cli/pipeline.py binds a different class object for "
+        "StepPrerequisiteError, so its except clauses cannot catch what the "
+        "pipeline raises"
     )
 
 
@@ -111,3 +126,35 @@ def test_the_exception_raised_by_the_pipeline_is_caught_by_the_cli_import():
         assert exc.step == 4
     else:  # pragma: no cover - the assert above is the point of the test
         raise AssertionError("the re-exported class was not caught")
+
+
+def test_importing_rf_preprocessing_does_not_import_sklearn():
+    """`import sklearn` at module scope cost 2.47 s and served only the legacy
+    pickle alias fix. The bundled model is skops, which does not need it."""
+    loaded = _modules_after("import neoswga.core.rf_preprocessing")
+    assert "sklearn" not in loaded, "rf_preprocessing still imports scikit-learn at module scope"
+
+
+def test_importing_the_core_pipeline_does_not_import_sklearn():
+    """core/pipeline.py:16 imports rf_preprocessing, so a step that runs the
+    pipeline must still not pay for sklearn unless --amp-model was passed."""
+    loaded = _modules_after("import neoswga.core.pipeline")
+    assert "sklearn" not in loaded, "importing the pipeline still pulls in scikit-learn"
+
+
+def test_the_alias_fix_is_still_applied_before_a_model_is_loaded():
+    """Deferring it must not skip it. The fix is what lets a legacy pickle
+    trained on sklearn < 1.0 unpickle here."""
+    import sys
+
+    from neoswga.core import rf_preprocessing as rf
+
+    rf._SKLEARN_ALIASES_FIXED = False
+    rf._fix_sklearn_module_aliases()
+
+    assert rf._SKLEARN_ALIASES_FIXED is True
+    assert "sklearn.ensemble.forest" in sys.modules
+
+    # Idempotent: a second call must not raise and must not undo the first.
+    rf._fix_sklearn_module_aliases()
+    assert "sklearn.ensemble.forest" in sys.modules
