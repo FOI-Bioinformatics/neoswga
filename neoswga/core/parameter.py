@@ -99,6 +99,35 @@ SCHEMA_V2_MIGRATION_NOTE = """  - Klenow processivity 10000 bp -> 40 nt (it is d
   Pin values explicitly in params.json if you need to reproduce an older run."""
 
 
+def _resolve_min_gini_sites(args, data) -> int:
+    """The configured minimum site count for the Gini gate, always an int.
+
+    `getattr`, not `args.min_gini_sites`. Every other key resolved beside this
+    one predates any current caller, but this one is new, and a programmatic
+    caller that builds its own args object -- which several test modules and
+    any library user do -- would otherwise raise AttributeError on an option it
+    has never heard of. Seventeen tests did exactly that.
+
+    The explicit None test rather than `or`: 0 is not a meaningful site count,
+    but truthiness would also swallow it, and several test modules replace this
+    module with a MagicMock whose every attribute is truthy.
+    """
+    value = get_value_or_default(getattr(args, "min_gini_sites", None), data, "min_gini_sites")
+    return _default_min_gini_sites() if value is None else int(value)
+
+
+def _default_min_gini_sites() -> int:
+    """The default minimum site count for the Gini gate.
+
+    Imported lazily because `primer_attributes` reaches this module through its
+    own import chain, so a module-scope import here is a cycle. There is one
+    definition of the number and it lives beside the code that applies it.
+    """
+    from neoswga.core.primer_attributes import DEFAULT_MIN_GINI_SITES
+
+    return DEFAULT_MIN_GINI_SITES
+
+
 def default_mg_conc(polymerase: str) -> float:
     """Return the default Mg2+ concentration (mM) for a polymerase."""
     return MG_DEFAULTS_MM.get((polymerase or "").lower(), MG_DEFAULT_FALLBACK_MM)
@@ -294,6 +323,7 @@ class PipelineParameters:
     min_tm: float = 15.0
     max_tm: float = 45.0
     max_gini: float = 0.6
+    min_gini_sites: int = 3
     max_primer: int = 500
     # Unitless amplification prediction score (scale ~0-20). Combines Tm
     # optimality, GC content, 3' stability, and binding energy features.
@@ -420,6 +450,7 @@ def get_current_config() -> PipelineParameters:
         min_tm=globals().get("min_tm", 15.0),
         max_tm=globals().get("max_tm", 45.0),
         max_gini=globals().get("max_gini", 0.6),
+        min_gini_sites=globals().get("min_gini_sites", _default_min_gini_sites()),
         max_primer=globals().get("max_primer", 500),
         min_amp_pred=globals().get("min_amp_pred", 10.0),
         max_dimer_bp=globals().get("max_dimer_bp", 3),
@@ -500,6 +531,7 @@ def set_from_config(config: PipelineParameters) -> None:
     g["min_tm"] = config.min_tm
     g["max_tm"] = config.max_tm
     g["max_gini"] = config.max_gini
+    g["min_gini_sites"] = config.min_gini_sites
     g["max_primer"] = config.max_primer
     g["min_amp_pred"] = config.min_amp_pred
 
@@ -814,6 +846,7 @@ def get_value_or_default(arg_value, data, key):
         "fg_circular",
         "bg_circular",
         "mismatch_penalty",
+        "min_gini_sites",
     }
     if arg_value is not None:
         return arg_value
@@ -938,6 +971,7 @@ def get_params(args):
     global min_tm
     global max_tm
     global max_gini
+    global min_gini_sites
     global max_primer
     global min_amp_pred
     global cpus
@@ -1034,6 +1068,7 @@ def get_params(args):
     max_tm = data["max_tm"] = get_value_or_default(args.max_tm, data, "max_tm")
 
     max_gini = data["max_gini"] = get_value_or_default(args.max_gini, data, "max_gini")
+    min_gini_sites = data["min_gini_sites"] = _resolve_min_gini_sites(args, data)
     max_primer = data["max_primer"] = get_value_or_default(args.max_primer, data, "max_primer")
     min_amp_pred = data["min_amp_pred"] = get_value_or_default(
         args.min_amp_pred, data, "min_amp_pred"

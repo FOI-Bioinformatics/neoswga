@@ -160,6 +160,12 @@
       "minimum": 0.0,
       "maximum": 1.0
     },
+    "min_gini_sites": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 3,
+      "description": "Minimum recorded binding sites, counted across both strands, before the Gini index of gap lengths is treated as a measurement. Below it the index is NaN and the primer is dropped by the evenness gate. One site gives no gap and two give a single gap whose Gini is identically 0.0, the best score available, so an unmeasurable primer used to outrank an evenly spread one. Lower it to 2 or 1 for a small target where single-site primers are most of the pool."
+    },
     "max_primer": {
       "type": "integer",
       "minimum": 1,

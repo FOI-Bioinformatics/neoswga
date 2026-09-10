@@ -1417,6 +1417,14 @@ def add_parsers(subparsers):
     step2_trad_group.add_argument(
         "--max-gini", type=float, help="Maximum Gini index for evenness (default: 0.6)"
     )
+    filter_parser.add_argument(
+        "--min-gini-sites",
+        type=int,
+        help="Minimum recorded binding sites before the Gini index is treated "
+        "as a measurement (default: 3). Below it the index is NaN and the "
+        "primer is dropped. Lower it to 2 or 1 for a small target where "
+        "single-site primers are most of the pool.",
+    )
     step2_trad_group.add_argument(
         "--max-primer", type=int, help="Number of top primers to keep (default: 500)"
     )

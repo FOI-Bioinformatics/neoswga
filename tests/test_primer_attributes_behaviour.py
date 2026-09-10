@@ -65,16 +65,21 @@ def test_the_filters_notna_guard_now_fires():
     assert not kept.iloc[0], "an unmeasurable primer still passes the evenness filter"
 
 
-def test_positions_without_gaps_still_score_zero():
-    """One binding site is data, not an absence of it.
+def test_a_single_site_is_not_measurable_either():
+    """Changed by audit finding B4, 2026-09-10.
 
-    There is simply no spacing to be uneven about, so 0 is the right answer and
-    must not be swept up by the NaN change.
+    This test previously asserted that one binding site scores 0.0, on the
+    reasoning that one site is data rather than an absence of it. That
+    reasoning was recorded deliberately in 0a40533 and it is half right: there
+    is data, but 0.0 is the BEST score the evenness gate can see, so a
+    single-site primer was ranked ahead of an evenly spread one. Below the
+    minimum site count the answer is now "not measurable". The count defaults
+    to DEFAULT_MIN_GINI_SITES and is configurable through min_gini_sites.
     """
     cache = {("x", PRIMER): [500]}
     result = pa.get_gini_from_txt_for_one_k([PRIMER], "x", None, 10_000, True, cache)
-    forward, _reverse = result[PRIMER]
-    assert forward == 0 and not math.isnan(forward)
+    forward, reverse = result[PRIMER]
+    assert math.isnan(forward) and math.isnan(reverse)
 
 
 def test_uneven_spacing_scores_higher_than_even_spacing():

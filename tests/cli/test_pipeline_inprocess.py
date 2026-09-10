@@ -49,6 +49,12 @@ def workspace(tmp_path, genome_seq):
             "min_fg_freq": 1e-6,
             "max_bg_freq": 1.0,
             "max_gini": 1.0,
+            # A 20 kb target with 10-mers gives almost every candidate a single
+            # binding site, so the default min_gini_sites of 3 makes the whole
+            # pool unmeasurable and `filter` refuses. That is correct behaviour
+            # on a target this small; these tests are about other gates, so the
+            # evenness threshold is pinned out of their way.
+            "min_gini_sites": 1,
             "max_primer": 40,
             "min_amp_pred": 0,
             "min_tm": 0,

@@ -71,6 +71,7 @@ neoswga schema --dump > params.schema.json
 | `mg_conc` | number | min: 0.0; max: 20.0 | - | Mg2+ concentration (mM). Polymerase-aware default is used if absent. |
 | `min_amp_pred` | number | - | - | - |
 | `min_fg_freq` | number | min: 0.0; max: 1.0 | - | - |
+| `min_gini_sites` | integer | min: 1 | `3` | Minimum recorded binding sites, counted across both strands, before the Gini index of gap lengths is treated as a measurement. Below it the index is NaN and the primer is dropped by the evenness gate. One site gives no gap and two give a single gap whose Gini is identically 0.0, the best score available, so an unmeasurable primer used to outrank an evenly spread one. Lower it to 2 or 1 for a small target where single-site primers are most of the pool. |
 | `min_k` | integer | min: 4; max: 30 | - | Minimum primer length (bp). Polymerase-aware default is used if absent. |
 | `min_sample_count` | integer | min: 1 | - | - |
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
