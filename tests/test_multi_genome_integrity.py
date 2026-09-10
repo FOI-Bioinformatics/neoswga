@@ -48,24 +48,8 @@ def test_position_file_cache_is_decided_per_fg_prefix(tmp_path):
     ), "a prefix with no cached position file must still be scanned in full"
 
 
-def test_background_aware_optimizer_aggregates_all_bg_prefixes():
-    """compare_optimizers standard_bg calculation must sum across all bg_prefixes."""
-    import inspect
-
-    from neoswga.core import background_aware_optimizer as bao
-
-    source = inspect.getsource(bao.compare_optimizers)
-    # Strip comments before checking code (docstring-style notes may still
-    # mention bg_prefixes[0] as a historical reference).
-    code_lines = []
-    for line in source.splitlines():
-        stripped = line.lstrip()
-        if stripped.startswith("#"):
-            continue
-        code_lines.append(line)
-    code = "\n".join(code_lines)
-
-    assert (
-        "for bg_prefix in bg_prefixes" in code
-    ), "compare_optimizers must iterate over all bg_prefixes, not bg_prefixes[0]"
-    assert "bg_prefixes[0]" not in code, "bg_prefixes[0] hardcoding should be removed from code"
+# `test_background_aware_optimizer_aggregates_all_bg_prefixes` was removed on
+# 2026-09-10 with `background_aware_optimizer.compare_optimizers`, which nothing
+# called. It read the function's SOURCE TEXT with `inspect.getsource` and
+# asserted on the strings in it -- which is a tell in itself: a function that
+# can only be checked by reading it is a function nothing runs.
