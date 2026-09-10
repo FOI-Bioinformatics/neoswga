@@ -150,3 +150,58 @@ def test_every_step_handler_measures_before_it_records():
             f"_record_run_manifest at line {i + 1} is not preceded by the "
             "elapsed measurement; it cannot be recording the step's time"
         )
+
+
+def test_conditions_can_be_read_for_a_named_step(tmp_path):
+    """Two score entries sitting after an optimize entry made a report describe
+    the optimize result under the score step's reaction."""
+    rm.write_manifest(
+        step="optimize",
+        data_dir=str(tmp_path),
+        effective_conditions={"polymerase": "phi29", "reaction_temp": 30.0},
+    )
+    rm.write_manifest(
+        step="score",
+        data_dir=str(tmp_path),
+        effective_conditions={"polymerase": "bst", "reaction_temp": 63.0},
+    )
+
+    assert rm.read_effective_conditions(str(tmp_path), step="optimize") == {
+        "polymerase": "phi29",
+        "reaction_temp": 30.0,
+    }
+    assert rm.read_effective_conditions(str(tmp_path), step="score") == {
+        "polymerase": "bst",
+        "reaction_temp": 63.0,
+    }
+
+
+def test_a_named_step_reads_its_latest_entry_not_its_first(tmp_path):
+    """The manifest is append-only, so a step that ran twice has two entries.
+    An implementation that scanned forward would return the stale one."""
+    rm.write_manifest(
+        step="optimize",
+        data_dir=str(tmp_path),
+        effective_conditions={"reaction_temp": 30.0},
+    )
+    rm.write_manifest(
+        step="optimize",
+        data_dir=str(tmp_path),
+        effective_conditions={"reaction_temp": 42.0},
+    )
+
+    assert rm.read_effective_conditions(str(tmp_path), step="optimize") == {"reaction_temp": 42.0}
+
+
+def test_reading_without_a_step_keeps_returning_the_latest(tmp_path):
+    """export and report call it with no step; that behaviour is unchanged."""
+    rm.write_manifest(step="filter", data_dir=str(tmp_path), effective_conditions={"na_conc": 50.0})
+    rm.write_manifest(
+        step="optimize", data_dir=str(tmp_path), effective_conditions={"na_conc": 75.0}
+    )
+    assert rm.read_effective_conditions(str(tmp_path)) == {"na_conc": 75.0}
+
+
+def test_reading_a_step_that_never_ran_is_none(tmp_path):
+    rm.write_manifest(step="filter", data_dir=str(tmp_path), effective_conditions={"na_conc": 50.0})
+    assert rm.read_effective_conditions(str(tmp_path), step="optimize") is None

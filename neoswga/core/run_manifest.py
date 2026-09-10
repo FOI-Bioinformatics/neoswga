@@ -185,14 +185,22 @@ def write_manifest(
     return manifest_path
 
 
-def read_effective_conditions(data_dir: str) -> Optional[Dict[str, Any]]:
-    """The reaction conditions the most recent step recorded, if any.
+def read_effective_conditions(
+    data_dir: str, step: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """The reaction conditions a recorded step ran under, if any.
 
     `export` and `report` otherwise reconstruct conditions from params.json,
     which omits anything the run decided for itself -- so they reported a Tm
     corrected for a different buffer than the one the design was optimized
-    under. The latest step wins: later steps run under the same resolved
-    parameters, and a rerun should not be read through an older reaction.
+    under.
+
+    With no ``step``, the latest entry carrying conditions wins, which is the
+    historical behaviour and what `export` and `report` use. Pass a step name
+    to read that step's own reaction: the manifest is append-only and a rerun
+    interleaves steps, so in one real run two ``score`` entries sat after an
+    ``optimize`` entry and the unfiltered read described the optimize result
+    under the score step's reaction.
     """
     manifest_path = os.path.join(data_dir, MANIFEST_FILENAME)
     if not os.path.exists(manifest_path):
@@ -208,6 +216,10 @@ def read_effective_conditions(data_dir: str) -> Optional[Dict[str, Any]]:
     if not isinstance(steps, list):
         return None
     for entry in reversed(steps):
-        if isinstance(entry, dict) and isinstance(entry.get("effective_conditions"), dict):
+        if not isinstance(entry, dict):
+            continue
+        if step is not None and entry.get("step") != step:
+            continue
+        if isinstance(entry.get("effective_conditions"), dict):
             return entry["effective_conditions"]
     return None
