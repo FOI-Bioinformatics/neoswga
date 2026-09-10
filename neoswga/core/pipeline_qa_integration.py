@@ -669,6 +669,33 @@ def _record_qa_funnel_stage(stats_path: Path, primers_out: int) -> None:
         logger.debug(f"Could not update filter_stats.json after QA: {e}")
 
 
+def order_by_composite_score(df):
+    """A deterministic total order for the QA-scored pool.
+
+    This was `sort_values("composite_score", ascending=False)`: the default
+    quicksort, no secondary key. Measured on the 449-candidate E. coli pool,
+    two input orders gave 65 differing positions, the first at rank 14 where
+    two primers swap, and 100 of the 449 rows share a composite value with
+    another row.
+
+    The optimizer is order-sensitive -- reversing the E. coli pool moved the
+    delivered set to a Jaccard of 0.600 at target size 24 -- so an unstable tie
+    order decides oligos. This is the same fault `pipeline.order_step3_rows`
+    was written to remove, reintroduced on the `--enable-qa` path.
+
+    The composite still leads. The primer sequence breaks ties: it is unique,
+    which makes the order total, and it claims nothing about primer quality.
+
+    Audit finding D1d.
+    """
+    if len(df) == 0:
+        return df
+    seq_col = primer_column(df)
+    return df.sort_values(
+        by=["composite_score", seq_col], ascending=[False, True], kind="mergesort"
+    )
+
+
 def apply_qa_to_step3_output(
     data_dir: str,
     config: Optional[QAFilterConfig] = None,
@@ -715,7 +742,7 @@ def apply_qa_to_step3_output(
         qa_weight=config.qa_weight,
         verbose=verbose,
     )
-    combined = combined.sort_values("composite_score", ascending=False)
+    combined = order_by_composite_score(combined)
     combined.to_csv(step3_path, index=has_index)
     return combined
 
