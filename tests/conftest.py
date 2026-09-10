@@ -5,6 +5,7 @@ reaction conditions, mock caches, and temporary FASTA files.
 """
 
 import glob
+import json
 import logging
 import os
 from pathlib import Path
@@ -251,3 +252,66 @@ def tmp_fasta_pair(tmp_path):
     bg = tmp_path / "background.fasta"
     bg.write_text(">bg_seq1\nAAAACCCCGGGGTTTTAAAA\nCCCCGGGGTTTTAAAACCCC\n")
     return fg, bg
+
+
+# ---------------------------------------------------------------------------
+# Failure context, for the one flake with no known cause
+# ---------------------------------------------------------------------------
+#
+# On 2026-09-10 a full run gave 6 failures and 4124 passes where two immediate
+# re-runs on a byte-identical tree gave none, with 25 concurrent agent
+# processes the only unusual condition. The roadmap entry recording it says a
+# single test name was not enough to diagnose it, which is why the entry cannot
+# say more.
+#
+# Three known sources of load-dependent failure have since been removed: the
+# wall-clock assertions, an over-broad caplog assertion and subprocess tests
+# that skipped when a step failed. If anything is left, the next occurrence
+# should arrive with its own evidence rather than needing a re-run to notice.
+#
+# Writes nothing on a green run.
+
+_FAILURE_REPORT = Path(__file__).resolve().parent.parent / ".pytest_failure_context.json"
+_FAILURES: list = []
+
+
+def _load_average():
+    try:
+        return list(os.getloadavg())
+    except (OSError, AttributeError):  # pragma: no cover - platform dependent
+        return None
+
+
+def _write_failure_context():
+    """Record what a diagnosis of a load-dependent failure would need."""
+    if not _FAILURES:
+        return
+    payload = {
+        "failures": _FAILURES,
+        "load_average": _load_average(),
+        "workers": os.environ.get("PYTEST_XDIST_WORKER_COUNT"),
+        "cpu_count": os.cpu_count(),
+    }
+    try:
+        _FAILURE_REPORT.write_text(json.dumps(payload, indent=2))
+    except OSError:  # pragma: no cover - diagnostics must never fail a run
+        pass
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Collect the failures, with the worker that ran each one."""
+    outcome = yield
+    report = outcome.get_result()
+    if report.when == "call" and report.failed:
+        _FAILURES.append(
+            {
+                "test": report.nodeid,
+                "worker": os.environ.get("PYTEST_XDIST_WORKER", "master"),
+                "duration": round(getattr(report, "duration", 0.0), 3),
+            }
+        )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    _write_failure_context()
