@@ -344,58 +344,189 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
     return filtered_primer_list
 
 
-def _split_already_scanned(primers, fname_prefix, k):
-    """Partition `primers` into (to_scan, reusable) against the HDF5 file.
+# Genome fingerprints already computed in this process, keyed by path, size and
+# mtime. See `_position_provenance`.
+_fingerprint_cache: Dict[tuple, str] = {}
 
-    A primer counts as already scanned when the file holds a dataset for it.
-    On the Aho-Corasick path that test is sound: `write_to_h5py` is handed
+
+def position_file_path(fname_prefix, k):
+    """Where the binding positions for one prefix and one k live."""
+    return fname_prefix + "_" + str(k) + "mer_positions.h5"
+
+
+def _position_provenance(genome_fname, k, circular):
+    """What a position file has to have been produced under to be reusable.
+
+    Genome identity plus the scan parameters that change the answer. `circular`
+    belongs here because `get_all_positions_multi_k` appends `sequence[:max_k-1]`
+    before scanning, so a primer straddling the origin is found only when it is
+    true: a pool scanned once with `circular=False` and reused under
+    `circular=True` silently loses those sites.
+
+    The fingerprint is `kmer_counter.genome_fingerprint`, the same cheap
+    size-plus-first-and-last-megabyte identifier the k-mer tables use, rather
+    than a second mechanism. A full hash of hg38 costs seconds on an invocation
+    that usually skips.
+
+    Returns None when the genome cannot be read, which is treated as
+    unverifiable and therefore not reusable.
+    """
+    from neoswga.core import kmer_counter
+
+    try:
+        stat = os.stat(genome_fname)
+        key = (os.path.abspath(genome_fname), stat.st_size, stat.st_mtime_ns)
+        # Memoised because the record is built once per k and again on the way
+        # out, so a five-k run would otherwise read two megabytes of the genome
+        # fourteen times per prefix. The size and mtime are part of the key, so
+        # a file replaced under a running process is fingerprinted again.
+        fingerprint = _fingerprint_cache.get(key)
+        if fingerprint is None:
+            fingerprint = kmer_counter.genome_fingerprint(genome_fname)
+            _fingerprint_cache[key] = fingerprint
+    except OSError as exc:
+        logger.debug(f"Could not fingerprint {genome_fname} ({exc})")
+        return None
+    return {
+        "genome": os.path.abspath(genome_fname),
+        "fingerprint": fingerprint,
+        "k": int(k),
+        "circular": int(bool(circular)),
+    }
+
+
+def _stored_provenance(handle):
+    """Read the provenance record off an open position file, or None."""
+    attrs = handle.attrs
+    if "provenance_fingerprint" not in attrs:
+        return None
+    try:
+        return {
+            "genome": str(attrs["provenance_genome"]),
+            "fingerprint": str(attrs["provenance_fingerprint"]),
+            "k": int(attrs["provenance_k"]),
+            "circular": int(attrs["provenance_circular"]),
+        }
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def write_position_provenance(fname_prefix, genome_fname, k, circular):
+    """Record what a position file was scanned from, for the next run's check."""
+    record = _position_provenance(genome_fname, k, circular)
+    if record is None:
+        return
+    with h5py.File(position_file_path(fname_prefix, k), "a") as handle:
+        handle.attrs["provenance_genome"] = record["genome"]
+        handle.attrs["provenance_fingerprint"] = record["fingerprint"]
+        handle.attrs["provenance_k"] = record["k"]
+        handle.attrs["provenance_circular"] = record["circular"]
+
+
+def clear_position_provenance(fname_prefix, k):
+    """Drop the provenance record from a position file.
+
+    Called by the fallback path, which reuses datasets without checking any
+    record. A file it has written therefore holds data of unverified origin, and
+    an absent record makes the Aho-Corasick path rescan rather than trust it.
+    """
+    h5_path = position_file_path(fname_prefix, k)
+    if not os.path.exists(h5_path):
+        return
+    try:
+        with h5py.File(h5_path, "a") as handle:
+            for name in (
+                "provenance_genome",
+                "provenance_fingerprint",
+                "provenance_k",
+                "provenance_circular",
+            ):
+                if name in handle.attrs:
+                    del handle.attrs[name]
+    except OSError as exc:
+        logger.debug(f"Could not clear provenance on {h5_path} ({exc})")
+
+
+def _reusable_positions(primers, fname_prefix, genome_fname, k, circular):
+    """Return `(positions, to_scan)` for `primers` against the HDF5 file.
+
+    `positions` holds every primer that can be reused, mapped to the positions
+    recorded for it; `to_scan` holds the rest. Together they always cover
+    `primers`, which is the contract rather than an optimisation:
+    `get_positions` documents a complete map and
+    `primer_attributes.get_gini_from_txt_for_one_k` reads it with
+    `.get((prefix, primer), [])`, so a primer left out of it reads as a primer
+    with no binding sites, which the Gini gate turns into NaN and drops. On a
+    re-run that would empty the whole candidate pool.
+
+    The provenance check and the read happen under one file open, so the key set
+    and the datasets cannot come from different states of the file and the
+    record cannot be verified against one state and the data taken from another.
+
+    A primer counts as reusable when the file holds a dataset for it. On the
+    Aho-Corasick path that test is sound: `write_to_h5py` is handed
     `all_positions.get(p, [])` for every pattern in the automaton, so a primer
     that occurs nowhere still gets a key with an empty dataset, and key presence
-    means "this primer was scanned" rather than "this primer was found".
+    means "this primer was scanned" rather than "this primer was found". That
+    invariant is what the reuse rests on; a scan path that stopped writing empty
+    entries would turn it into a silent wrong answer.
 
-    A file written by the fallback path can be missing keys for primers absent
-    from the genome, because `check_which_primers_absent_in_h5py` filters those
-    out before scanning. That costs a redundant scan, not a wrong answer.
+    A file whose record is absent or does not match is truncated rather than
+    merely bypassed. Bypassing leaves the datasets that this run does not ask
+    about in place, and the file is then stamped with the current genome while
+    still holding another genome's positions for those primers, which a later
+    run with a different candidate pool would reuse.
 
-    Any read problem returns everything as unscanned, which is the previous
-    behaviour.
+    Any read problem returns everything for scanning, which is the behaviour
+    before reuse existed.
     """
-    h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
+    h5_path = position_file_path(fname_prefix, k)
     if not os.path.exists(h5_path):
-        return list(primers), []
+        return {}, list(primers)
+
+    expected = _position_provenance(genome_fname, k, circular)
+    if expected is None:
+        return {}, list(primers)
+
     try:
         with h5py.File(h5_path, "r") as handle:
-            present = set(handle.keys())
+            stored = _stored_provenance(handle)
+            if stored == expected:
+                positions = {
+                    primer: handle[primer][:].tolist() for primer in primers if primer in handle
+                }
+                to_scan = [primer for primer in primers if primer not in positions]
+                return positions, to_scan
     except (OSError, KeyError) as exc:
         logger.debug(f"Could not read {h5_path} ({exc}); scanning all primers")
-        return list(primers), []
-    to_scan = [primer for primer in primers if primer not in present]
-    reusable = [primer for primer in primers if primer in present]
-    return to_scan, reusable
+        return {}, list(primers)
 
+    if stored is None:
+        logger.warning(
+            f"{h5_path} exists but has no provenance record, so it cannot be "
+            f"matched to {genome_fname}. Rescanning. Position files written "
+            f"before this check was added are each rescanned once."
+        )
+    elif stored["fingerprint"] != expected["fingerprint"]:
+        logger.warning(
+            f"{h5_path} was scanned from a different genome "
+            f"({stored.get('genome', 'unrecorded')}), not from {genome_fname}. "
+            f"Rescanning. Reusing it would have reported the other genome's "
+            f"binding sites."
+        )
+    else:
+        logger.warning(
+            f"{h5_path} was scanned with circular={bool(stored['circular'])} and "
+            f"this run is circular={bool(circular)}. Rescanning. Reusing it "
+            f"would have missed or invented sites spanning the origin."
+        )
 
-def _positions_from_h5(primers, fname_prefix, k):
-    """Read positions for primers that were scanned on an earlier run.
-
-    This back-fill is what makes the reuse safe rather than merely faster.
-    `get_positions` documents its return value as a complete map, and
-    `primer_attributes.get_gini_from_txt_for_one_k` reads it with
-    `.get((prefix, primer), [])`: a primer left out of the map is read as a
-    primer with no binding sites, which the Gini gate turns into NaN and drops.
-    """
-    if not primers:
-        return {}
-    h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
-    positions = {}
     try:
-        with h5py.File(h5_path, "r") as handle:
-            for primer in primers:
-                if primer in handle:
-                    positions[primer] = handle[primer][:].tolist()
-    except (OSError, KeyError) as exc:
-        logger.debug(f"Could not read {h5_path} ({exc}); positions will be rescanned")
-        return {}
-    return positions
+        with h5py.File(h5_path, "w"):
+            pass
+    except OSError as exc:
+        logger.debug(f"Could not truncate {h5_path} ({exc})")
+    return {}, list(primers)
 
 
 def get_positions(
@@ -469,6 +600,11 @@ def get_positions(
         # existing position files (incremental update only)" when the files were
         # present, and until this branch consulted them the log line was the only
         # thing that reused anything.
+        #
+        # Reuse is gated on a provenance record naming the genome and the scan
+        # parameters, because this branch previously rescanned unconditionally
+        # and so was immune to a stale file. `_reusable_positions` carries that
+        # gate; see its docstring for why a mismatch truncates the file.
         for i, fg_prefix in enumerate(fname_prefixes):
             primer_lists_by_k = {}
             reused_count = 0
@@ -482,28 +618,15 @@ def get_positions(
                 # count reproducible across runs.
                 wanted = sorted(set(k_primers + rc_primers))
 
-                to_scan, reusable = _split_already_scanned(wanted, fg_prefix, k)
-                if reusable:
-                    backfilled = _positions_from_h5(reusable, fg_prefix, k)
-                    for primer, positions in backfilled.items():
-                        position_cache[(fg_prefix, primer)] = positions
-                    # The back-fill is the contract, not a shortcut: the returned
-                    # map has to hold every primer that was skipped. It can come
-                    # back short if the file became unreadable between the two
-                    # reads, so anything missing goes back into the scan rather
-                    # than out of the map, where it would read downstream as a
-                    # primer that binds nowhere.
-                    missing = [p for p in reusable if p not in backfilled]
-                    if missing:
-                        logger.debug(
-                            f"{len(missing):,} {k}-mer position set(s) for {fg_prefix} "
-                            "were listed in the HDF5 file but could not be read back; "
-                            "rescanning them"
-                        )
-                        to_scan = to_scan + missing
-                    reused_count += len(backfilled)
+                reused, to_scan = _reusable_positions(
+                    wanted, fg_prefix, fname_genomes[i], k, circular
+                )
+                for primer, positions in reused.items():
+                    position_cache[(fg_prefix, primer)] = positions
+                if reused:
+                    reused_count += len(reused)
                     logger.debug(
-                        f"Reusing {len(backfilled):,} cached {k}-mer position set(s) "
+                        f"Reusing {len(reused):,} cached {k}-mer position set(s) "
                         f"for {fg_prefix}; scanning {len(to_scan):,}"
                     )
                 if to_scan:
@@ -524,7 +647,7 @@ def get_positions(
 
             # Ensure HDF5 files exist for each k before writing
             for k in primer_lists_by_k:
-                h5_path = fg_prefix + "_" + str(k) + "mer_positions.h5"
+                h5_path = position_file_path(fg_prefix, k)
                 if not os.path.exists(h5_path):
                     with h5py.File(h5_path, "a"):
                         pass
@@ -535,11 +658,13 @@ def get_positions(
             for primer, positions in all_positions.items():
                 position_cache[(fg_prefix, primer)] = positions
 
-            # Write to HDF5 grouped by k
+            # Write to HDF5 grouped by k, then record what the file was scanned
+            # from so the next run can decide whether it may be reused.
             for k, primers in primer_lists_by_k.items():
                 k_dict = {p: all_positions.get(p, []) for p in primers}
                 if k_dict:
                     write_to_h5py(k_dict, fg_prefix)
+                write_position_provenance(fg_prefix, fname_genomes[i], k, circular)
 
         return position_cache
     else:
@@ -598,3 +723,8 @@ def append_positions_to_h5py_file(task):
             list(set(filtered_list)), fname_genome, circular, fname_prefix
         )
         write_to_h5py(kmer_dict, fname_prefix)
+        # This path decides what to rescan with `check_which_primers_absent_in_h5py`,
+        # which consults no provenance record, so the file it leaves behind holds
+        # datasets of unverified origin. Dropping the record stops the
+        # Aho-Corasick path trusting them; it rescans instead.
+        clear_position_provenance(fname_prefix, k)
