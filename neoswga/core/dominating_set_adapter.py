@@ -113,6 +113,14 @@ class DominatingSetAdapter(BaseOptimizer):
             fg_seq_lengths=fg_seq_lengths,
             bin_size=self.ds_config.bin_size,
             extension_reach=self.config.extension_reach,
+            # Forwarded, not left to be re-resolved. Without this the optimizer
+            # falls back to `parameter.max_dimer_bp` (default 3) while
+            # `OptimizerConfig.max_dimer_bp` defaults to 4 and
+            # `unified_optimizer` sets it from `pick("max_dimer_bp", 4)`, so the
+            # `dominating-set` method screened at a threshold its own config did
+            # not record. That is the default case, not a corner one. Same
+            # defect `HybridOptimizer` fixed for its Stage-1 greedy.
+            max_dimer_bp=self.config.max_dimer_bp,
         )
 
     @property

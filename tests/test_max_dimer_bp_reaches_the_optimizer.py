@@ -348,3 +348,36 @@ def test_a_candidate_dimerising_with_a_fixed_primer_is_rejected():
     )
 
     assert result["new_primers"] == ["CGCGATCGCGAT"]
+
+
+def test_the_dominating_set_adapter_forwards_the_configured_threshold(monkeypatch):
+    """The same defect as `test_stage_one_greedy_receives_the_configured_threshold`,
+    in a second place.
+
+    `DominatingSetAdapter` constructed its `DominatingSetOptimizer` without
+    `max_dimer_bp`, so the optimizer re-resolved one from
+    `parameter.max_dimer_bp` (default 3) while `OptimizerConfig.max_dimer_bp`
+    defaults to 4 and `unified_optimizer` sets it from `pick("max_dimer_bp", 4)`.
+    The `dominating-set` method therefore screened at a threshold its own config
+    did not record, which is the default case rather than a corner one.
+    """
+    from unittest.mock import MagicMock
+
+    from neoswga.core.dominating_set_adapter import (
+        DominatingSetAdapter,
+        DominatingSetConfig,
+    )
+
+    monkeypatch.setattr(parameter, "max_dimer_bp", 3, raising=False)
+
+    adapter = DominatingSetAdapter(
+        position_cache=MagicMock(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[100_000],
+        config=DominatingSetConfig(max_dimer_bp=6),
+    )
+
+    assert adapter._optimizer.max_dimer_bp == 6, (
+        "the adapter screened at parameter.max_dimer_bp rather than at the "
+        "threshold its config records"
+    )
