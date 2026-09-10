@@ -84,6 +84,7 @@ class PositionCache:
         genome_paths: Optional[List[str]] = None,
         circular: bool = False,
         on_missing: str = "warn",
+        on_unindexed_prefix: str = "error",
     ):
         """
         Load all positions for given primers from HDF5 files.
@@ -95,6 +96,17 @@ class PositionCache:
                 for ``on_missing='scan'``.
             circular: Whether the genomes are circular (affects wrap-around
                 matches when scanning).
+            on_unindexed_prefix: What to do when `get_positions` is asked for
+                a prefix this cache was not built over. ``'error'`` (default)
+                raises; anything else warns once per prefix and returns empty.
+
+                This is deliberately NOT the same knob as ``on_missing``, and
+                the two defaults differ on purpose. A primer with no hits on a
+                prefix that WAS indexed is a plausible measurement of zero, so
+                that case warns. A prefix nobody indexed is a caller error: the
+                answer is unknown, not zero. Five commands shipped conflating
+                the two, each handing a background prefix to an optimizer whose
+                cache held only the foreground.
             on_missing: What to do about primers with no cached positions.
 
                 * ``'warn'`` (default) - log and carry on, preserving the
@@ -117,9 +129,14 @@ class PositionCache:
         self.cache: Dict[Tuple[str, str, str], np.ndarray] = {}
         self.primers = set(primers)
         self.fname_prefixes = fname_prefixes
+        # A set for the per-lookup check in `_check_prefix_is_indexed`, which
+        # runs on every `get_positions` call.
+        self._indexed_prefixes = set(fname_prefixes)
+        self._warned_prefixes = set()
         self.genome_paths = genome_paths
         self.circular = circular
         self.on_missing = on_missing
+        self.on_unindexed_prefix = on_unindexed_prefix
         # (prefix, primer) pairs that produced no cached positions -- i.e. whose
         # coverage is UNKNOWN because they were never indexed.
         self.missing_primers: List[Tuple[str, str]] = []
@@ -291,6 +308,38 @@ class PositionCache:
 
         logger.info(f"Loaded {total_loaded} position arrays into memory")
 
+    def _check_prefix_is_indexed(self, fname_prefix: str) -> None:
+        """Refuse a lookup on a prefix this cache never loaded.
+
+        `_resolve_missing` iterates `self.fname_prefixes`, so its policy could
+        never fire for a prefix outside that list: the keys simply are not
+        there and every lookup returned an empty array. Audit finding recorded
+        in the pipeline roadmap as "expand-primers scores every candidate as if
+        the host genome were empty"; five call sites had that shape.
+        """
+        if fname_prefix in self._indexed_prefixes:
+            return
+        if self.on_unindexed_prefix != "error":
+            if fname_prefix not in self._warned_prefixes:
+                self._warned_prefixes.add(fname_prefix)
+                logger.warning(
+                    "Positions requested for prefix %r, which this cache was not "
+                    "built over (it holds %s). Every lookup will read zero, which "
+                    "is not a measurement.",
+                    fname_prefix,
+                    ", ".join(sorted(self._indexed_prefixes)) or "nothing",
+                )
+            return
+        raise MissingPositionsError(
+            f"Positions requested for prefix {fname_prefix!r}, which this cache was "
+            f"not built over. It holds "
+            f"{', '.join(sorted(self._indexed_prefixes)) or 'nothing'}. Every lookup "
+            f"would read zero, which is indistinguishable from a primer that "
+            f"genuinely binds nowhere. Build the cache over this prefix, or pass "
+            f"on_missing='warn' if a zero really is the intended answer.",
+            missing=[fname_prefix],
+        )
+
     def get_positions(self, fname_prefix: str, primer: str, strand: str = "both") -> np.ndarray:
         """
         Get positions for a primer. O(1) lookup.
@@ -301,8 +350,22 @@ class PositionCache:
             strand: 'forward', 'reverse', or 'both'
 
         Returns:
-            Array of positions (empty if not found)
+            Array of positions. Empty when this cache indexed `fname_prefix`
+            but holds no hits for `primer` there -- that is a measurement of
+            zero.
+
+        Raises:
+            MissingPositionsError: when `fname_prefix` is not one this cache
+                was built over, unless `on_missing='warn'`. An empty result for
+                a prefix nobody indexed is not a measurement, and returning it
+                silently is what let five commands score every candidate as if
+                the host genome were empty. This is the same distinction
+                `_resolve_missing` already draws for primers, extended to the
+                prefix, and it uses the same `on_missing` knob rather than a
+                second mechanism.
         """
+        self._check_prefix_is_indexed(fname_prefix)
+
         if strand == "both":
             key = (fname_prefix, primer, "both")
             cached = self.cache.get(key)

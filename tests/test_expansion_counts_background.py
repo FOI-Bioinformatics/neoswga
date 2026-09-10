@@ -96,15 +96,21 @@ def test_the_fixture_really_plants_background_hits(prefixes, planted):
     assert total > 0
 
 
-def test_an_fg_only_cache_reports_no_background_at_all(prefixes, planted):
+def test_an_fg_only_cache_now_refuses_the_background_query(prefixes, planted):
     """The defect itself, stated as a property of the cache.
 
-    This is what every one of the four call sites was handing the optimizer.
+    This is what every one of the five call sites was handing the optimizer. It
+    used to return an empty array, silently. It now raises, which is what stops
+    a sixth site being written: fixing the call sites removed the bug, and this
+    makes the same mistake impossible to make quietly.
     """
+    from neoswga.core.position_cache import MissingPositionsError
+
     fg, bg = prefixes
     fg_only = PositionCache([fg], planted["primers"])
 
-    assert sum(len(fg_only.get_positions(bg, p, "both")) for p in planted["shared"]) == 0
+    with pytest.raises(MissingPositionsError):
+        fg_only.get_positions(bg, planted["shared"][0], "both")
 
 
 def test_a_two_prefix_cache_counts_the_background(prefixes, planted):
@@ -136,15 +142,21 @@ def test_the_optimizer_sees_the_background_when_the_cache_holds_it(prefixes, pla
     assert _background_seen_by_the_optimizer(cache, fg, bg, planted["shared"], GENOME_LENGTH) > 0
 
 
-def test_the_optimizer_sees_none_of_it_from_an_fg_only_cache(prefixes, planted):
-    """The same call, the same primers, the same background prefix: zero.
+def test_the_optimizer_is_stopped_rather_than_told_zero(prefixes, planted):
+    """The same call, the same primers, the same background prefix.
 
-    Indistinguishable downstream from a perfectly specific panel.
+    Before both changes this returned 0, indistinguishable downstream from a
+    perfectly specific panel. An optimizer handed a cache that cannot answer for
+    its background now fails loudly instead of scoring every candidate as
+    perfectly selective.
     """
+    from neoswga.core.position_cache import MissingPositionsError
+
     fg, bg = prefixes
     fg_only = PositionCache([fg], planted["primers"])
 
-    assert _background_seen_by_the_optimizer(fg_only, fg, bg, planted["shared"], GENOME_LENGTH) == 0
+    with pytest.raises(MissingPositionsError):
+        _background_seen_by_the_optimizer(fg_only, fg, bg, planted["shared"], GENOME_LENGTH)
 
 
 def test_no_site_forwards_background_prefixes_it_did_not_index():
