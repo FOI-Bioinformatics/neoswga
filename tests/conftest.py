@@ -5,6 +5,7 @@ reaction conditions, mock caches, and temporary FASTA files.
 """
 
 import glob
+import logging
 import os
 from pathlib import Path
 
@@ -14,6 +15,62 @@ import pytest
 from neoswga.core.reaction_conditions import ReactionConditions
 
 _EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "examples", "plasmid_example")
+
+
+def plasmid_example_ready() -> bool:
+    """Whether the generated artifacts the dependent tests need are present.
+
+    NOT `os.path.isdir(_EXAMPLE_DIR)`, which nineteen test files used. That
+    directory is COMMITTED -- git tracks the README, both FASTAs, params.json
+    and step2_df.csv.original -- so it is always there and the question always
+    answered yes. What those tests actually need is what
+    `_prime_plasmid_example` builds, and that runs only when jellyfish is on
+    PATH. Guarding on the directory meant they failed with a missing-k-mer-file
+    error rather than skipping with a reason.
+    """
+    return bool(glob.glob(os.path.join(_EXAMPLE_DIR, "*mer_all.txt"))) and os.path.exists(
+        os.path.join(_EXAMPLE_DIR, "step3_df.csv")
+    )
+
+
+def _run_priming():
+    """Run count-kmers, filter and score in the example directory.
+
+    Separated from the fixture so a caller can observe it failing. The fixture
+    used to swallow every exception here with a bare `except Exception: pass`,
+    which hid a priming failure even when jellyfish WAS present and left
+    nineteen files failing for a reason that pointed at the wrong thing.
+    """
+    import neoswga.core.pipeline as pipeline_mod
+    from neoswga.core import parameter
+
+    def _reset():
+        for attr in (
+            "fg_prefixes",
+            "bg_prefixes",
+            "fg_genomes",
+            "bg_genomes",
+            "fg_seq_lengths",
+            "bg_seq_lengths",
+            "fg_circular",
+            "bg_circular",
+        ):
+            setattr(pipeline_mod, attr, None)
+        parameter.json_file = "params.json"
+
+    cwd = os.getcwd()
+    try:
+        os.chdir(_EXAMPLE_DIR)
+        _reset()
+        pipeline_mod._initialize()
+        pipeline_mod.step1()
+        _reset()
+        pipeline_mod.step2()
+        _reset()
+        pipeline_mod.step3()
+    finally:
+        _reset()
+        os.chdir(cwd)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -39,53 +96,37 @@ def _prime_plasmid_example():
     """
     if not os.path.isdir(_EXAMPLE_DIR):
         return
-
-    have_kmers = bool(glob.glob(os.path.join(_EXAMPLE_DIR, "*mer_all.txt")))
-    have_step3 = os.path.exists(os.path.join(_EXAMPLE_DIR, "step3_df.csv"))
-    if have_kmers and have_step3:
+    if plasmid_example_ready():
         return  # already primed
 
     try:
         from neoswga.core.kmer_counter import check_jellyfish_available
-    except Exception:
+    except Exception as exc:  # pragma: no cover - import guard
+        logging.getLogger(__name__).warning(
+            "Cannot check for jellyfish (%s); the plasmid example is unprimed and "
+            "the tests that need it will skip.",
+            exc,
+        )
         return
     if not check_jellyfish_available():
+        logging.getLogger(__name__).warning(
+            "jellyfish is not on PATH; the plasmid example is unprimed and the "
+            "tests that need its generated artifacts will skip."
+        )
         return
 
-    import neoswga.core.pipeline as pipeline_mod
-    from neoswga.core import parameter
-
-    def _reset():
-        pipeline_mod._initialized = False
-        for attr in (
-            "fg_prefixes",
-            "bg_prefixes",
-            "fg_genomes",
-            "bg_genomes",
-            "fg_seq_lengths",
-            "bg_seq_lengths",
-            "fg_circular",
-            "bg_circular",
-        ):
-            setattr(pipeline_mod, attr, None)
-        parameter.json_file = "params.json"
-
-    cwd = os.getcwd()
     try:
-        os.chdir(_EXAMPLE_DIR)
-        _reset()
-        pipeline_mod._initialize()
-        pipeline_mod.step1()
-        _reset()
-        pipeline_mod.step2()
-        _reset()
-        pipeline_mod.step3()
+        _run_priming()
     except Exception:
-        # Best-effort priming; dependent tests will report any real problem.
-        pass
-    finally:
-        _reset()
-        os.chdir(cwd)
+        # Reported, not swallowed. This used to be `except Exception: pass`, so
+        # a priming failure WITH jellyfish present was invisible and nineteen
+        # test files then failed with a missing-k-mer-file error that pointed
+        # at the wrong thing.
+        logging.getLogger(__name__).warning(
+            "Priming examples/plasmid_example failed; the tests that need its "
+            "generated artifacts will skip.",
+            exc_info=True,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -33,7 +35,7 @@ def test_contract_set_prefers_dimer_heavy_primer_for_removal(tmp_path):
     """Set contains one clearly dimer-heavy primer plus three cleaner
     primers; lowering the coverage threshold to permit any removal should
     pick the dimer-heavy primer first."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
 
     # Copy plasmid example to tmpdir
@@ -84,7 +86,7 @@ def test_contract_set_prefers_dimer_heavy_primer_for_removal(tmp_path):
 def test_contract_set_respects_min_coverage_threshold(tmp_path):
     """With a tight min_coverage threshold, no primer should be removed
     if every primer contributes uniquely to coverage."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
     for fname in os.listdir(EXAMPLE_DIR):
         src = EXAMPLE_DIR / fname

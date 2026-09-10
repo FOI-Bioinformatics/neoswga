@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plasmid_example"
 
 
@@ -39,7 +41,7 @@ def _reset_pipeline_state(params_file):
 
 
 def _build_scenario(tmp_path, overrides):
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("examples/plasmid_example not available")
 
     for fname in os.listdir(EXAMPLE_DIR):
@@ -199,12 +201,12 @@ def test_hybrid_optimizer_inner_network_receives_conditions(tmp_path, monkeypatc
     _run_filter_and_score(tmp_path, params_file)
 
     _reset_pipeline_state(str(params_file))
-    from neoswga.core.unified_optimizer import run_optimization
-    from neoswga.core.position_cache import PositionCache
-    from neoswga.core import parameter
-
     # Collect candidates from step2 output
     import pandas as pd
+
+    from neoswga.core import parameter
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.unified_optimizer import run_optimization
 
     step2_csv = tmp_path / "step2_df.csv"
     candidates = pd.read_csv(step2_csv)["primer"].astype(str).tolist()[:20]

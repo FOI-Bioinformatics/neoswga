@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plasmid_example"
 
 
@@ -38,7 +40,7 @@ def _reset_pipeline_state(params_file):
 def _build_scenario(tmp_path, overrides: dict):
     """Copy the plasmid example into tmp_path and overlay scenario-specific
     params.json keys."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("examples/plasmid_example not available")
 
     for fname in os.listdir(EXAMPLE_DIR):

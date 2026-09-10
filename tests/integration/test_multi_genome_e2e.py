@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plasmid_example"
 
 
@@ -38,7 +40,7 @@ def multi_genome_workdir():
     """Lay out a tmpdir with two foreground targets (pcDNA copies) plus
     pLTR as background and as an aliased blacklist. Uses the pre-built
     k-mer count files so no jellyfish run is required."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("examples/plasmid_example not available")
 
     tmpdir = Path(tempfile.mkdtemp(prefix="neoswga_multigenome_"))
@@ -122,6 +124,7 @@ def test_multi_target_background_blacklist_filter_runs(multi_genome_workdir):
 def test_multi_target_parameter_propagation(multi_genome_workdir):
     """All foreground prefixes must be populated end-to-end in `parameter`."""
     from types import SimpleNamespace
+
     from neoswga.core import parameter
 
     parameter.reset_to_defaults()

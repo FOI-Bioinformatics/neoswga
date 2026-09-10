@@ -8,8 +8,11 @@ import json
 import os
 import shutil
 import tempfile
-import pytest
+
 import pandas as pd
+import pytest
+
+from tests.conftest import plasmid_example_ready
 
 EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "plasmid_example")
 
@@ -17,7 +20,7 @@ EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "p
 @pytest.fixture
 def pipeline_workdir():
     """Create a temp copy of the plasmid example for testing."""
-    if not os.path.isdir(EXAMPLE_DIR):
+    if not plasmid_example_ready():
         pytest.skip("Plasmid example data not available")
 
     tmpdir = tempfile.mkdtemp(prefix="neoswga_integration_")

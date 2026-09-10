@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -30,7 +32,7 @@ def example_workdir(tmp_path_factory):
     full suite, and passed again once the directory was cleaned: an order
     dependency on the previous invocation rather than on anything in the run.
     """
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
 
     workdir = tmp_path_factory.mktemp("example")
@@ -52,7 +54,7 @@ def _run(args, cwd=None, timeout=120):
 
 @pytest.fixture
 def rescore_output(example_workdir):
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
     result = _run(
         [
@@ -97,7 +99,7 @@ def test_rescore_per_target_is_dict(rescore_output):
 
 
 def test_rescore_extension_reach_reflects_polymerase(example_workdir):
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip()
     # phi29 -> 70000
     r = _run(

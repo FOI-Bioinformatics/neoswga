@@ -17,8 +17,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 import pandas as pd
+import pytest
+
+from tests.conftest import plasmid_example_ready
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
@@ -43,7 +45,7 @@ def _reset_pipeline_state(params_file):
 @pytest.fixture
 def primed_workdir(tmp_path, monkeypatch):
     """Copy plasmid example and run step1 + step2 + step3 so optimizers have data."""
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
     from neoswga.core.kmer_counter import check_jellyfish_available
 
@@ -84,8 +86,8 @@ FAST_OPTIMIZERS = ["dominating-set", "network", "hybrid", "background-aware"]
 @pytest.mark.integration
 @pytest.mark.slow
 def test_every_optimizer_emits_same_columns(primed_workdir):
-    from neoswga.core.unified_optimizer import optimize_step4
     from neoswga.core import parameter
+    from neoswga.core.unified_optimizer import optimize_step4
 
     column_sets = {}
     for method in FAST_OPTIMIZERS:

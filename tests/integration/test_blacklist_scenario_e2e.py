@@ -9,8 +9,11 @@ import json
 import os
 import shutil
 import tempfile
-import pytest
+
 import pandas as pd
+import pytest
+
+from tests.conftest import plasmid_example_ready
 
 EXAMPLE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "examples", "plasmid_example")
 
@@ -40,7 +43,7 @@ def blacklist_workdir():
     step2 can find `bl_pLTR_{k}mer_all.txt` files symlinked from the
     existing pLTR_{k}mer_all.txt files.
     """
-    if not os.path.isdir(EXAMPLE_DIR):
+    if not plasmid_example_ready():
         pytest.skip("Plasmid example data not available")
 
     tmpdir = tempfile.mkdtemp(prefix="neoswga_bl_scenario_")

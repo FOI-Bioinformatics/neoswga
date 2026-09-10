@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import plasmid_example_ready
+
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE_DIR = ROOT / "examples" / "plasmid_example"
 
@@ -38,7 +40,7 @@ def _reset_pipeline_state(params_file):
 
 @pytest.fixture
 def primed_workdir(tmp_path, monkeypatch):
-    if not EXAMPLE_DIR.is_dir():
+    if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
     for fname in os.listdir(EXAMPLE_DIR):
         src = EXAMPLE_DIR / fname
