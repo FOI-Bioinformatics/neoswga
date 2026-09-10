@@ -74,6 +74,7 @@ neoswga schema --dump > params.schema.json
 | `min_k` | integer | min: 4; max: 30 | - | Minimum primer length (bp). Polymerase-aware default is used if absent. |
 | `min_sample_count` | integer | min: 1 | - | - |
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
+| `mismatch_penalty` | number | min: 0; max: 20 | `4.0` | Per-mismatch Tm penalty in Celsius, used by the occupancy-weighted ranking in the filter step. A linear penalty is a simplification: real destabilisation depends on which bases mismatch and where. |
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |
 | `nh4_conc` | number | min: 0.0; max: 1000.0 | `0.0` | NH4+ concentration (mM). The standard phi29 buffer supplies 20 mM NH4+ as 10 mM (NH4)2SO4. |
 | `num_primers` | integer | min: 1; max: 200 | `6` | - |

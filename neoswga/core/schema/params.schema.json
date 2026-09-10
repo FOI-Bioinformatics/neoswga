@@ -340,7 +340,9 @@
     "mismatch_penalty": {
       "type": "number",
       "minimum": 0,
-      "maximum": 20
+      "maximum": 20,
+      "default": 4.0,
+      "description": "Per-mismatch Tm penalty in Celsius, used by the occupancy-weighted ranking in the filter step. A linear penalty is a simplification: real destabilisation depends on which bases mismatch and where."
     },
     "num_primers": {
       "type": "integer",
