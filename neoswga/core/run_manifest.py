@@ -83,6 +83,7 @@ def write_manifest(
     params_path: Optional[str] = None,
     resolved_params: Optional[Dict[str, Any]] = None,
     input_files: Optional[List[str]] = None,
+    output_files: Optional[List[str]] = None,
     seed: Optional[int] = None,
     extra: Optional[Dict[str, Any]] = None,
     effective_conditions: Optional[Dict[str, Any]] = None,
@@ -96,6 +97,11 @@ def write_manifest(
         resolved_params: Resolved parameter dict; loaded from ``params_path``
             if not provided.
         input_files: Paths to checksum. Missing paths are skipped silently.
+        output_files: Paths the step wrote, checksummed into
+            ``output_checksums``. Separate from ``input_files`` because the
+            step handlers used to pass their output there, which is what made
+            three ``optimize`` entries under two git SHAs all hash-match the
+            single result file beside them.
         seed: Resolved RNG seed used for this step.
         extra: Step-specific fields to merge into the entry.
         effective_conditions: The reaction conditions this step actually ran
@@ -132,6 +138,11 @@ def write_manifest(
         if path and os.path.exists(path):
             input_checksums[path] = _sha256(path)
 
+    output_checksums: Dict[str, Optional[str]] = {}
+    for path in output_files or []:
+        if path and os.path.exists(path):
+            output_checksums[path] = _sha256(path)
+
     entry: Dict[str, Any] = {
         "step": step,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -146,6 +157,7 @@ def write_manifest(
         "resolved_params": resolved_params,
         "effective_conditions": effective_conditions,
         "input_checksums": input_checksums,
+        "output_checksums": output_checksums,
     }
     if extra:
         entry["extra"] = extra

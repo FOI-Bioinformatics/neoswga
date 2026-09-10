@@ -716,11 +716,20 @@ def _effective_conditions(parameter):
     return conditions or None
 
 
-def _record_run_manifest(step: str, args, parameter, input_files=None):
+def _record_run_manifest(
+    step: str, args, parameter, input_files=None, output_files=None, extra=None
+):
     """Best-effort wrapper around run_manifest.write_manifest.
 
     Failures are swallowed so manifest issues never break a pipeline that
     otherwise succeeded.
+
+    ``output_files`` is separate from ``input_files`` because every step
+    handler used to pass its own output as an input, so an entry could not be
+    matched to the file it wrote. ``extra`` carries the step's wall time and,
+    for optimize, the set size actually used -- ``resolved_params`` is a
+    verbatim copy of params.json, so a run invoked with ``-n 160`` was recorded
+    there as whatever number the file happened to hold.
     """
     try:
         from neoswga.core.run_manifest import write_manifest
@@ -731,6 +740,8 @@ def _record_run_manifest(step: str, args, parameter, input_files=None):
             data_dir=getattr(parameter, "data_dir", None),
             params_path=getattr(args, "json_file", None),
             input_files=input_files,
+            output_files=output_files,
+            extra=extra,
             # The CLI seed lives on args (--seed), not parameter; the previous
             # getattr(parameter, "seed") recorded None even when --seed was set.
             seed=getattr(args, "seed", None) or getattr(parameter, "seed", None),

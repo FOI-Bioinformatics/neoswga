@@ -132,9 +132,15 @@ def run_step1(args):
             + list(getattr(parameter, "bg_genomes", []) or [])
             + list(getattr(parameter, "bl_genomes", []) or [])
         )
-        _record_run_manifest("count-kmers", args, parameter, input_files=_step1_inputs)
 
         _elapsed = _time.time() - _t0
+        _record_run_manifest(
+            "count-kmers",
+            args,
+            parameter,
+            input_files=_step1_inputs,
+            extra={"elapsed_seconds": round(_elapsed, 3)},
+        )
         logger.info(f"Step 1 complete in {_elapsed:.1f}s")
         if not args.quiet:
             print("\nNext: neoswga filter -j params.json")
@@ -349,10 +355,16 @@ def run_step2(args):
         sys.exit(1)
     _data_dir = getattr(parameter, "data_dir", None)
     _step2_out = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
-    _record_run_manifest(
-        "filter", args, parameter, input_files=[_step2_out] if _step2_out else None
-    )
     _elapsed = _time.time() - _t0
+    _record_run_manifest(
+        "filter",
+        args,
+        parameter,
+        input_files=list(getattr(parameter, "fg_genomes", []) or [])
+        + list(getattr(parameter, "bg_genomes", []) or []),
+        output_files=[_step2_out] if _step2_out else None,
+        extra={"elapsed_seconds": round(_elapsed, 3)},
+    )
     logger.info(f"Step 2 complete in {_elapsed:.1f}s")
 
 
@@ -444,10 +456,15 @@ def run_step3(args):
     _data_dir = getattr(parameter, "data_dir", None)
     _step3_in = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
     _step3_out = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
-    _record_run_manifest(
-        "score", args, parameter, input_files=[p for p in [_step3_in, _step3_out] if p]
-    )
     _elapsed = _time.time() - _t0
+    _record_run_manifest(
+        "score",
+        args,
+        parameter,
+        input_files=[p for p in [_step3_in] if p],
+        output_files=[p for p in [_step3_out] if p],
+        extra={"elapsed_seconds": round(_elapsed, 3)},
+    )
     logger.info(f"Step 3 complete in {_elapsed:.1f}s")
 
 
@@ -1158,11 +1175,23 @@ def run_step4(args):
         _data_dir = getattr(parameter, "data_dir", None)
         _step4_in = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
         _step4_out = os.path.join(_data_dir, "step4_improved_df.csv") if _data_dir else None
-        _record_run_manifest(
-            "optimize", args, parameter, input_files=[p for p in [_step4_in, _step4_out] if p]
-        )
 
         _elapsed = _time.time() - _t0
+        _record_run_manifest(
+            "optimize",
+            args,
+            parameter,
+            input_files=[p for p in [_step4_in] if p],
+            output_files=[p for p in [_step4_out] if p],
+            extra={
+                "elapsed_seconds": round(_elapsed, 3),
+                # resolved_params is a verbatim copy of params.json, so a run
+                # invoked with `-n 160` is recorded there as whatever the file
+                # said. This is the number the run actually used.
+                "effective_set_size": getattr(parameter, "num_primers", None),
+                "optimization_method": resolve_optimization_method(args),
+            },
+        )
         logger.info(f"Step 4 complete in {_elapsed:.1f}s")
         if not args.quiet:
             data_dir = getattr(parameter, "data_dir", ".")
