@@ -716,6 +716,54 @@ def _effective_conditions(parameter):
     return conditions or None
 
 
+def warn_on_condition_drift(parameter, reference_step: str = "filter"):
+    """Warn when this step's reaction differs from an earlier step's.
+
+    The `filter` subparser registers sixteen chemistry flags plus `--preset`;
+    `optimize` registers none and inherits only `--polymerase`. So
+    `filter --preset high_gc_genome` followed by a plain `optimize` filters
+    under one reaction and scores under another, with nothing said. The
+    candidate pool was then selected under a Tm model the optimizer does not
+    share.
+
+    Returns the names of the fields that differ, empty when they agree or when
+    the reference step has no recorded conditions.
+    """
+    data_dir = getattr(parameter, "data_dir", None)
+    if not data_dir:
+        return []
+
+    try:
+        from neoswga.core.run_manifest import read_effective_conditions
+
+        recorded = read_effective_conditions(str(data_dir), step=reference_step)
+    except Exception as e:  # pragma: no cover - defensive
+        logger.debug(f"condition-drift check skipped: {e}")
+        return []
+
+    if not recorded:
+        return []
+
+    current = _effective_conditions(parameter) or {}
+    differing = sorted(name for name, value in recorded.items() if current.get(name) != value)
+    if not differing:
+        return []
+
+    logger.warning(
+        "Reaction conditions differ from the recorded '%s' step: %s. "
+        "Chemistry flags (--preset, --betaine-m, --dmso-percent and the rest) "
+        "exist on `filter` and not on this step, so a preset applied there does "
+        "not carry over. The candidate pool was selected under one Tm model and "
+        "is being scored under another.",
+        reference_step,
+        ", ".join(
+            f"{name}: {reference_step}={recorded[name]!r} now={current.get(name)!r}"
+            for name in differing
+        ),
+    )
+    return differing
+
+
 def _record_run_manifest(
     step: str, args, parameter, input_files=None, output_files=None, extra=None
 ):

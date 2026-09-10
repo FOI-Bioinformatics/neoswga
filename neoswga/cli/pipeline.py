@@ -19,6 +19,7 @@ from neoswga.cli._common import (
     set_size_shortfall_advice,
     setup_gpu_acceleration,
     validate_params_json_file,
+    warn_on_condition_drift,
 )
 from neoswga.cli._optimize_parser import _add_optimize_option_groups
 from neoswga.cli._params_preread import (
@@ -911,6 +912,15 @@ def run_step4(args):
                 mechanistic_weight=_mech_weight,
             )
         )
+
+        # `filter` carries sixteen chemistry flags and a --preset; this step
+        # carries none, so a preset applied there does not reach here. This is
+        # the first point at which the comparison is possible: `get_params`
+        # runs inside `optimize_step4`, so before that call every reaction
+        # global still holds its module default and the check compares the
+        # recorded filter step against nothing. See `cli/_params_preread.py`
+        # for the same trap in two other places.
+        warn_on_condition_drift(parameter, reference_step="filter")
 
         if results:
             target_size = getattr(parameter, "num_primers", 6)
