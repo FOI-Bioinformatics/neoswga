@@ -15,114 +15,77 @@ NeoSWGA is a command-line tool for selecting primer sets for selective whole-gen
 - `neoswga/cli_unified.py`: Main CLI entry point (all commands)
 - Entry point defined in `pyproject.toml`: `neoswga = neoswga.cli_unified:main`
 
-### Core Modules (neoswga/core/, 75 modules)
+### Core Modules (`neoswga/core/`)
 
-**Pipeline implementation**:
-- `pipeline.py`: Main pipeline functions (count-kmers, filter, score, optimize)
-- `improved_pipeline.py`: Performance-optimized pipeline with background filtering
-- `pipeline_qa_integration.py`: Quality assurance hooks for filtering
-- `multi_genome_pipeline.py`: Pan-genome primer design for multiple targets
+75 modules. `ls neoswga/core/` and the module docstrings are the current list;
+what follows is only what the filenames do not tell you.
 
-**Filtering (filter command)**:
-- `filter.py`: Frequency, Gini index, GC content, complexity filters
-- `adaptive_filters.py`: Adaptive GC filtering for extreme GC genomes
-- `kmer.py`: K-mer counting via jellyfish subprocess
-- `kmer_counter.py`: Multi-genome k-mer counter using Jellyfish
-- `multi_genome_filter.py`: Filter primers across multiple target genomes
-- `thermodynamic_filter.py`: Filter by Tm, secondary structure
-
-**Scoring (score command)**:
-- `rf_preprocessing.py`: Random forest feature engineering
-- `primer_attributes.py`: Tm calculation, self-complementarity
-- `integrated_quality_scorer.py`: Multi-criteria quality scoring
-- Pre-trained model: `neoswga/core/models/random_forest_filter.skops` (skops format)
-
-**Optimization (optimize command)** — four methods, dispatched via `unified_optimizer`:
-- `hybrid_optimizer.py`: Two-stage hybrid (default, general use)
-- `dominating_set_adapter.py` + `dominating_set_optimizer.py`: Graph-based greedy set cover (fast)
-- `network_optimizer.py`: Network-based with Tm weighting and dimer penalty
-- `background_aware_optimizer.py`: Three-stage optimizer with explicit background minimization (10-20x reduction)
-- `minimal_primer_selector.py`: Post-process to minimize primer count
-
-**Thermodynamics**:
-- `thermodynamics.py`: SantaLucia nearest-neighbor calculations with LRU caching (1M entries)
-- `reaction_conditions.py`: Polymerase presets (phi29, equiphi29, bst, klenow), additive effects
-- `secondary_structure.py`: Hairpin and dimer prediction
-- `dimer.py`: Primer-dimer calculations
-- `three_prime_stability.py`: 3' end stability analysis
-
-**Performance**:
-- `position_cache.py`: In-memory position cache (1000x speedup)
-- `background_filter.py`: Bloom filter for large background genomes
-- `gpu_acceleration.py`: CuPy-based thermodynamics helpers. Not reached by any pipeline stage, and `--use-gpu` says so rather than claiming otherwise. `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in Python writing element-by-element into a CuPy array, which is slower than the NumPy path it replaces
-
-**Simulation**:
-- `replication_simulator.py`: Agent-based phi29 DNA replication simulation
-- `swga_simulator.py`: SWGA reaction simulation
-- `stochastic_simulator.py`: Gillespie algorithm stochastic simulation
-- `simulation_fitness.py`: Fitness functions for simulation
-- `simulation_analysis.py`: Analysis of simulation results
-- `simulation_plots.py`: Visualization of simulation results
-- `simulation_report.py`: HTML report generation
-
-**Analysis**:
-- `genome_analysis.py`: Genome suitability analysis for SWGA
-- `genome_io.py`: Genome file I/O utilities
-- `strand_bias_analyzer.py`: Strand bias detection
-- `dimer_network_analyzer.py`: Primer dimer interaction network
-- `amplicon_network.py`: Amplicon network analysis
-
-**Utilities**:
-- `utility.py`: Multiprocessing helpers, file utilities
-- `parameter.py`: Global parameter handling
-- `string_search.py`: String matching algorithms
-- `validation.py`: Installation validation and testing framework
-
-**User Experience (New)**:
-- `wizard.py`: Setup wizard for guided params.json creation
-- `param_validator.py`: Parameter validation with error/warning/info levels
-- `condition_suggester.py`: Reaction condition recommendations
-- `results_interpreter.py`: Quality assessment and go/no-go recommendations
-- `workflow_selector.py`: Interactive menu for feature discovery
-
-**Mechanistic Modeling**:
-- `mechanistic_params.py`: Literature-based parameters for four-pathway model
-- `mechanistic_model.py`: Four-pathway mechanistic model (Tm, accessibility, enzyme, kinetics)
-- `set_size_optimizer.py`: Automatic primer set size optimization by application profile
-- `model_validation.py`: Validation tests against expected literature behavior
-- `additives.py`: Additive effects on Tm with sigmoid GC normalization
-
-**Reporting**:
-- `report/`: Quality report generation module
-  - `metrics.py`: Collect pipeline metrics from results
-  - `quality.py`: Quality grading (A-F) with component scoring
-  - `executive_summary.py`: One-page HTML summary report
-  - `technical_report.py`: Comprehensive technical analysis report
-  - `visualizations.py`: Interactive Plotly charts (optional dependency)
-  - `validation.py`: Input validation before report generation
-  - `utils.py`: Shared utilities and chart color schemes
-
-**Optional / advanced** (in main core/, wired into the kept paths):
-- `advanced_features.py`: Advanced feature engineering used by `rf_preprocessing.py`
-- `gc_adaptive_strategy.py`: GC-adaptive primer design used by `pipeline.py` and `multi_genome_pipeline.py`
+- **Optimizers** are dispatched through `unified_optimizer.py`:
+  `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`,
+  `network_optimizer`, `background_aware_optimizer`, with
+  `minimal_primer_selector` as a post-process. The registered
+  `background-aware` method is `BackgroundAwareBaseOptimizer`, which delegates
+  to `HybridOptimizer`. The standalone three-stage `BackgroundAwareOptimizer`
+  and its module-level `optimize()` / `compare_optimizers()` were deleted on
+  2026-09-10: nothing dispatched to them, and its `_prune_background` had
+  diverged from the one that ships.
+- **`core/exceptions.py`** holds `StepValidationResult` and
+  `StepPrerequisiteError`. `core/pipeline.py` re-exports both, so existing
+  importers are unaffected and the re-exported objects are identical, which is
+  what keeps `except` clauses matching. They moved because `cli_unified.py` and
+  `cli/pipeline.py` imported `core/pipeline.py` at module scope only to make
+  the exception catchable, and that import reaches scikit-learn through
+  `rf_preprocessing`. Keep this module free of dependencies beyond `typing`
+  and `dataclasses`.
+- **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
+  than re-reading the HDF5 files.
+- **`gpu_acceleration.py`**: CuPy-based thermodynamics helpers. Not reached by
+  any pipeline stage, and `--use-gpu` says so rather than claiming otherwise.
+  `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in
+  Python writing element-by-element into a CuPy array, which is slower than the
+  NumPy path it replaces.
+- **`advanced_features.py`** and **`gc_adaptive_strategy.py`** read as optional
+  but are wired into the kept paths (`rf_preprocessing.py`, and `pipeline.py` /
+  `multi_genome_pipeline.py` respectively).
+- **`report/`** builds the quality reports. `report/metrics.py` reads
+  `effective_conditions` from the run manifest in preference to params.json.
+- Pre-trained scorer: `neoswga/core/models/random_forest_filter.skops` (skops
+  format, with a SHA-256 allowlist in `models/checksums.json`).
 
 ### Data Flow
 
 ```
-count-kmers            filter                 score                  optimize
+count-kmers            filter                 prepare (`score`)      optimize
      |                    |                     |                       |
      v                    v                     v                       v
  *_Xmer_all.txt  -->  step2_df.csv +    -->  step3_df.csv      -->  step4_improved_df.csv
- (k-mer counts)       positions.h5           (with amp_pred)        (final primer sets)
+ (k-mer counts)       positions.h5           (ordered candidates)   (final primer sets)
 ```
 
 **File outputs** (in `data_dir`):
 - `step2_df.csv`: Filtered primers with fg_freq, bg_freq, gini, Tm
-- `filter_stats.json`: Real per-stage filtering funnel counts (rendered in reports)
-- `step3_df.csv`: Primers with amplification prediction scores
+- `filter_stats.json`: Per-stage filtering funnel counts (rendered in reports).
+  The stages are `total_kmers`, `after_fg_frequency`, `after_bg_frequency`,
+  `after_thermodynamic`, `after_exclusion_blacklist` (written only when an
+  exclusion genome or blacklist is configured), `after_gini`,
+  `after_max_primer_cut` and `final_candidates`. The frequency row is split
+  because the background gate is the `bg_bool` term, not the later stage that
+  used to be labelled "After background/blacklist": that one sat between two
+  configuration-gated blocks and was equal to `after_thermodynamic` on every
+  run without a blacklist. `after_max_primer_cut` is usually the largest single
+  reduction and used to have no stage name at all. On the bundled plasmid
+  example the background gate removed 13,006 of 24,809 candidates and the
+  `max_primer` cut removed 4,686 of the 5,186 that reached it. Directories
+  written before 2026-09-10 carry the old `after_frequency` / `after_background`
+  keys and still render.
+- `step3_df.csv`: The candidate pool the optimizer reads, carrying the step-2
+  measurements in a deterministic order. Step 2's own ranking leads that order
+  (`step2_rank`, read off step2_df.csv's row order), with Gini demoted to a
+  tie-break and the primer sequence last for totality. It no longer holds an
+  amplification score -- see **The `score` stage** below.
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
 - `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
-  effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics)
+  effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics).
   Also `unindexed_candidates`: how many candidates the foreground position
   index could not place. Those cover nothing and so are invisible to
   selection; the pipeline path refuses rather than reporting a coverage
@@ -145,11 +108,15 @@ count-kmers            filter                 score                  optimize
 
 ## CLI Commands
 
+Setup, reporting, simulation, multi-genome, coverage-gap and primer-expansion
+commands are documented in the `neoswga-cli` skill
+(`.claude/skills/neoswga-cli/SKILL.md`), which loads on demand.
+
 ### Standard Pipeline
 ```bash
 neoswga count-kmers -j params.json  # Step 1: Generate k-mer counts
 neoswga filter -j params.json       # Step 2: Filter candidate primers
-neoswga score -j params.json        # Step 3: Score amplification efficacy
+neoswga score -j params.json        # Step 3: Prepare the candidate pool
 neoswga optimize -j params.json     # Step 4: Find optimal primer sets
 ```
 
@@ -172,8 +139,9 @@ Accepted by every pipeline step; each one routes through
   a `qa_score` column, writes `qa_report.txt`, and corrects the last stage of
   `filter_stats.json`. A QA pass that rejects every candidate fails the step
   instead of writing an empty pool.
-- `score --enable-qa` blends the QA score with the random forest score into
-  `composite_score` (0.7 RF / 0.3 QA) and re-orders step3_df.csv by it. The QA
+- `score --enable-qa` re-orders step3_df.csv by a `composite_score`. With the
+  amplification model retired there is no RF half to blend, so this is the QA
+  score alone; pass `--amp-model` to get the 0.7 RF / 0.3 QA blend back. The QA
   scores come from step2_df.csv when `filter --enable-qa` produced them, and
   are computed on the spot otherwise.
 - `optimize --enable-qa` drops dimer-hub primers from the candidate pool before
@@ -185,12 +153,45 @@ Accepted by every pipeline step; each one routes through
 The flag is per-invocation: it is assigned to `parameter.enable_qa` on every
 step, so it cannot carry over to a later step in the same process.
 
+### The `score` stage
+
+`score` prepares the candidate pool; it does not score it. The bundled random
+forest was retired from the default path on 2026-09-05 (audit finding F0).
+
+It was computing a prediction for every candidate and then discarding it. The
+`min_amp_pred` gate removed 7 of 1222 candidates on the S. aureus panel and none
+at all on E. coli (0 of 449) or M. tuberculosis (0 of 319), because the scores
+cluster well above the default threshold of 10.0. And every step-4 consumer
+reads only the primer column -- `unified_optimizer.py`, `dominating_set_optimizer.py`,
+`background_aware_optimizer.py` and `primer_expansion.py` all call
+`step3_df["primer"].tolist()`. Asked whether the score identified good primers,
+taking the top half of a pool by it and optimizing over that produced the worst
+of five half-pools, behind all three random halves.
+
+The model is also fit to synthetic data generated by a hand-written rule in
+`scripts/retrain_rf_model.py`, so it reproduces an opinion rather than measured
+amplification, and under the default `fast_score` the delta-G features are zeroed,
+making the prediction a pure function of the primer sequence -- blind to the
+genome and to the reaction.
+
+What the stage still does: it writes `step3_df.csv`, a required intermediate that
+six modules read, carrying the step-2 measurements and the deterministic order
+`order_step3_rows` establishes. That order is what makes an unseeded run
+reproducible, and it does reach the optimizer, which is order-sensitive.
+
+Retiring it changed no delivered panel: re-running the E. coli design returned an
+identical 160-primer set. It costs 0.2 s instead of 3.1 s on 449 candidates and
+writes 5 columns instead of 61.
+
+**`--amp-model` restores the old behaviour**, score column and gate included.
+`min_amp_pred` without it warns rather than silently doing nothing.
+
 ### Optimization Methods
 ```bash
 neoswga optimize -j params.json --optimization-method=hybrid           # default
 neoswga optimize -j params.json --optimization-method=dominating-set   # fast graph-based
-neoswga optimize -j params.json --optimization-method=background-aware # clinical, 10-20x bg reduction
-neoswga optimize -j params.json --optimization-method=network          # Tm-weighted, dimer-aware
+neoswga optimize -j params.json --optimization-method=background-aware # clinical, host-aware
+neoswga optimize -j params.json --optimization-method=network          # Tm-weighted, dimer-screened
 neoswga optimize -j params.json --optimization-method=clique           # guaranteed dimer-free set
 neoswga optimize -j params.json --optimization-method=ensemble         # run all, keep best
 neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combine=union  # re-optimize over pooled primers
@@ -202,17 +203,24 @@ neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combin
 |--------|-------|----------|-------|
 | `hybrid` | Medium | General use (default) | Combines network + set-cover approaches |
 | `dominating-set` | Fast | Large primer pools | Graph-based set cover, ln(n) approximation |
-| `background-aware` | Slow | Clinical applications | 10-20x background reduction, three-stage |
+| `background-aware` | Slow | Clinical applications | Three-stage. Adds a host-binding term to Stage 1.5 pruning and to the Stage 2 refinement that chooses the panel. Measured against hg38 on the three GC-tier designs at n=24 and n=36, host sites in the delivered panel fall 7-35% against `hybrid` and coverage falls 0.1-3.1 points. At n=12 on those pools it returns the same panel as `hybrid`: Stage 1 yields only 18-19 primers there, so almost every one carries coverage nothing else supplies and the coverage term decides every removal by itself |
 | `clique` | Slow | Sets that must be dimer-free | Max-clique on the compatibility graph (swga 1.0's approach). The only method that GUARANTEES no dimerising pair; the others penalise dimers but can accept one. Pools of ~200 candidates; not in the default ensemble |
-| `network` | Medium | Tm-weighted selection | Dimer penalty aware |
+| `network` | Medium | Tm-weighted selection | Tm weighted, dimer-screened; stops short rather than relaxing the constraint. The `dimer_penalty` multiplier defaults to 0.0 and only ever downweighted; as of 2026-09-10 this method carries the same hard guard as `dominating-set`, and unlike that one it stops rather than admitting an unscreened primer when the pool is exhausted |
 | `ensemble` | Slow | Best-of, unsure which | Runs several methods on one shared cache, keeps the best by application-weighted `normalized_score`, prints a per-method comparison table |
 
 **Ensemble** runs a configurable set of methods (default all four) and keeps
-the winner. It builds the `PositionCache` once and re-seeds before each method
-so results are reproducible and order-independent. Pick the subset with
+the winner. It builds the `PositionCache` once and re-seeds before each method,
+so each method's RUN is reproducible and independent of the order the methods
+were listed in. Pick the subset with
 `--ensemble-methods hybrid network background-aware`. Selection is by
 `normalized_score` (a [0,1] value comparable across optimizers; raw `score` is
-NOT comparable), weighted by `--application`. The runner-up table is written to
+NOT comparable), weighted by `--application`, then by the smaller set, then by
+method name. Those tie-breaks matter: ties are common, because
+`background-aware` wraps the same `HybridOptimizer` that `hybrid` uses and the
+two frequently return the identical set. Selection used to be a bare `max()`
+over a dict built in `--ensemble-methods` order, so a tie was decided by flag
+order while this section claimed order-independence -- reordering the same three
+tied methods returned three different winners. The runner-up table is written to
 `step4_improved_df_summary.json` as `ensemble_comparison`.
 `--ensemble-combine union` additionally re-optimizes over the pooled primers
 from all methods (can beat any single method; guarded to never worsen).
@@ -231,111 +239,65 @@ computed base-by-base and is the authoritative number in
 `step4_improved_df_summary.json`. Both are labelled in the output —
 `(estimated, binned)` against `(measured)` — so read the measured one.
 
+### Choosing the set size
+
+`num_primers` is the most consequential choice in a design and three tools bear
+on it. They answer different questions and two of them stop at 20 primers.
+
+- **`--auto-size`** estimates how many primers reach the `--application`
+  profile's target coverage under the configured chemistry. It inverts a
+  closed-form saturation curve over genome length, primer length, processivity
+  and additive effects. It never reads the candidate pool, never looks at
+  background binding, and is clamped to the profile's typical range, at most 20
+  primers. It does not weigh specificity, so do not read its answer as the best
+  size, only as the size that reaches a coverage target.
+- **`--show-frontier`** is the trade-off tool. It builds a coverage against
+  fg/bg ratio frontier over the real candidate pool using the binding
+  positions, and reports where the application profile lands on it. It
+  evaluates 4 to 20 primers, so it cannot describe a 96- or 160-oligo panel.
+- **The marginal coverage table** that `optimize` prints needs no flag and has
+  no size limit. It measures cumulative foreground coverage as the delivered
+  primers are added in order, at the same reach the run was scored on, and
+  reports the gain per primer in percentage points:
+
+  ```
+      n   coverage   pp/primer
+     32      0.627        1.10
+     96      0.890        0.41
+    160      0.943        0.083
+  ```
+
+  A flat `pp/primer` column means more primers buy little coverage. It is
+  measured on one delivered set in its delivered order, so each row is a lower
+  bound on re-optimizing at that size, and it says nothing about specificity.
+
+The two flags work on `optimize` and on `design`. On the measured sweeps
+coverage rises monotonically while selectivity density peaks near n=32 for
+*M. tuberculosis* and is already falling by n=32 for *E. coli*, so the coverage
+curve alone will not tell you where to stop.
+
+```bash
+neoswga optimize -j params.json --auto-size --application clinical
+neoswga optimize -j params.json --show-frontier
+neoswga design -j params.json --auto-size
+```
+
 ### Utility Commands
 ```bash
 neoswga validate --quick            # Validate installation
+neoswga validate --smoke -j params.json  # Check a config: schema, unknown keys,
+                                    # genome files, then all four steps against a
+                                    # packaged 6 kb target under your chemistry
 neoswga build-filter genome.fna ./  # Build Bloom filter for large background
 neoswga show-presets                # Show reaction condition presets
 ```
 
-### Setup Commands (New)
-```bash
-# Interactive workflow selector - discover all features
-neoswga start
-
-# Setup wizard - create params.json with guided configuration
-neoswga init --genome target.fna [--background host.fna] [-o params.json]
-
-# Validate params.json before running pipeline
-neoswga validate params -j params.json
-
-# Suggest optimal reaction conditions
-neoswga suggest --genome-gc 0.65 --primer-length 15
-neoswga suggest --genome target.fna  # Auto-calculates GC
-
-# Interpret results after pipeline completes
-neoswga interpret -d results/
-
-# Generate quality report after pipeline completes
-neoswga report -d results/                        # Executive summary (default)
-neoswga report -d results/ --level full           # Full technical report
-neoswga report -d results/ --interactive          # With interactive Plotly charts
-neoswga report -d results/ --level full --interactive  # Full report with charts
-neoswga report -d results/ --check                # Validate only, don't generate
-
-# The full technical report surfaces every in-silico result read from the
-# authoritative step4_improved_df_summary.json (preferred over CSV estimates):
-# the ensemble per-method comparison, per-target coverage, strand balance,
-# coverage gaps (in-silico +/- BAM depth), and reaction conditions. Every value
-# is badged MEASURED or ESTIMATED. The filtering funnel uses the real
-# filter_stats.json the filter step writes (no fabricated counts).
-# --interactive adds Plotly charts on top of the static sections.
-
-# Validate mechanistic model against expected behavior
-neoswga validate model               # Run all validation tests
-neoswga validate model --output-json  # Output results as JSON
-
-# The hyphenated forms (validate-params, validate-model) still run but warn:
-# the subcommands are `neoswga validate {install,params,model}`.
-```
-
-### Optimization with Mechanistic Model
-```bash
-# Auto-size primer set based on application profile
-neoswga optimize -j params.json --auto-size --application clinical
-
-# Applications: discovery (high coverage), clinical (high specificity),
-#              enrichment (balanced), metagenomics (capture diversity)
-
-# Use mechanistic model for primer weighting (a non-default --mechanistic-weight
-# implies --use-mechanistic-model)
-neoswga optimize -j params.json --use-mechanistic-model --mechanistic-weight 0.3
-```
-
-### Advanced Commands
-```bash
-# Multi-genome pan-primer design
-neoswga multi-genome --genomes target1.fna target2.fna --output results/
-
-# Replication simulation
-neoswga simulate --primers SEQ1 SEQ2 --genome target.fna --output sim/
-
-# Analyze existing primer set
-neoswga analyze-set --primers SEQ1 SEQ2 --fg target.fna --fg-kmers data/target --output analysis/
-
-# Genome analysis
-neoswga analyze-genome --genome target.fna --output analysis/
-
-# Dimer network analysis
-neoswga analyze-dimers --primers SEQ1 SEQ2 --output dimers/ --visualize
-```
-
-### Adding oligos to an existing set (in-silico + real BAM coverage)
-
-For iterative design: keep validated primers, exclude failed ones, and add new
-primers that fill coverage gaps. Gaps can come from in-silico binding positions
-and/or from real sequencing depth (a BAM mapped to the target genome). BAM
-support needs the `[bam]` extra (`pip install 'neoswga[bam]'`, brings pysam).
-
-```bash
-# Inspect gaps only (read-only): writes coverage_gaps.bed + .json
-neoswga analyze-coverage -j params.json --primers SEQ1 SEQ2 \
-    --bam reads.bam --min-depth 5 --min-gap-size 10000 -o cov/
-
-# Add primers, focusing the candidate pool on the merged gaps
-neoswga expand-primers -j params.json --fixed-primers SEQ1 SEQ2 \
-    --failed-primers SEQ3 --num-new 6 --bam reads.bam --min-depth 5 \
-    --optimization-method hybrid -o expanded/
-```
-
-- BAM contigs are matched to foreground prefixes by exact/basename/`chr`-prefix
-  then unique-length fallback; override with `--contig-alias FG=BAMCONTIG`.
-- A base counts as a gap when its mapped depth `< --min-depth`; runs shorter
-  than `--min-gap-size` bp are ignored. On circular targets (`fg_circular`) a
-  gap spanning the origin is merged into one.
-- Candidate selection is a HARD pre-filter (only primers binding inside a gap),
-  with fallback to the full pool if too few remain to reach `--num-new`.
-- Outputs: `merged_gaps.bed`, `expansion_result.json`, `expanded_primers.csv`.
+`--smoke` takes about 4 s against the packaged plasmid pair and exits non-zero
+when the configuration would fail, so it is usable in CI. It resolves the genome
+paths in params.json relative to the working directory, exactly as a real run
+does: pointing it at `examples/plasmid_example/params.json` from the repository
+root correctly reports both FASTAs as missing, because that file names them
+relatively.
 
 ## Key Parameters (params.json)
 
@@ -343,7 +305,21 @@ neoswga expand-primers -j params.json --fixed-primers SEQ1 SEQ2 \
 - `min_k`, `max_k`: Primer length range (default: 6-12, use 12-18 for longer primers)
 - `min_fg_freq`: Minimum foreground frequency (default: 1e-5)
 - `max_bg_freq`: Maximum background frequency (default: 5e-6)
-- `max_gini`: Maximum Gini index for binding evenness (default: 0.6)
+- `max_gini`: Maximum Gini index for binding evenness (default: 0.7,
+  re-derived 2026-09-10 against delivered coverage). At 0.6 the gate removed
+  primers the optimizer had selected: 8 of 160 delivered on E. coli, 1 of 200 on
+  S. aureus, 5 of 36 on M. tuberculosis. The kept pools top out at 0.6877,
+  0.6932 and 0.6985, and all three shipped configs already set 0.7. The Gini is
+  NaN, and the primer is dropped, below `min_gini_sites` combined binding sites:
+  one site gives no gap and two give a single gap, whose Gini is identically
+  0.0, the best value available. Before that rule 86% of the shipped chr21 pool
+  and 96.2% of the plasmid pool scored 0.0.
+- `min_gini_sites`: Minimum recorded binding sites, across both strands, before
+  the Gini index counts as a measurement (default: 3, the first count at which
+  it can vary). Also settable as `--min-gini-sites` on `neoswga filter`. Lower
+  it to 2 or 1 for a small target, where single-site primers are most of the
+  pool: on the shipped plasmid example 10,158 of 10,532 indexed k-mers bind
+  exactly once, so the default removes nearly all of them.
 - `max_primer`: Primers to keep after filtering (default: 500)
 
 **Thermodynamics**:
@@ -364,138 +340,34 @@ neoswga expand-primers -j params.json --fixed-primers SEQ1 SEQ2 \
 | `klenow` | 25-40C | 8-15 bp | Room temperature, lower processivity |
 
 **Optimization**:
-- `optimization_method`: **currently inert in params.json — see Known Issue #8.**
-  Use `--optimization-method` on the CLI. Values: 'hybrid' (default),
-  'dominating-set' (fast), 'background-aware' (clinical), 'network'
+- `optimization_method`: read from params.json since 2026-09-05; it was inert
+  before that, and Known Issue 8 records why. An explicit
+  `--optimization-method` on the CLI still wins over the configured value, an
+  absent flag does not. Values: 'hybrid' (default), 'dominating-set' (fast),
+  'background-aware' (clinical), 'network'.
 - `num_primers`, `target_set_size`: Desired primer set size (default: 6)
-- `iterations`: Search iterations (default: 8)
-- `max_sets`: Parallel primer sets to build (default: 5)
+- `max_dimer_bp`: Longest complementary run tolerated between two different
+  primers (default 3, maximum 7). The screen represents t-mers in a 4**8 code
+  space, so 8 and above cannot be enforced and are refused by the schema rather
+  than silently disabling the screen. A pool supports a bounded panel size at a
+  given threshold: measured on the shipped pools, 3 supports 29, 31 and 26
+  primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and
+  55. The shipped panels are larger than that, so the `dominating-set`
+  relaxation admits unscreened primers and the delivered worst heterodimer is
+  11 bp against a configured 3.
+- `max_sets`: How many distinct primer sets to offer, best first (default: 5).
+  Alternatives are found by excluding the primers already chosen and selecting
+  again, so each is a different set rather than a reordering. They are numbered
+  in the `set_index` column of `step4_improved_df.csv`; set 0 is the one the
+  metrics and the summary describe. Fewer than `max_sets` is normal on a small
+  candidate pool.
+- `iterations`: How many attempts to make when searching for those alternatives
+  (default: 8). It deliberately does NOT bound the primary selection — doing so
+  would cap how many primers a run can choose, so `iterations: 8` would quietly
+  truncate a 96-oligo panel.
 
-## Key APIs
-
-### PositionCache
-
-In-memory cache for primer binding positions (1000x speedup over HDF5 reads):
-
-```python
-from neoswga.core.position_cache import PositionCache
-
-# Initialize with file prefixes and primers to load
-cache = PositionCache(fname_prefixes=['data/target'], primers=['ATCGATCG', 'GCTAGCTA'])
-
-# Get positions - strand is 'forward', 'reverse', or 'both' (NOT '+'/'-')
-positions = cache.get_positions('data/target', 'ATCGATCG', strand='both')
-```
-
-### GPU Acceleration
-
-A library-only CuPy path. No pipeline stage calls it, so `--use-gpu` /
-`--gpu-device` change neither results nor runtime and report that they are not
-implemented. `batch_calculate_tm` is not a speedup — it iterates in Python and
-assigns into a CuPy array element by element, which is slower than the NumPy
-fallback. `batch_binding_probability` is the one genuinely vectorised routine.
-
-```python
-from neoswga.core.gpu_acceleration import is_gpu_available, get_gpu_info, GPUThermodynamics
-
-if is_gpu_available():
-    info = get_gpu_info()
-    print(f"GPU: {info['device_name']}")
-
-    gpu_calc = GPUThermodynamics(conditions)
-    tms = gpu_calc.batch_calculate_tm(primers)
-```
-
-### Reaction Conditions
-
-```python
-from neoswga.core.reaction_conditions import get_enhanced_conditions, get_standard_conditions
-
-# Standard Phi29 at 30C
-conditions = get_standard_conditions()
-
-# EquiPhi29 with DMSO/betaine for longer primers
-conditions = get_enhanced_conditions()  # 42C, 5% DMSO, 1M betaine
-```
-
-### Dominating Set Optimizer
-
-Graph-based coverage optimization (8x faster than greedy):
-
-```python
-from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
-from neoswga.core.position_cache import PositionCache
-
-cache = PositionCache(fg_prefixes, candidates)
-optimizer = DominatingSetOptimizer(cache, fg_prefixes, fg_seq_lengths, bin_size=10000)
-
-result = optimizer.optimize_greedy(candidates, max_primers=10)
-print(f"Coverage: {result['coverage']:.1%}")
-```
-
-### Mechanistic Model
-
-Four-pathway model for additive effects on SWGA:
-
-```python
-from neoswga.core.mechanistic_model import MechanisticModel, MechanisticEffects
-from neoswga.core.reaction_conditions import ReactionConditions
-
-# Create conditions with additives
-conditions = ReactionConditions(
-    temp=42.0,
-    polymerase='equiphi29',
-    dmso_percent=5.0,
-    betaine_m=1.0,
-    mg_conc=2.5
-)
-
-# Calculate mechanistic effects for a primer
-model = MechanisticModel(conditions)
-effects = model.calculate_effects('ATCGATCGATCG', template_gc=0.5)
-
-# Access individual pathway factors
-print(f"Processivity factor: {effects.processivity_factor:.2f}")
-print(f"Accessibility factor: {effects.accessibility_factor:.2f}")
-print(f"Binding rate: {effects.effective_binding_rate:.2f}")
-print(f"Predicted amplification: {effects.predicted_amplification_factor:.2f}")
-```
-
-**Four pathways**:
-1. **Tm modification**: DMSO, betaine, formamide effects on primer-template stability
-2. **Secondary structure accessibility**: Template melting, GC-dependent structure
-3. **Enzyme activity**: Polymerase processivity, speed, stability
-4. **Binding kinetics**: Association/dissociation rates (kon/koff)
-
-### Set Size Optimizer
-
-Automatic primer set size based on application profile:
-
-```python
-from neoswga.core.set_size_optimizer import recommend_set_size, quick_size_estimate
-from neoswga.core.mechanistic_model import MechanisticModel
-from neoswga.core.reaction_conditions import ReactionConditions
-
-# Quick estimate without full mechanistic model
-size = quick_size_estimate('clinical', genome_length=1_000_000)
-
-# Full recommendation with mechanistic effects
-conditions = ReactionConditions(temp=42.0, polymerase='equiphi29')
-model = MechanisticModel(conditions)
-effects = model.calculate_effects('ATCGATCGATCG', template_gc=0.5)
-
-recommendation = recommend_set_size(
-    application='clinical',
-    genome_length=1_000_000,
-    primer_length=12,
-    mech_effects=effects
-)
-print(f"Recommended: {recommendation['recommended_size']} primers")
-print(f"Range: {recommendation['size_range']}")
-print(f"Target coverage: {recommendation['target_coverage']:.0%}")
-```
-
-**Application profiles**:
+**Application profiles** (`--application`, and the weighting used to pick an
+ensemble winner):
 
 | Application | Coverage Target | Specificity | Typical Size | Use Case |
 |-------------|-----------------|-------------|--------------|----------|
@@ -503,47 +375,6 @@ print(f"Target coverage: {recommendation['target_coverage']:.0%}")
 | `clinical` | 70% | 90% | 6-10 | Diagnostics, minimize false positives |
 | `enrichment` | 80% | 75% | 8-12 | Sequencing enrichment, balanced |
 | `metagenomics` | 95% | 50% | 15-20 | Capture diversity |
-
-### Report Visualizations
-
-Interactive Plotly charts for reports (optional dependency):
-
-```python
-from neoswga.core.report.visualizations import (
-    is_plotly_available,
-    render_filtering_funnel,
-    render_component_radar,
-    render_tm_gc_distribution,
-    render_coverage_specificity_scatter,
-    render_primer_heatmap,
-    render_dimer_network_heatmap,
-    render_dimer_network_graph,
-)
-
-# Check if Plotly is installed
-if is_plotly_available():
-    # Render filtering funnel chart
-    funnel_html = render_filtering_funnel([
-        ("Total k-mers", 100000),
-        ("After frequency filter", 50000),
-        ("After background filter", 10000),
-        ("Final candidates", 100),
-    ])
-
-    # Render dimer interaction heatmap
-    dimer_html = render_dimer_network_heatmap(primers, max_primers=15)
-```
-
-**Available chart functions**:
-- `render_filtering_funnel()`: Pipeline filtering stages as funnel chart
-- `render_component_radar()`: Quality component scores as radar chart
-- `render_tm_gc_distribution()`: Tm histogram and Tm vs GC scatter
-- `render_coverage_specificity_scatter()`: Coverage vs specificity with Pareto frontier
-- `render_primer_heatmap()`: Primer metrics comparison heatmap
-- `render_dimer_network_heatmap()`: Primer-dimer interaction matrix
-- `render_dimer_network_graph()`: Network graph of strong dimer interactions
-
-All functions return empty string when Plotly is not installed (graceful degradation).
 
 ## Testing
 
@@ -558,31 +389,18 @@ neoswga validate --quick              # Quick validation
 - `equiphi29_baseline/`: EquiPhi29 scenario
 - End-to-end tests: `test_pipeline_e2e.py`, `test_integration.py`, `test_optimizer_method_coverage.py`, etc.
 
-## Development Tasks
+Two things a contributor should know:
 
-**Generate k-mer files for non-standard lengths**:
-```bash
-neoswga count-kmers -j params.json --min-k 15 --max-k 18
-```
-
-**Retrain random forest model** (for sklearn updates):
-```bash
-python scripts/retrain_rf_model.py --output neoswga/core/models/random_forest_filter.skops
-```
-
-**Convert a legacy pickle model to skops** (one-time migration helper):
-```bash
-python scripts/convert_model_to_skops.py
-```
-
-**Run pipeline on test data**:
-```bash
-cd tests/integration/equiphi29_baseline
-neoswga count-kmers -j params.json
-neoswga filter -j params.json
-neoswga score -j params.json
-neoswga optimize -j params.json
-```
+- A full suite run leaves `git status --porcelain` byte-identical.
+  `tests/test_the_suite_leaves_no_files_behind.py` enforces that, and also
+  fails if a root-anchored `.gitignore` entry is added for a pipeline artifact
+  instead of stopping the write.
+- Tests needing `examples/plasmid_example`'s generated files guard on
+  `tests.conftest.plasmid_example_ready()`, not on the directory existing --
+  the directory is committed, so its presence proves nothing. Without jellyfish
+  those tests skip with a reason naming it. A new test that pins a quantity
+  should follow `tests/test_hybrid_optimizer_run.py`'s fixtures, which write
+  HDF5 directly and need no external tool.
 
 ## Code Patterns
 
@@ -669,103 +487,184 @@ with h5py.File('positions.h5', 'r') as f:
    46 Mb and cannot reach either limit, so both bugs sat behind a passing test suite.
    `tests/test_position_cache.py::TestPositionsPastTheInt32Ceiling` pins this one.
 
-8. **`optimization_method` in params.json does nothing** (open, audit finding F1b).
-   The key is declared in `params.schema.json` and documented above, but `get_params`
-   assigns no module global and `run_step4` passes `args.optimization_method` straight
-   through (`cli/pipeline.py:766`), whose argparse default is `'hybrid'`. So the flag's
-   default always wins:
+8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
+   (audit finding F1b). The key was declared in `params.schema.json`,
+   documented above, accepted by the validator, and read by nothing:
+   `get_params` assigned no module global, and `run_step4` passed
+   `args.optimization_method` straight through with an argparse default of
+   `'hybrid'`, so the flag's default beat the config every time.
 
    ```
    params.json "optimization_method": "dominating-set"
      -> parameter module global: <UNSET>,  optimizer actually run: hybrid
    ```
 
-   This costs more than it looks: `hybrid` returns a set **identical** to
-   `dominating-set` (Jaccard 1.000) at 7.8x the cost at 32 primers and 260x at 128
-   (2239 s against 8.6 s). Every params.json user is pinned to the slow method for the
-   same answer. `design` compounds it — that subparser has no `--optimization-method`
-   at all and `run_design` hardcodes `"hybrid"`.
+   It cost more than provenance: `hybrid` returns a set **identical** to
+   `dominating-set` (Jaccard 1.000) at 7.8x the cost at 32 primers and 260x at
+   128 (2239 s against 8.6 s), so every params.json user ran the slowest method
+   for the same answer. `design` pinned it a second way — that subparser has no
+   `--optimization-method` and `run_design` hardcoded `"hybrid"`.
 
-   **Use `--optimization-method` on the CLI until this is fixed.** The fix is the one
-   applied to the five keys in `_apply_params_only_keys`, plus a "was the flag given"
-   sentinel as in `_resolve_selection_weights`, because `'hybrid'` is both the argparse
-   default and a legitimate explicit choice.
+   Fixed in three places, because one alone was not enough. The global is
+   assigned in `_apply_params_only_keys`. The flag's argparse default is now
+   `None`, the sentinel that distinguishes an explicit `--optimization-method
+   hybrid` — which must beat a configured `dominating-set` — from an absent
+   flag, which must not; do not give it a real default again.
+   And the lookup goes through `optimization_method_from_params`, beside the
+   other pre-read resolvers, because `run_step4` builds its argument list
+   before `optimize_step4` triggers `get_params`, so reading the global at that
+   point sees nothing. Tests:
+   `tests/test_optimization_method_routes_from_params.py`.
 
-   This is the sixth instance of one class: a config key or flag that is documented,
-   accepted, and read by nothing. `additionalProperties: true` means none of them warn.
-   `tests/test_design_options_have_effect.py` and
-   `tests/test_params_json_routes_optional_keys.py` are the tests that hold the line;
-   extend them when adding an option.
+   This was the last known instance of one class: a config key or flag that is
+   documented, accepted, and read by nothing. `additionalProperties: true`
+   means none of them warn. `tests/test_design_options_have_effect.py`,
+   `tests/test_params_json_routes_optional_keys.py` and
+   `tests/test_optimizer_config_reaches_optimizers.py` are the tests that hold
+   the line; extend them when adding an option.
 
-## Package Structure
+9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
+   (audit finding B4). `filter.get_gini` keeps a primer when
+   `gini.notna() & (gini < max_gini)`. The `.notna()` half was written for
+   exactly the case where evenness cannot be measured, but a single-site primer
+   produced 0.0, the best value available, so the guard never fired and the
+   gate ranked that primer first. 86% of the shipped Prevotella-against-chr21
+   pool and 96.2% of the plasmid example sat at 0.0, all with two or fewer
+   foreground sites; the three whole-genome GC-tier pools have none at 0.0,
+   which is why this was invisible in the runs this project usually inspects.
+   `min_gini_sites` is the threshold, default 3, settable in params.json and as
+   `--min-gini-sites` on `filter`; `primer_attributes.DEFAULT_MIN_GINI_SITES`
+   holds the default. It is threaded into `get_gini_from_txt_for_one_k` as an
+   argument rather than read from a module global, because that function runs in
+   a spawned multiprocessing worker which would otherwise see the default
+   instead of the configured value. `pipeline.check_gini_stage_kept_something`
+   refuses to write an empty pool and names the threshold in force.
+   Tests: `tests/test_gini_needs_enough_sites.py`,
+   `tests/test_min_gini_sites_is_configurable.py`.
 
-```
-neoswga/
-  __init__.py              # Package init, version
-  cli_unified.py           # Main CLI (all commands)
-  core/                    # Core functionality (75 modules)
-    # Pipeline
-    pipeline.py, improved_pipeline.py, multi_genome_pipeline.py
+10. **The candidate loader filtered on a Tm known to be wrong** -- FIXED
+    2026-09-10 (audit finding B5). `melting_temp.py:153` keeps the original melt
+    package's GC-fraction bug for compatibility with the random forest retired
+    on 2026-09-05. It reads 10.12 C high at k=12 (measured over 20,000 random
+    12-mers, sd 0.30 C), so with the old symmetric 15 C margin the loader's
+    window was `[min_tm - 25, max_tm + 5]` in true-Tm terms. Nothing was lost on
+    plain phi29 and 9.6% of k=12 candidates were lost under DMSO 10% plus
+    betaine 1.5 M, silently. `kmer_counter.get_primer_list_from_kmers` now calls
+    the same `ReactionConditions.calculate_effective_tm` the gate calls, on the
+    window `filter._resolve_tm_window` resolves, with 2 C of stated headroom.
+    The shim itself is still used by `rf_preprocessing` and is correct to leave
+    there: it is what the bundled model was fitted against.
 
-    # Filtering
-    filter.py, adaptive_filters.py, kmer.py, kmer_counter.py
+11. **Near-duplicate primers reached the delivered panel** -- measured, and the
+    remedy is OFF by default (audit finding A6). Delivered E. coli set 0 held 9
+    pairs at Hamming distance 1 or less and 5 primers sharing the 3' hexamer
+    GCGAAA. No optimizer had a similarity rejection test: the greedy picked the
+    largest ABSOLUTE new coverage, so a primer with fifty sites and forty-eight
+    already covered beat one with five sites all new.
+    `dominating_set_optimizer.DEFAULT_REDUNDANCY_THRESHOLD` can skip a candidate
+    whose covered bins are already covered above the threshold, on site sets
+    rather than on sequences.
 
-    # Scoring
-    rf_preprocessing.py, primer_attributes.py
+    It defaults to **1.0, which disables it**, because measurement did not
+    support switching it on. Across three real pools at ten combinations of tier
+    and panel size, a 0.9 threshold fired 328,846 times and changed nothing:
+    coverage identical in five of six cases and 0.03 points lower in the sixth,
+    with the Hamming-1 pair count and the duplicate 3' hexamer count -- the two
+    things it was built to reduce -- identical in all six. The reason is
+    structural: a candidate more than 90% already covered has a small marginal
+    gain by construction, so the greedy's argmax was never going to pick it. The
+    criterion and the objective are nearly the same signal. No threshold beats
+    disabled on average, and gains sit beside large losses in the same tier:
+    M. tuberculosis at n=36 gains 5.53 coverage points at 0.05 and loses 10.72
+    at 0.00. The mechanism and its tests are kept; pass an explicit threshold to
+    use it. It affects `hybrid` and `background-aware` too, which both call
+    `optimize_greedy` for their Stage-1 set cover.
 
-    # Optimization (4 methods via unified_optimizer)
-    hybrid_optimizer.py, dominating_set_adapter.py, dominating_set_optimizer.py,
-    network_optimizer.py, background_aware_optimizer.py
+    Taken together, entries 9 to 11 moved the three shipped whole-genome designs
+    by almost nothing. Coverage changed by at most 0.17 percentage points, the
+    delivered panels have Jaccard 0.993, 0.976 and 1.000 against their
+    baselines, and the candidate pool size is identical on all three. The
+    evenness rule bites on small targets, which is where the defect was
+    measurable in the first place.
 
-    # Thermodynamics
-    thermodynamics.py, reaction_conditions.py,
-    secondary_structure.py, dimer.py, three_prime_stability.py
+12. **CLI startup used to import scikit-learn** -- FIXED 2026-09-10 (audit
+    finding E6). `cli_unified.py` imported `core.pipeline` at module scope only
+    to make `StepPrerequisiteError` catchable, and `core/pipeline.py` imports
+    `rf_preprocessing`, which imported sklearn at module scope. Every invocation
+    paid it, `--help` and `show-presets` included, for a model retired from the
+    default path on 2026-09-05.
 
-    # Mechanistic Modeling
-    mechanistic_params.py, mechanistic_model.py, set_size_optimizer.py,
-    model_validation.py, additives.py
+    `StepPrerequisiteError` and `StepValidationResult` now live in
+    `core/exceptions.py` (re-exported from `core/pipeline.py`, the same objects,
+    so `except` clauses and the two importing tests are unaffected), and the
+    sklearn alias fix runs inside `load_model_safely` instead of at import.
 
-    # Performance
-    position_cache.py, background_filter.py, gpu_acceleration.py
+    `neoswga --help` now costs **about a third of what it did**. Quote the ratio
+    rather than an absolute pair: measured twice hours apart the saving was
+    about 3.3x both times, while the before figure itself moved from 1.21 s to
+    1.40 s between sessions with no code change, purely with machine load.
+    `python -X importtime -c "import neoswga.cli_unified"` reports no sklearn
+    entry at all. `tests/test_cli_import_is_light.py` fails if either import
+    comes back. What remains is not sklearn: it is pandas, reached through
+    `cli/_common.py` -> `reaction_conditions` -> `thermodynamics` -> `utility`.
+    That chain is pre-existing and is the obvious next target if CLI startup is
+    worth more work.
 
-    # Simulation
-    replication_simulator.py, swga_simulator.py, stochastic_simulator.py
-    simulation_fitness.py, simulation_analysis.py, simulation_plots.py
+13. **Five commands measured the host genome they were told to ignore** --
+    FIXED 2026-09-10. Each read `bg_prefixes` from params, built a
+    `PositionCache` over `fg_prefixes` alone, then handed the background
+    prefixes to something that queries that cache by prefix.
+    `PositionCache.get_positions` answered an unindexed prefix with an empty
+    array, silently, so every background lookup read zero.
 
-    # Analysis
-    genome_analysis.py, strand_bias_analyzer.py, dimer_network_analyzer.py
+    The manifestation is `NetworkOptimizer._evaluate_primer_addition`, whose
+    score is `fg_improvement / (1.0 + bg_added)`. With an fg-only cache
+    `bg_added` is always 0.0, so every candidate scored as perfectly selective.
+    This is the same symptom as Known Issues 5 and 6, reached by a third route:
+    not a scan that found nothing and not an integer that saturated, but a cache
+    asked for something it does not hold.
 
-    # Reporting
-    report/                # Quality report generation
-      metrics.py, quality.py, executive_summary.py,
-      technical_report.py, visualizations.py, validation.py, utils.py
+    It mattered most in `expand-primers`, which exists to add primers to an
+    existing panel, so specificity is the property the user is asking it to
+    preserve.
 
-    # Utilities
-    utility.py, parameter.py, validation.py, genome_io.py
+    `get_positions` now raises `MissingPositionsError` for a prefix the cache
+    was not built over. That uses a separate `on_unindexed_prefix` knob, not the
+    existing `on_missing`: a primer with no hits on an INDEXED prefix is a
+    plausible measurement of zero and warns, while a prefix nobody indexed is a
+    caller error and raises.
 
-    models/                # ML models
-      random_forest_filter.skops
-      checksums.json       # SHA-256 allowlist
-tests/
-  integration/             # Integration test scenarios
-  report/                  # Report module tests
-  test_*.py                # Unit tests
-examples/
-  plasmid_example/         # Self-contained example (pcDNA vs pLTR plasmids)
-scripts/                   # Development utilities
-docs/                      # Documentation
-  archive/                 # Historical documents
-  validation/              # Validation reports
-```
+    `tests/test_expansion_counts_background.py` walks the AST for any function
+    that forwards `bg_prefixes` while building a cache without them. That check
+    found the fifth site after a manual review had settled on four.
 
-## Running the Example
+14. **Reading the background is not acting on it.** A background-aware stage
+    that does not choose the panel changes nothing useful. `expand-primers` was
+    fixed on 2026-09-10 to build its `PositionCache` over
+    `fg_prefixes + bg_prefixes`, and a real run afterwards still queried the
+    host prefix zero times. Three further seams had to be closed before the data
+    was read at all: `background_pruning` defaulted to False on the expansion
+    path, `PrimerExpander.expand` silently substituted `hybrid` for every method
+    it did not recognise including `background-aware`, and `_prune_background`
+    would have removed primers from the very panel the user asked to extend.
 
-The `examples/plasmid_example/` provides a quick test with two small plasmids:
+    Even then it read the host without acting on it. Stage 1.5 pruning is not
+    the stage that picks the panel; Stage 2 `_network_refine` is, and it ranked
+    on amplification connectivity and unique coverage bins alone. Enabling
+    pruning therefore only shrank the pool Stage 2 drew from, and on a
+    40-candidate expansion over a 300 kb synthetic pair it moved delivered host
+    binding the wrong way, 32 sites to 45. `_STAGE2_BACKGROUND_WEIGHT` adds the
+    host as a third normalised axis in that stage, gated on `background_pruning`
+    so `hybrid` panels are unchanged (verified identical on all three GC tiers
+    at n=12/24/36).
 
-```bash
-cd examples/plasmid_example
-neoswga count-kmers -j params.json
-neoswga filter -j params.json
-neoswga score -j params.json
-neoswga optimize -j params.json
-```
+    The general lesson: check which stage produces the delivered result before
+    concluding that a measurement reaching the code means it reached the user. A
+    query count answers "was it read", not "did it matter".
+
+    `examples/plasmid_example` cannot demonstrate any of this. Six primers
+    already cover its 5.4 kb target completely at 3 kb reach, so expansion adds
+    nothing and `optimize` early-returns before Stage 1.5. Pin this behaviour on
+    a target large enough that Stage 1 over-selects;
+    `tests/test_expansion_uses_the_background.py` builds one at 300 kb with no
+    external tool.

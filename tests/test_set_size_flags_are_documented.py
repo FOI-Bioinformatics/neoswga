@@ -4,10 +4,12 @@
 appear in no user-facing document, which is why this project's own GC-tier sweep
 was run by hand with repeated -n values.
 
-CLAUDE.md is deliberately absent from DOCS. It carries several hundred lines of
-the maintainer's uncommitted work and this plan does not touch it; the section
-it should gain is collected for hand-over instead. Add "CLAUDE.md" to DOCS once
-that patch is applied.
+CLAUDE.md was deliberately absent from DOCS while the plan that added these
+flags was running: it carried several hundred lines of the maintainer's
+uncommitted work and no plan task was allowed to touch it, so the section it
+should gain was collected for hand-over. That hand-over was applied on
+2026-09-11 and CLAUDE.md now carries a "Choosing the set size" subsection, so it
+joins DOCS and is held to the same three checks as the others.
 """
 
 from pathlib import Path
@@ -16,11 +18,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-DOCS = ["README.md", "docs/params-reference.md"]
+DOCS = ["README.md", "docs/params-reference.md", "CLAUDE.md"]
 
-# Checked for absence only, so it is safe to include a file this plan does not
-# edit: an assertion that a wrong flag name is missing cannot fail spuriously.
-ALL_DOCS = DOCS + ["CLAUDE.md"]
+# Kept as a separate name because the absence check below once covered a file
+# DOCS did not. The two lists are the same now; the distinction costs nothing
+# and the absence check is the one that must never narrow.
+ALL_DOCS = list(DOCS)
 
 
 @pytest.mark.parametrize("doc", DOCS)
