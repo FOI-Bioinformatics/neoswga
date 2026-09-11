@@ -168,7 +168,9 @@ neoswga suggest --genome target.fasta --sweep --output conditions.csv
 | `hybrid` | Medium | General use (default) |
 | `dominating-set` | Fast | Large primer pools, quick results |
 | `background-aware` | Slow | Clinical samples, low background |
-| `genetic` | Slow | Complex optimization, exploration |
+| `network` | Medium | Tm-weighted, dimer-screened |
+| `clique` | Slow | Sets that must contain no dimerising pair |
+| `ensemble` | Slow | Runs several and keeps the best |
 
 ## Troubleshooting
 

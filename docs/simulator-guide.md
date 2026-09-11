@@ -132,35 +132,6 @@ for name, metrics in sorted(results.items(), key=lambda x: x[1]['composite'], re
     print(f"{name}: {metrics['recommendation']} (score: {metrics['composite']:.2f})")
 ```
 
-### Example 4: Configuration File
-
-**Scenario**: You want repeatable simulations with saved settings.
-
-**config.json**:
-```json
-{
-  "primers": "primers.txt",
-  "target_genome": "synechocystis.fasta",
-  "background_genome": "human.fasta",
-  "positions": "positions.h5",
-  "mode": "fast",
-  "bin_size": 10000,
-  "temperature": 30.0,
-  "polymerase": "phi29",
-  "output": "report.html",
-  "format": "html",
-  "analyze": true,
-  "plot": true
-}
-```
-
-**Run**:
-```bash
-neoswga simulate --config config.json
-```
-
----
-
 ## Command Reference
 
 ### simulate Command
@@ -564,7 +535,7 @@ A: You likely swapped target and background genomes. The primers bind more to th
 A: Yes! Works for any genome:
 - Bacteria (tested)
 - Archaea (should work)
-- Eukaryotic parasites (tested: Plasmodium)
+- Eukaryotic parasites (tested, on an AT-rich parasite genome)
 - Viruses (should work, but may need different bin sizes)
 
 **Q: How many primers do I need?**

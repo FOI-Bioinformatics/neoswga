@@ -96,7 +96,7 @@ Note the explicit flags on `optimize`:
 |------|-----------------|-------|
 | 1 | `ecoli_K12_MG1655_17mer_all.txt` | k-mer counts from jellyfish |
 | 2 | `step2_df.csv` | filtered candidates (around 1000 primers after the `max_primer` cap) |
-| 3 | `step3_df.csv` | scored candidates with `amp_pred` column |
+| 3 | `step3_df.csv` | the candidate pool in optimizer order (no `amp_pred` column; this example does not pass `--amp-model`) |
 | 4 | `step4_improved_df.csv`, `step4_improved_df_summary.json` | final set |
 
 A representative run with the committed parameters selects 20 primers with:

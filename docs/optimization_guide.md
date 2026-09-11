@@ -118,7 +118,8 @@ neoswga optimize -j params.json --optimization-method=background-aware
 3. Stage 3: Optimize coverage subject to background constraint
 
 **Strengths:**
-- 10-20x reduction in background amplification
+- Lower background binding than `hybrid`: host sites in the delivered panel fall 7-35% against `hybrid` at n=24 and n=36, measured against hg38 on the three GC-tier designs, for 0.1-3.1 points of coverage. The figure of
+  10-20x that this guide used to quote was never reproduced
 - Designed for clinical samples with high background
 - Explicit selectivity optimization
 
@@ -253,10 +254,12 @@ neoswga optimize -j params.json \
 
 ```bash
 # Thorough optimization for important designs
-neoswga optimize -j params.json \
-  --optimization-method=hybrid \
-  --iterations 20
+neoswga optimize -j params.json --optimization-method=hybrid
 ```
+
+`iterations` is a params.json key, not a flag. It bounds the search for
+ALTERNATIVE sets only, so raising it offers more alternatives; it does not make
+the primary selection more thorough.
 
 ## Iterative Design Workflow
 
@@ -330,7 +333,7 @@ Try:
 Try:
 1. Use `dominating-set` for speed
 2. Reduce candidate pool size
-3. Decrease `--iterations`
+3. Decrease `iterations` in params.json
 
 ### Poor Tm uniformity
 

@@ -232,15 +232,20 @@ neoswga filter -j params.json
 
 **Output**: `step2_df.csv` and HDF5 files with primer positions
 
-#### score: Amplification Scoring
+#### score: Prepare the candidate pool
 
-Predict amplification potential using machine learning:
+`score` prepares the pool; it does not score it. The bundled random forest was
+retired from the default path on 2026-09-05.
 
 ```bash
 neoswga score -j params.json
 ```
 
-**Output**: `step3_df.csv` with ranked primers by predicted amplification score
+**Output**: `step3_df.csv`, carrying the step-2 measurements (`step2_rank`,
+`ratio`, `gini`, `fg_count`, `bg_count`) in a deterministic order that the
+optimizer reads. There is no prediction column unless you pass `--amp-model`,
+which restores the old behaviour, the `amp_pred` column and the `min_amp_pred`
+gate.
 
 #### optimize: Primer Set Optimization
 
@@ -256,10 +261,10 @@ neoswga optimize -j params.json
 - `background-aware`: Three-stage with explicit background minimization
 - `network`: Tm-weighted with dimer penalty
 - `clique`: Dimer-free primer sets via clique finding
-- `genetic`: Multi-objective genetic algorithm
-- `moea`: Pareto optimization
-- `milp`: Exact solution via mixed-integer linear programming
-- `greedy`: Simple breadth-first search
+- `ensemble`: runs several of the above and keeps the best by normalized score
+
+Those six are the whole set. `genetic`, `moea`, `milp` and `greedy` were listed
+here previously; those modules no longer exist and the names are rejected.
 
 **Host-free mode**: Use `--no-background` to optimize without a background genome.
 
@@ -270,13 +275,18 @@ neoswga optimize -j params.json
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `-j, --json-file` | Configuration file path | None |
-| `--min_fg_freq` | Min frequency in target | 1e-5 |
-| `--max_bg_freq` | Max frequency in off-target | 5e-5 |
-| `--max_gini` | Max Gini index | 0.6 |
-| `--min_tm` | Min melting temperature | 15°C |
-| `--max_tm` | Max melting temperature | 45°C |
-| `--max_dimer_bp` | Max complementary base pairs | 4 |
-| `--cpus` | Number of CPU cores | All |
+| `--min-fg-freq` | Min frequency in target | 1e-5 |
+| `--max-bg-freq` | Max frequency in off-target | 5e-6 |
+| `--max-gini` | Max Gini index | 0.7 |
+| `--min-tm` | Min melting temperature | 15°C |
+| `--max-tm` | Max melting temperature | 45°C |
+| `--max-dimer-bp` | Max complementary base pairs | 3 |
+
+Flags are hyphenated. This table previously spelled them with underscores, gave
+`max_bg_freq` as 5e-5 (it is 5e-6), `max_gini` as 0.6 (it is 0.7) and
+`max_dimer_bp` as 4 (it is 3), and listed a `--cpus` flag that does not exist.
+`cpus` is a params.json key only. Every row as previously written would have
+failed with `unrecognized arguments`.
 
 ---
 
@@ -383,33 +393,6 @@ primers = result.primers               # List of primer sequences
 metrics = result.metrics               # Performance metrics
 ```
 
-### Genetic Algorithm Module
-
-```python
-from neoswga.core import genetic_algorithm as ga
-
-config = ga.GAConfig(
-    population_size=200,
-    generations=100,
-    mutation_rate=0.15,
-    crossover_rate=0.8,
-    elitism_fraction=0.1
-)
-
-best_set = ga.optimize_primer_set_ga(
-    primer_pool=candidate_primers,
-    fg_prefixes=['target_kmers'],
-    bg_prefixes=['offtarget_kmers'],
-    fg_lengths=[4400000],
-    bg_lengths=[3000000000],
-    conditions=conditions,
-    config=config
-)
-
-print(f"Fitness: {best_set.fitness:.4f}")
-print(f"Primers: {best_set.primers}")
-```
-
 ### GPU Acceleration
 
 ```python
@@ -425,23 +408,6 @@ else:
 # GPU operations are automatic when available
 # No API changes required
 ```
-
-### Deep Learning Module
-
-```python
-from neoswga.core import deep_learning as dl
-
-# Check backend
-if dl.DL_AVAILABLE:
-    print(f"Using {dl.DL_BACKEND} backend")
-else:
-    print("Using fallback embeddings")
-
-# Enhanced scoring (when available)
-# Integrated into amplification scoring step
-```
-
----
 
 ## Configuration
 
@@ -653,11 +619,9 @@ which jellyfish
 | Salt correction (Owczarzy) | Complete | Literature-based |
 | Secondary structure | Complete | Algorithm-based, sensitivity estimation pending |
 | Adaptive k-mer search | Complete | Theoretical, comparative testing required |
-| Genetic algorithm | Complete | Functional, performance comparison pending |
 | Network analysis | Complete | Theoretical coverage prediction |
 | Replication simulation | Complete | Physics-based, experimental comparison required |
 | GPU acceleration | Complete | Functional, benchmark data pending |
-| Deep learning | Complete | Functional, validation ongoing |
 
 **Summary**: Core features are implemented based on established biophysical models. Comparative performance claims require experimental validation against original SOAPswga and laboratory results.
 

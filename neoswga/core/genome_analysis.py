@@ -154,10 +154,10 @@ def get_gc_class(gc_content: float) -> str:
         GC class: 'extreme_at', 'at_rich', 'balanced', 'gc_rich', or 'extreme_gc'
 
     Classification:
-        - Extreme AT-rich: <25% GC (e.g., Plasmodium 19%)
-        - AT-rich: 25-40% GC (e.g., Wolbachia 35%, P. falciparum 19%)
+        - Extreme AT-rich: <25% GC
+        - AT-rich: 25-40% GC (e.g., Wolbachia 35%)
         - Balanced: 40-60% GC (e.g., E. coli 50%)
-        - GC-rich: 60-70% GC (e.g., Mycobacterium 66%, Caulobacter 67%)
+        - GC-rich: 60-70% GC (e.g., Caulobacter 67%)
         - Extreme GC-rich: >70% GC (e.g., Streptomyces 72%)
 
     Examples:
@@ -512,11 +512,11 @@ def _calculate_n50(lengths: list) -> int:
 def _gc_class_description(gc_class: str) -> str:
     """Get human-readable description for GC class."""
     descriptions = {
-        "extreme_at": "Extreme AT-rich (like Plasmodium, <25% GC)",
-        "at_rich": "AT-rich (like Wolbachia, P. falciparum, 25-40% GC)",
-        "balanced": "Balanced (like E. coli, 40-60% GC)",
-        "gc_rich": "GC-rich (like Mycobacterium, Caulobacter, 60-70% GC)",
-        "extreme_gc": "Extreme GC-rich (like Streptomyces, >70% GC)",
+        "extreme_at": "Extreme AT-rich (<25% GC)",
+        "at_rich": "AT-rich (25-40% GC)",
+        "balanced": "Balanced (40-60% GC)",
+        "gc_rich": "GC-rich (60-70% GC, e.g. Caulobacter)",
+        "extreme_gc": "Extreme GC-rich (>70% GC, e.g. Streptomyces)",
     }
     return descriptions.get(gc_class, gc_class)
 

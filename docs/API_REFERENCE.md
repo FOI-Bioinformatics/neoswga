@@ -10,7 +10,6 @@ Complete API documentation for the NeoSWGA Python package. This reference covers
    - [reaction_conditions](#reaction_conditions)
    - [position_cache](#position_cache)
    - [filter](#filter)
-   - [genetic_algorithm](#genetic_algorithm)
    - [optimizer_factory](#optimizer_factory)
 3. [Data Structures](#data-structures)
 4. [Configuration](#configuration)
@@ -43,7 +42,6 @@ neoswga count-kmers -j params.json [options]
 | `-y, --fasta-back` | path | - | Background genome FASTA |
 | `--min-k` | int | 6 | Minimum k-mer length |
 | `--max-k` | int | 12 | Maximum k-mer length |
-| `--cpus` | int | 8 | Number of CPUs |
 
 **Output:**
 - `{prefix}_{k}mer_all.txt`: Tab-separated k-mer counts
@@ -83,7 +81,8 @@ neoswga filter -j params.json [options]
 
 #### score
 
-Score primers for amplification efficacy using machine learning.
+Prepare the candidate pool. The bundled random forest was retired from the
+default path on 2026-09-05; pass `--amp-model` to restore it.
 
 ```bash
 neoswga score -j params.json [options]
@@ -93,10 +92,11 @@ neoswga score -j params.json [options]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `-j, --json` | path | required | Parameter JSON file |
-| `--cpus` | int | 8 | Number of CPUs |
 
 **Output:**
-- `step3_df.csv`: Primers with `amp_pred` score column
+- `step3_df.csv`: the candidate pool with the step-2 measurements
+  (`step2_rank`, `ratio`, `gini`, `fg_count`, `bg_count`). An `amp_pred` column
+  appears only with `--amp-model`.
 
 ---
 
@@ -114,36 +114,34 @@ neoswga optimize -j params.json [options]
 | `-j, --json` | path | required | Parameter JSON file |
 | `--optimization-method` | str | hybrid | Optimization algorithm |
 | `--num-primers` | int | 6 | Target set size |
-| `--iterations` | int | 8 | Search iterations |
-| `--max-sets` | int | 5 | Parallel sets to build |
 | `--no-background` | flag | false | Host-free optimization mode (no background genome) |
 | `--use-mechanistic-model` | flag | false | Use mechanistic model for primer weighting |
 | `--mechanistic-weight` | float | 0.3 | Weight for mechanistic model scoring |
 | `--auto-size` | flag | false | Auto-size primer set based on application |
 | `--application` | str | enrichment | Application profile (discovery, clinical, enrichment, metagenomics) |
-| `--validate-with-simulation` | flag | false | Post-hoc simulation validation of results |
+| `--validate-simulation` | flag | false | Post-hoc simulation validation of results |
+
+`cpus`, `iterations`, `max_sets` and `target_set_size` are params.json keys, not
+command-line flags. Earlier revisions of this page listed them as `--cpus`,
+`--iterations` and `--max-sets`; those were never accepted and the command exited
+with `unrecognized arguments`. Set them in the parameter file. `num_primers` has
+both forms: the key and `--num-primers`.
 
 **Optimization Methods:**
 | Method | Speed | Use Case |
 |--------|-------|----------|
-| `hybrid` | Medium | General use (default) |
-| `greedy` | Fast | Simple optimization |
-| `network` | Medium | Tm-weighted selection |
-| `dominating-set` | Fast | Large primer pools, set-cover |
-| `weighted-set-cover` | Fast | Score-weighted set cover |
-| `background-aware` | Slow | Clinical applications |
-| `genetic` | Moderate | Evolutionary multi-criteria |
-| `moea` | Slow | Pareto optimization (requires pymoo) |
-| `milp` | Variable | Exact solutions (requires mip) |
-| `equiphi29` | Medium | EquiPhi29-specific at 42-45C |
-| `tiling` | Fast | Interval-based coverage tiling |
-| `normalized` | Medium | Strategy-preset scoring |
-| `clique` | Moderate | Dimer-free set via max-clique |
-| `multi-agent` | Slow | Parallel multi-optimizer ensemble |
-| `bg-prefilter` | Medium | Background pruning + inner optimizer |
-| `coverage-then-dimerfree` | Medium | Dominating-set then clique cascade |
-| `dimerfree-scored` | Medium | Clique then network scoring cascade |
-| `bg-prefilter-hybrid` | Medium | Background pre-filter then hybrid |
+| `hybrid` | Medium | General use (default). Set cover, then network refinement |
+| `dominating-set` | Fast | Large candidate pools. Graph set cover |
+| `network` | Medium | Tm-weighted, dimer-screened selection |
+| `background-aware` | Slow | Host-aware selection for clinical use |
+| `clique` | Slow | Sets that must contain no dimerising pair |
+| `ensemble` | Slow | Runs several of the above and keeps the best |
+
+Those six are the whole set, and `--optimization-method` accepts nothing else.
+Earlier revisions of this page listed up to eighteen methods, including
+`greedy`, `genetic`, `moea`, `milp`, `tiling`, `normalized`, `multi-agent`,
+`weighted-set-cover`, `equiphi29` and `bg-prefilter`. Those modules were
+removed from `neoswga/core/` and the names are rejected by argparse.
 
 **Output:**
 - `step4_improved_df.csv`: Optimized primer sets
@@ -849,110 +847,6 @@ def get_bg_rates_via_bloom(
 
 ---
 
-### genetic_algorithm
-
-Evolutionary optimization for primer set selection.
-
-```python
-from neoswga.core.genetic_algorithm import PrimerSetGA, GAConfig, Individual
-```
-
-#### Classes
-
-##### GAConfig
-
-Configuration dataclass.
-
-```python
-@dataclass
-class GAConfig:
-    """Configuration for genetic algorithm."""
-    population_size: int = 200
-    generations: int = 100
-    mutation_rate: float = 0.15
-    crossover_rate: float = 0.8
-    elitism_fraction: float = 0.10
-    tournament_size: int = 5
-    min_set_size: int = 4
-    max_set_size: int = 8
-    max_dimer_severity: float = 0.5
-    n_processes: int = None  # None = use all CPUs
-```
-
-##### Individual
-
-Represents a primer set in population.
-
-```python
-@dataclass
-class Individual:
-    """Represents a primer set (individual in population)."""
-    primers: List[str]
-    fitness: float = None
-    metrics: Dict = None
-```
-
-##### PrimerSetGA
-
-Genetic algorithm optimizer.
-
-```python
-class PrimerSetGA:
-    """
-    Genetic Algorithm for primer set optimization.
-
-    Evolutionary operators:
-    - Selection: Tournament selection
-    - Crossover: Uniform crossover with dimer checking
-    - Mutation: Add/remove/replace primers
-    - Elitism: Preserve top performers
-    """
-
-    def __init__(
-        self,
-        primer_pool: List[str],
-        fg_prefixes: List[str],
-        bg_prefixes: List[str],
-        fg_lengths: List[int],
-        bg_lengths: List[int],
-        conditions: rc.ReactionConditions,
-        config: Optional[GAConfig] = None,
-        position_cache=None
-    ):
-        """
-        Initialize genetic algorithm.
-
-        Args:
-            primer_pool: Available primers to choose from
-            fg_prefixes: Foreground HDF5 file prefixes
-            bg_prefixes: Background HDF5 file prefixes
-            fg_lengths: Foreground genome lengths
-            bg_lengths: Background genome lengths
-            conditions: Reaction conditions
-            config: GA configuration
-            position_cache: Optional PositionCache
-        """
-
-    def evolve(self, verbose: bool = True) -> Individual:
-        """
-        Run genetic algorithm evolution.
-
-        Args:
-            verbose: Print progress
-
-        Returns:
-            Best individual found
-
-        Example:
-            ga = PrimerSetGA(primers, fg, bg, fg_lens, bg_lens, conditions)
-            best = ga.evolve()
-            print(f"Best primers: {best.primers}")
-            print(f"Fitness: {best.fitness}")
-        """
-```
-
----
-
 ### optimizer_factory
 
 Factory for creating optimizer instances.
@@ -988,7 +882,7 @@ class OptimizerFactory:
         Create optimizer by name.
 
         Args:
-            name: Optimizer name (e.g., 'greedy', 'network', 'genetic')
+            name: Optimizer name (e.g., 'hybrid', 'network', 'clique')
             cache: Position cache
             fg_prefixes: Foreground file prefixes
             fg_seq_lengths: Foreground genome lengths
@@ -1086,7 +980,7 @@ Adds column:
 
 | Column | Type | Description |
 |--------|------|-------------|
-| amp_pred | float | Amplification prediction score (0-1) |
+| amp_pred | float | Amplification prediction score (0-1). Present only with `--amp-model` |
 
 #### Optimized Sets (`step4_improved_df.csv`)
 
@@ -1129,7 +1023,7 @@ HDF5 file structure:
   "max_k": 12,
   "min_fg_freq": 1e-5,
   "max_bg_freq": 5e-6,
-  "max_gini": 0.6,
+  "max_gini": 0.7,
   "max_primer": 500,
 
   "polymerase": "phi29",

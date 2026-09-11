@@ -381,9 +381,9 @@ if __name__ == "__main__":
     print("GC-Adaptive Strategy - Example Usage\n")
     print("Automatically optimizes parameters for any genome GC content\n")
 
-    # Example 1: GC-rich genome (Plasmodium falciparum, 19% GC)
+    # Example 1: AT-rich genome, 19% GC
     print("\n" + "=" * 80)
-    print("Example 1: AT-rich genome (Plasmodium, 19% GC)")
+    print("Example 1: AT-rich genome (19% GC)")
     print("=" * 80)
     strategy1 = GCAdaptiveStrategy(genome_gc_content=0.19)
     params1 = strategy1.get_parameters()

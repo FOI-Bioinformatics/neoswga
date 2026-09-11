@@ -5,7 +5,7 @@
 NeoSWGA now supports **multi-genome primer selection** with differential penalty weights for:
 
 1. **Target genomes**: Organisms you want to amplify (maximize binding)
-2. **Background genomes**: Host DNA you want to avoid but can tolerate (e.g., human, mouse, tick)
+2. **Background genomes**: Host DNA you want to avoid but can tolerate (e.g. a human, mouse or arthropod host)
 3. **Blacklist genomes**: Organisms you must strongly avoid (e.g., co-existing bacteria, contaminating species)
 
 This enables real-world applications like detecting pathogens in host tissue while avoiding both host DNA and other co-existing organisms.
@@ -30,11 +30,12 @@ This allows you to:
 
 ## Use Cases
 
-### 1. Lyme Disease Detection (Borrelia in tick)
+### 1. A vector-borne target, with a co-occurring organism blacklisted
 
-**Challenge**: Detect Borrelia burgdorferi in tick samples while avoiding:
-- Tick DNA (host - very abundant)
-- Rickettsia (co-existing pathogen - would be false positive)
+**Challenge**: amplify a target carried by an arthropod vector while avoiding:
+- Vector DNA (host, far more abundant than the target)
+- A second organism that occurs in the same vector, which would read as a false
+  positive if its DNA amplified too
 
 **Solution**:
 ```python
@@ -42,122 +43,121 @@ from neoswga.core.multi_genome_pipeline import MultiGenomePipeline, GenomeSet
 
 genome_set = GenomeSet()
 
-# Target: Borrelia (what we want to amplify)
+# Target: what we want to amplify
 genome_set.add_genome(
-    name="Borrelia_burgdorferi",
-    fasta_path="borrelia.fasta",
+    name="target_species",
+    fasta_path="target.fasta",
     role="target"
 )
 
-# Background: Tick DNA (host - tolerate some binding)
+# Background: the vector's own genome. Tolerate some binding; it is
+# unavoidable in a real sample.
 genome_set.add_genome(
-    name="Ixodes_scapularis",
-    fasta_path="tick.fasta",
+    name="vector_host",
+    fasta_path="vector.fasta",
     role="background",
     penalty_weight=1.0  # Standard avoidance
 )
 
-# Blacklist: Rickettsia (avoid completely - false positive risk)
+# Blacklist: the co-occurring organism. Avoid completely.
 genome_set.add_genome(
-    name="Rickettsia_rickettsii",
-    fasta_path="rickettsia.fasta",
+    name="cooccurring_species",
+    fasta_path="cooccurring.fasta",
     role="blacklist",
-    penalty_weight=5.0  # 5x stronger avoidance
+    penalty_weight=10.0  # Strong avoidance
 )
 
-pipeline = MultiGenomePipeline(genome_set, output_dir="borrelia_results")
+pipeline = MultiGenomePipeline(genome_set, output_dir="results")
 result = pipeline.run()
 ```
 
-**Result**: Primers that:
-- Bind frequently to Borrelia (target)
-- Bind less to tick DNA (tolerable background)
-- Rarely/never bind to Rickettsia (blacklisted)
+**Result**: primers that bind frequently to the target, less to the vector, and
+rarely or never to the blacklisted organism.
 
 ---
 
-### 2. Malaria Detection (Plasmodium in blood)
+### 2. Distinguishing one species from its close relatives
 
-**Challenge**: Detect Plasmodium falciparum in human blood while avoiding:
-- Human DNA (host - extremely abundant, 3 Gbp)
-- Other Plasmodium species (would confuse species identification)
+**Challenge**: amplify one species while avoiding:
+- A large host genome (3 Gbp is common, and extremely abundant)
+- Sibling species in the same genus, which would confuse identification
+
+This is the pattern to use whenever the answer has to name a species rather
+than a genus. The blacklist carries the relatives; the background carries the
+host.
 
 **Solution**:
 ```python
 genome_set = GenomeSet()
 
-# Target: P. falciparum
 genome_set.add_genome(
-    name="Plasmodium_falciparum",
-    fasta_path="pf.fasta",
+    name="target_species",
+    fasta_path="target.fasta",
     role="target"
 )
 
-# Background: Human (host - tolerate)
+# Background: the host. A single chromosome is enough while testing.
 genome_set.add_genome(
-    name="Homo_sapiens_chr1",  # Can use subset for testing
-    fasta_path="human_chr1.fasta",
+    name="host_chr1",
+    fasta_path="host_chr1.fasta",
     role="background",
     penalty_weight=1.0
 )
 
-# Blacklist: Other Plasmodium species
-genome_set.add_genome(
-    name="Plasmodium_vivax",
-    fasta_path="pv.fasta",
-    role="blacklist",
-    penalty_weight=10.0  # Very strong avoidance
-)
+# Blacklist: every sibling species the assay must not call.
+for relative in ["relative_a", "relative_b"]:
+    genome_set.add_genome(
+        name=relative,
+        fasta_path=f"{relative}.fasta",
+        role="blacklist",
+        penalty_weight=10.0
+    )
 
-genome_set.add_genome(
-    name="Plasmodium_malariae",
-    fasta_path="pm.fasta",
-    role="blacklist",
-    penalty_weight=10.0
-)
-
-pipeline = MultiGenomePipeline(genome_set, output_dir="malaria_results")
+pipeline = MultiGenomePipeline(genome_set, output_dir="results")
 result = pipeline.run()
 ```
 
-**Result**: Species-specific Plasmodium detection
+**Result**: species-level discrimination rather than genus-level.
 
 ---
 
-### 3. TB Detection (Mycobacterium in sputum)
+### 3. A clinical specimen with near relatives present
 
-**Challenge**: Detect M. tuberculosis in sputum while avoiding:
-- Human DNA (host)
-- Non-tuberculous mycobacteria (NTM - would be false positive)
+**Challenge**: amplify a target from a clinical specimen while avoiding:
+- Host DNA
+- Environmental relatives of the target that are commonly present in the same
+  specimen type and would read as false positives
+
+The difference from case 2 is the weighting: these relatives are a nuisance
+rather than a competing diagnosis, so they take a lower penalty than a sibling
+species would.
 
 **Solution**:
 ```python
 genome_set = GenomeSet()
 
-# Target: M. tuberculosis
 genome_set.add_genome(
-    name="MTB",
-    fasta_path="mtb.fasta",
+    name="target_species",
+    fasta_path="target.fasta",
     role="target"
 )
 
-# Background: Human
 genome_set.add_genome(
-    name="Human",
-    fasta_path="human.fasta",
+    name="host",
+    fasta_path="host.fasta",
     role="background"
 )
 
-# Blacklist: NTMs (multiple species)
-for ntm in ["avium", "abscessus", "kansasii"]:
+# Blacklist: several related species at once.
+for relative in ["relative_a", "relative_b", "relative_c"]:
     genome_set.add_genome(
-        name=f"M_{ntm}",
-        fasta_path=f"m_{ntm}.fasta",
+        name=relative,
+        fasta_path=f"{relative}.fasta",
         role="blacklist",
         penalty_weight=8.0
     )
 
-pipeline = MultiGenomePipeline(genome_set, output_dir="tb_results")
+pipeline = MultiGenomePipeline(genome_set, output_dir="results")
 result = pipeline.run()
 ```
 
@@ -324,9 +324,9 @@ Complete metrics in JSON:
 {
   "primers": ["ATGCATGC", "GCTAGCTA", ...],
   "primer_count": 12,
-  "target_genome_names": ["Borrelia_burgdorferi"],
-  "background_genome_names": ["Ixodes_scapularis"],
-  "blacklist_genome_names": ["Rickettsia_rickettsii"],
+  "target_genome_names": ["target_species"],
+  "background_genome_names": ["vector_host"],
+  "blacklist_genome_names": ["cooccurring_species"],
   "mean_enrichment": 45.2,
   "min_enrichment": 12.3,
   "mean_target_frequency": 2.3e-05,
@@ -345,9 +345,9 @@ MULTI-GENOME SWGA EXPERIMENTAL PROTOCOL
 ================================================================================
 
 GENOME CONFIGURATION
-  Target genome(s): Borrelia_burgdorferi
-  Background genome(s): Ixodes_scapularis
-  Blacklist genome(s): Rickettsia_rickettsii
+  Target genome(s): target_species
+  Background genome(s): vector_host
+  Blacklist genome(s): cooccurring_species
 
 PRIMER SEQUENCES (12 primers)
   1. ATGCATGC
@@ -373,9 +373,9 @@ Quick summary:
 ```
 Multi-Genome SWGA Summary
 
-Targets: Borrelia_burgdorferi
-Backgrounds: Ixodes_scapularis
-Blacklists: Rickettsia_rickettsii
+Targets: target_species
+Backgrounds: vector_host
+Blacklists: cooccurring_species
 
 Primers: 12
 Polymerase: phi29
@@ -455,7 +455,7 @@ result = pipeline.run()
 
 **Result**: Primers that bind to ALL target genomes while avoiding background.
 
-**Use case**: Pan-pathogen detection (detect any Salmonella species, any Plasmodium, etc.)
+**Use case**: detection at genus rather than species level (any member of a genus)
 
 ---
 
@@ -552,9 +552,9 @@ if result.min_enrichment < 10.0:
 Look at the protocol to see binding in each genome:
 ```
 Primer 1: ATGCATGC
-  Borrelia:  2.3e-05  ← Good target binding
-  Tick:      5.1e-07  ← Low background
-  Rickettsia: 1.2e-08 ← Minimal blacklist
+  target_species:      2.3e-05  <- Good target binding
+  vector_host:         5.1e-07  <- Low background
+  cooccurring_species: 1.2e-08  <- Minimal blacklist
 ```
 
 ---

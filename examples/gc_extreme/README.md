@@ -1,8 +1,8 @@
 # Extreme GC scenario
 
-Template for genomes with strongly skewed GC content (e.g. *Plasmodium
-falciparum* ~20% GC, *Mycobacterium tuberculosis* ~65% GC, *Caulobacter*
-~67% GC, *Streptomyces* ~72% GC).
+Template for genomes with strongly skewed GC content, from about 20% GC at the
+AT-rich end to about 72% at the GC-rich end (*Caulobacter* ~67% GC,
+*Streptomyces* ~72% GC).
 
 ## Why this scenario exists
 

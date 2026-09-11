@@ -64,8 +64,8 @@ Template: `examples/multi_genome_blacklist/params.json`
 
 ## Scenario 4: Extreme-GC genomes
 
-Targets outside the 35-65% GC range (*Plasmodium* ~20%, *Mycobacterium*
-~65%, *Caulobacter* ~67%). The adaptive GC filter engages automatically
+Targets outside the 35-65% GC range, which in practice runs from about 20%
+to about 72% GC (*Caulobacter* ~67%, *Streptomyces* ~72%). The adaptive GC filter engages automatically
 when `genome_gc` is outside that band and narrows the primer GC window to
 `genome_gc +/- gc_tolerance`. Additives help further:
 - Betaine equalises AT/GC kinetics
@@ -153,19 +153,13 @@ DMSO / betaine / etc.) at two points:
    - `network`
    - `hybrid` (default; the inner network stage)
    - `background-aware` (three-stage; its final network stage)
-   - `genetic`
-   - `equiphi29` (delegates to hybrid)
 
    The remaining registered optimizers pick from the filter-screened pool
    by their own set-cover / coverage objective without re-applying
    conditions:
 
-   - `greedy`
    - `dominating-set`
-   - `weighted-set-cover`
-   - `tiling`
    - `clique`
-   - `milp`
 
    This is by design. Pure coverage optimisers trust that the filter step
    already respected the user's reaction buffer, and keep their

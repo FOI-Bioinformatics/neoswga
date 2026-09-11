@@ -801,7 +801,7 @@ class AdditiveConcentrations:
         """
         Extreme GC genome conditions (>70% or <30% GC).
 
-        Use for: Mycobacterium, Streptomyces, or AT-rich Plasmodium.
+        Use for: any genome above 70% or below 30% GC.
         Enables: Full GC-normalization with TMAC.
 
         Based on: Melchior & von Hippel (1973) - TMAC isostabilization

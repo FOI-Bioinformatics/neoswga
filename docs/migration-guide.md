@@ -88,7 +88,7 @@ score = scorer.score_primer("ATGCATGCATGC")
 ### Upgrade If:
 
 ✓ You work with **AT-rich genomes** (< 40% GC)
-  - Wolbachia, Plasmodium, Borrelia, etc.
+  - Wolbachia and other genomes down to about 20% GC
   - Benefit: +75-200% primer coverage
 
 ✓ You work with **GC-rich genomes** (> 60% GC)

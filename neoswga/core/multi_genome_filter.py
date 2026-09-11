@@ -15,9 +15,12 @@ This allows primers that occasionally bind to host DNA (acceptable) while
 completely avoiding primers that bind to blacklisted organisms (unacceptable).
 
 Example use cases:
-- Detect Borrelia (Lyme) in tick, avoid amplifying tick DNA and Rickettsia
-- Detect Plasmodium in human blood, avoid human DNA and other Plasmodium species
-- Detect Mycobacterium in sputum, avoid human DNA and other mycobacteria
+- A target in an arthropod vector: tolerate vector DNA, blacklist a
+  co-occurring organism that would read as a false positive
+- A target in blood: tolerate the host genome, blacklist sibling species so the
+  call is species-level rather than genus-level
+- A target in a clinical specimen: tolerate the host genome, blacklist the
+  environmental relatives commonly found in that specimen type
 
 Author: NeoSWGA Development Team
 Date: November 2025
@@ -78,7 +81,7 @@ class GenomeEntry:
     Single genome in a multi-genome SWGA experiment.
 
     Attributes:
-        name: Descriptive name (e.g., "Human", "Borrelia_burgdorferi")
+        name: Descriptive name (e.g., "host_genome", "target_species")
         fasta_path: Path to genome FASTA file
         role: TARGET, BACKGROUND, or BLACKLIST
         penalty_weight: Multiplier for off-target binding penalty
@@ -620,29 +623,27 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     print("Multi-Genome Filter - Example Usage\n")
-    print("Demonstrates filtering primers for Borrelia detection in tick")
-    print("while avoiding tick DNA and other tick-borne bacteria\n")
+    print("Demonstrates filtering primers for a target in an arthropod vector")
+    print("while avoiding vector DNA and a co-occurring organism\n")
 
     # Create genome set
     genome_set = GenomeSet()
 
-    # Add target: Borrelia burgdorferi (Lyme disease)
-    genome_set.add_genome(
-        name="Borrelia_burgdorferi", fasta_path="/path/to/borrelia.fasta", role="target"
-    )
+    # Add target: what we want to amplify
+    genome_set.add_genome(name="target_species", fasta_path="/path/to/target.fasta", role="target")
 
-    # Add background: Ixodes tick (host)
+    # Add background: the vector's own genome (host)
     genome_set.add_genome(
-        name="Ixodes_scapularis",
-        fasta_path="/path/to/tick.fasta",
+        name="vector_host",
+        fasta_path="/path/to/vector.fasta",
         role="background",
         penalty_weight=1.0,  # Standard avoidance
     )
 
-    # Add blacklist: Rickettsia (co-existing pathogen)
+    # Add blacklist: a co-occurring organism, a false-positive risk
     genome_set.add_genome(
-        name="Rickettsia_rickettsii",
-        fasta_path="/path/to/rickettsia.fasta",
+        name="cooccurring_species",
+        fasta_path="/path/to/cooccurring.fasta",
         role="blacklist",
         penalty_weight=5.0,  # Strong avoidance
     )
@@ -652,10 +653,10 @@ if __name__ == "__main__":
     # Create filter
     mfilter = MultiGenomeFilter(
         genome_set=genome_set,
-        min_target_freq=1e-5,  # Must bind Borrelia
-        max_background_freq=1e-4,  # Tolerate some tick binding
-        max_blacklist_freq=1e-6,  # Minimal Rickettsia binding
-        min_enrichment=10.0,  # 10x more Borrelia than tick
+        min_target_freq=1e-5,  # Must bind the target
+        max_background_freq=1e-4,  # Tolerate some vector binding
+        max_blacklist_freq=1e-6,  # Minimal binding to the blacklisted genome
+        min_enrichment=10.0,  # 10x more target than vector
     )
 
     print("\nFilter configured successfully")

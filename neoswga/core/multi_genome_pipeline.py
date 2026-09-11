@@ -14,9 +14,12 @@ Key features:
 4. Per-genome binding reports
 
 Example use cases:
-- Borrelia in tick: avoid tick DNA (background) and Rickettsia (blacklist)
-- Plasmodium in blood: avoid human DNA (background) and other Plasmodium (blacklist)
-- MTB in sputum: avoid human DNA (background) and other mycobacteria (blacklist)
+- A target in an arthropod vector: vector DNA as background, a co-occurring
+  organism as blacklist
+- A target in blood: the host genome as background, sibling species as
+  blacklist so the call is species-level
+- A target in a clinical specimen: the host genome as background, the
+  environmental relatives of the target as blacklist
 
 Author: NeoSWGA Development Team
 Date: November 2025
@@ -738,7 +741,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 80)
     print("Multi-Genome SWGA Pipeline - Example")
     print("=" * 80)
-    print("\nDetect Borrelia in tick while avoiding tick DNA and Rickettsia\n")
+    print("\nA target in an arthropod vector, avoiding vector DNA and a relative\n")
 
     # Genomes are not committed; scripts/fetch_reference_genomes.py writes them
     # here. Override with NEOSWGA_GENOME_DIR.
@@ -755,32 +758,36 @@ if __name__ == "__main__":
     # Create genome set
     genome_set = GenomeSet()
 
-    # Target: Borrelia burgdorferi
+    # NOTE: these three FASTA files are placeholders. scripts/fetch_reference_genomes.py
+    # does not download them, so this block illustrates the API rather than running
+    # as written. Point genome_dir at your own genomes to execute it.
+
+    # Target: what we want to amplify
     genome_set.add_genome(
-        name="Borrelia_burgdorferi",
-        fasta_path=str(genome_dir / "borrelia.fasta"),
+        name="target_species",
+        fasta_path=str(genome_dir / "target.fasta"),
         role="target",
     )
 
-    # Background: Ixodes tick (host)
+    # Background: the vector's own genome (host)
     genome_set.add_genome(
-        name="Ixodes_scapularis",
-        fasta_path=str(genome_dir / "tick.fasta"),
+        name="vector_host",
+        fasta_path=str(genome_dir / "vector.fasta"),
         role="background",
         penalty_weight=1.0,
     )
 
-    # Blacklist: Rickettsia (avoid completely)
+    # Blacklist: a co-occurring organism, avoid completely
     genome_set.add_genome(
-        name="Rickettsia",
-        fasta_path=str(genome_dir / "rickettsia.fasta"),
+        name="cooccurring_species",
+        fasta_path=str(genome_dir / "cooccurring.fasta"),
         role="blacklist",
         penalty_weight=5.0,
     )
 
     # Run pipeline
     pipeline = MultiGenomePipeline(
-        genome_set=genome_set, output_dir="borrelia_results", primer_count=12
+        genome_set=genome_set, output_dir="multi_genome_results", primer_count=12
     )
 
     result = pipeline.run()

@@ -651,9 +651,12 @@ Recorded so they are not re-investigated:
 
 ## Regression pass over the March 2026 audits
 
-Every checkable finding in `STEP1`-`STEP4_AUDIT_REPORT.md`,
-`AUDIT_REPORT_v3.0.md` and `OPTIMIZER_UX_AUDIT.md` was verified against HEAD.
-Those documents now carry a supersession header pointing here.
+Every checkable finding in the March 2026 audits was verified against HEAD.
+Those documents -- the four per-step reports, `AUDIT_REPORT_v3.0.md` and
+`OPTIMIZER_UX_AUDIT.md` -- were removed on 2026-09-11, along with two validation
+reports and two production-readiness assessments from the same period. Nothing
+linked to them, six carried their own supersession banner, and this section is
+the record of what they contained. They remain in git history.
 
 **The March audits have largely been acted on.** Fixed since: the dead
 `filter_extra()`, the sort that kept the worst primers, the `min_tm/max_tm`

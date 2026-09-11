@@ -23,7 +23,7 @@ After running the four pipeline steps (`count-kmers`, `filter`, `score`, `optimi
 | File | Description | Key Columns |
 |------|-------------|-------------|
 | `step4_improved_df.csv` | Final optimized primer set(s) | seq, set_score, fg_freq, bg_freq, Tm |
-| `step3_df.csv` | Scored candidates (before optimization) | seq, amp_pred, Tm, gini, fg_freq |
+| `step3_df.csv` | The candidate pool (before optimization) | primer, step2_rank, ratio, gini, fg_count, bg_count |
 | `step2_df.csv` | Filtered candidates | seq, fg_freq, bg_freq, gini, Tm |
 | `step1_*_Xmer_all.txt` | K-mer counts (X = primer length) | primer, count |
 | `params.json` | Parameters used for the run | All pipeline settings |
@@ -73,7 +73,7 @@ neoswga report -d ./results/ --level full
 **Poor coverage (<70%):**
 ```bash
 # Increase primer set size
-neoswga optimize -j params.json --target-set-size 10
+neoswga optimize -j params.json --num-primers 10
 
 # Try background-aware optimizer for better specificity
 neoswga optimize -j params.json --optimization-method background-aware

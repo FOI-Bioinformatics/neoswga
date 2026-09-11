@@ -1300,8 +1300,8 @@ def get_extreme_gc_conditions() -> ReactionConditions:
     Uses TMAC to equalize AT/GC Tm, combined with urea for denaturation.
 
     Use for:
-        - Very high GC genomes (>70%): Mycobacterium, Streptomyces
-        - Very low GC genomes (<30%): Some Firmicutes, Plasmodium
+        - Very high GC genomes (>70%), e.g. Streptomyces
+        - Very low GC genomes (<30%), including some Firmicutes
 
     Reference: Melchior & von Hippel (1973) PNAS 70:298-302
     """

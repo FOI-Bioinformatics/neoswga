@@ -90,7 +90,7 @@ neoswga/
         utility.py
         parameter.py
         models/
-            random_forest_filter.p
+            random_forest_filter.skops
 ```
 
 ### Key Design Patterns
@@ -676,7 +676,7 @@ After sklearn updates:
 ```bash
 python scripts/retrain_rf_model.py \
     --training-data data/training_set.csv \
-    --output neoswga/core/models/random_forest_filter.p
+    --output neoswga/core/models/random_forest_filter.skops
 ```
 
 ### Generate K-mer Files for Testing

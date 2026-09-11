@@ -489,7 +489,8 @@ Three-stage clinical optimization.
 2. Minimize background binding
 3. Avoid primer dimers
 
-**Result:** 10-20x background reduction compared to standard methods.
+**Result:** host sites in the delivered panel fall 7-35% against `hybrid` at n=24 and n=36, measured against hg38 on the three GC-tier designs, for 0.1-3.1 points of coverage. An earlier claim of 10-20x was never reproduced;
+two audits found the method returning a set indistinguishable from `hybrid`.
 
 ### milp_optimizer.py
 

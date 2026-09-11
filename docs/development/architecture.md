@@ -562,7 +562,7 @@ make type-check
 
 ## License
 
-MIT License - See LICENSE file for details
+AGPL-3.0-or-later - See the LICENSE file for details
 
 ---
 

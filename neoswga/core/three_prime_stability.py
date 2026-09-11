@@ -536,7 +536,7 @@ def calculate_gc_deviation(genome_gc: float) -> float:
         Range: -0.35 to +0.35 for genomes spanning 15-85% GC
 
     Examples:
-        >>> calculate_gc_deviation(0.19)  # Plasmodium
+        >>> calculate_gc_deviation(0.19)  # an AT-rich genome
         -0.31
         >>> calculate_gc_deviation(0.35)  # Wolbachia
         -0.18
@@ -591,7 +591,7 @@ def calculate_adaptive_terminal_tm(
 
     # Scale factor: 20°C per 0.35 GC deviation
     # This means:
-    #   Plasmodium (19% GC, dev=-0.31) → -17.7°C adjustment
+    #   19% GC, dev=-0.31 → -17.7°C adjustment
     #   Wolbachia (35% GC, dev=-0.15) → -10.3°C adjustment
     #   Caulobacter (67% GC, dev=+0.17) → +9.7°C adjustment
     #   Streptomyces (72% GC, dev=+0.22) → +12.6°C adjustment

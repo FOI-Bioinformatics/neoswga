@@ -1,6 +1,6 @@
 # NeoSWGA: Selective Whole Genome Amplification Primer Design
 
-NeoSWGA is a command-line tool for designing primer sets for selective whole-genome amplification (SWGA). It identifies primers that amplify a target genome while minimizing amplification of background genomes. The tool combines machine learning, network-based optimization, and thermodynamic modeling.
+NeoSWGA is a command-line tool for designing primer sets for selective whole-genome amplification (SWGA). It identifies primers that amplify a target genome while minimizing amplification of background genomes, combining graph and network optimization with thermodynamic modelling. A pre-trained random forest ships with the tool but was retired from the default path on 2026-09-05; `--amp-model` restores it.
 
 **Primary use case**: Designing primers for Phi29/EquiPhi29 polymerase-based whole genome amplification, commonly used for pathogen detection from mixed samples.
 

@@ -25,7 +25,7 @@ supported polymerase; the new 10 mM default follows vendor guidance.
 ### 2. Adaptive GC filter auto-engages
 
 When `genome_gc` is set (or auto-computed) and sits outside `[0.35, 0.65]`
-(i.e. extreme-GC genomes like *Plasmodium* or *Mycobacterium*), the
+(i.e. genomes below about 35% or above about 65% GC), the
 pipeline now switches to `gc_min = genome_gc - gc_tolerance` and
 `gc_max = genome_gc + gc_tolerance` automatically. A single INFO log
 line announces this.

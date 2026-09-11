@@ -42,7 +42,7 @@ Adaptive QA automatically adjusts three critical thresholds:
 ### Use Adaptive QA When:
 
 - Your genome is **AT-rich** (< 40% GC)
-  - Examples: Wolbachia, Plasmodium, Borrelia
+  - Examples: Wolbachia and other genomes down to about 20% GC
   - Benefit: +75-200% primer coverage
 
 - Your genome is **GC-rich** (> 60% GC)
@@ -126,7 +126,7 @@ from neoswga.core.genome_analysis import analyze_genome_for_qa
 from neoswga.core.integrated_quality_scorer import create_quality_scorer
 
 # Step 1: Analyze genome
-analysis = analyze_genome_for_qa('plasmodium.fna')
+analysis = analyze_genome_for_qa('target.fna')
 
 print(f"Genome GC: {analysis['gc_content']:.1%}")
 print(f"GC class: {analysis['adaptive_qa_recommendation']['gc_class']}")

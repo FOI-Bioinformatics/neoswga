@@ -20,7 +20,7 @@ training_data.csv
        v
 enhanced_rf_model.pkl  ->  drop into neoswga/core/models/
        |
-       v   neoswga score -j params.json --use-enhanced-model
+       v   neoswga score -j params.json --use-enhanced-features
 ```
 
 ## Step 1: collect lab measurements
@@ -100,7 +100,7 @@ the model in production.
 
 ```bash
 cp enhanced_rf_model.pkl neoswga/core/models/
-neoswga score -j params.json --use-enhanced-model
+neoswga score -j params.json --use-enhanced-features
 ```
 
 `--use-enhanced-model` switches the score step to the trained model. The

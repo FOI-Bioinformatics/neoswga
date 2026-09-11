@@ -443,10 +443,9 @@ def resolve_gc_clamp() -> Tuple[int, int]:
 def _fails_gc_clamp(primer: str) -> bool:
     """Whether the 3'-end GC clamp rejects this primer.
 
-    Carries the genome-GC adaptation with it: an AT-rich target (Plasmodium
-    ~25% GC) cannot supply a G/C in every primer's 3' end, and a GC-rich one
-    (Mycobacterium ~65%) cannot avoid it, so a fixed band would reject nearly
-    everything for both.
+    Carries the genome-GC adaptation with it: an AT-rich target (~25% GC)
+    cannot supply a G/C in every primer's 3' end, and a GC-rich one (~65%)
+    cannot avoid it, so a fixed band would reject nearly everything for both.
     """
     window, configured_max = resolve_gc_clamp()
     observed = _count_gc(primer[-window:])

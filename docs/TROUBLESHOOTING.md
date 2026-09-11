@@ -93,7 +93,7 @@ ValueError: node array from the pickle has an incompatible dtype
 ```
 
 **Cause:** The pre-trained random forest model in
-`neoswga/core/models/random_forest_filter.p` was serialized with a specific
+`neoswga/core/models/random_forest_filter.skops` was serialized with a specific
 scikit-learn version. Major version changes can break deserialization.
 
 **Solution:**
@@ -101,7 +101,7 @@ scikit-learn version. Major version changes can break deserialization.
 1. Ensure scikit-learn is installed within the supported range: `pip install 'scikit-learn>=1.0,<2'`
 2. If the model still fails to load, retrain it:
    ```bash
-   python scripts/retrain_rf_model.py --output neoswga/core/models/random_forest_filter.p
+   python scripts/retrain_rf_model.py --output neoswga/core/models/random_forest_filter.skops
    ```
 3. If the retrain script is not available, reinstall NeoSWGA from source:
    ```bash
@@ -114,12 +114,6 @@ scikit-learn version. Major version changes can break deserialization.
 
 ```
 WARNING: pybloom_live not installed. Install with: pip install pybloom-live
-```
-
-**Symptom (MILP optimizer):**
-
-```
-ImportError: python-mip required. Install: pip install mip
 ```
 
 **Symptom (interactive charts):**
@@ -138,7 +132,7 @@ by default.
 Install the optional groups you need:
 
 ```bash
-# Bloom filter for large backgrounds + MILP optimizer
+# Bloom filter for large backgrounds
 pip install -e ".[improved]"
 
 # Interactive Plotly charts in reports
@@ -368,28 +362,6 @@ size can also force repeated resizing, which slows execution.
 
 ## Optimization Issues
 
-### MILP optimizer not available
-
-**Symptom:**
-
-```
-ImportError: MILP optimizer requires python-mip package. Install: pip install mip
-```
-
-**Cause:** The `mip` package is an optional dependency not included in the
-base installation.
-
-**Solution:**
-
-```bash
-pip install mip
-# Or install the improved extras group:
-pip install -e ".[improved]"
-```
-
-If you do not need exact solutions, use the default `hybrid` optimizer or the
-faster `dominating-set` method instead.
-
 ### Optimizer returns fewer primers than requested
 
 **Symptom:** The optimized set contains fewer primers than the
@@ -413,7 +385,7 @@ constraints (coverage, dimer avoidance).
 
 **Symptom:** Running the same pipeline twice produces different primer sets.
 
-**Cause:** Several optimizers (genetic, hybrid, moea) use stochastic search.
+**Cause:** `hybrid`, `network` and `background-aware` use stochastic search.
 Without a fixed random seed, results vary between runs.
 
 **Solution:**
@@ -424,16 +396,16 @@ Set the `--seed` flag during optimization:
 neoswga optimize -j params.json --seed 42
 ```
 
-Deterministic optimizers (`greedy`, `dominating-set`, `milp`) produce
-reproducible results without a seed.
+`dominating-set` is deterministic and produces reproducible results without a
+seed.
 
 ### Optimization takes too long
 
 **Symptom:** The optimize step runs for hours without completing.
 
 **Cause:** Optimization time depends on the number of candidates, the requested
-set size, and the optimization method. Methods such as `background-aware` and
-`moea` are computationally expensive.
+set size, and the optimization method. `background-aware` and `clique` are the
+expensive ones.
 
 **Solution:**
 
@@ -467,7 +439,7 @@ or primers with uneven binding distributions.
 
 1. Increase the primer set size:
    ```bash
-   neoswga optimize -j params.json --target-set-size 12
+   neoswga optimize -j params.json --num-primers 12
    ```
 2. Use `--auto-size` to let NeoSWGA recommend a set size for your application:
    ```bash

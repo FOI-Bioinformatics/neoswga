@@ -1589,7 +1589,7 @@ def add_parsers(subparsers):
         "Decision tree: "
         "hybrid (default, general use), "
         "dominating-set (speed-critical, large pools), "
-        "background-aware (clinical, 10-20x bg reduction), "
+        "background-aware (clinical, host-aware), "
         "network (Tm-weighted, dimer-aware), "
         "ensemble (run several and keep the best by "
         "normalized score). "
