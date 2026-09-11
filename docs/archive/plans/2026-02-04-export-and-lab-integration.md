@@ -1391,7 +1391,7 @@ neoswga export -d ./data/ -o ./order/
 
 ---
 
-*See also: [SWGA Science](../SWGA_SCIENCE.md) for thermodynamics and additive details*
+*See also: [SWGA Science](../../SWGA_SCIENCE.md) for thermodynamics and additive details*
 ```
 
 **Step 2: Commit documentation**
@@ -1414,7 +1414,7 @@ git commit -m "docs: add complete lab workflow guide (results to oligos)"
 Add to the User Guides table:
 
 ```markdown
-| [From Results to Lab](../FROM_RESULTS_TO_LAB.md) | Export, ordering, and lab setup |
+| [From Results to Lab](../../guides/FROM_RESULTS_TO_LAB.md) | Export, ordering, and lab setup |
 ```
 
 **Step 2: Update main README.md**
@@ -1422,7 +1422,7 @@ Add to the User Guides table:
 Add to Documentation section:
 
 ```markdown
-- **[From Results to Lab](../FROM_RESULTS_TO_LAB.md)**: Export primers and lab workflow
+- **[From Results to Lab](../../guides/FROM_RESULTS_TO_LAB.md)**: Export primers and lab workflow
 ```
 
 **Step 3: Commit**

@@ -5,7 +5,7 @@
 These drive the **CLI**, because that is what users run: a library-level harness
 misses the dispatch, the position-cache build and the metric computation that
 dominate a real invocation. See
-[docs/AUDIT_2026-08_alternatives_and_scaling.md](../../docs/AUDIT_2026-08_alternatives_and_scaling.md)
+[docs/reports/AUDIT_2026-08_alternatives_and_scaling.md](../../docs/reports/AUDIT_2026-08_alternatives_and_scaling.md)
 for the results they produced.
 
 ### `sweep_optimize.py` — how optimize scales in set size

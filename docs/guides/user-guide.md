@@ -117,9 +117,12 @@ Reaction conditions affect primer binding and extension:
 - **EquiPhi29**: Optimal 42-45°C, thermostable variant
 
 **Additives**:
-- **DMSO**: Reduces Tm (~0.6°C per %)
-- **Betaine**: Equalizes AT/GC stability (~2.3°C per M)
-- **Trehalose**: Enzyme stabilization (~5°C per M)
+- **DMSO**: Reduces Tm (~0.55°C per %)
+- **Betaine**: Equalizes AT/GC stability (~1.2°C per M uniform component; full
+  GC equalization at 5.2 M)
+- **Trehalose**: Enzyme stabilization (~3.0°C per M)
+
+Canonical values with citations: [Science Citations](../SCIENCE_CITATIONS.md#additive-tm-corrections-at-37-c-reference).
 
 **Example**:
 ```python
@@ -629,9 +632,9 @@ which jellyfish
 
 ## Getting Help
 
-- Review this guide and the [main README](../README.md)
-- Check [migration-guide.md](migration-guide.md) for API changes from SOAPswga
-- See [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) for implementation details
+- Review this guide and the [main README](../../README.md)
+- Check [migration-guide.md](../migrations/migration-guide.md) for API changes from SOAPswga
+- See [DEVELOPER_GUIDE.md](../development/DEVELOPER_GUIDE.md) for implementation details
 - Report issues via GitHub issue tracker
 
 ---

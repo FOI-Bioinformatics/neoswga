@@ -2,6 +2,22 @@
 
 Complete reference for all modules in the NeoSWGA core package.
 
+> **Accuracy warning (2026-09-11):** this document had not been re-checked
+> against `neoswga/core/` since before the alternatives-and-scaling audit. A
+> survey against the current tree found 12 documented modules
+> (`genetic_algorithm.py`, `milp_optimizer.py`, `moea_optimizer.py`,
+> `normalized_optimizer.py`, `tiling_optimizer.py`,
+> `serial_cascade_optimizer.py`, `multi_agent_optimizer.py`,
+> `auto_swga_pipeline.py`, `kmer.py`, `greedy_optimizer.py`,
+> `equiphi29_optimizer.py`, `background_prefilter.py`) that did not exist in
+> the codebase; those sections have now been removed. What's still
+> outstanding: 27 of the 92 real modules in `neoswga/core/` (excluding
+> `__init__.py`) have no section here at all -- writing those up is real work,
+> not yet done. Cross-check against `ls neoswga/core/` and the module
+> docstrings before relying on a specific entry; see CLAUDE.md's "Core
+> Modules" section for the modules that actually route through
+> `unified_optimizer.py` today.
+
 ## Table of Contents
 
 1. [Pipeline Modules](#pipeline-modules)
@@ -41,21 +57,6 @@ Performance-optimized pipeline with modern features.
 - Adaptive GC filtering
 - Bloom filter support
 - Network-based optimization
-
-### auto_swga_pipeline.py
-
-Automatic parameter optimization pipeline.
-
-**Functions:**
-```python
-def run_auto_pipeline(
-    fg_genome: str,
-    bg_genome: str,
-    output_dir: str,
-    **kwargs
-) -> dict:
-    """Run pipeline with automatic parameter tuning."""
-```
 
 ### multi_genome_pipeline.py
 
@@ -127,33 +128,6 @@ def get_adaptive_gc_bounds(
     Returns:
         (min_gc, max_gc) bounds for primer filtering
     """
-```
-
-### kmer.py
-
-K-mer counting via Jellyfish subprocess.
-
-**Functions:**
-```python
-def count_kmers(
-    genome_path: str,
-    k: int,
-    output_prefix: str,
-    threads: int = 8
-) -> str:
-    """
-    Count k-mers using Jellyfish.
-
-    Returns:
-        Path to output k-mer file
-    """
-
-def generate_position_file(
-    genome_path: str,
-    kmer_file: str,
-    output_h5: str
-) -> None:
-    """Generate HDF5 file with k-mer binding positions."""
 ```
 
 ### kmer_counter.py
@@ -396,16 +370,6 @@ class OptimizerRegistry:
         """Decorator to register optimizer class."""
 ```
 
-### greedy_optimizer.py
-
-Breadth-first search optimization.
-
-**Algorithm:**
-1. Start with highest-scoring primer
-2. Iteratively add primer that maximizes coverage gain
-3. Check dimer compatibility at each step
-4. Stop at target size
-
 ### network_optimizer.py
 
 Network-based optimization with Tm weighting.
@@ -430,36 +394,6 @@ class AmplificationNetwork:
     def score_connectivity(self) -> float:
         """Score network connectivity for amplification."""
 ```
-
-### genetic_algorithm.py
-
-Evolutionary optimization.
-
-**Classes:**
-```python
-@dataclass
-class GAConfig:
-    population_size: int = 200
-    generations: int = 100
-    mutation_rate: float = 0.15
-    crossover_rate: float = 0.8
-    elitism_fraction: float = 0.10
-    tournament_size: int = 5
-    min_set_size: int = 4
-    max_set_size: int = 8
-
-class PrimerSetGA:
-    """Genetic algorithm for primer set selection."""
-
-    def evolve(self, verbose: bool = True) -> Individual:
-        """Run evolution and return best individual."""
-```
-
-**Operators:**
-- Selection: Tournament (k=5)
-- Crossover: Uniform with dimer checking
-- Mutation: Add/remove/replace
-- Elitism: Preserve top 10%
 
 ### hybrid_optimizer.py
 
@@ -492,52 +426,6 @@ Three-stage clinical optimization.
 **Result:** host sites in the delivered panel fall 7-35% against `hybrid` at n=24 and n=36, measured against hg38 on the three GC-tier designs, for 0.1-3.1 points of coverage. An earlier claim of 10-20x was never reproduced;
 two audits found the method returning a set indistinguishable from `hybrid`.
 
-### milp_optimizer.py
-
-Mixed-integer linear programming (exact solutions).
-
-**Requirements:** `mip` package
-
-**Formulation:**
-- Binary variables: x_i (primer i selected)
-- Objective: minimize sum(x_i) subject to coverage constraint
-- Constraints: coverage >= threshold, dimers avoided
-
-### moea_optimizer.py
-
-Multi-objective evolutionary algorithm.
-
-**Objectives:**
-1. Maximize coverage
-2. Maximize specificity
-3. Minimize primer count
-
-**Output:** Pareto frontier of non-dominated solutions
-
-### equiphi29_optimizer.py
-
-EquiPhi29-specific optimization at 42-45C.
-
-**Features:**
-- Longer primer support (12-18 bp)
-- Enhanced thermodynamic modeling
-- Higher temperature constraints
-
-### normalized_optimizer.py
-
-Normalized scoring with strategy presets.
-
-**Purpose:** Provides a normalized [0,1] composite score for comparing results across optimizers. Includes strategy presets (discovery, clinical, enrichment, metagenomics) that adjust scoring weights.
-
-### tiling_optimizer.py
-
-Interval-based tiling coverage optimization.
-
-**Algorithm:**
-1. Model primer binding as genomic intervals
-2. Select primers to tile the genome with minimal gaps
-3. Merge overlapping intervals to compute uncovered regions
-
 ### clique_optimizer.py
 
 Clique-based dimer-free primer set selection.
@@ -559,34 +447,6 @@ Post-optimization dimer validation.
 class DimerValidator:
     """Validate primer sets for dimer interactions and suggest replacements."""
 ```
-
-### background_prefilter.py
-
-Background-aware candidate pruning optimizer.
-
-**Purpose:** Wraps another optimizer, first pruning candidates with poor foreground/background ratios before delegating to the inner optimizer.
-
-### serial_cascade_optimizer.py
-
-Serial pipeline combinations of optimizers.
-
-**Classes:**
-```python
-class CoverageThenDimerFreeOptimizer(SerialCascadeOptimizer):
-    """Dominating-set coverage followed by clique dimer removal."""
-
-class DimerFreeScoredOptimizer(SerialCascadeOptimizer):
-    """Clique dimer-free selection followed by network scoring."""
-
-class BgPrefilterHybridOptimizer(SerialCascadeOptimizer):
-    """Background pre-filter followed by hybrid optimization."""
-```
-
-### multi_agent_optimizer.py
-
-Multi-agent parallel optimizer execution.
-
-**Purpose:** Runs multiple optimizer strategies concurrently and aggregates results using configurable strategies (best, union, voting, pareto).
 
 ### dominating_set_adapter.py
 
@@ -1322,4 +1182,4 @@ Interactive menu for feature discovery.
 
 - [API Reference](API_REFERENCE.md) - Public API documentation
 - [Architecture Diagrams](ARCHITECTURE_DIAGRAMS.md) - Visual architecture
-- [User Guide](user-guide.md) - Usage tutorials
+- [User Guide](../guides/user-guide.md) - Usage tutorials

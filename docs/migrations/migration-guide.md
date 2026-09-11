@@ -448,7 +448,7 @@ INFO - Genome-adaptive QA enabled: genome_gc=68.2%...
 
 **A:**
 1. Check this migration guide and troubleshooting sections
-2. Review the [User Guide](user-guide.md)
+2. Review the [User Guide](../guides/user-guide.md)
 3. File an issue on GitHub with:
    - NeoSWGA version
    - Your genome GC content
@@ -493,9 +493,9 @@ Before deploying to production:
 ## Support
 
 **Documentation**:
-- [User Guide](user-guide.md) - Usage tutorials and adaptive QA
-- [API Reference](API_REFERENCE.md) - Complete API documentation
-- [Module Reference](MODULE_REFERENCE.md) - All core modules
+- [User Guide](../guides/user-guide.md) - Usage tutorials and adaptive QA
+- [API Reference](../reference/API_REFERENCE.md) - Complete API documentation
+- [Module Reference](../reference/MODULE_REFERENCE.md) - All core modules
 
 **Help**:
 - GitHub Issues: Report bugs and request features

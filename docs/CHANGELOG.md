@@ -443,6 +443,6 @@ See original documentation for details.
 ---
 
 **For detailed technical information, see:**
-- [API Reference](API_REFERENCE.md) - Public API documentation
-- [Module Reference](MODULE_REFERENCE.md) - All core modules
-- [Developer Guide](DEVELOPER_GUIDE.md) - Development setup and contribution guidelines
+- [API Reference](reference/API_REFERENCE.md) - Public API documentation
+- [Module Reference](reference/MODULE_REFERENCE.md) - All core modules
+- [Developer Guide](development/DEVELOPER_GUIDE.md) - Development setup and contribution guidelines

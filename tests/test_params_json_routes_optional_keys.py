@@ -20,7 +20,7 @@ merges any flag onto the parameter module, so a flag set afterwards wins without
 unconditionally, the way `coverage_reach` is, rather than needing a
 "the CLI already set this" registry.
 
-See docs/AUDIT_2026-08_alternatives_and_scaling.md (F1).
+See docs/reports/AUDIT_2026-08_alternatives_and_scaling.md (F1).
 """
 
 import json

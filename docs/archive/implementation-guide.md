@@ -1,4 +1,12 @@
-## # Implementation Guide: Improved SWGA Pipeline
+# Implementation Guide: Improved SWGA Pipeline
+
+> **Archived (2026-09-11):** this guide documents the migration from an
+> earlier, pre-`core/` pipeline (pybloom_live troubleshooting, "Old vs. New
+> Pipeline" benchmarks) and references modules such as `milp_optimizer.py`
+> that are no longer part of the codebase. It is kept for historical record;
+> for current usage see the [guides](../guides/) and
+> [reference](../reference/) directories, and
+> [migrations/](../migrations/) for version-upgrade notes.
 
 This guide explains the new implementation and how to migrate from the old pipeline.
 

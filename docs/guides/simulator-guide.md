@@ -580,4 +580,4 @@ If you use NeoSWGA Simulator in your research, please cite:
 
 **Issues**: Report bugs on the project GitHub issue tracker.
 
-**Documentation**: See the [User Guide](user-guide.md) for general usage and the [SWGA Science](SWGA_SCIENCE.md) guide for theoretical background.
+**Documentation**: See the [User Guide](user-guide.md) for general usage and the [SWGA Science](../SWGA_SCIENCE.md) guide for theoretical background.

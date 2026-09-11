@@ -110,12 +110,12 @@ Or use the wizard to generate params.json automatically: `neoswga init --genome 
 
 ## Documentation
 
-- **[Quick Start](docs/QUICK_START.md)**: Installation and first primer design
-- **[User Guide](docs/user-guide.md)**: Comprehensive usage documentation
-- **[Optimization Guide](docs/optimization_guide.md)**: Choosing the right optimization method
-- **[From Results to Lab](docs/FROM_RESULTS_TO_LAB.md)**: Export primers and lab workflow
-- **[Report Generation](docs/user_guide_reports.md)**: Quality reports and grading
-- **[Multi-Genome Guide](docs/multi-genome-guide.md)**: Pan-genome primer design
+- **[Quick Start](docs/guides/QUICK_START.md)**: Installation and first primer design
+- **[User Guide](docs/guides/user-guide.md)**: Comprehensive usage documentation
+- **[Optimization Guide](docs/guides/optimization_guide.md)**: Choosing the right optimization method
+- **[From Results to Lab](docs/guides/FROM_RESULTS_TO_LAB.md)**: Export primers and lab workflow
+- **[Report Generation](docs/guides/user_guide_reports.md)**: Quality reports and grading
+- **[Multi-Genome Guide](docs/guides/multi-genome-guide.md)**: Pan-genome primer design
 - **[SWGA Science](docs/SWGA_SCIENCE.md)**: Thermodynamics, polymerases, and reaction additives
 - **[Changelog](docs/CHANGELOG.md)**: Version history
 

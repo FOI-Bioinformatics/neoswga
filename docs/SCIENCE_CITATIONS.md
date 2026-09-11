@@ -175,7 +175,7 @@ They are calibrated so model predictions reproduce the qualitative
 behaviour reported in SWGA protocols. For absolute-yield prediction,
 calibrate against your own wet-lab measurements via
 `ExperimentalTracker` and `predict-efficiency --track` (see
-[`active-learning-guide.md`](active-learning-guide.md)).
+[`active-learning-guide.md`](guides/active-learning-guide.md)).
 
 | Parameter | File:Line | Status |
 |---|---|---|

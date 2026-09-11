@@ -203,8 +203,8 @@ neoswga build-filter --genome human_genome.fasta -o ./filters/
 ## Next Steps
 
 - [User Guide](user-guide.md) - Detailed documentation
-- [API Reference](API_REFERENCE.md) - Python API
-- [Architecture](ARCHITECTURE_DIAGRAMS.md) - System design
+- [API Reference](../reference/API_REFERENCE.md) - Python API
+- [Architecture](../reference/ARCHITECTURE_DIAGRAMS.md) - System design
 
 ## Example Data
 

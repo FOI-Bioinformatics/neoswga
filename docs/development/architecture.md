@@ -2,6 +2,13 @@
 
 This document provides technical details for developers working on NeoSWGA, including architecture overview, implementation details, packaging information, and contribution guidelines.
 
+> **Accuracy warning (2026-09-11):** the Module Descriptions section below
+> lists modules (`genetic_algorithm.py`, `deep_learning.py` among them) that
+> do not exist in `neoswga/core/` -- see the same warning on
+> [MODULE_REFERENCE.md](../reference/MODULE_REFERENCE.md), which shares the
+> defect. Cross-check against `ls neoswga/core/` before relying on a specific
+> entry.
+
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
@@ -120,11 +127,15 @@ neoswga/  (repository directory)
 - Effective Tm calculation with additive corrections
 - Maximum primer length based on conditions
 
-**Additive Effects**:
-- DMSO: -0.6°C per % (Jones et al., 2001)
-- Betaine: -2.3°C per M (Rees et al., 1993)
-- Trehalose: -5°C per M (estimated)
-- SSB proteins: -5°C effective (estimated)
+**Additive Effects** (at 37C; see
+[Science Citations](../SCIENCE_CITATIONS.md#additive-tm-corrections-at-37-c-reference)
+for the full table and citations):
+- DMSO: -0.55°C per %
+- Betaine: -1.2°C per M uniform component (full GC equalization at 5.2 M)
+- Trehalose: -3.0°C per M
+- SSB proteins: not a Tm effect in this model -- `mechanistic_params.py`
+  models SSB as a kinetic on-rate multiplier (`ssb_kon_multiplier = 2.0`),
+  not a melting-temperature shift.
 
 **Dependencies**: thermodynamics module
 

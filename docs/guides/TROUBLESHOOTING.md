@@ -86,7 +86,9 @@ supported.
 ModuleNotFoundError: No module named 'sklearn'
 ```
 
-Or unpickling errors when the score command loads the random forest model:
+Or unpickling errors when `neoswga score --amp-model` loads the random forest
+model (the model is not loaded by default -- see
+[The score stage](../../CLAUDE.md#the-score-stage)):
 
 ```
 ValueError: node array from the pickle has an incompatible dtype

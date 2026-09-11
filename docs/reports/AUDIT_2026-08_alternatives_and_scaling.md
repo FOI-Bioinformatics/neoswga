@@ -29,7 +29,7 @@ dataset — but not enough to fix a default on. Confirm on a second target befor
 changing shipped behaviour.
 
 The harnesses are in
-[`scripts/benchmarking/`](../scripts/benchmarking/README.md) —
+[`scripts/benchmarking/`](../../scripts/benchmarking/README.md) —
 `sweep_optimize.py` (set-size scaling), `max_coverage_bound.py` (exact and LP
 bounds) and `optimality_gap.py` (greedy vs exact vs random). Every figure below
 is reproducible from them; see [Method](#method) for the datasets and caveats.

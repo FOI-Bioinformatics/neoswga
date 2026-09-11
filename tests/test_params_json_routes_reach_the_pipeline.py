@@ -24,7 +24,7 @@ unreachable from the documented configuration file. Measured on the same
 dataset: 64 primers reach 0.661 coverage against 0.538 at 32, and 128 reach
 0.810.
 
-See docs/AUDIT_2026-08_alternatives_and_scaling.md (F1, F2).
+See docs/reports/AUDIT_2026-08_alternatives_and_scaling.md (F1, F2).
 """
 
 import json

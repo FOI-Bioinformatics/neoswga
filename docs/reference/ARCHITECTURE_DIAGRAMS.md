@@ -107,13 +107,14 @@ flowchart LR
     end
 
     subgraph "Step 3: score"
-        FEAT[Feature Engineering<br/>52-120 features]
-        RFMOD[Random Forest<br/>Classifier]
-        S3OUT[step3_df.csv<br/>+ amp_pred]
+        ORDER[order_step3_rows<br/>deterministic ordering]
+        S3OUT[step3_df.csv<br/>step-2 measurements, no amp_pred by default]
+        FEAT[Feature Engineering<br/>52-120 features -- only with --amp-model]
+        RFMOD[Random Forest<br/>Classifier -- only with --amp-model]
     end
 
     subgraph "Step 4: optimize"
-        OPTIM[Optimizer<br/>hybrid/GA/MILP]
+        OPTIM[Optimizer<br/>hybrid/dominating-set/background-aware/network/clique/ensemble]
         DIMER[Dimer Check<br/>secondary structure]
         S4OUT[step4_improved_df.csv<br/>6 primers]
     end
@@ -130,10 +131,12 @@ flowchart LR
     TM --> SEQ
     SEQ --> S2OUT
 
+    S2OUT --> ORDER
+    ORDER --> S3OUT
     S2OUT --> FEAT
     POS --> FEAT
     FEAT --> RFMOD
-    RFMOD --> S3OUT
+    RFMOD -.optional, --amp-model.-> S3OUT
 
     S3OUT --> OPTIM
     POS --> OPTIM
@@ -144,6 +147,19 @@ flowchart LR
 ---
 
 ## Module Dependencies
+
+> **Accuracy warning (2026-09-11):** the diagrams in this section and in
+> [Optimizer Architecture](#optimizer-architecture) below include
+> `auto_swga_pipeline.py`, `genetic_algorithm.py` and `milp_optimizer.py` as
+> live components -- none exist in `neoswga/core/` (see the same defect
+> documented in [MODULE_REFERENCE.md](MODULE_REFERENCE.md)). Redrawing both
+> diagrams against the current six-optimizer architecture is outstanding
+> work. For the accurate dispatch path, see CLAUDE.md's "Core Modules"
+> section: optimizers route through `unified_optimizer.py` to
+> `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`,
+> `network_optimizer`, `background_aware_optimizer` (which delegates to
+> `HybridOptimizer`), and `clique_optimizer`, with `minimal_primer_selector`
+> as a post-process.
 
 Import relationships between core modules.
 
@@ -156,7 +172,6 @@ graph TD
     subgraph "Pipeline"
         PIPE[pipeline.py]
         IMPIPE[improved_pipeline.py]
-        AUTOPIPE[auto_swga_pipeline.py]
         MULTIPIPE[multi_genome_pipeline.py]
     end
 
@@ -651,8 +666,8 @@ sequenceDiagram
 | CLI | User interface | cli_unified.py |
 | Pipeline | Workflow orchestration | pipeline.py, improved_pipeline.py |
 | Filtering | Primer candidate selection | filter.py, adaptive_filters.py |
-| Scoring | ML-based ranking | rf_preprocessing.py, primer_attributes.py |
-| Optimization | Set selection (18 strategies) | optimizer_factory.py, base_optimizer.py, unified_optimizer.py |
+| Scoring | Candidate-pool ordering; ML ranking only with `--amp-model` (retired from the default path 2026-09-05) | rf_preprocessing.py, primer_attributes.py |
+| Optimization | Set selection (6 methods: hybrid, dominating-set, background-aware, network, clique, ensemble) | optimizer_factory.py, base_optimizer.py, unified_optimizer.py |
 | Thermodynamics | NN calculations | thermodynamics.py, reaction_conditions.py |
 | Mechanistic | Four-pathway amplification model | mechanistic_model.py, additives.py |
 | Performance | Speed optimization | position_cache.py, gpu_acceleration.py |
@@ -666,5 +681,5 @@ sequenceDiagram
 ## See Also
 
 - [API Reference](API_REFERENCE.md) - Complete API documentation
-- [User Guide](user-guide.md) - Usage tutorials
-- [Algorithms](development/algorithms.md) - Algorithm details
+- [User Guide](../guides/user-guide.md) - Usage tutorials
+- [Algorithms](../development/algorithms.md) - Algorithm details

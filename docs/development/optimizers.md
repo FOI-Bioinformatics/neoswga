@@ -1,7 +1,7 @@
 # NeoSWGA Optimization Strategies
 
 > **Superseded, 2026-08-31. Read
-> [`../optimization_guide.md`](../optimization_guide.md) instead.**
+> [`../guides/optimization_guide.md`](../guides/optimization_guide.md) instead.**
 >
 > This document describes a 17-optimizer architecture that no longer exists.
 > The CLI accepts exactly six methods — `hybrid`, `dominating-set`,
@@ -19,7 +19,7 @@
 > optimizer enforces a wall-clock budget.
 >
 > Rewriting this document against the surviving six is outstanding work, tracked
-> in [`../AUDIT_2026-08_alternatives_and_scaling.md`](../AUDIT_2026-08_alternatives_and_scaling.md)
+> in [`../reports/AUDIT_2026-08_alternatives_and_scaling.md`](../reports/AUDIT_2026-08_alternatives_and_scaling.md)
 > (F11). It is kept rather than deleted because the `BaseOptimizer` /
 > `OptimizerFactory` description and the configuration examples still hold.
 

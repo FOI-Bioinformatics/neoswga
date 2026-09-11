@@ -671,13 +671,21 @@ PRs are reviewed for:
 
 ### Retrain Random Forest Model
 
-After sklearn updates:
+After sklearn updates. `retrain_rf_model.py` has no `--training-data` flag --
+it samples synthetic primer features at random and labels them with a
+hand-written rule (`compute_target_score`), the same synthetic process that
+trained the shipped model. To train on real lab measurements instead, see
+[Training amp_pred on real data](../guides/training_amp_pred_on_real_data.md).
 
 ```bash
 python scripts/retrain_rf_model.py \
-    --training-data data/training_set.csv \
+    --samples 5000 \
     --output neoswga/core/models/random_forest_filter.skops
 ```
+
+Update `neoswga/core/models/checksums.json` with the SHA-256 the script
+prints, or `--amp-model` will still load the retrained file but warn that it
+has no trusted hash.
 
 ### Generate K-mer Files for Testing
 
@@ -707,7 +715,7 @@ open _build/html/index.html
 
 ## See Also
 
-- [API Reference](API_REFERENCE.md)
-- [Architecture Diagrams](ARCHITECTURE_DIAGRAMS.md)
-- [Module Reference](MODULE_REFERENCE.md)
-- [Changelog](CHANGELOG.md)
+- [API Reference](../reference/API_REFERENCE.md)
+- [Architecture Diagrams](../reference/ARCHITECTURE_DIAGRAMS.md)
+- [Module Reference](../reference/MODULE_REFERENCE.md)
+- [Changelog](../CHANGELOG.md)

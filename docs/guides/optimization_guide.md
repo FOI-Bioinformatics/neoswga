@@ -309,7 +309,7 @@ density of any method here (42.4 against 31.7).
 Caveats that belong with these numbers: one target, one k, one run each. Enough
 to show that a method returning an identical set at 38x the cost has a defect;
 not enough to change a shipped default on. See
-[`AUDIT_2026-08_alternatives_and_scaling.md`](AUDIT_2026-08_alternatives_and_scaling.md)
+[`AUDIT_2026-08_alternatives_and_scaling.md`](../reports/AUDIT_2026-08_alternatives_and_scaling.md)
 (F5, F5b) for the full measurement and its limits.
 
 ## Troubleshooting

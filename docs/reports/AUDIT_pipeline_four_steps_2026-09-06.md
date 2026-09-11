@@ -112,7 +112,7 @@ to 12.9 us a pair. The ratio between the two tests is what matters for the
 proposed pre-screen, and it is 49x.
 
 **The attribution in this finding was wrong, and the measurement that settled it
-is in [docs/validation/optimizer_cost_2026-09.md](validation/optimizer_cost_2026-09.md)
+is in [docs/validation/optimizer_cost_2026-09.md](../validation/optimizer_cost_2026-09.md)
 (2026-09-07).** This finding treated the thermodynamic screen as the reason
 `hybrid` fails to finish where `dominating-set` finishes in seconds. It is not.
 After the screen was made exact and vectorised, stopped from repeating once per
@@ -181,7 +181,7 @@ That last criterion is settled and it did not hold: the delivered `hybrid` set
 changed (Jaccard 0.352 on *S. aureus*), by design, because the dimer rejection
 guard added in the same branch rejects primers the unguarded greedy accepted.
 The unchanged-set check applies to the caching and pre-screen work alone; see
-[docs/validation/optimizer_cost_2026-09.md](validation/optimizer_cost_2026-09.md).
+[docs/validation/optimizer_cost_2026-09.md](../validation/optimizer_cost_2026-09.md).
 
 ### A2 (HIGH, pool quality) The expensive screen tests a criterion the user never configured, and the criterion the user did configure reaches no optimizer
 

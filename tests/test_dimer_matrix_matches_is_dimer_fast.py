@@ -61,7 +61,7 @@ def test_flagged_pairs_yields_upper_triangle_only():
 
 def test_lowercase_input_is_normalised():
     """One lowercase primer defeated every dimer check once already; see
-    docs/AUDIT_optimize_step_2026-09-03.md finding 20."""
+    docs/reports/AUDIT_optimize_step_2026-09-03.md finding 20."""
     matrix = dimer_matrix.build(["aaaattttaaaa", "TTTTAAAATTTT"], 3)
     assert bool(matrix.pairs[0, 1]) is True
 

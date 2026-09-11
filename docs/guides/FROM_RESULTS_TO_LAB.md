@@ -757,10 +757,10 @@ Inactivate: 65C, 10 min
 
 ## Related Documentation
 
-- **[SWGA Science](SWGA_SCIENCE.md)**: Thermodynamics, mechanism, and theory
-- **[README](../README.md)**: Quick start and installation
-- **[CLAUDE.md](../CLAUDE.md)**: Complete technical reference
-- **[Examples](../tests/integration/)**: Working examples for different conditions
+- **[SWGA Science](../SWGA_SCIENCE.md)**: Thermodynamics, mechanism, and theory
+- **[README](../../README.md)**: Quick start and installation
+- **[CLAUDE.md](../../CLAUDE.md)**: Complete technical reference
+- **[Examples](../../tests/integration)**: Working examples for different conditions
 
 ---
 

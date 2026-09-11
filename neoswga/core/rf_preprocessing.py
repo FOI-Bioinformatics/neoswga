@@ -32,7 +32,7 @@ Pre-trained model (random_forest_filter.skops):
     at random and labels them with `compute_target_score`, a hand-written rule
     over Tm, GC, GC clamp and homopolymer runs. No measured amplification
     outcome enters the fit. Retrain with: python scripts/retrain_rf_model.py;
-    see docs/training_amp_pred_on_real_data.md for fitting to lab data instead.
+    see docs/guides/training_amp_pred_on_real_data.md for fitting to lab data instead.
   - Limitations: Because the labels are a rule rather than a measurement, the
     model reproduces that rule and cannot know more than it does. The rule
     rewards the same properties the filter step has already selected for, so

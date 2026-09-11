@@ -18,9 +18,10 @@ training_data.csv
        |
        v   scripts/train_enhanced_rf.py
        v
-enhanced_rf_model.pkl  ->  drop into neoswga/core/models/
+enhanced_rf_model.pkl
        |
-       v   neoswga score -j params.json --use-enhanced-features
+       v   predict_new_primers_enhanced(model_path=...) in Python -- see Step 4;
+           there is no CLI flag that wires this into `neoswga score` yet
 ```
 
 ## Step 1: collect lab measurements
@@ -96,17 +97,37 @@ R-squared below ~0.2 indicates the model is not learning a useful signal;
 consider collecting more data or revisiting feature selection before using
 the model in production.
 
-## Step 4: install and use
+## Step 4: use the trained model
 
-```bash
-cp enhanced_rf_model.pkl neoswga/core/models/
-neoswga score -j params.json --use-enhanced-features
+There is currently no CLI path to this: `neoswga score`'s `--use-enhanced-features`
+and `--enhanced-model-path` flags are accepted but explicitly unimplemented
+(`neoswga/cli/_common.py:UNIMPLEMENTED_OPTIONS`; the `score` step's help text
+says so too), and the real `score` step (`core/pipeline.py`) calls only
+`rf_preprocessing.predict_new_primers`, never the enhanced path. The
+`is_enhanced_model_available()` / `get_enhanced_model_info()` helpers exist
+but are wired only into `rf_preprocessing.py`'s own `__main__` block -- a
+manual status check, not the prediction call the `score` step makes.
+
+The underlying prediction function works and takes a model path directly; use
+it from Python instead of the CLI:
+
+```python
+from neoswga.core.rf_preprocessing import predict_new_primers_enhanced
+
+result = predict_new_primers_enhanced(
+    primer_list=primers,              # list[str]
+    fg_genome_sequence=genome_seq,    # str, the foreground genome
+    conditions=reaction_conditions,   # ReactionConditions
+    primer_positions=positions,       # dict, as produced by PositionCache
+    model_path="enhanced_rf_model.pkl",
+)
 ```
 
-`--use-enhanced-model` switches the score step to the trained model. The
-default model path is resolved by `is_enhanced_model_available()` in
-`neoswga/core/rf_preprocessing.py`. To use a model from a non-default
-location, pass `--enhanced-model-path /path/to/model.pkl`.
+This falls back to the standard (synthetic-trained) model if the enhanced
+model can't be loaded, and to `predict_new_primers(df)` if `df` is supplied
+and `use_enhanced=False`. Wiring `--use-enhanced-features` /
+`--enhanced-model-path` through to this function in the `score` step is
+outstanding work, not yet done.
 
 ## Sample-size guidance
 

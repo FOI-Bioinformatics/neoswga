@@ -659,15 +659,17 @@ def list_polymerases() -> Dict[str, str]:
 
 #### Additive Effects
 
-| Additive | Effect on Tm | Typical Range |
+| Additive | Effect on Tm (at 37C) | Typical Range |
 |----------|-------------|---------------|
-| DMSO | -0.6C per % | 0-10% |
-| Betaine | -2.3C per M | 0-2.5 M |
-| Trehalose | -5C per M | 0-1.0 M |
-| Formamide | -0.72C per % | 0-10% |
-| Ethanol | -0.5C per % | 0-5% |
-| Urea | -2.0C per M | 0-2.0 M |
-| TMAC | Equalizes AT/GC | 0-0.1 M |
+| DMSO | -0.55C per % | 0-10% |
+| Betaine | -1.2C per M (uniform component; full GC equalization at 5.2 M) | 0-2.5 M |
+| Trehalose | -3.0C per M | 0-1.0 M |
+| Formamide | -0.65C per % | 0-10% |
+| Ethanol | -0.4C per % | 0-5% |
+| Urea | -2.5C per M | 0-2.0 M |
+| TMAC | -0.5C per M uniform component; GC-dependent effect is primary | 0-0.1 M |
+
+Canonical values with citations: [Science Citations](../SCIENCE_CITATIONS.md#additive-tm-corrections-at-37-c-reference).
 
 ---
 
@@ -1057,6 +1059,6 @@ HDF5 file structure:
 
 ## See Also
 
-- [User Guide](user-guide.md) - Usage tutorials
-- [Architecture](development/architecture.md) - Design documentation
-- [Algorithms](development/algorithms.md) - Algorithm details
+- [User Guide](../guides/user-guide.md) - Usage tutorials
+- [Architecture](../development/architecture.md) - Design documentation
+- [Algorithms](../development/algorithms.md) - Algorithm details

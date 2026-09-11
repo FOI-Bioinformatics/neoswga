@@ -177,7 +177,7 @@ covered bases rather than covered bins.
 This is the same question `optimize_greedy` answers, which is what makes the
 difference between the two a real optimality gap. On a 3.2 Mb bacterial target
 the greedy result sat 3.4-7.2% below this optimum, and the solve took 0.8-17 s
-(see `docs/AUDIT_2026-08_alternatives_and_scaling.md`).
+(see `docs/reports/AUDIT_2026-08_alternatives_and_scaling.md`).
 
 Until 2026-08 this minimised primer *count* subject to covering every reachable
 bin. That formulation is infeasible for any budget below the minimum cover, so
