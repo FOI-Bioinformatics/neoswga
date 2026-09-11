@@ -66,7 +66,13 @@ def test_the_step4_file_really_lacks_the_column():
     """Guard the guard, against the shipped output rather than the fixture."""
     import pathlib
 
-    real = pathlib.Path("runs/gc_tiers/mid_ecoli/step4_improved_df.csv")
+    # Anchored to the repository root, not to the working directory. As a
+    # relative path this resolved against whatever cwd the xdist worker
+    # happened to hold, so the same tree gave 25 skips on one run and 26 on
+    # the next -- the test silently skipping when the file was there all
+    # along. Same idiom as tests/test_the_suite_leaves_no_files_behind.py.
+    root = pathlib.Path(__file__).resolve().parent.parent
+    real = root / "runs" / "gc_tiers" / "mid_ecoli" / "step4_improved_df.csv"
     if not real.exists():
         pytest.skip("no archived run available")
     header = real.read_text().splitlines()[0]
