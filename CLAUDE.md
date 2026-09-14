@@ -345,16 +345,32 @@ relatively.
   `--optimization-method` on the CLI still wins over the configured value, an
   absent flag does not. Values: 'hybrid' (default), 'dominating-set' (fast),
   'background-aware' (clinical), 'network'.
-- `num_primers`, `target_set_size`: Desired primer set size (default: 6)
+- `num_primers`, `target_set_size`: Requested primer set size (default: 6).
+  **It is a request, not a guarantee** (decided 2026-09-14). The delivered panel
+  is never larger, and may be smaller for two benign reasons before any pool
+  deficiency: Stage 1 stops once the coverage target is met, and selection stops
+  rather than admitting a pair above `max_dimer_bp`. The second is usually the
+  binding one on a real pool -- measured at `max_dimer_bp` 3 the shipped pools
+  support 29, 31 and 26 primers against panels of 200, 160 and 36. A short panel
+  is reported with the reason; `--allow-dimer-relaxation` trades the dimer
+  constraint for panel size. Guarded by
+  `tests/test_delivered_panel_honours_the_dimer_limit.py`.
 - `max_dimer_bp`: Longest complementary run tolerated between two different
   primers (default 3, maximum 7). The screen represents t-mers in a 4**8 code
   space, so 8 and above cannot be enforced and are refused by the schema rather
   than silently disabling the screen. A pool supports a bounded panel size at a
   given threshold: measured on the shipped pools, 3 supports 29, 31 and 26
   primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and
-  55. The shipped panels are larger than that, so the `dominating-set`
-  relaxation admits unscreened primers and the delivered worst heterodimer is
-  11 bp against a configured 3.
+  55. The shipped panels are larger than that. Selection therefore STOPS at the
+  conforming size rather than growing the panel, because `num_primers` is a
+  request; the 11 bp delivered heterodimer against a configured 3 came from the
+  relaxation that used to be on by default.
+- `allow_dimer_relaxation`: Let selection exceed `max_dimer_bp` when it stalls,
+  instead of stopping (default false; `--allow-dimer-relaxation` on `optimize`).
+  It trades the dimer constraint for panel size: on a 40-candidate fixture a
+  request for 20 returns 12 primers with no violating pair when false, and 20
+  primers with 25 violating pairs when true. Every admission is warned about by
+  name. `clique` remains strict either way.
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
   again, so each is a different set rather than a reordering. They are numbered
@@ -516,12 +532,37 @@ with h5py.File('positions.h5', 'r') as f:
    point sees nothing. Tests:
    `tests/test_optimization_method_routes_from_params.py`.
 
-   This was the last known instance of one class: a config key or flag that is
-   documented, accepted, and read by nothing. `additionalProperties: true`
-   means none of them warn. `tests/test_design_options_have_effect.py`,
+   It is NOT the last instance of its class -- a config key or flag that is
+   documented, accepted, and read by nothing. An audit on 2026-09-14 found ten
+   more, and `additionalProperties: true` means none of them warns.
+
+   Still open: `mismatch_penalty`, `retries`, `drop_iterations`,
+   `top_set_count` and `selection_metric` never bind a module global at all, so
+   every reader takes its fallback (`hasattr(parameter, name)` is False for each
+   of the five). `occupancy.default_mismatch_penalty` was written as the first
+   consumer of the first of those and still receives nothing. `bl_penalty` binds
+   a global, is range-validated, and no scoring code reads it. The last four
+   appear only as entries in an unread defaults dict at
+   `core/pipeline.py:454-461`.
+
+   Fixed on 2026-09-14: `filter --gc-tolerance`, `filter --excl-threshold`,
+   `expand-primers --optimization-method` and
+   `plan-pool --swap-max-evaluations` all carried a real argparse default and so
+   beat params.json on every run. They now use the `None` sentinel, and
+   `expand-primers` routes through `resolve_optimization_method` rather than
+   reading the attribute. `--gc-tolerance` was the costly one: the block it fed
+   also computed its own GC window, clamping the lower bound at 0.20 where
+   `adaptive_gc_window` releases it to zero below the extreme-AT threshold, so
+   on a 19% GC target it excluded exactly the zero-GC primers published AT-rich
+   designs are built from. It now routes through `adaptive_gc_window`.
+
+   `tests/test_design_options_have_effect.py`,
    `tests/test_params_json_routes_optional_keys.py` and
-   `tests/test_optimizer_config_reaches_optimizers.py` are the tests that hold
-   the line; extend them when adding an option.
+   `tests/test_optimizer_config_reaches_optimizers.py` are named as the tests
+   that hold the line, but between them they cover about fifty keys and none of
+   the ten above -- which is why the class survived being declared closed.
+   `tests/test_cli_defaults_do_not_beat_params_json.py` now pins the four flag
+   defaults. Extend all four when adding an option.
 
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when

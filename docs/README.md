@@ -87,14 +87,16 @@ to both don't need touching.
 | [Developer Guide](development/DEVELOPER_GUIDE.md) | Contributing and extending NeoSWGA |
 | [Architecture](development/architecture.md) | System architecture and design -- **carries an accuracy warning, see the banner at the top of the file** |
 | [Algorithms](development/algorithms.md) | Filtering and optimization algorithms |
-| [Optimizers](development/optimizers.md) | Optimization strategy details |
+| [Optimizers](development/optimizers.md) | **Superseded 2026-08-31** -- describes a retired 17-optimizer architecture; read [Optimization Guide](guides/optimization_guide.md) instead |
 | [Deployment](development/deployment.md) | Deployment and configuration |
 
-`MODULE_REFERENCE.md` and `development/architecture.md` both document
+`MODULE_REFERENCE.md` and `development/architecture.md` both documented
 modules that no longer exist in `neoswga/core/` (a 2026-09-11 survey found 12
-of them) and are missing modules that do. Neither has been corrected yet --
-treat specific module claims as unverified until they are. See CLAUDE.md's
-"Core Modules" section for what actually ships.
+in the former, 3 in the latter); both sets of ghost sections have now been
+removed. What's still outstanding on each is coverage, not accuracy: 27 of
+92 real modules have no section in `MODULE_REFERENCE.md`, and 86 of 92 have
+none in `architecture.md`. See CLAUDE.md's "Core Modules" section for what
+actually ships.
 
 ## Reports (audits, SWOT, technical debt)
 

@@ -3,11 +3,14 @@
 This document provides technical details for developers working on NeoSWGA, including architecture overview, implementation details, packaging information, and contribution guidelines.
 
 > **Accuracy warning (2026-09-11):** the Module Descriptions section below
-> lists modules (`genetic_algorithm.py`, `deep_learning.py` among them) that
-> do not exist in `neoswga/core/` -- see the same warning on
-> [MODULE_REFERENCE.md](../reference/MODULE_REFERENCE.md), which shares the
-> defect. Cross-check against `ls neoswga/core/` before relying on a specific
-> entry.
+> documented three modules that do not exist in `neoswga/core/`
+> (`adaptive_search.py`, `genetic_algorithm.py`, `deep_learning.py`); those
+> sections have now been removed, matching the same cleanup already applied to
+> [MODULE_REFERENCE.md](../reference/MODULE_REFERENCE.md). What's still
+> outstanding: only 6 of the 92 real modules in `neoswga/core/` have a section
+> here. Cross-check against `ls neoswga/core/` and the module docstrings
+> before relying on a specific entry; see CLAUDE.md's "Core Modules" section
+> for what actually ships.
 
 ## Table of Contents
 
@@ -161,57 +164,6 @@ for the full table and citations):
 
 **Validation Status**: Dynamic programming approach; comprehensive sensitivity testing against experimental dimer data pending.
 
-### adaptive_search.py (540 lines)
-
-**Purpose**: Automatic selection of optimal k-mer length
-
-**Algorithm**:
-1. Test k-mer lengths from 6 to max (12 or 15 based on conditions)
-2. Filter by thermodynamic properties (Tm range)
-3. Filter by secondary structure (hairpins, self-dimers)
-4. Filter by specificity (fg/bg ratio)
-5. Rank by composite score
-6. Select k with highest score and sufficient candidates
-
-**Composite Score** (weighted):
-- Specificity (40%): log10(fg/bg ratio)
-- Coverage (25%): Sigmoid of binding site count
-- Tm optimality (20%): Gaussian around polymerase midpoint
-- GC balance (10%): Penalty for extreme GC
-- Free energy (5%): Binding favorability
-
-**Dependencies**: Core modules, HDF5, multiprocessing
-
-**Validation Status**: Theoretical scoring function; performance comparison with fixed k-mer lengths requires experimental testing.
-
-### genetic_algorithm.py (480 lines)
-
-**Purpose**: Evolutionary optimization for primer set selection
-
-**Algorithm**: Standard genetic algorithm with domain-specific operators
-
-**Components**:
-- Population: 200 individuals (configurable)
-- Selection: Tournament (k=5)
-- Crossover: Uniform with dimer checking
-- Mutation: Add/remove/replace primers
-- Elitism: Preserve top 10%
-
-**Fitness Function**:
-```python
-fitness = (
-    0.35 * coverage_score +
-    0.30 * specificity_score +
-    0.15 * evenness_score +
-    0.10 * thermodynamic_score +
-    0.10 * dimer_avoidance_score
-)
-```
-
-**Dependencies**: Core modules, multiprocessing
-
-**Validation Status**: Functional implementation; comparative performance vs greedy search requires benchmarking.
-
 ### amplicon_network.py (430 lines)
 
 **Purpose**: Graph-based analysis of amplification coverage
@@ -264,19 +216,6 @@ fitness = (
 
 **Performance**: Speedup varies by dataset size and hardware (2-10x typical for large datasets).
 
-### deep_learning.py
-
-**Purpose**: Optional deep learning for primer scoring
-
-**Implementation**:
-- Conditional import of PyTorch or TensorFlow
-- Fallback embeddings if DL unavailable
-- Transformer-based primer embeddings (when available)
-
-**Dependencies**: PyTorch or TensorFlow (optional)
-
-**Validation Status**: Functional implementation; comparative scoring accuracy requires validation.
-
 ---
 
 ## Implementation Status
@@ -288,12 +227,9 @@ fitness = (
 | thermodynamics | Complete | 459 | NumPy |
 | reaction_conditions | Complete | 415 | thermodynamics |
 | secondary_structure | Complete | 548 | thermodynamics, NumPy |
-| adaptive_search | Complete | 540 | Core modules, HDF5 |
-| genetic_algorithm | Complete | 480 | Core modules |
 | amplicon_network | Complete | 430 | NetworkX |
 | replication_simulator | Complete | 470 | Core modules |
 | gpu_acceleration | Complete | - | CuPy (optional) |
-| deep_learning | Complete | - | PyTorch/TF (optional) |
 | unified_pipeline | Complete | - | Core modules |
 
 **Total**: ~3,800+ lines of enhanced code
@@ -301,9 +237,7 @@ fitness = (
 ### Known Issues and Limitations
 
 1. **Validation**: Some performance claims are based on algorithmic analysis and remain to be verified experimentally
-2. **GPU**: Performance varies by hardware and dataset size
-3. **Deep Learning**: `deep_learning.py` is a stub requiring training data
-4. **MILP timeout**: May time out for >1000 candidates; hybrid method auto-falls back
+2. **GPU**: Performance varies by hardware and dataset size; not reached by any pipeline stage today (see CLAUDE.md's `gpu_acceleration.py` note)
 
 ---
 

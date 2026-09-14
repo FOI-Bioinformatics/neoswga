@@ -61,6 +61,13 @@ mypy neoswga/
 
 ### Package Structure
 
+> **Accuracy warning (2026-09-11):** this tree previously listed
+> `greedy_optimizer.py` and `genetic_algorithm.py`, neither of which exists in
+> `neoswga/core/` (same defect as [MODULE_REFERENCE.md](../reference/MODULE_REFERENCE.md)
+> and [architecture.md](architecture.md)). It is illustrative, not a complete
+> listing -- `neoswga/core/` holds 92 modules; see CLAUDE.md's "Core Modules"
+> section for the ones that route through `unified_optimizer.py`.
+
 ```
 neoswga/
     __init__.py              # Package init, version
@@ -78,9 +85,9 @@ neoswga/
         # Optimization
         base_optimizer.py
         optimizer_factory.py
-        greedy_optimizer.py
         network_optimizer.py
-        genetic_algorithm.py
+        hybrid_optimizer.py
+        dominating_set_optimizer.py
         # Thermodynamics
         thermodynamics.py
         reaction_conditions.py

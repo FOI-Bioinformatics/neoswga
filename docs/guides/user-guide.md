@@ -372,30 +372,6 @@ filtered = ss.filter_primers_by_structure(
 )
 ```
 
-### Adaptive Search Module
-
-```python
-from neoswga.core import adaptive_search
-from neoswga.core import reaction_conditions as rc
-
-conditions = rc.get_enhanced_conditions()
-
-result = adaptive_search.adaptive_search_pipeline(
-    fg_genomes=['target.fasta'],
-    bg_genomes=['offtarget.fasta'],
-    fg_prefixes=['target_kmers'],
-    bg_prefixes=['offtarget_kmers'],
-    conditions=conditions,
-    min_primers=100,
-    max_primers=1000
-)
-
-# Access results
-optimal_k = result.optimal_k           # Selected k-mer length
-primers = result.primers               # List of primer sequences
-metrics = result.metrics               # Performance metrics
-```
-
 ### GPU Acceleration
 
 ```python
