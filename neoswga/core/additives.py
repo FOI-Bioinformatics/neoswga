@@ -582,7 +582,9 @@ class AdditiveConcentrations:
         Ethanol lowers Tm by approximately 0.4C per percent.
         Mechanism: Reduces secondary structure formation.
 
-        Literature: Cheng et al. (1994) measured ~0.3-0.5C/%.
+        Literature: UNSUPPORTED as cited. Cheng et al. (1994) is a long-PCR
+        study describing glycerol and DMSO; it does not report an ethanol Tm
+        coefficient. No replacement source was located (audit 2026-09-14).
         We use -0.4C/% as the recalibrated value.
 
         Reference: Cheng et al. (1994) PNAS 91:5695-5699
@@ -821,7 +823,9 @@ class AdditiveConcentrations:
         Use for: Maximum specificity applications.
         Enables: Up to 18bp primers with good annealing.
 
-        Based on: Musso et al. (2006) - extreme additive conditions
+        Based on: Musso et al. (2006), which reports a GC-rich PCR combination
+        including 7-deaza-dGTP. It does not report an SWGA optimisation, and
+        this preset is an extrapolation from it (audit F8, 2026-09-14).
         """
         return cls(
             dmso_percent=7.0,

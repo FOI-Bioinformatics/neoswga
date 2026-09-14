@@ -1,6 +1,7 @@
 """Tests for the multi-additive optimizer."""
 
 import pytest
+
 from neoswga.core.additive_optimizer import (
     AdditiveOptimizer,
     AdditiveRecommendation,
@@ -42,7 +43,7 @@ class TestAdditiveRecommendation:
             dmso_percent=5.0,
             betaine_m=1.0,
             predicted_amplification=0.75,
-            confidence="high",
+            heuristic_score_band="high",
             optimization_score=0.8,
             rationale="Test rationale",
             primer_length=12,
@@ -54,7 +55,10 @@ class TestAdditiveRecommendation:
         assert "ADDITIVE OPTIMIZATION RECOMMENDATION" in summary
         assert "DMSO: 5.0%" in summary
         assert "Betaine: 1.0 M" in summary
-        assert "Confidence: high" in summary
+        # Renamed 2026-09-14 (audit F8): the band is this tool's own search
+        # score, with no uncertainty model, so it is not called confidence.
+        assert "Heuristic score band: high" in summary
+        assert "Confidence:" not in summary
         assert "Test rationale" in summary
 
 
@@ -78,7 +82,7 @@ class TestAdditiveOptimizer:
         assert 0.0 <= rec.dmso_percent <= 10.0
         assert 0.0 <= rec.betaine_m <= 3.0
         assert 0.0 <= rec.trehalose_m <= 1.0
-        assert rec.confidence in ("high", "medium", "low")
+        assert rec.heuristic_score_band in ("high", "medium", "low")
 
     def test_optimization_for_high_gc(self):
         """Test that high-GC templates get more additives."""

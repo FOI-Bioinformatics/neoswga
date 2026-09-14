@@ -14,7 +14,7 @@ Four-pathway model:
 References:
     - Varadaraj & Skinner (1994) Gene 140:1-5 (DMSO)
     - Blake & Delcourt (1996) NAR 24:2095-2103 (formamide)
-    - Spiess et al. (2004) Biotechniques 36:732-736 (trehalose)
+    - Spiess et al. (2004) Clinical Chemistry 50:1256-1259 (trehalose)
     - Cheng et al. (1994) PNAS 91:5695-5699 (ethanol)
     - Rees et al. (1993) Biochemistry 32:137-144 (betaine)
     - Hutton (1977) NAR 4:3537-3555 (urea)
@@ -38,7 +38,7 @@ from neoswga.core.registry import views as _registry_views
 #   - Henke et al. (1997) NAR 25:3957-3958 (betaine PCR)
 #   - Blake & Delcourt (1996) NAR 24:2095-2103 (formamide)
 #   - McConaughy et al. (1969) Biochemistry 8:3289-3295 (formamide)
-#   - Spiess et al. (2004) Biotechniques 36:732-736 (trehalose)
+#   - Spiess et al. (2004) Clinical Chemistry 50:1256-1259 (trehalose)
 #   - Lesnick & Bhalla (1995) NAR 23:4665-4666 (urea)
 #   - Hutton (1977) NAR 4:3537-3555 (urea)
 #   - Melchior & von Hippel (1973) PNAS 70:298-302 (TMAC)
@@ -52,21 +52,27 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         "activation_energy": 2500.0,  # J/mol (estimated from Chester 1993)
         "max_concentration": 10.0,  # %
         "gc_dependent": False,
+        "evidence": "extrapolated",
+        "source": "Chester & Marshak 1993 (PMID 8470801); von Ahsen 2001 (PMID 11673362) fits -0.75 C/% under its own conditions. Primer Tm in PCR, not SWGA.",
         "description": "Destabilizes AT base pairs, reduces secondary structure",
     },
     "betaine": {
-        # Published value: -1.0 C/M (Rees 1993), -1.3 C/M (Henke 1997 PCR context).
-        # Using -1.2 C/M as a weighted average of the two studies. The Rees
-        # (1993) value was measured on long DNA, while Henke (1997) measured on
-        # short PCR amplicons closer to SWGA primer lengths. Neither study was
-        # performed at SWGA-relevant concentrations (0.5-2.5 M), so the value
-        # represents a literature consensus rather than a single source.
+        # PARTLY CORRECTED 2026-09-14. Two claims here were wrong. Henke (1997)
+        # DID test practical betaine concentrations, so "neither study was
+        # performed at SWGA-relevant concentrations" is false. And the -1.3 C/M
+        # attributed to Henke was not substantiated on re-reading. Rees (1993)
+        # supports the ~5.2 M isostabilisation point below; it does not by
+        # itself validate a linear dose response or the uniform term applied to
+        # short SWGA oligos. -1.2 is a chosen midpoint between one supported
+        # value and one unverified one.
         "ref_coef": -1.2,  # C per M at T_ref
         "ref_temp": 310.15,  # K (37C)
         "activation_energy": 1800.0,  # J/mol (estimated from Rees 1993 multi-temp data)
         "max_concentration": 2.5,  # M
         "gc_dependent": True,
         "gc_equalization_conc": 5.2,  # M for full GC independence (Rees 1993)
+        "evidence": "extrapolated",
+        "source": "Rees 1993 (PMID 8418834) supports ~5.2 M isostabilisation. Henke 1997 (NAR 25:3957) is a PCR enhancement study. The -1.3 C/M attributed to Henke was not substantiated; -1.2 is a chosen midpoint, not a measurement.",
         "description": "Equalizes AT/GC stability, enables longer primers",
     },
     "formamide": {
@@ -75,35 +81,42 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         "activation_energy": 3000.0,  # J/mol (estimated from McConaughy 1969)
         "max_concentration": 10.0,  # %
         "gc_dependent": False,
+        "evidence": "extrapolated",
+        "source": "Hutton 1977 (NAR 4:3537) reports about -0.60 C/% over stated salt ranges. Use inside a phi29 reaction, and the temperature dependence, are extensions.",
         "description": "Destabilizes hydrogen bonding",
     },
     "trehalose": {
-        # Published value: Spiess et al. (2004) reported Tm depression of
-        # ~2-4 C/M depending on sequence context. We use -3.0 C/M as the
-        # midpoint of their observed range. Their measurements used real-time
-        # PCR with short amplicons at 0.2-0.8 M trehalose, which is within
-        # the practical SWGA concentration range.
+        # CORRECTED 2026-09-14. The citation was wrong -- Spiess et al. (2004)
+        # is Clinical Chemistry 50:1256-1259, not BioTechniques 36:732-736 --
+        # and the "~2-4 C/M range" attributed to it could not be verified.
+        # Horakova (2011) reports a 0.7-1.5 C reduction at 0.2 M, which implies
+        # a strong dependence on assay conditions rather than a constant. -3.0
+        # is retained for continuity; it is a chosen value, not a measurement.
         "ref_coef": -3.0,  # C per M (midpoint of Spiess 2004 range)
         "ref_temp": 310.15,  # K (37C)
         "activation_energy": 1500.0,  # J/mol (estimated; no multi-temp data available)
         "max_concentration": 1.0,  # M
         "gc_dependent": False,
+        "evidence": "extrapolated",
+        "source": "Spiess 2004 is Clinical Chemistry 50:1256-1259, NOT BioTechniques 36:732-736 as previously cited here. The 2-4 C/M range was not verified; Horakova 2011 reports 0.7-1.5 C at 0.2 M, so the effect is assay-dependent.",
         "description": "Stabilizes proteins, modifies water structure",
     },
     "urea": {
-        # Published values: Hutton (1977) reported -5.0 C/M for long genomic
-        # DNA at high urea concentrations (4-8 M). Lesnick & Bhalla (1995)
-        # measured -2.0 to -3.0 C/M for short oligonucleotides at 0.5-2 M,
-        # which is the concentration range relevant to SWGA. The discrepancy
-        # is likely due to cooperative denaturation effects in long DNA that
-        # do not apply to short primer-template duplexes. We use -2.5 C/M
-        # as the midpoint of the Lesnick (1995) range.
+        # CORRECTED 2026-09-14. Hutton (1977) reports -2.25 C/M over 0-8 M,
+        # not the -5.0 C/M previously attributed to it here, so the "discrepancy"
+        # this comment explained did not exist. Lesnick & Bhalla (1995) could
+        # not be located from the details given, so the midpoint-of-their-range
+        # derivation cannot be checked. -2.5 happens to sit near Hutton's
+        # figure; its stated provenance was wrong and the agreement is not
+        # evidence for the reasoning that produced it.
         "ref_coef": -2.5,  # C per M (Lesnick 1995, short oligos)
         "ref_temp": 310.15,  # K (37C)
         "activation_energy": 2000.0,  # J/mol (estimated from Hutton 1977 multi-temp data)
         "max_concentration": 2.0,  # M
         "gc_dependent": True,
         "gc_preference": 1.3,  # 30% stronger effect on GC-rich sequences
+        "evidence": "extrapolated",
+        "source": "Hutton 1977 (NAR 4:3537) reports -2.25 C/M over 0-8 M, NOT the -5.0 C/M previously attributed to it here. Lesnick & Bhalla 1995 could not be located from the details given. -2.5 is near Hutton; its provenance was not.",
         "description": "Preferentially destabilizes GC base pairs",
     },
     "tmac": {
@@ -113,6 +126,8 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         "max_concentration": 0.1,  # M (practical SWGA range)
         "gc_dependent": True,
         "gc_equalization_conc": 3.0,  # M for full GC independence (Melchior 1973)
+        "evidence": "extrapolated",
+        "source": "High-concentration isostabilisation is a literature anchor. A uniform term interpolated down to the configured 0-0.1 M range is an extension, not a validated short-oligo SWGA correction.",
         "description": "Equalizes AT/GC Tm, isostabilizing agent",
     },
     "propanediol": {
@@ -130,6 +145,8 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         "activation_energy": 2000.0,  # J/mol (ESTIMATED; no multi-temp data)
         "max_concentration": 1.5,  # M
         "gc_dependent": False,
+        "evidence": "measured",
+        "source": "Horakova 2011 (doi 10.1186/1472-6750-11-41) reports a 4.9-5.9 C shift at 1 M on a short duplex. The closest direct match in this table; still a local midpoint rather than a validated linear model across doses.",
         "description": "GC-rich enhancer; strong Tm depression per mole",
     },
     "ethanol": {
@@ -138,6 +155,8 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
         "activation_energy": 2200.0,  # J/mol (estimated)
         "max_concentration": 5.0,  # %
         "gc_dependent": False,
+        "evidence": "unsupported",
+        "source": "",
         "description": "Reduces secondary structure formation",
     },
 }
