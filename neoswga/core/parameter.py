@@ -918,6 +918,10 @@ def _apply_params_only_keys(data: dict) -> None:
     global max_mismatches
     global sampled_index_path
     global optimization_method
+    global mismatch_penalty
+    global max_homopolymer_run
+    global gc_clamp_window
+    global max_gc_in_clamp
 
     allow_dimer_relaxation = data["allow_dimer_relaxation"] = data.get(
         "allow_dimer_relaxation", False
@@ -937,6 +941,20 @@ def _apply_params_only_keys(data: dict) -> None:
     # for. Left as None when absent, so `resolve_optimization_method` can
     # tell "not configured" from "configured as hybrid".
     optimization_method = data["optimization_method"] = data.get("optimization_method")
+    # Four more of the same class, found by the audit of 2026-09-14. Each was
+    # declared in the schema, validated, rendered into the parameter reference
+    # and assigned to no global, so the `getattr(parameter, name, default)`
+    # readers written for them always took their fallback.
+    #
+    # `mismatch_penalty` is the sharpest: `occupancy.default_mismatch_penalty`
+    # was written as its first consumer and its docstring says so, and it
+    # received None on every call. The other three are read by `filter`'s
+    # sequence-quality rules. Left as None when absent, so each reader's own
+    # default still applies and no delivered design moves.
+    mismatch_penalty = data["mismatch_penalty"] = data.get("mismatch_penalty")
+    max_homopolymer_run = data["max_homopolymer_run"] = data.get("max_homopolymer_run")
+    gc_clamp_window = data["gc_clamp_window"] = data.get("gc_clamp_window")
+    max_gc_in_clamp = data["max_gc_in_clamp"] = data.get("max_gc_in_clamp")
 
 
 def _warn_about_schema_version(data):

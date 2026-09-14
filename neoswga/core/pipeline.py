@@ -457,28 +457,6 @@ def validate_index_covers_candidates(cache, fg_prefixes, n_candidates, refuse) -
     )
 
 
-defaults = {
-    "min_fg_freq": float(1 / 100000),
-    "max_bg_freq": float(1 / 200000),
-    "max_gini": 0.7,
-    "max_primer": 500,
-    "min_amp_pred": 10,
-    "min_tm": 15,
-    "max_tm": 45,
-    "max_dimer_bp": 3,
-    "max_self_dimer_bp": 4,
-    "selection_metric": "deterministic",
-    "iterations": 8,
-    "top_set_count": 10,
-    "retries": 5,
-    "max_sets": 5,
-    "fg_circular": True,
-    "bg_circular": False,
-    "drop_iterations": 5,
-    "verbose": False,
-    "cpus": int(multiprocessing.cpu_count()),
-}
-
 # Module-level variables (will be initialized lazily)
 _initialized = False
 # Tracks the params.json used at the last _initialize() so a changed path

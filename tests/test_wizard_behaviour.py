@@ -320,7 +320,10 @@ def test_background_and_blacklist_paths_are_written_absolute(
 
     assert config["bg_genomes"] == [str(at_rich_fasta.resolve())]
     assert config["bl_genomes"] == [str(gc_rich_fasta.resolve())]
-    assert config["bl_penalty"] > 0
+    # The wizard no longer writes `bl_penalty`. It was retired on 2026-09-14
+    # because no scoring code read it, so generating it put a key in every
+    # wizard config that did nothing. `max_bl_freq` is the setting that works.
+    assert "bl_penalty" not in config
 
 
 # ----------------------------------------------------------------------

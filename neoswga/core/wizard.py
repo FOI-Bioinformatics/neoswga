@@ -645,7 +645,6 @@ class SetupWizard:
             config["bl_prefixes"] = [
                 str(Path(output_dir) / f"bl_{p.stem}") for p in self.blacklist_paths
             ]
-            config["bl_penalty"] = 5.0
             config["max_bl_freq"] = 0.0
 
         return config

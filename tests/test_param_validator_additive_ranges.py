@@ -36,7 +36,9 @@ def _has_range_error(messages, param):
         "mg_conc",
         "gc_tolerance",
         "genome_gc",
-        "bl_penalty",
+        # `bl_penalty` was retired on 2026-09-14: it was declared in the
+        # schema, range-validated here, written by the wizard, and read by no
+        # scoring code. Nothing implemented the penalty it named.
         "max_bl_freq",
     ],
 )

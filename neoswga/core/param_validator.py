@@ -103,7 +103,6 @@ PARAM_RANGES = {
     "target_set_size": (1, 200),
     "iterations": (1, 100),
     "max_sets": (1, 100),
-    "bl_penalty": (0.0, 100.0),
     "max_bl_freq": (0.0, 1.0),
     "cpus": (1, 128),
 }

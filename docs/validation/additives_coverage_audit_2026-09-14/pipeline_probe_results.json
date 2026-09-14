@@ -1,0 +1,44 @@
+{
+  "diagnostic_primer": "ATCGATCGATCG",
+  "conditions": {
+    "temp": 30,
+    "dmso_percent": 5,
+    "betaine_m": 1,
+    "trehalose_m": 0.0,
+    "formamide_percent": 0.0,
+    "glycerol_percent": 0.0,
+    "bsa_ug_ml": 0.0,
+    "peg_percent": 0.0,
+    "ethanol_percent": 0.0,
+    "urea_m": 0.0,
+    "tmac_m": 0.0,
+    "propanediol_m": 0.0,
+    "na_conc": 50,
+    "mg_conc": 10,
+    "k_conc": 0.0,
+    "nh4_conc": 0.0,
+    "dntp_conc": 0.0,
+    "dtt_mm": 4.0,
+    "ssb": false,
+    "polymerase": "phi29"
+  },
+  "tm_celsius": {
+    "canonical": 43.84750778472062,
+    "network": 34.91562722219055,
+    "secondary_screen": 47.71743971891863
+  },
+  "wmel_candidates": {
+    "step2": 2000,
+    "step3": 2000,
+    "same_sequences": true,
+    "funnel": {
+      "total_kmers": 874596,
+      "after_fg_frequency": 874596,
+      "after_bg_frequency": 706756,
+      "after_thermodynamic": 491836,
+      "after_gini": 20670,
+      "after_max_primer_cut": 2000,
+      "final_candidates": 2000
+    }
+  }
+}
