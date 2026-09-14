@@ -108,7 +108,17 @@ def test_exports_only_qualifying_panels(tmp_path):
     result = plan_pool(Optimizer(), [A, C, AC], [1, 2, 3], [0.9, 0.99], min_selectivity_density=10)
     path = write_pool_plan(result, tmp_path)
     assert path.exists()
-    assert (tmp_path / "pool_sizes.png").stat().st_size > 0
+    # The figure needs matplotlib, which lives in the `viz` extra rather than
+    # the base install, so it is drawn when available and skipped when not.
+    # See test_the_report_is_written_without_matplotlib.
+    try:
+        import matplotlib  # noqa: F401
+
+        drawable = True
+    except ImportError:
+        drawable = False
+    if drawable:
+        assert (tmp_path / "pool_sizes.png").stat().st_size > 0
     assert (tmp_path / "target_90pct_oligos.fasta").read_text().count(">") == 3
     assert not (tmp_path / "target_99pct_oligos.fasta").exists()
 
@@ -303,3 +313,40 @@ def test_report_refuses_to_export_something_that_is_not_an_oligo(tmp_path):
     with pytest.raises(ValueError, match="A, C, G and T"):
         write_pool_plan(plan, destination)
     assert not destination.exists()
+
+
+def test_the_report_is_written_without_matplotlib(tmp_path, monkeypatch):
+    """matplotlib is in the `viz` extra, not the base install.
+
+    `pool_plan_report` imported it unconditionally, so `plan-pool` and
+    `report-pool` raised ModuleNotFoundError for anyone who had not installed
+    that extra. Continuous integration installs only the dev extra and caught
+    it; a local environment with matplotlib present could not.
+
+    The figure is the only output that needs plotting. Everything a reader acts
+    on -- the recommended panel sizes, the oligo FASTAs, the CSV and the JSON --
+    is computed without it.
+    """
+    import builtins
+
+    from neoswga.core.pool_plan_report import write_pool_plan
+
+    real_import = builtins.__import__
+
+    def without_matplotlib(name, *args, **kwargs):
+        if name == "matplotlib" or name.startswith("matplotlib."):
+            raise ImportError("No module named 'matplotlib'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_matplotlib)
+
+    output = tmp_path / "report"
+    page = write_pool_plan(_saved_plan(), output).read_text()
+
+    assert not (output / "pool_sizes.png").exists()
+    assert "<img" not in page, "the page must not point at a figure it has not written"
+    assert "matplotlib is not installed" in page
+    # The outputs that carry the actual result are all present.
+    assert (output / "pool_plan.json").is_file()
+    assert (output / "pool_sizes.csv").is_file()
+    assert (output / "target_90pct_oligos.fasta").is_file()

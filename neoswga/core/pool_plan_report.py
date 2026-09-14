@@ -3,7 +3,10 @@
 import csv
 import html
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _PLAN_KEYS = {
     "rows",
@@ -80,13 +83,30 @@ def _write_figure(plan, rows, output):
     """Draw the coverage and specificity scatter for a saved plan.
 
     Split out of `write_pool_plan` so that function stays inside the project's
-    function-length budget; it is one self-contained unit with no return value
-    beyond the file it writes.
-    """
-    import matplotlib
+    function-length budget.
 
-    matplotlib.use("Agg")
-    from matplotlib import pyplot as plt
+    matplotlib is an optional dependency, in the `viz` extra rather than the
+    base install, and this module imported it unconditionally. A user who had
+    not installed that extra got a `ModuleNotFoundError` from `plan-pool` and
+    `report-pool` instead of a report. The rest of the report -- the JSON, the
+    CSV, the oligo FASTAs and every number in the page -- needs no plotting, so
+    its absence costs one image and nothing else.
+
+    Returns True when the figure was written, so the page can omit the `<img>`
+    rather than pointing at a file that is not there.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        from matplotlib import pyplot as plt
+    except ImportError:
+        logger.info(
+            "matplotlib is not installed, so %s holds no figure. "
+            "Install the 'viz' extra for it; every other output is unaffected.",
+            output / "pool_sizes.png",
+        )
+        return False
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
     fig.suptitle(plan.get("title", "Oligo pool design"))
@@ -135,6 +155,7 @@ def _write_figure(plan, rows, output):
     )
     fig.savefig(output / "pool_sizes.png", dpi=160)
     plt.close(fig)
+    return True
 
 
 def write_pool_plan(plan, output):
@@ -186,7 +207,7 @@ def write_pool_plan(plan, output):
             f'(<a href="{name}">FASTA</a>).</li>'
         )
     rows = [r for r in plan["rows"] if r.get("coverage") is not None]
-    _write_figure(plan, rows, output)
+    figure_written = _write_figure(plan, rows, output)
     table = []
     for r in plan["rows"]:
         coverage = f"{r['coverage']:.1%}" if r.get("coverage") is not None else "unavailable"
@@ -247,6 +268,13 @@ def write_pool_plan(plan, output):
         if best
         else "No evaluated panel passed all specified constraints."
     )
+    figure_html = (
+        '<img src="pool_sizes.png" alt="Estimated coverage and specificity ' 'versus oligo count">'
+        if figure_written
+        else "<p><em>No figure: matplotlib is not installed. Install the "
+        "<code>viz</code> extra to include one; every number below is "
+        "unaffected.</em></p>"
+    )
     sweep = plan.get("reach_sensitivity") or []
     if sweep:
         sweep_cells = []
@@ -297,7 +325,7 @@ Minimum site-density ratio: {density_limit}; maximum exact background sites: {ba
 <details><summary>Design inputs and settings</summary><table>{context_html}</table></details>
 <h2>Smallest qualifying pools found</h2><ul>{"".join(targets)}</ul>
 <p>{best_text}</p>
-<img src="pool_sizes.png" alt="Estimated coverage and specificity versus oligo count">
+{figure_html}
 {sensitivity_html}
 {scope_html}
 <h2>Evaluated panels</h2><table><tr><th>Requested</th><th>Delivered</th><th>Coverage</th><th>Density ratio</th><th>Background sites</th><th>Constraints</th></tr>{"".join(table)}</table>
