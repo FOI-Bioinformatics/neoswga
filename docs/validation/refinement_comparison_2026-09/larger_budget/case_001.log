@@ -1,0 +1,14 @@
+INFO:neoswga.core.position_cache:Loading positions for 2000 primers from 2 genomes...
+INFO:neoswga.core.position_cache:Loaded 8000 position arrays into memory
+INFO:neoswga.core.position_cache:Cache statistics:
+INFO:neoswga.core.position_cache:  Entries: 8000
+INFO:neoswga.core.position_cache:  Memory: 0.1 MB
+INFO:neoswga.core.position_cache:  Primers: 2000
+INFO:neoswga.core.dominating_set_optimizer:Bin size reduced 10,000 -> 750 bp to match the 3,000 bp extension reach
+INFO:neoswga.core.hybrid_optimizer:Hybrid optimizer initialized
+INFO:neoswga.core.hybrid_optimizer:  Polymerase: phi29
+INFO:neoswga.core.hybrid_optimizer:  Bin size: 10,000 bp
+INFO:neoswga.core.hybrid_optimizer:  Max extension: 70,000 bp
+INFO:neoswga.core.hybrid_optimizer:  Background pruning: enabled (weight=2.0)
+INFO:neoswga.core.hybrid_optimizer:Swap refinement: 4 swaps, 100000 evaluations, stopped at evaluation_limit
+INFO:neoswga.core.dominating_set_optimizer:Bin size reduced 10,000 -> 750 bp to match the 3,000 bp extension reach

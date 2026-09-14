@@ -51,6 +51,29 @@ Writes `gap_results.json`: greedy coverage, ILP optimum, LP bound, the gap, and
 the distribution of N random sets of the same size as a floor. Run it from the
 working directory, since `PositionCache` resolves HDF5 prefixes relative to cwd.
 
+### `compare_refinement.py` -- saved-pool refinement comparison
+
+Runs each network/swap comparison in a fresh sequential process, without
+modifying input pools or pipeline outputs. Records complete primer panels,
+independent coverage and background metrics, optimizer and process timing,
+worker peak RSS, source/input hashes and per-run logs. This benchmarks the
+library optimizer, not the complete CLI pipeline.
+
+```bash
+python scripts/benchmarking/compare_refinement.py \
+  --params tests/validation/genomes/params.json \
+  --pools tests/validation/genomes/out10/step3_df.csv \
+  --sizes 6 12 --repeats 2 --background-aware --timeout 60 \
+  --output /tmp/refinement-comparison-new
+```
+
+Use `--modes swap --evaluations 100000` for a larger-budget check. Output
+directories must be new. `--timeout` covers a complete worker;
+`--search-seconds` covers only the cooperative swap search.
+
+See [the measured comparison](../../docs/validation/refinement_real_pools_2026-09.md)
+for the available real-genome pools and the limits of those measurements.
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate

@@ -48,15 +48,22 @@ print(f"reach={reach} bin_size={bin_size}", flush=True)
 
 t0 = time.time()
 cache = PositionCache(fname_prefixes=fg_prefixes, primers=cands)
-print(f"cache built in {time.time()-t0:.1f}s", flush=True)
+print(f"cache built in {time.time() - t0:.1f}s", flush=True)
 
 opt = DominatingSetOptimizer(
-    cache, fg_prefixes, fg_lengths, bin_size=bin_size, extension_reach=reach
+    cache,
+    fg_prefixes,
+    fg_lengths,
+    bin_size=bin_size,
+    extension_reach=reach,
+    max_dimer_bp=params.get("max_dimer_bp", 3),
 )
 
 primer_to_bins, bin_weight, total_bases = build_bin_coverage(opt, cands)
-print(f"primers with bins: {len(primer_to_bins)}  bins: {len(bin_weight)}  "
-      f"genome: {total_bases}", flush=True)
+print(
+    f"primers with bins: {len(primer_to_bins)}  bins: {len(bin_weight)}  genome: {total_bases}",
+    flush=True,
+)
 
 
 def bases_of(selected):
@@ -76,11 +83,26 @@ for S in SIZES:
     greedy_s = time.time() - t
     greedy_cov = bases_of(g.get("primers", [])) / total_bases
 
+    from neoswga.core.dimer_matrix import build
+    from neoswga.core.swap_refinement import refine_by_swaps
+
+    swap_start = time.monotonic()
+    swapped = refine_by_swaps(
+        g["primers"],
+        cands,
+        primer_to_bins,
+        bin_weight,
+        build(cands, opt.max_dimer_bp),
+        max_evaluations=10000,
+        max_seconds=10.0,
+    )
+    swap_seconds = time.monotonic() - swap_start
     b = coverage_bounds(opt, cands, budget=S, max_seconds=600)
     ilp, lp = b["ilp"], b["lp"]
 
-    rnd = sorted(bases_of(rng.sample(pool, min(S, len(pool)))) / total_bases
-                 for _ in range(N_RANDOM))
+    rnd = sorted(
+        bases_of(rng.sample(pool, min(S, len(pool)))) / total_bases for _ in range(N_RANDOM)
+    )
     rnd_med = rnd[len(rnd) // 2]
     rnd_best = rnd[-1]
     better = sum(1 for r in rnd if r >= greedy_cov)
@@ -89,16 +111,24 @@ for S in SIZES:
         "budget": S,
         "greedy_coverage": round(greedy_cov, 6),
         "greedy_seconds": round(greedy_s, 2),
-        "ilp_optimum": round(ilp.coverage, 6),
+        "swap_coverage": swapped.covered_bases / total_bases,
+        "swap_seconds": swap_seconds,
+        "swap_evaluations": swapped.evaluations,
+        "swap_stop_reason": swapped.stop_reason,
+        "dimer_limit": opt.max_dimer_bp,
+        "ilp_incumbent": round(ilp.coverage, 6) if ilp.coverage is not None else None,
         "ilp_proven_optimal": ilp.proven_optimal,
         "ilp_status": ilp.status,
         "ilp_seconds": round(ilp.seconds, 1),
-        "lp_bound": round(lp.coverage, 6),
+        "lp_bound": round(lp.coverage_upper_bound, 6)
+        if lp.coverage_upper_bound is not None
+        else None,
         "gap_pct": round((ilp.coverage - greedy_cov) / ilp.coverage * 100, 3)
-        if ilp.coverage else None,
-        "random_median": round(rnd_med, 6),
-        "random_best_of_n": round(rnd_best, 6),
-        "random_beating_greedy": better,
+        if ilp.proven_optimal and ilp.coverage
+        else None,
+        "unconstrained_random_median": round(rnd_med, 6),
+        "unconstrained_random_best_of_n": round(rnd_best, 6),
+        "unconstrained_random_beating_greedy": better,
         "n_random": N_RANDOM,
     }
     rows.append(row)

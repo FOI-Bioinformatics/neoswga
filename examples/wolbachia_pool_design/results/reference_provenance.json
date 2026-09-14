@@ -1,0 +1,16 @@
+[
+  {
+    "file": "wmel.fna",
+    "accession": "NC_002978.6",
+    "sha256": "7d7ff6a8673dd7de71a9385966fb5d6b4114649b3c23850e9f7647858990142a",
+    "records": 1,
+    "bases": 1267782
+  },
+  {
+    "file": "drosophila.fna",
+    "accession": "GCF_000001215.4",
+    "sha256": "4e14dbd8ea213a19ebf27057ab62a57ca83951e79ae0c2501ae4c460b7c3d415",
+    "records": 1870,
+    "bases": 143726002
+  }
+]

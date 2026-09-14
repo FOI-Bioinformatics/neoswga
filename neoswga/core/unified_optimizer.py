@@ -88,6 +88,10 @@ class OptimizationConfig:
     quiet: bool = False
 
     # Advanced options
+    allow_dimer_relaxation: bool = False
+    refinement_method: str = "network"
+    swap_max_evaluations: int = 10000
+    swap_max_seconds: float = 10.0
     uniformity_weight: float = 0.0
     minimize_primers: bool = False
     target_coverage: float = 0.70
@@ -561,6 +565,10 @@ def _build_optimizer_config(
         extension_reach=extension_reach,
         fg_circular=fg_circular,
         max_dimer_bp=pick("max_dimer_bp", 4),
+        allow_dimer_relaxation=pick("allow_dimer_relaxation", False),
+        refinement_method=pick("refinement_method", "network"),
+        swap_max_evaluations=pick("swap_max_evaluations", 10000),
+        swap_max_seconds=pick("swap_max_seconds", 10.0),
         max_self_dimer_bp=pick("max_self_dimer_bp", 5),
         # `parameter.max_mismatches` is assigned by _apply_params_only_keys and
         # `base_optimizer._weighted_loads` reads `self.config.max_mismatches`,
@@ -1228,6 +1236,15 @@ def run_optimization(
     # the user configured. The optimizers penalise dimers (except clique, which
     # constrains them), but a penalty can be outweighed, so the only way to know
     # what came back is to measure it.
+    if validation is not None:
+        validation["dimer_policy"] = (
+            "allow-relaxation" if config.allow_dimer_relaxation else "strict"
+        )
+        validation["refinement_method"] = config.refinement_method
+        validation["swap_max_evaluations"] = config.swap_max_evaluations
+        validation["swap_max_seconds"] = config.swap_max_seconds
+        validation["requested_primers"] = target_size
+        validation["delivered_primers"] = len(result.primers)
     if validation is not None and result.primers:
         _dimer_issue = dimer_validation_issue(
             list(result.primers), getattr(config, "max_dimer_bp", None)
@@ -1301,6 +1318,10 @@ def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResu
     """
     return run_optimization(
         method=config.method,
+        allow_dimer_relaxation=config.allow_dimer_relaxation,
+        refinement_method=config.refinement_method,
+        swap_max_evaluations=config.swap_max_evaluations,
+        swap_max_seconds=config.swap_max_seconds,
         fg_prefixes=config.fg_prefixes,
         fg_seq_lengths=config.fg_seq_lengths,
         bg_prefixes=config.bg_prefixes,

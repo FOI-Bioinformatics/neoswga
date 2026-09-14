@@ -113,3 +113,11 @@ def test_a_threshold_the_matrix_cannot_represent_does_not_silently_disable_it():
     primers = [PAIR_A, PAIR_B, *SAFE]
     with pytest.raises(ValueError):
         _optimizer(primers, max_dimer_bp=9).optimize_greedy(primers, num_primers=3)
+
+
+def test_explicit_relaxation_can_admit_the_pair(caplog):
+    optimizer = _optimizer([PAIR_A, PAIR_B])
+    optimizer.allow_dimer_relaxation = True
+    selected = optimizer.optimize_greedy([PAIR_A, PAIR_B], num_primers=2)
+    assert set(selected) == {PAIR_A, PAIR_B}
+    assert "unscreened against the already-selected set" in caplog.text
