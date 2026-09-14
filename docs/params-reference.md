@@ -30,7 +30,6 @@ neoswga schema --dump > params.schema.json
 | `bg_prefixes` | array of string | - | - | - |
 | `bg_seq_lengths` | array of integer | - | - | - |
 | `bl_genomes` | array of string | - | - | Blacklist genomes; primers matching these are penalized or rejected. |
-| `bl_penalty` | number | min: 0.0; max: 100.0 | `5.0` | Penalty weight applied to blacklist matches. |
 | `bl_prefixes` | array of string | - | - | - |
 | `bl_seq_lengths` | array of integer | - | - | - |
 | `bloom_filter_path` | string or null | - | - | - |
@@ -39,7 +38,6 @@ neoswga schema --dump > params.schema.json
 | `cpus` | integer | min: 1; max: 128 | - | - |
 | `dmso_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |
 | `dntp_conc` | number | min: 0.0; max: 10.0 | `0.0` | Total dNTP concentration (mM, sum of all four). Chelates Mg2+ roughly 1:1, lowering free Mg2+. |
-| `drop_iterations` | integer | min: 0; max: 100 | - | - |
 | `dtt_mm` | number | min: 0.0; max: 20.0 | `0.0` | DTT concentration (mM). Recorded for protocol completeness; no melting-temperature term. |
 | `ethanol_percent` | number | min: 0.0; max: 5.0 | `0.0` | - |
 | `excl_genomes` | array of string | - | - | Zero-tolerance exclusion genomes (e.g., mtDNA). |
@@ -89,18 +87,15 @@ neoswga schema --dump > params.schema.json
 | `propanediol_m` | number | min: 0.0; max: 1.5 | `0.0` | 1,2-propanediol (M). GC-rich enhancer; ~5.4 C Tm depression per M (Horakova 2011). Typical 1 M. |
 | `reaction_temp` | number | min: 20.0; max: 70.0 | - | - |
 | `refinement_method` | string | one of: network, swap | `network` | - |
-| `retries` | integer | min: 0; max: 100 | - | - |
 | `sample_rate` | number or null | min: 0.001; max: 1.0 | - | - |
 | `sampled_index_path` | string | - | - | Path to a pre-built sampled background index, used when use_bloom_filter is set and no index is found beside the Bloom filter. Overridden by --sampled-index-path. |
 | `schema_version` | integer | min: 1; max: 2 | `2` | Version of this schema the file was written for. Version 2 corrected several scientific constants (Klenow processivity, phi29 extension rate, the Mg2+ activity model, the AG/TC nearest-neighbour parameter) and changed the mg_conc default from 0.0 to the polymerase buffer value; a v1 file still runs but produces different numbers. |
-| `selection_metric` | string | one of: deterministic, random, stochastic | - | - |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
 | `ssb` | boolean | - | `False` | Single-stranded binding protein present. Previously accepted by the CLI but absent from this schema. |
 | `swap_max_evaluations` | integer | min: 0 | `10000` | - |
 | `swap_max_seconds` | number | min: 0 | `10.0` | - |
 | `target_set_size` | integer | min: 1; max: 200 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
-| `top_set_count` | integer | min: 1; max: 100 | - | - |
 | `trehalose_m` | number | min: 0.0; max: 1.0 | `0.0` | - |
 | `urea_m` | number | min: 0.0; max: 2.0 | `0.0` | - |
 | `use_bloom_filter` | boolean | - | `False` | - |

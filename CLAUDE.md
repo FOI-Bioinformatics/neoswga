@@ -532,18 +532,23 @@ with h5py.File('positions.h5', 'r') as f:
    point sees nothing. Tests:
    `tests/test_optimization_method_routes_from_params.py`.
 
-   It is NOT the last instance of its class -- a config key or flag that is
+   It was NOT the last instance of its class -- a config key or flag that is
    documented, accepted, and read by nothing. An audit on 2026-09-14 found ten
-   more, and `additionalProperties: true` means none of them warns.
+   more. The class is now closed, and held closed by a ratchet.
 
-   Still open: `mismatch_penalty`, `retries`, `drop_iterations`,
-   `top_set_count` and `selection_metric` never bind a module global at all, so
-   every reader takes its fallback (`hasattr(parameter, name)` is False for each
-   of the five). `occupancy.default_mismatch_penalty` was written as the first
-   consumer of the first of those and still receives nothing. `bl_penalty` binds
-   a global, is range-validated, and no scoring code reads it. The last four
-   appear only as entries in an unread defaults dict at
-   `core/pipeline.py:454-461`.
+   Closed on 2026-09-14 in the two ways available. Wired, because each already
+   had a reader taking its fallback: `mismatch_penalty` (whose consumer
+   `occupancy.default_mismatch_penalty` was written for it and received None on
+   every call), `max_homopolymer_run`, `gc_clamp_window` and `max_gc_in_clamp`.
+   Retired from the schema, because nothing implemented what they named:
+   `retries`, `drop_iterations`, `top_set_count`, `selection_metric` and
+   `bl_penalty`. The first four appeared only in a module-level `defaults` dict
+   in `core/pipeline.py` that itself had no reader; the dict is gone. Setting
+   any of the five now produces the unknown-key warning rather than silence.
+
+   `tests/test_no_schema_key_is_inert.py` is the ratchet: every schema key must
+   bind a `parameter` global or appear on a short list of keys consumed during
+   loading, each with its reason.
 
    Fixed on 2026-09-14: `filter --gc-tolerance`, `filter --excl-threshold`,
    `expand-primers --optimization-method` and

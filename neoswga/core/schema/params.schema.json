@@ -97,13 +97,6 @@
         "minimum": 1
       }
     },
-    "bl_penalty": {
-      "type": "number",
-      "minimum": 0.0,
-      "maximum": 100.0,
-      "default": 5.0,
-      "description": "Penalty weight applied to blacklist matches."
-    },
     "max_bl_freq": {
       "type": "number",
       "minimum": 0.0,
@@ -333,9 +326,24 @@
       "maximum": 100.0,
       "default": 45.0
     },
-    "refinement_method": {"type": "string", "enum": ["network", "swap"], "default": "network"},
-    "swap_max_evaluations": {"type": "integer", "minimum": 0, "default": 10000},
-    "swap_max_seconds": {"type": "number", "minimum": 0, "default": 10.0},
+    "refinement_method": {
+      "type": "string",
+      "enum": [
+        "network",
+        "swap"
+      ],
+      "default": "network"
+    },
+    "swap_max_evaluations": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 10000
+    },
+    "swap_max_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "default": 10.0
+    },
     "allow_dimer_relaxation": {
       "type": "boolean",
       "default": false,
@@ -381,29 +389,6 @@
       "minimum": 1,
       "maximum": 100,
       "default": 5
-    },
-    "retries": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 100
-    },
-    "drop_iterations": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 100
-    },
-    "top_set_count": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 100
-    },
-    "selection_metric": {
-      "type": "string",
-      "enum": [
-        "deterministic",
-        "random",
-        "stochastic"
-      ]
     },
     "optimization_method": {
       "type": "string",
