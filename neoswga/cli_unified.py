@@ -96,6 +96,8 @@ COMMAND_GROUPS = [
             "filter",
             "score",
             "optimize",
+            "plan-pool",
+            "report-pool",
             "design",
         ],
     ),
@@ -215,6 +217,7 @@ Run "neoswga <command> --help" for details on a specific command.
         evaluate,
         iterate,
         pipeline,
+        plan_pool,
         registry,
         report,
         setup,
@@ -222,6 +225,7 @@ Run "neoswga <command> --help" for details on a specific command.
     )
 
     pipeline.add_parsers(subparsers)
+    plan_pool.add_parsers(subparsers)
     evaluate.add_parsers(subparsers)
     setup.add_parsers(subparsers)
     report.add_parsers(subparsers)
@@ -282,6 +286,7 @@ from neoswga.cli.pipeline import (  # noqa: E402,F401
     run_step3,
     run_step4,
 )
+from neoswga.cli.plan_pool import run_plan_pool, run_report_pool  # noqa: E402,F401
 from neoswga.cli.registry import (  # noqa: E402,F401
     run_background_add,
     run_background_list,
@@ -331,6 +336,8 @@ def main():
         "filter": run_step2,
         "score": run_step3,
         "optimize": run_step4,
+        "plan-pool": run_plan_pool,
+        "report-pool": run_report_pool,
         # Unified pipeline
         "design": run_design,
         # Utility commands

@@ -333,6 +333,14 @@
       "maximum": 100.0,
       "default": 45.0
     },
+    "refinement_method": {"type": "string", "enum": ["network", "swap"], "default": "network"},
+    "swap_max_evaluations": {"type": "integer", "minimum": 0, "default": 10000},
+    "swap_max_seconds": {"type": "number", "minimum": 0, "default": 10.0},
+    "allow_dimer_relaxation": {
+      "type": "boolean",
+      "default": false,
+      "description": "Allow greedy selection to exceed the pairwise dimer limit when stalled. Clique remains strict."
+    },
     "max_dimer_bp": {
       "type": "integer",
       "minimum": 1,
@@ -443,6 +451,11 @@
     "min_sample_count": {
       "type": "integer",
       "minimum": 1
+    },
+    "verbose": {
+      "type": "boolean",
+      "default": false,
+      "description": "Log the intermediate filter frames. Assigned in parameter.py and read by core/pipeline.py; it was absent from this schema, so four shipped configs that set it warned as if it were a typo."
     },
     "cpus": {
       "type": "integer",

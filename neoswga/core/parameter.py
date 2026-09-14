@@ -351,6 +351,10 @@ class PipelineParameters:
 
     # Dimer constraints
     max_dimer_bp: int = 3
+    allow_dimer_relaxation: bool = False
+    refinement_method: str = "network"
+    swap_max_evaluations: int = 10000
+    swap_max_seconds: float = 10.0
     max_self_dimer_bp: int = 4
 
     # GC content filtering
@@ -472,6 +476,10 @@ def get_current_config() -> PipelineParameters:
         max_primer=globals().get("max_primer", 500),
         min_amp_pred=globals().get("min_amp_pred", 10.0),
         max_dimer_bp=globals().get("max_dimer_bp", 3),
+        allow_dimer_relaxation=globals().get("allow_dimer_relaxation", False),
+        swap_max_seconds=globals().get("swap_max_seconds", 10.0),
+        swap_max_evaluations=globals().get("swap_max_evaluations", 10000),
+        refinement_method=globals().get("refinement_method", "network"),
         max_self_dimer_bp=globals().get("max_self_dimer_bp", 4),
         gc_min=globals().get("gc_min", 0.375),
         gc_max=globals().get("gc_max", 0.625),
@@ -555,6 +563,10 @@ def set_from_config(config: PipelineParameters) -> None:
 
     # Dimer constraints
     g["max_dimer_bp"] = config.max_dimer_bp
+    g["allow_dimer_relaxation"] = config.allow_dimer_relaxation
+    g["swap_max_seconds"] = config.swap_max_seconds
+    g["swap_max_evaluations"] = config.swap_max_evaluations
+    g["refinement_method"] = config.refinement_method
     g["max_self_dimer_bp"] = config.max_self_dimer_bp
 
     # GC content filtering
@@ -896,6 +908,10 @@ def _apply_params_only_keys(data: dict) -> None:
     onto this module after `pipeline._initialize()` has already called
     `get_params`, so the flag lands last.
     """
+    global refinement_method
+    global swap_max_evaluations
+    global swap_max_seconds
+    global allow_dimer_relaxation
     global coverage_reach
     global occupancy_ranking
     global occupancy_shortlist
@@ -903,6 +919,12 @@ def _apply_params_only_keys(data: dict) -> None:
     global sampled_index_path
     global optimization_method
 
+    allow_dimer_relaxation = data["allow_dimer_relaxation"] = data.get(
+        "allow_dimer_relaxation", False
+    )
+    refinement_method = data["refinement_method"] = data.get("refinement_method", "network")
+    swap_max_evaluations = data["swap_max_evaluations"] = data.get("swap_max_evaluations", 10000)
+    swap_max_seconds = data["swap_max_seconds"] = data.get("swap_max_seconds", 10.0)
     coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
     occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")

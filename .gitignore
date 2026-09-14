@@ -153,6 +153,10 @@ examples/**/*.h5
 examples/**/report.html
 examples/**/*.bedgraph
 examples/**/*_all.txt
+# The sidecar records the genome a k-mer table was counted from. The table it
+# describes is ignored on the line above, so committing the sidecar would ship a
+# provenance record for a file that is not in the repository.
+examples/**/*_all.provenance.json
 examples/**/export/
 examples/**/params_backup.json
 examples/**/run_manifest.json
@@ -172,6 +176,11 @@ examples/ecoli_environmental/ecoli_K12_MG1655.fasta
 
 # Local planning/spec scratch (not part of the package)
 docs/superpowers/
+
+# Per-machine Claude Code permission allowlist -- not shared project config.
+# Project-level skills under .claude/skills/ ARE tracked and are not matched
+# by this pattern.
+.claude/settings.local.json
 
 # Git worktrees
 .worktrees/

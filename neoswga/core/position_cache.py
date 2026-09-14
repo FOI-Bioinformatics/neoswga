@@ -129,6 +129,9 @@ class PositionCache:
         self.cache: Dict[Tuple[str, str, str], np.ndarray] = {}
         self.primers = set(primers)
         self.fname_prefixes = fname_prefixes
+        # prefix -> offsets at which each FASTA record starts, read from the
+        # position index. Empty for an index written before these were stored.
+        self.record_starts: Dict[str, List[int]] = {}
         # A set for the per-lookup check in `_check_prefix_is_indexed`, which
         # runs on every `get_positions` call.
         self._indexed_prefixes = set(fname_prefixes)
@@ -289,7 +292,17 @@ class PositionCache:
                         logger.warning(f"HDF5 file not found: {hdf5_path}")
                     continue
 
+                from .string_search import RECORD_STARTS_KEY
+
                 with h5py.File(hdf5_path, "r") as db:
+                    # Where each FASTA record starts, so a coverage window can
+                    # be confined to the record holding its site. Absent from
+                    # indexes written before 2026-09-14, which then behave as
+                    # they always did.
+                    if RECORD_STARTS_KEY in db:
+                        self.record_starts[fname_prefix] = [
+                            int(v) for v in np.array(db[RECORD_STARTS_KEY])
+                        ]
                     for primer in primer_list:
                         # Forward strand
                         if primer in db:
@@ -339,6 +352,15 @@ class PositionCache:
             f"on_missing='warn' if a zero really is the intended answer.",
             missing=[fname_prefix],
         )
+
+    def get_record_starts(self, fname_prefix: str) -> List[int]:
+        """Offsets at which each FASTA record begins, for one prefix.
+
+        Empty when the index predates these being stored, in which case the
+        coverage helpers behave as they did: windows are not confined to a
+        record. See `coverage._mark_window`.
+        """
+        return self.record_starts.get(fname_prefix, [])
 
     def get_positions(self, fname_prefix: str, primer: str, strand: str = "both") -> np.ndarray:
         """
@@ -667,6 +689,7 @@ class StreamingPositionCache:
             primers: Optional subset to preload (if small)
         """
         self.fname_prefixes = fname_prefixes
+        self.record_starts: Dict[str, List[int]] = {}
         self.file_handles: Dict[str, h5py.File] = {}
         self.preloaded: Dict[Tuple[str, str, str], np.ndarray] = {}
 

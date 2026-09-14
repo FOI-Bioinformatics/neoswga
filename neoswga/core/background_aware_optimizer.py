@@ -156,6 +156,10 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             tm_weight=kwargs.get("tm_weight", 0.0),
             dimer_penalty=kwargs.get("dimer_penalty", 0.0),
             max_dimer_bp=getattr(self.config, "max_dimer_bp", 4),
+            allow_dimer_relaxation=self.config.allow_dimer_relaxation,
+            refinement_method=self.config.refinement_method,
+            swap_max_evaluations=self.config.swap_max_evaluations,
+            swap_max_seconds=self.config.swap_max_seconds,
             template_gc=kwargs.get("template_gc", 0.5),
         )
 
@@ -209,7 +213,15 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             return OptimizationResult(
                 primers=tuple(primers),
                 score=result.final_predicted_amplification,
-                status=OptimizationStatus.SUCCESS if primers else OptimizationStatus.NO_CONVERGENCE,
+                status=(
+                    OptimizationStatus.NO_CONVERGENCE
+                    if not primers
+                    else (
+                        OptimizationStatus.PARTIAL
+                        if len(primers) < target
+                        else OptimizationStatus.SUCCESS
+                    )
+                ),
                 metrics=metrics,
                 iterations=3,  # Three stages
                 optimizer_name=self.name,

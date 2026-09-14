@@ -36,9 +36,7 @@ def _optimizer(bin_size=10000, extension_reach=0, genome_length=100000):
         "PRIMER4": np.array([55000]),
     }
     cache = Mock()
-    cache.get_positions = lambda prefix, primer, strand: positions_map.get(
-        primer, np.array([])
-    )
+    cache.get_positions = lambda prefix, primer, strand: positions_map.get(primer, np.array([]))
     return DominatingSetOptimizer(
         cache=cache,
         fg_prefixes=["genome1"],
@@ -153,3 +151,75 @@ class TestExtensionReachIsHonoured:
         extended = with_reach.optimize_ilp(CANDIDATES, max_primers=3, verbose=False)
 
         assert extended["coverage"] > flat["coverage"]
+
+
+def _conflicting_optimizer():
+    pair = ["AAGGTGCGAATA", "TATTCGCACCTT"]
+    cache = Mock()
+    cache.get_positions = lambda prefix, primer, strand: np.array(
+        [5000 if primer == pair[0] else 15000]
+    )
+    return DominatingSetOptimizer(cache, ["fg"], [20000], max_dimer_bp=3), pair
+
+
+def test_exact_solver_enforces_dimer_constraints():
+    opt, pair = _conflicting_optimizer()
+    strict = opt.optimize_ilp(pair, max_primers=2, verbose=False)
+    coverage_only = opt.optimize_ilp(pair, max_primers=2, verbose=False, enforce_dimers=False)
+    assert strict["coverage"] == pytest.approx(0.5)
+    assert strict["n_primers"] == 1
+    assert coverage_only["coverage"] == pytest.approx(1.0)
+    assert opt.coverage_upper_bound(pair, max_primers=2) == pytest.approx(0.5)
+
+
+def test_fixed_primers_are_included_in_total_budget():
+    opt, pair = _conflicting_optimizer()
+    result = opt.optimize_ilp([pair[0]], max_primers=1, fixed_primers=[pair[1]], verbose=False)
+    assert result["primers"] == [pair[1]]
+
+
+def test_incompatible_fixed_panel_reports_infeasibility_without_fake_zero():
+    opt, pair = _conflicting_optimizer()
+    result = opt.optimize_ilp(pair, max_primers=2, fixed_primers=pair, verbose=False)
+    assert not result["feasible"]
+    assert result["coverage"] is None
+    assert result["coverage_upper_bound"] is None
+    assert result["status"] in {"INFEASIBLE", "INT_INFEASIBLE"}
+
+
+def test_upper_bound_uses_solver_bound_not_incumbent(monkeypatch):
+    opt = _optimizer()
+    monkeypatch.setattr(
+        opt,
+        "_solve_max_coverage",
+        lambda *a, **k: {
+            "coverage": 0.3,
+            "coverage_upper_bound": 0.8,
+            "proven_optimal": False,
+        },
+    )
+    assert opt.coverage_upper_bound(CANDIDATES) == 0.8
+
+
+def test_zero_coverage_fixed_primer_still_consumes_budget():
+    opt, pair = _conflicting_optimizer()
+    opt.cache.get_positions = lambda prefix, primer, strand: np.array([])
+    result = opt.optimize_ilp(pair, max_primers=0, fixed_primers=[pair[0]], verbose=False)
+    assert not result["feasible"]
+
+
+def test_independent_benchmark_matches_constrained_library():
+    import importlib.util
+    from pathlib import Path
+    import sys
+
+    path = Path(__file__).resolve().parents[1] / "scripts/benchmarking/max_coverage_bound.py"
+    spec = importlib.util.spec_from_file_location("coverage_benchmark_test", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    opt, pair = _conflicting_optimizer()
+    benchmark = module.coverage_bounds(opt, pair, budget=2, max_seconds=10)
+    library = opt.optimize_ilp(pair, max_primers=2, verbose=False)
+    assert benchmark["ilp"].coverage == pytest.approx(library["coverage"])
+    assert benchmark["lp"].coverage_upper_bound == pytest.approx(0.5)

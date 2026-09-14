@@ -137,3 +137,32 @@ def test_the_aggregate_agrees_with_the_per_target_figures():
         f"fg_coverage={metrics.fg_coverage:.4f} against a per-target mean of "
         f"{expected:.4f} ({per_target})"
     )
+
+
+def test_effective_coverage_keeps_target_coordinate_spaces_separate():
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    single = _optimizer(1)
+    multiple = _optimizer(3)
+    single.conditions = multiple.conditions = ReactionConditions(temp=30.0)
+    one = single.compute_metrics(PRIMERS)
+    three = multiple.compute_metrics(PRIMERS)
+    assert one.effective_fg_coverage > 0
+    assert three.effective_fg_coverage == pytest.approx(one.effective_fg_coverage)
+
+
+@pytest.mark.parametrize(
+    "positions,circular,expected",
+    [
+        ([10, 70], False, [60, 10, 30]),
+        ([10, 70], True, [60, 40]),
+        ([30], False, [30, 70]),
+        ([30], True, [100]),
+        ([], False, [100]),
+        ([], True, [100]),
+    ],
+)
+def test_gap_geometry_matches_target_topology(positions, circular, expected):
+    optimizer = _optimizer(1)
+    optimizer.config.fg_circular = circular
+    assert optimizer._compute_gaps(positions, 100) == expected

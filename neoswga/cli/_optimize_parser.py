@@ -47,6 +47,33 @@ def _add_optimize_option_groups(parser):
         "unknown or unavailable.",
     )
 
+    parser.add_argument(
+        "--allow-dimer-relaxation",
+        action="store_true",
+        default=None,
+        help="Allow greedy selection to exceed max_dimer_bp when it stalls. "
+        "By default selection stops with a smaller set; clique remains strict.",
+    )
+
+    parser.add_argument(
+        "--refinement-method",
+        choices=["network", "swap"],
+        default=None,
+        help="Hybrid/background-aware refinement (default: network).",
+    )
+    parser.add_argument(
+        "--swap-max-evaluations",
+        type=int,
+        default=None,
+        help="Maximum swap evaluations (default: 10000).",
+    )
+    parser.add_argument(
+        "--swap-max-seconds",
+        type=float,
+        default=None,
+        help="Cooperative swap-search time limit; excludes preprocessing and reporting (default: 10).",
+    )
+
     # Performance
     opt_perf_group = parser.add_argument_group("Performance")
     opt_perf_group.add_argument(

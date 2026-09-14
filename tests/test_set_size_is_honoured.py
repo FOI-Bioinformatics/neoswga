@@ -18,7 +18,16 @@ filters and enlarge the pool. Neither was the problem; the tool had reduced its
 own target. That is the same failure acca6cc fixed by another route, and the
 same misdirection recorded in docs/validation/additive_specificity.md.
 
-An explicitly configured target now wins.
+An explicitly configured target now wins, in the sense this file tests: the
+tool does not quietly lower it before the search starts.
+
+It is NOT a guarantee of the delivered count. `num_primers` was settled as a
+REQUEST on 2026-09-14, so a panel may come back shorter than asked for when the
+pool cannot supply enough primers that are mutually compatible at
+`max_dimer_bp`. The two multiplier tests below therefore assert on the target
+`_rescale_for_polymerase` computes, and only bound the delivered panel from
+above. `tests/test_delivered_panel_honours_the_dimer_limit.py` holds the other
+half: short is allowed, silently short is not.
 """
 
 import logging
@@ -99,7 +108,17 @@ def test_multiplier_does_not_depend_on_the_logging_flag(optimizer, genome):
 
 
 def test_an_explicit_target_is_not_rescaled(optimizer, genome):
-    """What the caller asked for is what the caller gets."""
+    """The tool must not reduce a target the caller named.
+
+    Asserted on the target rather than on the delivered panel. Since dimer
+    relaxation defaults off, the greedy stops rather than admitting a pair
+    above `max_dimer_bp`, so this fixture delivers fewer than ten whatever the
+    target is -- which would make a delivered-count assertion pass for the
+    wrong reason, or fail for one. `--num-primers` is a request (decided
+    2026-09-14); what this test forbids is the tool quietly lowering the
+    request before it even starts.
+    """
+    assert optimizer._rescale_for_polymerase(10, verbose=False) == 8  # the knob works
     result = optimizer.optimize(
         genome["primers"],
         final_count=10,
@@ -107,11 +126,18 @@ def test_an_explicit_target_is_not_rescaled(optimizer, genome):
         apply_polymerase_multiplier=False,
     )
 
-    assert len(result.primers) == 10
+    # Not rescaled to 8 behind the caller's back, and never above the request.
+    assert 0 < len(result.primers) <= 10
 
 
 def test_the_multiplier_still_applies_when_asked_for(optimizer, genome):
-    """The knob is preserved for callers that want the polymerase heuristic."""
+    """The knob is preserved for callers that want the polymerase heuristic.
+
+    Also asserted on the target: equiphi29's 0.85 takes 10 to 8, and the
+    delivered panel may then be shorter still for pool reasons.
+    """
+    assert optimizer._rescale_for_polymerase(10, verbose=False) == 8
+
     result = optimizer.optimize(
         genome["primers"],
         final_count=10,
@@ -119,8 +145,13 @@ def test_the_multiplier_still_applies_when_asked_for(optimizer, genome):
         apply_polymerase_multiplier=True,
     )
 
-    # 10 * 0.85 -> 8
-    assert len(result.primers) == 8
+    assert 0 < len(result.primers) <= 8
+
+
+def test_the_multiplier_never_raises_a_target(optimizer):
+    """`max(6, ...)` is a floor, so a small request is left alone."""
+    assert optimizer._rescale_for_polymerase(6, verbose=False) == 6
+    assert optimizer._rescale_for_polymerase(4, verbose=False) == 6
 
 
 def test_the_adapter_does_not_rescale_by_polymerase(tmp_path, genome, caplog):

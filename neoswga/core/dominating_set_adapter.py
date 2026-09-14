@@ -121,6 +121,7 @@ class DominatingSetAdapter(BaseOptimizer):
             # not record. That is the default case, not a corner one. Same
             # defect `HybridOptimizer` fixed for its Stage-1 greedy.
             max_dimer_bp=self.config.max_dimer_bp,
+            allow_dimer_relaxation=self.config.allow_dimer_relaxation,
         )
 
     @property
@@ -170,7 +171,7 @@ class DominatingSetAdapter(BaseOptimizer):
         metrics = self.compute_metrics(result["primers"])
 
         status = OptimizationStatus.SUCCESS
-        if result["coverage"] < 0.95:
+        if result["coverage"] < 0.95 or len(result["primers"]) < max_primers:
             status = OptimizationStatus.PARTIAL
 
         return OptimizationResult(

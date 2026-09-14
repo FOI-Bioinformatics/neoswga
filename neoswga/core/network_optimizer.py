@@ -672,6 +672,7 @@ class NetworkOptimizer:
         conditions: Optional["ReactionConditions"] = None,
         mechanistic_weight: float = 0.0,
         template_gc: float = 0.5,
+        allow_dimer_relaxation: bool = False,
     ):
         """
         Initialize optimizer.
@@ -709,6 +710,7 @@ class NetworkOptimizer:
         self.tm_weight = tm_weight
         self.dimer_penalty = dimer_penalty
         self.max_dimer_bp = max_dimer_bp
+        self.allow_dimer_relaxation = allow_dimer_relaxation
         # Cache for primer Tm values
         self._tm_cache: Dict[str, float] = {}
 
@@ -862,14 +864,12 @@ class NetworkOptimizer:
         # and even at 1.0 it downweights rather than excludes.
         #
         # Built once over the whole candidate pool rather than per iteration.
-        # A threshold the representation cannot hold raises rather than
-        # disabling the screen: `_build_dimer_matrix_for_greedy` catches that
-        # ValueError and continues unscreened, which is the behaviour audit
-        # finding A6's sweep found at max_dimer_bp 8 and above.
+        # Unsupported matrix thresholds raise rather than disabling the screen.
         dimers = _dimer_matrix.build(list(candidates), self.max_dimer_bp) if candidates else None
 
-        for iteration in range(num_primers):
-            logger.info(f"Iteration {iteration+1}/{num_primers}")
+        relaxed = False
+        while len(selected) < num_primers:
+            logger.info(f"Iteration {len(selected) + 1}/{num_primers}")
 
             best_primer = None
             best_score = -float("inf")
@@ -886,7 +886,12 @@ class NetworkOptimizer:
                 if primer in selected:
                     continue
 
-                if dimers is not None and selected and dimers.dimerises(primer, selected):
+                if (
+                    not relaxed
+                    and dimers is not None
+                    and selected
+                    and dimers.dimerises(primer, selected)
+                ):
                     skipped_for_dimer = True
                     continue
 
@@ -925,25 +930,27 @@ class NetworkOptimizer:
 
             if best_primer is None:
                 if skipped_for_dimer:
-                    # Deliberately NOT the relaxation the dominating-set greedy
-                    # performs. That relaxation admits an unscreened primer when
-                    # the pool is exhausted, and Plan 2's sweep measured it
-                    # admitting 171, 129 and 10 of them at set 0 on the three
-                    # shipped designs -- which is what produces their 11 bp
-                    # worst heterodimers against a configured 3. Stopping short
-                    # is the honest outcome; the panel size a pool can support
-                    # at a given threshold is a property of the pool.
+                    if self.allow_dimer_relaxation and not relaxed:
+                        relaxed = True
+                        continue
                     logger.warning(
                         f"Stopping at {len(selected)} of {num_primers} primers: every "
                         f"remaining candidate pairs with the selected set above "
-                        f"max_dimer_bp={self.max_dimer_bp}. Loosen it, or accept the "
-                        f"smaller set: a pool supports a bounded panel size at a given "
-                        f"threshold."
+                        f"max_dimer_bp={self.max_dimer_bp}. This greedy search "
+                        f"does not establish infeasibility."
                     )
                 else:
                     logger.warning("No more primers can be added")
                 break
 
+            if relaxed:
+                logger.warning(
+                    "Admitting %s unscreened against the already-selected set "
+                    "at max_dimer_bp=%d; restoring the constraint for the next pick.",
+                    best_primer,
+                    self.max_dimer_bp,
+                )
+                relaxed = False
             # Add best primer
             selected.append(best_primer)
             logger.info(f"  Selected: {best_primer} (score={best_score:.3f})")
@@ -1486,6 +1493,7 @@ class NetworkBaseOptimizer(BaseOptimizer):
             # on its own default of 4. That is the looser threshold, so pairs
             # the user asked to treat as dimers were scored as clean.
             max_dimer_bp=self.config.max_dimer_bp,
+            allow_dimer_relaxation=self.config.allow_dimer_relaxation,
             conditions=conditions,
             mechanistic_weight=kwargs.get("mechanistic_weight", 0.0),
             template_gc=kwargs.get("template_gc", 0.5),
@@ -1522,7 +1530,15 @@ class NetworkBaseOptimizer(BaseOptimizer):
             return OptimizationResult(
                 primers=tuple(primers),
                 score=metrics.fg_coverage,
-                status=OptimizationStatus.SUCCESS if primers else OptimizationStatus.NO_CONVERGENCE,
+                status=(
+                    OptimizationStatus.NO_CONVERGENCE
+                    if not primers
+                    else (
+                        OptimizationStatus.PARTIAL
+                        if len(primers) < target
+                        else OptimizationStatus.SUCCESS
+                    )
+                ),
                 metrics=metrics,
                 iterations=1,
                 optimizer_name=self.name,

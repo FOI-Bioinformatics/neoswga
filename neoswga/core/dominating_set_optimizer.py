@@ -297,6 +297,7 @@ class DominatingSetOptimizer:
         bin_size: int = 10000,
         extension_reach: int = 0,
         max_dimer_bp: Optional[int] = None,
+        allow_dimer_relaxation: bool = False,
     ):
         """
         Initialize optimizer.
@@ -325,13 +326,9 @@ class DominatingSetOptimizer:
                 f"{extension_reach:,} bp extension reach"
             )
         self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
-        # When every remaining candidate dimerises with the set, delivering
-        # fewer primers than asked for is worse than admitting one unscreened
-        # primer and naming it: an undersized panel silently loses coverage,
-        # whereas a named primer can be swapped by hand at ordering time. The
-        # constraint is restored after each such admission, so the number of
-        # warnings equals the number of primers admitted unscreened.
-        self.relax_dimer_constraint_when_stuck = True
+        # Relaxation is an explicit choice; a stalled greedy search is not a
+        # proof that the requested compatible panel does not exist.
+        self.relax_dimer_constraint_when_stuck = allow_dimer_relaxation
 
     @staticmethod
     def _resolve_max_dimer_bp(max_dimer_bp: Optional[int]) -> int:
@@ -376,8 +373,7 @@ class DominatingSetOptimizer:
         primers against each other and not against the panel.
 
         A `max_dimer_bp` above what `dimer_matrix`'s representation allocates
-        raises ValueError; selection then proceeds without the constraint
-        rather than failing, and says so.
+        raises ValueError. An unsupported screen must not disable the constraint.
         """
         from neoswga.core import dimer_matrix as _dimer_matrix
 
@@ -385,11 +381,13 @@ class DominatingSetOptimizer:
         # would otherwise take two rows, and the index would keep only the
         # second.
         pool = list(dict.fromkeys(list(fixed_primers) + list(candidates)))
-        try:
-            return _dimer_matrix.build(pool, self.max_dimer_bp)
-        except ValueError as exc:
-            logger.warning("Dimer-aware selection disabled: %s", exc)
-            return None
+        matrix = _dimer_matrix.build(pool, self.max_dimer_bp)
+        if not self.relax_dimer_constraint_when_stuck:
+            fixed = list(dict.fromkeys(fixed_primers))
+            for i, primer in enumerate(fixed):
+                if matrix.dimerises(primer, fixed[:i]):
+                    raise ValueError("Fixed primers exceed max_dimer_bp under strict selection")
+        return matrix
 
     def _select_next_primer(
         self,
@@ -617,7 +615,14 @@ class DominatingSetOptimizer:
             if best_primer is None or best_new_coverage == 0:
                 if relaxed:
                     self._log_dimer_relaxation_outcome(None, len(selected) - n_fixed, max_primers)
-                if verbose:
+                if skipped_for_dimer:
+                    logger.warning(
+                        "Stopping at %d primers: no compatible candidate adds coverage "
+                        "at max_dimer_bp=%d. This greedy search does not establish infeasibility.",
+                        len(selected),
+                        self.max_dimer_bp,
+                    )
+                elif verbose:
                     logger.info("No more coverage gains possible")
                 break
 
@@ -918,6 +923,8 @@ class DominatingSetOptimizer:
         relax: bool,
         max_seconds: int,
         verbose: bool,
+        enforce_dimers: bool = True,
+        fixed_primers=None,
     ) -> Optional[Dict]:
         """Solve (or relax) the fixed-budget max-coverage program.
 
@@ -936,10 +943,16 @@ class DominatingSetOptimizer:
             )
             return None
 
+        if max_primers < 0 or max_seconds <= 0:
+            raise ValueError("Primer budget must be non-negative and solver time positive")
+        fixed = list(dict.fromkeys(fixed_primers or []))
+        candidates = list(dict.fromkeys(list(candidates) + fixed))
         graph, primer_to_bins, bin_weight = self._bin_coverage(candidates)
+        for primer in candidates:
+            primer_to_bins.setdefault(primer, set())
         total_bases = int(sum(self.fg_seq_lengths))
 
-        if not bin_weight:
+        if not candidates:
             return {
                 "primers": [],
                 "n_primers": 0,
@@ -953,6 +966,11 @@ class DominatingSetOptimizer:
                 "status": "OPTIMAL",
                 "seconds": 0.0,
                 "graph": graph,
+                "feasible": True,
+                "objective_bound": 0.0,
+                "coverage_upper_bound": 0.0,
+                "mip_gap": 0.0,
+                "enforce_dimers": enforce_dimers,
             }
 
         # CoverageRegion is hashable but not orderable, so keep insertion order.
@@ -979,17 +997,39 @@ class DominatingSetOptimizer:
         for b in bins:
             model += y[b] <= xsum(x[p] for p in bin_to_primers[b])
         model += xsum(x.values()) <= max_primers
+        for primer in fixed:
+            model += x[primer] == 1
+        if enforce_dimers:
+            from .dimer import is_dimer_fast
+
+            for i, primer in enumerate(candidates):
+                for other in candidates[:i]:
+                    if is_dimer_fast(primer, other, self.max_dimer_bp):
+                        model += x[primer] + x[other] <= 1
 
         start = time.time()
         status = model.optimize(max_seconds=max_seconds)
         elapsed = time.time() - start
 
-        objective = float(model.objective_value or 0.0)
+        import math
+
+        objective = model.objective_value
+        objective = float(objective) if objective is not None else None
+        bound = model.objective_bound
+        bound = float(bound) if bound is not None and math.isfinite(bound) else None
+        if status.name == "OPTIMAL":
+            bound = objective
+        # A maximization incumbent is a lower bound, never an upper bound.
+        if status.name in {"INFEASIBLE", "INT_INFEASIBLE"}:
+            bound = None
+        feasible = objective is not None
+        gap = model.gap if not relax and feasible else None
+        gap = float(gap) if gap is not None and math.isfinite(gap) else None
 
         # Order by the caller's ranking rather than alphabetically, for the same
         # reason `_deterministic_scan_order` does.
         chosen = {p for p, var in x.items() if var.x is not None and var.x >= 0.99}
-        selected = [p for p in candidates if p in chosen]
+        selected = [p for p in candidates if p in chosen] if not relax else []
 
         covered_regions = set()
         for primer in selected:
@@ -998,7 +1038,14 @@ class DominatingSetOptimizer:
         result = {
             "primers": selected,
             "n_primers": len(selected),
-            "coverage": objective / total_bases if total_bases else 0.0,
+            "coverage": (objective / total_bases if total_bases else 0.0) if feasible else None,
+            "feasible": feasible,
+            "objective_bound": bound,
+            "coverage_upper_bound": (
+                (bound / total_bases if total_bases else 0.0) if bound is not None else None
+            ),
+            "mip_gap": gap,
+            "enforce_dimers": enforce_dimers,
             "covered_bases": objective,
             "total_bases": total_bases,
             "covered_regions": len(covered_regions),
@@ -1015,7 +1062,7 @@ class DominatingSetOptimizer:
         if verbose:
             logger.info(
                 f"{status.name} in {elapsed:.1f}s: {len(selected)} primers, "
-                f"{result['coverage']:.1%} coverage"
+                f"coverage={result['coverage']}"
             )
 
         return result
@@ -1026,6 +1073,8 @@ class DominatingSetOptimizer:
         max_primers: int = 20,
         verbose: bool = True,
         max_seconds: int = 300,
+        enforce_dimers: bool = True,
+        fixed_primers=None,
     ) -> Optional[Dict]:
         """
         Exact maximum coverage within a fixed primer budget.
@@ -1048,6 +1097,9 @@ class DominatingSetOptimizer:
 
         Args:
             candidates: List of candidate primers
+            enforce_dimers: Enforce pairwise compatibility (default True).
+                False computes a coverage-only upper bound.
+            fixed_primers: Required primers, included in the total budget.
             max_primers: Budget -- the most primers that may be selected
             verbose: Log model size and outcome
             max_seconds: Solver time limit. On timeout the incumbent is
@@ -1058,7 +1110,13 @@ class DominatingSetOptimizer:
             Result dictionary, or None if python-mip is not installed.
         """
         return self._solve_max_coverage(
-            candidates, max_primers, relax=False, max_seconds=max_seconds, verbose=verbose
+            candidates,
+            max_primers,
+            relax=False,
+            max_seconds=max_seconds,
+            verbose=verbose,
+            enforce_dimers=enforce_dimers,
+            fixed_primers=fixed_primers,
         )
 
     def coverage_upper_bound(
@@ -1067,6 +1125,8 @@ class DominatingSetOptimizer:
         max_primers: int = 20,
         verbose: bool = False,
         max_seconds: int = 300,
+        enforce_dimers: bool = True,
+        fixed_primers=None,
     ) -> Optional[float]:
         """
         LP relaxation of `optimize_ilp` -- an upper bound on achievable coverage.
@@ -1079,9 +1139,15 @@ class DominatingSetOptimizer:
         Returns the bound as a genome fraction, or None without python-mip.
         """
         result = self._solve_max_coverage(
-            candidates, max_primers, relax=True, max_seconds=max_seconds, verbose=verbose
+            candidates,
+            max_primers,
+            relax=True,
+            max_seconds=max_seconds,
+            verbose=verbose,
+            enforce_dimers=enforce_dimers,
+            fixed_primers=fixed_primers,
         )
-        return None if result is None else result["coverage"]
+        return None if result is None else result["coverage_upper_bound"]
 
 
 def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]], List[float]]:

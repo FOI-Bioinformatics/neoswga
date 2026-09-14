@@ -65,6 +65,10 @@ PROBE_VALUES = {
     "dntp_conc": 0.9,
     "dtt_mm": 3.0,
     "ssb": True,
+    # Added to the constructor on 2026-09-14 (audit F1). It was previously only
+    # an argument of `calculate_effective_tm`, defaulting to 0.5 uM there, so a
+    # configured value reached nothing. Inside the schema's [1e-9, 1e-4] range.
+    "primer_conc": 2.5e-6,
 }
 
 

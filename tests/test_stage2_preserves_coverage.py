@@ -211,3 +211,29 @@ def test_refinement_still_improves_network_connectivity(optimizer, planted):
 def test_refinement_returns_a_subset_of_stage_one(results):
     for n in REQUESTS:
         assert set(results[n].primers) <= set(results[n].stage1_primers)
+
+
+def test_swap_mode_uses_full_pool_without_network_removal(optimizer, planted, monkeypatch):
+    monkeypatch.setattr(optimizer, "refinement_method", "swap")
+    monkeypatch.setattr(optimizer, "swap_max_evaluations", 100)
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("Swap mode must not run network removal")
+
+    monkeypatch.setattr(optimizer, "_network_refine", unexpected)
+    result = optimizer.optimize(planted["primers"], final_count=6, verbose=False)
+    bins = optimizer._coverage_bins_by_primer(planted["primers"])
+
+    def bases(panel):
+        return sum(r.end - r.start for r in set().union(*(bins[p] for p in panel)))
+
+    assert len(result.primers) == 6
+    assert bases(result.primers) >= bases(result.stage1_ordered_primers[:6])
+    assert result.runtime_stage2 > 0
+    from neoswga.core.dimer import is_dimer_fast
+
+    assert not any(
+        is_dimer_fast(a, b, optimizer.max_dimer_bp)
+        for i, a in enumerate(result.primers)
+        for b in result.primers[:i]
+    )

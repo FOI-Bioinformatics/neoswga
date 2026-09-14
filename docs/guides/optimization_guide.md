@@ -2,6 +2,81 @@
 
 This guide helps you choose the right optimization method for your SWGA primer design.
 
+## Plan pool size against coverage and specificity
+
+After `count-kmers`, `filter`, and `score`, use `plan-pool` to compare oligo
+counts and find small panels meeting explicit targets:
+
+```bash
+neoswga plan-pool -j params.json --primer-length 12 --max-size 64 \
+  --coverage-targets 0.8 0.9 0.95 --min-selectivity-density 10 \
+  -o pool_plan
+```
+
+Candidate generation must include the requested oligo length. Each size is
+optimized separately, then coverage, background binding and dimer compatibility
+are recomputed for the delivered panel. The command recommends the smallest
+qualifying panel found; this is not a proof of the global minimum. A partial
+panel is assessed using its actual count. Larger requests need not improve
+coverage because the search is heuristic and panels are not necessarily nested.
+
+With background indexes, specify `--min-selectivity-density`,
+`--max-background-sites`, or both. The density ratio uses the application's
+occupancy-weighted binding loads per reference base; it is not predicted fold
+enrichment. The exact background-site limit counts matches separately from that
+weighted metric. A ratio of 10 above is an illustrative comparison threshold,
+not a validated experimental cutoff. `--no-background` explicitly permits
+planning without assessing specificity.
+
+The default coverage metric is occupancy-weighted (`effective`); `--coverage-metric
+raw` uses the union of windows around binding sites. `--coverage-reach` controls
+their radius (3,000 bp by default for phi29). These estimates do not establish
+sequencing recovery or coverage uniformity. Dimer limits remain strict; a target
+that is not reached is reported as such.
+
+Outputs include an HTML report, coverage-versus-count figure, all evaluated
+panels in CSV/JSON, and FASTA files for qualifying recommendations. Use a new
+output directory for each run. See the [Wolbachia wMel example](../../examples/wolbachia_pool_design/README.md)
+for a comparison against the full Drosophila reference.
+
+### Use reports in design scripts
+
+The report is organism-independent and is generated automatically by every
+`plan-pool` run. It includes the target and background filenames, design settings,
+coverage and specificity curves, and oligo exports. Backgrounds can be host,
+environmental, or other reference sequences supplied in the design parameters.
+
+Regenerate a report from saved results without loading genomes or rerunning
+optimization:
+
+```bash
+neoswga report-pool --input pool_plan/pool_plan.json \
+  --title 'Target against sample background' -o design_report
+```
+
+`--input` also accepts the directory containing `pool_plan.json`. This command
+preserves the saved coverage estimates, constraints, recommendations and
+provenance; changing the title does not rerun or change the design. Use
+`plan-pool` for a new design or different coverage/specificity requirements.
+Both commands require a new or empty report directory, preventing stale FASTA
+exports from an earlier design. Reports made from older saved results display
+missing metadata as `not recorded`.
+
+Python scripts can use the same renderer:
+
+```python
+import json
+from pathlib import Path
+from neoswga.core.pool_plan_report import write_pool_plan
+
+plan = json.loads(Path("pool_plan/pool_plan.json").read_text())
+report = write_pool_plan(plan, "design_report")
+```
+
+Keep the generated HTML, PNG, JSON, CSV and FASTA files together when sharing
+the report. Report generation happens after the pool-size search completes;
+it does not display live optimization progress.
+
 ## Quick Decision Tree
 
 ```
@@ -29,6 +104,84 @@ This guide helps you choose the right optimization method for your SWGA primer d
 1. **Clinical/diagnostic?** Use `background-aware`
 2. **Large candidate pool (>500)?** Use `dominating-set`
 3. **Otherwise:** Use `hybrid` (default)
+
+## Pairwise dimer policy
+
+Greedy selection in `dominating-set`, `hybrid`, `background-aware`, and
+`network` now stops when no compatible candidate can be added under
+`max_dimer_bp`. It may return fewer primers than requested. A stalled greedy
+search does not establish that a larger compatible set is impossible.
+
+To allow relaxation when the greedy search stalls, pass
+`--allow-dimer-relaxation` or set `"allow_dimer_relaxation": true` in
+params.json. Each admission made without the pairwise screen is logged. The
+screen is restored for the next pick. `clique` always keeps its compatibility
+constraint. This option does not change upstream thermodynamic filtering.
+
+The validation report records the policy, requested and delivered counts, and
+existing dimer checks on the delivered panel. A panel below the requested size
+is reported as partial. Unsupported dimer thresholds raise an error instead of
+disabling the screen.
+
+Effective coverage is reported as `null` when reaction conditions are absent;
+a computed zero remains zero in scoring. Coverage is calculated separately for
+each target and weighted by sequence length. Gap statistics use a wrap-around
+gap for circular targets and separate terminal gaps for linear targets.
+
+## Bounded swap refinement
+
+For `hybrid` and `background-aware`, opt into a bounded one-for-one search:
+
+```bash
+neoswga optimize -j params.json -m hybrid --refinement-method swap \
+    --swap-max-evaluations 10000 --swap-max-seconds 10
+```
+
+The equivalent params.json keys are `refinement_method`,
+`swap_max_evaluations`, and `swap_max_seconds`. Network refinement remains the
+default. Swap mode starts with the greedy panel at the requested size and
+considers the full thermodynamically filtered candidate pool. It preserves
+fixed primers, does not increase panel size, and screens incoming primers
+against the retained panel. It does not repair all conflicts in a baseline
+created with explicit dimer relaxation, or fill a smaller baseline to budget.
+
+The objective first increases covered bases on the optimizer's bins. In
+`background-aware` mode, equal-coverage swaps prefer fewer background binding
+sites. This mode replaces background pruning and network removal; it does not
+optimize network connectivity or occupancy-weighted coverage. Final network
+metrics and any requested simulation validation are still computed.
+
+The search stops at a local optimum, the evaluation limit, or the cooperative
+time limit. Time is checked between candidate swaps. Pool preprocessing and
+final reporting are outside that limit, so it is not a whole-run timeout.
+The log records accepted swaps, evaluations, and the stopping reason. A zero
+budget retains the initial panel.
+
+A [36-run comparison on saved Prevotella pools](../validation/refinement_real_pools_2026-09.md)
+found that the default 10,000 evaluations did not complete a full pass and made
+no swaps. An explicit `--swap-max-evaluations 100000` improved coverage in five
+of six pool/size combinations, but increased exact background sites in two.
+Network remains the default; inspect background binding as well as coverage
+when using the larger swap budget.
+
+## Constrained coverage benchmarks
+
+`DominatingSetOptimizer.optimize_ilp` and `coverage_upper_bound` now enforce
+`max_dimer_bp` by default. `fixed_primers` are mandatory and count toward the
+**total** `max_primers` budget. Pass `enforce_dimers=False` explicitly to obtain
+a coverage-only comparison. The objective remains base-weighted binned
+coverage, not predicted experimental amplification.
+
+An exact-solver result distinguishes `coverage` (the incumbent),
+`coverage_upper_bound`, `proven_optimal`, `feasible`, and `mip_gap`. An
+infeasible model has no coverage measurement. The LP helper returns the
+solver's upper bound, not a possibly suboptimal incumbent. Solver time limits
+exclude model construction.
+
+`scripts/benchmarking/optimality_gap.py` now compares strict greedy selection,
+swaps, and constrained ILP/LP bounds. Its random panels are explicitly labelled
+unconstrained and are not compatible-panel baselines. A percentage optimality
+gap is reported only when the integer optimum is proven.
 
 ## Method Comparison
 

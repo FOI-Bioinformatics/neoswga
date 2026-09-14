@@ -60,7 +60,12 @@ class AdditiveRecommendation:
         predicted_accessibility: Expected template accessibility
         predicted_binding: Expected primer binding efficiency
 
-        confidence: Confidence level ('high', 'medium', 'low')
+        heuristic_score_band: Band of this tool's own search score
+            ('high', 'medium', 'low'). NOT a confidence level: there is no
+            uncertainty model behind it and no comparison to a measured
+            reaction. Renamed from `confidence` on 2026-09-14 (audit F8)
+            because the old name asserted something the number cannot
+            support.
         optimization_score: Combined optimization score
         warnings: List of warnings about the recommendation
         rationale: Human-readable explanation
@@ -82,7 +87,7 @@ class AdditiveRecommendation:
     predicted_binding: float = 0.0
 
     # Metadata
-    confidence: str = "medium"
+    heuristic_score_band: str = "medium"
     optimization_score: float = 0.0
     warnings: List[str] = field(default_factory=list)
     rationale: str = ""
@@ -159,7 +164,7 @@ class AdditiveRecommendation:
                 f"  Primer binding: {self.predicted_binding:.2f}",
                 "",
                 f"Optimization score: {self.optimization_score:.3f}",
-                f"Confidence: {self.confidence}",
+                f"Heuristic score band: {self.heuristic_score_band} (this tool's own score, not a measured confidence)",
             ]
         )
 
@@ -493,13 +498,15 @@ class AdditiveOptimizer:
         ssb: bool,
     ) -> AdditiveRecommendation:
         """Build final recommendation from optimization results."""
-        # Determine confidence
+        # Band this tool's own search score. Deliberately not called
+        # confidence: the thresholds are chosen, not fitted, and nothing here
+        # has been compared against a measured reaction.
         if score > 0.5:
-            confidence = "high"
+            heuristic_score_band = "high"
         elif score > 0.2:
-            confidence = "medium"
+            heuristic_score_band = "medium"
         else:
-            confidence = "low"
+            heuristic_score_band = "low"
 
         # Build rationale
         rationale_parts = []
@@ -548,7 +555,7 @@ class AdditiveOptimizer:
             predicted_processivity=effects.processivity_factor,
             predicted_accessibility=effects.accessibility_factor,
             predicted_binding=effects.effective_binding_rate,
-            confidence=confidence,
+            heuristic_score_band=heuristic_score_band,
             optimization_score=score,
             warnings=warnings,
             rationale=rationale,

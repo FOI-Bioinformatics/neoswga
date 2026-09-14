@@ -175,7 +175,7 @@ def test_two_primers_covering_one_region_combine_as_independent_chances(world):
 # ----------------------------------------------------------------------
 
 
-def test_without_conditions_it_reports_zero_rather_than_guessing(world):
+def test_without_conditions_it_reports_unavailable_rather_than_guessing(world):
     """There is no temperature at which to evaluate occupancy, and a fabricated
     number here would be indistinguishable from a measured one."""
     cache = PositionCache([world["prefix"]], [world["stable"]])
@@ -189,7 +189,7 @@ def test_without_conditions_it_reports_zero_rather_than_guessing(world):
         conditions=None,
     ).compute_metrics([world["stable"]])
 
-    assert metrics.effective_fg_coverage == 0.0
+    assert metrics.effective_fg_coverage is None
     assert metrics.fg_coverage > 0.0
 
 
@@ -242,3 +242,16 @@ def test_the_score_falls_back_to_raw_coverage_without_conditions(world):
         coverage_w=1.0, selectivity_w=0.0, dimer_w=0.0, evenness_w=0.0, tm_w=0.0
     )
     assert score == pytest.approx(min(metrics.fg_coverage, 1.0))
+
+
+def test_computed_zero_does_not_fall_back_to_raw_coverage(world):
+    from dataclasses import replace
+
+    metrics = build(world, [world["stable"]])
+    only_coverage = dict(coverage_w=1, selectivity_w=0, dimer_w=0, evenness_w=0, tm_w=0)
+    zero = replace(metrics, effective_fg_coverage=0.0)
+    unavailable = replace(metrics, effective_fg_coverage=None)
+    assert zero.normalized_score(**only_coverage) == 0.0
+    assert unavailable.normalized_score(**only_coverage) == metrics.fg_coverage
+    assert zero.to_dict()["effective_fg_coverage"] == 0.0
+    assert unavailable.to_dict()["effective_fg_coverage"] is None

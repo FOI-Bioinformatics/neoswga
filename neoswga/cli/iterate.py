@@ -217,12 +217,14 @@ def run_expand_primers(args):
             export_gaps_to_bed(target_gaps, os.path.join(args.output, "merged_gaps.bed"))
 
         # Run expansion (focus candidates on the gaps when we have any)
+        from neoswga.cli.pipeline import resolve_optimization_method
+
         result = expander.expand(
             candidates=candidates,
             fixed_primers=fixed_primers,
             failed_primers=failed_primers,
             target_new=args.num_new,
-            optimization_method=args.optimization_method,
+            optimization_method=resolve_optimization_method(args),
             verbose=not quiet,
             target_gaps=target_gaps or None,
         )
@@ -884,7 +886,11 @@ def add_parsers(subparsers):
     )
     expand_parser.add_argument(
         "--optimization-method",
-        default="hybrid",
+        # The None sentinel, as on `optimize`. "hybrid" is both the sensible
+        # default and a legitimate explicit choice, so a real default cannot
+        # tell "the user typed hybrid" from "the user said nothing", and a
+        # configured method must lose to the first and win against the second.
+        default=None,
         # Only what `PrimerExpander.expand` implements. This listed all six
         # methods `optimize` offers, and the three it does not implement fell
         # through to a branch that ran hybrid and logged a warning, so

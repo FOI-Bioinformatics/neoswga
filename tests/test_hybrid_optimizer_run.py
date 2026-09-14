@@ -377,7 +377,11 @@ def test_background_pruning_reduces_background_binding(cache_with_background, ge
     it was measuring: the coverage floor was absolute at 0.95, so on any set
     below that every removal was rejected and the stage returned its input.
     """
-    opt = _bg_optimizer(cache_with_background, background_pruning=True)
+    # Build a panel large enough to exercise pruning independently of
+    # strict greedy selection, which may stop below the pruning target.
+    opt = _bg_optimizer(
+        cache_with_background, background_pruning=True, allow_dimer_relaxation=True
+    )
     stage1 = list(opt.dominating_optimizer.optimize_greedy(genome["primers"], 7)["primers"])
     before = opt._count_background_sites(stage1)
     assert before > 0, "the fixture has no background binding to prune"

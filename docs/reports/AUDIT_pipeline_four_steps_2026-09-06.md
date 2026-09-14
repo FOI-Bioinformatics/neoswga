@@ -1201,4 +1201,15 @@ now shows three stars (D0).
     could be measured. The second costs 767 s against 6 s to move a score by
     0.0016.
 
-Nothing in this list has been implemented. The audit changed no code.
+Nothing in this list had been implemented when the audit was written, and the
+audit itself changed no code.
+
+**Superseded, 2026-09-14.** Seventeen of the thirty-two findings have since been
+implemented; the sentence above is no longer a description of the tree. Verify
+any individual finding against the code before acting on it. Known to remain
+open at that date: B9 (a circular genome held twice during the scan,
+`core/string_search.py:202`), E5 (no memory guard; `MemoryLimitError` is raised
+nowhere, `core/exceptions.py:334`), E8 (two parallel pipelines, one unreachable),
+the `validate_step1_prerequisites` half of E3 (no call site,
+`core/pipeline.py:128`) and M5 (`validate_step3_prerequisites` checks no
+columns, `core/pipeline.py:260`).

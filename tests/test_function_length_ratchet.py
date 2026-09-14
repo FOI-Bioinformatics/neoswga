@@ -37,7 +37,15 @@ _BUDGETS = {
     # the real remedy for the size is splitting this function, not this line.
     "core/parameter.py::get_params": 539,
     "core/unified_optimizer.py::run_optimization": 470,
-    "core/hybrid_optimizer.py::optimize": 350,
+    # 350 -> 360 and a new __init__ entry, reviewed 2026-09-14. Both grew
+    # threading `allow_dimer_relaxation` and `refinement_method` through the
+    # stages, the work that made `num_primers` a request rather than a
+    # guarantee. The Stage-2 swap glue that came with it was moved out to
+    # core/swap_refinement.py rather than pinned. Splitting `optimize` into its
+    # three stages remains the real remedy; it was not attempted on the day the
+    # stage semantics changed.
+    "core/hybrid_optimizer.py::optimize": 360,
+    "core/hybrid_optimizer.py::__init__": 210,
     "core/report/technical_report.py::render_technical_report": 325,
     "core/workflow_selector.py::run_workflow_selector": 260,
     "cli/iterate.py::run_expand_primers": 245,

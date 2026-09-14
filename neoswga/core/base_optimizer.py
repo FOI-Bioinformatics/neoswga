@@ -223,7 +223,7 @@ class PrimerSetMetrics:
     # effective Tm, which moves every site down its occupancy curve; against a
     # count-based coverage that cost is invisible, and a condition search would
     # spend coverage it could not see it was spending.
-    effective_fg_coverage: float = 0.0
+    effective_fg_coverage: float | None = None
 
     # Raw coverage at several reaches, {reach_bp: fraction}, so the figure can
     # be compared across tools that do not share a convention. swga 2.0 reports
@@ -381,10 +381,9 @@ class PrimerSetMetrics:
         # additives cost, which is the lever this tool exists to use.
         #
         # Falls back to the raw figure when no conditions are attached, matching
-        # how `selectivity_mode` degrades: 0.0 means "not computed" here, not
-        # "nothing is covered".
+        # how `selectivity_mode` degrades: None means "not computed"; a computed zero remains zero.
         cov = min(self.fg_coverage, 1.0)
-        if self.effective_fg_coverage > 0.0:
+        if self.effective_fg_coverage is not None:
             cov = min(self.effective_fg_coverage, 1.0)
 
         # Selectivity, on a log scale.
@@ -629,8 +628,7 @@ class OptimizationResult:
                         "level": "warning",
                         "code": "per_target_coverage_below_threshold",
                         "detail": (
-                            f"{len(below)} target(s) below "
-                            f"{min_per_target_coverage:.2f}: {below}"
+                            f"{len(below)} target(s) below {min_per_target_coverage:.2f}: {below}"
                         ),
                     }
                 )
@@ -682,6 +680,10 @@ class OptimizerConfig:
     target_set_size: int = 6
     max_iterations: int = 100
     max_dimer_bp: int = 4
+    allow_dimer_relaxation: bool = False
+    refinement_method: str = "network"
+    swap_max_evaluations: int = 10000
+    swap_max_seconds: float = 10.0
     # Self-dimer threshold. The clique optimizer reached for this with
     # `getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)` and the
     # fallback fired every time, because the field did not exist -- so a
@@ -716,6 +718,16 @@ class OptimizerConfig:
 
     def validate(self) -> None:
         """Validate configuration parameters."""
+        if self.refinement_method not in {"network", "swap"}:
+            raise ValueError("refinement_method must be network or swap")
+        if (
+            self.swap_max_evaluations < 0
+            or not math.isfinite(self.swap_max_seconds)
+            or self.swap_max_seconds < 0
+        ):
+            raise ValueError("Swap budgets must be finite and non-negative")
+        if not isinstance(self.allow_dimer_relaxation, bool):
+            raise ValueError("allow_dimer_relaxation must be a boolean")
         if self.target_set_size < 1:
             raise ValueError(f"target_set_size must be >= 1, got {self.target_set_size}")
         if self.max_iterations < 1:
@@ -1083,13 +1095,13 @@ class BaseOptimizer(ABC):
         # and the trim quietly stopped working on multi-target runs.
         fg_by_prefix = {prefix: set() for prefix in self.fg_prefixes}
         bg_by_prefix = {prefix: set() for prefix in self.bg_prefixes}
-        fg_positions_by_primer = {}
+        fg_positions_by_primer = {prefix: {} for prefix in self.fg_prefixes}
 
         for primer in primers:
             for prefix in self.fg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
                 fg_by_prefix[prefix].update(positions.tolist())
-                fg_positions_by_primer.setdefault(primer, []).extend(positions.tolist())
+                fg_positions_by_primer[prefix][primer] = positions.tolist()
 
             for prefix in self.bg_prefixes:
                 positions = self.get_primer_positions(primer, prefix, "both")
@@ -1107,9 +1119,19 @@ class BaseOptimizer(ABC):
         fg_coverage = self._coverage_over_prefixes(
             fg_by_prefix, self.fg_prefixes, self.fg_seq_lengths
         )
-        effective_fg_coverage = self._compute_effective_coverage(
-            fg_positions_by_primer, self.fg_total_length
-        )
+        effective_fg_coverage = None
+        if self.conditions is not None:
+            effective_fg_coverage = (
+                sum(
+                    self._compute_effective_coverage(fg_positions_by_primer[prefix], length)
+                    * length
+                    for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=False)
+                    if length > 0
+                )
+                / self.fg_total_length
+                if self.fg_total_length > 0
+                else 0.0
+            )
         coverage_by_reach = self._coverage_by_reach_over_prefixes(
             fg_by_prefix, self.fg_prefixes, self.fg_seq_lengths
         )
@@ -1309,7 +1331,7 @@ class BaseOptimizer(ABC):
             positions, total_length, reach, getattr(self.config, "fg_circular", False)
         )
 
-    def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float:
+    def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float | None:
         """Coverage weighted by how much of the time each site is occupied.
 
         `_compute_coverage` unions binding windows as booleans: a site either
@@ -1319,18 +1341,33 @@ class BaseOptimizer(ABC):
         bound, and its sites contribute far less amplification than a count
         implies.
 
-        Here a site covers its window with probability theta -- the same
-        two-state occupancy the selectivity metric uses -- so a base is covered
-        unless every site reaching it fails to bind:
+        A site covers its window with probability theta -- the same two-state
+        occupancy the selectivity metric uses -- and the product is taken over
+        PRIMERS, not over sites:
 
-            P(covered at x) = 1 - PRODUCT over sites s reaching x of (1 - theta_s)
+            P(covered at x) = 1 - PRODUCT over primers p reaching x of (1 - theta_p)
 
-        Independence across sites is an approximation. Sites on one template
-        molecule compete for polymerase and are not independent, so this reads
-        as an upper bound on what a single molecule does; across the many
-        molecules in a reaction it is the right shape.
+        The grouping is deliberate and is what the loop below implements: one
+        primer's overlapping windows are unioned first and its occupancy applied
+        once, because a primer does not stack with itself. Per-site
+        independence would multiply (1 - theta) in once per overlapping window
+        and report a larger number.
 
-        Returns 0.0 when no reaction conditions are attached, since without them
+        Corrected 2026-09-14 (audit F5): this formula previously read "PRODUCT
+        over sites", describing a model the code does not implement. The two
+        differ measurably -- at T = Tm with 100 bp windows on a 1 kb target,
+        sites at 500 and 510 give 10.5% under one primer and 15.25% under two
+        distinct primers -- and `tests/test_occupancy_grouping_is_specified.py`
+        pins the one in use.
+
+        Independence across primers is itself an approximation: sites on one
+        template molecule compete for polymerase. Neither model here has been
+        compared against a measured reaction, so this is a stated approximation
+        rather than a validated one, and the earlier claim that it bounds
+        single-molecule recovery from above is not established by this
+        arithmetic.
+
+        Returns None when no reaction conditions are attached, since without them
         there is no temperature at which to evaluate occupancy and a fabricated
         number here would be indistinguishable from a measured one.
         """
@@ -1340,7 +1377,9 @@ class BaseOptimizer(ABC):
         from .occupancy import site_occupancy
         from .thermodynamics import calculate_enthalpy_entropy
 
-        if not positions_by_primer or total_length == 0 or self.conditions is None:
+        if self.conditions is None:
+            return None
+        if not positions_by_primer or total_length <= 0:
             return 0.0
 
         extension_reach = self.config.extension_reach
@@ -1374,14 +1413,14 @@ class BaseOptimizer(ABC):
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
         """Compute gaps between adjacent binding sites."""
-        if len(positions) < 2:
+        if not positions:
             return [float(total_length)]
-        positions = sorted(positions)
-        gaps = []
-        for i in range(1, len(positions)):
-            gaps.append(positions[i] - positions[i - 1])
-        # Add wrap-around gap for circular genomes
-        gaps.append(total_length - positions[-1] + positions[0])
+        positions = sorted(set(positions))
+        gaps = [right - left for left, right in zip(positions, positions[1:], strict=False)]
+        if self.config.fg_circular:
+            gaps.append(total_length - positions[-1] + positions[0])
+        else:
+            gaps.extend([positions[0], total_length - positions[-1]])
         return gaps
 
     def _gini(self, values: List[float]) -> float:

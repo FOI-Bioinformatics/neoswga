@@ -27,6 +27,7 @@ is checking.
 
 from __future__ import annotations
 
+import math
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
@@ -38,13 +39,14 @@ class BoundResult:
 
     budget: int
     kind: str  # "ilp" or "lp"
-    coverage: float  # fraction of the genome, comparable to fg_coverage
-    objective_bases: float
+    coverage: Optional[float]  # fraction of the genome, comparable to fg_coverage
+    objective_bases: Optional[float]
     selected: List[str] = field(default_factory=list)
     proven_optimal: bool = False
     gap: Optional[float] = None  # solver's own relative MIP gap
     seconds: float = 0.0
     status: str = ""
+    coverage_upper_bound: Optional[float] = None
 
 
 def build_bin_coverage(
@@ -69,9 +71,7 @@ def build_bin_coverage(
         for prefix, length in zip(optimizer.fg_prefixes, optimizer.fg_seq_lengths):
             positions = optimizer.cache.get_positions(prefix, primer, "both")
             if len(positions) > 0:
-                graph.add_primer_coverage(
-                    primer, positions, prefix, length, extension_reach=reach
-                )
+                graph.add_primer_coverage(primer, positions, prefix, length, extension_reach=reach)
 
     primer_to_bins = {p: set(graph.primer_to_regions.get(p, set())) for p in candidates}
     primer_to_bins = {p: bins for p, bins in primer_to_bins.items() if bins}
@@ -100,7 +100,9 @@ def covered_bases(optimizer, candidates, selected) -> tuple[int, int]:
     return sum(bin_weight[b] for b in bins), total_bases
 
 
-def _solve(primer_to_bins, bin_weight, total_bases, budget, relax, max_seconds):
+def _solve(
+    primer_to_bins, bin_weight, total_bases, budget, relax, max_seconds, conflicts=(), fixed=()
+):
     # `sense` is the string 'MAX', not the `maximize` helper. Passing the
     # function silently yields a model the solver reports as empty, which is
     # how `dominating_set_optimizer.optimize_ilp` gets away with
@@ -125,21 +127,34 @@ def _solve(primer_to_bins, bin_weight, total_bases, budget, relax, max_seconds):
     for b in bins:
         model += y[b] <= xsum(x[p] for p in bin_to_primers[b])
     model += xsum(x.values()) <= budget
+    for a, b in conflicts:
+        model += x[a] + x[b] <= 1
+    for primer in fixed:
+        model += x[primer] == 1
 
     start = time.time()
     status = model.optimize(max_seconds=max_seconds)
     elapsed = time.time() - start
 
-    objective = float(model.objective_value or 0.0)
+    objective = model.objective_value
+    bound = model.objective_bound
+    bound = float(bound) if bound is not None and math.isfinite(bound) else None
+    if status.name == "OPTIMAL":
+        bound = objective
+    if status.name in {"INFEASIBLE", "INT_INFEASIBLE"}:
+        bound = None
     selected = (
-        sorted(p for p, v in x.items() if v.x is not None and v.x >= 0.99)
-        if not relax
-        else []
+        sorted(p for p, v in x.items() if v.x is not None and v.x >= 0.99) if not relax else []
     )
     return BoundResult(
         budget=budget,
         kind="lp" if relax else "ilp",
-        coverage=objective / total_bases if total_bases else 0.0,
+        coverage=(objective / total_bases if total_bases else 0.0)
+        if objective is not None
+        else None,
+        coverage_upper_bound=(bound / total_bases if total_bases else 0.0)
+        if bound is not None
+        else None,
         objective_bases=objective,
         selected=selected,
         proven_optimal=(status.name == "OPTIMAL"),
@@ -154,10 +169,41 @@ def coverage_bounds(
     candidates: Sequence[str],
     budget: int,
     max_seconds: int = 300,
+    enforce_dimers: bool = True,
+    fixed_primers=(),
 ) -> Dict[str, BoundResult]:
     """Return the LP and ILP bounds on coverage at `budget` primers."""
+    from neoswga.core.dimer import is_dimer_fast
+
+    candidates = list(dict.fromkeys(list(candidates) + list(fixed_primers)))
     primer_to_bins, bin_weight, total_bases = build_bin_coverage(optimizer, candidates)
+    for p in candidates:
+        primer_to_bins.setdefault(p, set())
+    conflicts = [
+        (p, q)
+        for i, p in enumerate(candidates)
+        for q in candidates[:i]
+        if enforce_dimers and is_dimer_fast(p, q, optimizer.max_dimer_bp)
+    ]
     return {
-        "lp": _solve(primer_to_bins, bin_weight, total_bases, budget, True, max_seconds),
-        "ilp": _solve(primer_to_bins, bin_weight, total_bases, budget, False, max_seconds),
+        "lp": _solve(
+            primer_to_bins,
+            bin_weight,
+            total_bases,
+            budget,
+            True,
+            max_seconds,
+            conflicts,
+            fixed_primers,
+        ),
+        "ilp": _solve(
+            primer_to_bins,
+            bin_weight,
+            total_bases,
+            budget,
+            False,
+            max_seconds,
+            conflicts,
+            fixed_primers,
+        ),
     }

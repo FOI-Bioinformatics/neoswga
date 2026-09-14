@@ -899,12 +899,25 @@ def set_size_shortfall_advice(num_found, target_size, method=None):
 
     So the shortfall is stated, the benign explanation is offered first, and
     the pool remedies are kept but demoted to what they are: possibilities.
+
+    A second benign cause was added on 2026-09-14, when `num_primers` was
+    settled as a REQUEST rather than a guarantee: dimer relaxation defaults
+    off, so the greedy stops rather than admitting a pair above `max_dimer_bp`.
+    On a pool that cannot supply enough mutually compatible primers that is the
+    binding constraint, and none of the pool remedies below addresses it --
+    raising `max_dimer_bp` or passing `--allow-dimer-relaxation` does, at a
+    cost the caller should choose deliberately.
     """
     lines = [
         f"Found {num_found} primers but the target was {target_size}.",
-        "This is not necessarily a shortfall. Stage 1 stops once the coverage "
-        "target is met, so a set that covers the genome with fewer primers "
-        "returns early. Check the reported coverage before treating it as one.",
+        "num_primers is a request, not a guarantee. Two benign causes come "
+        "before any deficiency in the pool.",
+        "  - Stage 1 stops once the coverage target is met, so a set that "
+        "covers the genome with fewer primers returns early. Check the "
+        "reported coverage first.",
+        "  - Selection stops rather than admitting a pair above max_dimer_bp. "
+        "Check the reported dimer limit; --allow-dimer-relaxation trades that "
+        "constraint for panel size.",
         "If coverage is also below target, the pool may genuinely be too small:",
         "  - Relaxing filter thresholds (max_bg_freq, max_gini)",
         "  - Widening k-mer range (min_k / max_k)",

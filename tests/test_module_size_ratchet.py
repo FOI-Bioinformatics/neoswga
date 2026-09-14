@@ -26,6 +26,15 @@ _BUDGETS = {
     "cli/pipeline.py": 1800,
     # HTML template extracted to report/templates/technical_report.html.
     "core/report/technical_report.py": 1300,
+    # Reviewed 2026-09-14. Both grew carrying the dimer-policy work that settled
+    # `num_primers` as a request: the relaxation flag threaded through every
+    # stage, the swap refinement behind `refinement_method`, and the reporting
+    # that makes a short panel say why it is short. hybrid_optimizer gave back
+    # 26 lines when the Stage-2 swap glue moved to core/swap_refinement.py;
+    # these ceilings cover what is left, and splitting `HybridOptimizer.optimize`
+    # into its three stages is still the right answer for the residue.
+    "core/hybrid_optimizer.py": 1650,
+    "core/unified_optimizer.py": 1650,
 }
 
 # Any other single module should stay below this. The current second-largest

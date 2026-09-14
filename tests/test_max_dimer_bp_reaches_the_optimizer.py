@@ -130,6 +130,7 @@ def _dimer_stall_optimizer():
         bin_size=_REACH // 4,
         extension_reach=_REACH,
         max_dimer_bp=3,
+        allow_dimer_relaxation=True,
     )
 
 
@@ -240,6 +241,7 @@ def _multi_stall_optimizer():
         bin_size=_REACH // 4,
         extension_reach=_REACH,
         max_dimer_bp=3,
+        allow_dimer_relaxation=True,
     )
 
 
@@ -381,3 +383,16 @@ def test_the_dominating_set_adapter_forwards_the_configured_threshold(monkeypatc
         "the adapter screened at parameter.max_dimer_bp rather than at the "
         "threshold its config records"
     )
+
+
+def test_default_greedy_keeps_dimer_constraint_when_stalled(caplog):
+    optimizer = _dimer_stall_optimizer()
+    optimizer.relax_dimer_constraint_when_stuck = False
+    with caplog.at_level(logging.WARNING):
+        result = optimizer.optimize_greedy(
+            list(_DIMER_STALL_POSITIONS), max_primers=3, verbose=False
+        )
+    assert len(result["primers"]) == 2
+    assert not _violating_pairs(result["primers"], 3)
+    assert "does not establish infeasibility" in caplog.text
+    assert not _relaxation_warnings(caplog)

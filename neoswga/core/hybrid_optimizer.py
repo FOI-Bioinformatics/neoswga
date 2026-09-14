@@ -335,6 +335,10 @@ class HybridOptimizer(ThermoScreenMixin):
         dimer_penalty: float = 0.0,
         max_dimer_bp: Optional[int] = None,
         template_gc: float = 0.5,
+        allow_dimer_relaxation: bool = False,
+        refinement_method: str = "network",
+        swap_max_evaluations: int = 10000,
+        swap_max_seconds: float = 10.0,
     ):
         """
         Initialize hybrid optimizer.
@@ -431,6 +435,11 @@ class HybridOptimizer(ThermoScreenMixin):
         # the Stage-0 screen ran on a hardcoded free-energy threshold no user
         # could set, and the delivered pool was reported against max_dimer_bp,
         # which nothing had enforced.
+        self.refinement_method = refinement_method
+        self.swap_max_evaluations = swap_max_evaluations
+        self.swap_max_seconds = swap_max_seconds
+        if refinement_method not in {"network", "swap"}:
+            raise ValueError("refinement_method must be network or swap")
         self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
 
         # Initialize both optimizers
@@ -445,6 +454,7 @@ class HybridOptimizer(ThermoScreenMixin):
             # Omitting this let Stage 1 re-resolve its own threshold, so a
             # config supplying 4 selected under 3 here and reported against 4.
             max_dimer_bp=self.max_dimer_bp,
+            allow_dimer_relaxation=allow_dimer_relaxation,
         )
 
         self.network_optimizer = NetworkOptimizer(
@@ -471,6 +481,7 @@ class HybridOptimizer(ThermoScreenMixin):
             tm_weight=tm_weight,
             dimer_penalty=dimer_penalty,
             max_dimer_bp=self.max_dimer_bp,
+            allow_dimer_relaxation=allow_dimer_relaxation,
             template_gc=template_gc,
         )
         # Retain for introspection / rescoring hooks.
@@ -666,6 +677,8 @@ class HybridOptimizer(ThermoScreenMixin):
             if self.background_pruning:
                 stage1_count = max(stage1_count, final_count * 2)
             stage1_count = min(stage1_count, len(candidates))
+            if self.refinement_method == "swap":
+                stage1_count = final_count
 
         if verbose:
             if n_fixed > 0:
@@ -725,7 +738,7 @@ class HybridOptimizer(ThermoScreenMixin):
             logger.info(f"  Runtime: {stage1_runtime:.2f}s")
 
         # If Stage 1 gave us fewer primers than target, use them all
-        if len(stage1_primers) <= final_count:
+        if len(stage1_primers) <= final_count and self.refinement_method != "swap":
             if verbose:
                 logger.info(f"\nStage 1 selected <= {final_count} primers, skipping Stage 2")
 
@@ -737,7 +750,7 @@ class HybridOptimizer(ThermoScreenMixin):
 
             return HybridResult(
                 primers=stage1_primers,
-                stage1_primers=stage1_primers,
+                stage1_primers=list(stage1_result["primers"]),
                 stage1_ordered_primers=stage1_ordered,
                 stage1_coverage=stage1_coverage,
                 stage1_regions_covered=stage1_regions,
@@ -745,7 +758,7 @@ class HybridOptimizer(ThermoScreenMixin):
                 stage2_connectivity=stats["connectivity"],
                 stage2_predicted_amplification=stats["predicted_amplification"],
                 stage2_largest_component=stats["largest_component"],
-                final_coverage=stage1_coverage,
+                final_coverage=self._calculate_coverage(stage1_primers),
                 final_connectivity=stats["connectivity"],
                 final_predicted_amplification=stats["predicted_amplification"],
                 simulation_fitness=None,  # Skip simulation for early return
@@ -760,7 +773,7 @@ class HybridOptimizer(ThermoScreenMixin):
         # ===================================================================
 
         stage1_5_runtime = 0.0
-        if self.background_pruning and self.bg_prefixes:
+        if self.background_pruning and self.bg_prefixes and self.refinement_method != "swap":
             if verbose:
                 logger.info("\n" + "-" * 80)
                 logger.info("STAGE 1.5: Background Pruning")
@@ -793,20 +806,25 @@ class HybridOptimizer(ThermoScreenMixin):
 
         if verbose:
             logger.info("\n" + "-" * 80)
-            logger.info("STAGE 2: Network Refinement (Amplification)")
+            logger.info("STAGE 2: %s refinement", self.refinement_method)
             logger.info("-" * 80)
 
         stage2_start = time.time()
 
         # Use network-based selection from Stage 1 primers
         # Fixed primers will never be removed during refinement
-        stage2_primers = self._network_refine(
-            stage1_primers,
-            target_count=final_count,
-            fixed_primers=fixed_primers,
-            verbose=verbose,
-            coverage_floor_set=stage1_ordered,
-        )
+        if self.refinement_method == "swap":
+            stage2_primers = self._swap_refine(
+                stage1_ordered[:final_count], candidates_filtered, fixed_primers
+            )
+        else:
+            stage2_primers = self._network_refine(
+                stage1_primers,
+                target_count=final_count,
+                fixed_primers=fixed_primers,
+                verbose=verbose,
+                coverage_floor_set=stage1_ordered,
+            )
 
         stage2_runtime = time.time() - stage2_start
 
@@ -903,6 +921,12 @@ class HybridOptimizer(ThermoScreenMixin):
             runtime_simulation=simulation_runtime,
             total_runtime=total_runtime,
         )
+
+    def _swap_refine(self, primers, candidates, fixed_primers):
+        """Delegate to the swap module; see `swap_refinement.refine_hybrid_stage2`."""
+        from .swap_refinement import refine_hybrid_stage2
+
+        return refine_hybrid_stage2(self, primers, candidates, fixed_primers)
 
     def _network_refine(
         self,
@@ -1521,6 +1545,10 @@ class HybridBaseOptimizer(BaseOptimizer):
             tm_weight=kwargs.get("tm_weight", 0.0),
             dimer_penalty=kwargs.get("dimer_penalty", 0.0),
             max_dimer_bp=getattr(self.config, "max_dimer_bp", 4),
+            allow_dimer_relaxation=self.config.allow_dimer_relaxation,
+            refinement_method=self.config.refinement_method,
+            swap_max_evaluations=self.config.swap_max_evaluations,
+            swap_max_seconds=self.config.swap_max_seconds,
             template_gc=kwargs.get("template_gc", 0.5),
         )
 
@@ -1569,7 +1597,15 @@ class HybridBaseOptimizer(BaseOptimizer):
             return OptimizationResult(
                 primers=tuple(primers),
                 score=result.final_predicted_amplification,
-                status=OptimizationStatus.SUCCESS if primers else OptimizationStatus.NO_CONVERGENCE,
+                status=(
+                    OptimizationStatus.NO_CONVERGENCE
+                    if not primers
+                    else (
+                        OptimizationStatus.PARTIAL
+                        if len(primers) < target
+                        else OptimizationStatus.SUCCESS
+                    )
+                ),
                 metrics=metrics,
                 iterations=1,
                 optimizer_name=self.name,
