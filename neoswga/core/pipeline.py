@@ -39,22 +39,38 @@ def _filter_exclusion_genome(
     Returns:
         Boolean mask where True indicates the primer passes filtering.
     """
+    from neoswga.core.thermodynamics import reverse_complement
+
     mask = []
     for primer in primers:
         k = len(primer)
+        # The tables are counted with jellyfish `-C`, so a k-mer and its reverse
+        # complement share one canonical entry and only one of the pair is
+        # present. Matching the primer alone therefore found nothing for every
+        # primer whose canonical form is its reverse complement, and recorded it
+        # as binding the exclusion genome zero times. The two sequences anneal
+        # to the same sites on opposite strands; either one is a hit.
+        wanted = {primer, reverse_complement(primer)}
         total_hits = 0
         for prefix in excl_prefixes:
             kmer_file = f"{prefix}_{k}mer_all.txt"
-            if os.path.exists(kmer_file):
-                try:
-                    with open(kmer_file, "r") as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) >= 2 and parts[0] == primer:
-                                total_hits += int(parts[1])
-                                break
-                except Exception as e:
-                    logger.debug(f"Ignored error reading kmer file for blacklist filter: {e}")
+            if not os.path.exists(kmer_file):
+                # Not a measurement of zero. The caller asked for this genome to
+                # be excluded; without its table nothing can be excluded, and
+                # passing every primer is indistinguishable from an exclusion
+                # genome that binds none of them.
+                raise FileNotFoundError(
+                    f"No {k}-mer table for exclusion genome prefix {prefix!r} "
+                    f"(expected {kmer_file}). Run count-kmers at this length, or "
+                    f"remove the exclusion genome from the configuration; every "
+                    f"primer would otherwise pass as if it bound nothing."
+                )
+            with open(kmer_file, "r") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 2 and parts[0] in wanted:
+                        total_hits += int(parts[1])
+                        break
         mask.append(total_hits <= threshold)
     return mask
 

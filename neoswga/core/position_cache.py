@@ -692,6 +692,14 @@ class StreamingPositionCache:
         self.record_starts: Dict[str, List[int]] = {}
         self.file_handles: Dict[str, h5py.File] = {}
         self.preloaded: Dict[Tuple[str, str, str], np.ndarray] = {}
+        # Same policy as PositionCache, and for the same reason. Known Issue 13
+        # made an unindexed prefix raise there; this class is the sibling
+        # `unified_optimizer` selects on a flag, and it kept returning an empty
+        # array -- indistinguishable from a primer that binds nowhere, which is
+        # exactly what made the original defect invisible.
+        self._indexed_prefixes = set(fname_prefixes)
+        self._warned_prefixes: set = set()
+        self.on_unindexed_prefix = "error"
 
         # Open HDF5 files in read-only mode with memory mapping.
         #
@@ -739,6 +747,8 @@ class StreamingPositionCache:
 
         Slower than PositionCache but uses less memory.
         """
+        PositionCache._check_prefix_is_indexed(self, fname_prefix)
+
         # Check preloaded cache
         if strand != "both":
             key = (fname_prefix, primer, strand)
@@ -749,24 +759,27 @@ class StreamingPositionCache:
         k = len(primer)
         path = f"{fname_prefix}_{k}mer_positions.h5"
 
+        empty = np.array([], dtype=POSITION_DTYPE)
         if path not in self.file_handles:
-            return np.array([], dtype=POSITION_DTYPE)
+            # An INDEXED prefix with no file at this k is a plausible zero: the
+            # primer length was never scanned. The guard above has already
+            # refused a prefix nobody indexed.
+            return empty
 
         db = self.file_handles[path]
 
+        def _read(key):
+            return np.array(db[key], dtype=POSITION_DTYPE) if key in db else empty
+
         if strand == "both":
-            fw = np.array(db[primer]) if primer in db else np.array([])
-            rc = reverse_complement(primer)
-            rv = np.array(db[rc]) if rc in db else np.array([])
             # np.unique, matching PositionCache.get_positions: a palindromic
             # primer's site appears under both the forward and reverse keys and
             # would otherwise be double-counted in total_fg_sites/selectivity.
-            return np.unique(np.concatenate([fw, rv]))
+            return np.unique(np.concatenate([_read(primer), _read(reverse_complement(primer))]))
         elif strand == "forward":
-            return np.array(db[primer]) if primer in db else np.array([])
+            return _read(primer)
         else:  # reverse
-            rc = reverse_complement(primer)
-            return np.array(db[rc]) if rc in db else np.array([])
+            return _read(reverse_complement(primer))
 
     def close(self) -> None:
         """Close all HDF5 file handles"""
