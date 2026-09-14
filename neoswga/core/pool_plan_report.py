@@ -76,6 +76,67 @@ def _check_plan(plan):
             )
 
 
+def _write_figure(plan, rows, output):
+    """Draw the coverage and specificity scatter for a saved plan.
+
+    Split out of `write_pool_plan` so that function stays inside the project's
+    function-length budget; it is one self-contained unit with no return value
+    beyond the file it writes.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
+    fig.suptitle(plan.get("title", "Oligo pool design"))
+    for good, color, label in [
+        (
+            True,
+            "#18764a",
+            (
+                "Meets specificity and dimer limits"
+                if plan["background_assessed"]
+                else "Dimer limits pass; background unassessed"
+            ),
+        ),
+        (False, "#a84232", "Fails at least one limit"),
+    ]:
+        subset = [r for r in rows if r["eligible"] == good]
+        axes[0].scatter(
+            [r["size"] for r in subset],
+            [100 * r["coverage"] for r in subset],
+            color=color,
+            label=label,
+        )
+    for rec in plan["recommendations"]:
+        axes[0].axhline(100 * rec["target_coverage"], color="#777", linestyle=":", linewidth=1)
+    axes[0].set(
+        xlabel="Oligos in delivered pool",
+        ylabel="Estimated target coverage (%)",
+        ylim=(0, 102),
+        title=f"{plan['primer_length']}-mers; {plan['coverage_metric']} coverage",
+    )
+    axes[0].legend(fontsize=7)
+    known = [r for r in rows if r.get("selectivity_density") is not None]
+    if known:
+        axes[1].scatter(
+            [r["size"] for r in known], [r["selectivity_density"] for r in known], color="#315b8a"
+        )
+        axes[1].set_yscale("symlog", linthresh=1)
+        if plan["min_selectivity_density"] is not None:
+            axes[1].axhline(plan["min_selectivity_density"], color="#777", linestyle=":")
+    else:
+        axes[1].text(0.5, 0.5, "Background not assessed", ha="center", transform=axes[1].transAxes)
+    axes[1].set(
+        xlabel="Oligos in delivered pool",
+        ylabel="Target/background site-density ratio",
+        title="Estimated specificity",
+    )
+    fig.savefig(output / "pool_sizes.png", dpi=160)
+    plt.close(fig)
+
+
 def write_pool_plan(plan, output):
     """Render a saved plan to a fresh directory, without accessing genome inputs.
 
@@ -124,59 +185,8 @@ def write_pool_plan(plan, output):
             f"<li>{target:.0%} coverage: smallest found = {_text(row['size'])} oligos "
             f'(<a href="{name}">FASTA</a>).</li>'
         )
-    import matplotlib
-
-    matplotlib.use("Agg")
-    from matplotlib import pyplot as plt
-
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
-    fig.suptitle(plan.get("title", "Oligo pool design"))
     rows = [r for r in plan["rows"] if r.get("coverage") is not None]
-    for good, color, label in [
-        (
-            True,
-            "#18764a",
-            (
-                "Meets specificity and dimer limits"
-                if plan["background_assessed"]
-                else "Dimer limits pass; background unassessed"
-            ),
-        ),
-        (False, "#a84232", "Fails at least one limit"),
-    ]:
-        subset = [r for r in rows if r["eligible"] == good]
-        axes[0].scatter(
-            [r["size"] for r in subset],
-            [100 * r["coverage"] for r in subset],
-            color=color,
-            label=label,
-        )
-    for rec in plan["recommendations"]:
-        axes[0].axhline(100 * rec["target_coverage"], color="#777", linestyle=":", linewidth=1)
-    axes[0].set(
-        xlabel="Oligos in delivered pool",
-        ylabel="Estimated target coverage (%)",
-        ylim=(0, 102),
-        title=f"{plan['primer_length']}-mers; {plan['coverage_metric']} coverage",
-    )
-    axes[0].legend(fontsize=7)
-    known = [r for r in rows if r.get("selectivity_density") is not None]
-    if known:
-        axes[1].scatter(
-            [r["size"] for r in known], [r["selectivity_density"] for r in known], color="#315b8a"
-        )
-        axes[1].set_yscale("symlog", linthresh=1)
-        if plan["min_selectivity_density"] is not None:
-            axes[1].axhline(plan["min_selectivity_density"], color="#777", linestyle=":")
-    else:
-        axes[1].text(0.5, 0.5, "Background not assessed", ha="center", transform=axes[1].transAxes)
-    axes[1].set(
-        xlabel="Oligos in delivered pool",
-        ylabel="Target/background site-density ratio",
-        title="Estimated specificity",
-    )
-    fig.savefig(output / "pool_sizes.png", dpi=160)
-    plt.close(fig)
+    _write_figure(plan, rows, output)
     table = []
     for r in plan["rows"]:
         coverage = f"{r['coverage']:.1%}" if r.get("coverage") is not None else "unavailable"
@@ -237,6 +247,46 @@ def write_pool_plan(plan, output):
         if best
         else "No evaluated panel passed all specified constraints."
     )
+    sweep = plan.get("reach_sensitivity") or []
+    if sweep:
+        sweep_cells = []
+        for row in sweep:
+            reach_text = _text(format(row["reach"], ","))
+            coverage_text = _text(format(row["coverage"], ".1%"))
+            sweep_cells.append(f"<tr><td>{reach_text}</td><td>{coverage_text}</td></tr>")
+        sweep_rows = "".join(sweep_cells)
+        sensitivity_html = (
+            "<h2>How much of that is the window radius?</h2>"
+            "<p>The same delivered panel, scored at other extension reaches. The "
+            "reach is a design-density convention taken from published successful "
+            "sets, not a measured extension distribution, and coverage is close to "
+            "linear in it. Read the recommendation together with this table.</p>"
+            "<table><tr><th>Extension reach (bp)</th><th>Estimated coverage</th></tr>"
+            f"{sweep_rows}</table>"
+        )
+    else:
+        sensitivity_html = ""
+
+    # What the reported number does and does not account for (audit F2, F7).
+    scope_html = (
+        "<details><summary>What this coverage figure includes</summary>"
+        "<p>It is the union of symmetric windows around exact binding sites, "
+        "weighted by an equilibrium occupancy derived from melting temperature "
+        "and duplex enthalpy. It is a <strong>proxy</strong>, not a predicted "
+        "recovery.</p>"
+        "<p>It does not resolve strand-directed extension, competing template "
+        "molecules, repeated priming, enzyme activity, reaction duration, "
+        "depletion, sequencing depth, or breadth at any depth threshold. An "
+        "equilibrium binding fraction is not a probability of amplification or "
+        "of read recovery.</p>"
+        "<p>Additives act on it only through melting temperature. Glycerol, BSA, "
+        "PEG, SSB and DTT have effects in the optional mechanistic model and no "
+        "term here, and inhibition of the polymerase by a Tm-active additive is "
+        "not represented. A recipe scored well by this metric has been assessed "
+        "for binding discrimination, not for enzyme activity or genome recovery."
+        "</p></details>"
+    )
+
     page = f"""<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>{title}</title><style>body{{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 24px;color:#233}}
 table{{border-collapse:collapse;width:100%}}td,th{{padding:9px;border-bottom:1px solid #ddd;text-align:left}}img{{width:100%}}a{{color:#176750}}</style>
@@ -248,6 +298,8 @@ Minimum site-density ratio: {density_limit}; maximum exact background sites: {ba
 <h2>Smallest qualifying pools found</h2><ul>{"".join(targets)}</ul>
 <p>{best_text}</p>
 <img src="pool_sizes.png" alt="Estimated coverage and specificity versus oligo count">
+{sensitivity_html}
+{scope_html}
 <h2>Evaluated panels</h2><table><tr><th>Requested</th><th>Delivered</th><th>Coverage</th><th>Density ratio</th><th>Background sites</th><th>Constraints</th></tr>{"".join(table)}</table>
 <p><a href="pool_sizes.csv">All sizes (CSV)</a> · <a href="pool_plan.json">Full results and oligo sequences (JSON)</a></p></html>"""
     (output / "pool_plan.html").write_text(page)

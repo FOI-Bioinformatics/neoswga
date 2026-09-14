@@ -6,6 +6,42 @@ import time
 from .base_optimizer import OptimizationStatus
 from .dimer_validator import DimerValidator
 
+# Multiples of the configured reach to report coverage at. The window radius is
+# a design-density convention rather than a measured extension distribution
+# (see `coverage.polymerase_extension_reach`), and coverage is close to linear
+# in it over this range, so a single figure without its reach says little. 1.0
+# is included so the sweep contains the number the recommendation was made on.
+REACH_SENSITIVITY_FACTORS = (1 / 3, 2 / 3, 1.0, 5 / 3, 10 / 3)
+
+
+def reach_sensitivity(cache, primers, prefixes, seq_lengths, reach, circular=False):
+    """Coverage for one delivered panel across a range of extension reaches.
+
+    Answers "how much of this number is the panel and how much is the window
+    radius", which a single coverage figure cannot. Uses the same union-of-
+    windows calculation the headline figure comes from, so the row at factor
+    1.0 reproduces it rather than approximating it.
+
+    Returns one dict per reach with ``reach``, ``factor`` and ``coverage``.
+    """
+    from .coverage import compute_per_prefix_coverage
+
+    rows = []
+    for factor in REACH_SENSITIVITY_FACTORS:
+        scaled = max(1, int(round(reach * factor)))
+        if any(row["reach"] == scaled for row in rows):
+            continue
+        aggregate, _ = compute_per_prefix_coverage(
+            cache=cache,
+            primers=list(primers),
+            prefixes=list(prefixes),
+            seq_lengths=list(seq_lengths),
+            extension=scaled,
+            circular=circular,
+        )
+        rows.append({"reach": scaled, "factor": factor, "coverage": aggregate})
+    return sorted(rows, key=lambda row: row["reach"])
+
 
 def plan_pool(
     optimizer,
@@ -145,9 +181,32 @@ def plan_pool(
                 status="smallest_found" if chosen else "not_found",
             )
         )
+    # Reach sensitivity for the panel a reader is most likely to act on: the
+    # largest qualifying recommendation. Computed once, saved with the plan, so
+    # `report-pool` can render it without genome access.
+    chosen = [r for r in recommendations if r["row_index"] is not None]
+    sensitivity = []
+    # Checked rather than caught: a caller may pass any optimizer-shaped object,
+    # and one that cannot supply a position cache simply gets no sweep. A bare
+    # `except` here would also hide a real cache failure.
+    needed = ("cache", "fg_prefixes", "fg_seq_lengths", "config")
+    if chosen and all(getattr(optimizer, name, None) is not None for name in needed):
+        reach = getattr(optimizer.config, "extension_reach", 0)
+        if reach > 0:
+            panel = rows[max(chosen, key=lambda r: r["target_coverage"])["row_index"]]["primers"]
+            sensitivity = reach_sensitivity(
+                cache=optimizer.cache,
+                primers=panel,
+                prefixes=optimizer.fg_prefixes,
+                seq_lengths=optimizer.fg_seq_lengths,
+                reach=reach,
+                circular=getattr(optimizer.config, "fg_circular", False),
+            )
+
     return dict(
         primer_length=primer_length,
         candidate_count=len(pool),
+        reach_sensitivity=sensitivity,
         coverage_metric=coverage_metric,
         extension_reach=optimizer.config.extension_reach,
         background_assessed=background_known,

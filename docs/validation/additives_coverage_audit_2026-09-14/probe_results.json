@@ -1,0 +1,43 @@
+{
+  "primer_concentration": [
+    {
+      "configured_concentration": 5e-08,
+      "default_call_tm": 42.67777438692906,
+      "explicit_call_tm": 42.67777438692906
+    },
+    {
+      "configured_concentration": 5e-06,
+      "default_call_tm": 52.92054905612247,
+      "explicit_call_tm": 52.92054905612247
+    }
+  ],
+  "propanediol_conversion": {
+    "input_m": 1,
+    "output_m": 1
+  },
+  "ignored_tm_modifier": {
+    "correction_minus_1": 47.71743971891863,
+    "correction_minus_10": 47.71743971891863
+  },
+  "dmso_correction_by_temperature": {
+    "30": -2.6891193715073616,
+    "37": -2.75,
+    "42": -2.7926273186400414
+  },
+  "circular_without_sites": 0.0,
+  "occupancy_grouping": {
+    "one_site": 0.1,
+    "two_same_primer_sites": 0.105,
+    "two_distinct_primers": 0.1525
+  },
+  "contig_boundary": {
+    "concatenated_sequence": "AAAAAACCCCCCGGGGGGTTTTTT",
+    "artificial_join_match": 6
+  },
+  "wmel_same_26_oligos_reach_sensitivity": {
+    "1000": 0.4133720347820051,
+    "3000": 0.8013067309679425,
+    "5000": 0.9347263567395656,
+    "10000": 0.9961728435961388
+  }
+}

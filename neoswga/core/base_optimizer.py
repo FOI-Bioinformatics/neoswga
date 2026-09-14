@@ -1341,16 +1341,31 @@ class BaseOptimizer(ABC):
         bound, and its sites contribute far less amplification than a count
         implies.
 
-        Here a site covers its window with probability theta -- the same
-        two-state occupancy the selectivity metric uses -- so a base is covered
-        unless every site reaching it fails to bind:
+        A site covers its window with probability theta -- the same two-state
+        occupancy the selectivity metric uses -- and the product is taken over
+        PRIMERS, not over sites:
 
-            P(covered at x) = 1 - PRODUCT over sites s reaching x of (1 - theta_s)
+            P(covered at x) = 1 - PRODUCT over primers p reaching x of (1 - theta_p)
 
-        Independence across sites is an approximation. Sites on one template
-        molecule compete for polymerase and are not independent, so this reads
-        as an upper bound on what a single molecule does; across the many
-        molecules in a reaction it is the right shape.
+        The grouping is deliberate and is what the loop below implements: one
+        primer's overlapping windows are unioned first and its occupancy applied
+        once, because a primer does not stack with itself. Per-site
+        independence would multiply (1 - theta) in once per overlapping window
+        and report a larger number.
+
+        Corrected 2026-09-14 (audit F5): this formula previously read "PRODUCT
+        over sites", describing a model the code does not implement. The two
+        differ measurably -- at T = Tm with 100 bp windows on a 1 kb target,
+        sites at 500 and 510 give 10.5% under one primer and 15.25% under two
+        distinct primers -- and `tests/test_occupancy_grouping_is_specified.py`
+        pins the one in use.
+
+        Independence across primers is itself an approximation: sites on one
+        template molecule compete for polymerase. Neither model here has been
+        compared against a measured reaction, so this is a stated approximation
+        rather than a validated one, and the earlier claim that it bounds
+        single-molecule recovery from above is not established by this
+        arithmetic.
 
         Returns None when no reaction conditions are attached, since without them
         there is no temperature at which to evaluate occupancy and a fabricated
