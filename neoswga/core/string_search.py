@@ -1,3 +1,4 @@
+import bisect
 import logging
 import multiprocessing
 import os
@@ -28,6 +29,20 @@ except ImportError:
 
 # Module-level cache for genome sequences
 _genome_cache: Dict[str, str] = {}
+
+# Offsets in the concatenated sequence at which a new FASTA record begins,
+# excluding 0. Records are joined without a separator -- the concatenation is
+# the coordinate system every stored position is expressed in -- so a k-mer can
+# straddle a join and be reported as present when neither record contains it.
+# These offsets are what `get_all_positions_multi_k` rejects such a match with.
+_record_boundary_cache: Dict[str, List[int]] = {}
+
+
+def get_cached_record_boundaries(seq_fname: str) -> List[int]:
+    """Record-start offsets for a genome, loading it if it is not cached."""
+    if seq_fname not in _record_boundary_cache:
+        get_cached_genome_sequence(seq_fname)
+    return _record_boundary_cache.get(seq_fname, [])
 
 
 def get_cached_genome_sequence(seq_fname: str) -> str:
@@ -110,10 +125,14 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
 
     loader = genome_io.GenomeLoader()
     sequence = ""
+    boundaries: List[int] = []
     for record in loader.load_genome_streaming(seq_fname):
+        if sequence:
+            boundaries.append(len(sequence))
         sequence += record
 
     _genome_cache[seq_fname] = sequence
+    _record_boundary_cache[seq_fname] = boundaries
     logger.info(f"Cached genome sequence: {len(sequence):,} bp")
 
     return sequence
@@ -136,9 +155,10 @@ def preload_genomes(seq_fnames: List[str]) -> None:
 
 def clear_genome_cache() -> None:
     """Clear the genome sequence cache to free memory."""
-    global _genome_cache
+    global _genome_cache, _record_boundary_cache
     cache_size = len(_genome_cache)
     _genome_cache = {}
+    _record_boundary_cache = {}
     logger.info(f"Cleared genome cache ({cache_size} entries)")
 
 
@@ -196,6 +216,7 @@ def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular, chunk_size
     A.make_automaton()
 
     sequence = get_cached_genome_sequence(seq_fname)
+    boundaries = get_cached_record_boundaries(seq_fname)
     seq_len = len(sequence)
     max_k = max(primer_lists_by_k.keys())
 
@@ -218,8 +239,17 @@ def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular, chunk_size
             # never claimed twice.
             if not (start <= abs_start < stop):
                 continue
-            if abs_start < seq_len:
-                all_primers[primer].append(abs_start)
+            if abs_start >= seq_len:
+                continue
+            # Reject a match formed only by the join between two records.
+            # `bisect_right` gives the first boundary strictly after the match
+            # start; if it also falls strictly inside the match, the match
+            # spans it and exists in neither record.
+            if boundaries:
+                nxt = bisect.bisect_right(boundaries, abs_start)
+                if nxt < len(boundaries) and boundaries[nxt] < abs_start + len(primer):
+                    continue
+            all_primers[primer].append(abs_start)
         start = stop
 
     return all_primers
@@ -274,7 +304,14 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
     return kmer_dict
 
 
-def write_to_h5py(kmer_dict, fname_prefix, replace=False):
+# Dataset name holding the record-start offsets for a prefix. '#' cannot occur
+# in a primer, so this can never collide with a k-mer key, and `PositionCache`
+# only ever reads datasets it looks up by primer name, so an older reader
+# ignores it.
+RECORD_STARTS_KEY = "#record_starts"
+
+
+def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None):
     """
     Writes the kmer counts to an h5py file, which allows for efficient access in terms of looking up the
     frequency of a particular k-mer. If the kmer already exists in the dataset, the entry in the h5py file
@@ -299,6 +336,16 @@ def write_to_h5py(kmer_dict, fname_prefix, replace=False):
     k = len(next(iter(kmer_dict.keys())))
     h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
     with h5py.File(h5_path, "w" if replace else "r+") as f:
+        if record_starts is not None:
+            # Where each FASTA record begins in the concatenated coordinate
+            # system every stored position uses. Without it a coverage window
+            # anchored near the end of one record extends into the next.
+            import numpy as _np
+
+            data = _np.asarray(list(record_starts), dtype=_np.int64)
+            if RECORD_STARTS_KEY in f:
+                del f[RECORD_STARTS_KEY]
+            f.create_dataset(RECORD_STARTS_KEY, data=data)
         for kmer, positions in kmer_dict.items():
             if kmer not in f:
                 f.create_dataset(kmer, data=positions)
@@ -696,7 +743,12 @@ def get_positions(
             for k, primers in primer_lists_by_k.items():
                 k_dict = {p: all_positions.get(p, []) for p in primers}
                 if k_dict:
-                    write_to_h5py(k_dict, fg_prefix, replace=k in replace_k)
+                    write_to_h5py(
+                        k_dict,
+                        fg_prefix,
+                        replace=k in replace_k,
+                        record_starts=[0] + get_cached_record_boundaries(fname_genomes[i]),
+                    )
                 write_position_provenance(fg_prefix, fname_genomes[i], k, circular)
 
         return position_cache
@@ -755,7 +807,11 @@ def append_positions_to_h5py_file(task):
         kmer_dict = get_all_positions_per_k(
             list(set(filtered_list)), fname_genome, circular, fname_prefix
         )
-        write_to_h5py(kmer_dict, fname_prefix)
+        write_to_h5py(
+            kmer_dict,
+            fname_prefix,
+            record_starts=[0] + get_cached_record_boundaries(fname_genome),
+        )
         # This path decides what to rescan with `check_which_primers_absent_in_h5py`,
         # which consults no provenance record, so the file it leaves behind holds
         # datasets of unverified origin. Dropping the record stops the

@@ -246,6 +246,7 @@ class ReactionConditions:
         ethanol_percent: float = 0.0,
         urea_m: float = 0.0,
         tmac_m: float = 0.0,
+        primer_conc: float = 0.5e-6,
         propanediol_m: float = 0.0,
         na_conc: float = 50.0,
         mg_conc: Optional[float] = None,
@@ -287,6 +288,9 @@ class ReactionConditions:
         self.ethanol_percent = ethanol_percent
         self.urea_m = urea_m
         self.tmac_m = tmac_m
+        # Per-oligo concentration, not a shared pool total. See
+        # tests/test_primer_concentration_reaches_the_tm.py.
+        self.primer_conc = primer_conc
         self.propanediol_m = propanediol_m
         self.na_conc = na_conc
         self.ssb = ssb
@@ -511,7 +515,7 @@ class ReactionConditions:
         )
         return tm_base + correction
 
-    def calculate_effective_tm(self, seq: str, primer_conc: float = 0.5e-6) -> float:
+    def calculate_effective_tm(self, seq: str, primer_conc: Optional[float] = None) -> float:
         """
         Calculate effective Tm for sequence under these conditions.
 
@@ -521,11 +525,19 @@ class ReactionConditions:
 
         Args:
             seq: DNA sequence
-            primer_conc: Primer concentration in M
+            primer_conc: Per-oligo concentration in M. `None`, the default,
+                takes the configured `self.primer_conc`. It used to default to
+                0.5 uM here instead, and since `filter`, occupancy and effective
+                coverage all call this with no argument, a configured value
+                reached nothing. Across the schema's range the same oligo moves
+                about 10 C, and this is the Tm the filter gate screens on.
 
         Returns:
             Effective Tm in degrees Celsius
         """
+        if primer_conc is None:
+            primer_conc = self.primer_conc
+
         # Calculate base Tm with salt
         tm_base = thermo.calculate_tm_with_salt(
             seq,
@@ -650,11 +662,23 @@ class ReactionConditions:
             - GC > 60%: Reduce max by 1-2 bp or require more betaine
             - GC < 40%: Can be 1-2 bp longer with same additive support
 
-        Literature support:
-        - Henke et al. (1997): 18bp primers work with 1M betaine at 55C (PCR)
-        - Musso et al. (2006): 20bp primers work with 2M betaine + 5% DMSO at 60C (PCR)
-        - Rees et al. (1993): High-GC sequences need more betaine for equalization
-        - If it works in PCR, it works better in SWGA due to lower temperature
+        Evidence, and what it does not cover (audit F8, 2026-09-14):
+
+        The cited studies are PCR. Henke (1997) and Musso (2006) report primers
+        annealing under stated additive conditions in PCR; Musso's combination
+        also includes 7-deaza-dGTP and concerns GC-rich PCR, not SWGA. None of
+        them measures SWGA oligo length, and the closing inference below --
+        "if it works in PCR, it works better in SWGA due to lower temperature"
+        -- is an argument, not a result. It has not been tested here.
+
+        So the thresholds in this function are SOFTWARE SEARCH BOUNDS chosen to
+        be defensible, not experimentally validated limits. They decide how long
+        a primer this tool will propose. They do not establish that an 18 bp
+        SWGA oligo anneals usefully at 30 C under 2 M betaine.
+
+        - Henke et al. (1997) NAR 25:3957: 18bp primers in PCR with 1M betaine at 55C
+        - Musso et al. (2006): GC-rich PCR, 2M betaine + 5% DMSO + 7-deaza-dGTP at 60C
+        - Rees et al. (1993): high-GC sequences need more betaine for equalization
 
         Args:
             primer_gc: Optional primer GC content (0-1). If provided, adjusts
@@ -721,12 +745,16 @@ class ReactionConditions:
             if not (self.betaine_m >= 1.5 and self.dmso_percent >= 3.0):
                 supported_max = 16  # Insufficient support for 17bp
 
-        # For 18bp+: Need extreme combined support (Musso 2006 level)
+        # For 18bp+: additive support at the level Musso (2006) used in
+        # GC-rich PCR. Chosen as a search bound; not an SWGA measurement.
         if supported_max >= 18:
             if not (self.betaine_m >= 2.0 and self.dmso_percent >= 5.0):
                 supported_max = 17  # Insufficient support for 18bp
 
-        # Absolute maximum cap at 18bp (literature-validated limit)
+        # Absolute cap at 18 bp. This is a SEARCH BOUND, not a
+        # literature-validated limit as this comment used to claim: no cited
+        # study measures SWGA oligo length, and the cap exists so the tool does
+        # not propose primers whose behaviour nothing here has characterised.
         return max(6, min(supported_max, 18))
 
     def max_safe_primer_length(self, primer_gc: Optional[float] = None) -> int:
@@ -1031,6 +1059,11 @@ class ReactionConditions:
             ethanol_percent=additives.ethanol_percent,
             urea_m=additives.urea_m,
             tmac_m=additives.tmac_m,
+            # Omitted until 2026-09-14, so a 1 M input arrived as 0 M and the
+            # strongest-anchored additive correction in the project silently
+            # did nothing. tests/test_one_canonical_tm_path.py round-trips
+            # every field of the dataclass so the next omission fails.
+            propanediol_m=additives.propanediol_m,
             na_conc=na_conc,
             mg_conc=mg_conc,
             ssb=ssb,

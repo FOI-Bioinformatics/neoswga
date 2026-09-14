@@ -10,6 +10,7 @@ CLIs share the same code path.
 
 from __future__ import annotations
 
+import bisect
 import math
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -75,21 +76,27 @@ def compute_per_prefix_coverage(
             per_prefix[prefix] = 0.0
             continue
         occupied = np.zeros(length, dtype=bool)
-        # If the window diameter equals or exceeds the genome on a
-        # circular target, every position is covered by any single site.
-        if circular and 2 * extension >= length:
+        found: List[int] = []
+        for primer in primers:
+            try:
+                positions = cache.get_positions(prefix, primer, strand)
+            except (KeyError, ValueError):
+                # Genuinely-absent primer in this prefix; skip it. Do NOT
+                # swallow I/O / HDF5 errors here — a systemic cache failure
+                # must surface rather than silently undercount coverage.
+                continue
+            found.extend(int(pos) for pos in positions)
+        starts = _record_starts_for(cache, prefix)
+
+        # If the window diameter equals or exceeds the genome on a circular
+        # target, every position is covered by ANY SINGLE SITE -- which is why
+        # the premise has to be checked. Without `found`, an empty cache took
+        # this branch and reported 1.0 for a panel that binds nothing.
+        if circular and 2 * extension >= length and found:
             occupied[:] = True
         else:
-            for primer in primers:
-                try:
-                    positions = cache.get_positions(prefix, primer, strand)
-                except (KeyError, ValueError):
-                    # Genuinely-absent primer in this prefix; skip it. Do NOT
-                    # swallow I/O / HDF5 errors here — a systemic cache failure
-                    # must surface rather than silently undercount coverage.
-                    continue
-                for pos in positions:
-                    _mark_window(occupied, int(pos), extension, length, circular)
+            for pos in found:
+                _mark_window(occupied, pos, extension, length, circular, record_starts=starts)
         covered = int(occupied.sum())
         per_prefix[prefix] = covered / length if length else 0.0
         total_cov += covered
@@ -158,17 +165,25 @@ def marginal_coverage_curve(
     for index, primer in enumerate(primers, start=1):
         for prefix, length in usable:
             marks = occupied[prefix]
-            if circular and 2 * extension >= length:
-                marks[:] = True
-                continue
             try:
                 positions = cache.get_positions(prefix, primer, strand)
             except (KeyError, ValueError):
                 # Genuinely-absent primer in this prefix; skip it. Do NOT
                 # swallow I/O / HDF5 errors here.
                 continue
-            for pos in positions:
-                _mark_window(marks, int(pos), extension, length, circular)
+            sites = [int(pos) for pos in positions]
+            if not sites:
+                continue
+            # Same premise as compute_per_prefix_coverage. The check used to sit
+            # before the lookup and inside the per-primer loop, so the FIRST
+            # primer marked the whole genome whether or not it bound anything,
+            # and every later entry inherited that.
+            if circular and 2 * extension >= length:
+                marks[:] = True
+                continue
+            starts = _record_starts_for(cache, prefix)
+            for pos in sites:
+                _mark_window(marks, pos, extension, length, circular, record_starts=starts)
 
         covered = sum(int(occupied[prefix].sum()) for prefix, _ in usable)
         coverage = covered / total_len if total_len else 0.0
@@ -185,12 +200,30 @@ def marginal_coverage_curve(
     return curve
 
 
+def _record_starts_for(cache, prefix):
+    """Record offsets for a prefix, when the cache can supply them.
+
+    `getattr` rather than a hard call: these helpers accept any cache-shaped
+    object, several tests pass a stub, and an index written before record
+    starts were stored has none. In both cases the window is not confined and
+    behaviour is what it was.
+    """
+    getter = getattr(cache, "get_record_starts", None)
+    if getter is None:
+        return None
+    try:
+        return getter(prefix) or None
+    except Exception:  # pragma: no cover - a stub that defines it but fails
+        return None
+
+
 def _mark_window(
     occupied: "np.ndarray",
     pos: int,
     extension: int,
     length: int,
     circular: bool,
+    record_starts: Optional[Sequence[int]] = None,
 ) -> None:
     """Mark ``occupied[pos-extension:pos+extension]`` as True.
 
@@ -199,9 +232,34 @@ def _mark_window(
     Used by :func:`compute_per_prefix_coverage` and
     :meth:`base_optimizer.BaseOptimizer._compute_coverage` to keep the
     two coverage implementations in sync.
+
+    ``record_starts`` gives the offsets at which each FASTA record begins in
+    the concatenated sequence, including 0. When supplied, the window is
+    confined to the record holding ``pos``: a polymerase extending from a site
+    near the end of one contig does not continue into the next one, and the
+    only reason it appeared to was that concatenation left no record boundary
+    for the window to stop at (audit F3).
+
+    Wrapping is suppressed when records are known, because a multi-record file
+    is not one circle -- joining its last record to its first would be the same
+    error in another direction. A single-record circular genome still wraps,
+    since its one record spans the whole sequence.
     """
     start = pos - extension
     end = pos + extension
+
+    if record_starts:
+        index = bisect.bisect_right(record_starts, pos) - 1
+        lo = record_starts[index] if index >= 0 else 0
+        hi = record_starts[index + 1] if index + 1 < len(record_starts) else length
+        single_record = len(record_starts) == 1 and lo == 0 and hi == length
+        if not single_record:
+            clipped_start = max(lo, start)
+            clipped_end = min(hi, end)
+            if clipped_end > clipped_start:
+                occupied[clipped_start:clipped_end] = True
+            return
+
     if circular:
         if start < 0 and end > length:
             # Window exceeds genome from both ends; everything is covered.
@@ -233,12 +291,28 @@ def polymerase_extension_reach(
 
     - ``coverage_metric='realistic'`` (default): returns the effective
       per-primer reach in a dense SWGA design (phi29 ~3 kb, equiphi29
-      ~4 kb, bst ~1 kb, klenow ~1.5 kb). In dense multi-primer reactions
-      extension is truncated by neighbouring primers' strand-displacement
-      products after a few kb — Clarke et al. (2017) filter candidate
-      sets to <5 kb mean inter-primer-site spacing; Dwivedi-Yu et al.
-      (2023) report successful Prevotella sets at 1/2-5 kbp densities.
-      Use this for `fg_coverage` / `per_target_coverage`.
+      ~4 kb, bst ~1 kb, klenow ~1.5 kb). Use this for `fg_coverage` /
+      `per_target_coverage`.
+
+      **Where this figure comes from.** It is a DESIGN-DENSITY convention
+      taken from sets with measured wet-lab success -- Clarke et al. (2017)
+      filter candidates to <5 kb mean inter-primer-site spacing, Dwivedi-Yu
+      et al. (2023) report successful Prevotella sets at 1/2-5 kbp densities.
+      It is not a measured extension distribution, and no reading of it
+      identifies a physical processivity.
+
+      This docstring previously explained it as extension being "truncated by
+      neighbouring primers' strand-displacement products". That mechanism is
+      wrong, and `product_reach` in this same module says so: phi29 displaces
+      a downstream product rather than being stopped by it, so spacing does
+      not bound product length. The two statements contradicted each other;
+      corrected 2026-09-14 (audit F2) in favour of the mechanism, leaving the
+      empirical spacing convention as the actual justification for 3 kb.
+
+      Coverage is highly sensitive to this choice. On one saved 26-oligo wMel
+      panel under identical conditions the same design reads 41.3% at 1 kb,
+      80.1% at 3 kb, 93.5% at 5 kb and 99.6% at 10 kb. A single figure quoted
+      without its reach carries almost no information.
     - ``coverage_metric='processivity'``: returns the theoretical
       single-molecule processivity (phi29 70 kb, equiphi29 80 kb,
       bst 2 kb, klenow 10 kb). Use this when the question is graph-level

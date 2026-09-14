@@ -161,10 +161,16 @@ class MechanisticModel:
         tm_modifier = self._interaction_registry.calculate_pathway_modifier(
             Pathway.TM, self.conditions, template_gc
         )
-        # Tm modifier affects the correction, not the base Tm
+        # Tm modifier affects the correction, not the base Tm. Only the CHANGE
+        # it makes is this model's to apply: the canonical Tm already carries
+        # the unscaled correction, so re-adding the scaled one would double
+        # every additive.
         if tm_modifier != 1.0:
+            interaction_delta = tm_correction * (tm_modifier - 1.0)
             tm_correction *= tm_modifier
-            effective_tm = self._calculate_effective_tm(primer, primer_gc, tm_correction)
+            effective_tm = self._calculate_effective_tm(
+                primer, primer_gc, tm_correction, interaction_delta=interaction_delta
+            )
 
         # Pathway 2: Template accessibility
         accessibility = self._calculate_accessibility(template_gc)
@@ -292,33 +298,50 @@ class MechanisticModel:
         return -scale * gc_deviation * equalization
 
     def _calculate_effective_tm(
-        self, primer: str, gc_content: float, tm_correction: float
+        self,
+        primer: str,
+        gc_content: float,
+        tm_correction: float,
+        interaction_delta: float = 0.0,
     ) -> float:
         """
         Calculate effective Tm for primer under these conditions.
 
-        Uses the ReactionConditions method if available, otherwise
-        estimates from sequence.
+        `ReactionConditions.calculate_effective_tm` is the canonical
+        calculation and already applies every additive correction. This model
+        computes its own full correction in `_calculate_tm_correction`, so
+        adding that on top would count each additive twice; `tm_correction` is
+        therefore consumed only by the sequence-estimate fallback, which has no
+        conditions object to ask.
+
+        What IS this model's to contribute is `interaction_delta`: the change an
+        additive INTERACTION makes to the correction, which the canonical
+        calculation knows nothing about. It used to be dropped -- corrections of
+        -1 C and -10 C returned the same effective Tm -- so an interaction
+        modifier changed a reported number and never the Tm it was reported
+        against.
 
         Args:
             primer: Primer sequence
             gc_content: Primer GC content
-            tm_correction: Pre-calculated Tm correction
+            tm_correction: Full additive correction; fallback path only
+            interaction_delta: Change contributed by additive interactions,
+                applied on top of the canonical Tm
 
         Returns:
             Effective Tm in degrees Celsius
         """
         # Try to use ReactionConditions method
         try:
-            return self.conditions.calculate_effective_tm(primer)
-        except (AttributeError, Exception):
+            return self.conditions.calculate_effective_tm(primer) + interaction_delta
+        except AttributeError:
             # Fall back to simple estimation
             # Wallace rule: Tm = 2*(AT) + 4*(GC)
             length = len(primer)
             gc_count = int(gc_content * length)
             at_count = length - gc_count
             base_tm = 2 * at_count + 4 * gc_count
-            return base_tm + tm_correction
+            return base_tm + tm_correction + interaction_delta
 
     # =========================================================================
     # Pathway 2: Secondary Structure Accessibility
