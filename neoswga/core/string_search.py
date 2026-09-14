@@ -333,6 +333,8 @@ def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None):
     """
     if not kmer_dict:
         return  # Nothing to write
+    import numpy as _np
+
     k = len(next(iter(kmer_dict.keys())))
     h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
     with h5py.File(h5_path, "w" if replace else "r+") as f:
@@ -340,8 +342,6 @@ def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None):
             # Where each FASTA record begins in the concatenated coordinate
             # system every stored position uses. Without it a coverage window
             # anchored near the end of one record extends into the next.
-            import numpy as _np
-
             data = _np.asarray(list(record_starts), dtype=_np.int64)
             if RECORD_STARTS_KEY in f:
                 del f[RECORD_STARTS_KEY]
@@ -349,8 +349,17 @@ def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None):
         for kmer, positions in kmer_dict.items():
             if kmer not in f:
                 f.create_dataset(kmer, data=positions)
-            elif len(f[kmer]) == len(positions):
-                # In-place overwrite avoids HDF5 file fragmentation
+            elif len(f[kmer]) == len(positions) and f[kmer].dtype == _np.int64:
+                # In-place overwrite avoids HDF5 file fragmentation.
+                #
+                # In place means into the EXISTING dataset, with its existing
+                # dtype. An index written before genome coordinates were int64
+                # (Known Issue 7) therefore could not hold what a rescan found:
+                # h5py 3.x raises OverflowError, and a build that casts instead
+                # would write truncated coordinates that read as measurements.
+                # Requiring int64 here sends such a dataset down the recreate
+                # path below; every file written by current code still takes
+                # this branch.
                 f[kmer][...] = positions
             else:
                 del f[kmer]
