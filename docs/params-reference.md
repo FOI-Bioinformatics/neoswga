@@ -23,6 +23,7 @@ neoswga schema --dump > params.schema.json
 | Parameter | Type | Range / allowed | Default | Description |
 |---|---|---|---|---|
 | `adaptive_gc` | boolean | - | `True` | Enable genome-GC-aware filtering. Set false to force gc_min/gc_max to user values. |
+| `allow_dimer_relaxation` | boolean | - | `False` | Allow greedy selection to exceed the pairwise dimer limit when stalled. Clique remains strict. |
 | `betaine_m` | number | min: 0.0; max: 2.5 | `0.0` | - |
 | `bg_circular` | boolean | - | `False` | - |
 | `bg_genomes` | array of string | - | - | Background (host / off-target) genome FASTA paths. |
@@ -87,6 +88,7 @@ neoswga schema --dump > params.schema.json
 | `primer_conc` | number | min: 1e-09; max: 0.0001 | `5e-07` | - |
 | `propanediol_m` | number | min: 0.0; max: 1.5 | `0.0` | 1,2-propanediol (M). GC-rich enhancer; ~5.4 C Tm depression per M (Horakova 2011). Typical 1 M. |
 | `reaction_temp` | number | min: 20.0; max: 70.0 | - | - |
+| `refinement_method` | string | one of: network, swap | `network` | - |
 | `retries` | integer | min: 0; max: 100 | - | - |
 | `sample_rate` | number or null | min: 0.001; max: 1.0 | - | - |
 | `sampled_index_path` | string | - | - | Path to a pre-built sampled background index, used when use_bloom_filter is set and no index is found beside the Bloom filter. Overridden by --sampled-index-path. |
@@ -94,12 +96,15 @@ neoswga schema --dump > params.schema.json
 | `selection_metric` | string | one of: deterministic, random, stochastic | - | - |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
 | `ssb` | boolean | - | `False` | Single-stranded binding protein present. Previously accepted by the CLI but absent from this schema. |
+| `swap_max_evaluations` | integer | min: 0 | `10000` | - |
+| `swap_max_seconds` | number | min: 0 | `10.0` | - |
 | `target_set_size` | integer | min: 1; max: 200 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
 | `top_set_count` | integer | min: 1; max: 100 | - | - |
 | `trehalose_m` | number | min: 0.0; max: 1.0 | `0.0` | - |
 | `urea_m` | number | min: 0.0; max: 2.0 | `0.0` | - |
 | `use_bloom_filter` | boolean | - | `False` | - |
+| `verbose` | boolean | - | `False` | Log the intermediate filter frames. Assigned in parameter.py and read by core/pipeline.py; it was absent from this schema, so four shipped configs that set it warned as if it were a typo. |
 
 ---
 

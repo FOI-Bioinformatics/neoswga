@@ -155,6 +155,35 @@ def run_step1(args):
         sys.exit(1)
 
 
+def _resolve_gc_window(args, parameter):
+    """Apply an explicit ``--gc-tolerance`` over the window params.json resolved.
+
+    An absent flag must not beat the configuration. ``get_params`` has already
+    applied ``adaptive_gc``, ``gc_tolerance`` and any explicit ``gc_min`` /
+    ``gc_max``, including the released bound that extreme-AT targets depend on.
+
+    Two defects lived here. The flag carried an argparse default of 0.15, so
+    this ran on every invocation and overwrote a configured window with one
+    the user had not asked for. And it computed that window with its own
+    formula, clamping the lower bound at 0.20 where ``adaptive_gc_window``
+    releases it to zero below the extreme-AT threshold -- excluding exactly the
+    zero-GC primers published AT-rich designs are built from. On a 19% GC
+    target the two disagreed by the whole of that release.
+    """
+    from neoswga.core.parameter import adaptive_gc_window
+
+    tolerance = getattr(args, "gc_tolerance", None)
+    if tolerance is None:
+        return
+    # An explicitly requested bound outranks a tolerance-derived one.
+    if getattr(args, "gc_min", None) is not None or getattr(args, "gc_max", None) is not None:
+        return
+    genome_gc = getattr(parameter, "genome_gc", None)
+    if not genome_gc:
+        return
+    parameter.gc_min, parameter.gc_max = adaptive_gc_window(genome_gc, tolerance)
+
+
 @params_command(merge=None)
 def run_step2(args):
     """Run step 2: Candidate filtering with reaction conditions"""
@@ -197,15 +226,7 @@ def run_step2(args):
         # GC filtering
         merge_args_to_parameter(args, parameter, ["gc_min", "gc_max"])
 
-        # Special handling for gc_tolerance (calculates gc_min/gc_max from genome GC)
-        if hasattr(args, "gc_tolerance") and args.gc_tolerance is not None:
-            if (
-                (not hasattr(args, "gc_min") or args.gc_min is None)
-                and hasattr(parameter, "genome_gc")
-                and parameter.genome_gc
-            ):
-                parameter.gc_min = max(0.20, parameter.genome_gc - args.gc_tolerance)
-                parameter.gc_max = min(0.80, parameter.genome_gc + args.gc_tolerance)
+        _resolve_gc_window(args, parameter)
 
         # Reaction conditions
         merge_args_to_parameter(args, parameter, ["reaction_temp", "na_conc", "mg_conc"])
@@ -278,9 +299,14 @@ def run_step2(args):
             excl_prefix = os.path.join(parameter.data_dir, f"excl_{excl_name}")
             parameter.excl_genomes = [excl_genome]
             parameter.excl_prefixes = [excl_prefix]
-            excl_threshold = getattr(args, "excl_threshold", 0)
+            # None means the flag was absent, so whatever params.json resolved
+            # stands. It used to default to 0 and overwrite a configured value
+            # on every run that named an exclusion genome.
+            excl_threshold = getattr(args, "excl_threshold", None)
             if excl_threshold is not None:
                 parameter.excl_threshold = excl_threshold
+            elif not hasattr(parameter, "excl_threshold"):
+                parameter.excl_threshold = 0
             if not args.quiet:
                 logger.info(f"Exclusion genome: {excl_genome}")
                 logger.info(f"  Threshold: {parameter.excl_threshold} (0 = reject any hit)")
@@ -669,6 +695,10 @@ def _step4_optimizer_kwargs(args, **resolved):
         # Explicit reach for coverage / set-cover selection. None leaves the
         # polymerase default in place; see coverage.resolve_coverage_reach.
         coverage_reach=getattr(args, "coverage_reach", None),
+        allow_dimer_relaxation=getattr(args, "allow_dimer_relaxation", None),
+        refinement_method=getattr(args, "refinement_method", None),
+        swap_max_evaluations=getattr(args, "swap_max_evaluations", None),
+        swap_max_seconds=getattr(args, "swap_max_seconds", None),
         # Stage-2 amplification-network reach. None must stay None: the
         # optimizers read an unset value as "take the polymerase preset",
         # so a literal 70000 would overwrite bst's 2 kb on every bst run.
@@ -1315,8 +1345,8 @@ def add_parsers(subparsers):
     step2_gc_group.add_argument(
         "--gc-tolerance",
         type=float,
-        default=0.15,
-        help="GC tolerance for adaptive filter (default: 0.15)",
+        default=None,
+        help="GC tolerance for adaptive filter (default: the configured gc_tolerance, else 0.15)",
     )
     step2_gc_group.add_argument(
         "--gc-min", type=float, help="Explicit minimum GC content (overrides adaptive)"
@@ -1480,8 +1510,9 @@ def add_parsers(subparsers):
     step2_excl_group.add_argument(
         "--excl-threshold",
         type=int,
-        default=0,
-        help="Maximum allowed hits in exclusion genome " "(default: 0 = any hit rejects primer)",
+        default=None,
+        help="Maximum allowed hits in exclusion genome "
+        "(default: the configured excl_threshold, else 0 = any hit rejects primer)",
     )
 
     # Blacklist Genome Filtering (penalty-weighted)

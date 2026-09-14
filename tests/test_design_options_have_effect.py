@@ -107,19 +107,44 @@ def build_optimizer(cache, bin_size):
 
 
 @pytest.mark.parametrize("requested", [2, 4, 6, 8])
-def test_num_primers_is_honoured_at_the_default_bin_size(cache, genome, requested):
-    """The headline defect.
+def test_num_primers_is_never_exceeded(cache, genome, requested):
+    """`--num-primers` is a request, not a guarantee (decided 2026-09-14).
 
-    All 12 candidates together cover the genome, so there is real coverage left
-    to buy at every one of these sizes -- nothing here asks the optimizer to
-    select primers that add nothing. At `bin_size=1000` the optimizer returns
-    exactly what it is asked for; at the shipped default of 10 kb it returns two
-    primers for every request.
+    The headline defect this guards is the flag being INERT: at the shipped
+    default bin size the optimizer returned two primers for every request, so
+    asking for more changed nothing. That defect is still forbidden, by
+    `test_num_primers_is_not_inert` below.
+
+    What is now allowed is a SHORT panel. Dimer relaxation defaults off, so the
+    greedy stops rather than admitting a pair above `max_dimer_bp`, and on a
+    pool that cannot supply enough conforming primers the delivered count falls
+    below the request. The request is therefore an upper bound, and the one
+    thing that must never happen is delivering more than was asked for.
     """
     optimizer = build_optimizer(cache, DEFAULT_BIN_SIZE)
     result = optimizer.optimize(genome["primers"], final_count=requested, verbose=False)
 
-    assert len(result.primers) == requested
+    assert 0 < len(result.primers) <= requested
+
+
+def test_num_primers_is_not_inert(cache, genome):
+    """The original defect, restated for a request rather than a guarantee.
+
+    Returning the same panel whatever was asked for is what made the flag
+    meaningless. A short panel is acceptable; a flat one is not.
+    """
+    optimizer = build_optimizer(cache, DEFAULT_BIN_SIZE)
+    delivered = [
+        len(optimizer.optimize(genome["primers"], final_count=n, verbose=False).primers)
+        for n in (2, 4, 6, 8)
+    ]
+
+    assert delivered == sorted(
+        delivered
+    ), f"asking for more primers returned fewer somewhere: {delivered}"
+    assert (
+        delivered[-1] > delivered[0]
+    ), f"the request changed nothing across 2..8 primers: {delivered}"
 
 
 def test_asking_for_more_primers_yields_more_coverage(cache, genome):
