@@ -19,6 +19,8 @@ another appears in one design and not the other. That is the point rather than
 an inconsistency.
 """
 
+import json
+
 import pytest
 
 from neoswga.core.candidate_inventory import CandidateInventory
@@ -297,3 +299,44 @@ def test_an_ineligible_panel_cannot_qualify():
     ]
 
     assert frontier(designs, coverage_targets=[0.90])["by_target"][0.90] == []
+
+
+def test_plan_pool_exposes_the_design_grid():
+    """The grid has to be reachable, or it is a module nothing calls."""
+    from neoswga.cli_unified import create_parser
+
+    parser = create_parser()
+    action = next(
+        a
+        for sub in parser._subparsers._group_actions
+        for name, sp in sub.choices.items()
+        if name == "plan-pool"
+        for a in sp._actions
+        if a.dest == "design_grid"
+    )
+    assert action.default is None, "an absent grid must not be a real default"
+
+
+def test_a_grid_file_is_read_and_resolved(tmp_path):
+    from neoswga.cli.plan_pool import load_grid_file
+
+    path = tmp_path / "grid.json"
+    path.write_text(json.dumps({"lengths": [12], "conditions": [{}, {"dmso_percent": 5.0}]}))
+
+    lengths, conditions = load_grid_file(
+        str(path), {"polymerase": "phi29", "temp": 30.0, "mg_conc": 10.0}
+    )
+
+    assert lengths == [12]
+    assert [c.dmso_percent for c in conditions] == [0.0, 5.0]
+    assert all(c.mg_conc == 10.0 for c in conditions), "the baseline buffer was dropped"
+
+
+def test_a_grid_file_that_is_not_a_grid_says_so(tmp_path):
+    from neoswga.cli.plan_pool import load_grid_file
+
+    path = tmp_path / "grid.json"
+    path.write_text(json.dumps({"something": "else"}))
+
+    with pytest.raises(ValueError, match="lengths"):
+        load_grid_file(str(path), {"polymerase": "phi29", "temp": 30.0})
