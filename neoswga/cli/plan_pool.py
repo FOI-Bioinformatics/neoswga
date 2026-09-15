@@ -83,6 +83,10 @@ def run_plan_pool(args):
             "Output directory is not empty; use a new directory to preserve earlier designs"
         )
     cache = PositionCache(fg + bg, candidates, on_missing="error")
+    # Before any panel is evaluated, and for both references. An index written
+    # before record-aware geometry looks complete and silently lets coverage
+    # windows cross contig boundaries; a new design must not run on one.
+    cache.require_record_metadata(fg + bg)
     conditions = build_reaction_conditions(SimpleNamespace(**params))
     reach = resolve_coverage_reach(
         params.get("polymerase", "phi29"),
