@@ -79,6 +79,42 @@ def _check_plan(plan):
             )
 
 
+def _concentration_rows(params, plan):
+    """Per-oligo and total nominal concentration, both stated.
+
+    They are different experiments. The model assumes a fixed concentration PER
+    OLIGO, so a larger panel is a larger total; a fixed total shared across a
+    growing panel would lower every oligo's concentration and shift every
+    melting temperature, and is not modelled. Reporting only one of the two
+    leaves which experiment was assumed to be inferred.
+    """
+    per_oligo = params.get("primer_conc")
+    if per_oligo is None:
+        return {}
+    sizes = [r.get("size") for r in plan.get("rows", []) if r.get("size")]
+    largest = max(sizes) if sizes else None
+    rows = {"Concentration per oligo (M)": f"{per_oligo:g}"}
+    if largest:
+        rows["Total nominal concentration at the largest panel (M)"] = (
+            f"{per_oligo * largest:g} ({largest} oligos x {per_oligo:g})"
+        )
+    return rows
+
+
+def _accounting_rows(plan):
+    """How many candidates existed, and how many the search actually looked at."""
+    counts = plan.get("design_counts") or {}
+    rows = {}
+    if counts:
+        rows["Candidates counted / hard-QC passed / examined"] = (
+            f"{counts.get('counted', 0):,} / {counts.get('hard_qc_passed', 0):,} / "
+            f"{counts.get('examined', 0):,}"
+        )
+    if plan.get("stop_reason"):
+        rows["Search ended because"] = plan["stop_reason"]
+    return rows
+
+
 def _write_figure(plan, rows, output):
     """Draw the coverage and specificity scatter for a saved plan.
 
@@ -222,9 +258,22 @@ def write_pool_plan(plan, output):
         failed = r.get("failed_constraints") or ([r["status"]] if "status" in r else [])
         reason = "passes" if r["eligible"] else "; ".join(str(x) for x in failed) or "unknown"
         sites = r["background_sites"] if r.get("background_sites") is not None else "not assessed"
+        # Both coverage figures, side by side. One number with a metric name
+        # beside it invited the reader to treat a modelling choice as a result;
+        # the gap between the two IS the contribution of the temperature and
+        # additive model, and it is only visible when both are shown.
+        geometric = (
+            f"{r['raw_coverage']:.1%}" if r.get("raw_coverage") is not None else "unavailable"
+        )
+        weighted = (
+            f"{r['effective_coverage']:.1%}"
+            if r.get("effective_coverage") is not None
+            else "unavailable"
+        )
         table.append(
             f"<tr><td>{_text(r['requested_size'])}</td><td>{_text(r['size'])}</td>"
-            f"<td>{_text(coverage)}</td><td>{_text(density)}</td><td>{_text(sites)}</td>"
+            f"<td>{_text(geometric)}</td><td>{_text(weighted)}</td>"
+            f"<td>{_text(density)}</td><td>{_text(sites)}</td>"
             f"<td>{_text(reason)}</td></tr>"
         )
     density_limit = _text(
@@ -256,6 +305,11 @@ def write_pool_plan(plan, output):
         "Reaction temperature (C)": params.get("reaction_temp", "not recorded"),
         "Pairwise dimer limit (bp)": plan.get("max_dimer_bp", "not recorded"),
         "Self-dimer limit (bp)": plan.get("max_self_dimer_bp", "not recorded"),
+        # The reaction identity, so two reports can be told apart by more than
+        # their filenames, and so a coefficient revision is visible.
+        "Reaction fingerprint": plan.get("condition_fingerprint", "not recorded"),
+        **_concentration_rows(params, plan),
+        **_accounting_rows(plan),
     }
     context_html = "".join(
         f"<tr><th>{_text(key)}</th><td>{_text(value)}</td></tr>" for key, value in context.items()
@@ -328,7 +382,9 @@ Minimum site-density ratio: {density_limit}; maximum exact background sites: {ba
 {figure_html}
 {sensitivity_html}
 {scope_html}
-<h2>Evaluated panels</h2><table><tr><th>Requested</th><th>Delivered</th><th>Coverage</th><th>Density ratio</th><th>Background sites</th><th>Constraints</th></tr>{"".join(table)}</table>
+<h2>Evaluated panels</h2>
+<p>Two coverage figures, because they answer different questions. <strong>Geometric</strong> is the union of extension windows around exact binding sites: how much of the target a panel could reach. <strong>Occupancy-weighted</strong> weights each window by how much of the time its site is bound at the reaction temperature: how much it plausibly reaches under this chemistry. A higher modelled density is <strong>not demonstrated enrichment</strong>; every figure here is computed, and <a href="https://github.com/FOI-Bioinformatics/neoswga/blob/main/docs/validation/evidence_matrix_2026-09-15.md">the evidence matrix</a> records which have no compatible observation at all.</p>
+<table><tr><th>Requested</th><th>Delivered</th><th>Geometric coverage</th><th>Occupancy-weighted coverage</th><th>Density ratio</th><th>Background sites</th><th>Constraints</th></tr>{"".join(table)}</table>
 <p><a href="pool_sizes.csv">All sizes (CSV)</a> · <a href="pool_plan.json">Full results and oligo sequences (JSON)</a></p></html>"""
     (output / "pool_plan.html").write_text(page)
     return output / "pool_plan.html"
