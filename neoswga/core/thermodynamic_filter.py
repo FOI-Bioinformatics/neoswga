@@ -133,15 +133,23 @@ class ThermodynamicFilter:
     the two. (Tech debt: the two should eventually be merged.)
     """
 
-    def __init__(self, criteria: Optional[ThermodynamicCriteria] = None):
+    def __init__(self, criteria: Optional[ThermodynamicCriteria] = None, conditions=None):
         """
         Initialize thermodynamic filter.
 
         Args:
             criteria: Filtering criteria (uses defaults if None)
+            conditions: Resolved `ReactionConditions`. When given, melting
+                temperatures come from `calculate_effective_tm`, the canonical
+                calculation, rather than being reconstructed here from salt
+                alone. Without it this screen applied no additive correction, so
+                a primer brought into the Tm window by DMSO or betaine passed
+                the additive-aware stage-2 gate and was rejected again here on
+                its uncorrected Tm. Optional, so existing standalone callers
+                that have no conditions object keep working unchanged.
         """
         self.criteria = criteria or ThermodynamicCriteria()
-        self._conditions = None
+        self._conditions = conditions
 
         logger.info("Thermodynamic filter initialized")
         logger.info(f"  Tm range: {self.criteria.min_tm}-{self.criteria.max_tm}°C")
@@ -185,10 +193,16 @@ class ThermodynamicFilter:
         """
         failure_reasons = []
 
-        # Calculate Tm
-        tm = calculate_tm_with_salt(
-            sequence, na_conc=self.criteria.na_conc, mg_conc=self.criteria.mg_conc
-        )
+        # Calculate Tm. One reaction has one melting temperature: when the
+        # resolved conditions are available they are the authority, additives
+        # included. The salt-only reconstruction remains for callers that
+        # supply criteria without conditions.
+        if self._conditions is not None:
+            tm = self._conditions.calculate_effective_tm(sequence)
+        else:
+            tm = calculate_tm_with_salt(
+                sequence, na_conc=self.criteria.na_conc, mg_conc=self.criteria.mg_conc
+            )
 
         # Calculate GC content
         gc = gc_content(sequence)

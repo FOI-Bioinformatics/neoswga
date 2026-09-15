@@ -57,8 +57,13 @@ def test_screen_receives_the_configured_threshold(monkeypatch):
     seen = {}
 
     class _Filter:
-        def __init__(self, criteria):
+        # `conditions` accepted since 2026-09-15: the screen passes the resolved
+        # reaction so a primer is judged on the same Tm the gate that admitted
+        # it used. Recorded here so this stub cannot drift from the real
+        # signature without the drift being visible.
+        def __init__(self, criteria, conditions=None):
             self.criteria = criteria
+            self.conditions = conditions
 
         def filter_candidates(self, candidates, **kwargs):
             seen.update(kwargs)

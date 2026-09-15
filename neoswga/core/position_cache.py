@@ -11,7 +11,7 @@ import logging
 import os
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import h5py
 import numpy as np
@@ -351,6 +351,50 @@ class PositionCache:
             f"genuinely binds nowhere. Build the cache over this prefix, or pass "
             f"on_missing='warn' if a zero really is the intended answer.",
             missing=[fname_prefix],
+        )
+
+    def require_record_metadata(self, fname_prefixes: Sequence[str]) -> None:
+        """Refuse an index that predates record-aware geometry.
+
+        Record starts were added to the position index on 2026-09-14, so that
+        coverage windows stop at contig edges and k-mers are not matched across
+        the joins between FASTA records. An index written before that carries no
+        record geometry and looks complete: windows silently reach across
+        contigs again, which on a draft assembly inflates coverage throughout.
+
+        Called before a NEW design, not before reading. `report-pool` renders a
+        saved plan without opening an index, and a historical report describes
+        what was computed at the time; refusing to display it would not make it
+        more accurate.
+
+        Raises:
+            ValueError: naming every prefix that needs regenerating, together
+                with the command that does it. All of them at once, so a user
+                does not discover them one run at a time.
+        """
+        import os
+
+        lengths = sorted({len(p) for p in self.primers}) or [12]
+        stale = []
+        for prefix in fname_prefixes:
+            paths = [f"{prefix}_{k}mer_positions.h5" for k in lengths]
+            existing = [path for path in paths if os.path.exists(path)]
+            if not existing:
+                stale.append((prefix, "no position index"))
+                continue
+            if not self.get_record_starts(prefix):
+                stale.append((prefix, "no record geometry"))
+
+        if not stale:
+            return
+        detail = "; ".join(f"{prefix} ({why})" for prefix, why in stale)
+        raise ValueError(
+            f"These position indexes cannot be used for a new pool design: {detail}. "
+            f"They predate record-aware geometry, so coverage windows would cross "
+            f"FASTA record boundaries and k-mers could be matched across the joins "
+            f"between records. Regenerate them with 'neoswga count-kmers -j "
+            f"params.json' followed by 'neoswga filter -j params.json'. Reading an "
+            f"existing saved report does not require this."
         )
 
     def get_record_starts(self, fname_prefix: str) -> List[int]:

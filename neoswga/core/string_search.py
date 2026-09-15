@@ -310,8 +310,13 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
 # ignores it.
 RECORD_STARTS_KEY = "#record_starts"
 
+# Bumped when the on-disk geometry an index carries changes shape. Version 1 is
+# the first to store record starts, so an index without this attribute predates
+# record-aware scanning and its coverage windows crossed contig boundaries.
+INDEX_FORMAT_VERSION = 1
 
-def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None):
+
+def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None, genome_fname=None):
     """
     Writes the kmer counts to an h5py file, which allows for efficient access in terms of looking up the
     frequency of a particular k-mer. If the kmer already exists in the dataset, the entry in the h5py file
@@ -339,6 +344,19 @@ def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None):
     h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
     with h5py.File(h5_path, "w" if replace else "r+") as f:
         if record_starts is not None:
+            # Format version and reference identity, so a later design can tell
+            # a modern index from a concatenation-era one and can tell which
+            # reference it was built from. Stored as root attributes: the cache
+            # reads datasets by primer name and never enumerates them, so these
+            # cannot be mistaken for a k-mer.
+            f.attrs["index_format_version"] = INDEX_FORMAT_VERSION
+            if genome_fname is not None:
+                from neoswga.core import kmer_counter
+
+                try:
+                    f.attrs["reference_digest"] = kmer_counter.genome_fingerprint(genome_fname)
+                except OSError as exc:  # pragma: no cover - unreadable reference
+                    logger.debug("Could not fingerprint %s: %s", genome_fname, exc)
             # Where each FASTA record begins in the concatenated coordinate
             # system every stored position uses. Without it a coverage window
             # anchored near the end of one record extends into the next.
@@ -757,6 +775,7 @@ def get_positions(
                         fg_prefix,
                         replace=k in replace_k,
                         record_starts=[0] + get_cached_record_boundaries(fname_genomes[i]),
+                        genome_fname=fname_genomes[i],
                     )
                 write_position_provenance(fg_prefix, fname_genomes[i], k, circular)
 
@@ -820,6 +839,7 @@ def append_positions_to_h5py_file(task):
             kmer_dict,
             fname_prefix,
             record_starts=[0] + get_cached_record_boundaries(fname_genome),
+            genome_fname=fname_genome,
         )
         # This path decides what to rescan with `check_which_primers_absent_in_h5py`,
         # which consults no provenance record, so the file it leaves behind holds
