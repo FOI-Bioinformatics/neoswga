@@ -25,15 +25,30 @@ def refine_by_swaps(
     *,
     fixed_primers=(),
     background_sites=None,
+    objective=None,
     max_evaluations=10000,
     max_seconds=10.0,
 ):
-    """Improve covered bases, then background load, without increasing panel size.
+    """Improve the panel without increasing its size.
 
-    Each accepted swap strictly improves this lexicographic objective. New
-    primers must be compatible with every retained primer. Coverage counts are
-    updated only for bins touched by a swap. Time limits are cooperative,
-    checked between evaluations; preprocessing belongs to the caller.
+    Without `objective`, the rule is the original lexicographic one: raw covered
+    bases first, then background load. Existing callers are unchanged.
+
+    With `objective`, acceptance uses the metric the design is judged on, and
+    constraints come first:
+
+        (fewer violations, higher coverage, lower background load)
+
+    The ordering matters in both directions. A feasible panel is never swapped
+    for an infeasible one however much coverage that would buy, because a
+    constraint is not a scoring term to be outbid. And before a panel is
+    feasible the useful direction is out of violation rather than up the
+    coverage curve, so a swap that reduces violations is taken even when
+    coverage falls.
+
+    New primers must be compatible with every retained primer. Time limits are
+    cooperative, checked between evaluations; preprocessing belongs to the
+    caller.
     """
     if max_evaluations < 0 or not math.isfinite(max_seconds) or max_seconds < 0:
         raise ValueError("Swap budgets must be finite and non-negative")
@@ -49,8 +64,19 @@ def refine_by_swaps(
     evaluations = swaps = 0
     deadline = time.monotonic() + max_seconds
     reason = "local_optimum"
+
+    def _score(panel):
+        """Lexicographic, constraints first. Higher is better throughout."""
+        return (
+            -len(objective.violations(panel)),
+            objective.coverage(panel),
+            -objective.metrics(panel).total_bg_sites,
+        )
+
     while True:
         best = None
+        best_score = None
+        incumbent = _score(current) if objective is not None else None
         best_gain = (0, 0.0)
         selected_set = set(current)
         exhausted = False
@@ -69,6 +95,16 @@ def refine_by_swaps(
                 retained = [p for p in current if p != outgoing]
                 if dimers.dimerises(incoming, retained):
                     continue
+                if objective is not None:
+                    candidate_panel = [*retained, incoming]
+                    candidate_score = _score(candidate_panel)
+                    if candidate_score > incumbent and (
+                        best is None or candidate_score > best_score
+                    ):
+                        best_score = candidate_score
+                        best = (outgoing, incoming)
+                    continue
+
                 old_bins = bins_by_primer.get(outgoing, set())
                 gain = sum(bin_weights[b] for b in new_bins if counts[b] == 0)
                 loss = sum(bin_weights[b] for b in old_bins - new_bins if counts[b] == 1)
@@ -84,8 +120,12 @@ def refine_by_swaps(
                 counts[b] -= 1
             counts.update(bins_by_primer.get(incoming, ()))
             current[current.index(outgoing)] = incoming
-            covered += best_gain[0]
-            background -= best_gain[1]
+            if objective is None:
+                covered += best_gain[0]
+                background -= best_gain[1]
+            else:
+                covered = sum(bin_weights[b] for b in counts if counts[b])
+                background = objective.metrics(current).total_bg_sites
             swaps += 1
         if exhausted or best is None:
             break

@@ -282,6 +282,54 @@ class BipartiteGraph:
         return covered / len(self.regions)
 
 
+# Why a search ended. The greedy stopped for several different reasons and
+# reported all of them the same way -- a panel shorter than requested -- so a
+# caller could not tell them apart, and the remedy differs for each. Exhausting
+# a heuristic is not a proof that no panel exists.
+# Bumped when what the search optimises changes, so a stored result records
+# which definition produced it.
+OBJECTIVE_VERSION = "bins-or-objective-2026-09-15"
+
+STOP_REASONS = (
+    "target_met",
+    "budget_exhausted",
+    "inventory_exhausted",
+    "no_qc_candidates",
+)
+
+
+def _classify_stop(candidates, selected, covered_regions, graph, max_primers, n_fixed):
+    """Which of the four endings this search reached.
+
+    Checked in order of specificity. An empty pool is not a budget problem; a
+    fully covered target is not an exhausted inventory; and a search that used
+    its whole budget is reported as a budget stop rather than as proof that
+    nothing further would have helped.
+    """
+    if not candidates:
+        return "no_qc_candidates"
+    if graph.regions and covered_regions >= graph.regions:
+        return "target_met"
+    if len(selected) - n_fixed >= max_primers:
+        return "budget_exhausted"
+    return "inventory_exhausted"
+
+
+def _is_better(gain, tie_break, best_gain, best_tie):
+    """Strictly greater gain wins; an equal gain is settled by the tie-break.
+
+    The tie-break is `(background sites, sequence)`, so a panel picking up less
+    host wins and an exact tie still yields one deterministic answer. Without
+    it, two equally good candidates produced whichever the scan happened to
+    reach first, which is a property of pool order rather than of the design.
+    """
+    if gain > best_gain:
+        return True
+    if tie_break is None or best_tie is None or gain != best_gain:
+        return False
+    return tie_break < best_tie
+
+
 class DominatingSetOptimizer:
     """
     Minimum dominating set optimizer for primer selection.
@@ -389,6 +437,21 @@ class DominatingSetOptimizer:
                     raise ValueError("Fixed primers exceed max_dimer_bp under strict selection")
         return matrix
 
+    @staticmethod
+    def _objective_gain(objective, selected, primer):
+        """Marginal coverage this primer adds, on the accepted metric.
+
+        `None` coverage means the evaluator could not measure it -- no reaction
+        conditions, so no temperature at which to evaluate occupancy -- and is
+        treated as no gain rather than as a number, because a fabricated value
+        here would be indistinguishable from a measured one.
+        """
+        after = objective.coverage([*selected, primer])
+        before = objective.coverage(list(selected)) if selected else 0.0
+        if after is None or before is None:
+            return 0.0
+        return after - before
+
     def _select_next_primer(
         self,
         scan_order,
@@ -397,6 +460,7 @@ class DominatingSetOptimizer:
         graph,
         dimers,
         redundancy_threshold=DEFAULT_REDUNDANCY_THRESHOLD,
+        objective=None,
     ):
         """One greedy scan: the candidate with the largest marginal coverage,
         preferring one that is not already largely covered by what is selected.
@@ -421,13 +485,28 @@ class DominatingSetOptimizer:
         means the DIMER constraint stalled the loop and drives the relaxation
         in `optimize_greedy`, and a redundancy skip must not fire it.
 
+        `objective`, when supplied, changes WHAT marginal coverage means. Without
+        it the scan counts new BINS: coverage regions nothing selected already
+        touches. The design is accepted on occupancy-weighted coverage, which
+        weights each site by how much of the time it is actually bound, and the
+        two disagree in a specific direction -- a primer with many sites and a
+        melting temperature well below the reaction temperature touches many
+        bins and contributes little amplification. Scoring on one quantity and
+        accepting on another meant improving the search did not reliably improve
+        the result.
+
+        Ties are broken by lower background load and then by the sequence, so a
+        pool that admits several equally good choices still yields one panel.
+
         Audit finding A6.
         """
         best_primer = None
         best_new_coverage = 0
+        best_tie = None
         skipped_for_dimer = False
         fallback_primer = None
         fallback_new_coverage = 0
+        fallback_tie = None
         redundant_skipped = 0
 
         for primer in scan_order:
@@ -445,7 +524,19 @@ class DominatingSetOptimizer:
             new_regions = primer_regions - covered_regions
             n_new = len(new_regions)
 
-            if n_new > fallback_new_coverage:
+            if objective is not None:
+                # Full recomputation, which is the correctness reference. An
+                # incremental version has to agree with this.
+                n_new = self._objective_gain(objective, selected, primer)
+                tie_break = (
+                    objective.metrics([*selected, primer]).total_bg_sites,
+                    primer,
+                )
+            else:
+                tie_break = None
+
+            if _is_better(n_new, tie_break, fallback_new_coverage, fallback_tie):
+                fallback_tie = tie_break
                 fallback_new_coverage = n_new
                 fallback_primer = primer
 
@@ -455,7 +546,8 @@ class DominatingSetOptimizer:
                     redundant_skipped += 1
                     continue
 
-            if n_new > best_new_coverage:
+            if _is_better(n_new, tie_break, best_new_coverage, best_tie):
+                best_tie = tie_break
                 best_new_coverage = n_new
                 best_primer = primer
 
@@ -842,7 +934,21 @@ class DominatingSetOptimizer:
         fixed_set = set(fixed_primers)
         new_primers = [p for p in order if p not in fixed_set]
 
+        stop_reason = _classify_stop(
+            candidates=candidates,
+            selected=selected,
+            covered_regions=covered_regions,
+            graph=graph,
+            max_primers=max_primers,
+            n_fixed=n_fixed,
+        )
+
         result = {
+            "stop_reason": stop_reason,
+            "examined_candidates": len(candidates),
+            "eligible_candidates": len(candidates),
+            "search_budget": max_primers,
+            "objective_version": OBJECTIVE_VERSION,
             "primers": list(order),
             "ordered_primers": order,
             "new_primers": new_primers,
