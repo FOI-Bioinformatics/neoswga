@@ -136,3 +136,86 @@ def design_sweep(
         "coverage_targets": list(coverage_targets),
         "constraints": constraints,
     }
+
+
+def load_design_grid(grid: Dict[str, Any], baseline: Dict[str, Any]):
+    """Turn a design grid into lengths and fully resolved reaction conditions.
+
+    A grid entry names what CHANGES, not the whole reaction. Each entry is
+    applied on top of the run's own resolved configuration, so a grid varying
+    only DMSO keeps the user's buffer, salts and per-oligo concentration.
+    Rebuilding a condition from the overrides alone would compare designs
+    against library defaults rather than against the reaction being run, and the
+    comparison would look like a chemistry result.
+
+    Every resulting condition is constructed through `ReactionConditions`, so an
+    out-of-range dose is refused by the existing model rather than by a second
+    copy of its rules here.
+    """
+    from .reaction_conditions import ReactionConditions
+
+    lengths = list(grid.get("lengths") or [])
+    if not lengths:
+        raise ValueError("A design grid must name at least one oligo length under 'lengths'.")
+    overrides = grid.get("conditions")
+    if not overrides:
+        raise ValueError(
+            "A design grid must name at least one entry under 'conditions'. Use "
+            "an empty object to include the baseline reaction unchanged."
+        )
+
+    conditions = []
+    for entry in overrides:
+        resolved = dict(baseline)
+        resolved.update(entry or {})
+        conditions.append(ReactionConditions(**resolved))
+    return lengths, conditions
+
+
+def frontier(designs: Sequence[Dict[str, Any]], coverage_targets: Sequence[float]):
+    """The smallest qualifying pool per coverage target, across designs.
+
+    "Qualifying" means eligible: a panel failing a constraint is not a coverage
+    result however high its coverage reads, which is the distinction the old
+    report blurred by ranking on coverage alone.
+
+    Per target, the smallest qualifying panel from each design is collected and
+    the dominated ones dropped, so what remains is the set of genuinely
+    different trade-offs rather than one winner chosen by an arbitrary weighting
+    between size, coverage and background load.
+
+    Designs that never reach a target are named under `unreached` rather than
+    omitted silently: "this chemistry did not get there" is a result.
+    """
+    by_target: Dict[float, List[Dict[str, Any]]] = {}
+    unreached: Dict[float, List[str]] = {}
+
+    for target in coverage_targets:
+        candidates = []
+        missed = []
+        for design in designs:
+            result = design.get("result") or {}
+            qualifying = [
+                row
+                for row in result.get("rows", [])
+                if row.get("eligible")
+                and row.get("coverage") is not None
+                and row["coverage"] >= target
+            ]
+            if not qualifying:
+                missed.append(design["condition"])
+                continue
+            best = min(qualifying, key=lambda row: (row["size"], -row["coverage"]))
+            candidates.append(
+                {
+                    "condition": design["condition"],
+                    "length": design["length"],
+                    "size": best["size"],
+                    "coverage": best["coverage"],
+                    "background": best.get("background_sites") or 0,
+                }
+            )
+        by_target[target] = nondominated(candidates)
+        unreached[target] = missed
+
+    return {"by_target": by_target, "unreached": unreached}

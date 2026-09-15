@@ -187,3 +187,113 @@ def test_an_equal_design_does_not_dominate_its_twin():
     ]
 
     assert len(nondominated(designs)) == 2
+
+
+def test_a_design_grid_inherits_the_baseline_before_applying_overrides(tmp_path):
+    """An override names what CHANGES, not the whole reaction.
+
+    A grid entry listing only `dmso_percent` must keep the resolved buffer,
+    salts and concentration from the run's own configuration. Rebuilding a
+    condition from the overrides alone would silently compare designs against
+    library defaults rather than against the user's reaction.
+    """
+    from neoswga.core.pool_design_sweep import load_design_grid
+
+    baseline = {"polymerase": "phi29", "temp": 30.0, "na_conc": 75.0, "mg_conc": 10.0}
+    grid = {"lengths": [10, 12], "conditions": [{}, {"dmso_percent": 8.0}]}
+
+    lengths, conditions = load_design_grid(grid, baseline)
+
+    assert lengths == [10, 12]
+    assert conditions[0].na_conc == 75.0 and conditions[0].dmso_percent == 0.0
+    assert conditions[1].na_conc == 75.0, "an override dropped the resolved buffer"
+    assert conditions[1].mg_conc == 10.0
+    assert conditions[1].dmso_percent == 8.0
+
+
+def test_a_grid_override_is_validated_by_the_condition_model(tmp_path):
+    from neoswga.core.pool_design_sweep import load_design_grid
+
+    with pytest.raises(Exception):
+        load_design_grid(
+            {"lengths": [12], "conditions": [{"dmso_percent": 500.0}]},
+            {"polymerase": "phi29", "temp": 30.0},
+        )
+
+
+def test_a_grid_must_name_at_least_one_length_and_condition():
+    from neoswga.core.pool_design_sweep import load_design_grid
+
+    with pytest.raises(ValueError, match="lengths"):
+        load_design_grid({"conditions": [{}]}, {"polymerase": "phi29", "temp": 30.0})
+    with pytest.raises(ValueError, match="conditions"):
+        load_design_grid({"lengths": [12]}, {"polymerase": "phi29", "temp": 30.0})
+
+
+def test_the_frontier_names_the_smallest_qualifying_pool_per_target():
+    from neoswga.core.pool_design_sweep import frontier
+
+    designs = [
+        {
+            "condition": "cond:warm",
+            "length": 12,
+            "result": {
+                "rows": [
+                    {"size": 4, "eligible": True, "coverage": 0.92, "background_sites": 30},
+                    {"size": 8, "eligible": True, "coverage": 0.96, "background_sites": 90},
+                ]
+            },
+        },
+        {
+            "condition": "cond:cold",
+            "length": 12,
+            "result": {
+                "rows": [
+                    {"size": 6, "eligible": True, "coverage": 0.93, "background_sites": 10},
+                ]
+            },
+        },
+    ]
+
+    out = frontier(designs, coverage_targets=[0.90, 0.95])
+
+    at_90 = out["by_target"][0.90]
+    assert {(e["condition"], e["size"]) for e in at_90} == {("cond:warm", 4), ("cond:cold", 6)}
+    at_95 = out["by_target"][0.95]
+    assert [(e["condition"], e["size"]) for e in at_95] == [("cond:warm", 8)]
+
+
+def test_the_frontier_omits_designs_that_never_reach_a_target():
+    from neoswga.core.pool_design_sweep import frontier
+
+    designs = [
+        {
+            "condition": "cond:weak",
+            "length": 12,
+            "result": {
+                "rows": [{"size": 4, "eligible": True, "coverage": 0.40, "background_sites": 1}]
+            },
+        }
+    ]
+
+    out = frontier(designs, coverage_targets=[0.90])
+
+    assert out["by_target"][0.90] == []
+    assert "cond:weak" in out["unreached"][0.90]
+
+
+def test_an_ineligible_panel_cannot_qualify():
+    """Failing a constraint is not a coverage result."""
+    from neoswga.core.pool_design_sweep import frontier
+
+    designs = [
+        {
+            "condition": "cond:warm",
+            "length": 12,
+            "result": {
+                "rows": [{"size": 4, "eligible": False, "coverage": 0.99, "background_sites": 1}]
+            },
+        }
+    ]
+
+    assert frontier(designs, coverage_targets=[0.90])["by_target"][0.90] == []
