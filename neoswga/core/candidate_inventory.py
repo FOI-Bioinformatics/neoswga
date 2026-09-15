@@ -201,6 +201,18 @@ class CandidateInventory:
         ).fetchone()
         return json.loads(row[0]) if row else []
 
+    def has_length(self, length: int) -> bool:
+        """Whether any candidate of this length was ever enumerated.
+
+        Distinct from "any candidate of this length is eligible". A length
+        nothing was counted at is a missing input; a length where every
+        candidate failed a reaction's gates is a result.
+        """
+        row = self._connection.execute(
+            "SELECT 1 FROM candidates WHERE length = ? LIMIT 1", (int(length),)
+        ).fetchone()
+        return row is not None
+
     def counts(self) -> Dict[str, int]:
         """Counted and assessed are different numbers, and both are reported.
 
