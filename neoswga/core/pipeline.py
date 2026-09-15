@@ -1191,6 +1191,7 @@ def _index_background_by_retention(filtered_rate_df, filtered_gini_df, bg_prefix
         retention,
         len(filtered_gini_df),
     )
+    return to_index
 
 
 def step2(all_primers=None, validate_prerequisites=True):
@@ -1341,7 +1342,9 @@ def step2(all_primers=None, validate_prerequisites=True):
     # appear only as `final_candidates`, under no stage name.
     _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
-    _index_background_by_retention(filtered_rate_df, filtered_gini_df, bg_prefixes, bg_genomes)
+    _indexed = _index_background_by_retention(
+        filtered_rate_df, filtered_gini_df, bg_prefixes, bg_genomes
+    )
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
@@ -1355,6 +1358,7 @@ def step2(all_primers=None, validate_prerequisites=True):
         cleared_hard_gates=filtered_rate_df,
         after_gini=gini_df,
         shortlisted=filtered_gini_df,
+        indexed=_indexed,
     )
 
     # Write the real filtering funnel so reports show genuine per-stage counts
@@ -1567,6 +1571,14 @@ def step3(validate_prerequisites=True):
 
     joined_step3_df = order_step3_rows(joined_step3_df)
     joined_step3_df.to_csv(os.path.join(parameter.data_dir, "step3_df.csv"))
+    from neoswga.core.candidate_inventory import record_stage3_from_frames
+
+    record_stage3_from_frames(
+        parameter.data_dir,
+        use_amp_model=getattr(parameter, "use_amp_model", False),
+        step2_df=step2_df,
+        carried_df=joined_step3_df,
+    )
 
     if parameter.verbose:
         logger.debug(f"Step 3 results:\n{joined_step3_df}")

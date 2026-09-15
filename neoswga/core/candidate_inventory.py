@@ -227,6 +227,7 @@ def record_stage2_inventory(
     cleared_hard_gates,
     after_gini,
     shortlisted,
+    indexed=None,
     policy_version: str = DEFAULT_POLICY_VERSION,
 ) -> Path:
     """Write what stage 2 enumerated, and what merely ordered the search.
@@ -252,6 +253,15 @@ def record_stage2_inventory(
     path = Path(data_dir) / STAGE2_INVENTORY_NAME
     survived_gini = {str(s).upper() for s in after_gini["primer"]}
     kept = {str(s).upper() for s in shortlisted["primer"]}
+    # Which candidates got a background position index. Without one, a
+    # specificity number computed for a candidate is a zero rather than a
+    # measurement, so this is worth recording per candidate and not only as a
+    # mode setting.
+    have_index = (
+        {str(s).upper() for s in indexed}
+        if indexed is not None
+        else {str(s).upper() for s in cleared_hard_gates["primer"]}
+    )
 
     with CandidateInventory(path) as inventory:
         for row in cleared_hard_gates.to_dict("records"):
@@ -263,6 +273,7 @@ def record_stage2_inventory(
             }
             metrics["passed_gini"] = sequence in survived_gini
             metrics["shortlisted"] = sequence in kept
+            metrics["indexed"] = sequence in have_index
             inventory.record_candidate(sequence, metrics)
             inventory.record_assessment(
                 sequence,
@@ -285,6 +296,7 @@ def record_stage2_inventory(
         len(cleared_hard_gates),
         path,
     )
+    report_design_counts(path, condition_id)
     return path
 
 
@@ -307,3 +319,139 @@ def background_scan_pool(cleared_hard_gates, shortlisted, retention):
     if retention == "legacy":
         return list(shortlisted)
     raise ValueError(f"candidate_retention must be 'all_qc' or 'legacy', not {retention!r}")
+
+
+STAGE3_POLICY_PREFIX = "stage3:"
+
+
+def record_stage3_policy(path, condition_id: str, carried, rejected, policy: str) -> None:
+    """Record what stage 3 carried forward, and why it dropped the rest.
+
+    Stage 3's efficacy filter is opt-in and is a POLICY, not a gate. A candidate
+    it drops still cleared every declared requirement, so the drop is recorded
+    against that candidate under its own policy version rather than by removing
+    the hard-QC verdict. Reading a low model score as a QC failure is how a
+    ranking came to look like a requirement in the first place.
+
+    `carried` is what reached the optimizer: the `examined` count. `rejected`
+    maps a sequence to the reason it did not.
+    """
+    version = f"{STAGE3_POLICY_PREFIX}{policy}"
+    with CandidateInventory(path) as inventory:
+        for sequence in carried:
+            inventory.record_assessment(
+                sequence,
+                condition_id,
+                passed=True,
+                reasons=[],
+                metrics={},
+                policy_version=version,
+            )
+        for sequence, reason in dict(rejected).items():
+            inventory.record_assessment(
+                sequence,
+                condition_id,
+                passed=False,
+                reasons=[reason],
+                metrics={},
+                policy_version=version,
+            )
+        inventory.commit()
+
+
+def design_counts(path, condition_id: str) -> Dict[str, int]:
+    """The six distinctions the funnel could not express.
+
+    `counted` and `assessed` differ when enumeration outruns judgement.
+    `hard_qc_passed` is eligibility. `shortlisted` and `indexed` are what the
+    ranking and the retention policy did. `examined` is what actually reached
+    the optimizer. Reporting one of these and labelling it as the pool is what
+    made a 90% ranking loss invisible.
+    """
+    with CandidateInventory(path) as inventory:
+        base = inventory.counts()
+        shortlisted = indexed = 0
+        for (metrics_json,) in inventory._connection.execute("SELECT metrics_json FROM candidates"):
+            metrics = json.loads(metrics_json)
+            shortlisted += 1 if metrics.get("shortlisted") else 0
+            indexed += 1 if metrics.get("indexed") else 0
+        examined = inventory._connection.execute(
+            "SELECT COUNT(DISTINCT sequence) FROM assessments "
+            "WHERE condition_id = ? AND passed = 1 AND policy_version LIKE ?",
+            (condition_id, f"{STAGE3_POLICY_PREFIX}%"),
+        ).fetchone()[0]
+    return {
+        "counted": base["candidates"],
+        "assessed": base["assessed"],
+        "hard_qc_passed": base["hard_qc_passed"],
+        "shortlisted": shortlisted,
+        "indexed": indexed,
+        "examined": examined,
+    }
+
+
+def report_design_counts(path, condition_id: str) -> Dict[str, int]:
+    """The six distinctions, by name, in one line.
+
+    The funnel reported a handful of counts and none of them answered how many
+    candidates the optimizer could actually have chosen from.
+    """
+    import logging
+
+    counts = design_counts(path, condition_id)
+    logging.getLogger(__name__).info(
+        "Design counts: counted=%d assessed=%d hard_qc_passed=%d shortlisted=%d "
+        "indexed=%d examined=%d",
+        counts["counted"],
+        counts["assessed"],
+        counts["hard_qc_passed"],
+        counts["shortlisted"],
+        counts["indexed"],
+        counts["examined"],
+    )
+    return counts
+
+
+def record_stage3_from_frames(data_dir, use_amp_model, step2_df, carried_df):
+    """Record what stage 3 carried, and why it dropped anything.
+
+    The efficacy filter is opt-in and is a POLICY, not a gate: a candidate it
+    drops still cleared every declared requirement. Recording the drop against
+    the candidate, under its own policy version, keeps that distinction. Reading
+    a low model score as a QC failure is how a ranking came to look like a
+    requirement.
+
+    A data directory with no inventory -- an older one, or a caller supplying
+    its own candidate list -- is not a reason to fail the step, so that case
+    returns. A malformed inventory still raises.
+    """
+    import os
+
+    path = os.path.join(str(data_dir), STAGE2_INVENTORY_NAME)
+    if not os.path.exists(path):
+        return
+
+    # Resolved only once an inventory is known to exist. Stage 3 never needed
+    # reaction conditions before, and resolving them unconditionally coupled it
+    # to a chemistry that a caller running stage 3 alone may not have set.
+    from neoswga.core.filter import _get_reaction_conditions
+
+    condition_id = _get_reaction_conditions().fingerprint()
+
+    def _primers(frame):
+        # `order_step3_rows` leaves the sequence as the index rather than a
+        # column, so a frame here may carry it either way.
+        if "primer" in frame.columns:
+            return [str(s).upper() for s in frame["primer"]]
+        return [str(s).upper() for s in frame.index]
+
+    carried = _primers(carried_df)
+    carried_set = set(carried)
+    dropped = {
+        sequence: "removed by the opt-in efficacy filter (--amp-model)"
+        for sequence in _primers(step2_df)
+        if sequence not in carried_set
+    }
+    policy = "amp_model" if use_amp_model else "carry_forward"
+    record_stage3_policy(path, condition_id, carried=carried, rejected=dropped, policy=policy)
+    report_design_counts(path, condition_id)
