@@ -90,10 +90,21 @@ class ThermoScreenMixin:
             thermo_filter = ThermodynamicFilter(
                 criteria, conditions=getattr(self, "conditions", None)
             )
+            # `check_heterodimers=False`: the pool-wide hub count is not a
+            # property of a panel. It removed a primer conflicting with more
+            # than a fraction of the WHOLE pool, while what matters is whether
+            # it conflicts with the primers actually selected -- which the
+            # greedy enforces pairwise against the panel it is building, and
+            # which tests/test_delivered_panel_honours_the_dimer_limit.py pins.
+            #
+            # Counting across the pool also made the verdict depend on pool
+            # size. Under candidate_retention='all_qc' the pool is an order of
+            # magnitude larger, so a primer that survived in a 2,000-candidate
+            # pool could be removed from a 20,000-candidate one with nothing
+            # about the primer having changed.
             filtered, stats = thermo_filter.filter_candidates(
                 candidates,
-                check_heterodimers=True,
-                max_heterodimer_fraction=0.3,
+                check_heterodimers=False,
                 max_dimer_bp=self.max_dimer_bp,
             )
 
