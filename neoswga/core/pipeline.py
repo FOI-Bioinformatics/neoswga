@@ -1165,41 +1165,32 @@ def _apply_exclusion_and_blacklist(filtered_rate_df):
     return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
 
 
-def _record_candidate_inventory(filtered_rate_df, gini_df, filtered_gini_df):
-    """Record every candidate that cleared the declared hard gates.
+def _index_background_by_retention(filtered_rate_df, filtered_gini_df, bg_prefixes, bg_genomes):
+    """Index by retention policy, search by shortlist.
 
-    `step2_df.csv` is a SHORTLIST: the Gini filter and the `max_primer` cut have
-    both removed rows, and neither is a declared requirement. Gini measures how
-    evenly a primer binds and the cap keeps the top of an order, so a candidate
-    they remove is one the optimizer could never select despite meeting every
-    stated criterion. The inventory keeps those two as measurements against
-    candidates that remain addressable.
-
-    Split out of `step2` so that function stays inside its length budget.
-
-    Deliberately not best-effort: a design that cannot record what it enumerated
-    should say so, rather than leave a partial file that later reads as complete.
+    The background scan is one Aho-Corasick pass over the background for every
+    primer at once, so widening it costs storage rather than proportional time.
+    Measured on the bundled plasmid example: filter 1.4 s to 1.6 s, position
+    files 4.1 MB to 8.0 MB, and `step2_df.csv` unchanged at 37 rows -- so the
+    optimizer's pool, and therefore its runtime, does not move with this setting.
     """
-    from neoswga.core.candidate_inventory import record_stage2_inventory
-    from neoswga.core.filter import _get_reaction_conditions
+    from neoswga.core.candidate_inventory import background_scan_pool
 
-    path = record_stage2_inventory(
-        parameter.data_dir,
-        condition_id=_get_reaction_conditions().fingerprint(),
-        cleared_hard_gates=filtered_rate_df,
-        after_gini=gini_df,
-        shortlisted=filtered_gini_df,
+    retention = getattr(parameter, "candidate_retention", "all_qc")
+    to_index = background_scan_pool(
+        filtered_rate_df["primer"], filtered_gini_df["primer"], retention
     )
+    _scan_background_positions(to_index, bg_prefixes, bg_genomes)
     logger.info(
-        "Candidate inventory: %d cleared the hard gates, %d survived the Gini "
-        "filter, %d were shortlisted by max_primer. All %d remain addressable (%s).",
+        "Background index: %d of %d hard-QC candidates indexed under "
+        "candidate_retention=%r. Under 'legacy' only the %d shortlisted ones are, "
+        "and a candidate the ranking cut then has no background index at all -- "
+        "which scores as perfect specificity rather than as a missing measurement.",
+        len(to_index),
         len(filtered_rate_df),
-        len(gini_df),
+        retention,
         len(filtered_gini_df),
-        len(filtered_rate_df),
-        path,
     )
-    return path
 
 
 def step2(all_primers=None, validate_prerequisites=True):
@@ -1350,12 +1341,21 @@ def step2(all_primers=None, validate_prerequisites=True):
     # appear only as `final_candidates`, under no stage name.
     _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
-    _scan_background_positions(filtered_gini_df["primer"], bg_prefixes, bg_genomes)
+    _index_background_by_retention(filtered_rate_df, filtered_gini_df, bg_prefixes, bg_genomes)
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
 
-    _record_candidate_inventory(filtered_rate_df, gini_df, filtered_gini_df)
+    from neoswga.core.candidate_inventory import record_stage2_inventory
+    from neoswga.core.filter import _get_reaction_conditions
+
+    record_stage2_inventory(
+        parameter.data_dir,
+        condition_id=_get_reaction_conditions().fingerprint(),
+        cleared_hard_gates=filtered_rate_df,
+        after_gini=gini_df,
+        shortlisted=filtered_gini_df,
+    )
 
     # Write the real filtering funnel so reports show genuine per-stage counts
     # instead of a fabricated estimate. Best-effort: never fail the filter step.

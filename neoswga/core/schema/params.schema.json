@@ -507,6 +507,15 @@
       "maximum": 12,
       "default": 3,
       "description": "Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets."
+    },
+    "candidate_retention": {
+      "type": "string",
+      "enum": [
+        "all_qc",
+        "legacy"
+      ],
+      "default": "all_qc",
+      "description": "Which candidates get a background position index. 'all_qc' indexes every candidate clearing the declared hard gates, so nothing the max_primer ranking set aside is unreachable; 'legacy' indexes only the shortlist, reproducing the historical behaviour. max_primer still chooses the working shortlist either way, so the optimizer's runtime is unchanged."
     }
   }
 }
