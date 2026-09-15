@@ -290,6 +290,14 @@ class BipartiteGraph:
 # which definition produced it.
 OBJECTIVE_VERSION = "bins-or-objective-2026-09-15"
 
+# Above this many candidates, compatibility is computed on demand against the
+# selected panel instead of materialising every pair. The matrix is n-by-n
+# bools: 4 MB at 2,000 candidates, 427 MB at the 20,670 the Wolbachia design
+# retains under `candidate_retention="all_qc"`, and 2.5 GB at 50,000. Almost
+# none of it is read, because the greedy screens against the panel it is
+# building rather than against the pool.
+LAZY_DIMER_POOL_THRESHOLD = 4_000
+
 STOP_REASONS = (
     "target_met",
     "budget_exhausted",
@@ -429,7 +437,19 @@ class DominatingSetOptimizer:
         # would otherwise take two rows, and the index would keep only the
         # second.
         pool = list(dict.fromkeys(list(fixed_primers) + list(candidates)))
-        matrix = _dimer_matrix.build(pool, self.max_dimer_bp)
+        if len(pool) > LAZY_DIMER_POOL_THRESHOLD:
+            from neoswga.core.lazy_dimer import LazyDimerCompatibility
+
+            logger.info(
+                "Pool of %d candidates: computing dimer compatibility on demand "
+                "rather than materialising %d pairs (%.0f MB).",
+                len(pool),
+                len(pool) ** 2,
+                len(pool) ** 2 / 1e6,
+            )
+            matrix = LazyDimerCompatibility(self.max_dimer_bp)
+        else:
+            matrix = _dimer_matrix.build(pool, self.max_dimer_bp)
         if not self.relax_dimer_constraint_when_stuck:
             fixed = list(dict.fromkeys(fixed_primers))
             for i, primer in enumerate(fixed):

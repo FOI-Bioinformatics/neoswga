@@ -31,6 +31,28 @@ def run_report_pool(args):
     print(f"Report: {report.resolve()}")
 
 
+def load_grid_file(path, baseline):
+    """Read a design grid and resolve it against the run's own chemistry.
+
+    A grid entry names what CHANGES. Each is applied on top of `baseline`, the
+    reaction this run already resolved, so a grid varying only DMSO keeps the
+    user's buffer, salts and per-oligo concentration. Rebuilding from the
+    overrides alone would compare designs against library defaults rather than
+    against the reaction being run, and that comparison would read as a
+    chemistry result.
+    """
+    from neoswga.core.pool_design_sweep import load_design_grid
+
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(
+            f"No design grid at {source.resolve()}. It is a JSON object with "
+            f'"lengths" and "conditions", where each condition names only the '
+            f"fields it changes."
+        )
+    return load_design_grid(json.loads(source.read_text()), baseline)
+
+
 def run_plan_pool(args):
     import pandas as pd
 
@@ -201,6 +223,13 @@ def add_parsers(subparsers):
         type=int,
         default=None,
         help="Swap evaluations (default: the OptimizerConfig default)",
+    )
+    p.add_argument(
+        "--design-grid",
+        default=None,
+        help="JSON file with 'lengths' and 'conditions'; each condition names "
+        "only the fields it changes, applied over this run's resolved chemistry. "
+        "Designs one pool per combination and reports the trade-off frontier.",
     )
     p.add_argument("-o", "--output", default="pool_plan")
     return p
