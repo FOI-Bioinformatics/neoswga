@@ -273,4 +273,37 @@ def record_stage2_inventory(
                 policy_version=policy_version,
             )
         inventory.commit()
+
+    import logging
+
+    logging.getLogger(__name__).info(
+        "Candidate inventory: %d cleared the hard gates, %d survived the Gini "
+        "filter, %d were shortlisted by max_primer. All %d remain addressable (%s).",
+        len(cleared_hard_gates),
+        len(after_gini),
+        len(shortlisted),
+        len(cleared_hard_gates),
+        path,
+    )
     return path
+
+
+def background_scan_pool(cleared_hard_gates, shortlisted, retention):
+    """Which candidates get a background position index.
+
+    Foreground positions are already written for every hard-QC survivor, because
+    the Gini gate reads them. Background positions were written only for the
+    shortlist, so a candidate the `max_primer` ranking cut had no background
+    index at all -- and a design reaching for it later would score it against an
+    empty background, which reads as perfect specificity rather than as a
+    missing measurement.
+
+    `all_qc` closes that. It changes what is INDEXED, not what the optimizer
+    searches: `step2_df.csv` remains the shortlist, so runtime moves with a
+    search setting rather than with a retention setting.
+    """
+    if retention == "all_qc":
+        return list(cleared_hard_gates)
+    if retention == "legacy":
+        return list(shortlisted)
+    raise ValueError(f"candidate_retention must be 'all_qc' or 'legacy', not {retention!r}")

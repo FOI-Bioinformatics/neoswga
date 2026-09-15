@@ -34,6 +34,7 @@ neoswga schema --dump > params.schema.json
 | `bl_seq_lengths` | array of integer | - | - | - |
 | `bloom_filter_path` | string or null | - | - | - |
 | `bsa_ug_ml` | number | min: 0.0; max: 400.0 | `0.0` | - |
+| `candidate_retention` | string | one of: all_qc, legacy | `all_qc` | Which candidates get a background position index. 'all_qc' indexes every candidate clearing the declared hard gates, so nothing the max_primer ranking set aside is unreachable; 'legacy' indexes only the shortlist, reproducing the historical behaviour. max_primer still chooses the working shortlist either way, so the optimizer's runtime is unchanged. |
 | `coverage_reach` | integer | min: 1 | - | Per-primer extension reach in bp used for set-cover selection and reported fg_coverage. Defaults to the polymerase's realistic per-primer reach (phi29 ~3000, equiphi29 ~4000). Coverage figures are not comparable across different reaches; swga 2.0 reports at ~70000. Estimate from sequencing depth with 'neoswga calibrate-reach --bam'. |
 | `cpus` | integer | min: 1; max: 128 | - | - |
 | `dmso_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |

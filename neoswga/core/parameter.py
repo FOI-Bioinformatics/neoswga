@@ -922,6 +922,7 @@ def _apply_params_only_keys(data: dict) -> None:
     global max_homopolymer_run
     global gc_clamp_window
     global max_gc_in_clamp
+    global candidate_retention
 
     allow_dimer_relaxation = data["allow_dimer_relaxation"] = data.get(
         "allow_dimer_relaxation", False
@@ -955,6 +956,7 @@ def _apply_params_only_keys(data: dict) -> None:
     max_homopolymer_run = data["max_homopolymer_run"] = data.get("max_homopolymer_run")
     gc_clamp_window = data["gc_clamp_window"] = data.get("gc_clamp_window")
     max_gc_in_clamp = data["max_gc_in_clamp"] = data.get("max_gc_in_clamp")
+    candidate_retention = data["candidate_retention"] = data.get("candidate_retention", "all_qc")
 
 
 def _warn_about_schema_version(data):
