@@ -5,6 +5,7 @@ import time
 
 from .base_optimizer import OptimizationStatus
 from .dimer_validator import DimerValidator
+from .pool_objective import PoolConstraints, PoolObjective
 
 # Multiples of the configured reach to report coverage at. The window radius is
 # a design-density convention rather than a measured extension distribution
@@ -74,10 +75,16 @@ def plan_pool(
         if value is not None and (not math.isfinite(value) or value < 0):
             raise ValueError("Specificity limits must be finite and non-negative")
     background_known = bool(optimizer.bg_prefixes and sum(optimizer.bg_seq_lengths) > 0)
-    if not background_known and (
-        min_selectivity_density is not None or max_background_sites is not None
-    ):
-        raise ValueError("Specificity limits require a background genome and index")
+    # One contract for search and acceptance. `plan_pool` used to restate the
+    # coverage choice and both specificity limits in its own words, and two
+    # copies of a rule drift while each stays self-consistent.
+    constraints = PoolConstraints(
+        coverage_metric=coverage_metric,
+        min_selectivity_density=min_selectivity_density,
+        max_background_sites=max_background_sites,
+    )
+    constraints.require_background(available=background_known)
+    objective = PoolObjective(optimizer.compute_metrics, constraints)
     if background_known and min_selectivity_density is None and max_background_sites is None:
         raise ValueError("Specify a minimum selectivity density or maximum background sites")
     if coverage_metric == "effective" and optimizer.conditions is None:
@@ -121,29 +128,22 @@ def plan_pool(
             raise ValueError(
                 "Optimizer returned a panel outside the requested candidate/size bounds"
             )
-        metrics = optimizer.compute_metrics(primers)
+        metrics = objective.metrics(primers)
         for value in (metrics.fg_coverage, metrics.effective_fg_coverage):
             if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
                 raise ValueError("Optimizer returned invalid coverage")
         if background_known and not math.isfinite(metrics.selectivity_density):
             raise ValueError("Optimizer returned non-finite specificity")
-        coverage = (
-            metrics.effective_fg_coverage if coverage_metric == "effective" else metrics.fg_coverage
-        )
+        coverage = objective.coverage(primers)
+        # The dimer guard stays OUTSIDE the objective: it is a hard constraint
+        # on the delivered panel, not a scoring term. Folding it in among the
+        # others is how it became tradeable, and the relaxation that followed
+        # produced an 11 bp heterodimer against a configured 3.
         violations = validator.incompatible_pairs(primers)
         self_dimers = [p for p in primers if validator.has_self_dimer(p)]
-        reasons = []
-        if coverage is None:
-            reasons.append("coverage unavailable")
+        reasons = list(objective.violations(primers))
         if violations or self_dimers:
             reasons.append("dimer constraint")
-        if (
-            min_selectivity_density is not None
-            and metrics.selectivity_density < min_selectivity_density
-        ):
-            reasons.append("selectivity below minimum")
-        if max_background_sites is not None and metrics.total_bg_sites > max_background_sites:
-            reasons.append("background sites above maximum")
         rows.append(
             dict(
                 requested_size=requested,
