@@ -83,7 +83,13 @@ class ThermoScreenMixin:
 
             criteria = self._thermo_criteria()
 
-            thermo_filter = ThermodynamicFilter(criteria)
+            # The resolved conditions, so this screen judges a primer on the
+            # same Tm the gate that admitted it used. Without them it applied
+            # salt but no additive correction, and rejected primers that the
+            # configured chemistry had brought into the window.
+            thermo_filter = ThermodynamicFilter(
+                criteria, conditions=getattr(self, "conditions", None)
+            )
             filtered, stats = thermo_filter.filter_candidates(
                 candidates,
                 check_heterodimers=True,
@@ -99,10 +105,19 @@ class ThermoScreenMixin:
                     logger.info(f"  Mean GC: {stats['mean_gc']:.1%}")
 
             if len(filtered) == 0:
+                # Returning the input here turned a QC failure into a pass: a
+                # configuration under which nothing survives thermodynamic
+                # screening proceeded with every candidate just rejected, which
+                # is not a screen. An empty result is now reported as one.
                 logger.warning(
-                    "No primers passed thermodynamic filtering, " "using unfiltered candidates"
+                    "No candidate passed thermodynamic screening under the "
+                    "configured reaction (Tm window %.1f-%.1f C at %s). The "
+                    "empty result stands; widen min_tm/max_tm, change the "
+                    "additives, or supply a different candidate pool.",
+                    criteria.min_tm,
+                    criteria.max_tm,
+                    self.polymerase,
                 )
-                return candidates
 
             return filtered
 
@@ -134,17 +149,28 @@ class ThermoScreenMixin:
         and no primer in these pools has 291 dimer partners -- but that is a
         property of these pools, not a guarantee from the code.
         """
-        wanted = frozenset(c.upper() for c in candidates)
+        # Identity is the pool AND the reaction AND the QC limits. Keyed by
+        # the pool alone, a verdict computed under one chemistry was reused
+        # after the conditions changed.
+        criteria = self._thermo_criteria()
+        conditions = getattr(self, "conditions", None)
+        identity = (
+            frozenset(c.upper() for c in candidates),
+            conditions.fingerprint() if conditions is not None else "no-conditions",
+            (criteria.min_tm, criteria.max_tm, criteria.na_conc, criteria.mg_conc),
+            getattr(self, "max_dimer_bp", None),
+        )
+        wanted = identity
 
         if self._thermo_filter_cache is not None:
             screened_pool, passed = self._thermo_filter_cache
-            if wanted <= screened_pool:
+            if screened_pool[1:] == identity[1:] and identity[0] <= screened_pool[0]:
                 kept = [c for c in candidates if c.upper() in passed]
                 if verbose:
                     logger.info(
                         "PRE-STAGE: reusing the thermodynamic screen computed over "
                         "%d candidates; %d of %d in this pool passed it",
-                        len(screened_pool),
+                        len(screened_pool[0]),
                         len(kept),
                         len(candidates),
                     )

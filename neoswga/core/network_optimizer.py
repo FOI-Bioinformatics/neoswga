@@ -735,23 +735,27 @@ class NetworkOptimizer:
         change Tm-weighted edge scoring. Without conditions we fall back to the
         legacy `melting_temp.temp()` estimate to preserve existing behaviour.
         """
-        if primer in self._tm_cache:
-            return self._tm_cache[primer]
+        # Keyed by chemistry as well as sequence. A Tm cached under the
+        # sequence alone survived a change of reaction, so a design that
+        # re-resolved its conditions kept scoring against the old ones.
+        fingerprint = (
+            self.conditions.fingerprint() if self.conditions is not None else "no-conditions"
+        )
+        key = (primer, fingerprint)
+        if key in self._tm_cache:
+            return self._tm_cache[key]
 
         tm: float
         if self.conditions is not None:
             try:
-                from neoswga.core.thermodynamics import calculate_tm_with_salt
-
-                na = getattr(self.conditions, "na_conc", 50.0)
-                gc_count = sum(1 for b in primer if b in "GC")
-                primer_len = len(primer)
-                gc_fraction = gc_count / primer_len if primer_len else 0.5
-                tm = calculate_tm_with_salt(primer, na_conc=na)
-                tm += self.conditions.calculate_tm_correction(
-                    gc_content=gc_fraction,
-                    primer_length=primer_len,
-                )
+                # The canonical calculation. This used to rebuild its own:
+                # `calculate_tm_with_salt(primer, na_conc=na)` passed sodium
+                # only, so magnesium took the low-level default of zero while
+                # the configured phi29 reaction runs at 10 mM -- nearly nine
+                # degrees on a 12-mer, on the quantity weighting every edge in
+                # this optimizer's scoring. Potassium, ammonium, dNTP and the
+                # per-oligo concentration were dropped with it.
+                tm = self.conditions.calculate_effective_tm(primer)
             except Exception as exc:
                 # The fallback is not equivalent: `calculate_primer_tm` uses the
                 # model's fixed 10 mM Na / 20 mM Mg and drops the additive
@@ -771,7 +775,7 @@ class NetworkOptimizer:
                 tm = calculate_primer_tm(primer)
         else:
             tm = calculate_primer_tm(primer)
-        self._tm_cache[primer] = tm
+        self._tm_cache[key] = tm
         return tm
 
     def _calculate_tm_score(self, primer: str) -> float:

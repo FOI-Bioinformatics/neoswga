@@ -211,6 +211,12 @@ def list_polymerases() -> Dict[str, str]:
     return {name: info["description"] for name, info in POLYMERASE_CHARACTERISTICS.items()}
 
 
+# Bumped when an additive coefficient, a salt correction or the Tm model itself
+# changes. It is part of `ReactionConditions.fingerprint()`, so a cache written
+# under one model cannot be reused under another.
+CONDITION_MODEL_VERSION = "tm-2026-09-14"
+
+
 class ReactionConditions:
     """
     Comprehensive reaction condition model for SWGA.
@@ -514,6 +520,30 @@ class ReactionConditions:
             gc_content, primer_length, use_arrhenius=use_arrhenius
         )
         return tm_base + correction
+
+    def fingerprint(self) -> str:
+        """A stable identity for this reaction, for keying condition caches.
+
+        Two optimizer paths cached a melting temperature under the sequence
+        alone, so a value computed for one reaction survived a change of
+        chemistry. Sequence identity is not reaction identity.
+
+        Every scalar field is serialised in sorted order with the model version,
+        so the digest changes when a coefficient changes as well as when a
+        setting does. Non-scalar attributes are excluded deliberately: they are
+        caches and registry handles, not inputs to a Tm.
+        """
+        import hashlib
+        import json
+
+        fields = {
+            key: value
+            for key, value in sorted(vars(self).items())
+            if not key.startswith("_") and isinstance(value, (int, float, str, bool, type(None)))
+        }
+        fields["__model__"] = CONDITION_MODEL_VERSION
+        digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:16]
+        return f"{CONDITION_MODEL_VERSION}:{digest}"
 
     def calculate_effective_tm(self, seq: str, primer_conc: Optional[float] = None) -> float:
         """
