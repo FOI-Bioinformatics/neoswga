@@ -1165,6 +1165,43 @@ def _apply_exclusion_and_blacklist(filtered_rate_df):
     return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
 
 
+def _record_candidate_inventory(filtered_rate_df, gini_df, filtered_gini_df):
+    """Record every candidate that cleared the declared hard gates.
+
+    `step2_df.csv` is a SHORTLIST: the Gini filter and the `max_primer` cut have
+    both removed rows, and neither is a declared requirement. Gini measures how
+    evenly a primer binds and the cap keeps the top of an order, so a candidate
+    they remove is one the optimizer could never select despite meeting every
+    stated criterion. The inventory keeps those two as measurements against
+    candidates that remain addressable.
+
+    Split out of `step2` so that function stays inside its length budget.
+
+    Deliberately not best-effort: a design that cannot record what it enumerated
+    should say so, rather than leave a partial file that later reads as complete.
+    """
+    from neoswga.core.candidate_inventory import record_stage2_inventory
+    from neoswga.core.filter import _get_reaction_conditions
+
+    path = record_stage2_inventory(
+        parameter.data_dir,
+        condition_id=_get_reaction_conditions().fingerprint(),
+        cleared_hard_gates=filtered_rate_df,
+        after_gini=gini_df,
+        shortlisted=filtered_gini_df,
+    )
+    logger.info(
+        "Candidate inventory: %d cleared the hard gates, %d survived the Gini "
+        "filter, %d were shortlisted by max_primer. All %d remain addressable (%s).",
+        len(filtered_rate_df),
+        len(gini_df),
+        len(filtered_gini_df),
+        len(filtered_rate_df),
+        path,
+    )
+    return path
+
+
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -1317,6 +1354,8 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
+
+    _record_candidate_inventory(filtered_rate_df, gini_df, filtered_gini_df)
 
     # Write the real filtering funnel so reports show genuine per-stage counts
     # instead of a fabricated estimate. Best-effort: never fail the filter step.
