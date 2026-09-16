@@ -12,7 +12,10 @@ class SwapResult:
     evaluations: int
     swaps: int
     stop_reason: str
-    covered_bases: int
+    # `None` when the caller supplied no coverage bins, which is the
+    # objective-only mode: the panel's coverage is the objective's to report
+    # and inventing a base count here would look like a measurement.
+    covered_bases: int | None
     background_sites: float
 
 
@@ -46,12 +49,23 @@ def refine_by_swaps(
     coverage curve, so a swap that reduces violations is taken even when
     coverage falls.
 
+    `bins_by_primer` and `bin_weights` may both be `None` when an `objective` is
+    supplied. The objective answers every question acceptance asks, so a caller
+    that has one need not also assemble a bin decomposition it will not read;
+    `covered_bases` is then `None` rather than a zero that would read as a
+    measured value.
+
     New primers must be compatible with every retained primer. Time limits are
     cooperative, checked between evaluations; preprocessing belongs to the
     caller.
     """
     if max_evaluations < 0 or not math.isfinite(max_seconds) or max_seconds < 0:
         raise ValueError("Swap budgets must be finite and non-negative")
+    binless = bins_by_primer is None or bin_weights is None
+    if binless and objective is None:
+        raise ValueError("Swap refinement needs either coverage bins or an objective")
+    bins_by_primer = {} if bins_by_primer is None else bins_by_primer
+    bin_weights = {} if bin_weights is None else bin_weights
     current = list(dict.fromkeys(selected))
     pool = list(dict.fromkeys(candidates))
     fixed = set(fixed_primers)
@@ -59,7 +73,7 @@ def refine_by_swaps(
         raise ValueError("Fixed primers must be present in the initial panel")
     bg = background_sites or {}
     counts = Counter(b for p in current for b in bins_by_primer.get(p, ()))
-    covered = sum(bin_weights[b] for b in counts)
+    covered = None if binless else sum(bin_weights[b] for b in counts)
     background = sum(bg.get(p, 0.0) for p in current)
     evaluations = swaps = 0
     deadline = time.monotonic() + max_seconds
@@ -124,7 +138,7 @@ def refine_by_swaps(
                 covered += best_gain[0]
                 background -= best_gain[1]
             else:
-                covered = sum(bin_weights[b] for b in counts if counts[b])
+                covered = None if binless else sum(bin_weights[b] for b in counts if counts[b])
                 background = objective.metrics(current).total_bg_sites
             swaps += 1
         if exhausted or best is None:

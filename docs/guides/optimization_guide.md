@@ -28,6 +28,27 @@ weighted metric. A ratio of 10 above is an illustrative comparison threshold,
 not a validated experimental cutoff. `--no-background` explicitly permits
 planning without assessing specificity.
 
+A panel that misses a constraint gets one bounded second attempt before the row
+is reported as ineligible. First a swap refinement, which keeps the panel size
+and accepts only swaps that reduce the number of violated constraints or, once
+none are violated, raise coverage. If that reaches a local optimum still in
+violation, a bounded beam rebuilds at the same size, keeping four partial panels
+alive rather than one. A beam is worth the cost here because the selectivity
+density floor is not monotonic under additions: a primer that binds the target
+well and the background little raises the ratio, so the locally best first
+choice can be the one that puts the qualifying panel out of reach.
+
+Both attempts run inside the swap evaluation and time budgets, and the beam is
+skipped when its bound does not fit what is left of them. The repaired panel is
+re-evaluated through the same objective the row is judged on, so the reported
+coverage describes the panel actually delivered. A dimer violation is not
+repaired: the objective does not see dimers, so nothing steers the swap score
+towards removing one, and a panel arriving with a dimerising pair means an
+upstream relaxation fired. The report names the rows that needed a repair, in
+the `repaired_by` column and beside the reason in the HTML table. Pass
+`--no-repair` for the earlier behaviour, where the optimizer's first answer is
+the one reported.
+
 The default coverage metric is occupancy-weighted (`effective`); `--coverage-metric
 raw` uses the union of windows around binding sites. `--coverage-reach` controls
 their radius (3,000 bp by default for phi29). These estimates do not establish

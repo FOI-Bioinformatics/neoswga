@@ -194,6 +194,42 @@ def _write_figure(plan, rows, output):
     return True
 
 
+def _write_sizes_csv(plan, output):
+    """One row per evaluated panel size, for a reader who wants the numbers.
+
+    `extrasaction="ignore"` means a plan carrying keys this list does not name
+    still writes, which is what lets an older saved plan render.
+    """
+    fields = [
+        "requested_size",
+        "size",
+        "coverage",
+        "raw_coverage",
+        "effective_coverage",
+        "selectivity_density",
+        "background_sites",
+        "eligible",
+        "status",
+        "repaired_by",
+        "primers",
+    ]
+    with (output / "pool_sizes.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for row in plan["rows"]:
+            # A panel the planner had to repair is not the panel the optimizer
+            # first returned, and a reader comparing designs should be able to
+            # see which rows needed a second attempt.
+            repair = row.get("repair") or {}
+            writer.writerow(
+                {
+                    **row,
+                    "repaired_by": repair.get("method") or "",
+                    "primers": ";".join(row["primers"]),
+                }
+            )
+
+
 def write_pool_plan(plan, output):
     """Render a saved plan to a fresh directory, without accessing genome inputs.
 
@@ -211,23 +247,7 @@ def write_pool_plan(plan, output):
     serialized = json.dumps(plan, indent=2, allow_nan=False)
     output.mkdir(parents=True, exist_ok=True)
     (output / "pool_plan.json").write_text(serialized)
-    fields = [
-        "requested_size",
-        "size",
-        "coverage",
-        "raw_coverage",
-        "effective_coverage",
-        "selectivity_density",
-        "background_sites",
-        "eligible",
-        "status",
-        "primers",
-    ]
-    with (output / "pool_sizes.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        for row in plan["rows"]:
-            writer.writerow({**row, "primers": ";".join(row["primers"])})
+    _write_sizes_csv(plan, output)
     targets = []
     for rec in plan["recommendations"]:
         target = rec["target_coverage"]
@@ -257,6 +277,9 @@ def write_pool_plan(plan, output):
         # the other raised.
         failed = r.get("failed_constraints") or ([r["status"]] if "status" in r else [])
         reason = "passes" if r["eligible"] else "; ".join(str(x) for x in failed) or "unknown"
+        method = (r.get("repair") or {}).get("method")
+        if method:
+            reason = f"{reason} (repaired by {method})"
         sites = r["background_sites"] if r.get("background_sites") is not None else "not assessed"
         # Both coverage figures, side by side. One number with a metric name
         # beside it invited the reader to treat a modelling choice as a result;

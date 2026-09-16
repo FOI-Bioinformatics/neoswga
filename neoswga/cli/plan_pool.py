@@ -155,6 +155,7 @@ def run_plan_pool(args):
         min_selectivity_density=args.min_selectivity_density,
         max_background_sites=args.max_background_sites,
         coverage_metric=args.coverage_metric,
+        repair=not args.no_repair,
         progress=lambda n: logger.info("Evaluating a pool of up to %d oligos", n),
     )
     plan["inputs"] = dict(
@@ -204,6 +205,14 @@ def add_parsers(subparsers):
     p.add_argument("--coverage-targets", type=float, nargs="+", default=[0.9, 0.95])
     p.add_argument("--coverage-metric", choices=["raw", "effective"], default="effective")
     p.add_argument("--coverage-reach", type=int)
+    p.add_argument(
+        "--no-repair",
+        action="store_true",
+        help=(
+            "Do not attempt a bounded second pass on a panel that misses a "
+            "constraint; report it as the optimizer returned it"
+        ),
+    )
     p.add_argument(
         "--min-selectivity-density",
         type=float,
