@@ -684,6 +684,13 @@ class OptimizerConfig:
     refinement_method: str = "network"
     swap_max_evaluations: int = 10000
     swap_max_seconds: float = 10.0
+    # The repair beam's own budget, separate from the swaps'. It used to spend
+    # whatever the swaps left over, and the swaps routinely spend all of it: on
+    # a 2,000-candidate shortlist the swap loop hits its evaluation limit and
+    # the beam is handed nothing, so the beam never ran outside its own tests.
+    # Two searches with one purse is one search.
+    beam_max_evaluations: int = 10000
+    beam_max_seconds: float = 10.0
     # Self-dimer threshold. The clique optimizer reached for this with
     # `getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)` and the
     # fallback fired every time, because the field did not exist -- so a
@@ -726,6 +733,12 @@ class OptimizerConfig:
             or self.swap_max_seconds < 0
         ):
             raise ValueError("Swap budgets must be finite and non-negative")
+        if (
+            self.beam_max_evaluations < 0
+            or not math.isfinite(self.beam_max_seconds)
+            or self.beam_max_seconds < 0
+        ):
+            raise ValueError("Beam budgets must be finite and non-negative")
         if not isinstance(self.allow_dimer_relaxation, bool):
             raise ValueError("allow_dimer_relaxation must be a boolean")
         if self.target_set_size < 1:
