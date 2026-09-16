@@ -1,0 +1,39 @@
+INFO: Step 1: K-mer preprocessing starting...
+WARNING: Background genome is large (144 Mbp). Consider pre-building a Bloom filter for faster filtering:
+  neoswga build-filter <background.fna> <data_dir>
+INFO: GC-adaptive strategy initialized
+INFO:   GC content: 35.2%
+INFO:   Classification: balanced
+INFO:   Selected EquiPhi29 (balanced genome)
+INFO:   Using standard parameters (balanced genome)
+INFO: GC-adaptive: Keeping user-specified polymerase 'phi29' (adaptive would recommend 'equiphi29')
+INFO: GC-adaptive: Preserving user-specified k-mer range 12-12bp
+INFO: GC-adaptive: Preserving user-specified betaine 0.0M
+INFO: GC-adaptive: Preserving user-specified DMSO 0.0%
+INFO: GC-adaptive strategy: balanced genome, confidence 90%
+INFO: K-mer range: 12-12bp
+INFO: Loading genome: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/input/wmel.fna
+INFO:   Detected format: fasta
+INFO:   Loaded 1 sequence(s), 1,267,782 bp total
+INFO:   GC content: 35.2%
+INFO:   Genome wmel.fna: 1,267,782 bp
+INFO: Loading genome: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/input/drosophila.fna
+INFO:   Detected format: fasta
+INFO:   Loaded 1870 sequence(s), 143,726,002 bp total
+INFO:   GC content: 41.7%
+INFO:   N content: 1,152,978 bp (0.80%)
+INFO:   Genome drosophila.fna: 143,726,002 bp
+INFO: Counting k-mers (12-12bp) for 2 genome(s)...
+INFO: Running jellyfish for foreground...
+  Foreground 1/1: wmel.fna... INFO: Jellyfish version: 2.3.1
+  k=12bp (1/1)INFO: Running jellyfish for background...
+ done
+done (0.3s)
+  Background 1/1: drosophila.fna... INFO: Jellyfish version: 2.3.1
+  k=12bp (1/1)INFO: Done running jellyfish
+INFO: Run manifest updated: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/search_budget_2026-09-16/design/run_manifest.json
+INFO: Step 1 complete in 13.3s
+ done
+done (12.0s)
+
+Next: neoswga filter -j params.json
