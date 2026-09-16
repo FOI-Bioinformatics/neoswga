@@ -306,6 +306,30 @@ STOP_REASONS = (
 )
 
 
+def _should_stop_extending(objective, selected):
+    """Whether adding more primers to this panel could still help.
+
+    A greedy grows ONE panel by addition, which is the situation the monotonic
+    argument in `partial_panel` covers: once the panel is over a background-site
+    cap, every further addition leaves it over, so continuing spends the size
+    budget on panels that cannot qualify.
+
+    Deliberately not applied to a size sweep, where each size is optimised
+    independently and a larger request is not a superset of a smaller one. The
+    argument is about additions, not about requests.
+    """
+    if objective is None or not selected:
+        return False
+    from neoswga.core.partial_panel import can_prune
+
+    constraints = objective.constraints
+    return can_prune(
+        objective.violations(selected),
+        constraints.max_background_sites,
+        constraints.min_selectivity_density,
+    )
+
+
 def _classify_stop(candidates, selected, covered_regions, graph, max_primers, n_fixed):
     """Which of the four endings this search reached.
 
@@ -676,6 +700,7 @@ class DominatingSetOptimizer:
         n_fixed,
         verbose,
         redundancy_threshold=DEFAULT_REDUNDANCY_THRESHOLD,
+        objective=None,
     ):
         """The greedy loop: repeatedly add the primer with the largest marginal
         coverage until `max_primers` new primers are added, coverage is
@@ -714,7 +739,13 @@ class DominatingSetOptimizer:
 
             # Find primer that covers most uncovered regions
             best_primer, best_new_coverage, skipped_for_dimer = self._select_next_primer(
-                scan_order, selected, covered_regions, graph, armed, redundancy_threshold
+                scan_order,
+                selected,
+                covered_regions,
+                graph,
+                armed,
+                redundancy_threshold,
+                objective=objective,
             )
 
             if self._dimer_stall_should_relax(
@@ -756,6 +787,14 @@ class DominatingSetOptimizer:
             order.append(best_primer)
             covered_regions.update(graph.primer_to_regions[best_primer])
             new_primers_added += 1
+
+            if _should_stop_extending(objective, order):
+                logger.info(
+                    "Stopping at %d primers: the panel has passed a limit that "
+                    "further additions cannot bring it back under.",
+                    len(order),
+                )
+                break
 
             if verbose and new_primers_added % 5 == 0:
                 coverage = self._genome_fraction(covered_regions)
@@ -818,6 +857,7 @@ class DominatingSetOptimizer:
         min_coverage: Optional[float] = None,
         verbose: bool = True,
         redundancy_threshold: float = DEFAULT_REDUNDANCY_THRESHOLD,
+        objective=None,
     ) -> Dict:
         """
         Greedy set cover algorithm.
@@ -934,6 +974,7 @@ class DominatingSetOptimizer:
             n_fixed,
             verbose,
             redundancy_threshold,
+            objective=objective,
         )
 
         # Final statistics

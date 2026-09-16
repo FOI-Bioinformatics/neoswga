@@ -1,0 +1,57 @@
+INFO: Step 1: K-mer preprocessing starting...
+WARNING: Background genome is large (144 Mbp). Consider pre-building a Bloom filter for faster filtering:
+  neoswga build-filter <background.fna> <data_dir>
+INFO: GC-adaptive strategy initialized
+INFO:   GC content: 35.2%
+INFO:   Classification: balanced
+INFO:   Selected EquiPhi29 (balanced genome)
+INFO:   Using standard parameters (balanced genome)
+INFO: GC-adaptive: Keeping user-specified polymerase 'phi29' (adaptive would recommend 'equiphi29')
+INFO: GC-adaptive: Preserving user-specified k-mer range 12-12bp
+INFO: GC-adaptive: Preserving user-specified betaine 0.0M
+INFO: GC-adaptive: Preserving user-specified DMSO 0.0%
+INFO: GC-adaptive strategy: balanced genome, confidence 90%
+INFO: K-mer range: 12-12bp
+INFO: Loading genome: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/input/wmel.fna
+INFO:   Detected format: fasta
+INFO:   Loaded 1 sequence(s), 1,267,782 bp total
+INFO:   GC content: 35.2%
+INFO:   Genome wmel.fna: 1,267,782 bp
+INFO: Loading genome: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/input/drosophila.fna
+INFO:   Detected format: fasta
+INFO:   Loaded 1870 sequence(s), 143,726,002 bp total
+INFO:   GC content: 41.7%
+INFO:   N content: 1,152,978 bp (0.80%)
+INFO:   Genome drosophila.fna: 143,726,002 bp
+INFO: Counting k-mers (12-12bp) for 2 genome(s)...
+INFO: Running jellyfish for foreground...
+  Foreground 1/1: wmel.fna... INFO: Jellyfish version: 2.3.1
+  k=12bp (1/1)INFO: Running jellyfish for background...
+ done
+done (0.3s)
+  Background 1/1: drosophila.fna... INFO: Jellyfish version: 2.3.1
+  k=12bp (1/1)INFO: Done running jellyfish
+INFO: Run manifest updated: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/benchmark_2026-09-16/all_qc/run_manifest.json
+INFO: Step 1 complete in 12.7s
+ done
+done (11.5s)
+
+Next: neoswga filter -j params.json
+       13.39 real        13.76 user         5.91 sys
+           803962880  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              111399  page reclaims
+                  58  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                2948  voluntary context switches
+             2410269  involuntary context switches
+         15302590956  instructions retired
+          5556871687  cycles elapsed
+           376489280  peak memory footprint
