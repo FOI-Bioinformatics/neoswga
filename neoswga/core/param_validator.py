@@ -217,6 +217,9 @@ class ParamValidator:
         # Check required parameters
         self._check_required(params)
 
+        # A value that used to be valid deserves better than an enum error.
+        self._check_retired_values(params)
+
         # Structural validation against the shipped JSON schema. Deliberately
         # kept soft: if jsonschema is not installed we skip (no hard optional
         # dependency) and fall through to the range / interdependency checks.
@@ -280,6 +283,34 @@ class ParamValidator:
                         level=ValidationLevel.ERROR,
                         parameter=param,
                         message="Required parameter missing",
+                    )
+                )
+
+    # Values the schema once accepted, with what replaced them. A bare
+    # "'legacy' is not one of [...]" tells a user their config is wrong and not
+    # that it used to be right, which is the half that saves them the search.
+    _RETIRED_VALUES = {
+        "candidate_retention": {
+            "legacy": (
+                "removed on 2026-09-16. It gave a background position index to "
+                "the max_primer shortlist only, so any candidate the ranking "
+                "cut scored against an empty background and read as perfectly "
+                "specific. Use 'post_gini' for the nearest smaller index, or "
+                "'all_qc' for every candidate clearing the hard gates"
+            )
+        }
+    }
+
+    def _check_retired_values(self, params: Dict) -> None:
+        """Name what replaced a value that used to be accepted."""
+        for key, retired in self._RETIRED_VALUES.items():
+            explanation = retired.get(params.get(key))
+            if explanation:
+                self.messages.append(
+                    ValidationMessage(
+                        level=ValidationLevel.ERROR,
+                        parameter=key,
+                        message=f"{key}={params[key]!r} was {explanation}.",
                     )
                 )
 

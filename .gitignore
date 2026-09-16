@@ -161,6 +161,10 @@ examples/**/export/
 examples/**/params_backup.json
 examples/**/run_manifest.json
 examples/**/filter_stats.json
+# The durable candidate inventory. A pipeline artifact like the rest of this
+# section, and a large one: 181 MB on the Wolbachia design, over GitHub's
+# 100 MB file limit.
+examples/**/candidate_inventory.sqlite
 examples/**/genome_gc.json
 examples/**/*technical_report.html
 examples/ecoli_environmental/ecoli_K12_MG1655.fasta

@@ -312,25 +312,56 @@ def record_stage2_inventory(
     return path
 
 
-def background_scan_pool(cleared_hard_gates, shortlisted, retention):
+def background_scan_pool(cleared_hard_gates, retention, *, after_gini=None):
     """Which candidates get a background position index.
 
     Foreground positions are already written for every hard-QC survivor, because
-    the Gini gate reads them. Background positions were written only for the
-    shortlist, so a candidate the `max_primer` ranking cut had no background
+    the Gini gate reads them. Background positions used to be written only for
+    the `max_primer` shortlist, so a candidate the ranking cut had no background
     index at all -- and a design reaching for it later would score it against an
     empty background, which reads as perfect specificity rather than as a
     missing measurement.
 
-    `all_qc` closes that. It changes what is INDEXED, not what the optimizer
-    searches: `step2_df.csv` remains the shortlist, so runtime moves with a
-    search setting rather than with a retention setting.
+    Both surviving modes close that, and both change what is INDEXED rather than
+    what the optimizer searches: `step2_df.csv` remains the shortlist, so
+    runtime moves with a search setting and not with a retention setting.
+
+    `all_qc` indexes every candidate that cleared the declared hard gates.
+
+    `post_gini` also requires the evenness gate, and the distinction it draws is
+    between a GATE and a RANKING. The Gini gate is a declared requirement that a
+    candidate either meets or does not. `max_primer` is a cut through a ranking,
+    chosen for the size of the working set rather than for any property of the
+    candidates below the line. Keeping the first and dropping the second retains
+    what was set aside arbitrarily and not what was set aside on a stated rule.
+    It does not reopen the silent zero, because the provider does not expand
+    past a hard gate.
+
+    Measured on the Wolbachia design, 20,670 candidates are indexed under
+    `post_gini` and 491,836 under `all_qc`, costing about 19 MB against 443 MB.
+
+    The shortlist-only `legacy` mode was removed on 2026-09-16. It existed to
+    reproduce the historical truncation for comparison, that comparison has been
+    made and published, and keeping a mode whose only property is a measurement
+    fault is how the fault comes back.
     """
     if retention == "all_qc":
         return list(cleared_hard_gates)
+    if retention == "post_gini":
+        if after_gini is None:
+            raise ValueError(
+                "candidate_retention='post_gini' needs the post-Gini candidates; "
+                "without them the mode would quietly become a different one"
+            )
+        return list(after_gini)
     if retention == "legacy":
-        return list(shortlisted)
-    raise ValueError(f"candidate_retention must be 'all_qc' or 'legacy', not {retention!r}")
+        raise ValueError(
+            "candidate_retention='legacy' was removed on 2026-09-16. It indexed "
+            "only the max_primer shortlist, so any candidate the ranking cut "
+            "scored against an empty background and read as perfectly specific. "
+            "Use 'post_gini' for the nearest smaller index, or 'all_qc'."
+        )
+    raise ValueError(f"candidate_retention must be 'all_qc' or 'post_gini', not {retention!r}")
 
 
 STAGE3_POLICY_PREFIX = "stage3:"

@@ -1165,7 +1165,9 @@ def _apply_exclusion_and_blacklist(filtered_rate_df):
     return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
 
 
-def _index_background_by_retention(filtered_rate_df, filtered_gini_df, bg_prefixes, bg_genomes):
+def _index_background_by_retention(
+    filtered_rate_df, gini_df, filtered_gini_df, bg_prefixes, bg_genomes
+):
     """Index by retention policy, search by shortlist.
 
     The background scan is one Aho-Corasick pass over the background for every
@@ -1178,17 +1180,20 @@ def _index_background_by_retention(filtered_rate_df, filtered_gini_df, bg_prefix
 
     retention = getattr(parameter, "candidate_retention", "all_qc")
     to_index = background_scan_pool(
-        filtered_rate_df["primer"], filtered_gini_df["primer"], retention
+        filtered_rate_df["primer"], retention, after_gini=gini_df["primer"]
     )
     _scan_background_positions(to_index, bg_prefixes, bg_genomes)
     logger.info(
         "Background index: %d of %d hard-QC candidates indexed under "
-        "candidate_retention=%r. Under 'legacy' only the %d shortlisted ones are, "
-        "and a candidate the ranking cut then has no background index at all -- "
-        "which scores as perfect specificity rather than as a missing measurement.",
+        "candidate_retention=%r; 'post_gini' would index the %d that cleared "
+        "the evenness gate. The %d-candidate max_primer shortlist no longer "
+        "bounds the index: a candidate the ranking cut used to have no "
+        "background index at all, which scores as perfect specificity rather "
+        "than as a missing measurement.",
         len(to_index),
         len(filtered_rate_df),
         retention,
+        len(gini_df),
         len(filtered_gini_df),
     )
     return to_index
@@ -1343,7 +1348,7 @@ def step2(all_primers=None, validate_prerequisites=True):
     _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
     _indexed = _index_background_by_retention(
-        filtered_rate_df, filtered_gini_df, bg_prefixes, bg_genomes
+        filtered_rate_df, gini_df, filtered_gini_df, bg_prefixes, bg_genomes
     )
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))

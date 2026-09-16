@@ -5,7 +5,10 @@ import time
 
 from .base_optimizer import OptimizationStatus
 from .dimer_validator import DimerValidator
+from .lazy_dimer import LazyDimerCompatibility
+from .panel_beam import beam_search
 from .pool_objective import PoolConstraints, PoolObjective
+from .swap_refinement import refine_by_swaps
 
 # Multiples of the configured reach to report coverage at. The window radius is
 # a design-density convention rather than a measured extension distribution
@@ -13,6 +16,11 @@ from .pool_objective import PoolConstraints, PoolObjective
 # in it over this range, so a single figure without its reach says little. 1.0
 # is included so the sweep contains the number the recommendation was made on.
 REACH_SENSITIVITY_FACTORS = (1 / 3, 2 / 3, 1.0, 5 / 3, 10 / 3)
+
+# How many partial panels the repair beam carries. Four rather than a
+# larger number because the cost is linear in it and the beam runs only
+# after the cheaper swap repair has already failed.
+_BEAM_WIDTH = 4
 
 
 def reach_sensitivity(cache, primers, prefixes, seq_lengths, reach, circular=False):
@@ -44,6 +52,95 @@ def reach_sensitivity(cache, primers, prefixes, seq_lengths, reach, circular=Fal
     return sorted(rows, key=lambda row: row["reach"])
 
 
+def _assess(objective, validator, primers):
+    """Metrics, coverage and every constraint this panel fails.
+
+    The dimer guard stays OUTSIDE the objective: it is a hard constraint on the
+    delivered panel, not a scoring term. Folding it in among the others is how
+    it became tradeable, and the relaxation that followed produced an 11 bp
+    heterodimer against a configured 3.
+    """
+    metrics = objective.metrics(primers)
+    pairs = validator.incompatible_pairs(primers)
+    self_dimers = [p for p in primers if validator.has_self_dimer(p)]
+    reasons = list(objective.violations(primers))
+    if pairs or self_dimers:
+        reasons.append("dimer constraint")
+    return metrics, objective.coverage(primers), reasons, pairs, self_dimers
+
+
+def _repair(primers, pool, objective, reasons, config):
+    """A bounded second attempt at a panel that missed a repairable limit.
+
+    Returns the panel to use and a record of what was tried. The panel is only
+    replaced when the swap loop actually moved, and the caller re-evaluates
+    whatever comes back rather than trusting this to have improved anything.
+
+    A dimer violation is not repaired here. The objective does not see dimers,
+    so the swap score cannot be steered by them, and a panel arriving with a
+    dimerising pair means an upstream relaxation fired -- which is a thing to
+    fix where it happens rather than to paper over at reporting time.
+    """
+    skipped = dict(attempted=False, method=None, succeeded=False, swaps=0, evaluations=0)
+    repairable = [r for r in reasons if r != "dimer constraint"]
+    if not repairable:
+        return list(primers), skipped
+
+    result = refine_by_swaps(
+        primers,
+        pool,
+        None,
+        None,
+        LazyDimerCompatibility(config.max_dimer_bp),
+        objective=objective,
+        max_evaluations=config.swap_max_evaluations,
+        max_seconds=config.swap_max_seconds,
+    )
+    repaired = list(result.primers)
+    record = dict(
+        attempted=True,
+        method="swap",
+        succeeded=not objective.violations(repaired),
+        swaps=result.swaps,
+        evaluations=result.evaluations,
+        stop_reason=result.stop_reason,
+    )
+    if record["succeeded"]:
+        return repaired, record
+
+    # Swaps move one primer at a time from where the optimizer stopped, so they
+    # cannot reach a panel that shares no primer with it. A beam rebuilds at the
+    # same size and keeps several partial panels alive, which is what a
+    # non-monotonic density floor needs. It is tried only when its bound fits
+    # the same budget the swaps were given, because that bound is quadratic in
+    # nothing but is still beam width times pool size times panel size.
+    size = len(repaired)
+    budget = config.swap_max_evaluations - result.evaluations
+    if size < 1 or _BEAM_WIDTH * len(pool) * size > budget:
+        record["beam"] = "not affordable within the remaining budget"
+        return repaired, record
+
+    beam = beam_search(
+        pool,
+        objective,
+        size,
+        dimerises=LazyDimerCompatibility(config.max_dimer_bp).dimerises,
+        beam_width=_BEAM_WIDTH,
+        max_evaluations=budget,
+        max_seconds=config.swap_max_seconds,
+    )
+    record["evaluations"] += beam.evaluations
+    record["beam"] = beam.status
+    # Only a qualifying panel of the SAME size is a repair. The beam also
+    # reports the best smaller feasible panel it saw, which is a useful answer
+    # to a different question: this row was asked for a panel of one size, and
+    # returning a shorter one would show up as a different row's result.
+    if beam.violations or len(beam.primers) != size:
+        return repaired, record
+    record.update(method="beam", succeeded=True)
+    return list(beam.primers), record
+
+
 def plan_pool(
     optimizer,
     candidates,
@@ -54,6 +151,7 @@ def plan_pool(
     min_selectivity_density=None,
     max_background_sites=None,
     coverage_metric="effective",
+    repair=True,
     progress=None,
 ):
     """Re-optimize each size; retain panels satisfying all requested constraints.
@@ -84,7 +182,11 @@ def plan_pool(
         max_background_sites=max_background_sites,
     )
     constraints.require_background(available=background_known)
-    objective = PoolObjective(optimizer.compute_metrics, constraints)
+    # The focused evaluator when the optimizer has one, because the repair path
+    # calls it thousands of times per design and reads five of its fields. A
+    # caller passing its own optimizer-shaped object keeps the full one.
+    evaluate = getattr(optimizer, "compute_pool_metrics", None) or optimizer.compute_metrics
+    objective = PoolObjective(evaluate, constraints)
     if background_known and min_selectivity_density is None and max_background_sites is None:
         raise ValueError("Specify a minimum selectivity density or maximum background sites")
     if coverage_metric == "effective" and optimizer.conditions is None:
@@ -128,22 +230,20 @@ def plan_pool(
             raise ValueError(
                 "Optimizer returned a panel outside the requested candidate/size bounds"
             )
-        metrics = objective.metrics(primers)
+        metrics, coverage, reasons, violations, self_dimers = _assess(objective, validator, primers)
+        repair_record = dict(attempted=False, method=None, succeeded=False, swaps=0, evaluations=0)
+        if repair and reasons:
+            repaired, repair_record = _repair(primers, pool, objective, reasons, optimizer.config)
+            if repaired != primers:
+                primers = repaired
+                metrics, coverage, reasons, violations, self_dimers = _assess(
+                    objective, validator, primers
+                )
         for value in (metrics.fg_coverage, metrics.effective_fg_coverage):
             if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
                 raise ValueError("Optimizer returned invalid coverage")
         if background_known and not math.isfinite(metrics.selectivity_density):
             raise ValueError("Optimizer returned non-finite specificity")
-        coverage = objective.coverage(primers)
-        # The dimer guard stays OUTSIDE the objective: it is a hard constraint
-        # on the delivered panel, not a scoring term. Folding it in among the
-        # others is how it became tradeable, and the relaxation that followed
-        # produced an 11 bp heterodimer against a configured 3.
-        violations = validator.incompatible_pairs(primers)
-        self_dimers = [p for p in primers if validator.has_self_dimer(p)]
-        reasons = list(objective.violations(primers))
-        if violations or self_dimers:
-            reasons.append("dimer constraint")
         rows.append(
             dict(
                 requested_size=requested,
@@ -159,6 +259,7 @@ def plan_pool(
                 background_sites=metrics.total_bg_sites if background_known else None,
                 violating_pairs=len(violations),
                 self_dimers=len(self_dimers),
+                repair=repair_record,
                 max_gap=metrics.max_gap,
                 seconds=time.monotonic() - started,
             )

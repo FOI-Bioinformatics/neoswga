@@ -17,9 +17,15 @@ silent-zero shape this project has met repeatedly.
     chooses the working shortlist written to `step2_df.csv`, so the optimizer's
     runtime is unchanged, but nothing the ranking set aside is unreachable.
 
-``legacy``
-    Index the shortlist only, reproducing the historical behaviour for
-    comparison against an existing result.
+``post_gini``
+    Also require the evenness gate. A smaller index that keeps a declared
+    requirement while still dropping the arbitrary `max_primer` cut; see
+    tests/test_post_gini_retention_mode.py.
+
+The shortlist-only ``legacy`` mode existed for comparison against an existing
+result. That comparison was made and published in
+docs/validation/wolbachia_retention_benchmark_2026-09-16.md, and the mode was
+removed on 2026-09-16.
 """
 
 import pytest
@@ -37,7 +43,8 @@ def test_the_retention_mode_is_declared_in_the_schema():
     schema = json.loads(pathlib.Path("neoswga/core/schema/params.schema.json").read_text())
     entry = schema["properties"]["candidate_retention"]
     assert entry["default"] == "all_qc"
-    assert set(entry["enum"]) == {"all_qc", "legacy"}
+    # `post_gini` was added later; see tests/test_post_gini_retention_mode.py.
+    assert set(entry["enum"]) == {"all_qc", "post_gini"}
 
 
 def test_the_mode_binds_a_parameter_global():
@@ -52,17 +59,15 @@ def test_all_qc_indexes_every_hard_qc_survivor():
     from neoswga.core.candidate_inventory import background_scan_pool as _background_scan_pool
 
     cleared = [A, C, G]
-    shortlist = [A]
 
-    assert sorted(_background_scan_pool(cleared, shortlist, "all_qc")) == sorted(cleared)
-    assert list(_background_scan_pool(cleared, shortlist, "legacy")) == shortlist
+    assert sorted(_background_scan_pool(cleared, "all_qc")) == sorted(cleared)
 
 
 def test_an_unknown_mode_is_refused_rather_than_guessed():
     from neoswga.core.candidate_inventory import background_scan_pool as _background_scan_pool
 
     with pytest.raises(ValueError, match="candidate_retention"):
-        _background_scan_pool([A], [A], "whatever")
+        _background_scan_pool([A], "whatever")
 
 
 def test_the_shortlist_is_still_what_the_optimizer_reads(tmp_path):

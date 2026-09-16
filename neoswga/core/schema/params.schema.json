@@ -512,10 +512,10 @@
       "type": "string",
       "enum": [
         "all_qc",
-        "legacy"
+        "post_gini"
       ],
       "default": "all_qc",
-      "description": "Which candidates get a background position index. 'all_qc' indexes every candidate clearing the declared hard gates, so nothing the max_primer ranking set aside is unreachable; 'legacy' indexes only the shortlist, reproducing the historical behaviour. max_primer still chooses the working shortlist either way, so the optimizer's runtime is unchanged."
+      "description": "Which candidates get a background position index. 'all_qc' indexes every candidate clearing the declared hard gates, so nothing the max_primer ranking set aside is unreachable; 'post_gini' also requires the evenness gate, keeping a declared requirement while dropping an arbitrary cut. max_primer still chooses the working shortlist in both modes, so the optimizer's runtime is unchanged. Measured on the Wolbachia design the two index 20,670 and 491,836 candidates, costing about 19 MB and 443 MB. The shortlist-only 'legacy' mode was removed on 2026-09-16: it left every candidate the ranking cut scoring against an empty background, which reads as perfect specificity rather than as a missing measurement."
     }
   }
 }

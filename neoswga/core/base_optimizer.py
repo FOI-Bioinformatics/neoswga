@@ -1063,6 +1063,19 @@ class BaseOptimizer(ABC):
         ]
         return fg_load, aggregate_loads(loads, mode), "modelled"
 
+    def compute_pool_metrics(self, primers: List[str]):
+        """Only the five quantities a pool design is searched and accepted on.
+
+        `compute_metrics` answers every question anything has ever asked of a
+        primer set, which is the right shape for a report computed once and the
+        wrong one for a search that calls it thousands of times. See
+        `core/pool_metrics.py` for the profile that motivated it and for the
+        test that pins the two to the same numbers.
+        """
+        from .pool_metrics import compute_pool_metrics
+
+        return compute_pool_metrics(self, primers)
+
     def compute_metrics(
         self,
         primers: List[str],

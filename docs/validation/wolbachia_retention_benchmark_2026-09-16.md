@@ -7,6 +7,12 @@ Reproduce with `scripts/benchmarking/wolbachia_retention_benchmark.py` from the
 repository root. Raw numbers are in
 `examples/wolbachia_pool_design/benchmark_2026-09-16/results.json`.
 
+**`legacy` was removed after this measurement.** It is kept here because it is
+the measurement that justified removing it, and because the figures below are
+the only published record of what the historical behaviour cost. The script now
+compares `post_gini` against `all_qc`; re-running it will not reproduce the
+`legacy` column.
+
 ## What was run
 
 `count-kmers` and `filter` for both `candidate_retention` modes, into separate
@@ -89,19 +95,58 @@ reads zero where the true value is not zero, with nothing in the output to say
 so. It is the reason the retention default changed rather than a performance
 argument.
 
-## The intermediate retention point was not run
+## The intermediate retention point
 
 The plan asks for three modes: the historical cap, an expanded post-Gini
-inventory, and all of hard QC. Only two exist in the code, `legacy` and
-`all_qc`, so only two were run. No post-Gini retention mode was added for the
-benchmark.
+inventory, and all of hard QC. When the run above was made only two existed in
+the code, so its index cost was predicted rather than measured. Fitting bytes
+against dataset count and site count across the two measured background indexes
+gave about 403 bytes per indexed sequence and 5.6 bytes per site, so
+per-sequence HDF5 overhead dominates, and at 41,340 datasets and 414,096 sites
+that predicted about 19 MB.
 
-Its index cost can be estimated rather than measured. Fitting bytes against
-dataset count and site count across the two measured background indexes gives
-about 403 bytes per indexed sequence and 5.6 bytes per site, so per-sequence
-HDF5 overhead dominates. At the 20,670 post-Gini candidates, 41,340 datasets
-and 414,096 sites, that predicts about 19 MB. This is an interpolation between
-two points, not a measurement, and it says nothing about runtime.
+`post_gini` was then added as a real mode and run, into
+`examples/wolbachia_pool_design/benchmark_post_gini_2026-09-16/`. The prediction
+was close: 18.9 MB measured against 19 MB predicted.
+
+| Quantity | `post_gini` | `all_qc` |
+|---|---|---|
+| `filter` runtime, seconds | 86.4 | 153.4 |
+| Candidates indexed | 20,670 | 491,836 |
+| Background index, MB | 18.9 | 443.1 |
+| Foreground index, MB | 381.3 | 381.3 |
+| `step2_df.csv` rows | 2,000 | 2,000 |
+
+`post_gini` is 4.3 percent of the background index and 56 percent of the filter
+runtime, and it still reaches every candidate that met a declared requirement.
+On this design that is the setting to reach for when the full index does not
+fit; `all_qc` remains the default because only it makes every hard-QC candidate
+addressable.
+
+Peak memory is not quoted for this pair. The `all_qc` run appears in both
+comparisons and reported 2761 MB in the first and 3349 MB in the second for the
+same work, so a single run does not pin it. The second pair also ran while a
+test suite and a continuous integration job were using the machine, which is
+visible in its counting time: 40.0 s against 13.4 s for the same step in the
+first pair. Runtimes across the two tables should not be compared with each
+other, only within each.
+
+`post_gini` was added on 2026-09-16 as a real mode. The distinction it draws is
+between a gate and a ranking: the evenness gate is a declared requirement a
+candidate either meets or does not, while `max_primer` is a cut through a
+ranking chosen for the size of the working set. Keeping the first and dropping
+the second retains what was set aside arbitrarily and not what was set aside on
+a stated rule. It does not reopen the silent zero, because the candidate
+provider does not expand past a hard gate.
+
+## Why `legacy` was removed
+
+Its only distinguishing property is the measurement fault in the section above.
+It existed to reproduce the historical truncation for comparison against an
+existing result, that comparison is the table in this document, and a mode kept
+only so a known fault stays reachable is how the fault comes back. A
+configuration still naming it is refused with a message saying what replaced it
+and why, rather than with a bare schema error.
 
 ## Limitations
 
