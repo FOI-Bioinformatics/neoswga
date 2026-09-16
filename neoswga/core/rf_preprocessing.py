@@ -109,6 +109,57 @@ def _compute_file_hash(filepath: str) -> str:
     return sha256_hash.hexdigest()
 
 
+# Types a scikit-learn forest regressor legitimately needs, which skops does not
+# trust by default. Declared here rather than passed blanket-trusted, so a
+# tampered archive carrying a type outside this list is still refused.
+#
+# skops 0.15.0 stopped implicitly trusting `sklearn.tree._tree.Tree` and every
+# model-loading test went red on CI while passing on 0.14.0. The archive format
+# is version-tolerant; which types it trusts by default is not, so the set has
+# to be stated rather than assumed. Known Issue 2 in CLAUDE.md records this.
+_TRUSTED_MODEL_TYPES = (
+    "sklearn.tree._tree.Tree",
+    "sklearn.tree._classes.DecisionTreeRegressor",
+    "sklearn.ensemble._forest.RandomForestRegressor",
+    "numpy.dtype",
+)
+
+
+def unexpected_model_types(untrusted):
+    """Which of these types the bundled model has no business needing.
+
+    A pure function because the refusal cannot otherwise be tested: which types
+    skops reports as untrusted depends on the installed version, so a test
+    driving the loader would exercise the refusal on 0.15 and skip straight past
+    it on 0.14. The rule is the thing worth pinning, not one release's opinion.
+    """
+    return sorted(name for name in untrusted if name not in _TRUSTED_MODEL_TYPES)
+
+
+def _load_skops_model(model_path: str):
+    """Load the bundled model, trusting only the types a forest needs.
+
+    The file's digest is checked against `models/checksums.json` before this
+    runs, so provenance is already established; this narrows what the archive is
+    allowed to reconstruct on top of that. Anything outside the list is refused
+    with the type named, rather than by trusting the file wholesale or by
+    pinning skops and waiting for the next release to do the same thing.
+    """
+    from skops.io import get_untrusted_types
+    from skops.io import load as _skops_load
+
+    untrusted = list(get_untrusted_types(file=model_path))
+    unexpected = unexpected_model_types(untrusted)
+    if unexpected:
+        raise ValueError(
+            f"{model_path} contains types this loader does not trust: "
+            f"{unexpected}. A bundled model should need only "
+            f"{sorted(_TRUSTED_MODEL_TYPES)}; anything else means the file is "
+            "not the model this package ships."
+        )
+    return _skops_load(model_path, trusted=untrusted)
+
+
 def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
     """
     Load a pickle model file with optional hash verification.
@@ -166,9 +217,7 @@ def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
     _fix_sklearn_module_aliases()
 
     if model_path.endswith(".skops"):
-        from skops.io import load as _skops_load
-
-        return _skops_load(model_path)
+        return _load_skops_model(model_path)
 
     # Legacy pickle path (e.g. user-supplied enhanced_rf_model.pkl), guarded by
     # the RestrictedUnpickler.

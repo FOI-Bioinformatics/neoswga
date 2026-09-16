@@ -465,6 +465,25 @@ with h5py.File('positions.h5', 'r') as f:
 
 2. **sklearn compatibility**: The RF model ships in skops format (version-tolerant, no arbitrary-code deserialization), so minor sklearn upgrades no longer require retraining. A major sklearn upgrade may still warrant re-validating the model.
 
+   **The format is version-tolerant; its default trust list is not**, and the
+   two are easy to conflate. skops 0.15.0 stopped implicitly trusting
+   `sklearn.tree._tree.Tree`, and every model-loading test went red on CI while
+   passing locally on 0.14.0 -- `pip install -e ".[dev]"` resolves
+   `skops>=0.11,<1` to whatever is newest, and `requirements-dev.lock` is not
+   used by the test job.
+
+   `rf_preprocessing._TRUSTED_MODEL_TYPES` now names the types a forest
+   legitimately needs and `unexpected_model_types` refuses anything else,
+   naming it. That is narrower than trusting the archive wholesale and does not
+   depend on a future release keeping today's defaults; pinning skops would
+   have worked until the next release did the same thing. The digest check
+   against `models/checksums.json` still runs first, so this narrows what an
+   already-vouched-for file may reconstruct rather than replacing provenance.
+
+   The refusal rule is a pure function because which types skops reports as
+   untrusted depends on the installed version: a test driving the loader would
+   exercise it on 0.15 and skip straight past it on 0.14.
+
 3. **Memory usage**: The filter command loads all background k-mers into memory. Use Bloom filter for large backgrounds.
 
 4. **PositionCache strand parameter**: Uses 'forward', 'reverse', 'both' (not '+' or '-').
