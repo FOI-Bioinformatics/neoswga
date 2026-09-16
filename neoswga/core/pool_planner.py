@@ -182,7 +182,11 @@ def plan_pool(
         max_background_sites=max_background_sites,
     )
     constraints.require_background(available=background_known)
-    objective = PoolObjective(optimizer.compute_metrics, constraints)
+    # The focused evaluator when the optimizer has one, because the repair path
+    # calls it thousands of times per design and reads five of its fields. A
+    # caller passing its own optimizer-shaped object keeps the full one.
+    evaluate = getattr(optimizer, "compute_pool_metrics", None) or optimizer.compute_metrics
+    objective = PoolObjective(evaluate, constraints)
     if background_known and min_selectivity_density is None and max_background_sites is None:
         raise ValueError("Specify a minimum selectivity density or maximum background sites")
     if coverage_metric == "effective" and optimizer.conditions is None:
