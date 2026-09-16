@@ -20,6 +20,7 @@ an inconsistency.
 """
 
 import json
+import textwrap
 
 import pytest
 
@@ -301,20 +302,49 @@ def test_an_ineligible_panel_cannot_qualify():
     assert frontier(designs, coverage_targets=[0.90])["by_target"][0.90] == []
 
 
-def test_plan_pool_exposes_the_design_grid():
-    """The grid has to be reachable, or it is a module nothing calls."""
+def test_plan_pool_declares_the_design_grid_but_does_not_yet_run_it():
+    """What this test used to claim, and what it actually checked.
+
+    Its docstring read "The grid has to be reachable, or it is a module nothing
+    calls", and it then asserted that argparse had registered the flag. Those are
+    different things. `run_plan_pool` never reads `args.design_grid`, so the flag
+    is accepted, appears in the help text, and changes nothing -- and this test
+    passed throughout, while reading as though it had checked otherwise.
+
+    It now states the true position. `tests/test_no_capability_is_unreachable.py`
+    owns the property, and Phase 4 of the audit plan wires the command; when it
+    does, this test fails and should be replaced by one that invokes `plan-pool`
+    with two conditions and asserts two independently designed results.
+    """
+    import ast
+    import inspect
+
+    from neoswga.cli import plan_pool as plan_pool_cli
     from neoswga.cli_unified import create_parser
 
-    parser = create_parser()
     action = next(
         a
-        for sub in parser._subparsers._group_actions
+        for sub in create_parser()._subparsers._group_actions
         for name, sp in sub.choices.items()
         if name == "plan-pool"
         for a in sp._actions
         if a.dest == "design_grid"
     )
     assert action.default is None, "an absent grid must not be a real default"
+
+    source = inspect.getsource(plan_pool_cli.run_plan_pool)
+    read = {
+        node.attr
+        for node in ast.walk(ast.parse(textwrap.dedent(source)))
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "args"
+    }
+    assert "design_grid" not in read, (
+        "run_plan_pool now reads args.design_grid. Replace this test with one "
+        "that runs the command over two conditions, and drop the design_grid "
+        "entry from KNOWN_INERT in tests/test_every_cli_option_has_an_effect.py."
+    )
 
 
 def test_a_grid_file_is_read_and_resolved(tmp_path):

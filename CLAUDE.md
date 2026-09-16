@@ -316,7 +316,9 @@ relatively.
   and 96.2% of the plasmid pool scored 0.0.
 - `min_gini_sites`: Minimum recorded binding sites, across both strands, before
   the Gini index counts as a measurement (default: 3, the first count at which
-  it can vary). Also settable as `--min-gini-sites` on `neoswga filter`. Lower
+  it can vary). Settable in params.json. The `--min-gini-sites` flag on
+  `neoswga filter` is accepted and does nothing (see Known Issue 8); use the
+  params.json key until that is wired. Lower
   it to 2 or 1 for a small target, where single-site primers are most of the
   pool: on the shipped plasmid example 10,158 of 10,532 indexed k-mers bind
   exactly once, so the default removes nearly all of them.
@@ -585,6 +587,46 @@ with h5py.File('positions.h5', 'r') as f:
    the ten above -- which is why the class survived being declared closed.
    `tests/test_cli_defaults_do_not_beat_params_json.py` now pins the four flag
    defaults. Extend all four when adding an option.
+
+   **Declared closed twice, and closed neither time.** The audit of 2026-09-16
+   found `--design-grid` on `plan-pool` parsed, documented in the help text, and
+   never read -- added *after* the second closure. Checking for more found
+   `--data-dir` inert on `count-kmers`, `filter`, `score`, `optimize`, `design`
+   and `evaluate-set`, and `--min-gini-sites` inert on `filter`, which the Key
+   Parameters section above documented as working. Both were verified by
+   resolving a config whose flag value differed from the file value: the file
+   won each time.
+
+   The reason none of the four ratchets caught them is structural.
+   `test_no_schema_key_is_inert.py` and `test_params_json_routes_optional_keys.py`
+   iterate params.json **schema keys**, so a CLI flag is invisible to them.
+   `test_cli_defaults_do_not_beat_params_json.py` checks four argparse
+   **defaults** and asserts nothing about whether a flag is read.
+   `test_design_options_have_effect.py` calls `run_optimization` directly, so it
+   covers the **optimize path only**. None of them asks "does this flag do
+   anything".
+
+   `tests/test_every_cli_option_has_an_effect.py` now does. It reads the dispatch
+   table out of `main()`, walks from each handler through the functions it calls,
+   collects every attribute read off the argparse namespace -- including the
+   `merge_args_to_parameter` and `@params_command(merge=...)` routes, which are
+   reads by another name -- and fails on any declared option it cannot account
+   for. Currently-inert options are listed in `KNOWN_INERT` with a reason, and a
+   second test fails on an entry that has since been wired, so the list can only
+   shrink.
+
+   The same defect exists one layer down, where a capability is built and tested
+   and no command can reach it. The audit found six at once, all from the
+   condition-aware pool design work: `CandidateProvider`, `design_sweep`,
+   `load_design_grid`, `load_grid_file`, `ensure_positions` and, in practice,
+   `beam_search`. Unit tests cannot see this, because a test that constructs the
+   thing directly and asserts it behaves passes whether or not anything calls it.
+   `tests/test_no_capability_is_unreachable.py` walks transitive reach from the
+   dispatch table -- not bare references, since `design_sweep` calling
+   `provider.expand` must not make `expand` count -- and holds the same kind of
+   shrinking allowlist.
+
+   Do not record this class as closed again. Record what the ratchets cover.
 
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when
