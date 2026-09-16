@@ -178,9 +178,7 @@ def test_repair_off_still_reports_the_miss_without_acting():
     )
     opt = _Optimizer([GOOD, POOR], table)
 
-    plan = plan_pool(
-        opt, [GOOD, POOR, RICH], [2], [0.90], min_selectivity_density=10, repair=False
-    )
+    plan = plan_pool(opt, [GOOD, POOR, RICH], [2], [0.90], min_selectivity_density=10, repair=False)
 
     assert plan["rows"][0]["repair"]["attempted"] is False
     assert plan["recommendations"][0]["status"] == "not_found"

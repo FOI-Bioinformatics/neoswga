@@ -38,17 +38,14 @@ class CandidateProvider:
 
     # -- ordering ----------------------------------------------------------
 
-    def _eligible_in_search_order(self) -> List[str]:
-        """Every eligible candidate, best-ranked first.
+    def _eligible_in_search_order(self):
+        """Every eligible candidate, in the order the inventory recorded.
 
-        Seeded by `step2_rank`, the order stage 2 established, so the shortlist
-        this yields first is the one the pipeline would previously have written
-        and nothing about a default run changes. Rank still orders the search;
-        it no longer bounds it.
-
-        Candidates with no recorded rank sort after those with one, and ties
-        break on the sequence, so the traversal is total and reproducible rather
-        than dependent on storage order.
+        The order is the inventory's to decide and this walks it. It used to
+        sort here on a `step2_rank` metric that stage 2 never wrote -- it is
+        created in stage 3, on the shortlist, after the inventory is recorded --
+        so every candidate fell into one bucket and the traversal was
+        alphabetical while the docstring claimed otherwise.
         """
         if self._ordered is None:
             # Ask the inventory which policy it last recorded under. The digest
@@ -56,20 +53,10 @@ class CandidateProvider:
             # reconstruct it, and asking under the bare constant would return an
             # empty set that reads as "no candidates qualify".
             policy = self.inventory.current_policy(self.condition_id)
-            sequences = list(
-                self.inventory.iter_eligible(
-                    self.condition_id, self.lengths, *([policy] if policy else [])
-                )
+            arguments = [policy] if policy else []
+            self._ordered = list(
+                self.inventory.iter_eligible(self.condition_id, self.lengths, *arguments)
             )
-            ranked = []
-            for sequence in sequences:
-                rank = self.inventory.metrics(sequence).get("step2_rank")
-                ranked.append(
-                    (0, float(rank), sequence)
-                    if isinstance(rank, (int, float))
-                    else (1, 0.0, sequence)
-                )
-            self._ordered = [sequence for _, _, sequence in sorted(ranked)]
         return self._ordered
 
     # -- batches -----------------------------------------------------------

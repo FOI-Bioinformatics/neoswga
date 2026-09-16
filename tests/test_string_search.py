@@ -311,9 +311,7 @@ class TestGenomeCache:
         clear_genome_cache()
         fake_seq = "ACGTACGT"
         unique_file = f"_test_cache_reads_once_{id(self)}.fna"
-        with patch(
-            "neoswga.core.genome_io.GenomeLoader.load_genome_streaming"
-        ) as mock_read:
+        with patch("neoswga.core.genome_io.GenomeLoader.load_genome_streaming") as mock_read:
             mock_read.return_value = iter([fake_seq])
             seq1 = get_cached_genome_sequence(unique_file)
             seq2 = get_cached_genome_sequence(unique_file)

@@ -74,7 +74,8 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS candidates (
     sequence TEXT PRIMARY KEY,
     length INTEGER NOT NULL,
-    metrics_json TEXT NOT NULL
+    metrics_json TEXT NOT NULL,
+    search_rank REAL
 );
 CREATE TABLE IF NOT EXISTS assessments (
     sequence TEXT NOT NULL REFERENCES candidates(sequence),
@@ -108,6 +109,11 @@ class CandidateInventory:
         # An inventory written before generations exists in the wild. Adding the
         # column with a default of 1 makes every old row one coherent
         # generation, which is what it was.
+        candidate_columns = {
+            row[1] for row in self._connection.execute("PRAGMA table_info(candidates)")
+        }
+        if "search_rank" not in candidate_columns:
+            self._connection.execute("ALTER TABLE candidates ADD COLUMN search_rank REAL")
         columns = {row[1] for row in self._connection.execute("PRAGMA table_info(assessments)")}
         if "generation" not in columns:
             self._connection.execute(
@@ -131,7 +137,9 @@ class CandidateInventory:
 
     # -- writing -----------------------------------------------------------
 
-    def record_candidate(self, sequence: str, metrics: Dict[str, Any]) -> None:
+    def record_candidate(
+        self, sequence: str, metrics: Dict[str, Any], search_rank: float | None = None
+    ) -> None:
         """Record a candidate and its condition-independent measurements.
 
         Called before any condition-specific admission, so that what was
@@ -139,12 +147,25 @@ class CandidateInventory:
         Re-recording replaces the measurements: a later pass has better numbers
         than an earlier one, and keeping the first would make the inventory
         depend on scan order.
+
+        `search_rank` is the order a search should walk these in, lowest first.
+        It is a COLUMN rather than a metric because the traversal sorts by it
+        over the whole inventory: reading it out of `metrics_json` meant one
+        query and one JSON parse per candidate, which is 491,836 round trips on
+        the Wolbachia design before the search has looked at anything.
         """
         sequence = sequence.upper()
         self._connection.execute(
-            "INSERT INTO candidates (sequence, length, metrics_json) VALUES (?, ?, ?) "
-            "ON CONFLICT(sequence) DO UPDATE SET metrics_json = excluded.metrics_json",
-            (sequence, len(sequence), json.dumps(metrics, sort_keys=True)),
+            "INSERT INTO candidates (sequence, length, metrics_json, search_rank) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(sequence) DO UPDATE SET metrics_json = excluded.metrics_json, "
+            "search_rank = excluded.search_rank",
+            (
+                sequence,
+                len(sequence),
+                json.dumps(metrics, sort_keys=True),
+                None if search_rank is None else float(search_rank),
+            ),
         )
 
     def record_assessment(
@@ -201,9 +222,14 @@ class CandidateInventory:
     ) -> Iterator[str]:
         """Every candidate of the requested lengths passing the hard gates.
 
-        Ordered by sequence. An unordered scan would make an otherwise
-        deterministic run depend on SQLite's row order, and the optimizers this
-        feeds are order-sensitive.
+        Ordered by `search_rank`, then by sequence. An unordered scan would make
+        an otherwise deterministic run depend on SQLite's row order, and the
+        optimizers this feeds are order-sensitive; the sequence tie-break is
+        what makes the order total when two candidates rank equally.
+
+        An unranked candidate sorts last rather than disappearing. It cleared
+        the hard gates, so it is eligible, and eligibility is not the ranking's
+        to revoke.
 
         Only the NEWEST generation for this condition and policy counts. A
         candidate the latest run did not admit is not eligible, even though its
@@ -220,7 +246,8 @@ class CandidateInventory:
             "WHERE a.condition_id = ? AND a.policy_version = ? AND a.passed = 1 "
             "AND a.generation = (SELECT MAX(generation) FROM assessments "
             "                    WHERE condition_id = ? AND policy_version = ?) "
-            f"AND c.length IN ({placeholders}) ORDER BY c.sequence",
+            f"AND c.length IN ({placeholders}) "
+            "ORDER BY c.search_rank IS NULL, c.search_rank, c.sequence",
             (
                 condition_id,
                 policy_version,
@@ -340,6 +367,46 @@ class CandidateInventory:
 STAGE2_INVENTORY_NAME = "candidate_inventory.sqlite"
 
 
+def _search_ranks(cleared_hard_gates, shortlisted) -> Dict[str, float]:
+    """The order a search should walk the whole hard-QC set in, lowest first.
+
+    Two bands. The shortlist leads, in the order stage 2 put it in, because that
+    ranking already weighed occupancy and background load over the candidates it
+    considered and a search should start from the working set rather than
+    rediscover it. Everything else follows, ordered by background sites per
+    target site -- the same quantity `_rank_and_cut_candidates` ranks on, and
+    the only one available for candidates the cut never scored.
+
+    Written for EVERY hard-QC candidate. A rank that exists only for the
+    shortlist cannot order the candidates outside it, which is precisely the set
+    an expansion draws from.
+
+    A candidate with no usable counts gets no rank and sorts last, rather than
+    being given a number that would place it somewhere it has not earned.
+    """
+    ranks: Dict[str, float] = {}
+    for position, sequence in enumerate(shortlisted["primer"]):
+        ranks[str(sequence).upper()] = float(position)
+
+    offset = float(len(ranks))
+    rest = []
+    for row in cleared_hard_gates.to_dict("records"):
+        sequence = str(row["primer"]).upper()
+        if sequence in ranks:
+            continue
+        foreground = row.get("fg_count")
+        background = row.get("bg_count")
+        try:
+            if not foreground:
+                continue
+            rest.append((float(background or 0) / float(foreground), sequence))
+        except (TypeError, ValueError):
+            continue
+    for position, (_, sequence) in enumerate(sorted(rest)):
+        ranks[sequence] = offset + position
+    return ranks
+
+
 def record_stage2_inventory(
     data_dir,
     condition_id: str,
@@ -394,6 +461,8 @@ def record_stage2_inventory(
         else {str(s).upper() for s in cleared_hard_gates["primer"]}
     )
 
+    ranks = _search_ranks(cleared_hard_gates, shortlisted)
+
     with CandidateInventory(path) as inventory:
         generation = inventory.next_generation(condition_id, policy_version)
         for row in cleared_hard_gates.to_dict("records"):
@@ -406,7 +475,8 @@ def record_stage2_inventory(
             metrics["passed_gini"] = sequence in survived_gini
             metrics["shortlisted"] = sequence in kept
             metrics["indexed"] = sequence in have_index
-            inventory.record_candidate(sequence, metrics)
+            metrics["search_rank"] = ranks.get(sequence)
+            inventory.record_candidate(sequence, metrics, search_rank=ranks.get(sequence))
             inventory.record_assessment(
                 sequence,
                 condition_id,
