@@ -320,7 +320,24 @@ relatively.
   it to 2 or 1 for a small target, where single-site primers are most of the
   pool: on the shipped plasmid example 10,158 of 10,532 indexed k-mers bind
   exactly once, so the default removes nearly all of them.
-- `max_primer`: Primers to keep after filtering (default: 500)
+- `max_primer`: Primers to keep after filtering (default: 500). It bounds the
+  working shortlist written to `step2_df.csv`, not what a design can ever reach
+  -- see `candidate_retention`.
+- `candidate_retention`: Which candidates get a background position index.
+  `all_qc` (default) indexes every candidate clearing the declared hard gates;
+  `post_gini` also requires the evenness gate. Both leave `max_primer` in charge
+  of the shortlist, so the optimizer's runtime does not move with this setting.
+  On the Wolbachia design the two index 491,836 and 20,670 candidates, costing
+  443 MB and 18.9 MB
+  ([benchmark](docs/validation/wolbachia_retention_benchmark_2026-09-16.md)).
+
+  The shortlist-only `legacy` mode was removed on 2026-09-16. It gave a
+  background index to the 2,000 shortlisted candidates only, so the 489,836
+  that cleared hard QC without being shortlisted -- 963,931 of their 979,672
+  index entries carry real host sites -- scored against an empty background and
+  read as perfectly specific. That is the silent-zero shape of Known Issues 5, 6
+  and 13, reached by a fourth route. A config still naming it is refused with a
+  message saying what replaced it and why.
 
 **Thermodynamics**:
 - `polymerase`: "phi29" (30C), "equiphi29" (42-45C), "bst" (60-65C), "klenow" (25-40C)
