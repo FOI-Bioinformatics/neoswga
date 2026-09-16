@@ -325,10 +325,20 @@ relatively.
 - `max_primer`: Primers to keep after filtering (default: 500). It bounds the
   working shortlist written to `step2_df.csv`, not what a design can ever reach
   -- see `candidate_retention`.
-- `candidate_retention`: Which candidates get a background position index.
-  `all_qc` (default) indexes every candidate clearing the declared hard gates;
-  `post_gini` also requires the evenness gate. Both leave `max_primer` in charge
-  of the shortlist, so the optimizer's runtime does not move with this setting.
+- `candidate_retention`: Which candidates a design may ever select, and which
+  therefore get a background position index. `all_qc` (default) admits every
+  candidate clearing the declared hard gates. `post_gini` also requires the
+  evenness gate, as an ADMISSION rule rather than a ranking: a candidate that
+  misses it is recorded with an explicit failed assessment naming the gate, and
+  is not eligible. Both leave `max_primer` in charge of the shortlist, so the
+  optimizer's runtime does not move with this setting.
+
+  The eligible set and the indexed set are the same set in both modes, and a
+  test pins that. They were not: `post_gini` indexed 20,670 candidates while
+  marking all 491,836 eligible, so a design reaching one of the others would
+  have scored it against an absent index and read perfect specificity. The
+  mode is part of the admission-policy digest, so switching it opens a new
+  generation rather than inheriting the other mode's verdicts.
   On the Wolbachia design the two index 491,836 and 20,670 candidates, costing
   443 MB and 18.9 MB
   ([benchmark](docs/validation/wolbachia_retention_benchmark_2026-09-16.md)).
