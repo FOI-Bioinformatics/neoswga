@@ -34,6 +34,10 @@ ADMISSION_THRESHOLDS = (
     "excl_threshold",
     "min_k",
     "max_k",
+    # The retention mode decides admission under `post_gini`, where the evenness
+    # gate stops being a ranking and becomes a requirement. Two modes sharing a
+    # digest would let one hand its verdicts to the other.
+    "candidate_retention",
 )
 
 

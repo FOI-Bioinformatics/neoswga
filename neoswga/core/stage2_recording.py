@@ -44,6 +44,7 @@ def _record_run_inventory(cleared_hard_gates, after_gini, shortlisted, indexed, 
         indexed=indexed,
         qc_policy=resolved_qc_policy(),
         enumerated=enumerated,
+        retention=getattr(parameter, "candidate_retention", "all_qc"),
     )
 
 

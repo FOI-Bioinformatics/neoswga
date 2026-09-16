@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS run_facts (
     value INTEGER,
     PRIMARY KEY (condition_id, name)
 );
+CREATE TABLE IF NOT EXISTS run_texts (
+    condition_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    text_value TEXT,
+    PRIMARY KEY (condition_id, name)
+);
 CREATE TABLE IF NOT EXISTS candidates (
     sequence TEXT PRIMARY KEY,
     length INTEGER NOT NULL,
@@ -279,6 +285,14 @@ class CandidateInventory:
             (condition_id, name, None if value is None else int(value)),
         )
 
+    def record_run_text(self, condition_id: str, name: str, value: str) -> None:
+        """A whole-run string, such as which admission policy is current."""
+        self._connection.execute(
+            "INSERT INTO run_texts (condition_id, name, text_value) VALUES (?, ?, ?) "
+            "ON CONFLICT(condition_id, name) DO UPDATE SET text_value = excluded.text_value",
+            (condition_id, name, value),
+        )
+
     def run_fact(self, condition_id: str, name: str):
         """One recorded run number, or `None` if nobody recorded it.
 
@@ -303,7 +317,20 @@ class CandidateInventory:
 
         Stage-3 policies are excluded: those record what an efficacy filter
         carried forward, under their own prefix, and are not admission rules.
+
+        Read from the recorded fact rather than inferred from the assessments.
+        Generations count per policy, so two runs under different policies are
+        both generation 1 and neither is newer by that measure; ordering on the
+        policy string instead picked whichever digest happened to sort higher,
+        which is not a fact about anything. The query below is the fallback for
+        an inventory written before the fact was recorded.
         """
+        recorded = self._connection.execute(
+            "SELECT text_value FROM run_texts WHERE condition_id = ? AND name = ?",
+            (condition_id, "current_policy"),
+        ).fetchone()
+        if recorded and recorded[0]:
+            return recorded[0]
         row = self._connection.execute(
             "SELECT policy_version FROM assessments "
             "WHERE condition_id = ? AND policy_version NOT LIKE ? "
@@ -466,6 +493,7 @@ def record_stage2_inventory(
     policy_version: str = DEFAULT_POLICY_VERSION,
     qc_policy: Dict[str, Any] | None = None,
     enumerated: int | None = None,
+    retention: str = "all_qc",
 ) -> Path:
     """Write what stage 2 enumerated, and what merely ordered the search.
 
@@ -497,6 +525,11 @@ def record_stage2_inventory(
         )
     # Which rules this verdict was reached under. Without it a stricter re-run
     # writes into the same key space as the looser one it replaced.
+    if retention not in ("all_qc", "post_gini"):
+        raise ValueError(
+            f"candidate_retention must be 'all_qc' or 'post_gini', not {retention!r}. "
+            "Guessing would change which candidates a design may ever select."
+        )
     if qc_policy is not None:
         policy_version = qc_policy_fingerprint(qc_policy)
     survived_gini = {str(s).upper() for s in after_gini["primer"]}
@@ -527,17 +560,36 @@ def record_stage2_inventory(
             metrics["indexed"] = sequence in have_index
             metrics["search_rank"] = ranks.get(sequence)
             inventory.record_candidate(sequence, metrics, search_rank=ranks.get(sequence))
+            # Under `post_gini` the evenness gate is an ADMISSION rule, not a
+            # ranking, so a candidate that misses it is not eligible. Leaving it
+            # eligible while only the survivors were indexed meant a design
+            # could reach a candidate with no background data and score it as
+            # perfectly specific.
+            #
+            # The rejection is recorded rather than omitted, so "assessed and
+            # failed" is distinguishable from "not yet assessed". The second
+            # renders as "no eligible candidates", which sends a reader looking
+            # for a different problem.
+            admitted = retention == "all_qc" or sequence in survived_gini
             inventory.record_assessment(
                 sequence,
                 condition_id,
-                passed=True,
-                reasons=[],
+                passed=admitted,
+                reasons=(
+                    []
+                    if admitted
+                    else [
+                        "did not clear the evenness gate, which "
+                        "candidate_retention='post_gini' enforces as an admission rule"
+                    ]
+                ),
                 metrics={},
                 policy_version=policy_version,
                 generation=generation,
             )
         if enumerated is not None:
             inventory.record_run_fact(condition_id, "enumerated", enumerated)
+        inventory.record_run_text(condition_id, "current_policy", policy_version)
         inventory.commit()
 
     import logging
