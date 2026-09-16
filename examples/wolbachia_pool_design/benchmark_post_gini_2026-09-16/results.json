@@ -1,0 +1,62 @@
+{
+  "post_gini": {
+    "count_seconds": 12.3,
+    "filter_seconds": 86.4,
+    "count_peak_mb": 795.590656,
+    "filter_peak_mb": 2752.34816,
+    "funnel": {
+      "total_kmers": 874596,
+      "after_fg_frequency": 874596,
+      "after_bg_frequency": 706756,
+      "after_thermodynamic": 491836,
+      "after_gini": 20670,
+      "after_max_primer_cut": 2000,
+      "final_candidates": 2000
+    },
+    "design_counts": {
+      "counted": 491836,
+      "assessed": 491836,
+      "hard_qc_passed": 491836,
+      "shortlisted": 2000,
+      "indexed": 20670,
+      "examined": 0,
+      "bg_indexed": 20670
+    },
+    "step2_rows": 2000,
+    "position_h5_bytes": {
+      "drosophila_12mer_positions.h5": 18905664,
+      "wmel_12mer_positions.h5": 381277368
+    },
+    "inventory_bytes": 190210048
+  },
+  "all_qc": {
+    "count_seconds": 40.0,
+    "filter_seconds": 153.4,
+    "count_peak_mb": 808.30464,
+    "filter_peak_mb": 3349.46304,
+    "funnel": {
+      "total_kmers": 874596,
+      "after_fg_frequency": 874596,
+      "after_bg_frequency": 706756,
+      "after_thermodynamic": 491836,
+      "after_gini": 20670,
+      "after_max_primer_cut": 2000,
+      "final_candidates": 2000
+    },
+    "design_counts": {
+      "counted": 491836,
+      "assessed": 491836,
+      "hard_qc_passed": 491836,
+      "shortlisted": 2000,
+      "indexed": 491836,
+      "examined": 0,
+      "bg_indexed": 491836
+    },
+    "step2_rows": 2000,
+    "position_h5_bytes": {
+      "drosophila_12mer_positions.h5": 443136928,
+      "wmel_12mer_positions.h5": 381277368
+    },
+    "inventory_bytes": 189415424
+  }
+}
