@@ -259,6 +259,10 @@ def plan_pool(
     pool = validator.filter_self_dimers(pool)
     if not pool:
         raise ValueError("No candidates pass the configured self-dimer limit")
+    # Stage-2 refinement inside the optimizer picks the delivered panel, so it
+    # has to score on the same thing this function accepts on. See
+    # `swap_refinement.refine_hybrid_stage2`, which reads this attribute.
+    optimizer.pool_objective = objective
     rows = []
     for requested in sizes:
         started = time.monotonic()

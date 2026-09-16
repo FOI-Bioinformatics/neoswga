@@ -162,6 +162,20 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
     logger = logging.getLogger(__name__)
 
     pool = list(dict.fromkeys(list(primers) + list(candidates)))
+    # The objective the caller accepts the result on, when there is one. It
+    # arrives as an attribute rather than a parameter because this function
+    # already takes the optimizer, so nothing public changes and a plain
+    # `optimize` run -- which declares no objective and no constraints -- keeps
+    # the raw-bin rule it has always used. Only a caller that states what it is
+    # judging on gets refined on it.
+    #
+    # Stage 2 chooses the delivered panel. Leaving it on covered bases while
+    # `plan_pool` accepted on occupancy-weighted coverage meant the stage that
+    # picked the panel used the rule the report does not quote, and the two
+    # disagree in a known direction: a primer with many sites and a melting
+    # temperature well below the reaction temperature touches many bins and
+    # contributes little amplification.
+    objective = getattr(optimizer, "pool_objective", None)
     regions = optimizer._coverage_bins_by_primer(pool)
     bins = {p: {optimizer._bin_key(r) for r in owned} for p, owned in regions.items()}
     weights = {optimizer._bin_key(r): r.end - r.start for owned in regions.values() for r in owned}
@@ -178,13 +192,15 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
         build(pool, optimizer.max_dimer_bp),
         fixed_primers=fixed_primers,
         background_sites=background,
+        objective=objective,
         max_evaluations=optimizer.swap_max_evaluations,
         max_seconds=optimizer.swap_max_seconds,
     )
     logger.info(
-        "Swap refinement: %d swaps, %d evaluations, stopped at %s",
+        "Swap refinement: %d swaps, %d evaluations, stopped at %s, scored on %s",
         result.swaps,
         result.evaluations,
         result.stop_reason,
+        "the shared pool objective" if objective is not None else "covered bases",
     )
     return list(result.primers)
