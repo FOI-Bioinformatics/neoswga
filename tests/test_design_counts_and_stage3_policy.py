@@ -66,7 +66,13 @@ def test_the_six_counts_are_reported_by_name(populated):
     assert counts["examined"] == 0, "nothing has reached stage 3 yet"
 
 
-def test_legacy_retention_indexes_only_the_shortlist(tmp_path):
+def test_a_partly_indexed_inventory_still_records_the_hard_qc_verdict(tmp_path):
+    """Indexing is a separate fact from passing the gates.
+
+    Named for the shortlist-only `legacy` retention mode when that existed. The
+    mode has gone; the invariant it exercised has not, because a caller can
+    still pass a narrower `indexed` list than the candidates it cleared.
+    """
     import pandas as pd
 
     cleared = pd.DataFrame({"primer": [A, C, G]})

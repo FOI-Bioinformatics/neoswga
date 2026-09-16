@@ -1,4 +1,9 @@
-"""Compare candidate_retention modes on the real Wolbachia/Drosophila pair."""
+"""Compare candidate_retention modes on the real Wolbachia/Drosophila pair.
+
+The `legacy` mode was removed on 2026-09-16 after this comparison was made, so
+re-running this now measures `post_gini` against `all_qc`. The published legacy
+figures are in docs/validation/wolbachia_retention_benchmark_2026-09-16.md.
+"""
 
 import json
 import os
@@ -48,7 +53,7 @@ def counts_from(log):
 
 
 results = {}
-for mode in ("legacy", "all_qc"):
+for mode in ("post_gini", "all_qc"):
     d = OUT / mode
     if d.exists():
         shutil.rmtree(d)

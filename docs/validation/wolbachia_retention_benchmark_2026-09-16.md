@@ -7,6 +7,12 @@ Reproduce with `scripts/benchmarking/wolbachia_retention_benchmark.py` from the
 repository root. Raw numbers are in
 `examples/wolbachia_pool_design/benchmark_2026-09-16/results.json`.
 
+**`legacy` was removed after this measurement.** It is kept here because it is
+the measurement that justified removing it, and because the figures below are
+the only published record of what the historical behaviour cost. The script now
+compares `post_gini` against `all_qc`; re-running it will not reproduce the
+`legacy` column.
+
 ## What was run
 
 `count-kmers` and `filter` for both `candidate_retention` modes, into separate
@@ -89,19 +95,35 @@ reads zero where the true value is not zero, with nothing in the output to say
 so. It is the reason the retention default changed rather than a performance
 argument.
 
-## The intermediate retention point was not run
+## The intermediate retention point
 
 The plan asks for three modes: the historical cap, an expanded post-Gini
-inventory, and all of hard QC. Only two exist in the code, `legacy` and
-`all_qc`, so only two were run. No post-Gini retention mode was added for the
-benchmark.
+inventory, and all of hard QC. When this was run only two existed in the code,
+so only two were run.
 
-Its index cost can be estimated rather than measured. Fitting bytes against
+Its index cost is estimated here rather than measured. Fitting bytes against
 dataset count and site count across the two measured background indexes gives
 about 403 bytes per indexed sequence and 5.6 bytes per site, so per-sequence
 HDF5 overhead dominates. At the 20,670 post-Gini candidates, 41,340 datasets
 and 414,096 sites, that predicts about 19 MB. This is an interpolation between
 two points, not a measurement, and it says nothing about runtime.
+
+`post_gini` was added on 2026-09-16 as a real mode. The distinction it draws is
+between a gate and a ranking: the evenness gate is a declared requirement a
+candidate either meets or does not, while `max_primer` is a cut through a
+ranking chosen for the size of the working set. Keeping the first and dropping
+the second retains what was set aside arbitrarily and not what was set aside on
+a stated rule. It does not reopen the silent zero, because the candidate
+provider does not expand past a hard gate.
+
+## Why `legacy` was removed
+
+Its only distinguishing property is the measurement fault in the section above.
+It existed to reproduce the historical truncation for comparison against an
+existing result, that comparison is the table in this document, and a mode kept
+only so a known fault stays reachable is how the fault comes back. A
+configuration still naming it is refused with a message saying what replaced it
+and why, rather than with a bare schema error.
 
 ## Limitations
 

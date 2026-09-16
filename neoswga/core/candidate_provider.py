@@ -106,10 +106,10 @@ class CandidateProvider:
 
         Under `candidate_retention="all_qc"` every eligible candidate is indexed
         at stage 2, so this is a no-op for the common path and exists so a
-        caller need not know that. Under `legacy` retention, or for a candidate
-        supplied from outside the pipeline, it raises rather than letting a
-        missing index read as a primer that binds nowhere -- the silent-zero
-        shape recorded in Known Issues 5, 6 and 13.
+        caller need not know that. For an index built under a narrower policy,
+        or for a candidate supplied from outside the pipeline, it raises rather
+        than letting a missing index read as a primer that binds nowhere -- the
+        silent-zero shape recorded in Known Issues 5, 6 and 13.
         """
         cache = getattr(self, "position_cache", None)
         if cache is None:
@@ -126,7 +126,9 @@ class CandidateProvider:
             raise ValueError(
                 f"{len(missing)} candidate(s) in this batch have no position data "
                 f"(first: {missing[0]}). Under candidate_retention='all_qc' stage 2 "
-                f"indexes every eligible candidate; a 'legacy' index covers only the "
-                f"shortlist. Re-run 'neoswga filter' with all_qc retention, or the "
-                f"coverage computed for these is a zero rather than a measurement."
+                f"indexes every eligible candidate; 'post_gini' covers only those "
+                f"that also cleared the evenness gate, and an index written before "
+                f"2026-09-16 may cover only the max_primer shortlist. Re-run "
+                f"'neoswga filter' with all_qc retention, or the coverage computed "
+                f"for these is a zero rather than a measurement."
             )
