@@ -78,9 +78,7 @@ def test_estimate_tm_without_conditions_falls_back_to_nearest_neighbour():
     """No buffer to correct for is not a reason to return a worse estimate."""
     optimizer = _optimizer(conditions=None)
 
-    assert optimizer._estimate_tm(PRIMER) == pytest.approx(
-        calculate_tm_basic(PRIMER), abs=1e-6
-    )
+    assert optimizer._estimate_tm(PRIMER) == pytest.approx(calculate_tm_basic(PRIMER), abs=1e-6)
 
 
 # ----------------------------------------------------------------------
@@ -105,17 +103,14 @@ def test_density_ratio_normalises_by_both_lengths():
     fg_per_base = 1000.0 / 3_000_000
     bg_per_base = 100.0 / 46_000_000
 
-    assert _selectivity_density_from_loads(
-        1000.0, 3_000_000, 100.0, 46_000_000
-    ) == pytest.approx(fg_per_base / bg_per_base)
+    assert _selectivity_density_from_loads(1000.0, 3_000_000, 100.0, 46_000_000) == pytest.approx(
+        fg_per_base / bg_per_base
+    )
 
 
 def test_density_ratio_reports_max_when_no_background_binds():
     """Same convention as the count ratio: unbounded, not large."""
-    assert (
-        _selectivity_density_from_loads(1000.0, 3_000_000, 0.0, 46_000_000)
-        == MAX_SELECTIVITY
-    )
+    assert _selectivity_density_from_loads(1000.0, 3_000_000, 0.0, 46_000_000) == MAX_SELECTIVITY
 
 
 def test_density_ratio_is_zero_without_a_measurable_background():
@@ -217,8 +212,6 @@ def test_to_dict_carries_the_density_ratio_and_its_lengths(world):
     """A density is unreadable without the lengths it was taken over."""
     payload = _metrics(world).to_dict()
 
-    assert payload["selectivity_density"] == pytest.approx(
-        _metrics(world).selectivity_density
-    )
+    assert payload["selectivity_density"] == pytest.approx(_metrics(world).selectivity_density)
     assert payload["fg_total_length"] == GENOME_FG
     assert payload["bg_total_length"] == GENOME_BG

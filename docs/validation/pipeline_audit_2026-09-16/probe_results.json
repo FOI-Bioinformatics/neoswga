@@ -1,0 +1,33 @@
+{
+  "stale_eligible_after_stricter_rerun": [
+    "ACGGACGGACGG",
+    "AGGAGGAGGAGG"
+  ],
+  "provider_expands_to_unindexed_candidate": [
+    "AGGAGGAGGAGG"
+  ],
+  "same_fingerprint_after_interior_edit": true,
+  "bam_depth_includes_mapq_zero_and_supplementary": 3,
+  "gini_empty_blocks_before_inventory": "The evenness (Gini) stage removed all 1 candidates. Every one of them binds the target fewer than min_gini_sites (3) times across both strands, so their spacing is not measurable.\nOn a small target this is expected. Either lower the threshold, with \"min_gini_sites\": 1 in params.json or --min-gini-sites 1 on neoswga filter, which accepts single-site primers and their unmeasurable evenness; or admit more abundant k-mers by lowering min_k, raising max_bg_freq, or lowering min_fg_freq.",
+  "coverage_miss_no_repair": {
+    "recommendation": {
+      "target_coverage": 0.9,
+      "row_index": null,
+      "size": null,
+      "status": "not_found"
+    },
+    "repair": {
+      "attempted": false,
+      "method": null,
+      "succeeded": false,
+      "swaps": 0,
+      "evaluations": 0
+    },
+    "available_alternative_coverage": 0.95
+  },
+  "gap_screen_excludes_nearby_reaching_primer": [
+    "AGGAGGAGGAGG"
+  ],
+  "multi_record_bam_mapping": {},
+  "short_contig_reach_fit_error": "cannot reshape array of size 500 into shape (1,1000)"
+}

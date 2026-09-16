@@ -15,7 +15,7 @@ import logging
 import pandas as pd
 import pytest
 
-from neoswga.core import pipeline
+from neoswga.core import pipeline, stage2_recording
 
 CLEARED = ["AAAAAAAAAAAA", "CCCCCCCCCCCC", "GGGGGGGGGGGG", "TTTTTTTTTTTT"]
 AFTER_GINI = CLEARED[:3]
@@ -27,11 +27,13 @@ def indexed(monkeypatch, caplog):
     """Run the retention step with the background scan stubbed out."""
 
     def run(retention):
-        monkeypatch.setattr(pipeline.parameter, "candidate_retention", retention, raising=False)
+        monkeypatch.setattr(
+            stage2_recording.parameter, "candidate_retention", retention, raising=False
+        )
         monkeypatch.setattr(pipeline, "_scan_background_positions", lambda *a, **k: None)
         caplog.clear()
-        with caplog.at_level(logging.INFO, logger=pipeline.logger.name):
-            selected = pipeline._index_background_by_retention(
+        with caplog.at_level(logging.INFO, logger=stage2_recording.logger.name):
+            selected = stage2_recording._index_background_by_retention(
                 pd.DataFrame({"primer": CLEARED}),
                 pd.DataFrame({"primer": AFTER_GINI}),
                 pd.DataFrame({"primer": SHORTLIST}),

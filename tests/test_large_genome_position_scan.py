@@ -95,9 +95,7 @@ def test_chunked_scan_matches_an_unchunked_scan(genome):
         {10: primers}, path, circular=False, chunk_size=10_000
     )
 
-    assert {p: sorted(v) for p, v in chunked.items()} == {
-        p: sorted(v) for p, v in whole.items()
-    }
+    assert {p: sorted(v) for p, v in chunked.items()} == {p: sorted(v) for p, v in whole.items()}
 
 
 def test_overlap_does_not_duplicate_a_boundary_match(genome):

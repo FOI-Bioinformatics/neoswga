@@ -38,7 +38,10 @@ def inventory(tmp_path):
     """Twenty eligible candidates, ranked so the useful one ranks last."""
     with CandidateInventory(tmp_path / "inv.sqlite") as inv:
         for i in range(20):
-            inv.record_candidate(_sequence(i), {"step2_rank": 19 - i})
+            # The rank is a column, not a metric: the traversal sorts by it over
+            # the whole inventory, and reading it out of the metrics JSON meant
+            # one query and one parse per candidate.
+            inv.record_candidate(_sequence(i), {}, search_rank=19 - i)
             inv.record_assessment(_sequence(i), COND, passed=True, reasons=[], metrics={})
         inv.commit()
     with CandidateInventory(tmp_path / "inv.sqlite") as inv:

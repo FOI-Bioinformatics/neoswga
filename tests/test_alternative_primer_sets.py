@@ -115,7 +115,7 @@ def test_iterations_bounds_the_search_for_alternatives():
     few, few_opt = _alternatives(max_sets=5, max_iterations=1)
     many, many_opt = _alternatives(max_sets=5, max_iterations=20)
 
-    assert few_opt.calls < many_opt.calls, (
-        "a tighter iteration budget did not reduce the number of searches run"
-    )
+    assert (
+        few_opt.calls < many_opt.calls
+    ), "a tighter iteration budget did not reduce the number of searches run"
     assert len(few) <= len(many)

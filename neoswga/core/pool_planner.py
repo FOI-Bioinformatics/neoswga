@@ -69,22 +69,52 @@ def _assess(objective, validator, primers):
     return metrics, objective.coverage(primers), reasons, pairs, self_dimers
 
 
-def _repair(primers, pool, objective, reasons, config):
-    """A bounded second attempt at a panel that missed a repairable limit.
+def _beam_candidates(pool, incumbent, size, budget):
+    """The widest slice of the pool the remaining budget affords.
+
+    The pool arrives in step-2 rank order, so a prefix of it is the best-ranked
+    candidates rather than an arbitrary subset. The beam costs about
+    `beam width * candidates * panel size` evaluations, so inverting that bound
+    gives the number of candidates the budget will pay for.
+
+    The incumbent is always included, wherever it ranks. Without that the beam
+    could not reproduce the panel it was asked to improve on, and a repair that
+    found nothing better would return something worse.
+    """
+    affordable = max(size, budget // (_BEAM_WIDTH * max(size, 1)))
+    slice_pool = list(pool[:affordable])
+    known = set(slice_pool)
+    slice_pool.extend(primer for primer in incumbent if primer not in known)
+    return slice_pool
+
+
+def _repair(primers, pool, objective, reasons, config, target=None):
+    """A bounded second attempt at a panel that missed a limit or a target.
 
     Returns the panel to use and a record of what was tried. The panel is only
-    replaced when the swap loop actually moved, and the caller re-evaluates
+    replaced when the search actually moved, and the caller re-evaluates
     whatever comes back rather than trusting this to have improved anything.
+
+    Two different things bring a row here, and the difference stays visible in
+    `reason`. A CONSTRAINT violation means the panel is not deliverable. A
+    TARGET miss means it is deliverable and smaller than what was asked for.
+    Both are worth a second attempt; only the first makes the row ineligible.
+    The search order is the same either way -- fewer violations, then coverage,
+    then background load -- so chasing a target can never buy coverage by giving
+    up a constraint.
 
     A dimer violation is not repaired here. The objective does not see dimers,
     so the swap score cannot be steered by them, and a panel arriving with a
     dimerising pair means an upstream relaxation fired -- which is a thing to
     fix where it happens rather than to paper over at reporting time.
     """
-    skipped = dict(attempted=False, method=None, succeeded=False, swaps=0, evaluations=0)
+    skipped = dict(
+        attempted=False, method=None, reason=None, succeeded=False, swaps=0, evaluations=0
+    )
     repairable = [r for r in reasons if r != "dimer constraint"]
-    if not repairable:
+    if not repairable and target is None:
         return list(primers), skipped
+    reason = repairable[0] if repairable else "below coverage target"
 
     result = refine_by_swaps(
         primers,
@@ -97,10 +127,28 @@ def _repair(primers, pool, objective, reasons, config):
         max_seconds=config.swap_max_seconds,
     )
     repaired = list(result.primers)
+
+    def _resolved(panel):
+        """Whether this panel answers what brought the row here.
+
+        A constraint repair succeeds by clearing the violations. A target repair
+        succeeds by reaching the target, not merely by improving: the swap loop
+        almost always improves something, and treating that as success returned
+        before the beam had a turn, which is how the beam stayed unreached even
+        once it had a budget of its own.
+        """
+        if objective.violations(panel):
+            return False
+        if repairable:
+            return True
+        covered = objective.coverage(panel)
+        return covered is not None and covered >= target
+
     record = dict(
         attempted=True,
         method="swap",
-        succeeded=not objective.violations(repaired),
+        reason=reason,
+        succeeded=_resolved(repaired),
         swaps=result.swaps,
         evaluations=result.evaluations,
         stop_reason=result.stop_reason,
@@ -111,31 +159,40 @@ def _repair(primers, pool, objective, reasons, config):
     # Swaps move one primer at a time from where the optimizer stopped, so they
     # cannot reach a panel that shares no primer with it. A beam rebuilds at the
     # same size and keeps several partial panels alive, which is what a
-    # non-monotonic density floor needs. It is tried only when its bound fits
-    # the same budget the swaps were given, because that bound is quadratic in
-    # nothing but is still beam width times pool size times panel size.
+    # non-monotonic density floor needs.
+    #
+    # It used to be skipped whenever `beam width * pool size * panel size`
+    # exceeded the budget left over from the swaps. On the 2,000-candidate
+    # shortlist this tool actually produces, that permitted a panel of one
+    # primer, so the beam never ran outside its own tests. Asking whether the
+    # whole pool fits was the wrong question: the answer is to search the widest
+    # slice the budget affords.
     size = len(repaired)
-    budget = config.swap_max_evaluations - result.evaluations
-    if size < 1 or _BEAM_WIDTH * len(pool) * size > budget:
+    budget = getattr(config, "beam_max_evaluations", config.swap_max_evaluations)
+    if size < 1 or budget < _BEAM_WIDTH * size:
         record["beam"] = "not affordable within the remaining budget"
         return repaired, record
 
+    slice_pool = _beam_candidates(pool, repaired, size, budget)
+    record["beam_candidates"] = len(slice_pool)
     beam = beam_search(
-        pool,
+        slice_pool,
         objective,
         size,
         dimerises=LazyDimerCompatibility(config.max_dimer_bp).dimerises,
         beam_width=_BEAM_WIDTH,
         max_evaluations=budget,
-        max_seconds=config.swap_max_seconds,
+        max_seconds=getattr(config, "beam_max_seconds", config.swap_max_seconds),
     )
     record["evaluations"] += beam.evaluations
     record["beam"] = beam.status
-    # Only a qualifying panel of the SAME size is a repair. The beam also
-    # reports the best smaller feasible panel it saw, which is a useful answer
-    # to a different question: this row was asked for a panel of one size, and
-    # returning a shorter one would show up as a different row's result.
-    if beam.violations or len(beam.primers) != size:
+    # Only a qualifying panel of the SAME size is a repair, and only one that
+    # answers what brought the row here. The beam also reports the best smaller
+    # feasible panel it saw, which is a useful answer to a different question:
+    # this row was asked for a panel of one size, and returning a shorter one
+    # would show up as a different row's result. And a beam that rediscovers the
+    # incumbent has repaired nothing, so it must not report success.
+    if beam.violations or len(beam.primers) != size or not _resolved(list(beam.primers)):
         return repaired, record
     record.update(method="beam", succeeded=True)
     return list(beam.primers), record
@@ -202,6 +259,10 @@ def plan_pool(
     pool = validator.filter_self_dimers(pool)
     if not pool:
         raise ValueError("No candidates pass the configured self-dimer limit")
+    # Stage-2 refinement inside the optimizer picks the delivered panel, so it
+    # has to score on the same thing this function accepts on. See
+    # `swap_refinement.refine_hybrid_stage2`, which reads this attribute.
+    optimizer.pool_objective = objective
     rows = []
     for requested in sizes:
         started = time.monotonic()
@@ -231,9 +292,17 @@ def plan_pool(
                 "Optimizer returned a panel outside the requested candidate/size bounds"
             )
         metrics, coverage, reasons, violations, self_dimers = _assess(objective, validator, primers)
-        repair_record = dict(attempted=False, method=None, succeeded=False, swaps=0, evaluations=0)
-        if repair and reasons:
-            repaired, repair_record = _repair(primers, pool, objective, reasons, optimizer.config)
+        repair_record = dict(
+            attempted=False, method=None, reason=None, succeeded=False, swaps=0, evaluations=0
+        )
+        # The most demanding request drives the repair. Repairing to the lowest
+        # would stop as soon as the easiest target was cleared, and every higher
+        # row would report `not_found` beside a panel never asked to reach it.
+        missed = max(targets) if coverage is not None and coverage < max(targets) else None
+        if repair and (reasons or missed is not None):
+            repaired, repair_record = _repair(
+                primers, pool, objective, reasons, optimizer.config, target=missed
+            )
             if repaired != primers:
                 primers = repaired
                 metrics, coverage, reasons, violations, self_dimers = _assess(

@@ -16,6 +16,7 @@ from neoswga.core import parameter, rf_preprocessing, string_search, utility
 from neoswga.core.filter import check_gini_stage_kept_something
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
 from neoswga.core.progress import progress_context
+from neoswga.core.stage2_recording import _index_and_record
 from neoswga.core.step3_ordering import _candidate_carry_columns, order_step3_rows
 
 logger = logging.getLogger(__name__)
@@ -1165,47 +1166,6 @@ def _apply_exclusion_and_blacklist(filtered_rate_df):
     return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
 
 
-def _index_background_by_retention(
-    filtered_rate_df, gini_df, filtered_gini_df, bg_prefixes, bg_genomes
-):
-    """Index by retention policy, search by shortlist.
-
-    The background scan is one Aho-Corasick pass over the background for every
-    primer at once, so widening it costs storage rather than proportional time.
-    Measured on the bundled plasmid example: filter 1.4 s to 1.6 s, position
-    files 4.1 MB to 8.0 MB, and `step2_df.csv` unchanged at 37 rows -- so the
-    optimizer's pool, and therefore its runtime, does not move with this setting.
-    """
-    from neoswga.core.candidate_inventory import background_scan_pool
-
-    retention = getattr(parameter, "candidate_retention", "all_qc")
-    to_index = background_scan_pool(
-        filtered_rate_df["primer"], retention, after_gini=gini_df["primer"]
-    )
-    _scan_background_positions(to_index, bg_prefixes, bg_genomes)
-    # Name the mode that was NOT used. Naming the active one made the sentence
-    # read as a hypothetical about what had just happened: under 'post_gini' it
-    # said "'post_gini' would index 20670" beside having indexed exactly that.
-    alternative = {
-        "all_qc": f"'post_gini' would index the {len(gini_df)} that also cleared "
-        "the evenness gate",
-        "post_gini": f"'all_qc' would index all {len(filtered_rate_df)}",
-    }.get(retention, "no other mode is configured")
-    logger.info(
-        "Background index: %d of %d hard-QC candidates indexed under "
-        "candidate_retention=%r; %s. The %d-candidate max_primer shortlist no "
-        "longer bounds the index: a candidate the ranking cut used to have no "
-        "background index at all, which scores as perfect specificity rather "
-        "than as a missing measurement.",
-        len(to_index),
-        len(filtered_rate_df),
-        retention,
-        alternative,
-        len(filtered_gini_df),
-    )
-    return to_index
-
-
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -1340,7 +1300,6 @@ def step2(all_primers=None, validate_prerequisites=True):
             position_cache=fg_position_cache,
         )
     _funnel["after_gini"] = len(gini_df)
-    check_gini_stage_kept_something(filtered_rate_df, gini_df)
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)
@@ -1354,24 +1313,12 @@ def step2(all_primers=None, validate_prerequisites=True):
     # appear only as `final_candidates`, under no stage name.
     _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
-    _indexed = _index_background_by_retention(
+    _indexed = _index_and_record(
         filtered_rate_df, gini_df, filtered_gini_df, bg_prefixes, bg_genomes
     )
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
-
-    from neoswga.core.candidate_inventory import record_stage2_inventory
-    from neoswga.core.filter import _get_reaction_conditions
-
-    record_stage2_inventory(
-        parameter.data_dir,
-        condition_id=_get_reaction_conditions().fingerprint(),
-        cleared_hard_gates=filtered_rate_df,
-        after_gini=gini_df,
-        shortlisted=filtered_gini_df,
-        indexed=_indexed,
-    )
 
     # Write the real filtering funnel so reports show genuine per-stage counts
     # instead of a fabricated estimate. Best-effort: never fail the filter step.

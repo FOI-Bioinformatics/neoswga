@@ -8,9 +8,10 @@ reported.
 
 Reproduce with `scripts/benchmarking/heldout_panel_discrimination.py`.
 
-**The result is negative.** No quantity tested beats a majority-class baseline
-on held-out accuracy, and two of them rank panels in opposite directions in two
-studies from the same paper.
+**The result is negative: no clear transferable advantage was established.** The
+best quantity tested is five points above a majority-class baseline on held-out
+accuracy, which is one panel out of twenty-one, and two quantities rank panels in
+opposite directions in two studies from the same paper.
 
 ## What could be asked
 
@@ -58,7 +59,9 @@ ordering it changes is the reach coverage proxy, which rises from last to a tie
 for fifth. No conclusion here turns on it.
 
 Nothing clears the baseline by a margin that 21 panels could support. The best,
-the published fg/bg ratio, is five points above it, which is one panel.
+the published fg/bg ratio, is five points above it, which is one panel. Saying
+flatly that nothing beat the baseline would overstate this in the other
+direction; the honest reading is that no advantage was established either way.
 
 ## Within-study ranking
 

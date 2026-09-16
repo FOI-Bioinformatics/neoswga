@@ -35,6 +35,7 @@ what made truncation look necessary in the first place.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -44,11 +45,37 @@ from typing import Any, Dict, Iterator, Sequence
 # old rules is not silently reused under the new ones.
 DEFAULT_POLICY_VERSION = "qc-2026-09-15"
 
+
+def qc_policy_fingerprint(thresholds: Dict[str, Any]) -> str:
+    """A stable name for one set of resolved hard-QC thresholds.
+
+    `DEFAULT_POLICY_VERSION` alone said which generation of RULES was in force,
+    not which SETTINGS. Two runs with different GC windows, Tm windows or
+    frequency limits shared it, so a verdict reached under one was returned to a
+    caller asking about the other.
+
+    Sorted keys, so a mapping built in a different order is the same policy. An
+    absent threshold is encoded distinctly from a present one, because "not
+    configured" and "configured to the default" are different statements about
+    what was enforced.
+    """
+    material = json.dumps(
+        {key: thresholds[key] for key in sorted(thresholds)},
+        sort_keys=True,
+        default=str,
+    )
+    digest = hashlib.sha256(material.encode()).hexdigest()[:16]
+    return f"{DEFAULT_POLICY_VERSION}:{digest}"
+
+
+STAGE3_POLICY_PREFIX = "stage3:"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS candidates (
     sequence TEXT PRIMARY KEY,
     length INTEGER NOT NULL,
-    metrics_json TEXT NOT NULL
+    metrics_json TEXT NOT NULL,
+    search_rank REAL
 );
 CREATE TABLE IF NOT EXISTS assessments (
     sequence TEXT NOT NULL REFERENCES candidates(sequence),
@@ -57,6 +84,7 @@ CREATE TABLE IF NOT EXISTS assessments (
     passed INTEGER NOT NULL,
     reasons_json TEXT NOT NULL,
     metrics_json TEXT NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (sequence, condition_id, policy_version)
 );
 CREATE INDEX IF NOT EXISTS assessments_lookup
@@ -78,6 +106,19 @@ class CandidateInventory:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._connection = sqlite3.connect(str(self.path))
         self._connection.executescript(_SCHEMA)
+        # An inventory written before generations exists in the wild. Adding the
+        # column with a default of 1 makes every old row one coherent
+        # generation, which is what it was.
+        candidate_columns = {
+            row[1] for row in self._connection.execute("PRAGMA table_info(candidates)")
+        }
+        if "search_rank" not in candidate_columns:
+            self._connection.execute("ALTER TABLE candidates ADD COLUMN search_rank REAL")
+        columns = {row[1] for row in self._connection.execute("PRAGMA table_info(assessments)")}
+        if "generation" not in columns:
+            self._connection.execute(
+                "ALTER TABLE assessments ADD COLUMN generation INTEGER NOT NULL DEFAULT 1"
+            )
         self._connection.commit()
 
     # -- lifecycle ---------------------------------------------------------
@@ -96,7 +137,9 @@ class CandidateInventory:
 
     # -- writing -----------------------------------------------------------
 
-    def record_candidate(self, sequence: str, metrics: Dict[str, Any]) -> None:
+    def record_candidate(
+        self, sequence: str, metrics: Dict[str, Any], search_rank: float | None = None
+    ) -> None:
         """Record a candidate and its condition-independent measurements.
 
         Called before any condition-specific admission, so that what was
@@ -104,12 +147,25 @@ class CandidateInventory:
         Re-recording replaces the measurements: a later pass has better numbers
         than an earlier one, and keeping the first would make the inventory
         depend on scan order.
+
+        `search_rank` is the order a search should walk these in, lowest first.
+        It is a COLUMN rather than a metric because the traversal sorts by it
+        over the whole inventory: reading it out of `metrics_json` meant one
+        query and one JSON parse per candidate, which is 491,836 round trips on
+        the Wolbachia design before the search has looked at anything.
         """
         sequence = sequence.upper()
         self._connection.execute(
-            "INSERT INTO candidates (sequence, length, metrics_json) VALUES (?, ?, ?) "
-            "ON CONFLICT(sequence) DO UPDATE SET metrics_json = excluded.metrics_json",
-            (sequence, len(sequence), json.dumps(metrics, sort_keys=True)),
+            "INSERT INTO candidates (sequence, length, metrics_json, search_rank) "
+            "VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(sequence) DO UPDATE SET metrics_json = excluded.metrics_json, "
+            "search_rank = excluded.search_rank",
+            (
+                sequence,
+                len(sequence),
+                json.dumps(metrics, sort_keys=True),
+                None if search_rank is None else float(search_rank),
+            ),
         )
 
     def record_assessment(
@@ -120,6 +176,7 @@ class CandidateInventory:
         reasons: Sequence[str],
         metrics: Dict[str, Any],
         policy_version: str = DEFAULT_POLICY_VERSION,
+        generation: int = 1,
     ) -> None:
         """Record whether a candidate clears the hard gates under one reaction.
 
@@ -134,11 +191,12 @@ class CandidateInventory:
         """
         self._connection.execute(
             "INSERT INTO assessments "
-            "(sequence, condition_id, policy_version, passed, reasons_json, metrics_json) "
-            "VALUES (?, ?, ?, ?, ?, ?) "
+            "(sequence, condition_id, policy_version, passed, reasons_json, "
+            "metrics_json, generation) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(sequence, condition_id, policy_version) DO UPDATE SET "
             "passed = excluded.passed, reasons_json = excluded.reasons_json, "
-            "metrics_json = excluded.metrics_json",
+            "metrics_json = excluded.metrics_json, generation = excluded.generation",
             (
                 sequence.upper(),
                 condition_id,
@@ -146,6 +204,7 @@ class CandidateInventory:
                 1 if passed else 0,
                 json.dumps(list(reasons)),
                 json.dumps(metrics, sort_keys=True),
+                int(generation),
             ),
         )
 
@@ -163,9 +222,20 @@ class CandidateInventory:
     ) -> Iterator[str]:
         """Every candidate of the requested lengths passing the hard gates.
 
-        Ordered by sequence. An unordered scan would make an otherwise
-        deterministic run depend on SQLite's row order, and the optimizers this
-        feeds are order-sensitive.
+        Ordered by `search_rank`, then by sequence. An unordered scan would make
+        an otherwise deterministic run depend on SQLite's row order, and the
+        optimizers this feeds are order-sensitive; the sequence tie-break is
+        what makes the order total when two candidates rank equally.
+
+        An unranked candidate sorts last rather than disappearing. It cleared
+        the hard gates, so it is eligible, and eligibility is not the ranking's
+        to revoke.
+
+        Only the NEWEST generation for this condition and policy counts. A
+        candidate the latest run did not admit is not eligible, even though its
+        earlier verdict is still on record: re-running the filter with a
+        stricter rule used to leave everything the looser rule had admitted
+        selectable, under rules that no longer existed.
         """
         if not lengths:
             return
@@ -173,12 +243,76 @@ class CandidateInventory:
         rows = self._connection.execute(
             "SELECT c.sequence FROM candidates c "
             "JOIN assessments a ON a.sequence = c.sequence "
-            f"WHERE a.condition_id = ? AND a.policy_version = ? AND a.passed = 1 "
-            f"AND c.length IN ({placeholders}) ORDER BY c.sequence",
-            (condition_id, policy_version, *[int(n) for n in lengths]),
+            "WHERE a.condition_id = ? AND a.policy_version = ? AND a.passed = 1 "
+            "AND a.generation = (SELECT MAX(generation) FROM assessments "
+            "                    WHERE condition_id = ? AND policy_version = ?) "
+            f"AND c.length IN ({placeholders}) "
+            "ORDER BY c.search_rank IS NULL, c.search_rank, c.sequence",
+            (
+                condition_id,
+                policy_version,
+                condition_id,
+                policy_version,
+                *[int(n) for n in lengths],
+            ),
         )
         for (sequence,) in rows:
             yield sequence
+
+    def current_policy(self, condition_id: str) -> str | None:
+        """The hard-QC policy the newest recording for this condition used.
+
+        A reader cannot reconstruct the digest: it is a hash of thresholds
+        resolved at run time, after the GC-adaptive strategy has had its say. So
+        it has to be discoverable, or a caller asking under the old constant
+        would get an empty eligible set -- a silent zero, from the same family
+        as Known Issues 5, 6 and 13.
+
+        Stage-3 policies are excluded: those record what an efficacy filter
+        carried forward, under their own prefix, and are not admission rules.
+        """
+        row = self._connection.execute(
+            "SELECT policy_version FROM assessments "
+            "WHERE condition_id = ? AND policy_version NOT LIKE ? "
+            "ORDER BY generation DESC, policy_version DESC LIMIT 1",
+            (condition_id, f"{STAGE3_POLICY_PREFIX}%"),
+        ).fetchone()
+        return row[0] if row else None
+
+    def next_generation(self, condition_id: str, policy_version: str) -> int:
+        """The generation number a new recording should write.
+
+        One more than the highest already present for this condition and policy,
+        so the newest run supersedes without deleting what came before.
+        """
+        row = self._connection.execute(
+            "SELECT MAX(generation) FROM assessments "
+            "WHERE condition_id = ? AND policy_version = ?",
+            (condition_id, policy_version),
+        ).fetchone()
+        return int(row[0] or 0) + 1
+
+    def assessment_history(self, sequence: str, condition_id: str):
+        """Every verdict recorded for one candidate under one reaction.
+
+        Superseded rows are retired rather than deleted, because "this was
+        admitted once, under these rules" is worth knowing when a design has to
+        be explained. Returns newest first.
+        """
+        rows = self._connection.execute(
+            "SELECT policy_version, passed, reasons_json, generation FROM assessments "
+            "WHERE sequence = ? AND condition_id = ? ORDER BY generation DESC",
+            (sequence.upper(), condition_id),
+        )
+        return [
+            {
+                "policy_version": policy,
+                "passed": bool(passed),
+                "reasons": json.loads(reasons),
+                "generation": generation,
+            }
+            for policy, passed, reasons, generation in rows
+        ]
 
     def metrics(self, sequence: str) -> Dict[str, Any]:
         """The condition-independent measurements recorded for one candidate."""
@@ -233,6 +367,46 @@ class CandidateInventory:
 STAGE2_INVENTORY_NAME = "candidate_inventory.sqlite"
 
 
+def _search_ranks(cleared_hard_gates, shortlisted) -> Dict[str, float]:
+    """The order a search should walk the whole hard-QC set in, lowest first.
+
+    Two bands. The shortlist leads, in the order stage 2 put it in, because that
+    ranking already weighed occupancy and background load over the candidates it
+    considered and a search should start from the working set rather than
+    rediscover it. Everything else follows, ordered by background sites per
+    target site -- the same quantity `_rank_and_cut_candidates` ranks on, and
+    the only one available for candidates the cut never scored.
+
+    Written for EVERY hard-QC candidate. A rank that exists only for the
+    shortlist cannot order the candidates outside it, which is precisely the set
+    an expansion draws from.
+
+    A candidate with no usable counts gets no rank and sorts last, rather than
+    being given a number that would place it somewhere it has not earned.
+    """
+    ranks: Dict[str, float] = {}
+    for position, sequence in enumerate(shortlisted["primer"]):
+        ranks[str(sequence).upper()] = float(position)
+
+    offset = float(len(ranks))
+    rest = []
+    for row in cleared_hard_gates.to_dict("records"):
+        sequence = str(row["primer"]).upper()
+        if sequence in ranks:
+            continue
+        foreground = row.get("fg_count")
+        background = row.get("bg_count")
+        try:
+            if not foreground:
+                continue
+            rest.append((float(background or 0) / float(foreground), sequence))
+        except (TypeError, ValueError):
+            continue
+    for position, (_, sequence) in enumerate(sorted(rest)):
+        ranks[sequence] = offset + position
+    return ranks
+
+
 def record_stage2_inventory(
     data_dir,
     condition_id: str,
@@ -241,6 +415,7 @@ def record_stage2_inventory(
     shortlisted,
     indexed=None,
     policy_version: str = DEFAULT_POLICY_VERSION,
+    qc_policy: Dict[str, Any] | None = None,
 ) -> Path:
     """Write what stage 2 enumerated, and what merely ordered the search.
 
@@ -263,6 +438,17 @@ def record_stage2_inventory(
     partial inventory that later reads as complete.
     """
     path = Path(data_dir) / STAGE2_INVENTORY_NAME
+    if len(cleared_hard_gates) == 0:
+        raise ValueError(
+            "Refusing to record an inventory with no candidates. An empty run "
+            "would open a new generation holding nothing, retiring every verdict "
+            "the previous run reached and leaving the design with no eligible "
+            "candidates at all."
+        )
+    # Which rules this verdict was reached under. Without it a stricter re-run
+    # writes into the same key space as the looser one it replaced.
+    if qc_policy is not None:
+        policy_version = qc_policy_fingerprint(qc_policy)
     survived_gini = {str(s).upper() for s in after_gini["primer"]}
     kept = {str(s).upper() for s in shortlisted["primer"]}
     # Which candidates got a background position index. Without one, a
@@ -275,7 +461,10 @@ def record_stage2_inventory(
         else {str(s).upper() for s in cleared_hard_gates["primer"]}
     )
 
+    ranks = _search_ranks(cleared_hard_gates, shortlisted)
+
     with CandidateInventory(path) as inventory:
+        generation = inventory.next_generation(condition_id, policy_version)
         for row in cleared_hard_gates.to_dict("records"):
             sequence = str(row["primer"]).upper()
             metrics = {
@@ -286,7 +475,8 @@ def record_stage2_inventory(
             metrics["passed_gini"] = sequence in survived_gini
             metrics["shortlisted"] = sequence in kept
             metrics["indexed"] = sequence in have_index
-            inventory.record_candidate(sequence, metrics)
+            metrics["search_rank"] = ranks.get(sequence)
+            inventory.record_candidate(sequence, metrics, search_rank=ranks.get(sequence))
             inventory.record_assessment(
                 sequence,
                 condition_id,
@@ -294,6 +484,7 @@ def record_stage2_inventory(
                 reasons=[],
                 metrics={},
                 policy_version=policy_version,
+                generation=generation,
             )
         inventory.commit()
 
@@ -362,9 +553,6 @@ def background_scan_pool(cleared_hard_gates, retention, *, after_gini=None):
             "Use 'post_gini' for the nearest smaller index, or 'all_qc'."
         )
     raise ValueError(f"candidate_retention must be 'all_qc' or 'post_gini', not {retention!r}")
-
-
-STAGE3_POLICY_PREFIX = "stage3:"
 
 
 def record_stage3_policy(path, condition_id: str, carried, rejected, policy: str) -> None:
