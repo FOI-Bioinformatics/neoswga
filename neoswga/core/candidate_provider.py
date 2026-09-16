@@ -51,7 +51,16 @@ class CandidateProvider:
         than dependent on storage order.
         """
         if self._ordered is None:
-            sequences = list(self.inventory.iter_eligible(self.condition_id, self.lengths))
+            # Ask the inventory which policy it last recorded under. The digest
+            # is over thresholds resolved at run time, so a caller cannot
+            # reconstruct it, and asking under the bare constant would return an
+            # empty set that reads as "no candidates qualify".
+            policy = self.inventory.current_policy(self.condition_id)
+            sequences = list(
+                self.inventory.iter_eligible(
+                    self.condition_id, self.lengths, *([policy] if policy else [])
+                )
+            )
             ranked = []
             for sequence in sequences:
                 rank = self.inventory.metrics(sequence).get("step2_rank")
