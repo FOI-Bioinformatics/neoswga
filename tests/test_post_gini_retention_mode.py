@@ -105,8 +105,7 @@ def test_the_pipeline_passes_the_post_gini_frame_through():
     calls = [
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and getattr(node.func, "id", None) == "_index_background_by_retention"
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_index_and_record"
     ]
 
     assert len(calls) == 1, "the retention call site moved"

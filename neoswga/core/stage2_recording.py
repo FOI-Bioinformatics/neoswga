@@ -82,3 +82,32 @@ def _index_background_by_retention(
         len(filtered_gini_df),
     )
     return to_index
+
+
+def _index_and_record(cleared_hard_gates, after_gini, shortlisted, bg_prefixes, bg_genomes):
+    """Index the background, record the inventory, then let the guard decide.
+
+    The order is the point. `check_gini_stage_kept_something` refuses to leave a
+    design with an empty shortlist and no explanation, which is right, but it
+    used to run first and regardless of retention mode. So under `all_qc` --
+    whose whole purpose is to keep every hard-QC survivor addressable -- a run
+    where evenness happened to be unmeasurable aborted before a single inventory
+    row was written.
+
+    Those candidates had cleared every declared requirement. What they had not
+    done was bind often enough for their spacing to be measured, and
+    `min_gini_sites` exists precisely to say that is not a judgement about them.
+    It is likeliest on the small targets retention was built for: on the bundled
+    plasmid example 10,158 of 10,532 indexed k-mers bind exactly once.
+
+    The guard still raises, with the same message. The shortlist CSV is written
+    by the caller afterwards, so a failed run leaves no empty one behind.
+    """
+    from neoswga.core.filter import check_gini_stage_kept_something
+
+    indexed = _index_background_by_retention(
+        cleared_hard_gates, after_gini, shortlisted, bg_prefixes, bg_genomes
+    )
+    _record_run_inventory(cleared_hard_gates, after_gini, shortlisted, indexed)
+    check_gini_stage_kept_something(cleared_hard_gates, after_gini)
+    return indexed

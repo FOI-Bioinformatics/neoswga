@@ -16,10 +16,7 @@ from neoswga.core import parameter, rf_preprocessing, string_search, utility
 from neoswga.core.filter import check_gini_stage_kept_something
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
 from neoswga.core.progress import progress_context
-from neoswga.core.stage2_recording import (
-    _index_background_by_retention,
-    _record_run_inventory,
-)
+from neoswga.core.stage2_recording import _index_and_record
 from neoswga.core.step3_ordering import _candidate_carry_columns, order_step3_rows
 
 logger = logging.getLogger(__name__)
@@ -1303,7 +1300,6 @@ def step2(all_primers=None, validate_prerequisites=True):
             position_cache=fg_position_cache,
         )
     _funnel["after_gini"] = len(gini_df)
-    check_gini_stage_kept_something(filtered_rate_df, gini_df)
     logger.info(f"Filtered {len(filtered_rate_df) - len(gini_df)} primers based on Gini index")
     # Calculate ratio with division-by-zero protection
     # When fg_count is 0, set ratio to infinity (primer never binds target = worst case)
@@ -1317,14 +1313,12 @@ def step2(all_primers=None, validate_prerequisites=True):
     # appear only as `final_candidates`, under no stage name.
     _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
-    _indexed = _index_background_by_retention(
+    _indexed = _index_and_record(
         filtered_rate_df, gini_df, filtered_gini_df, bg_prefixes, bg_genomes
     )
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
-
-    _record_run_inventory(filtered_rate_df, gini_df, filtered_gini_df, _indexed)
 
     # Write the real filtering funnel so reports show genuine per-stage counts
     # instead of a fabricated estimate. Best-effort: never fail the filter step.
