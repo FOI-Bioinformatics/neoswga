@@ -55,15 +55,24 @@ def populated(tmp_path):
     return path
 
 
-def test_the_six_counts_are_reported_by_name(populated):
+def test_the_counts_are_reported_by_name(populated):
+    """`counted` and `examined` are unknown here, and say so.
+
+    This fixture records no enumerated total and runs no search, so both are
+    `None`. They used to report 3 and 0: the first was the post-QC survivors
+    under a name promising the universe they came from, and the second was
+    stage-3 membership under a name promising search evaluations. A number that
+    cannot be told from a measurement is worse than an absent one.
+    """
     counts = design_counts(populated, COND)
 
-    assert counts["counted"] == 3
+    assert counts["counted"] is None
     assert counts["assessed"] == 3
     assert counts["hard_qc_passed"] == 3
     assert counts["shortlisted"] == 1
     assert counts["indexed"] == 3
-    assert counts["examined"] == 0, "nothing has reached stage 3 yet"
+    assert counts["carried_to_stage3"] == 0, "nothing has reached stage 3 yet"
+    assert counts["examined"] is None, "no search reports its evaluations yet"
 
 
 def test_a_partly_indexed_inventory_still_records_the_hard_qc_verdict(tmp_path):
@@ -93,9 +102,10 @@ def test_a_partly_indexed_inventory_still_records_the_hard_qc_verdict(tmp_path):
 
 
 def test_stage_three_records_what_it_carried(populated):
+    """Under its own name. What stage 3 kept is not what a search evaluated."""
     record_stage3_policy(populated, COND, carried=[A, C], rejected={}, policy="carry_forward")
 
-    assert design_counts(populated, COND)["examined"] == 2
+    assert design_counts(populated, COND)["carried_to_stage3"] == 2
 
 
 def test_an_efficacy_rejection_records_its_reason(populated):
@@ -126,4 +136,4 @@ def test_a_stage_three_rejection_is_not_a_hard_qc_failure(populated):
 
     counts = design_counts(populated, COND)
     assert counts["hard_qc_passed"] == 3
-    assert counts["examined"] == 1
+    assert counts["carried_to_stage3"] == 1

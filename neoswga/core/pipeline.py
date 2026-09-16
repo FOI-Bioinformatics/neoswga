@@ -1314,7 +1314,12 @@ def step2(all_primers=None, validate_prerequisites=True):
     _funnel["after_max_primer_cut"] = len(filtered_gini_df)
 
     _indexed = _index_and_record(
-        filtered_rate_df, gini_df, filtered_gini_df, bg_prefixes, bg_genomes
+        filtered_rate_df,
+        gini_df,
+        filtered_gini_df,
+        bg_prefixes,
+        bg_genomes,
+        enumerated=_funnel["total_kmers"],
     )
 
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))

@@ -71,6 +71,12 @@ def qc_policy_fingerprint(thresholds: Dict[str, Any]) -> str:
 STAGE3_POLICY_PREFIX = "stage3:"
 
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS run_facts (
+    condition_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    value INTEGER,
+    PRIMARY KEY (condition_id, name)
+);
 CREATE TABLE IF NOT EXISTS candidates (
     sequence TEXT PRIMARY KEY,
     length INTEGER NOT NULL,
@@ -109,6 +115,7 @@ class CandidateInventory:
         # An inventory written before generations exists in the wild. Adding the
         # column with a default of 1 makes every old row one coherent
         # generation, which is what it was.
+        self._connection.executescript(_SCHEMA)
         candidate_columns = {
             row[1] for row in self._connection.execute("PRAGMA table_info(candidates)")
         }
@@ -259,6 +266,32 @@ class CandidateInventory:
         for (sequence,) in rows:
             yield sequence
 
+    def record_run_fact(self, condition_id: str, name: str, value) -> None:
+        """A whole-run number that is not a property of any one candidate.
+
+        How many k-mers were enumerated is the motivating case: candidates are
+        only written once they clear hard QC, so the size of the universe they
+        were drawn from cannot be recovered by counting rows.
+        """
+        self._connection.execute(
+            "INSERT INTO run_facts (condition_id, name, value) VALUES (?, ?, ?) "
+            "ON CONFLICT(condition_id, name) DO UPDATE SET value = excluded.value",
+            (condition_id, name, None if value is None else int(value)),
+        )
+
+    def run_fact(self, condition_id: str, name: str):
+        """One recorded run number, or `None` if nobody recorded it.
+
+        `None` means unmeasured. It is deliberately not filled in with the
+        nearest available number: a plausible substitute cannot be told apart
+        from a measurement, which is how the filter funnel hid a 90% loss.
+        """
+        row = self._connection.execute(
+            "SELECT value FROM run_facts WHERE condition_id = ? AND name = ?",
+            (condition_id, name),
+        ).fetchone()
+        return None if row is None else row[0]
+
     def current_policy(self, condition_id: str) -> str | None:
         """The hard-QC policy the newest recording for this condition used.
 
@@ -347,20 +380,36 @@ class CandidateInventory:
         ).fetchone()
         return row is not None
 
-    def counts(self) -> Dict[str, int]:
-        """Counted and assessed are different numbers, and both are reported.
+    def counts(self, condition_id: str | None = None) -> Dict[str, int]:
+        """How many candidates were written, and how many currently qualify.
 
-        The funnel this replaces conflated them: its first row was labelled
-        `total_kmers` but began after several loading prefilters, so the number
-        of candidates enumerated was never stated anywhere.
+        `hard_qc_passed` is scoped to one condition, its current policy and the
+        newest generation, because that is what eligibility means. Counting
+        every passing row in the database instead made it a running total over
+        the run's own history: a re-run that admitted fewer candidates reported
+        more, since the superseded verdicts were still there.
+
+        Note what `candidates` is not. Rows are written only once a candidate
+        has cleared hard QC, so this is the survivors, and the size of the
+        universe they came from is a run fact rather than a row count.
         """
         counted = self._connection.execute("SELECT COUNT(*) FROM candidates").fetchone()[0]
         assessed = self._connection.execute(
             "SELECT COUNT(DISTINCT sequence) FROM assessments"
         ).fetchone()[0]
-        passed = self._connection.execute(
-            "SELECT COUNT(DISTINCT sequence) FROM assessments WHERE passed = 1"
-        ).fetchone()[0]
+        if condition_id is None:
+            passed = self._connection.execute(
+                "SELECT COUNT(DISTINCT sequence) FROM assessments WHERE passed = 1"
+            ).fetchone()[0]
+        else:
+            policy = self.current_policy(condition_id)
+            passed = self._connection.execute(
+                "SELECT COUNT(DISTINCT sequence) FROM assessments "
+                "WHERE condition_id = ? AND policy_version = ? AND passed = 1 "
+                "AND generation = (SELECT MAX(generation) FROM assessments "
+                "                  WHERE condition_id = ? AND policy_version = ?)",
+                (condition_id, policy, condition_id, policy),
+            ).fetchone()[0]
         return {"candidates": counted, "assessed": assessed, "hard_qc_passed": passed}
 
 
@@ -416,6 +465,7 @@ def record_stage2_inventory(
     indexed=None,
     policy_version: str = DEFAULT_POLICY_VERSION,
     qc_policy: Dict[str, Any] | None = None,
+    enumerated: int | None = None,
 ) -> Path:
     """Write what stage 2 enumerated, and what merely ordered the search.
 
@@ -486,6 +536,8 @@ def record_stage2_inventory(
                 policy_version=policy_version,
                 generation=generation,
             )
+        if enumerated is not None:
+            inventory.record_run_fact(condition_id, "enumerated", enumerated)
         inventory.commit()
 
     import logging
@@ -593,30 +645,40 @@ def record_stage3_policy(path, condition_id: str, carried, rejected, policy: str
 def design_counts(path, condition_id: str) -> Dict[str, int]:
     """The six distinctions the funnel could not express.
 
-    `counted` and `assessed` differ when enumeration outruns judgement.
-    `hard_qc_passed` is eligibility. `shortlisted` and `indexed` are what the
-    ranking and the retention policy did. `examined` is what actually reached
-    the optimizer. Reporting one of these and labelling it as the pool is what
-    made a 90% ranking loss invisible.
+    `counted` is the enumerated universe and `assessed` the survivors written
+    here, so they differ when enumeration outruns judgement. `hard_qc_passed` is
+    eligibility under this condition, its current policy and the newest
+    generation. `shortlisted` and `indexed` are what the ranking and the
+    retention policy did. `carried_to_stage3` is what an efficacy filter kept.
+    `examined` is what a search actually evaluated. Reporting one of these and
+    labelling it as the pool is what made a 90% ranking loss invisible.
+
+    `counted` and `examined` are `None` when nobody recorded them, which is the
+    current state of `examined`: no search reports its evaluations yet. An
+    absent count says nobody measured it; a substituted one cannot be told from
+    a measurement.
     """
     with CandidateInventory(path) as inventory:
-        base = inventory.counts()
+        base = inventory.counts(condition_id)
         shortlisted = indexed = 0
         for (metrics_json,) in inventory._connection.execute("SELECT metrics_json FROM candidates"):
             metrics = json.loads(metrics_json)
             shortlisted += 1 if metrics.get("shortlisted") else 0
             indexed += 1 if metrics.get("indexed") else 0
-        examined = inventory._connection.execute(
+        carried = inventory._connection.execute(
             "SELECT COUNT(DISTINCT sequence) FROM assessments "
             "WHERE condition_id = ? AND passed = 1 AND policy_version LIKE ?",
             (condition_id, f"{STAGE3_POLICY_PREFIX}%"),
         ).fetchone()[0]
+        counted = inventory.run_fact(condition_id, "enumerated")
+        examined = inventory.run_fact(condition_id, "examined")
     return {
-        "counted": base["candidates"],
+        "counted": counted,
         "assessed": base["assessed"],
         "hard_qc_passed": base["hard_qc_passed"],
         "shortlisted": shortlisted,
         "indexed": indexed,
+        "carried_to_stage3": carried,
         "examined": examined,
     }
 
@@ -630,15 +692,22 @@ def report_design_counts(path, condition_id: str) -> Dict[str, int]:
     import logging
 
     counts = design_counts(path, condition_id)
+
+    def shown(name):
+        """`unknown` rather than a zero, which would read as a measurement."""
+        value = counts[name]
+        return "unknown" if value is None else str(value)
+
     logging.getLogger(__name__).info(
-        "Design counts: counted=%d assessed=%d hard_qc_passed=%d shortlisted=%d "
-        "indexed=%d examined=%d",
-        counts["counted"],
-        counts["assessed"],
-        counts["hard_qc_passed"],
-        counts["shortlisted"],
-        counts["indexed"],
-        counts["examined"],
+        "Design counts: counted=%s assessed=%s hard_qc_passed=%s shortlisted=%s "
+        "indexed=%s carried_to_stage3=%s examined=%s",
+        shown("counted"),
+        shown("assessed"),
+        shown("hard_qc_passed"),
+        shown("shortlisted"),
+        shown("indexed"),
+        shown("carried_to_stage3"),
+        shown("examined"),
     )
     return counts
 

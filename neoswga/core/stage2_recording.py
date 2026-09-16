@@ -19,12 +19,17 @@ from neoswga.core import parameter
 logger = logging.getLogger(__name__)
 
 
-def _record_run_inventory(cleared_hard_gates, after_gini, shortlisted, indexed):
+def _record_run_inventory(cleared_hard_gates, after_gini, shortlisted, indexed, enumerated=None):
     """Durably record what this filter run enumerated and what it merely ranked.
 
     Keyed on the reaction chemistry and on the admission rules actually in
     force, so a re-run under different thresholds opens its own generation
     instead of leaving the previous run's verdicts selectable.
+
+    `enumerated` is the size of the universe these survivors came from. It has
+    to be passed in: rows are written only once a candidate has cleared hard QC,
+    so counting them answers a different question, and that difference is the
+    one the filter funnel used to hide.
     """
     from neoswga.core.candidate_inventory import record_stage2_inventory
     from neoswga.core.filter import _get_reaction_conditions
@@ -38,6 +43,7 @@ def _record_run_inventory(cleared_hard_gates, after_gini, shortlisted, indexed):
         shortlisted=shortlisted,
         indexed=indexed,
         qc_policy=resolved_qc_policy(),
+        enumerated=enumerated,
     )
 
 
@@ -84,7 +90,9 @@ def _index_background_by_retention(
     return to_index
 
 
-def _index_and_record(cleared_hard_gates, after_gini, shortlisted, bg_prefixes, bg_genomes):
+def _index_and_record(
+    cleared_hard_gates, after_gini, shortlisted, bg_prefixes, bg_genomes, enumerated=None
+):
     """Index the background, record the inventory, then let the guard decide.
 
     The order is the point. `check_gini_stage_kept_something` refuses to leave a
@@ -108,6 +116,8 @@ def _index_and_record(cleared_hard_gates, after_gini, shortlisted, bg_prefixes, 
     indexed = _index_background_by_retention(
         cleared_hard_gates, after_gini, shortlisted, bg_prefixes, bg_genomes
     )
-    _record_run_inventory(cleared_hard_gates, after_gini, shortlisted, indexed)
+    _record_run_inventory(
+        cleared_hard_gates, after_gini, shortlisted, indexed, enumerated=enumerated
+    )
     check_gini_stage_kept_something(cleared_hard_gates, after_gini)
     return indexed
