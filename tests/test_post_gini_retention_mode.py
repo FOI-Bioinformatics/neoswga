@@ -113,3 +113,25 @@ def test_the_pipeline_passes_the_post_gini_frame_through():
     names = [getattr(a, "id", None) for a in calls[0].args]
     assert "gini_df" in names, "the post-Gini frame does not reach the retention policy"
     assert "filtered_rate_df" in names
+
+
+def test_a_config_still_naming_the_removed_mode_is_told_what_replaced_it():
+    """A bare enum error says the config is wrong, not that it used to be right."""
+    from neoswga.core.param_validator import ParamValidator
+
+    messages = ParamValidator().validate_params({"candidate_retention": "legacy"})
+    about = [m for m in messages if m.parameter == "candidate_retention"]
+
+    assert about, "the removed mode produced no message naming the parameter"
+    text = " ".join(m.message for m in about)
+    assert "removed" in text
+    assert "post_gini" in text
+    assert "empty background" in text, "the reason it went is the useful half"
+
+
+def test_a_current_mode_draws_no_such_message():
+    from neoswga.core.param_validator import ParamValidator
+
+    messages = ParamValidator().validate_params({"candidate_retention": "post_gini"})
+
+    assert not [m for m in messages if "was removed" in m.message]

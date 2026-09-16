@@ -15,7 +15,9 @@ import sys
 import time
 
 EX = pathlib.Path("examples/wolbachia_pool_design")
-OUT = EX / "benchmark_2026-09-16"
+# A fresh output directory per run, so an earlier comparison is preserved
+# rather than overwritten by the next one.
+OUT = EX / (sys.argv[1] if len(sys.argv) > 1 else "benchmark_2026-09-16")
 OUT.mkdir(exist_ok=True)
 base = json.loads((EX / "params.json").read_text())
 
@@ -53,7 +55,7 @@ def counts_from(log):
 
 
 results = {}
-for mode in ("post_gini", "all_qc"):
+for mode in (sys.argv[2].split(",") if len(sys.argv) > 2 else ("post_gini", "all_qc")):
     d = OUT / mode
     if d.exists():
         shutil.rmtree(d)
