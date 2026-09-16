@@ -1183,17 +1183,24 @@ def _index_background_by_retention(
         filtered_rate_df["primer"], retention, after_gini=gini_df["primer"]
     )
     _scan_background_positions(to_index, bg_prefixes, bg_genomes)
+    # Name the mode that was NOT used. Naming the active one made the sentence
+    # read as a hypothetical about what had just happened: under 'post_gini' it
+    # said "'post_gini' would index 20670" beside having indexed exactly that.
+    alternative = {
+        "all_qc": f"'post_gini' would index the {len(gini_df)} that also cleared "
+        "the evenness gate",
+        "post_gini": f"'all_qc' would index all {len(filtered_rate_df)}",
+    }.get(retention, "no other mode is configured")
     logger.info(
         "Background index: %d of %d hard-QC candidates indexed under "
-        "candidate_retention=%r; 'post_gini' would index the %d that cleared "
-        "the evenness gate. The %d-candidate max_primer shortlist no longer "
-        "bounds the index: a candidate the ranking cut used to have no "
+        "candidate_retention=%r; %s. The %d-candidate max_primer shortlist no "
+        "longer bounds the index: a candidate the ranking cut used to have no "
         "background index at all, which scores as perfect specificity rather "
         "than as a missing measurement.",
         len(to_index),
         len(filtered_rate_df),
         retention,
-        len(gini_df),
+        alternative,
         len(filtered_gini_df),
     )
     return to_index
