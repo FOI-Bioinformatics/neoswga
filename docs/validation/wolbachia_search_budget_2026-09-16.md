@@ -12,6 +12,18 @@ Reproduce with `scripts/benchmarking/wolbachia_search_budget.py`. Raw numbers in
 knob. It moves the delivered panel along the trade-off in the direction the
 objective points, and on this design it moves it a long way.
 
+> **Correction, 2026-09-17.** The 10,000 and 100,000 columns below are not a
+> budget comparison. Re-measured on the same pair, `refine_by_swaps` stops on
+> `OptimizerConfig.swap_max_seconds` (10.0 s, no CLI flag) rather than on
+> `swap_max_evaluations` at both of those settings, reporting `time_limit` and
+> spending about 7,400 and 8,900 evaluations against budgets of 100,000 and
+> 10,000. Neither run reached its budget, so whatever separates those two
+> columns, it is not the evaluation budget. The floor of 1.0 used here also
+> means the repair was never attempted, so the objective was evaluated once per
+> row. See
+> [what_actually_bounds_the_search_2026-09-17.md](what_actually_bounds_the_search_2026-09-17.md).
+> The 1,000 column is below the evaluation count and is a real budget bound.
+
 ## What was run
 
 wMel `NC_002978.6` against the Drosophila `GCF_000001215.4` background, counted

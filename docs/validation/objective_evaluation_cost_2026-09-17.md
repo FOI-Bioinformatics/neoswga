@@ -94,6 +94,20 @@ which function dominates and the wrong one for deciding what is affordable --
 and it is the wrong tool for the first job too when it silently runs a different
 code path, which is what happened here.
 
+## The scan this prices has no production caller
+
+**Added 2026-09-17.** Nothing in `neoswga/` passes `objective=` to
+`optimize_greedy`. The greedy scores on coverage bins, and the two reachable
+objective-scored searches are the swap repair and the beam, both already
+budgeted. The arithmetic above is correct and the architectural conclusion
+follows from it, but it prices a scan a user cannot currently run.
+
+Measured on the same pair, one `plan-pool` size row makes ONE objective
+evaluation when no constraint binds, and about 3,200 when the repair fires.
+Neither is 491,836. See
+[what_actually_bounds_the_search_2026-09-17.md](what_actually_bounds_the_search_2026-09-17.md),
+which also finds that the exposed evaluation budget is not what stops the loop.
+
 ## What this does not say
 
 - It does not say the greedy is slow today. The greedy scores on coverage bins,
