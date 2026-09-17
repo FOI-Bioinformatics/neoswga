@@ -63,6 +63,15 @@ what follows is only what the filenames do not tell you.
   rather than raising, so what was configured is always enforced;
   `tests/test_one_dimer_screen_for_every_pool_size.py` holds a shrinking
   allowlist of the sites that legitimately build a dense matrix.
+- **`candidate_source.py`**: where a command's candidates come from, and in
+  what order. `open_source_or_list` is the one rule all three commands ask:
+  the inventory when the directory has one, the supplied list otherwise, with
+  the frontier opening at the list's own size so no delivered panel moves.
+  `plan-pool`, `optimize` and `expand-primers` each read `step3_df.csv` for
+  themselves before Phase 4 (audit finding F1), which made everything the
+  inventory retained beyond the `max_primer` shortlist unreachable.
+  `order_candidates_by_background` lives here too, because ordering the scan is
+  the same concern as choosing it.
 - **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
   than re-reading the HDF5 files. The constructor takes a fixed primer list;
   `load` and `release` move that window afterwards, which is what a frontier

@@ -31,11 +31,15 @@ that make the difference visible.
 
 from __future__ import annotations
 
+import logging
+import math
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
 from neoswga.core.candidate_inventory import STAGE2_INVENTORY_NAME
 from neoswga.core.position_cache import MissingPositionsError
+
+logger = logging.getLogger(__name__)
 
 # Why a search ran out of candidates, and they call for opposite responses.
 #
@@ -267,3 +271,121 @@ def open_candidate_source(
             "under the chemistry you are designing for."
         )
     return InventoryCandidateSource(provider, frontier=frontier)
+
+
+def open_source_or_list(data_dir, condition_id, lengths, fallback, explicit=False):
+    """The inventory when this directory has one, the supplied list otherwise.
+
+    One rule for every command, because three copies of "which pool am I
+    searching" would drift while each stayed self-consistent. `plan-pool`,
+    `optimize` and `expand-primers` all read `step3_df.csv` for themselves
+    before this: the inventory holds every candidate that cleared hard QC and
+    the CSV holds the `max_primer` shortlist, so reading the CSV directly made
+    the rest unreachable. Audit finding F1 named all three.
+
+    `explicit` marks a pool the user named, with `--candidates` or equivalent.
+    That always wins: quietly searching a different pool would be worse than
+    useless.
+
+    The frontier opens at exactly the size of `fallback`, the list the command
+    would have read anyway, which is the choice increment 1 made for
+    `plan-pool`. It keeps delivered panels where they were while making the
+    counts visible, and increment 5's refill is what reaches past it.
+
+    A fingerprint the inventory holds nothing for falls back to the list rather
+    than designing over nothing, and says so: a mismatch is how the inventory
+    read as empty when `plan-pool` first opened it.
+    """
+    pool = list(fallback)
+    if explicit:
+        logger.info("Searching the %d candidates named on the command line.", len(pool))
+        return ListCandidateSource(pool)
+
+    try:
+        source = open_candidate_source(data_dir, condition_id, lengths, frontier=len(pool) or None)
+    except ValueError as exc:
+        logger.info("Searching the candidate list: %s", exc)
+        return ListCandidateSource(pool)
+
+    described = source.describe()
+    frontier = described["frontier"] or described["universe"]
+    logger.info(
+        "Candidate universe: %d eligible in the inventory; this run will search a "
+        "frontier of %d, leaving %d unexamined.",
+        described["universe"],
+        frontier,
+        max(0, described["universe"] - frontier),
+    )
+    return source
+
+
+def order_candidates_by_background(
+    cache,
+    candidates,
+    fg_prefixes,
+    bg_prefixes,
+    min_ratio=1.0,
+    verbose=False,
+):
+    """Put the candidates that bind the host least in front, delete none.
+
+    Replaces `_prefilter_by_background`, which deleted, on 2026-09-17. Two
+    measurements retired it.
+
+    `--min-fg-bg-ratio` was inert. The old function kept every candidate at or
+    above the ratio and then, if that removed more than `max_removal_fraction`
+    of them, discarded the threshold and kept the top 80% by ratio instead. On
+    the real Wolbachia shortlist the threshold removes 64.8% at its default of
+    1.0, so the clause fired and exactly 400 of 2,000 went; it fired identically
+    at 2.0 and at 5.0. The flag changed nothing above about 1.0, and the rule
+    actually in force was "always drop the worst 20%".
+
+    And which candidates survived depended on how many others happened to be in
+    the same batch, because a bound on the fraction of a batch is not a rule
+    about candidates.
+
+    Ordering has neither problem. After Phase 4 increment 5 a candidate at the
+    back of the scan is still reachable, because the frontier refills; deleting
+    one is final, which is the shape of Known Issue 9, where an evenness gate
+    removed primers the optimizer had already selected.
+
+    The partition is STABLE, so the order within each group is the order the
+    candidates arrived in. That order is the inventory's `search_rank`, which
+    increment 5 established as the traversal, and the optimizers are
+    order-sensitive; a full re-sort by ratio would discard it.
+
+    Returns `(ordered, rejected)`, where `rejected` maps each deprioritised
+    candidate to the reason. Nothing is removed from `ordered`.
+    """
+    if not math.isfinite(min_ratio) or min_ratio < 0:
+        raise ValueError(f"min_ratio must be a finite non-negative number, not {min_ratio!r}")
+
+    pool = list(candidates)
+    if not pool or not bg_prefixes:
+        # With no background there is no ratio to order on, and inventing one
+        # would be worse than leaving the caller's order alone.
+        return pool, {}
+
+    ahead, behind, rejected = [], [], {}
+    for primer in pool:
+        fg_count = sum(len(cache.get_positions(p, primer, "both")) for p in fg_prefixes)
+        bg_count = sum(len(cache.get_positions(p, primer, "both")) for p in bg_prefixes)
+        ratio = fg_count / (bg_count + 1)
+        if ratio >= min_ratio:
+            ahead.append(primer)
+        else:
+            behind.append(primer)
+            rejected[primer] = (
+                f"fg/bg binding ratio {ratio:.3f} is below the {min_ratio} threshold; "
+                f"searched last rather than removed"
+            )
+
+    if rejected and verbose:
+        logger.info(
+            "  Background ordering: %d of %d candidates fall below the %s fg/bg "
+            "ratio and are searched last. None are removed.",
+            len(rejected),
+            len(pool),
+            min_ratio,
+        )
+    return ahead + behind, rejected

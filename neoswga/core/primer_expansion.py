@@ -725,8 +725,19 @@ def expand_primers(
             f"Step 3 output not found: {step3_path}. Run 'neoswga score' first."
         )
 
-    step3_df = pd.read_csv(step3_path)
-    candidates = step3_df["primer"].tolist()
+    # Through the shared source. `expand-primers` exists to add primers to an
+    # existing panel, so the pool it may draw from is the whole point, and the
+    # CSV shortlist is a fraction of what the inventory retains.
+    from neoswga.core.candidate_source import open_source_or_list
+
+    shortlist = pd.read_csv(step3_path)["primer"].astype(str).tolist()
+    candidate_source = open_source_or_list(
+        data_dir,
+        conditions.fingerprint() if hasattr(conditions, "fingerprint") else "",
+        sorted({len(p) for p in shortlist}),
+        fallback=shortlist,
+    )
+    candidates = candidate_source.initial()
 
     # Initialize position cache
     # Built over the background prefixes too. `get_positions` answers a

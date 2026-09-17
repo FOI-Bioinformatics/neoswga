@@ -21,7 +21,6 @@ Usage:
 
 import json
 import logging
-import math
 import os
 import threading
 from dataclasses import dataclass
@@ -31,6 +30,7 @@ import pandas as pd
 
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
+from .candidate_source import order_candidates_by_background
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
 from .position_cache import PositionCache, StreamingPositionCache
@@ -140,78 +140,6 @@ def _ensure_optimizers_registered():
 
         _optimizers_registered = True
         logger.debug("Optimizer registration complete")
-
-
-def order_candidates_by_background(
-    cache,
-    candidates,
-    fg_prefixes,
-    bg_prefixes,
-    min_ratio=1.0,
-    verbose=False,
-):
-    """Put the candidates that bind the host least in front, delete none.
-
-    Replaces `_prefilter_by_background`, which deleted, on 2026-09-17. Two
-    measurements retired it.
-
-    `--min-fg-bg-ratio` was inert. The old function kept every candidate at or
-    above the ratio and then, if that removed more than `max_removal_fraction`
-    of them, discarded the threshold and kept the top 80% by ratio instead. On
-    the real Wolbachia shortlist the threshold removes 64.8% at its default of
-    1.0, so the clause fired and exactly 400 of 2,000 went; it fired identically
-    at 2.0 and at 5.0. The flag changed nothing above about 1.0, and the rule
-    actually in force was "always drop the worst 20%".
-
-    And which candidates survived depended on how many others happened to be in
-    the same batch, because a bound on the fraction of a batch is not a rule
-    about candidates.
-
-    Ordering has neither problem. After Phase 4 increment 5 a candidate at the
-    back of the scan is still reachable, because the frontier refills; deleting
-    one is final, which is the shape of Known Issue 9, where an evenness gate
-    removed primers the optimizer had already selected.
-
-    The partition is STABLE, so the order within each group is the order the
-    candidates arrived in. That order is the inventory's `search_rank`, which
-    increment 5 established as the traversal, and the optimizers are
-    order-sensitive; a full re-sort by ratio would discard it.
-
-    Returns `(ordered, rejected)`, where `rejected` maps each deprioritised
-    candidate to the reason. Nothing is removed from `ordered`.
-    """
-    if not math.isfinite(min_ratio) or min_ratio < 0:
-        raise ValueError(f"min_ratio must be a finite non-negative number, not {min_ratio!r}")
-
-    pool = list(candidates)
-    if not pool or not bg_prefixes:
-        # With no background there is no ratio to order on, and inventing one
-        # would be worse than leaving the caller's order alone.
-        return pool, {}
-
-    ahead, behind, rejected = [], [], {}
-    for primer in pool:
-        fg_count = sum(len(cache.get_positions(p, primer, "both")) for p in fg_prefixes)
-        bg_count = sum(len(cache.get_positions(p, primer, "both")) for p in bg_prefixes)
-        ratio = fg_count / (bg_count + 1)
-        if ratio >= min_ratio:
-            ahead.append(primer)
-        else:
-            behind.append(primer)
-            rejected[primer] = (
-                f"fg/bg binding ratio {ratio:.3f} is below the {min_ratio} threshold; "
-                f"searched last rather than removed"
-            )
-
-    if rejected and verbose:
-        logger.info(
-            "  Background ordering: %d of %d candidates fall below the %s fg/bg "
-            "ratio and are searched last. None are removed.",
-            len(rejected),
-            len(pool),
-            min_ratio,
-        )
-    return ahead + behind, rejected
 
 
 def _reseed(seed) -> None:
@@ -858,6 +786,41 @@ def _minimize_primer_count(result, optimizer, target_coverage: float, verbose: b
         return result
 
 
+def _pool_for_this_run(fg_prefixes, conditions):
+    """The candidates `optimize` may select, when the caller named none.
+
+    Through the shared source rather than straight out of `step3_df.csv`. The
+    inventory holds every candidate that cleared hard QC and the CSV holds the
+    `max_primer` shortlist, so reading the CSV here made the rest unreachable
+    however large the inventory was: audit finding F1 named this call site,
+    `expand-primers` and `plan-pool`, and this is the last of the three.
+
+    The frontier opens at the shortlist's own size, so this changes no delivered
+    panel. What it adds is the counts and the seam increment 5's refill reaches
+    past.
+
+    The step-4 prerequisites are checked first, because without them the
+    position cache falls back to `on_missing="warn"`, which calls the coverage
+    number meaningless and then lets the run report one anyway.
+    """
+    from .candidate_source import open_source_or_list
+    from .pipeline import StepPrerequisiteError, validate_step4_prerequisites
+
+    validation = validate_step4_prerequisites(parameter.data_dir, list(fg_prefixes or []))
+    if not validation.valid:
+        raise StepPrerequisiteError(4, validation)
+
+    step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
+    shortlist = pd.read_csv(step3_path)["primer"].astype(str).tolist()
+    source = open_source_or_list(
+        parameter.data_dir,
+        conditions.fingerprint() if hasattr(conditions, "fingerprint") else "",
+        sorted({len(primer) for primer in shortlist}),
+        fallback=shortlist,
+    )
+    return source.initial()
+
+
 def run_optimization(
     method: str = "hybrid",
     candidates: Optional[List[str]] = None,
@@ -968,15 +931,7 @@ def run_optimization(
     # low" and then lets the run select a set and report it.
     _pool_read_from_step3 = candidates is None
     if candidates is None:
-        from .pipeline import StepPrerequisiteError, validate_step4_prerequisites
-
-        validation = validate_step4_prerequisites(parameter.data_dir, list(fg_prefixes or []))
-        if not validation.valid:
-            raise StepPrerequisiteError(4, validation)
-
-        step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
-        step3_df = pd.read_csv(step3_path)
-        candidates = step3_df["primer"].tolist()
+        candidates = _pool_for_this_run(fg_prefixes, conditions)
 
     # Empty candidate pool guard: downstream optimizers behave inconsistently
     # on an empty pool (some raise, some return an empty result without saying
