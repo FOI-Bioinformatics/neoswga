@@ -21,6 +21,7 @@ Usage:
 
 import json
 import logging
+import math
 import os
 import threading
 from dataclasses import dataclass
@@ -141,54 +142,76 @@ def _ensure_optimizers_registered():
         logger.debug("Optimizer registration complete")
 
 
-def _prefilter_by_background(
+def order_candidates_by_background(
     cache,
     candidates,
     fg_prefixes,
     bg_prefixes,
     min_ratio=1.0,
-    max_removal_fraction=0.20,
     verbose=False,
 ):
-    """Remove candidates with poor foreground/background binding ratio.
+    """Put the candidates that bind the host least in front, delete none.
 
-    Keeps all primers with ratio >= min_ratio. If that would remove more
-    than max_removal_fraction of candidates, keeps the top
-    (1 - max_removal_fraction) by ratio instead.
+    Replaces `_prefilter_by_background`, which deleted, on 2026-09-17. Two
+    measurements retired it.
 
-    Args:
-        cache: PositionCache with loaded positions
-        candidates: List of candidate primer sequences
-        fg_prefixes: Foreground genome prefixes
-        bg_prefixes: Background genome prefixes
-        min_ratio: Minimum fg/bg ratio to keep (default 1.0)
-        max_removal_fraction: Maximum fraction of candidates to remove (default 0.20)
-        verbose: Log filtering details
+    `--min-fg-bg-ratio` was inert. The old function kept every candidate at or
+    above the ratio and then, if that removed more than `max_removal_fraction`
+    of them, discarded the threshold and kept the top 80% by ratio instead. On
+    the real Wolbachia shortlist the threshold removes 64.8% at its default of
+    1.0, so the clause fired and exactly 400 of 2,000 went; it fired identically
+    at 2.0 and at 5.0. The flag changed nothing above about 1.0, and the rule
+    actually in force was "always drop the worst 20%".
 
-    Returns:
-        Filtered list of candidates (never empty)
+    And which candidates survived depended on how many others happened to be in
+    the same batch, because a bound on the fraction of a batch is not a rule
+    about candidates.
+
+    Ordering has neither problem. After Phase 4 increment 5 a candidate at the
+    back of the scan is still reachable, because the frontier refills; deleting
+    one is final, which is the shape of Known Issue 9, where an evenness gate
+    removed primers the optimizer had already selected.
+
+    The partition is STABLE, so the order within each group is the order the
+    candidates arrived in. That order is the inventory's `search_rank`, which
+    increment 5 established as the traversal, and the optimizers are
+    order-sensitive; a full re-sort by ratio would discard it.
+
+    Returns `(ordered, rejected)`, where `rejected` maps each deprioritised
+    candidate to the reason. Nothing is removed from `ordered`.
     """
-    ratios = []
-    for primer in candidates:
+    if not math.isfinite(min_ratio) or min_ratio < 0:
+        raise ValueError(f"min_ratio must be a finite non-negative number, not {min_ratio!r}")
+
+    pool = list(candidates)
+    if not pool or not bg_prefixes:
+        # With no background there is no ratio to order on, and inventing one
+        # would be worse than leaving the caller's order alone.
+        return pool, {}
+
+    ahead, behind, rejected = [], [], {}
+    for primer in pool:
         fg_count = sum(len(cache.get_positions(p, primer, "both")) for p in fg_prefixes)
         bg_count = sum(len(cache.get_positions(p, primer, "both")) for p in bg_prefixes)
-        ratios.append((fg_count / (bg_count + 1), primer))
+        ratio = fg_count / (bg_count + 1)
+        if ratio >= min_ratio:
+            ahead.append(primer)
+        else:
+            behind.append(primer)
+            rejected[primer] = (
+                f"fg/bg binding ratio {ratio:.3f} is below the {min_ratio} threshold; "
+                f"searched last rather than removed"
+            )
 
-    # Keep primers above threshold
-    above = [(r, p) for r, p in ratios if r >= min_ratio]
-
-    # Ensure we don't remove too many
-    min_keep = int(len(candidates) * (1 - max_removal_fraction))
-    if len(above) < min_keep:
-        ratios.sort(reverse=True)
-        above = ratios[:min_keep]
-
-    filtered = [p for _, p in above]
-    removed = len(candidates) - len(filtered)
-    if removed > 0 and verbose:
-        logger.info(f"  Background pre-filter: removed {removed} candidates with poor fg/bg ratio")
-
-    return filtered if filtered else candidates  # never return empty
+    if rejected and verbose:
+        logger.info(
+            "  Background ordering: %d of %d candidates fall below the %s fg/bg "
+            "ratio and are searched last. None are removed.",
+            len(rejected),
+            len(pool),
+            min_ratio,
+        )
+    return ahead + behind, rejected
 
 
 def _reseed(seed) -> None:
@@ -1012,18 +1035,16 @@ def run_optimization(
         cache, fg_prefixes, len(candidates), refuse=_pool_read_from_step3
     )
 
-    # Optional: pre-filter candidates by fg/bg binding ratio
+    # Orders by fg/bg ratio; deletes nothing. See order_candidates_by_background
+    # for why it used to delete and why `bg_max_removal` went with that.
     if bg_prefixes and kwargs.get("bg_prefilter", True):
-        candidates = _prefilter_by_background(
+        candidates, _deprioritised = order_candidates_by_background(
             cache,
             candidates,
             fg_prefixes,
             bg_prefixes,
-            # `or` rather than a `.get` default: the CLI now forwards these,
-            # and forwards None when the flag was not given, which a bare
-            # `.get(name, default)` would hand straight through as None.
+            # `or` not `.get` default: the CLI forwards None for an unset flag.
             min_ratio=kwargs.get("bg_min_ratio") or 1.0,
-            max_removal_fraction=kwargs.get("bg_max_removal") or 0.20,
             verbose=verbose,
         )
 

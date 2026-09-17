@@ -649,6 +649,30 @@ in Phase 4 increment 6; it was audit finding F4, parsed and documented and read
 by nothing, and its entries are now gone from both the inert-option and
 unreachable-capability allowlists.
 
+**`--min-fg-bg-ratio` was read and then overruled** -- FIXED 2026-09-17.
+`optimize`'s background prefilter kept every candidate at or above the ratio,
+then, if that removed more than `max_removal_fraction` of them, discarded the
+threshold and kept the top 80% by ratio instead. On the 2,000-candidate
+Wolbachia shortlist the threshold removes 64.8% at its default of 1.0, so the
+clause fired at 1.0, 2.0, 5.0 and 20.0 and removed exactly 400 every time. The
+flag changed nothing above about 1.0 and the rule in force was "drop the worst
+20%".
+
+That is the Known Issue 8 class in a shape none of its ratchets look for: not a
+flag nobody reads, but a flag that is read and then overruled by a second rule
+on the same decision. `max_removal_fraction` was also a bound on the fraction
+of a BATCH, so which candidates survived depended on how many others were below
+the threshold alongside them.
+
+`order_candidates_by_background` replaces it. Candidates at or above the ratio
+are searched first and the rest are searched last; nothing is deleted, so the
+400 the old path made unreachable at every setting are reachable again, which
+matters because increment 5's refill can now reach them. The partition is
+stable, preserving the inventory's `search_rank` traversal. Delivered panel on
+the measured design: 11 of 12 primers shared, Jaccard 0.846
+([measurement](docs/validation/background_ordering_2026-09-17.md)).
+`bg_max_removal` is retired with the clause.
+
 8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
    (audit finding F1b). The key was declared in `params.schema.json`,
    documented above, accepted by the validator, and read by nothing:
