@@ -712,6 +712,15 @@ class OptimizerConfig:
     # None restores the unbounded scan. See
     # docs/validation/scan_width_2026-09-17.md.
     objective_scan_width: int | None = 64
+    # How many times a size row may widen the candidate frontier when it cannot
+    # satisfy its constraints. The inventory holds every candidate that cleared
+    # hard QC -- 20,670 on the Wolbachia design against a 2,000 shortlist -- and
+    # without a refill the rest could not affect any panel.
+    #
+    # Each refill doubles the frontier, so four reach the whole Wolbachia
+    # universe, and a row that already qualifies never refills at all. 0
+    # reproduces the behaviour before this existed.
+    max_frontier_refills: int = 4
     # Self-dimer threshold. The clique optimizer reached for this with
     # `getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)` and the
     # fallback fired every time, because the field did not exist -- so a
@@ -762,6 +771,18 @@ class OptimizerConfig:
             raise ValueError("Beam budgets must be finite and non-negative")
         if not isinstance(self.allow_dimer_relaxation, bool):
             raise ValueError("allow_dimer_relaxation must be a boolean")
+        if (
+            not isinstance(self.max_frontier_refills, int)
+            or isinstance(self.max_frontier_refills, bool)
+            or self.max_frontier_refills < 0
+        ):
+            raise ValueError("max_frontier_refills must be a non-negative integer")
+        if self.objective_scan_width is not None and (
+            not isinstance(self.objective_scan_width, int)
+            or isinstance(self.objective_scan_width, bool)
+            or self.objective_scan_width < 1
+        ):
+            raise ValueError("objective_scan_width must be a positive integer or None")
         if self.target_set_size < 1:
             raise ValueError(f"target_set_size must be >= 1, got {self.target_set_size}")
         if self.max_iterations < 1:

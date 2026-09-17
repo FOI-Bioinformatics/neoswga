@@ -125,6 +125,20 @@ leaves the repair unattempted and every width identical, which measures nothing,
 so it defaults to a value that binds on the bundled Wolbachia design. See
 [scan_width_2026-09-17.md](../../docs/validation/scan_width_2026-09-17.md).
 
+### `frontier_refill_sweep.py` -- does searching more candidates change the panel
+
+Phase 4 increment 5's acceptance measurement. Runs one size row with refilling
+off and on and reports refills used, which exhaustion ended it, how much of the
+universe was examined, and the delivered coverage and density.
+
+```bash
+python scripts/benchmarking/frontier_refill_sweep.py 100.0 <design_dir>
+```
+
+The floor matters: a row that qualifies never refills, so a floor the shortlist
+already meets measures nothing. See
+[frontier_refill_2026-09-17.md](../../docs/validation/frontier_refill_2026-09-17.md).
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate

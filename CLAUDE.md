@@ -449,6 +449,23 @@ relatively.
   reintroduce the blindness the bound removes. Where no constraint binds the
   repair never runs and every width returns the same panel.
   ([measurement](docs/validation/scan_width_2026-09-17.md))
+- `max_frontier_refills`: How many times a size row may widen the candidate
+  frontier when it cannot satisfy its constraints (default 4; 0 restores the
+  single-frontier behaviour). The inventory holds every candidate that cleared
+  hard QC, 20,670 on the Wolbachia design against a 2,000 shortlist, and
+  `advance()` returned False from the day it was written, so the rest could not
+  affect any panel. Each refill doubles the frontier, so four reach that whole
+  universe, and a row that already qualifies never refills: at floors of 40 and
+  60 the delivered panel and the runtime are unchanged. At a floor of 100, which
+  the shortlist cannot reach, the run examines all 20,670 and reports
+  `inventory_exhausted` rather than `frontier_exhausted` after looking at under
+  a tenth of what it was allowed to reach. The row carries `frontier_refills`
+  and `candidates_exhausted`; the widened frontier is vetted through increment
+  3's position check rather than assumed.
+  ([measurement](docs/validation/frontier_refill_2026-09-17.md), which also
+  records a pre-existing objective defect this makes reachable: two panels
+  failing the same single constraint tie on violation COUNT, so coverage breaks
+  the tie and the deciding metric drifts the wrong way.)
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
   again, so each is a different set rather than a reordering. They are numbered
