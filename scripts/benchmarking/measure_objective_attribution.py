@@ -5,9 +5,12 @@ price. It was written because the cost note blamed the 144 Mb background, and
 the measurement says the background is 16% of it while the occupancy weighting
 is 95%.
 
-Point DESIGN at a directory that has been through count-kmers, filter and
-score. Nothing is written; the run takes about a minute once the index is
-loaded, most of it in PositionCache construction.
+Usage: measure_objective_attribution.py [design_dir]
+
+The design directory must have been through count-kmers, filter and score; the
+position indexes it reads are too large to commit. Nothing is written; the run
+takes about a minute once the index is loaded, most of it in PositionCache
+construction.
 
 See docs/validation/objective_evaluation_cost_2026-09-17.md and
 docs/validation/parallelism_opportunities_2026-09-17.md.

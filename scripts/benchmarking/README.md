@@ -74,6 +74,42 @@ directories must be new. `--timeout` covers a complete worker;
 See [the measured comparison](../../docs/validation/refinement_real_pools_2026-09.md)
 for the available real-genome pools and the limits of those measurements.
 
+## What one panel evaluation costs (added 2026-09-17)
+
+Four scripts, all reading a design directory that has already been through
+`count-kmers`, `filter` and `score`. They read its position indexes and
+candidate inventory, which are hundreds of megabytes and are not committed, so
+the directory has to be built before any of them will run.
+
+### `measure_objective_cost.py` -- the price of one evaluation
+
+Times `PoolObjective.coverage(panel + [candidate])` at panel size 24 and
+projects a full-universe greedy scan from it. Produced the 14.9 ms figure in
+[objective_evaluation_cost_2026-09-17.md](../../docs/validation/objective_evaluation_cost_2026-09-17.md).
+
+### `measure_objective_attribution.py` -- where that price goes
+
+Same evaluation, one variable at a time: occupancy weighting on and off,
+background present and absent, and four panel sizes. Written because the cost
+note blamed the 144 Mb background; the background is 16% of it and the
+occupancy-weighted coverage term is 95%.
+
+### `count_objective_calls.py` -- how often it is actually called
+
+Counts objective cache misses during a real `plan_pool` size row. One when no
+constraint binds, about 3,200 when the repair fires. Also shows that
+`swap_max_seconds` rather than `--swap-max-evaluations` is what stops the loop.
+See [what_actually_bounds_the_search_2026-09-17.md](../../docs/validation/what_actually_bounds_the_search_2026-09-17.md).
+
+### `check_interval_sweep.py` -- a cheaper way to compute it
+
+Compares `_compute_effective_coverage` against the same quantity accumulated
+over window endpoints rather than over bases: 19x to 21x faster, agreeing to
+6e-9, on both linear and circular geometry. A prototype for measurement, not a
+replacement; it does not confine windows to records, and neither does the loop
+it reproduces. See
+[parallelism_opportunities_2026-09-17.md](../../docs/validation/parallelism_opportunities_2026-09-17.md).
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate
