@@ -50,6 +50,19 @@ what follows is only what the filenames do not tell you.
   confines a window to the record holding its site, which is Phase 6's subject
   and is deliberately unchanged here. `coverage.merged_window_intervals` is the
   interval form of `_mark_window` and is tested against it base by base.
+- **`lazy_dimer.py`**: owns the one decision about how to screen dimers.
+  `dimer_screen(pool, max_dimer_bp)` returns the dense `dimer_matrix` below
+  `LAZY_DIMER_POOL_THRESHOLD` (4,000) candidates and the pairwise
+  `LazyDimerCompatibility` above it, and all three searches ask it:
+  `dominating_set_optimizer`, `network_optimizer` and `refine_hybrid_stage2`.
+  The last two built the dense array unconditionally, and `plan-pool` sets
+  `refinement_method="swap"`, so that was on the hot path -- at the 491,836
+  candidates `all_qc` retains the array is about 242 GB, a MemoryError rather
+  than a slowdown (audit finding F11). A threshold the dense form cannot
+  represent, 8 or above in its 4**8 code space, also takes the pairwise branch
+  rather than raising, so what was configured is always enforced;
+  `tests/test_one_dimer_screen_for_every_pool_size.py` holds a shrinking
+  allowlist of the sites that legitimately build a dense matrix.
 - **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
   than re-reading the HDF5 files. The constructor takes a fixed primer list;
   `load` and `release` move that window afterwards, which is what a frontier
@@ -436,6 +449,23 @@ relatively.
   reintroduce the blindness the bound removes. Where no constraint binds the
   repair never runs and every width returns the same panel.
   ([measurement](docs/validation/scan_width_2026-09-17.md))
+- `max_frontier_refills`: How many times a size row may widen the candidate
+  frontier when it cannot satisfy its constraints (default 4; 0 restores the
+  single-frontier behaviour). The inventory holds every candidate that cleared
+  hard QC, 20,670 on the Wolbachia design against a 2,000 shortlist, and
+  `advance()` returned False from the day it was written, so the rest could not
+  affect any panel. Each refill doubles the frontier, so four reach that whole
+  universe, and a row that already qualifies never refills: at floors of 40 and
+  60 the delivered panel and the runtime are unchanged. At a floor of 100, which
+  the shortlist cannot reach, the run examines all 20,670 and reports
+  `inventory_exhausted` rather than `frontier_exhausted` after looking at under
+  a tenth of what it was allowed to reach. The row carries `frontier_refills`
+  and `candidates_exhausted`; the widened frontier is vetted through increment
+  3's position check rather than assumed.
+  ([measurement](docs/validation/frontier_refill_2026-09-17.md), which also
+  records a pre-existing objective defect this makes reachable: two panels
+  failing the same single constraint tie on violation COUNT, so coverage breaks
+  the tie and the deciding metric drifts the wrong way.)
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
   again, so each is a different set rather than a reordering. They are numbered

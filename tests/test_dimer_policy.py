@@ -69,11 +69,20 @@ def test_strict_selection_rejects_incompatible_fixed_primers():
 
 
 def test_unsupported_matrix_threshold_does_not_disable_screen():
+    """A threshold the dense matrix cannot hold is enforced, not refused.
+
+    It used to raise, which prevented silent disabling at the cost of making
+    the threshold unusable. `lazy_dimer.dimer_screen` now routes it to the
+    pairwise screen, which has no 4**8 code-space limit, so what the caller
+    configured is what gets applied. The two sequences are exact reverse
+    complements, a 12 bp run, so they exceed 8 and must still be flagged.
+    """
     from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 
     optimizer = DominatingSetOptimizer(object(), ["fg"], [10000], max_dimer_bp=8)
-    with pytest.raises(ValueError, match="representation"):
-        optimizer._build_dimer_matrix_for_greedy(["AAGGTGCGAATA", "TATTCGCACCTT"])
+    screen = optimizer._build_dimer_matrix_for_greedy(["AAGGTGCGAATA", "TATTCGCACCTT"])
+
+    assert screen.dimerises("AAGGTGCGAATA", ["TATTCGCACCTT"])
 
 
 @pytest.mark.parametrize("method", ["hybrid", "background-aware"])

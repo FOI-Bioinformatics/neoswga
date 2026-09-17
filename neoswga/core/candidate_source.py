@@ -37,6 +37,20 @@ from typing import Iterable, List, Optional, Sequence
 from neoswga.core.candidate_inventory import STAGE2_INVENTORY_NAME
 from neoswga.core.position_cache import MissingPositionsError
 
+# Why a search ran out of candidates, and they call for opposite responses.
+#
+# `inventory_exhausted` used to be reported for both, which is true of the batch
+# a search was handed and false of the inventory behind it. A caller told the
+# inventory is empty stops; a caller told the frontier is empty refills and
+# continues. On the Wolbachia design those differ by 18,670 candidates.
+FRONTIER_EXHAUSTED = "frontier_exhausted"
+INVENTORY_EXHAUSTED = "inventory_exhausted"
+
+# How many candidates a refill adds when the frontier was opened at a size.
+# A refill doubles rather than adding a fixed batch, so reaching a distant
+# candidate costs a logarithmic number of refills rather than a linear one.
+FRONTIER_GROWTH = 2
+
 
 class ListCandidateSource:
     """A fixed list of candidates, exhausted as soon as it is handed over.
@@ -72,6 +86,10 @@ class ListCandidateSource:
 
     def exhausted(self) -> bool:
         return True
+
+    def exhaustion(self) -> str:
+        """Always the inventory: a named pool has nothing behind it."""
+        return INVENTORY_EXHAUSTED
 
     def attach_positions(self, cache) -> None:
         self.position_cache = cache
@@ -129,14 +147,42 @@ class InventoryCandidateSource:
         return list(self._examined)
 
     def advance(self, keep: Iterable[str] = ()) -> bool:
-        """Widen the frontier by one batch. Not yet implemented.
+        """Widen the frontier over the next candidates in recorded order.
 
-        Returning False rather than raising: a caller that asks whether more is
-        available gets an honest no, and the run proceeds on what it has. The
-        counts still say how much of the universe went unexamined, so the answer
-        is visible rather than implied.
+        Returns False only when the frontier already covers the universe, so a
+        False is a real answer about the inventory rather than about a batch.
+
+        The order is the inventory's and this walks it, so a refill extends the
+        window rather than reshuffling it. That matters because the optimizers
+        are order-sensitive: a traversal that changed under refill would make an
+        otherwise reproducible run depend on how many refills it happened to
+        take.
+
+        `keep` names candidates that must remain reachable whatever the window
+        does, which is how a caller protects the panel it has already chosen.
+        They are normally inside the frontier already, having been selected from
+        it, and are added back when they are not.
         """
-        return False
+        ordered = self._provider._eligible_in_search_order()
+        if len(self._examined) >= len(ordered):
+            return False
+
+        target = min(len(ordered), max(len(self._examined) * FRONTIER_GROWTH, 1))
+        if target <= len(self._examined):
+            target = min(len(ordered), len(self._examined) + 1)
+        widened = list(ordered[:target])
+
+        seen = set(widened)
+        for sequence in keep:
+            if sequence not in seen:
+                widened.append(sequence)
+                seen.add(sequence)
+        self._examined = widened
+        return True
+
+    def exhaustion(self) -> str:
+        """Which kind of "nothing left" this source is reporting."""
+        return INVENTORY_EXHAUSTED if self.exhausted() else FRONTIER_EXHAUSTED
 
     def universe_size(self) -> int:
         return len(self._provider._eligible_in_search_order())

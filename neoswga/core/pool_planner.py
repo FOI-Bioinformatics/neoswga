@@ -4,7 +4,7 @@ import math
 import time
 
 from .base_optimizer import OptimizationStatus
-from .candidate_source import as_candidate_source
+from .candidate_source import INVENTORY_EXHAUSTED, as_candidate_source
 from .dimer_validator import DimerValidator
 from .lazy_dimer import LazyDimerCompatibility
 from .panel_beam import beam_search
@@ -212,6 +212,95 @@ def _repair(primers, pool, objective, reasons, config, target=None, bins=None, w
     return list(beam.primers), record
 
 
+def _evaluate_size(
+    requested,
+    optimizer,
+    pool,
+    validator,
+    objective,
+    targets,
+    repair,
+    repair_bins,
+    repair_weights,
+    background_known,
+    progress,
+):
+    """One size row: optimise, assess, repair, and report what happened.
+
+    Extracted so the frontier refill loop can run a size more than once without
+    duplicating any of this.
+    """
+    started = time.monotonic()
+    if progress:
+        progress(requested)
+    result = optimizer.optimize(pool, target_size=requested)
+    primers = list(dict.fromkeys(result.primers))
+    if not primers or result.status not in {
+        OptimizationStatus.SUCCESS,
+        OptimizationStatus.PARTIAL,
+    }:
+        return dict(
+            requested_size=requested,
+            size=len(primers),
+            primers=primers,
+            status="no_panel",
+            message=result.message,
+            eligible=False,
+            coverage=None,
+            seconds=time.monotonic() - started,
+        )
+    if len(primers) > requested or not set(primers).issubset(pool):
+        raise ValueError("Optimizer returned a panel outside the requested candidate/size bounds")
+
+    metrics, coverage, reasons, violations, self_dimers = _assess(objective, validator, primers)
+    repair_record = dict(
+        attempted=False, method=None, reason=None, succeeded=False, swaps=0, evaluations=0
+    )
+    # The most demanding request drives the repair. Repairing to the lowest
+    # would stop as soon as the easiest target was cleared, and every higher
+    # row would report `not_found` beside a panel never asked to reach it.
+    missed = max(targets) if coverage is not None and coverage < max(targets) else None
+    if repair and (reasons or missed is not None):
+        repaired, repair_record = _repair(
+            primers,
+            pool,
+            objective,
+            reasons,
+            optimizer.config,
+            target=missed,
+            bins=repair_bins,
+            weights=repair_weights,
+        )
+        if repaired != primers:
+            primers = repaired
+            metrics, coverage, reasons, violations, self_dimers = _assess(
+                objective, validator, primers
+            )
+    for value in (metrics.fg_coverage, metrics.effective_fg_coverage):
+        if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
+            raise ValueError("Optimizer returned invalid coverage")
+    if background_known and not math.isfinite(metrics.selectivity_density):
+        raise ValueError("Optimizer returned non-finite specificity")
+    return dict(
+        requested_size=requested,
+        size=len(primers),
+        primers=primers,
+        status="evaluated",
+        eligible=not reasons,
+        failed_constraints=reasons,
+        coverage=coverage,
+        raw_coverage=metrics.fg_coverage,
+        effective_coverage=metrics.effective_fg_coverage,
+        selectivity_density=metrics.selectivity_density if background_known else None,
+        background_sites=metrics.total_bg_sites if background_known else None,
+        violating_pairs=len(violations),
+        self_dimers=len(self_dimers),
+        repair=repair_record,
+        max_gap=metrics.max_gap,
+        seconds=time.monotonic() - started,
+    )
+
+
 def _prepare_candidate_pool(optimizer, source, primer_length):
     """The candidates a design may select, with the validator and the bins.
 
@@ -230,8 +319,18 @@ def _prepare_candidate_pool(optimizer, source, primer_length):
     position_cache = getattr(optimizer, "cache", None)
     if position_cache is not None and hasattr(source, "attach_positions"):
         source.attach_positions(position_cache)
+    return _vet_frontier(optimizer, source, primer_length, source.initial())
 
-    pool = list(dict.fromkeys(p.upper() for p in source.initial() if len(p) == primer_length))
+
+def _vet_frontier(optimizer, source, primer_length, sequences):
+    """Check and decompose one frontier, whether the first or a refilled one.
+
+    Split from `_prepare_candidate_pool` because a refill must vet the widened
+    window without re-drawing it: `source.initial()` resets the frontier, so
+    calling it again after `advance()` would undo the refill.
+    """
+    position_cache = getattr(optimizer, "cache", None)
+    pool = list(dict.fromkeys(p.upper() for p in sequences if len(p) == primer_length))
     if not pool:
         raise ValueError(
             f"No {primer_length}-mer candidates available; regenerate the candidate pool at that length"
@@ -321,82 +420,47 @@ def plan_pool(
     # `swap_refinement.refine_hybrid_stage2`, which reads this attribute.
     optimizer.pool_objective = objective
     rows = []
+    # A row that cannot satisfy its constraints asks the source for more
+    # candidates before giving up. Without this the inventory is decorative:
+    # 20,670 candidates are eligible on the Wolbachia design and 2,000 were
+    # ever searched. A row that already qualifies never refills.
+    max_refills = getattr(optimizer.config, "max_frontier_refills", 0)
     for requested in sizes:
-        started = time.monotonic()
-        if progress:
-            progress(requested)
-        result = optimizer.optimize(pool, target_size=requested)
-        primers = list(dict.fromkeys(result.primers))
-        if not primers or result.status not in {
-            OptimizationStatus.SUCCESS,
-            OptimizationStatus.PARTIAL,
-        }:
-            rows.append(
-                dict(
-                    requested_size=requested,
-                    size=len(primers),
-                    primers=primers,
-                    status="no_panel",
-                    message=result.message,
-                    eligible=False,
-                    coverage=None,
-                    seconds=time.monotonic() - started,
-                )
-            )
-            continue
-        if len(primers) > requested or not set(primers).issubset(pool):
-            raise ValueError(
-                "Optimizer returned a panel outside the requested candidate/size bounds"
-            )
-        metrics, coverage, reasons, violations, self_dimers = _assess(objective, validator, primers)
-        repair_record = dict(
-            attempted=False, method=None, reason=None, succeeded=False, swaps=0, evaluations=0
-        )
-        # The most demanding request drives the repair. Repairing to the lowest
-        # would stop as soon as the easiest target was cleared, and every higher
-        # row would report `not_found` beside a panel never asked to reach it.
-        missed = max(targets) if coverage is not None and coverage < max(targets) else None
-        if repair and (reasons or missed is not None):
-            repaired, repair_record = _repair(
-                primers,
+        refills = 0
+        while True:
+            row = _evaluate_size(
+                requested,
+                optimizer,
                 pool,
+                validator,
                 objective,
-                reasons,
-                optimizer.config,
-                target=missed,
-                bins=repair_bins,
-                weights=repair_weights,
+                targets,
+                repair,
+                repair_bins,
+                repair_weights,
+                background_known,
+                progress,
             )
-            if repaired != primers:
-                primers = repaired
-                metrics, coverage, reasons, violations, self_dimers = _assess(
-                    objective, validator, primers
-                )
-        for value in (metrics.fg_coverage, metrics.effective_fg_coverage):
-            if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
-                raise ValueError("Optimizer returned invalid coverage")
-        if background_known and not math.isfinite(metrics.selectivity_density):
-            raise ValueError("Optimizer returned non-finite specificity")
-        rows.append(
-            dict(
-                requested_size=requested,
-                size=len(primers),
-                primers=primers,
-                status="evaluated",
-                eligible=not reasons,
-                failed_constraints=reasons,
-                coverage=coverage,
-                raw_coverage=metrics.fg_coverage,
-                effective_coverage=metrics.effective_fg_coverage,
-                selectivity_density=metrics.selectivity_density if background_known else None,
-                background_sites=metrics.total_bg_sites if background_known else None,
-                violating_pairs=len(violations),
-                self_dimers=len(self_dimers),
-                repair=repair_record,
-                max_gap=metrics.max_gap,
-                seconds=time.monotonic() - started,
+            qualified = row.get("status") == "evaluated" and not row.get("failed_constraints")
+            if qualified or refills >= max_refills:
+                break
+            if not hasattr(source, "advance") or not source.advance(keep=row.get("primers") or ()):
+                break
+            refills += 1
+            # The widened frontier is vetted, not assumed: it admits candidates
+            # the position cache was not built over, which is the case
+            # `PositionCache.load` and `ensure_positions` exist for.
+            pool, validator, repair_bins, repair_weights = _vet_frontier(
+                optimizer, source, primer_length, source.frontier()
             )
+        row["frontier_refills"] = refills
+        # Which kind of "nothing left" this row ended on. `frontier_exhausted`
+        # means the universe still holds candidates and a bigger budget would
+        # reach them; `inventory_exhausted` means it does not.
+        row["candidates_exhausted"] = (
+            source.exhaustion() if hasattr(source, "exhaustion") else INVENTORY_EXHAUSTED
         )
+        rows.append(row)
     recommendations = []
     for target in targets:
         qualifying = [

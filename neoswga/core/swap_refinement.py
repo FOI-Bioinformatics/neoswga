@@ -385,7 +385,7 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
     """
     import logging
 
-    from .dimer_matrix import build
+    from .lazy_dimer import dimer_screen
 
     logger = logging.getLogger(__name__)
 
@@ -415,7 +415,7 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
         pool,
         bins,
         weights,
-        build(pool, optimizer.max_dimer_bp),
+        dimer_screen(pool, optimizer.max_dimer_bp),
         fixed_primers=fixed_primers,
         background_sites=background,
         objective=objective,
