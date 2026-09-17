@@ -139,6 +139,22 @@ The floor matters: a row that qualifies never refills, so a floor the shortlist
 already meets measures nothing. See
 [frontier_refill_2026-09-17.md](../../docs/validation/frontier_refill_2026-09-17.md).
 
+### `floor_boundary.py` -- what does retaining candidates buy
+
+Phase 5's measurement. Raises a selectivity floor until each candidate universe
+fails, and compares where the shortlist, the post-Gini inventory and all hard-QC
+candidates stop. Budgets are held equal so only the universe varies.
+
+```bash
+python scripts/benchmarking/floor_boundary.py <design_dir> post_gini 40,60,80,100,140
+python scripts/benchmarking/floor_boundary.py <all_qc_design_dir> all_qc 60,80
+```
+
+The answer on the Wolbachia pair at panel size 12 is that retention buys
+nothing: all three universes stop between 60 and 80, and the two larger ones
+deliver identical panels. See
+[retention_changes_no_delivered_panel_2026-09-17.md](../../docs/validation/retention_changes_no_delivered_panel_2026-09-17.md).
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate
