@@ -13,6 +13,8 @@ with passing tests:
     load_design_grid           no production caller
     load_grid_file             no production caller
     ensure_positions           called nowhere, and a no-op if it were
+                               (wired in Phase 4 increment 3; see
+                               tests/test_the_frontier_is_vouched_for_before_it_is_scored.py)
     beam_search                reachable in principle, unreachable in practice
 
 Unit tests cannot see this. Each of those has tests that construct the thing
