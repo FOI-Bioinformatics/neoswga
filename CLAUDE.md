@@ -63,6 +63,15 @@ what follows is only what the filenames do not tell you.
   rather than raising, so what was configured is always enforced;
   `tests/test_one_dimer_screen_for_every_pool_size.py` holds a shrinking
   allowlist of the sites that legitimately build a dense matrix.
+- **`candidate_source.py`**: where a command's candidates come from, and in
+  what order. `open_source_or_list` is the one rule all three commands ask:
+  the inventory when the directory has one, the supplied list otherwise, with
+  the frontier opening at the list's own size so no delivered panel moves.
+  `plan-pool`, `optimize` and `expand-primers` each read `step3_df.csv` for
+  themselves before Phase 4 (audit finding F1), which made everything the
+  inventory retained beyond the `max_primer` shortlist unreachable.
+  `order_candidates_by_background` lives here too, because ordering the scan is
+  the same concern as choosing it.
 - **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
   than re-reading the HDF5 files. The constructor takes a fixed primer list;
   `load` and `release` move that window afterwards, which is what a frontier
@@ -317,6 +326,7 @@ neoswga design -j params.json --auto-size
 
 ### Utility Commands
 ```bash
+neoswga plan-pool -j params.json --design-grid grid.json  # design per condition
 neoswga validate --quick            # Validate installation
 neoswga validate --smoke -j params.json  # Check a config: schema, unknown keys,
                                     # genome files, then all four steps against a
@@ -631,6 +641,46 @@ with h5py.File('positions.h5', 'r') as f:
    The lesson both issues share: **test against a whole genome, not a chromosome.** chr21 is
    46 Mb and cannot reach either limit, so both bugs sat behind a passing test suite.
    `tests/test_position_cache.py::TestPositionsPastTheInt32Ceiling` pins this one.
+
+**`--design-grid` on `plan-pool`** designs once per condition and length in a
+JSON grid and writes `design_sweep.json` beside the usual report, rather than
+one `pool_plan`. The grid names `lengths` and `conditions`, where each condition
+names only the fields it changes: the baseline is the reaction this run
+resolved, so a grid varying DMSO alone keeps the buffer, salts and oligo
+concentration, and the comparison is between chemistries rather than against
+library defaults. A cache and optimizer are rebuilt per condition and length,
+since the index is per length and the chemistry is what varies.
+
+It needs the candidate inventory, and it looks each condition up by reaction
+fingerprint, so a condition the filter never recorded is reported as having no
+eligible candidate rather than designed with an empty pool. Wired on 2026-09-17
+in Phase 4 increment 6; it was audit finding F4, parsed and documented and read
+by nothing, and its entries are now gone from both the inert-option and
+unreachable-capability allowlists.
+
+**`--min-fg-bg-ratio` was read and then overruled** -- FIXED 2026-09-17.
+`optimize`'s background prefilter kept every candidate at or above the ratio,
+then, if that removed more than `max_removal_fraction` of them, discarded the
+threshold and kept the top 80% by ratio instead. On the 2,000-candidate
+Wolbachia shortlist the threshold removes 64.8% at its default of 1.0, so the
+clause fired at 1.0, 2.0, 5.0 and 20.0 and removed exactly 400 every time. The
+flag changed nothing above about 1.0 and the rule in force was "drop the worst
+20%".
+
+That is the Known Issue 8 class in a shape none of its ratchets look for: not a
+flag nobody reads, but a flag that is read and then overruled by a second rule
+on the same decision. `max_removal_fraction` was also a bound on the fraction
+of a BATCH, so which candidates survived depended on how many others were below
+the threshold alongside them.
+
+`order_candidates_by_background` replaces it. Candidates at or above the ratio
+are searched first and the rest are searched last; nothing is deleted, so the
+400 the old path made unreachable at every setting are reachable again, which
+matters because increment 5's refill can now reach them. The partition is
+stable, preserving the inventory's `search_rank` traversal. Delivered panel on
+the measured design: 11 of 12 primers shared, Jaccard 0.846
+([measurement](docs/validation/background_ordering_2026-09-17.md)).
+`bg_max_removal` is retired with the clause.
 
 8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
    (audit finding F1b). The key was declared in `params.schema.json`,

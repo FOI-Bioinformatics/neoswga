@@ -1,4 +1,4 @@
-"""`--min-fg-bg-ratio` has to reach the background pre-filter.
+"""`--min-fg-bg-ratio` has to reach the background ordering.
 
 Its help text says "Minimum foreground/background binding site ratio. Higher
 values = more selective". It was read in exactly two places, both of them
@@ -9,8 +9,16 @@ selectivity constraint at all, silently, and the flag was not in
 `_common.UNIMPLEMENTED_OPTIONS` either, so nothing warned.
 
 The knob it should drive already existed and had no route to it:
-`run_optimization` reads `kwargs["bg_min_ratio"]` as the pre-filter threshold
-and `run_step4` never passed it.
+`run_optimization` reads `kwargs["bg_min_ratio"]` as the threshold and
+`run_step4` never passed it.
+
+The threshold now orders rather than deletes: as of 2026-09-17 candidates below
+it are searched last instead of removed, because the `max_removal_fraction`
+clause that used to override the threshold made the flag inert above about 1.0
+on any realistic pool. That measurement is in
+`docs/validation/background_ordering_2026-09-17.md`; what this file pins is
+unchanged, namely that the value a user sets is the value the threshold takes,
+and that an unset flag resolves to the default rather than to None.
 """
 
 import pytest
@@ -57,12 +65,11 @@ def test_run_optimization_hands_the_value_to_the_prefilter(monkeypatch, forwarde
         """Ends the run once the pre-filter has been reached; everything past
         it needs real position data and is not what this test is about."""
 
-    def spy(cache, candidates, fg_prefixes, bg_prefixes, min_ratio, max_removal_fraction, verbose):
+    def spy(cache, candidates, fg_prefixes, bg_prefixes, min_ratio, verbose):
         seen["min_ratio"] = min_ratio
-        seen["max_removal"] = max_removal_fraction
         raise _Stop
 
-    monkeypatch.setattr(uo, "_prefilter_by_background", spy)
+    monkeypatch.setattr(uo, "order_candidates_by_background", spy)
 
     class _Cache:
         def __init__(self, *a, **k):
@@ -84,4 +91,3 @@ def test_run_optimization_hands_the_value_to_the_prefilter(monkeypatch, forwarde
         )
 
     assert seen["min_ratio"] == expected
-    assert seen["max_removal"] == 0.20

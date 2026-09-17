@@ -30,6 +30,7 @@ import pandas as pd
 
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
+from .candidate_source import order_candidates_by_background
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
 from .position_cache import PositionCache, StreamingPositionCache
@@ -139,56 +140,6 @@ def _ensure_optimizers_registered():
 
         _optimizers_registered = True
         logger.debug("Optimizer registration complete")
-
-
-def _prefilter_by_background(
-    cache,
-    candidates,
-    fg_prefixes,
-    bg_prefixes,
-    min_ratio=1.0,
-    max_removal_fraction=0.20,
-    verbose=False,
-):
-    """Remove candidates with poor foreground/background binding ratio.
-
-    Keeps all primers with ratio >= min_ratio. If that would remove more
-    than max_removal_fraction of candidates, keeps the top
-    (1 - max_removal_fraction) by ratio instead.
-
-    Args:
-        cache: PositionCache with loaded positions
-        candidates: List of candidate primer sequences
-        fg_prefixes: Foreground genome prefixes
-        bg_prefixes: Background genome prefixes
-        min_ratio: Minimum fg/bg ratio to keep (default 1.0)
-        max_removal_fraction: Maximum fraction of candidates to remove (default 0.20)
-        verbose: Log filtering details
-
-    Returns:
-        Filtered list of candidates (never empty)
-    """
-    ratios = []
-    for primer in candidates:
-        fg_count = sum(len(cache.get_positions(p, primer, "both")) for p in fg_prefixes)
-        bg_count = sum(len(cache.get_positions(p, primer, "both")) for p in bg_prefixes)
-        ratios.append((fg_count / (bg_count + 1), primer))
-
-    # Keep primers above threshold
-    above = [(r, p) for r, p in ratios if r >= min_ratio]
-
-    # Ensure we don't remove too many
-    min_keep = int(len(candidates) * (1 - max_removal_fraction))
-    if len(above) < min_keep:
-        ratios.sort(reverse=True)
-        above = ratios[:min_keep]
-
-    filtered = [p for _, p in above]
-    removed = len(candidates) - len(filtered)
-    if removed > 0 and verbose:
-        logger.info(f"  Background pre-filter: removed {removed} candidates with poor fg/bg ratio")
-
-    return filtered if filtered else candidates  # never return empty
 
 
 def _reseed(seed) -> None:
@@ -835,6 +786,41 @@ def _minimize_primer_count(result, optimizer, target_coverage: float, verbose: b
         return result
 
 
+def _pool_for_this_run(fg_prefixes, conditions):
+    """The candidates `optimize` may select, when the caller named none.
+
+    Through the shared source rather than straight out of `step3_df.csv`. The
+    inventory holds every candidate that cleared hard QC and the CSV holds the
+    `max_primer` shortlist, so reading the CSV here made the rest unreachable
+    however large the inventory was: audit finding F1 named this call site,
+    `expand-primers` and `plan-pool`, and this is the last of the three.
+
+    The frontier opens at the shortlist's own size, so this changes no delivered
+    panel. What it adds is the counts and the seam increment 5's refill reaches
+    past.
+
+    The step-4 prerequisites are checked first, because without them the
+    position cache falls back to `on_missing="warn"`, which calls the coverage
+    number meaningless and then lets the run report one anyway.
+    """
+    from .candidate_source import open_source_or_list
+    from .pipeline import StepPrerequisiteError, validate_step4_prerequisites
+
+    validation = validate_step4_prerequisites(parameter.data_dir, list(fg_prefixes or []))
+    if not validation.valid:
+        raise StepPrerequisiteError(4, validation)
+
+    step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
+    shortlist = pd.read_csv(step3_path)["primer"].astype(str).tolist()
+    source = open_source_or_list(
+        parameter.data_dir,
+        conditions.fingerprint() if hasattr(conditions, "fingerprint") else "",
+        sorted({len(primer) for primer in shortlist}),
+        fallback=shortlist,
+    )
+    return source.initial()
+
+
 def run_optimization(
     method: str = "hybrid",
     candidates: Optional[List[str]] = None,
@@ -945,15 +931,7 @@ def run_optimization(
     # low" and then lets the run select a set and report it.
     _pool_read_from_step3 = candidates is None
     if candidates is None:
-        from .pipeline import StepPrerequisiteError, validate_step4_prerequisites
-
-        validation = validate_step4_prerequisites(parameter.data_dir, list(fg_prefixes or []))
-        if not validation.valid:
-            raise StepPrerequisiteError(4, validation)
-
-        step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
-        step3_df = pd.read_csv(step3_path)
-        candidates = step3_df["primer"].tolist()
+        candidates = _pool_for_this_run(fg_prefixes, conditions)
 
     # Empty candidate pool guard: downstream optimizers behave inconsistently
     # on an empty pool (some raise, some return an empty result without saying
@@ -1012,18 +990,16 @@ def run_optimization(
         cache, fg_prefixes, len(candidates), refuse=_pool_read_from_step3
     )
 
-    # Optional: pre-filter candidates by fg/bg binding ratio
+    # Orders by fg/bg ratio; deletes nothing. See order_candidates_by_background
+    # for why it used to delete and why `bg_max_removal` went with that.
     if bg_prefixes and kwargs.get("bg_prefilter", True):
-        candidates = _prefilter_by_background(
+        candidates, _deprioritised = order_candidates_by_background(
             cache,
             candidates,
             fg_prefixes,
             bg_prefixes,
-            # `or` rather than a `.get` default: the CLI now forwards these,
-            # and forwards None when the flag was not given, which a bare
-            # `.get(name, default)` would hand straight through as None.
+            # `or` not `.get` default: the CLI forwards None for an unset flag.
             min_ratio=kwargs.get("bg_min_ratio") or 1.0,
-            max_removal_fraction=kwargs.get("bg_max_removal") or 0.20,
             verbose=verbose,
         )
 
