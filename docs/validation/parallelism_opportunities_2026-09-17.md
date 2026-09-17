@@ -11,9 +11,10 @@ macOS, `multiprocessing` start method `spawn`).
 parallelism.** One objective evaluation costs 14.9 ms
 (`docs/validation/objective_evaluation_cost_2026-09-17.md`) and the dominant term
 is an occupancy-weighted coverage loop that touches the whole target genome once
-per primer. Replacing that loop with an interval sweep is 47x faster on one core,
-measured, and agrees with the existing result to 5.5e-9. Eleven cores cannot buy
-47x. Every parallel option below competes against that number.
+per primer. Replacing that loop with an interval sweep is 19x to 21x faster on
+one core, measured against the real implementation on the real index, and agrees
+with it to 6e-9. Eleven cores cannot buy 20x on this loop; eight threads buy
+3.7x. Every parallel option below competes against that number.
 
 A second result: the attribution in the cost note is wrong about which function
 dominates, and the reason is recoverable from the two benchmark scripts. See
@@ -88,8 +89,8 @@ or setup, (c) inherently sequential, (d) already fast enough.
 
 | Work | Class | Unit of work | Reason |
 |---|---|---|---|
-| Per-candidate objective scan in a greedy step | (d), after a fix | `dominating_set_optimizer.py:556` | No production caller passes `objective=`; and the per-call cost is 47x reducible on one core |
-| Objective evaluation itself | (a) as threads, but vectorise first | `base_optimizer.py:1419` | 3.7x measured with 8 threads; 47x measured by changing the algorithm |
+| Per-candidate objective scan in a greedy step | (d), after a fix | `dominating_set_optimizer.py:556` | No production caller passes `objective=`; and the per-call cost is about 20x reducible on one core |
+| Objective evaluation itself | (a) as threads, but change the algorithm first | `base_optimizer.py:1419` | 3.7x measured with 8 threads; 19x to 21x measured by changing the algorithm |
 | Occupancy-weighted swap and beam evaluation | (b) | `panel_beam.py:128`, `swap_refinement.py:97` | Independent per pair, but the budget check sits inside the loop, so parallelising changes the delivered panel |
 | Background position scan (`filter`) | (a) | `string_search.py:236` | About 70 s of a 153 s filter at `all_qc`; chunking machinery already present |
 | Foreground position scan (`filter`) | (b) | `string_search.py:236` | Same loop, but the foreground is 1.27 Mb and the pattern set the same, so the constant dominates |
@@ -286,7 +287,7 @@ a cited note; estimated means arithmetic over a measured rate.
 
 | # | Change | Saving | Risk | Basis |
 |---|---|---|---|---|
-| 1 | Interval sweep for `_compute_effective_coverage` | 47x on the dominant term, 14.9 ms to about 1 ms per evaluation | Medium: circular and record-boundary geometry | Measured, 13.12 ms to 0.277 ms, agreement 5.5e-9 |
+| 1 | Interval sweep for `_compute_effective_coverage` | 19x to 21x on the dominant term, measured on the real pair | Medium: record-boundary confinement, which neither version does | Measured against the real implementation; wrapping verified on five fixtures |
 | 2 | Memoise the per-primer terms of `_effective_site_load` | 2.7 ms of 14.9 ms | Low: pure function of (primer, prefixes, max_mismatches) | Measured, panel-independence measured across three table sizes |
 | 3 | Processes over genome chunks in the background position scan | About 70 s of a 153 s `all_qc` filter, times core count less overhead | Medium: worker must receive the genome or map it | Measured throughput, estimated saving |
 | 4 | Parallelise the cached Gini path | Unmeasured share of an 86 to 153 s filter | Low: the spawn-safe argument threading exists | Read of the source only; the serial branch is a recorded choice, see above |
@@ -360,6 +361,47 @@ production caller; Phase 4 wires it", and `CandidateProvider`, `load_design_grid
 and `ensure_positions` sit beside it. The condition grid is the coarsest parallel
 grain in the repository and there is no command that runs it.
 
+## The interval sweep, verified against the real implementation
+
+**Added 2026-09-17, and it corrects the figure above.** The 47x in the ranking
+was a synthetic comparison. Re-measured against the real
+`_compute_effective_coverage` on the real Wolbachia index, the speedup is 19x to
+21x, not 47x. Reproduce with `scripts/benchmarking/check_interval_sweep.py`.
+
+| Geometry | Panel | Loop | Sweep | Speedup | Absolute difference |
+|---|---|---|---|---|---|
+| linear | 12 | 8.69 ms | 0.46 ms | 18.8x | 4.0e-9 |
+| linear | 24 | 14.63 ms | 0.68 ms | 21.5x | 6.2e-9 |
+| circular | 12 | 8.19 ms | 0.44 ms | 18.6x | 4.0e-9 |
+| circular | 24 | 14.44 ms | 0.78 ms | 18.5x | 6.2e-9 |
+
+The agreement holds, and it holds on the geometry that carries the risk. A first
+attempt to check wrapping used sites near both ends of a circular target and
+found circular and linear identical, which looked like the flag not reaching the
+function. It was not: with a site within one reach of each end, each site's
+window already covers the other end, so wrapping changes nothing and the test
+proved nothing. On five fixtures where wrapping does change the union, circular
+and linear differ and the sweep matches the loop in every case:
+
+| Case | Circular | Linear | Agrees |
+|---|---|---|---|
+| one site at 10 | 0.0297410 | 0.0153662 | yes |
+| one site at 19,990 | 0.0297410 | 0.0153662 | yes |
+| site at 10 plus one interior | 0.0556687 | 0.0412939 | yes |
+| site exactly at 0 | 0.0297410 | 0.0148705 | yes |
+| two primers both near the origin | 0.0329636 | 0.0205044 | yes |
+
+**The remaining risk is record confinement, not wrapping.**
+`_compute_effective_coverage` calls `_mark_window` without `record_starts`, so
+it does not confine a window to the record holding its site. The prototype
+matches that, which is right for a comparison and wrong for a replacement: a
+real one has to decide the question rather than inherit it. That is the same
+concern Phase 6 of the plan raises for the coverage path generally.
+
+So the recommendation stands with a smaller number. 19x to 21x on one core still
+exceeds the 3.7x that eight threads buy on the same loop, and it still applies
+to every path that evaluates a panel.
+
 ## The attribution finding, re-measured on the real pair
 
 Everything above was measured on synthetic arrays. The one finding that
@@ -389,8 +431,9 @@ breakdown and the real pair agree, so the attribution correction stands on real
 data rather than on a model of it.
 `docs/validation/objective_evaluation_cost_2026-09-17.md` has been corrected.
 
-The 47x interval sweep itself has NOT been re-measured here, and remains a
-single synthetic comparison on one linear single-record case.
+The interval sweep HAS now been re-measured against the real implementation on
+the real index, and the synthetic 47x does not survive it: see the section above.
+The real figure is 19x to 21x.
 
 ## What this analysis does not establish
 
@@ -403,13 +446,16 @@ single synthetic comparison on one linear single-record case.
 - Single runs on one machine, one core count, one start method. No spread. The
   thread-scaling table in particular was taken while nothing else ran; under load
   it will be worse.
-- The interval sweep was verified against the existing loop on one linear,
-  single-record case. It was not written for circular targets or for
-  `record_starts` confinement, which is where the work and the risk are.
-- Nothing here measures the end-to-end effect of any proposed change. The 47x is
-  on one function; what a `plan-pool` run would actually save depends on how much
-  of it is objective evaluation, which was not profiled after the focused
-  evaluator landed.
+- The interval sweep has since been verified against the real implementation on
+  the real index and on five wrapping fixtures. It still does not handle
+  `record_starts` confinement, and neither does the loop it reproduces, so that
+  question is open rather than answered.
+- Nothing here measures the end-to-end effect of any proposed change. The 19x to
+  21x is on one function; what a `plan-pool` run would actually save depends on
+  how much of it is objective evaluation, which was not profiled after the
+  focused evaluator landed. The call counts in
+  `what_actually_bounds_the_search_2026-09-17.md` suggest that share is small
+  unless a constraint binds.
 - The background scan saving is an estimate from a throughput curve on random
   sequence, extrapolated across an order of magnitude in pattern count. A real
   host genome has repeat structure that changes both the automaton's cache
