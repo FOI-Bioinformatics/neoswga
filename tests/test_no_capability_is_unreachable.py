@@ -41,6 +41,7 @@ PACKAGE = ROOT / "neoswga"
 
 # Modules whose public surface is supposed to be reachable from a command.
 WATCHED = (
+    "core/candidate_source.py",
     "core/candidate_provider.py",
     "core/pool_design_sweep.py",
     "core/panel_beam.py",
@@ -57,9 +58,6 @@ WATCHED = (
 KNOWN_UNREACHABLE = {
     "design_sweep": "audit finding F4. No command reaches it; Phase 4 wires it",
     "load_design_grid": "reached only from design_sweep and the dead load_grid_file",
-    "CandidateProvider": "audit finding F1. Constructed only by design_sweep, so "
-    "its whole surface, ensure_positions and the batch methods included, is out "
-    "of reach. Phase 4 wires it",
 }
 
 
@@ -221,8 +219,15 @@ def test_the_known_design_sweep_defect_is_still_detected():
     """
     orphans = unreachable_names()
 
-    assert "design_sweep" in orphans
-    assert "CandidateProvider" in orphans
+    assert "design_sweep" in orphans, (
+        "design_sweep now has a caller. If that is real, delete its "
+        "KNOWN_UNREACHABLE entry and this assertion."
+    )
+    assert "CandidateProvider" not in orphans, (
+        "CandidateProvider was wired in Phase 4 increment 1, through "
+        "candidate_source.open_candidate_source. If it has gone out of reach "
+        "again, the inventory is write-only once more."
+    )
 
 
 def test_reachability_does_not_flow_through_an_unreachable_caller():

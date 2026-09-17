@@ -53,6 +53,40 @@ def load_grid_file(path, baseline):
     return load_design_grid(json.loads(source.read_text()), baseline)
 
 
+def _open_source(data_dir, conditions, args, fallback):
+    """The inventory when this directory has one, the CSV list otherwise.
+
+    An explicit `--candidates` file always wins: the user named the pool, and
+    quietly designing over a different one would be worse than useless. A
+    directory written before the inventory existed falls back to the list it
+    was going to use anyway, with a line saying which it took, because "which
+    pool did this run search" should not have to be inferred.
+    """
+    from neoswga.core.candidate_source import open_candidate_source
+
+    if args.candidates:
+        return open_candidate_source(data_dir, "", [args.primer_length], candidates=fallback)
+    try:
+        source = open_candidate_source(
+            data_dir,
+            conditions.fingerprint(),
+            [args.primer_length],
+            frontier=len(fallback),
+        )
+    except ValueError as exc:
+        logger.info("Designing from the candidate list: %s", exc)
+        return open_candidate_source(data_dir, "", [args.primer_length], candidates=fallback)
+    described = source.describe()
+    logger.info(
+        "Candidate universe: %d eligible in the inventory, frontier %d. "
+        "%d were not examined by this run.",
+        described["universe"],
+        described["frontier"] or described["universe"],
+        described.get("unexamined", 0),
+    )
+    return source
+
+
 def run_plan_pool(args):
     import pandas as pd
 
@@ -87,6 +121,7 @@ def run_plan_pool(args):
         raise ValueError(
             f"No {args.primer_length}-mers in {pool_path}; run count-kmers/filter/score at this length first"
         )
+    data_dir = base / params.get("data_dir", ".")
     for prefix in fg + bg:
         path = Path(f"{prefix}_{args.primer_length}mer_positions.h5")
         if not path.is_file():
@@ -146,9 +181,18 @@ def run_plan_pool(args):
         conditions=conditions,
         polymerase=params.get("polymerase", "phi29"),
     )
+    # Read the candidates through the shared source. The inventory holds every
+    # candidate that cleared hard QC, and until now nothing in production read
+    # it: the design searched the CSV shortlist and the rest were stored,
+    # indexed, and unable to affect any panel.
+    #
+    # The frontier starts at exactly that shortlist, so this changes no
+    # delivered panel. What it adds is the seam expansion will use, and the
+    # counts that let a reader tell a shortlist from a universe.
+    candidate_source = _open_source(data_dir, conditions, args, candidates)
     plan = plan_pool(
         optimizer,
-        candidates,
+        candidate_source,
         range(args.min_size, args.max_size + 1),
         args.coverage_targets,
         primer_length=args.primer_length,

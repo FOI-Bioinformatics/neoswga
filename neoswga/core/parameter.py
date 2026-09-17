@@ -684,7 +684,13 @@ sampled_index_path = None
 polymerase = "phi29"
 reaction_temp = None  # Auto-set based on polymerase if not specified
 na_conc = 50.0  # mM
-mg_conc = 2.0  # mM
+# None, not a number, for the same reason `reaction_temp` is None above:
+# `ReactionConditions` resolves an absent value to the polymerase's own buffer
+# (10 mM for phi29), and `build_reaction_conditions` passes through anything
+# that is not None. A module-level 2.0 is indistinguishable from a configured
+# 2.0 by then, so every path that had not run `get_params` designed at the old
+# PCR figure -- the defect the constructor's mg_conc comment describes as fixed.
+mg_conc = None  # mM; None means this polymerase's standard buffer
 primer_conc = 0.5e-6  # M (0.5 uM)
 
 # Thermodynamic additives and other reaction-chemistry parameters.
@@ -704,7 +710,11 @@ ssb = False
 k_conc = 0.0
 nh4_conc = 0.0
 dntp_conc = 0.0
-dtt_mm = 0.0
+# None for the same reason as `mg_conc`. Every phi29 buffer carries 1-4 mM DTT
+# and the mechanistic model scores its absence as a deficiency worth 20% of
+# stability, so a module-level 0.0 read as a DTT-free reaction on every path
+# that built conditions before `get_params` ran.
+dtt_mm = None  # mM; None means this polymerase's standard buffer
 
 # Exclusion genome parameters (e.g., mitochondrial DNA, chloroplast sequences)
 excl_genomes = []

@@ -1,0 +1,45 @@
+INFO: Running step2 (candidate primer filtering)
+WARNING: Background genome is large (144 Mbp). Consider pre-building a Bloom filter for faster filtering:
+  neoswga build-filter <background.fna> <data_dir>
+INFO: GC-adaptive strategy initialized
+INFO:   GC content: 35.2%
+INFO:   Classification: balanced
+INFO:   Selected EquiPhi29 (balanced genome)
+INFO:   Using standard parameters (balanced genome)
+INFO: GC-adaptive: Keeping user-specified polymerase 'phi29' (adaptive would recommend 'equiphi29')
+INFO: GC-adaptive: Preserving user-specified k-mer range 12-12bp
+INFO: GC-adaptive: Preserving user-specified betaine 0.0M
+INFO: GC-adaptive: Preserving user-specified DMSO 0.0%
+INFO: GC-adaptive strategy: balanced genome, confidence 90%
+INFO: Effective parameters:
+INFO:   GC range: 0.200 - 0.500
+INFO:   Reaction temp: 30.0C
+INFO:   Polymerase: phi29
+INFO: Adaptive GC filtering: genome GC=35.2%, primer range=20.0%-50.0%
+INFO: Tm filtering: 25.0C-55.0C (reaction temp: 30.0C)
+Loading candidate k-mers... INFO: GC pre-filter removed 46837 k-mers outside 10%-60% range
+INFO: Loaded 874596 candidate primers
+done (10.5s)
+Computing foreground/background rates... INFO: k=12 frequency gates: min_fg_freq 1e-06 -> 6.25e-08 (>= 0.08 foreground sites); max_bg_freq 5e-06 -> 3.13e-07 (< 44.91 background sites)
+INFO: Filtered 167840 primers based on foreground/background rate
+INFO: Filtered 214920 primers based on sequence quality (Tm, homopolymer, GC clamp, self-dimer)
+done (5.8s)
+Creating foreground position files... INFO: Loading genome sequence from /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/input/wmel.fna...
+INFO: Cached genome sequence: 1,267,782 bp
+done (35.6s)
+Computing Gini index... INFO: Filtered 471166 primers based on Gini index
+INFO: Ranked 20,670 candidates by occupancy-weighted background load (median 43.8, best 1.05)
+done (5.5s)
+Creating background position files... INFO: Loading genome sequence from /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/input/drosophila.fna...
+INFO: Cached genome sequence: 143,726,002 bp
+INFO: Cleared genome cache (2 entries)
+INFO: Background index: 20670 of 491836 hard-QC candidates indexed under candidate_retention='post_gini'; 'all_qc' would index all 491836. The 2000-candidate max_primer shortlist no longer bounds the index: a candidate the ranking cut used to have no background index at all, which scores as perfect specificity rather than as a missing measurement.
+INFO: Candidate inventory: 491836 cleared the hard gates, 20670 survived the Gini filter, 2000 were shortlisted by max_primer. All 491836 remain addressable (/Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/objective_cost_2026-09-17/design/candidate_inventory.sqlite).
+INFO: Design counts: counted=874596 assessed=491836 hard_qc_passed=20670 shortlisted=2000 indexed=20670 carried_to_stage3=0 examined=unknown
+INFO: Number of remaining primers: 2000
+INFO: [Step 2] Thermo cache 'enthalpy_entropy': 47.4% hit rate (789,436 hits, 874,716 misses, 874,716/1,000,000 entries)
+INFO: Run manifest updated: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/objective_cost_2026-09-17/design/run_manifest.json
+INFO: Step 2 complete in 103.6s
+done (6.9s)
+
+Next: neoswga score -j params.json
