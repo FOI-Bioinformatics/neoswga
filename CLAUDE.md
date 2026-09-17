@@ -37,6 +37,19 @@ what follows is only what the filenames do not tell you.
   the exception catchable, and that import reaches scikit-learn through
   `rf_preprocessing`. Keep this module free of dependencies beyond `typing`
   and `dataclasses`.
+- **`occupancy_coverage.py`**: occupancy-weighted coverage, accumulated over
+  window edges rather than over bases. Extracted from `base_optimizer` on
+  2026-09-17 when the rewrite pushed that module past its size budget;
+  `BaseOptimizer._compute_effective_coverage` delegates to it and supplies the
+  reach and geometry. The old loop made two full passes over the target per
+  primer, so it cost the same on a 1.27 Mb genome whether a primer had two
+  sites or two thousand. That was 95% of one objective evaluation while the
+  144 Mb host everyone blamed was 16%. 19x to 21x faster, agreeing with an
+  independent float64 oracle to 1e-12; the old float32 accumulation is why the
+  delivered coverage moves by up to 2.4e-8. Neither this nor `_union_coverage`
+  confines a window to the record holding its site, which is Phase 6's subject
+  and is deliberately unchanged here. `coverage.merged_window_intervals` is the
+  interval form of `_mark_window` and is tested against it base by base.
 - **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
   than re-reading the HDF5 files. The constructor takes a fixed primer list;
   `load` and `release` move that window afterwards, which is what a frontier

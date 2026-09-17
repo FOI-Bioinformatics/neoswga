@@ -1358,84 +1358,23 @@ class BaseOptimizer(ABC):
         )
 
     def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float | None:
-        """Coverage weighted by how much of the time each site is occupied.
+        """Occupancy-weighted coverage for one prefix.
 
-        `_compute_coverage` unions binding windows as booleans: a site either
-        covers its window or does not. That is the right question for "could
-        this primer reach here", and the wrong one for "will it". A primer whose
-        effective Tm sits well below the reaction temperature is mostly not
-        bound, and its sites contribute far less amplification than a count
-        implies.
-
-        A site covers its window with probability theta -- the same two-state
-        occupancy the selectivity metric uses -- and the product is taken over
-        PRIMERS, not over sites:
-
-            P(covered at x) = 1 - PRODUCT over primers p reaching x of (1 - theta_p)
-
-        The grouping is deliberate and is what the loop below implements: one
-        primer's overlapping windows are unioned first and its occupancy applied
-        once, because a primer does not stack with itself. Per-site
-        independence would multiply (1 - theta) in once per overlapping window
-        and report a larger number.
-
-        Corrected 2026-09-14 (audit F5): this formula previously read "PRODUCT
-        over sites", describing a model the code does not implement. The two
-        differ measurably -- at T = Tm with 100 bp windows on a 1 kb target,
-        sites at 500 and 510 give 10.5% under one primer and 15.25% under two
-        distinct primers -- and `tests/test_occupancy_grouping_is_specified.py`
-        pins the one in use.
-
-        Independence across primers is itself an approximation: sites on one
-        template molecule compete for polymerase. Neither model here has been
-        compared against a measured reaction, so this is a stated approximation
-        rather than a validated one, and the earlier claim that it bounds
-        single-molecule recovery from above is not established by this
-        arithmetic.
-
-        Returns None when no reaction conditions are attached, since without them
-        there is no temperature at which to evaluate occupancy and a fabricated
-        number here would be indistinguishable from a measured one.
+        The computation lives in `occupancy_coverage`, which was extracted when
+        rewriting it pushed this module past its size budget. This supplies the
+        reach and the geometry from the config; the semantics, including what
+        the grouping over primers means and why it returns None without
+        reaction conditions, are documented there.
         """
-        import numpy as np
+        from .occupancy_coverage import occupancy_weighted_coverage
 
-        from .coverage import _mark_window
-        from .occupancy import site_occupancy
-        from .thermodynamics import calculate_enthalpy_entropy
-
-        if self.conditions is None:
-            return None
-        if not positions_by_primer or total_length <= 0:
-            return 0.0
-
-        extension_reach = self.config.extension_reach
-        circular = getattr(self.config, "fg_circular", False)
-        temp = self.conditions.temp
-
-        # Accumulate the probability that a base is NOT reached by anything.
-        not_covered = np.ones(total_length, dtype=np.float32)
-        window = np.zeros(total_length, dtype=bool)
-
-        for primer, positions in positions_by_primer.items():
-            if not positions:
-                continue
-            tm = self.conditions.calculate_effective_tm(primer)
-            dh, _ = calculate_enthalpy_entropy(primer)
-            theta = site_occupancy(dh, tm, temp)
-            if theta <= 0.0:
-                continue
-
-            # One primer's sites are marked together, then applied once. Marking
-            # per site would multiply (1 - theta) in for every overlapping window
-            # of the SAME primer, which understates coverage where a primer binds
-            # densely -- the windows overlap, the primer does not stack with
-            # itself.
-            window[:] = False
-            for pos in positions:
-                _mark_window(window, int(pos), extension_reach, total_length, circular)
-            not_covered[window] *= 1.0 - theta
-
-        return float((1.0 - not_covered).sum()) / total_length
+        return occupancy_weighted_coverage(
+            positions_by_primer,
+            total_length,
+            extension_reach=self.config.extension_reach,
+            circular=getattr(self.config, "fg_circular", False),
+            conditions=self.conditions,
+        )
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
         """Compute gaps between adjacent binding sites."""
