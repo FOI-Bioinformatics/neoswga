@@ -9,7 +9,7 @@ from .dimer_validator import DimerValidator
 from .lazy_dimer import LazyDimerCompatibility
 from .panel_beam import beam_search
 from .pool_objective import PoolConstraints, PoolObjective
-from .swap_refinement import refine_by_swaps
+from .swap_refinement import coverage_bins, refine_by_swaps
 
 # Multiples of the configured reach to report coverage at. The window radius is
 # a design-density convention rather than a measured extension distribution
@@ -89,7 +89,7 @@ def _beam_candidates(pool, incumbent, size, budget):
     return slice_pool
 
 
-def _repair(primers, pool, objective, reasons, config, target=None):
+def _repair(primers, pool, objective, reasons, config, target=None, bins=None, weights=None):
     """A bounded second attempt at a panel that missed a limit or a target.
 
     Returns the panel to use and a record of what was tried. The panel is only
@@ -117,13 +117,19 @@ def _repair(primers, pool, objective, reasons, config, target=None):
         return list(primers), skipped
     reason = repairable[0] if repairable else "below coverage target"
 
+    # The scan width needs the bin decomposition, because the prescreen that
+    # decides which pairs are worth scoring IS the bin rule. This call passed
+    # None for both bins for as long as it existed, so the width could not be
+    # honoured here even once it existed; `plan_pool` now supplies them.
+    width = getattr(config, "objective_scan_width", None) if bins is not None else None
     result = refine_by_swaps(
         primers,
         pool,
-        None,
-        None,
+        bins,
+        weights,
         LazyDimerCompatibility(config.max_dimer_bp),
         objective=objective,
+        objective_scan_width=width,
         max_evaluations=config.swap_max_evaluations,
         max_seconds=config.swap_max_seconds,
     )
@@ -153,6 +159,13 @@ def _repair(primers, pool, objective, reasons, config, target=None):
         swaps=result.swaps,
         evaluations=result.evaluations,
         stop_reason=result.stop_reason,
+        # What the scan actually spent. `evaluations` alone cannot separate a
+        # narrow scan that finished from a wide one that ran out, and the
+        # difference decides whether a disappointing row wants a wider scan or
+        # a bigger budget.
+        pairs_considered=result.pairs_considered,
+        objective_evaluations=result.objective_evaluations,
+        scan_width=result.scan_width,
     )
     if record["succeeded"]:
         return repaired, record
@@ -200,7 +213,7 @@ def _repair(primers, pool, objective, reasons, config, target=None):
 
 
 def _prepare_candidate_pool(optimizer, source, primer_length):
-    """The candidates this design may select, with the validator that vetted them.
+    """The candidates a design may select, with the validator and the bins.
 
     Introduces the source to the cache its candidates will be scored on, which
     is what `ensure_positions` needed all along: it existed before this, was
@@ -235,7 +248,14 @@ def _prepare_candidate_pool(optimizer, source, primer_length):
     # host sites as perfect specificity.
     if position_cache is not None and hasattr(source, "ensure_positions"):
         source.ensure_positions(pool)
-    return pool, validator
+
+    # The coverage decomposition the repair's prescreen needs, built once per
+    # run rather than once per size row: it is over the whole candidate pool
+    # and does not depend on the panel. `(None, None)` for an optimizer that
+    # builds no coverage graph, which then runs the unbounded scan and reports
+    # `scan_width: null` rather than claiming a bound it did not have.
+    bins, weights = coverage_bins(optimizer, pool)
+    return pool, validator, bins, weights
 
 
 def plan_pool(
@@ -293,7 +313,9 @@ def plan_pool(
     # a command that opened the inventory passes that instead, and the plan
     # then reports how much of the universe the run actually examined.
     source = as_candidate_source(candidates)
-    pool, validator = _prepare_candidate_pool(optimizer, source, primer_length)
+    pool, validator, repair_bins, repair_weights = _prepare_candidate_pool(
+        optimizer, source, primer_length
+    )
     # Stage-2 refinement inside the optimizer picks the delivered panel, so it
     # has to score on the same thing this function accepts on. See
     # `swap_refinement.refine_hybrid_stage2`, which reads this attribute.
@@ -336,7 +358,14 @@ def plan_pool(
         missed = max(targets) if coverage is not None and coverage < max(targets) else None
         if repair and (reasons or missed is not None):
             repaired, repair_record = _repair(
-                primers, pool, objective, reasons, optimizer.config, target=missed
+                primers,
+                pool,
+                objective,
+                reasons,
+                optimizer.config,
+                target=missed,
+                bins=repair_bins,
+                weights=repair_weights,
             )
             if repaired != primers:
                 primers = repaired

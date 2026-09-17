@@ -420,6 +420,22 @@ relatively.
   request for 20 returns 12 primers with no violating pair when false, and 20
   primers with 25 violating pairs when true. Every admission is warned about by
   name. `clique` remains strict either way.
+- `objective_scan_width`: How many panels the swap repair scores with the full
+  objective per round (default 64; None restores an unbounded scan). The scan
+  is over candidates times panel, so a 2,000-candidate shortlist against a
+  12-primer panel is 24,000 pairs. The cheap bin gain ranks them and only the
+  leaders are scored, and the prescreen is not a new criterion -- it is what
+  `refine_by_swaps` has always used when given no objective. Given a budget it
+  cannot exhaust, widths 16 and 64 and an unbounded scan converge to the
+  IDENTICAL panel on the Wolbachia pool at Jaccard 1.000, costing 64, 320 and
+  17,913 objective evaluations. The stronger reason to ship a width is not the
+  speed: without one the default budget truncated every size measured, landing
+  at Jaccard 0.500 against that optimum, so the answer was wherever the budget
+  ran out. The cheap pass is deliberately NOT charged against
+  `swap_max_evaluations`, since charging it would rank a prefix of the pool and
+  reintroduce the blindness the bound removes. Where no constraint binds the
+  repair never runs and every width returns the same panel.
+  ([measurement](docs/validation/scan_width_2026-09-17.md))
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
   again, so each is a different set rather than a reordering. They are numbered
