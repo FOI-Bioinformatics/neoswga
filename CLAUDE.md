@@ -664,6 +664,20 @@ with h5py.File('positions.h5', 'r') as f:
 
    Do not record this class as closed again. Record what the ratchets cover.
 
+   A third variant surfaced on 2026-09-17, and none of the five ratchets looks
+   for it: not a CLI flag and not a schema key nobody reads, but a schema key
+   read in some places and not in the one that would spend it. `cpus` reached
+   `create_pool` and did not reach step 1. `kmer_counter.run_jellyfish` declares
+   `cpus: int = 4` and computes
+   `max_workers = min(num_k, cpu_count // max(cpus, 1))`, so that default set
+   both the threads per jellyfish process AND how many k values ran at once,
+   while the configured value set neither. All four of step 1's call sites
+   omitted it. On a 64-core machine with `cpus: 16` the run used 4 threads per
+   process and 16 concurrent k values, the transpose of what was asked for.
+   Fixed by passing `parameter.cpus`; pinned by
+   `tests/test_the_configured_cpu_count_reaches_jellyfish.py`, which walks the
+   AST of step 1 rather than asserting a thread count.
+
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when
    `gini.notna() & (gini < max_gini)`. The `.notna()` half was written for

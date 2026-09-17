@@ -44,16 +44,55 @@ doing it by scoring everything at every step.
 
 ## Why the earlier profile was optimistic
 
+**Corrected 2026-09-17.** This section first attributed the gap to the
+background, naming `_effective_site_load` and the background set union. That was
+wrong. The two profiles differ because one computes occupancy-weighted coverage
+and the other does not, and that term scales with the TARGET length and the
+panel size, not with the background.
+
 `docs/validation/pool_plan_profile_2026-09-16.md` recorded about 1.4 ms per
-evaluation. That was a 2 Mb synthetic target with a synthetic background of the
-same size. This is a 1.27 Mb target against a 144 Mb host, and both
-`_effective_site_load` and the background set union scale with the background.
-An order of magnitude separates them, and the difference is the background, not
-the target.
+evaluation on a 2 Mb synthetic pair. Its driver passes `conditions=None` and
+`coverage_metric="raw"`, so `_effective_site_load` returns immediately and
+`_compute_effective_coverage` is never called. The two published figures are
+measurements of two different quantities.
+
+Measured on the real Wolbachia pair at panel size 24, changing one thing at a
+time and holding the cache, the panel and both genomes fixed:
+
+| Configuration | Per call |
+|---|---|
+| Occupancy-weighted coverage, background present | 18.9 ms |
+| Raw coverage, background present | 0.9 ms |
+| Occupancy-weighted coverage, no background at all | 15.8 ms |
+
+Removing the 144 Mb host costs 16% of the time. Turning off the occupancy
+weighting costs 95% of it. The cost also grows about linearly in the panel,
+which is the signature of a per-primer pass over the target rather than anything
+to do with the host:
+
+| Panel size | Per call |
+|---|---|
+| 6 | 6.4 ms |
+| 12 | 11.0 ms |
+| 24 | 18.7 ms |
+| 48 | 35.9 ms |
+
+The conclusion above is unaffected: the objective costs milliseconds, so a
+bounded per-step scan is still mandatory. What changes is where the effort
+belongs. `_compute_effective_coverage` does, per primer, one full-length window
+reset and one masked multiply over the target, and computing the same quantity
+as an interval sweep over window endpoints measured 47x faster on one core,
+agreeing to 5.5e-9. At about 1 ms per evaluation a 2,000-candidate frontier
+costs roughly 2 s per greedy step rather than 30 s, which changes what scan
+width increment 4 can afford. See
+[parallelism_opportunities_2026-09-17.md](parallelism_opportunities_2026-09-17.md),
+which found this while looking for something else.
 
 The general point is the one the retention benchmark already made: measure on
 the pair you design against. A synthetic profile is the right tool for finding
-which function dominates and the wrong one for deciding what is affordable.
+which function dominates and the wrong one for deciding what is affordable --
+and it is the wrong tool for the first job too when it silently runs a different
+code path, which is what happened here.
 
 ## What this does not say
 

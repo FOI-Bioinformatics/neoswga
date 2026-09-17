@@ -820,6 +820,11 @@ def step1():
     if total_genomes > 0:
         logger.info(f"Counting k-mers ({min_k}-{max_k}bp) for {total_genomes} genome(s)...")
 
+    # Threads per jellyfish process, from params.json rather than the function's
+    # own default of 4. `run_jellyfish` also divides the machine by this to pick
+    # how many k values to count at once, so the default decided BOTH numbers on
+    # every run and the configured value decided neither.
+    jellyfish_cpus = max(1, int(getattr(parameter, "cpus", 1) or 1))
     logger.info("Running jellyfish for foreground...")
     for i, fg_prefix in enumerate(fg_prefixes):
         genome_name = os.path.basename(fg_genomes[i])
@@ -837,7 +842,7 @@ def step1():
                         os.symlink(src, dst)
                 continue
         with progress_context(f"  Foreground {i+1}/{len(fg_prefixes)}: {genome_name}"):
-            run_jellyfish(fg_genomes[i], fg_prefix, min_k, max_k)
+            run_jellyfish(fg_genomes[i], fg_prefix, min_k, max_k, cpus=jellyfish_cpus)
 
     if bg_prefixes:
         logger.info("Running jellyfish for background...")
@@ -858,7 +863,7 @@ def step1():
                             os.symlink(src, dst)
                     continue
             with progress_context(f"  Background {i+1}/{len(bg_prefixes)}: {genome_name}"):
-                run_jellyfish(bg_genomes[i], bg_prefix, min_k, max_k)
+                run_jellyfish(bg_genomes[i], bg_prefix, min_k, max_k, cpus=jellyfish_cpus)
 
     # Count k-mers for exclusion genome(s) if configured
     excl_genomes_val = getattr(parameter, "excl_genomes", [])
@@ -869,7 +874,9 @@ def step1():
             if i < len(excl_genomes_val):
                 genome_name = os.path.basename(excl_genomes_val[i])
                 with progress_context(f"  Exclusion {i+1}/{len(excl_prefixes_val)}: {genome_name}"):
-                    run_jellyfish(excl_genomes_val[i], excl_prefix, min_k, max_k)
+                    run_jellyfish(
+                        excl_genomes_val[i], excl_prefix, min_k, max_k, cpus=jellyfish_cpus
+                    )
 
     # Count k-mers for blacklist genome(s) if configured
     bl_genomes_val = getattr(parameter, "bl_genomes", [])
@@ -880,7 +887,7 @@ def step1():
             if i < len(bl_genomes_val):
                 genome_name = os.path.basename(bl_genomes_val[i])
                 with progress_context(f"  Blacklist {i+1}/{len(bl_prefixes_val)}: {genome_name}"):
-                    run_jellyfish(bl_genomes_val[i], bl_prefix, min_k, max_k)
+                    run_jellyfish(bl_genomes_val[i], bl_prefix, min_k, max_k, cpus=jellyfish_cpus)
 
     logger.info("Done running jellyfish")
 
