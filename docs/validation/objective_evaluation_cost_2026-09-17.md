@@ -81,10 +81,11 @@ The conclusion above is unaffected: the objective costs milliseconds, so a
 bounded per-step scan is still mandatory. What changes is where the effort
 belongs. `_compute_effective_coverage` does, per primer, one full-length window
 reset and one masked multiply over the target, and computing the same quantity
-as an interval sweep over window endpoints measured 47x faster on one core,
-agreeing to 5.5e-9. At about 1 ms per evaluation a 2,000-candidate frontier
-costs roughly 2 s per greedy step rather than 30 s, which changes what scan
-width increment 4 can afford. See
+as an interval sweep over window endpoints measured 19x to 21x faster against
+the real implementation on this pair, agreeing to 6e-9, with wrapping verified
+separately. At under 1 ms for that term a 2,000-candidate frontier costs a few
+seconds per scan rather than 30 s, which changes what scan width increment 4 can
+afford. See
 [parallelism_opportunities_2026-09-17.md](parallelism_opportunities_2026-09-17.md),
 which found this while looking for something else.
 
