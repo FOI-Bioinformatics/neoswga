@@ -10,7 +10,12 @@ record_starts, matching the loop it is compared against, so neither confines a
 window to the record holding its site. A real replacement has to decide that
 question rather than inherit it.
 
-Run with a design directory that has been through count-kmers, filter and score.
+Usage: check_interval_sweep.py [design_dir]
+
+The design directory must have been through count-kmers, filter and score; the
+position indexes it reads are too large to commit.
+
+See docs/validation/parallelism_opportunities_2026-09-17.md.
 """
 
 import json, sys, time, pathlib, math

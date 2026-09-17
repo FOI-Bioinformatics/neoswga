@@ -3,6 +3,17 @@
 The cost note prices a full-universe greedy scan. Nothing passes objective= to
 optimize_greedy, so the reachable objective-scored searches are the swap loop
 and the beam, both budgeted. This counts the calls instead of assuming them.
+
+Usage: count_objective_calls.py [density_floor] [design_dir]
+
+The design directory must have been through count-kmers, filter and score; the
+position indexes and the candidate inventory are what this reads, and they are
+too large to commit. A density floor of 1.0 binds nothing on the bundled
+Wolbachia design, which leaves the repair unattempted and the objective
+evaluated once -- itself one of the results, which is why the floor is an
+argument and defaults to a value that does bind.
+
+See docs/validation/what_actually_bounds_the_search_2026-09-17.md.
 """
 
 import json, sys, time, pathlib
