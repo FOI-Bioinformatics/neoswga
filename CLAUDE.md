@@ -386,6 +386,21 @@ relatively.
   443 MB and 18.9 MB
   ([benchmark](docs/validation/wolbachia_retention_benchmark_2026-09-16.md)).
 
+  **Retention has not been shown to buy anything.** Measured 2026-09-17 once
+  Phase 4 made the retained candidates reachable: at panel size 12 the
+  shortlist (2,000), the post-Gini inventory (20,670) and all hard-QC
+  candidates (491,836) all reach a selectivity density floor of 60 and all fail
+  at 80, and the two larger universes deliver panels agreeing to sixteen
+  significant figures on both density and coverage. The 471,166 candidates only
+  `all_qc` holds changed nothing and cost 772 s against 41 s, plus 123 s of
+  cache build and 785 MB of index against 20 MB. The larger universes also
+  report a LOWER density on any row they cannot satisfy, which is the Stage 1
+  drift recorded in `docs/validation/violation_magnitude_2026-09-17.md` rather
+  than retention's doing, and the two cannot be separated until Stage 1 is
+  constraint-aware. One pair, one panel size, so this is "no benefit
+  demonstrated", not "no benefit exists"; the default is unchanged
+  ([measurement](docs/validation/retention_changes_no_delivered_panel_2026-09-17.md)).
+
   The shortlist-only `legacy` mode was removed on 2026-09-16. It gave a
   background index to the 2,000 shortlisted candidates only, so the 489,836
   that cleared hard QC without being shortlisted -- 963,931 of their 979,672
