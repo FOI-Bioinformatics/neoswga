@@ -4,6 +4,7 @@ import math
 import time
 
 from .base_optimizer import OptimizationStatus
+from .candidate_source import as_candidate_source
 from .dimer_validator import DimerValidator
 from .lazy_dimer import LazyDimerCompatibility
 from .panel_beam import beam_search
@@ -248,7 +249,12 @@ def plan_pool(
         raise ValueError("Specify a minimum selectivity density or maximum background sites")
     if coverage_metric == "effective" and optimizer.conditions is None:
         raise ValueError("Effective coverage requires reaction conditions")
-    pool = list(dict.fromkeys(p.upper() for p in candidates if len(p) == primer_length))
+    # One contract for where candidates come from. A bare list still works and
+    # becomes a `ListCandidateSource`, so every existing caller is unchanged;
+    # a command that opened the inventory passes that instead, and the plan
+    # then reports how much of the universe the run actually examined.
+    source = as_candidate_source(candidates)
+    pool = list(dict.fromkeys(p.upper() for p in source.initial() if len(p) == primer_length))
     if not pool:
         raise ValueError(
             f"No {primer_length}-mer candidates available; regenerate the candidate pool at that length"
@@ -376,6 +382,7 @@ def plan_pool(
     return dict(
         primer_length=primer_length,
         candidate_count=len(pool),
+        candidate_source=source.describe(),
         reach_sensitivity=sensitivity,
         coverage_metric=coverage_metric,
         extension_reach=optimizer.config.extension_reach,

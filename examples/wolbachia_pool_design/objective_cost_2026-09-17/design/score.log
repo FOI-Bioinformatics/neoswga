@@ -1,0 +1,19 @@
+WARNING: Background genome is large (144 Mbp). Consider pre-building a Bloom filter for faster filtering:
+  neoswga build-filter <background.fna> <data_dir>
+INFO: GC-adaptive strategy initialized
+INFO:   GC content: 35.2%
+INFO:   Classification: balanced
+INFO:   Selected EquiPhi29 (balanced genome)
+INFO:   Using standard parameters (balanced genome)
+INFO: GC-adaptive: Keeping user-specified polymerase 'phi29' (adaptive would recommend 'equiphi29')
+INFO: GC-adaptive: Preserving user-specified k-mer range 12-12bp
+INFO: GC-adaptive: Preserving user-specified betaine 0.0M
+INFO: GC-adaptive: Preserving user-specified DMSO 0.0%
+INFO: GC-adaptive strategy: balanced genome, confidence 90%
+INFO: Preparing candidate pool (amplification scoring retired)
+INFO: Carrying 2000 candidates forward (scoring retired)
+INFO: Design counts: counted=874596 assessed=491836 hard_qc_passed=20670 shortlisted=2000 indexed=20670 carried_to_stage3=2000 examined=unknown
+INFO: Run manifest updated: /Users/andreassjodin/Code/neoswga/examples/wolbachia_pool_design/objective_cost_2026-09-17/design/run_manifest.json
+INFO: Step 3 complete in 1.2s
+
+Next: neoswga optimize -j params.json
