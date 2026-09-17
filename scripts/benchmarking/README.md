@@ -110,6 +110,21 @@ replacement; it does not confine windows to records, and neither does the loop
 it reproduces. See
 [parallelism_opportunities_2026-09-17.md](../../docs/validation/parallelism_opportunities_2026-09-17.md).
 
+### `scan_width_sweep.py` -- how narrow the objective-scored scan can be
+
+Phase 4 increment 4's acceptance measurement. Runs `plan_pool` at widths 16, 64,
+256 and unbounded over the real pool and reports Jaccard, coverage, density,
+objective evaluations and pairs seen per size.
+
+```bash
+python scripts/benchmarking/scan_width_sweep.py 40.0 <design_dir>
+```
+
+The first argument is the selectivity density floor. A floor nothing violates
+leaves the repair unattempted and every width identical, which measures nothing,
+so it defaults to a value that binds on the bundled Wolbachia design. See
+[scan_width_2026-09-17.md](../../docs/validation/scan_width_2026-09-17.md).
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate

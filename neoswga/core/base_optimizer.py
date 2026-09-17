@@ -691,6 +691,27 @@ class OptimizerConfig:
     # Two searches with one purse is one search.
     beam_max_evaluations: int = 10000
     beam_max_seconds: float = 10.0
+    # How many panels the swap repair scores with the full objective per round.
+    # The scan is over `candidates x panel`, so a 2,000-candidate shortlist and
+    # a 12-primer panel is 24,000 pairs, and scoring every pair that survives
+    # the dimer guard is what made a real repair run out of its deadline. With
+    # a width, the cheap bin gain ranks the pairs and only the leaders are
+    # scored.
+    #
+    # 64 is measured, not chosen. Given a budget it cannot exhaust, widths 16
+    # and 64 and an unbounded scan all converge to the IDENTICAL panel on the
+    # Wolbachia pool at Jaccard 1.000, and the costs are 64, 320 and 17,913
+    # objective evaluations. So 16 already suffices and 64 is a four-fold
+    # margin whose extra cost is negligible beside the prescreen's own pass.
+    #
+    # It also fixes what the default budget did without a width: the unbounded
+    # scan stopped at `evaluation_limit` on every size measured and landed on a
+    # panel at Jaccard 0.500 against that optimum, so its answer was wherever
+    # the budget ran out. With a width the same budget converges.
+    #
+    # None restores the unbounded scan. See
+    # docs/validation/scan_width_2026-09-17.md.
+    objective_scan_width: int | None = 64
     # Self-dimer threshold. The clique optimizer reached for this with
     # `getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)` and the
     # fallback fired every time, because the field did not exist -- so a

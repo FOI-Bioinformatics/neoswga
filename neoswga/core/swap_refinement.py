@@ -17,6 +17,184 @@ class SwapResult:
     # and inventing a base count here would look like a measurement.
     covered_bases: int | None
     background_sites: float
+    # Pairs the cheap pass looked at, and panels the objective actually scored.
+    # `evaluations` counts pairs in unbounded mode and objective scorings in
+    # bounded mode, which is ambiguous on its own, so both are reported.
+    pairs_considered: int = 0
+    objective_evaluations: int = 0
+    # The scan width in force, or None when every surviving pair was scored.
+    scan_width: int | None = None
+
+
+def coverage_bins(optimizer, pool):
+    """The optimizer's coverage decomposition, as plain bins and weights.
+
+    Returns ``(None, None)`` when the optimizer has no bin decomposition to
+    give, which is the honest answer for the methods that do not build one; a
+    caller then runs the unbounded scan and says so rather than inventing an
+    empty decomposition that would read as "nothing is covered".
+
+    The lookup walks through a wrapper because `OptimizerFactory` returns
+    `HybridBaseOptimizer`, which delegates the coverage graph to an inner
+    `HybridOptimizer`. Asking the wrapper directly returned nothing and was the
+    reason `plan_pool` passed no bins at all.
+    """
+    provider = None
+    for candidate in (optimizer, getattr(optimizer, "_hybrid", None)):
+        if candidate is not None and hasattr(candidate, "_coverage_bins_by_primer"):
+            provider = candidate
+            break
+    if provider is None:
+        return None, None
+    regions = provider._coverage_bins_by_primer(list(dict.fromkeys(pool)))
+    bins = {p: {provider._bin_key(r) for r in owned} for p, owned in regions.items()}
+    weights = {provider._bin_key(r): r.end - r.start for owned in regions.values() for r in owned}
+    return bins, weights
+
+
+def _validate_inputs(
+    bins_by_primer, bin_weights, objective, objective_scan_width, max_evaluations, max_seconds
+):
+    """Check the budgets and the scan width. Returns whether bins are absent."""
+    if max_evaluations < 0 or not math.isfinite(max_seconds) or max_seconds < 0:
+        raise ValueError("Swap budgets must be finite and non-negative")
+    binless = bins_by_primer is None or bin_weights is None
+    if binless and objective is None:
+        raise ValueError("Swap refinement needs either coverage bins or an objective")
+    if objective_scan_width is None:
+        return binless
+    if objective is None:
+        raise ValueError(
+            "objective_scan_width bounds the objective-scored scan, so it needs an "
+            "objective. Without one the whole scan is already the cheap bin rule."
+        )
+    if binless:
+        raise ValueError(
+            "objective_scan_width needs coverage bins: the prescreen that decides "
+            "which pairs are worth scoring IS the bin rule. Pass bins_by_primer and "
+            "bin_weights, or drop the width and accept an unbounded scan."
+        )
+    if not isinstance(objective_scan_width, int) or isinstance(objective_scan_width, bool):
+        raise ValueError("objective_scan_width must be an integer")
+    if objective_scan_width < 1:
+        raise ValueError("objective_scan_width must be at least 1")
+    return binless
+
+
+def _bin_gain(incoming, outgoing, bins_by_primer, bin_weights, counts):
+    """The cheap rule: bases this swap newly covers, less those it drops.
+
+    The prescreen in front of the objective, and not a new criterion: it is
+    exactly what `refine_by_swaps` has always used when given no objective.
+    """
+    new_bins = bins_by_primer.get(incoming, set())
+    old_bins = bins_by_primer.get(outgoing, set())
+    gain = sum(bin_weights[b] for b in new_bins if counts[b] == 0)
+    loss = sum(bin_weights[b] for b in old_bins - new_bins if counts[b] == 1)
+    return gain - loss
+
+
+def _ranked_admissible_pairs(
+    current, pool, fixed, selected_set, bins_by_primer, bin_weights, counts, dimers
+):
+    """Every swap that is allowed, best bin gain first, plus how many were seen.
+
+    The whole frontier is walked. This is deliberately NOT bounded by
+    `max_evaluations`: that budget was calibrated when every pair cost a full
+    objective evaluation, and letting it cut this pass short would rank a
+    prefix of the pool and reintroduce the blindness the scan width removes.
+
+    Ties break on the pool order, which is the caller's ranking, so the
+    traversal is deterministic and independent of dictionary layout.
+    """
+    ranked = []
+    seen = 0
+    for order, incoming in enumerate(pool):
+        if incoming in selected_set:
+            continue
+        for outgoing in current:
+            if outgoing in fixed:
+                continue
+            seen += 1
+            retained = [p for p in current if p != outgoing]
+            if dimers.dimerises(incoming, retained):
+                continue
+            gain = _bin_gain(incoming, outgoing, bins_by_primer, bin_weights, counts)
+            ranked.append((-gain, order, incoming, outgoing))
+    ranked.sort()
+    return ranked, seen
+
+
+def _refine_with_bounded_scan(
+    current,
+    pool,
+    fixed,
+    bins_by_primer,
+    bin_weights,
+    counts,
+    dimers,
+    score,
+    objective,
+    objective_scan_width,
+    max_evaluations,
+    deadline,
+    covered,
+    background,
+):
+    """Swap refinement with the objective scored only over the best pairs.
+
+    One round is: rank every admissible pair by the cheap bin gain, score the
+    best `objective_scan_width` of them with the objective, take the best
+    improvement. Repeat until a round finds nothing or a budget stops it.
+
+    Separate from the unbounded loop rather than folded into it, because the
+    two differ in what they spend and in what bounds them: the unbounded one
+    scores every surviving pair and is bounded by the pair count, this one
+    scores a fixed number per round and is bounded by rounds.
+    """
+    evaluations = swaps = pairs_considered = objective_evaluations = 0
+    reason = "local_optimum"
+    while True:
+        best = None
+        best_score = None
+        incumbent = score(current)
+        exhausted = False
+        ranked, seen = _ranked_admissible_pairs(
+            current, pool, fixed, set(current), bins_by_primer, bin_weights, counts, dimers
+        )
+        pairs_considered += seen
+        for _, _, incoming, outgoing in ranked[:objective_scan_width]:
+            if evaluations >= max_evaluations or time.monotonic() >= deadline:
+                reason = "evaluation_limit" if evaluations >= max_evaluations else "time_limit"
+                exhausted = True
+                break
+            evaluations += 1
+            objective_evaluations += 1
+            candidate_score = score([p for p in current if p != outgoing] + [incoming])
+            if candidate_score > incumbent and (best is None or candidate_score > best_score):
+                best_score = candidate_score
+                best = (outgoing, incoming)
+        if best is not None:
+            outgoing, incoming = best
+            for b in bins_by_primer.get(outgoing, ()):
+                counts[b] -= 1
+            counts.update(bins_by_primer.get(incoming, ()))
+            current[current.index(outgoing)] = incoming
+            covered = sum(bin_weights[b] for b in counts if counts[b])
+            background = objective.metrics(current).total_bg_sites
+            swaps += 1
+        if exhausted or best is None:
+            return SwapResult(
+                tuple(current),
+                evaluations,
+                swaps,
+                reason,
+                covered,
+                background,
+                pairs_considered=pairs_considered,
+                objective_evaluations=objective_evaluations,
+                scan_width=objective_scan_width,
+            )
 
 
 def refine_by_swaps(
@@ -29,6 +207,7 @@ def refine_by_swaps(
     fixed_primers=(),
     background_sites=None,
     objective=None,
+    objective_scan_width=None,
     max_evaluations=10000,
     max_seconds=10.0,
 ):
@@ -55,15 +234,34 @@ def refine_by_swaps(
     `covered_bases` is then `None` rather than a zero that would read as a
     measured value.
 
+    `objective_scan_width` bounds the objective-scored part of each round. The
+    scan is over `candidates x panel`, which at two thousand candidates and a
+    twelve-primer panel is twenty-four thousand pairs, and scoring every pair
+    that survived the dimer guard is what made a real repair run out of its
+    deadline. With a width, the cheap bin gain ranks the surviving pairs and
+    only the best `width` of them are scored.
+
+    The prescreen is the other branch of this same function, which is why this
+    needs no new criterion: without an objective the rule has always been bin
+    gain minus bin loss. Measured on the real pool, its top ten pairs were
+    exactly the objective's top ten, so it filters rather than decides.
+
+    Two things about the bound are deliberate. The cheap pass always covers the
+    whole frontier: `max_evaluations` was calibrated when every pair cost a full
+    evaluation, and letting it cut the prescreen short would rank a prefix of
+    the pool and reintroduce the blindness the bound removes. And a width
+    without bins, or without an objective, is refused rather than quietly run
+    unbounded, because a caller that asked to be bounded and silently was not is
+    the shape of most of this audit.
+
     New primers must be compatible with every retained primer. Time limits are
     cooperative, checked between evaluations; preprocessing belongs to the
     caller.
     """
-    if max_evaluations < 0 or not math.isfinite(max_seconds) or max_seconds < 0:
-        raise ValueError("Swap budgets must be finite and non-negative")
-    binless = bins_by_primer is None or bin_weights is None
-    if binless and objective is None:
-        raise ValueError("Swap refinement needs either coverage bins or an objective")
+    binless = _validate_inputs(
+        bins_by_primer, bin_weights, objective, objective_scan_width, max_evaluations, max_seconds
+    )
+    bounded = objective_scan_width is not None
     bins_by_primer = {} if bins_by_primer is None else bins_by_primer
     bin_weights = {} if bin_weights is None else bin_weights
     current = list(dict.fromkeys(selected))
@@ -76,6 +274,7 @@ def refine_by_swaps(
     covered = None if binless else sum(bin_weights[b] for b in counts)
     background = sum(bg.get(p, 0.0) for p in current)
     evaluations = swaps = 0
+    pairs_considered = objective_evaluations = 0
     deadline = time.monotonic() + max_seconds
     reason = "local_optimum"
 
@@ -87,6 +286,23 @@ def refine_by_swaps(
             -objective.metrics(panel).total_bg_sites,
         )
 
+    if bounded:
+        return _refine_with_bounded_scan(
+            current,
+            pool,
+            fixed,
+            bins_by_primer,
+            bin_weights,
+            counts,
+            dimers,
+            _score,
+            objective,
+            objective_scan_width,
+            max_evaluations,
+            deadline,
+            covered,
+            background,
+        )
     while True:
         best = None
         best_score = None
@@ -106,10 +322,12 @@ def refine_by_swaps(
                     exhausted = True
                     break
                 evaluations += 1
+                pairs_considered += 1
                 retained = [p for p in current if p != outgoing]
                 if dimers.dimerises(incoming, retained):
                     continue
                 if objective is not None:
+                    objective_evaluations += 1
                     candidate_panel = [*retained, incoming]
                     candidate_score = _score(candidate_panel)
                     if candidate_score > incumbent and (
@@ -143,7 +361,17 @@ def refine_by_swaps(
             swaps += 1
         if exhausted or best is None:
             break
-    return SwapResult(tuple(current), evaluations, swaps, reason, covered, background)
+    return SwapResult(
+        tuple(current),
+        evaluations,
+        swaps,
+        reason,
+        covered,
+        background,
+        pairs_considered=pairs_considered,
+        objective_evaluations=objective_evaluations,
+        scan_width=None,
+    )
 
 
 def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
@@ -176,9 +404,7 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
     # temperature well below the reaction temperature touches many bins and
     # contributes little amplification.
     objective = getattr(optimizer, "pool_objective", None)
-    regions = optimizer._coverage_bins_by_primer(pool)
-    bins = {p: {optimizer._bin_key(r) for r in owned} for p, owned in regions.items()}
-    weights = {optimizer._bin_key(r): r.end - r.start for owned in regions.values() for r in owned}
+    bins, weights = coverage_bins(optimizer, pool)
     background = (
         {p: optimizer._count_background_sites([p]) for p in pool}
         if optimizer.background_pruning and optimizer.bg_prefixes
