@@ -66,19 +66,26 @@ def _bg_sites(objective, panel) -> float:
     return float(getattr(objective.metrics(panel), "total_bg_sites", 0) or 0)
 
 
-def _rank(objective, panel, violations):
+def _rank(objective, panel):
     """Sort key, ascending, best first.
 
     Constraints come before coverage, which is the same ordering the swap
-    refinement uses: a panel that fails fewer limits is preferred however much
-    coverage the alternative would buy, because a constraint is not a scoring
-    term to be outbid. The panel itself is last, so a complete tie resolves to
-    one answer rather than to whichever order the pool happened to arrive in.
+    refinement uses: a panel nearer to satisfying its limits is preferred
+    however much coverage the alternative would buy, because a constraint is
+    not a scoring term to be outbid. The panel itself is last, so a complete
+    tie resolves to one answer rather than to whichever order the pool happened
+    to arrive in.
+
+    Ranked on `shortfall` rather than on the NUMBER of violated constraints.
+    Counting ties whenever two panels fail the same single limit, and coverage
+    then decides, which is how more search came to move a panel further from
+    the floor it was chasing. Zero shortfall is exactly feasibility, so this
+    keeps every feasible panel ahead of every infeasible one.
     """
     coverage = objective.coverage(panel)
     if coverage is None:
         coverage = -math.inf
-    return (len(violations), -coverage, _bg_sites(objective, panel), panel)
+    return (objective.shortfall(panel), -coverage, _bg_sites(objective, panel), panel)
 
 
 def beam_search(
@@ -147,7 +154,7 @@ def beam_search(
                 ):
                     pruned += 1
                     continue
-                key = _rank(objective, panel, violations)
+                key = _rank(objective, panel)
                 scored.append((key, panel))
                 if not violations:
                     if best_feasible is None or key < best_feasible[0]:

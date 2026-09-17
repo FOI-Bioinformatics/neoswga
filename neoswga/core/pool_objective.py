@@ -30,6 +30,7 @@ of genome recovery.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
@@ -138,3 +139,48 @@ class PoolObjective:
             reasons.append("background sites above maximum")
 
         return tuple(reasons)
+
+    def shortfall(self, primers: Sequence[str]) -> float:
+        """How far this panel is from satisfying its constraints. 0 when it does.
+
+        `violations` names what failed; this measures by how much, which is what
+        a search needs when every candidate fails. The two agree exactly at the
+        boundary: the shortfall is zero precisely when `violations` is empty,
+        and `tests/test_the_objective_ranks_by_how_far_it_missed.py` pins that
+        across the cases. Without that agreement a feasible panel could rank
+        behind an infeasible one, which is what the ordering exists to prevent.
+
+        Why it is needed. Both searches ranked on `len(violations)`, so two
+        panels failing the SAME single constraint tied, coverage broke the tie,
+        and the deciding metric was free to drift. Measured on the real
+        Wolbachia pool, widening the candidate frontier then moved a panel away
+        from the selectivity floor it was chasing: density 20.9 to 14.6 while
+        coverage rose 0.740 to 0.765. More search made the answer worse. See
+        `docs/validation/frontier_refill_2026-09-17.md`.
+
+        Each term is RELATIVE to its own limit, so a density floor and a
+        background-site ceiling are comparable and neither dominates merely by
+        being measured on a larger scale. Missing a floor of 100 by half scores
+        the same 0.5 as exceeding a ceiling of 10 by half. The terms are summed,
+        so failing two limits is worse than failing one.
+
+        An unmeasurable coverage is infinite rather than large. It is not a
+        distance from feasibility: a panel that cannot be scored is not nearly
+        acceptable, and a finite value would let coverage trade against it.
+        """
+        metrics = self.metrics(primers)
+        if self.coverage(primers) is None:
+            return math.inf
+
+        total = 0.0
+        floor = self.constraints.min_selectivity_density
+        if floor is not None and metrics.selectivity_density < floor:
+            # Scaled by the limit itself, and guarded for a zero limit so the
+            # boundary keeps agreeing with `violations` rather than dividing.
+            total += (floor - metrics.selectivity_density) / (abs(floor) or 1.0)
+
+        ceiling = self.constraints.max_background_sites
+        if ceiling is not None and metrics.total_bg_sites > ceiling:
+            total += (metrics.total_bg_sites - ceiling) / max(abs(ceiling), 1)
+
+        return total

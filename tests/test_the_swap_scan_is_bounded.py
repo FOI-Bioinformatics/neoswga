@@ -67,6 +67,15 @@ class _Objective:
         self._count(panel)
         return ("infeasible",) if frozenset(panel) in self._infeasible else ()
 
+    def shortfall(self, panel):
+        """Ranked on by both searches; see `PoolObjective.shortfall`.
+
+        Feasibility here is a set membership rather than a distance, so the
+        count is the honest magnitude: zero when nothing is violated, one when
+        something is.
+        """
+        return float(len(self.violations(panel)))
+
     def metrics(self, panel):
         self._count(panel)
 

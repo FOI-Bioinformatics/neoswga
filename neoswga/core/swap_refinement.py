@@ -280,8 +280,14 @@ def refine_by_swaps(
 
     def _score(panel):
         """Lexicographic, constraints first. Higher is better throughout."""
+        # `-shortfall` rather than `-len(violations)`: counting ties whenever
+        # two panels fail the same single constraint, and coverage then decides,
+        # which let more search move a panel further from the limit it was
+        # chasing. Zero shortfall is exactly feasibility, so a feasible panel
+        # still outranks every infeasible one however much coverage that would
+        # buy.
         return (
-            -len(objective.violations(panel)),
+            -objective.shortfall(panel),
             objective.coverage(panel),
             -objective.metrics(panel).total_bg_sites,
         )
