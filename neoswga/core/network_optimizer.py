@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 import bisect
 from collections import defaultdict
 
-from neoswga.core import dimer_matrix as _dimer_matrix
+from neoswga.core.lazy_dimer import dimer_screen
 
 logger = logging.getLogger(__name__)
 
@@ -869,7 +869,7 @@ class NetworkOptimizer:
         #
         # Built once over the whole candidate pool rather than per iteration.
         # Unsupported matrix thresholds raise rather than disabling the screen.
-        dimers = _dimer_matrix.build(list(candidates), self.max_dimer_bp) if candidates else None
+        dimers = dimer_screen(list(candidates), self.max_dimer_bp) if candidates else None
 
         relaxed = False
         while len(selected) < num_primers:

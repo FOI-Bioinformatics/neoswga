@@ -50,6 +50,19 @@ what follows is only what the filenames do not tell you.
   confines a window to the record holding its site, which is Phase 6's subject
   and is deliberately unchanged here. `coverage.merged_window_intervals` is the
   interval form of `_mark_window` and is tested against it base by base.
+- **`lazy_dimer.py`**: owns the one decision about how to screen dimers.
+  `dimer_screen(pool, max_dimer_bp)` returns the dense `dimer_matrix` below
+  `LAZY_DIMER_POOL_THRESHOLD` (4,000) candidates and the pairwise
+  `LazyDimerCompatibility` above it, and all three searches ask it:
+  `dominating_set_optimizer`, `network_optimizer` and `refine_hybrid_stage2`.
+  The last two built the dense array unconditionally, and `plan-pool` sets
+  `refinement_method="swap"`, so that was on the hot path -- at the 491,836
+  candidates `all_qc` retains the array is about 242 GB, a MemoryError rather
+  than a slowdown (audit finding F11). A threshold the dense form cannot
+  represent, 8 or above in its 4**8 code space, also takes the pairwise branch
+  rather than raising, so what was configured is always enforced;
+  `tests/test_one_dimer_screen_for_every_pool_size.py` holds a shrinking
+  allowlist of the sites that legitimately build a dense matrix.
 - **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
   than re-reading the HDF5 files. The constructor takes a fixed primer list;
   `load` and `release` move that window afterwards, which is what a frontier

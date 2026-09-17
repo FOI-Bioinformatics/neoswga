@@ -18,7 +18,6 @@ import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
 
-import networkx as nx
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -147,7 +146,11 @@ class BipartiteGraph:
         Args:
             bin_size: Size of genome bins (default: 10kb)
         """
-        self.graph = nx.Graph()
+        # No networkx mirror. One was maintained here alongside
+        # `primer_to_regions` and `region_to_primers`, taking an edge per
+        # primer-bin pair, and nothing in the package or the suite ever read
+        # it. The `full_network.graph` reads in `hybrid_optimizer` are an
+        # `AmplificationNetwork`, a different class whose graph is load-bearing.
         self.bin_size = bin_size
 
         # Node sets
@@ -260,9 +263,6 @@ class BipartiteGraph:
             self.primer_to_regions[primer].add(region)
             self.region_to_primers[region].add(primer)
 
-            # Add to graph
-            self.graph.add_edge(f"primer_{primer}", f"region_{region.chromosome}_{region.start}")
-
     def get_uncovered_regions(self, selected_primers: Set[str]) -> Set[CoverageRegion]:
         """Get regions not covered by selected primers"""
         uncovered = set()
@@ -296,7 +296,8 @@ OBJECTIVE_VERSION = "bins-or-objective-2026-09-15"
 # retains under `candidate_retention="all_qc"`, and 2.5 GB at 50,000. Almost
 # none of it is read, because the greedy screens against the panel it is
 # building rather than against the pool.
-LAZY_DIMER_POOL_THRESHOLD = 4_000
+# Re-exported from `lazy_dimer`, which owns the decision this bounds.
+from neoswga.core.lazy_dimer import LAZY_DIMER_POOL_THRESHOLD  # noqa: E402,F401
 
 STOP_REASONS = (
     "target_met",
@@ -455,25 +456,16 @@ class DominatingSetOptimizer:
         A `max_dimer_bp` above what `dimer_matrix`'s representation allocates
         raises ValueError. An unsupported screen must not disable the constraint.
         """
-        from neoswga.core import dimer_matrix as _dimer_matrix
+        from neoswga.core.lazy_dimer import dimer_screen
 
         # Deduplicated, order preserved: a primer appearing in both lists
         # would otherwise take two rows, and the index would keep only the
         # second.
         pool = list(dict.fromkeys(list(fixed_primers) + list(candidates)))
-        if len(pool) > LAZY_DIMER_POOL_THRESHOLD:
-            from neoswga.core.lazy_dimer import LazyDimerCompatibility
-
-            logger.info(
-                "Pool of %d candidates: computing dimer compatibility on demand "
-                "rather than materialising %d pairs (%.0f MB).",
-                len(pool),
-                len(pool) ** 2,
-                len(pool) ** 2 / 1e6,
-            )
-            matrix = LazyDimerCompatibility(self.max_dimer_bp)
-        else:
-            matrix = _dimer_matrix.build(pool, self.max_dimer_bp)
+        # The size decision used to be made here, and only here. Two other
+        # searches built the dense matrix unconditionally, so it now lives in
+        # `lazy_dimer.dimer_screen` and all three ask it.
+        matrix = dimer_screen(pool, self.max_dimer_bp)
         if not self.relax_dimer_constraint_when_stuck:
             fixed = list(dict.fromkeys(fixed_primers))
             for i, primer in enumerate(fixed):

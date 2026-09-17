@@ -107,12 +107,27 @@ def test_an_empty_candidate_list_is_not_an_error():
     assert _optimizer([]).optimize_greedy([], num_primers=3) == []
 
 
-def test_a_threshold_the_matrix_cannot_represent_does_not_silently_disable_it():
-    """`dimer_matrix.build` raises above max_dimer_bp 7. The greedy must not
-    quietly continue with no screening at all."""
+def test_a_threshold_the_matrix_cannot_represent_is_still_enforced():
+    """The property this has always protected, asserted directly.
+
+    `dimer_matrix.build` cannot represent a threshold above 7: it codes t-mers
+    in a 4**8 space. This used to assert that the greedy raised, which kept it
+    from quietly continuing with no screening but also meant a configured
+    threshold of 9 could not be used at all.
+
+    Since 2026-09-17 `lazy_dimer.dimer_screen` sends such a threshold to the
+    pairwise screen, which has no code-space limit, so it is enforced rather
+    than refused. PAIR_A and PAIR_B are exact reverse complements and carry a
+    12 bp complementary run, so they exceed 9 and must still be rejected.
+    """
     primers = [PAIR_A, PAIR_B, *SAFE]
-    with pytest.raises(ValueError):
-        _optimizer(primers, max_dimer_bp=9).optimize_greedy(primers, num_primers=3)
+
+    selected = _optimizer(primers, max_dimer_bp=9).optimize_greedy(primers, num_primers=3)
+
+    assert not (PAIR_A in selected and PAIR_B in selected), (
+        "both halves of a 12 bp complementary pair were selected at max_dimer_bp=9, "
+        "so the screen was disabled rather than enforced"
+    )
 
 
 def test_explicit_relaxation_can_admit_the_pair(caplog):
