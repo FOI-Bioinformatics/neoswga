@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from typing import Iterable, List, Sequence, Set
 
+from neoswga.core.position_cache import MissingPositionsError
+
 
 class CandidateProvider:
     """Hands out eligible candidates in batches, seeded by the existing ranking.
@@ -35,6 +37,10 @@ class CandidateProvider:
         self.condition_id = condition_id
         self.lengths = list(lengths)
         self._ordered: List[str] | None = None
+        # The provider owns the position data for the candidates it hands out,
+        # because it is the only thing that knows a batch was admitted. Nothing
+        # may be scored before `attach_positions`.
+        self.position_cache = None
 
     # -- ordering ----------------------------------------------------------
 
@@ -97,34 +103,44 @@ class CandidateProvider:
         """True when every eligible candidate has been examined."""
         return self.unexamined(excluded) == 0
 
+    # -- positions ---------------------------------------------------------
+
+    def attach_positions(self, cache) -> None:
+        """Hand the provider the cache the candidates it serves are scored on.
+
+        Mandatory before any batch is scored. Attaching is also what makes
+        loading on demand possible, since the provider is the only party that
+        knows a candidate has just been admitted.
+        """
+        self.position_cache = cache
+
     def ensure_positions(self, sequences: Sequence[str]) -> None:
         """Make sure a batch has position data before it is scored.
 
-        Under `candidate_retention="all_qc"` every eligible candidate is indexed
-        at stage 2, so this is a no-op for the common path and exists so a
-        caller need not know that. For an index built under a narrower policy,
-        or for a candidate supplied from outside the pipeline, it raises rather
-        than letting a missing index read as a primer that binds nowhere -- the
-        silent-zero shape recorded in Known Issues 5, 6 and 13.
+        Two things had to change here.
+
+        It used to return quietly when no cache was attached, which is the one
+        configuration that cannot be checked at all. Nothing in production
+        attached one, so the guard was inert on every run it was supposed to
+        protect. It now raises.
+
+        And it asked whether a candidate had a hit on ANY prefix. That is the
+        wrong question twice over. A candidate with fifty foreground sites and
+        no background entry passed, which is unknown specificity reported as
+        perfect specificity -- the silent zero of Known Issues 5, 6 and 13. A
+        candidate indexed against a host it binds nowhere failed, though its
+        zero is a measurement and a good one. The question is whether there is
+        an ENTRY on EVERY prefix the design will score against.
+
+        A candidate the cache does not hold yet is loaded rather than refused:
+        that is the normal case once the frontier moves, and the cache applies
+        its own `on_missing` policy to the batch.
         """
-        cache = getattr(self, "position_cache", None)
+        cache = self.position_cache
         if cache is None:
-            return
-        missing = [
-            sequence
-            for sequence in sequences
-            if not any(
-                len(cache.get_positions(prefix, sequence, "both"))
-                for prefix in getattr(cache, "fname_prefixes", [])
+            raise MissingPositionsError(
+                "This provider has no position cache, so it cannot tell a candidate "
+                "that binds nowhere from one that was never indexed. Call "
+                "attach_positions(cache) before scoring a batch."
             )
-        ]
-        if missing:
-            raise ValueError(
-                f"{len(missing)} candidate(s) in this batch have no position data "
-                f"(first: {missing[0]}). Under candidate_retention='all_qc' stage 2 "
-                f"indexes every eligible candidate; 'post_gini' covers only those "
-                f"that also cleared the evenness gate, and an index written before "
-                f"2026-09-16 may cover only the max_primer shortlist. Re-run "
-                f"'neoswga filter' with all_qc retention, or the coverage computed "
-                f"for these is a zero rather than a measurement."
-            )
+        cache.require_entries([str(sequence) for sequence in sequences])

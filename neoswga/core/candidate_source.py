@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
 from neoswga.core.candidate_inventory import STAGE2_INVENTORY_NAME
+from neoswga.core.position_cache import MissingPositionsError
 
 
 class ListCandidateSource:
@@ -74,6 +75,22 @@ class ListCandidateSource:
 
     def attach_positions(self, cache) -> None:
         self.position_cache = cache
+
+    def ensure_positions(self, sequences: Sequence[str]) -> None:
+        """Refuse a candidate this design cannot score on every reference.
+
+        A `--candidates` list is the case where this matters most: those
+        sequences came from outside the pipeline, so nothing has established
+        that either reference was ever scanned for them.
+        """
+        cache = getattr(self, "position_cache", None)
+        if cache is None:
+            raise MissingPositionsError(
+                "No position cache is attached to this candidate source, so a "
+                "candidate that binds nowhere cannot be told from one that was "
+                "never indexed. Call attach_positions(cache) first."
+            )
+        cache.require_entries([str(sequence) for sequence in sequences])
 
     def describe(self) -> dict:
         return {
@@ -138,7 +155,11 @@ class InventoryCandidateSource:
         that is the silent zero of Known Issues 5, 6 and 13.
         """
         self.position_cache = cache
-        self._provider.position_cache = cache
+        self._provider.attach_positions(cache)
+
+    def ensure_positions(self, sequences: Sequence[str]) -> None:
+        """Delegate to the provider, which owns the positions it hands out."""
+        self._provider.ensure_positions(sequences)
 
     def describe(self) -> dict:
         universe = self.universe_size()

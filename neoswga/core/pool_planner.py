@@ -199,6 +199,45 @@ def _repair(primers, pool, objective, reasons, config, target=None):
     return list(beam.primers), record
 
 
+def _prepare_candidate_pool(optimizer, source, primer_length):
+    """The candidates this design may select, with the validator that vetted them.
+
+    Introduces the source to the cache its candidates will be scored on, which
+    is what `ensure_positions` needed all along: it existed before this, was
+    tested, and never ran, because no production caller attached a cache and
+    the provider returned quietly when none was attached. The one configuration
+    it was written to catch was the one it could not see. Attaching also gives
+    the source what it needs to load positions for a candidate the frontier
+    admits later.
+
+    The position check is gated on the optimizer having brought a cache, which
+    every command-line path does. A caller passing an optimizer-shaped object
+    with a metrics table of its own has no index for this to check against.
+    """
+    position_cache = getattr(optimizer, "cache", None)
+    if position_cache is not None and hasattr(source, "attach_positions"):
+        source.attach_positions(position_cache)
+
+    pool = list(dict.fromkeys(p.upper() for p in source.initial() if len(p) == primer_length))
+    if not pool:
+        raise ValueError(
+            f"No {primer_length}-mer candidates available; regenerate the candidate pool at that length"
+        )
+    if any(set(p) - set("ACGT") for p in pool):
+        raise ValueError("Candidate oligos must contain only A, C, G and T")
+    validator = DimerValidator(optimizer.config.max_dimer_bp, optimizer.config.max_self_dimer_bp)
+    pool = validator.filter_self_dimers(pool)
+    if not pool:
+        raise ValueError("No candidates pass the configured self-dimer limit")
+
+    # A candidate with no entry on one of the references is not a low-scoring
+    # candidate, it is an unmeasured one, and the design would read its absent
+    # host sites as perfect specificity.
+    if position_cache is not None and hasattr(source, "ensure_positions"):
+        source.ensure_positions(pool)
+    return pool, validator
+
+
 def plan_pool(
     optimizer,
     candidates,
@@ -254,17 +293,7 @@ def plan_pool(
     # a command that opened the inventory passes that instead, and the plan
     # then reports how much of the universe the run actually examined.
     source = as_candidate_source(candidates)
-    pool = list(dict.fromkeys(p.upper() for p in source.initial() if len(p) == primer_length))
-    if not pool:
-        raise ValueError(
-            f"No {primer_length}-mer candidates available; regenerate the candidate pool at that length"
-        )
-    if any(set(p) - set("ACGT") for p in pool):
-        raise ValueError("Candidate oligos must contain only A, C, G and T")
-    validator = DimerValidator(optimizer.config.max_dimer_bp, optimizer.config.max_self_dimer_bp)
-    pool = validator.filter_self_dimers(pool)
-    if not pool:
-        raise ValueError("No candidates pass the configured self-dimer limit")
+    pool, validator = _prepare_candidate_pool(optimizer, source, primer_length)
     # Stage-2 refinement inside the optimizer picks the delivered panel, so it
     # has to score on the same thing this function accepts on. See
     # `swap_refinement.refine_hybrid_stage2`, which reads this attribute.

@@ -76,6 +76,12 @@ class PositionCache:
         positions = cache.get_positions('fg_prefix', 'ATCGATCG')  # Fast!
     """
 
+    # Class-level default so an instance built with `__new__`, which several
+    # tests do deliberately to exercise the merge logic without HDF5, still
+    # answers the release check. Immutable, so no instance can mutate it by
+    # accident; `__init__` replaces it with a real set.
+    _released: Set[str] = frozenset()  # type: ignore[assignment]
+
     def __init__(
         self,
         fname_prefixes: List[str],
@@ -146,28 +152,46 @@ class PositionCache:
         # Primers that were scanned and genuinely have no binding sites. Their
         # zero coverage is a real result. Only populated by on_missing='scan'.
         self.zero_site_primers: List[str] = []
+        # Primers `release` has dropped. Kept because an entry that once existed
+        # and is now gone must not answer the way one that never existed does:
+        # both hold no array, and only this set can tell them apart.
+        self._released: Set[str] = set()
 
         self._load_all_positions()
         self._resolve_missing()
         self._report_statistics()
 
-    def _resolve_missing(self) -> None:
-        """Handle primers that produced no positions, per ``on_missing``."""
-        self.missing_primers = [
+    def _resolve_missing(self, primers: Optional[Sequence[str]] = None) -> None:
+        """Handle primers that produced no positions, per ``on_missing``.
+
+        ``primers`` restricts the check to a subset, which is what :meth:`load`
+        needs: re-deciding the whole cache on every batch would be quadratic in
+        the number of batches a moving frontier draws, and would re-raise for a
+        primer an earlier batch already reported.
+        """
+        subset = sorted(self.primers) if primers is None else sorted(set(primers))
+        missing = [
             (prefix, primer)
             for prefix in self.fname_prefixes
-            for primer in sorted(self.primers)
+            for primer in subset
             if (prefix, primer, "forward") not in self.cache
             and (prefix, primer, "reverse") not in self.cache
         ]
-        if not self.missing_primers:
+        if primers is None:
+            self.missing_primers = missing
+        else:
+            named = set(subset)
+            self.missing_primers = [
+                pair for pair in self.missing_primers if pair[1] not in named
+            ] + missing
+        if not missing:
             return
 
-        names = sorted({p for _, p in self.missing_primers})
+        names = sorted({p for _, p in missing})
         summary = ", ".join(names[:5]) + (f" (+{len(names) - 5} more)" if len(names) > 5 else "")
 
         if self.on_missing == "scan":
-            self._scan_missing_from_genomes()
+            self._scan_missing_from_genomes(missing)
         elif self.on_missing == "error":
             raise MissingPositionsError(
                 f"{len(names)} primer(s) have no cached binding positions: {summary}. "
@@ -188,14 +212,18 @@ class PositionCache:
                 summary,
             )
 
-    def _scan_missing_from_genomes(self) -> None:
+    def _scan_missing_from_genomes(self, pairs: Optional[Sequence[Tuple[str, str]]] = None) -> None:
         """Find missing primers by scanning the FASTA directly.
 
         Uses the existing single-pass Aho-Corasick scanner in
         ``core.string_search`` rather than a bespoke matcher, so circular
         wrap-around and reverse complements are handled the same way the
         pipeline handles them everywhere else.
+
+        ``pairs`` is the (prefix, primer) subset to resolve, defaulting to
+        everything currently outstanding.
         """
+        outstanding = list(self.missing_primers if pairs is None else pairs)
         if not self.genome_paths:
             raise ValueError("on_missing='scan' requires genome_paths aligned with fname_prefixes")
         if len(self.genome_paths) != len(self.fname_prefixes):
@@ -208,7 +236,7 @@ class PositionCache:
 
         zero_site: List[str] = []
         by_prefix: Dict[str, List[str]] = defaultdict(list)
-        for prefix, primer in self.missing_primers:
+        for prefix, primer in outstanding:
             by_prefix[prefix].append(primer)
 
         for prefix, genome_path in zip(self.fname_prefixes, self.genome_paths):
@@ -259,25 +287,28 @@ class PositionCache:
             )
 
         # Everything requested has now been resolved one way or the other.
-        self.missing_primers = []
-        self.zero_site_primers = sorted(set(zero_site))
+        resolved = set(outstanding)
+        self.missing_primers = [pair for pair in self.missing_primers if pair not in resolved]
+        self.zero_site_primers = sorted(set(self.zero_site_primers) | set(zero_site))
 
-    def _load_all_positions(self) -> None:
-        """Single-pass load of all position data"""
+    def _load_all_positions(self, primers: Optional[Sequence[str]] = None) -> None:
+        """Single-pass load of position data, for a subset or for everything."""
+
+        wanted = list(self.primers) if primers is None else list(primers)
 
         logger.info(
-            f"Loading positions for {len(self.primers)} primers from {len(self.fname_prefixes)} genomes..."
+            f"Loading positions for {len(wanted)} primers from {len(self.fname_prefixes)} genomes..."
         )
 
         # Group primers by length for efficient HDF5 access
         primers_by_length = defaultdict(list)
-        for primer in self.primers:
+        for primer in wanted:
             primers_by_length[len(primer)].append(primer)
 
         total_loaded = 0
 
         # Pre-compute reverse complements once (avoids redundant calls per prefix)
-        rc_map = {primer: reverse_complement(primer) for primer in self.primers}
+        rc_map = {primer: reverse_complement(primer) for primer in wanted}
 
         for fname_prefix in self.fname_prefixes:
             for k, primer_list in primers_by_length.items():
@@ -320,6 +351,135 @@ class PositionCache:
                             total_loaded += 1
 
         logger.info(f"Loaded {total_loaded} position arrays into memory")
+
+    # -- a window that moves -------------------------------------------------
+
+    def load(self, primers: Sequence[str]) -> List[str]:
+        """Bring candidates the cache was not built over into it.
+
+        The constructor takes a fixed list, which was enough while a design
+        never looked past the `max_primer` shortlist. A frontier that advances
+        admits candidates after the cache exists, and for those
+        :meth:`get_positions` answered with an empty array: a zero that reads
+        as a measurement and is not one.
+
+        The configured ``on_missing`` policy applies to the new batch exactly
+        as it applied to the original list, so a caller that asked to be told
+        about an unindexed candidate is still told. A batch that cannot be
+        resolved leaves the cache as it was rather than half-admitted.
+
+        Returns the candidates actually brought in, which is the empty list
+        when the cache already held all of them.
+        """
+        fresh = [
+            primer
+            for primer in dict.fromkeys(str(p) for p in primers)
+            if primer not in self.primers
+        ]
+        if not fresh:
+            return []
+
+        self.primers.update(fresh)
+        self._released.difference_update(fresh)
+        # `get_positions(..., 'both')` memoizes a result for any primer it is
+        # asked about, including the empty one it returns for a primer this
+        # cache does not hold. That memo outlives the load unless it is dropped
+        # here, so a candidate admitted by the frontier would keep answering
+        # with the zero it gave before its positions arrived.
+        for primer in fresh:
+            for prefix in self.fname_prefixes:
+                self.cache.pop((prefix, primer, "both"), None)
+        try:
+            self._load_all_positions(fresh)
+            self._resolve_missing(fresh)
+        except Exception:
+            self.primers.difference_update(fresh)
+            named = set(fresh)
+            self.missing_primers = [pair for pair in self.missing_primers if pair[1] not in named]
+            raise
+        return fresh
+
+    def release(self, primers: Sequence[str]) -> List[str]:
+        """Drop candidates the search has moved past.
+
+        A frontier that only ever grows is not a frontier. The Wolbachia
+        background index is 443 MB over the full retained inventory, so a
+        window that accumulates it defeats the point of bounding the window.
+
+        A released candidate is remembered as released. Its arrays are gone
+        either way, and without that record :meth:`get_positions` would answer
+        for it the way it answers for a candidate that binds nowhere, which is
+        the confusion this whole method exists downstream of.
+
+        Returns the candidates actually dropped.
+        """
+        gone: List[str] = []
+        for primer in dict.fromkeys(str(p) for p in primers):
+            if primer not in self.primers:
+                continue
+            for prefix in self.fname_prefixes:
+                for strand in ("forward", "reverse", "both"):
+                    self.cache.pop((prefix, primer, strand), None)
+            self.primers.discard(primer)
+            self._released.add(primer)
+            gone.append(primer)
+        if gone:
+            named = set(gone)
+            self.missing_primers = [pair for pair in self.missing_primers if pair[1] not in named]
+            self.zero_site_primers = [p for p in self.zero_site_primers if p not in named]
+        return gone
+
+    def has_entry(self, fname_prefix: str, primer: str) -> bool:
+        """Whether this cache holds an ANSWER for a primer on a prefix.
+
+        Not whether the answer is non-zero. A primer indexed against a host it
+        binds nowhere has an entry and a coverage of zero, and that zero is a
+        result; a primer with no entry has no result at all. Callers that
+        conflated the two read the second as the first -- Known Issues 5, 6
+        and 13, and the hit-count predicate `ensure_positions` used to carry.
+
+        The memoized ``'both'`` key is deliberately not consulted:
+        :meth:`get_positions` writes one for any primer it is asked about,
+        including an empty one for a primer that was never loaded.
+        """
+        return (fname_prefix, primer, "forward") in self.cache or (
+            fname_prefix,
+            primer,
+            "reverse",
+        ) in self.cache
+
+    def require_entries(self, primers: Sequence[str]) -> None:
+        """Refuse a batch this cache cannot answer for on every reference.
+
+        Loads what it does not hold, then checks. The check is per prefix and
+        on entry presence, not on hit count: a candidate with foreground sites
+        and no background entry has UNKNOWN specificity, and the number a
+        design would compute for it is a zero that reads as perfect. A
+        candidate indexed on every reference with no sites on one of them is
+        fine, and its zero is a result.
+
+        One rule in one place, because both the inventory provider and a
+        `--candidates` list need it and two copies would drift.
+        """
+        wanted = [str(primer) for primer in primers]
+        self.load(wanted)
+        unindexed = {
+            primer: [prefix for prefix in self.fname_prefixes if not self.has_entry(prefix, primer)]
+            for primer in wanted
+        }
+        unindexed = {primer: absent for primer, absent in unindexed.items() if absent}
+        if not unindexed:
+            return
+        first = sorted(unindexed)[0]
+        raise MissingPositionsError(
+            f"{len(unindexed)} candidate(s) have no position data on every reference "
+            f"this design scores against ({first} is missing from "
+            f"{', '.join(unindexed[first])}). Coverage or specificity computed for "
+            f"them would be a zero rather than a measurement. Run 'neoswga filter' "
+            f"with candidate_retention='all_qc' so every eligible candidate is "
+            f"indexed against both references, or design over a pool that is.",
+            missing=sorted(unindexed),
+        )
 
     def _check_prefix_is_indexed(self, fname_prefix: str) -> None:
         """Refuse a lookup on a prefix this cache never loaded.
@@ -431,6 +591,15 @@ class PositionCache:
                 second mechanism.
         """
         self._check_prefix_is_indexed(fname_prefix)
+        # Guarded by the truthiness test so a cache that never releases pays
+        # nothing: this is the hottest method in the package.
+        if self._released and primer in self._released:
+            raise MissingPositionsError(
+                f"Positions for {primer} were released from this cache and have not "
+                f"been loaded again, so the answer here is unknown rather than zero. "
+                f"Call load([{primer!r}]) before scoring it.",
+                missing=[primer],
+            )
 
         if strand == "both":
             key = (fname_prefix, primer, "both")

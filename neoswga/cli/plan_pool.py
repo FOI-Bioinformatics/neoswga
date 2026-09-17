@@ -77,12 +77,18 @@ def _open_source(data_dir, conditions, args, fallback):
         logger.info("Designing from the candidate list: %s", exc)
         return open_candidate_source(data_dir, "", [args.primer_length], candidates=fallback)
     described = source.describe()
+    # No examined count here: the frontier is drawn inside `plan_pool`, so at
+    # this point nothing has been looked at and `unexamined` is the whole
+    # universe. Quoting it as the shortfall read as "this run examined none of
+    # it". The figure the reader wants is in `candidate_source` in the saved
+    # plan, after the search.
+    frontier = described["frontier"] or described["universe"]
     logger.info(
-        "Candidate universe: %d eligible in the inventory, frontier %d. "
-        "%d were not examined by this run.",
+        "Candidate universe: %d eligible in the inventory; this run will search a "
+        "frontier of %d, leaving %d unexamined.",
         described["universe"],
-        described["frontier"] or described["universe"],
-        described.get("unexamined", 0),
+        frontier,
+        max(0, described["universe"] - frontier),
     )
     return source
 

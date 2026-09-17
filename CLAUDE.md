@@ -38,7 +38,14 @@ what follows is only what the filenames do not tell you.
   `rf_preprocessing`. Keep this module free of dependencies beyond `typing`
   and `dataclasses`.
 - **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
-  than re-reading the HDF5 files.
+  than re-reading the HDF5 files. The constructor takes a fixed primer list;
+  `load` and `release` move that window afterwards, which is what a frontier
+  that advances needs. A released primer is remembered as released and
+  `get_positions` raises for it, because an array that is gone reads exactly
+  like one that never existed. `has_entry` answers whether the cache holds an
+  ANSWER for a primer on a prefix, which is not the same question as whether
+  that answer is non-zero; `require_entries` is the one rule both the inventory
+  provider and a `--candidates` list check a batch against.
 - **`gpu_acceleration.py`**: CuPy-based thermodynamics helpers. Not reached by
   any pipeline stage, and `--use-gpu` says so rather than claiming otherwise.
   `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in
@@ -802,3 +809,45 @@ with h5py.File('positions.h5', 'r') as f:
     a target large enough that Stage 1 over-selects;
     `tests/test_expansion_uses_the_background.py` builds one at 300 kb with no
     external tool.
+
+15. **The guard against the silent zero was itself silent** -- FIXED 2026-09-17
+    (Phase 4 increment 3 of the 2026-09-16 pipeline audit).
+    `CandidateProvider.ensure_positions` exists to refuse a candidate whose
+    binding data is absent, so an unmeasured primer cannot be scored as though
+    it bound nothing. It had two defects and each one alone made it useless.
+
+    It returned quietly when no position cache was attached, and nothing in
+    production attached one. So the single configuration it was written to
+    catch was the configuration in which it did not run.
+
+    And its predicate asked whether the candidate had a hit on ANY prefix:
+
+    ```
+    not any(len(cache.get_positions(prefix, sequence, "both"))
+            for prefix in cache.fname_prefixes)
+    ```
+
+    A candidate with fifty foreground sites and no background entry at all
+    therefore passed, which is unknown specificity reported as perfect
+    specificity. A candidate indexed against a host it binds nowhere failed,
+    though that zero is a measurement and a good one. The question is whether
+    there is an ENTRY on EVERY prefix the design scores against, which is the
+    distinction `_resolve_missing` already drew for the constructor's primer
+    list and `PositionCache.has_entry` now exposes.
+
+    `PositionCache.require_entries` holds the rule once, for both the inventory
+    provider and a `--candidates` list, and `pool_planner._prepare_candidate_pool`
+    is where `plan-pool` attaches the cache and runs the check, before any panel
+    is evaluated. Tests:
+    `tests/test_positions_arrive_on_demand.py` for the behaviour and
+    `tests/test_the_frontier_is_vouched_for_before_it_is_scored.py` for the
+    wiring, the second because the first would have passed throughout the years
+    the check was inert.
+
+    `load` and `release` arrive with it. The cache took a fixed primer list at
+    construction, which was sufficient only while a design never looked past
+    the `max_primer` shortlist. `load` also drops the memoized `both` key for
+    the primers it admits: `get_positions` writes one for any primer it is
+    asked about, including the empty one it returns for a primer the cache does
+    not hold, so without that invalidation a candidate would keep answering
+    with the zero it gave before its positions arrived.
