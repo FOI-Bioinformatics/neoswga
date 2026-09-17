@@ -38,12 +38,22 @@ site builds its own executor.
 
 Four of those eight deserve a note.
 
-**The Gini pool is dead on the `filter` path.** `primer_attributes.get_gini_from_txt`
-takes the multiprocessing branch only when `position_cache is None`
-(`core/primer_attributes.py:293`). `pipeline.step2` always supplies one: the
-foreground scan at `core/pipeline.py:1283` returns it and passes it to
-`filter.get_gini` at `:1296`. So on every run of `neoswga filter` the Gini stage
-is single-threaded, and the pool exists for standalone callers only.
+**The Gini pool is dead on the `filter` path, and deliberately so.**
+`primer_attributes.get_gini_from_txt` takes the multiprocessing branch only when
+`position_cache is None`. `pipeline.step2` always supplies one:
+`_scan_foreground_positions` returns `string_search.get_positions(...)`
+unconditionally and the result is passed to `filter.get_gini` as
+`position_cache=`. So on every run of `neoswga filter` the Gini stage is
+single-threaded, and the pool exists for standalone callers only.
+
+Re-checked 2026-09-17 against the source. Unlike the other two dead sites, this
+one is a recorded choice rather than an oversight: the comment above the branch
+says "no multiprocessing needed since the data is already loaded -- avoids
+pickle overhead", and the data in question is the foreground position arrays. So
+item 4 in the ranking below is not "reach the pool" but "measure whether the
+serial in-cache path is actually the cheaper one at 491,836 candidates", which
+is a different and unanswered question. Reaching the pool by withholding the
+cache would reintroduce the pickle cost the comment is about.
 
 **The per-k position pool is dead whenever pyahocorasick is installed.**
 `string_search.get_positions` takes the single-pass Aho-Corasick branch
@@ -279,7 +289,7 @@ a cited note; estimated means arithmetic over a measured rate.
 | 1 | Interval sweep for `_compute_effective_coverage` | 47x on the dominant term, 14.9 ms to about 1 ms per evaluation | Medium: circular and record-boundary geometry | Measured, 13.12 ms to 0.277 ms, agreement 5.5e-9 |
 | 2 | Memoise the per-primer terms of `_effective_site_load` | 2.7 ms of 14.9 ms | Low: pure function of (primer, prefixes, max_mismatches) | Measured, panel-independence measured across three table sizes |
 | 3 | Processes over genome chunks in the background position scan | About 70 s of a 153 s `all_qc` filter, times core count less overhead | Medium: worker must receive the genome or map it | Measured throughput, estimated saving |
-| 4 | Reach the existing Gini pool, or parallelise the cached path | Unmeasured share of an 86 to 153 s filter | Low: the pool and its spawn-safe argument threading exist | Read of the source only |
+| 4 | Parallelise the cached Gini path | Unmeasured share of an 86 to 153 s filter | Low: the spawn-safe argument threading exists | Read of the source only; the serial branch is a recorded choice, see above |
 | 5 | Processes over sizes in `plan_pool` and over frontier points | Up to the number of sizes, 9 on the published sweep | Medium: 400 to 800 MB per worker under spawn | 20 s run measured; saving estimated |
 | 6 | Processes over ensemble methods | Up to 4x on an ensemble run | Low for correctness, high for memory | Estimated |
 | 7 | Processes over `filter_extra` | 12.4 s of a 153 s filter | Low | Measured rate, estimated total |
