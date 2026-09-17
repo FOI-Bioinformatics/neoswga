@@ -302,49 +302,123 @@ def test_an_ineligible_panel_cannot_qualify():
     assert frontier(designs, coverage_targets=[0.90])["by_target"][0.90] == []
 
 
-def test_plan_pool_declares_the_design_grid_but_does_not_yet_run_it():
-    """What this test used to claim, and what it actually checked.
+def test_plan_pool_runs_a_design_grid_over_two_conditions(tmp_path):
+    """What the old test asked for once the flag was wired.
 
-    Its docstring read "The grid has to be reachable, or it is a module nothing
-    calls", and it then asserted that argparse had registered the flag. Those are
-    different things. `run_plan_pool` never reads `args.design_grid`, so the flag
-    is accepted, appears in the help text, and changes nothing -- and this test
-    passed throughout, while reading as though it had checked otherwise.
+    It used to assert that `run_plan_pool` never read `args.design_grid`, and
+    said in its own docstring that when Phase 4 wired the command this should be
+    replaced by one that invokes `plan-pool` over two conditions and asserts two
+    independently designed results. This is that test.
 
-    It now states the true position. `tests/test_no_capability_is_unreachable.py`
-    owns the property, and Phase 4 of the audit plan wires the command; when it
-    does, this test fails and should be replaced by one that invokes `plan-pool`
-    with two conditions and asserts two independently designed results.
+    The two conditions differ only in DMSO, which changes every candidate's
+    effective melting temperature and so the occupancy each binding site
+    carries. Both are recorded in the inventory under their own fingerprint,
+    because that is what `filter` does per reaction and what `design_sweep`
+    looks up.
     """
-    import ast
-    import inspect
+    import json as _json
+    from types import SimpleNamespace
 
-    from neoswga.cli import plan_pool as plan_pool_cli
-    from neoswga.cli_unified import create_parser
+    import h5py
+    import numpy as np
+    import pandas as pd
 
-    action = next(
-        a
-        for sub in create_parser()._subparsers._group_actions
-        for name, sp in sub.choices.items()
-        if name == "plan-pool"
-        for a in sp._actions
-        if a.dest == "design_grid"
+    from neoswga.cli.plan_pool import run_plan_pool
+    from neoswga.core.candidate_inventory import record_stage2_inventory
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    primers = ["GCTAAAGACAAT", "TACATAACATAC", "ACGTCAGCACGA", "CAGTCAGGATCA"]
+    length = 12
+    genome = 40_000
+
+    data = tmp_path / "work"
+    data.mkdir()
+    for name, step in (("fg", 900), ("bg", 7000)):
+        with h5py.File(data / f"{name}_{length}mer_positions.h5", "w") as handle:
+            for i, primer in enumerate(primers):
+                sites = [step * (i + 1) + 3000 * j for j in range(4)]
+                handle.create_dataset(primer, data=np.array(sites, dtype=np.int64))
+            handle.create_dataset("#record_starts", data=np.array([0], dtype=np.int64))
+    pd.DataFrame({"primer": primers}).to_csv(data / "step3_df.csv", index=False)
+
+    frame = pd.DataFrame(
+        {"primer": primers, "fg_count": [4] * len(primers), "bg_count": [4] * len(primers)}
     )
-    assert action.default is None, "an absent grid must not be a real default"
-
-    source = inspect.getsource(plan_pool_cli.run_plan_pool)
-    read = {
-        node.attr
-        for node in ast.walk(ast.parse(textwrap.dedent(source)))
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "args"
+    params = {
+        "fg_prefixes": ["work/fg"],
+        "bg_prefixes": ["work/bg"],
+        "data_dir": "work",
+        "fg_seq_lengths": [genome],
+        "bg_seq_lengths": [genome],
+        "polymerase": "phi29",
+        "reaction_temp": 30.0,
+        "max_dimer_bp": 3,
+        "max_self_dimer_bp": 4,
     }
-    assert "design_grid" not in read, (
-        "run_plan_pool now reads args.design_grid. Replace this test with one "
-        "that runs the command over two conditions, and drop the design_grid "
-        "entry from KNOWN_INERT in tests/test_every_cli_option_has_an_effect.py."
+    (tmp_path / "params.json").write_text(_json.dumps(params))
+    grid = {"lengths": [length], "conditions": [{}, {"dmso_percent": 5.0}]}
+    (tmp_path / "grid.json").write_text(_json.dumps(grid))
+
+    # Record the inventory under the fingerprints this chemistry actually
+    # resolves to, derived the way the command derives them rather than by
+    # constructing bare conditions. That agreement is itself the property at
+    # stake: a mismatch is what made the inventory read as empty when
+    # `plan-pool` first opened it, and it produced a design with no candidates
+    # rather than an error.
+    import inspect as _inspect
+
+    from neoswga.core.pool_design_sweep import load_design_grid
+    from neoswga.core.reaction_conditions import build_reaction_conditions
+
+    resolved = build_reaction_conditions(SimpleNamespace(**params))
+    accepted = set(_inspect.signature(ReactionConditions.__init__).parameters) - {"self"}
+    baseline = {n: getattr(resolved, n) for n in accepted if hasattr(resolved, n)}
+    _, conditions = load_design_grid(grid, baseline)
+    assert len({c.fingerprint() for c in conditions}) == 2, (
+        "the two grid entries resolved to one reaction, so this fixture cannot "
+        "show two independent designs"
     )
+    for condition in conditions:
+        record_stage2_inventory(
+            data,
+            condition_id=condition.fingerprint(),
+            cleared_hard_gates=frame,
+            after_gini=frame,
+            shortlisted=frame,
+            indexed=primers,
+        )
+
+    out = tmp_path / "sweep"
+    run_plan_pool(
+        SimpleNamespace(
+            json_file=str(tmp_path / "params.json"),
+            candidates=None,
+            title=None,
+            primer_length=length,
+            min_size=2,
+            max_size=3,
+            coverage_targets=[0.3],
+            coverage_metric="effective",
+            coverage_reach=None,
+            no_repair=True,
+            min_selectivity_density=None,
+            max_background_sites=1000,
+            no_background=False,
+            method="hybrid",
+            swap_max_evaluations=None,
+            design_grid=str(tmp_path / "grid.json"),
+            output=str(out),
+        )
+    )
+
+    sweep = _json.loads((out / "design_sweep.json").read_text())
+    designs = sweep["designs"]
+
+    assert len(designs) == 2, f"expected one design per condition, got {len(designs)}"
+    assert len({d["condition"] for d in designs}) == 2, "both designs ran under one fingerprint"
+    for design in designs:
+        assert design["result"] is not None, f"{design['condition']} produced no design"
+        assert design["result"]["rows"], "a design came back with no size rows"
 
 
 def test_a_grid_file_is_read_and_resolved(tmp_path):

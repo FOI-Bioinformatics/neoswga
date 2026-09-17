@@ -317,6 +317,7 @@ neoswga design -j params.json --auto-size
 
 ### Utility Commands
 ```bash
+neoswga plan-pool -j params.json --design-grid grid.json  # design per condition
 neoswga validate --quick            # Validate installation
 neoswga validate --smoke -j params.json  # Check a config: schema, unknown keys,
                                     # genome files, then all four steps against a
@@ -631,6 +632,22 @@ with h5py.File('positions.h5', 'r') as f:
    The lesson both issues share: **test against a whole genome, not a chromosome.** chr21 is
    46 Mb and cannot reach either limit, so both bugs sat behind a passing test suite.
    `tests/test_position_cache.py::TestPositionsPastTheInt32Ceiling` pins this one.
+
+**`--design-grid` on `plan-pool`** designs once per condition and length in a
+JSON grid and writes `design_sweep.json` beside the usual report, rather than
+one `pool_plan`. The grid names `lengths` and `conditions`, where each condition
+names only the fields it changes: the baseline is the reaction this run
+resolved, so a grid varying DMSO alone keeps the buffer, salts and oligo
+concentration, and the comparison is between chemistries rather than against
+library defaults. A cache and optimizer are rebuilt per condition and length,
+since the index is per length and the chemistry is what varies.
+
+It needs the candidate inventory, and it looks each condition up by reaction
+fingerprint, so a condition the filter never recorded is reported as having no
+eligible candidate rather than designed with an empty pool. Wired on 2026-09-17
+in Phase 4 increment 6; it was audit finding F4, parsed and documented and read
+by nothing, and its entries are now gone from both the inert-option and
+unreachable-capability allowlists.
 
 8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
    (audit finding F1b). The key was declared in `params.schema.json`,

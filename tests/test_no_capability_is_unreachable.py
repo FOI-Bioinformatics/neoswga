@@ -35,8 +35,11 @@ when it grows a capability a command is supposed to reach.
 
 import ast
 import pathlib
+import sys
 
 import pytest
+
+target_module = sys.modules[__name__]
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PACKAGE = ROOT / "neoswga"
@@ -57,10 +60,11 @@ WATCHED = (
 # `test_the_unreachable_list_has_no_stale_entries` fails on an entry that has
 # since become reachable, so wiring something is not finished until its excuse
 # is deleted.
-KNOWN_UNREACHABLE = {
-    "design_sweep": "audit finding F4. No command reaches it; Phase 4 wires it",
-    "load_design_grid": "reached only from design_sweep and the dead load_grid_file",
-}
+# Empty, and meant to stay that way. Every capability the 2026-09-16 audit found
+# unreachable now has a command behind it: `design_sweep` and `load_design_grid`
+# through `plan-pool --design-grid` in Phase 4 increment 6, `CandidateProvider`
+# and `ensure_positions` in increments 1 and 3, `beam_search` in Phase 2.
+KNOWN_UNREACHABLE: dict[str, str] = {}
 
 
 def _parse_all():
@@ -213,17 +217,18 @@ def test_the_unreachable_list_has_no_stale_entries():
     )
 
 
-def test_the_known_design_sweep_defect_is_still_detected():
-    """The finding this ratchet was written for.
+def test_the_capabilities_this_ratchet_was_written_for_stay_reachable():
+    """The six findings this file was created for, asserted as fixed.
 
-    Pinned by name so that deleting the excuse without wiring the capability,
-    or wiring it without deleting the excuse, both fail loudly.
+    Each was built, tested, merged and callable by nothing. Pinned by name so
+    that losing a caller fails loudly rather than quietly restoring the defect.
     """
     orphans = unreachable_names()
 
-    assert "design_sweep" in orphans, (
-        "design_sweep now has a caller. If that is real, delete its "
-        "KNOWN_UNREACHABLE entry and this assertion."
+    assert "design_sweep" not in orphans, (
+        "design_sweep has lost its caller. It was wired to "
+        "`plan-pool --design-grid` in Phase 4 increment 6; if that was "
+        "deliberately reverted, restore its KNOWN_UNREACHABLE entry."
     )
     assert "CandidateProvider" not in orphans, (
         "CandidateProvider was wired in Phase 4 increment 1, through "
@@ -232,20 +237,52 @@ def test_the_known_design_sweep_defect_is_still_detected():
     )
 
 
-def test_reachability_does_not_flow_through_an_unreachable_caller():
+def test_reachability_does_not_flow_through_an_unreachable_caller(monkeypatch):
     """The property that made the first version of this test wrong.
 
-    `cli/plan_pool.py` imports `load_design_grid`, inside `load_grid_file`, which
-    nothing calls. A check that counted any reference anywhere would call it
-    reachable on the strength of a caller no command can reach, and the findings
-    would all read as fine.
+    A check that counted any reference anywhere would call a name reachable on
+    the strength of a caller no command can reach, and every finding would read
+    as fine. `load_design_grid` used to be the live example: `cli/plan_pool.py`
+    imported it inside `load_grid_file`, which nothing called. Phase 4 increment
+    6 wired that path, so the example is gone and the property is asserted on a
+    synthetic graph instead. A test that depends on a particular bug still
+    existing stops testing anything the moment the bug is fixed.
     """
-    orphans = unreachable_names()
+    import ast as _ast
+    import textwrap as _textwrap
 
-    assert "load_design_grid" in orphans, (
-        "load_design_grid is reported reachable, but its only importer is the "
-        "uncalled load_grid_file. The walk has regressed to counting bare "
-        "references."
+    module = _ast.parse(
+        _textwrap.dedent(
+            """
+            def run_thing(args):
+                reached_helper()
+
+            def reached_helper():
+                pass
+
+            def nobody_calls_this():
+                only_referenced_here()
+
+            def only_referenced_here():
+                pass
+            """
+        )
+    )
+    functions = {}
+    for node in _ast.walk(module):
+        if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+            functions.setdefault(node.name, []).append(node)
+
+    monkeypatch.setattr(target_module, "FUNCTIONS", functions)
+    monkeypatch.setattr(target_module, "MODULES", {})
+    monkeypatch.setattr(target_module, "_dispatch_handlers", lambda: {"run_thing"})
+
+    reached = target_module.reachable_names()
+
+    assert "reached_helper" in reached, "the walk did not follow a real call edge"
+    assert "only_referenced_here" not in reached, (
+        "a name referenced only inside an uncalled function was reported "
+        "reachable, so the walk has regressed to counting bare references"
     )
 
 

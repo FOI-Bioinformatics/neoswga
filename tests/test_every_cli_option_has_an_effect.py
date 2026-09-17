@@ -86,10 +86,6 @@ KNOWN_INERT = {
         "reaction_temp": "no reader on the evaluate-set path",
         "use_gpu": "GPU helpers are not reached by any stage; see CLAUDE.md",
     },
-    "plan-pool": {
-        "design_grid": "audit finding F4. The grid stack is built and tested; "
-        "run_plan_pool never reads the flag. Phase 4 of the audit plan wires it"
-    },
     "rescore-set": {
         "betaine_m": "additive flags are not merged on this path",
         "dmso_percent": "additive flags are not merged on this path",
@@ -370,17 +366,20 @@ def test_the_walker_follows_the_namespace_into_a_helper():
     assert "no_repair" in found
 
 
-def test_the_known_design_grid_defect_is_still_detected():
-    """The finding this ratchet was written for.
+def test_the_design_grid_stays_wired():
+    """The finding this ratchet was written for, now the other way round.
 
-    Pinned by name so that removing `--design-grid` from KNOWN_INERT without
-    wiring it, or wiring it without removing the entry, both fail loudly.
+    `--design-grid` was audit finding F4: parsed, in the help text, and read by
+    nothing. Phase 4 increment 6 wired it to `design_sweep`, so this asserts it
+    stays read rather than that it stays unread. Pinned by name because a flag
+    that silently stops being read is the whole class this file exists for.
     """
     offenders = unread_options()
 
-    assert "design_grid" in offenders.get("plan-pool", set()), (
-        "plan-pool --design-grid now appears to be read. If that is real, "
-        "delete its KNOWN_INERT entry and this test."
+    assert "design_grid" not in offenders.get("plan-pool", set()), (
+        "plan-pool --design-grid is no longer read. It was wired to design_sweep "
+        "in Phase 4 increment 6; if that was deliberately reverted, restore its "
+        "KNOWN_INERT entry with the reason."
     )
 
 

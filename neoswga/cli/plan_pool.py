@@ -1,6 +1,7 @@
 """Plan the number of oligos needed for coverage and specificity targets."""
 
 import hashlib
+import inspect
 import json
 import logging
 from pathlib import Path
@@ -91,6 +92,115 @@ def _open_source(data_dir, conditions, args, fallback):
         max(0, described["universe"] - frontier),
     )
     return source
+
+
+def _sweep_over_grid(
+    args, params, base, fg, bg, config, method, grid_path, out, resolved_conditions
+):
+    """Design once per condition and length in the grid, then compare.
+
+    The production caller `design_sweep` was written for and never had. It was
+    built, tested, merged and unreachable, and `--design-grid` was parsed,
+    documented and read by nothing: audit finding F4, and one of the six
+    capabilities `tests/test_no_capability_is_unreachable.py` was created to
+    catch.
+
+    A cache and an optimizer are rebuilt per (condition, length) rather than
+    shared. The index is per length, and the chemistry is what the grid varies,
+    so sharing either would compare designs that were not designed under the
+    conditions they are labelled with.
+    """
+    from neoswga.core.candidate_inventory import STAGE2_INVENTORY_NAME, CandidateInventory
+    from neoswga.core.candidate_source import InventoryCandidateSource
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.pool_design_sweep import design_sweep
+    from neoswga.core.pool_objective import PoolConstraints
+    from neoswga.core.pool_planner import plan_pool
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    data_dir = base / params.get("data_dir", ".")
+    # The baseline is the RESOLVED reaction, not params.json: a grid varying
+    # only DMSO must keep this run's buffer, salts and oligo concentration, and
+    # rebuilding from the overrides alone would compare designs against library
+    # defaults. Filtered to the constructor's own parameters, because params.json
+    # carries genome prefixes and lengths that are not reaction fields.
+    accepted = set(inspect.signature(ReactionConditions.__init__).parameters) - {"self"}
+    baseline = {
+        name: getattr(resolved_conditions, name)
+        for name in accepted
+        if hasattr(resolved_conditions, name)
+    }
+    lengths, conditions = load_grid_file(grid_path, baseline)
+    inventory_path = data_dir / STAGE2_INVENTORY_NAME
+    if not inventory_path.is_file():
+        raise FileNotFoundError(
+            f"A design grid needs the candidate inventory at {inventory_path}, "
+            "which `neoswga filter` writes. Without it there is nothing to "
+            "design each condition from."
+        )
+
+    constraints = PoolConstraints(
+        coverage_metric=args.coverage_metric,
+        min_selectivity_density=args.min_selectivity_density,
+        max_background_sites=args.max_background_sites,
+    )
+
+    def run_design(condition, length, sizes, coverage_targets, constraints, provider):
+        candidates = provider._eligible_in_search_order()
+        cache = PositionCache(fg + bg, candidates, on_missing="error")
+        cache.require_record_metadata(fg + bg)
+        optimizer = OptimizerFactory.create(
+            method,
+            cache,
+            fg,
+            params["fg_seq_lengths"],
+            bg,
+            params.get("bg_seq_lengths", []) if bg else [],
+            config=config,
+            conditions=condition,
+            polymerase=params.get("polymerase", "phi29"),
+        )
+        source = InventoryCandidateSource(provider, frontier=len(candidates))
+        return plan_pool(
+            optimizer,
+            source,
+            list(sizes),
+            list(coverage_targets),
+            primer_length=length,
+            min_selectivity_density=constraints.min_selectivity_density,
+            max_background_sites=constraints.max_background_sites,
+            coverage_metric=constraints.coverage_metric,
+            repair=not args.no_repair,
+        )
+
+    with CandidateInventory(inventory_path) as inventory:
+        sweep = design_sweep(
+            inventory,
+            conditions,
+            lengths,
+            list(range(args.min_size, args.max_size + 1)),
+            args.coverage_targets,
+            constraints,
+            run_design,
+        )
+
+    out.mkdir(parents=True, exist_ok=True)
+    written = out / "design_sweep.json"
+    written.write_text(json.dumps(sweep, indent=2, default=str))
+    print(f"Designed {len(sweep['designs'])} condition/length combinations")
+    for design in sweep["designs"]:
+        if design.get("result") is None:
+            print(f"  {design['condition']} at {design['length']}mer: {design.get('note')}")
+            continue
+        sizes = [r["size"] for r in design["result"]["rows"] if r.get("eligible")]
+        print(
+            f"  {design['condition']} at {design['length']}mer: "
+            f"{design['eligible_candidates']} eligible, "
+            f"{len(sizes)} qualifying panel(s)"
+        )
+    print(f"Sweep: {written.resolve()}")
+    return sweep
 
 
 def run_plan_pool(args):
@@ -187,6 +297,14 @@ def run_plan_pool(args):
         conditions=conditions,
         polymerase=params.get("polymerase", "phi29"),
     )
+    if args.design_grid:
+        # A grid asks for several designs, so it does not produce the single
+        # `pool_plan` report the rest of this function writes.
+        _sweep_over_grid(
+            args, params, base, fg, bg, config, method, args.design_grid, out, conditions
+        )
+        return
+
     # Read the candidates through the shared source. The inventory holds every
     # candidate that cleared hard QC, and until now nothing in production read
     # it: the design searched the CSV shortlist and the rest were stored,
