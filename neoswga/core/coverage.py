@@ -279,6 +279,74 @@ def _mark_window(
             occupied[clipped_start:clipped_end] = True
 
 
+def merged_window_intervals(
+    positions: Sequence[int],
+    extension: int,
+    length: int,
+    circular: bool,
+) -> List[Tuple[int, int]]:
+    """The union of one primer's binding windows, as disjoint half-open spans.
+
+    The same geometry :func:`_mark_window` marks into a boolean array, returned
+    as intervals instead. A caller that needs the union of several primers'
+    windows weighted differently can then accumulate over segment boundaries
+    rather than over bases, which is what
+    :meth:`base_optimizer.BaseOptimizer._compute_effective_coverage` does: its
+    cost stops depending on the length of the genome and starts depending on
+    the number of sites, which is smaller by orders of magnitude.
+
+    Kept next to ``_mark_window`` and tested against it, because two
+    descriptions of where a window falls is how this codebase has produced
+    disagreeing coverage numbers before.
+
+    Spans are sorted, non-overlapping, and clipped to ``[0, length)``. Adjacent
+    spans are merged, since ``[0, 5)`` and ``[5, 9)`` cover the same bases as
+    ``[0, 9)``. ``record_starts`` is deliberately not a parameter: neither
+    ``_union_coverage`` nor ``_compute_effective_coverage`` passes record starts
+    to ``_mark_window`` today, so accepting them here would let a caller
+    silently change what those two report.
+    """
+    if length <= 0 or extension < 0:
+        return []
+
+    spans: List[Tuple[int, int]] = []
+    for raw in positions:
+        pos = int(raw)
+        start = pos - extension
+        end = pos + extension
+        if circular:
+            if start < 0 and end > length:
+                # The window laps the whole molecule; nothing else can add to it.
+                return [(0, length)]
+            if start < 0:
+                if end > 0:
+                    spans.append((0, min(end, length)))
+                spans.append((max(0, length + start), length))
+                continue
+            if end > length:
+                spans.append((min(start, length), length))
+                if end - length > 0:
+                    spans.append((0, min(end - length, length)))
+                continue
+        clipped_start = max(0, start)
+        clipped_end = min(length, end)
+        if clipped_end > clipped_start:
+            spans.append((clipped_start, clipped_end))
+
+    if not spans:
+        return []
+
+    spans.sort()
+    merged = [list(spans[0])]
+    for start, end in spans[1:]:
+        if start <= merged[-1][1]:
+            if end > merged[-1][1]:
+                merged[-1][1] = end
+        else:
+            merged.append([start, end])
+    return [(start, end) for start, end in merged]
+
+
 def polymerase_extension_reach(
     polymerase: str,
     default: int = 3000,
