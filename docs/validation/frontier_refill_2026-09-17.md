@@ -61,8 +61,16 @@ violated constraints, not within one. Ordering by violation magnitude would
 implement it properly, and that is a change to acceptance semantics with its own
 measurement rather than something to slip into an increment about expansion.
 
-Recorded here rather than fixed. It is pre-existing, and increment 5 is what
-makes it reachable enough to matter.
+**Fixed the same day**, once it was measured. `PoolObjective.shortfall` ranks
+failing panels by distance from feasibility instead of by how many constraints
+they fail, and a repair that does not succeed now returns the panel it was
+given. On this configuration the density rose from 20.9 to 28.8 at zero refills
+and from 14.6 to 19.2 at four. The numbers in the table above are from before
+that change. See
+[violation_magnitude_2026-09-17.md](violation_magnitude_2026-09-17.md), which
+also records what the fix did NOT address: density still falls across refills,
+and that drift belongs to the optimizer's own selection rather than to the
+repair.
 
 ## What this does not establish
 

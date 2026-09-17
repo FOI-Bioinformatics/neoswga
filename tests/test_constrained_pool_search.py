@@ -242,6 +242,15 @@ def _swap_objective(coverages, violations=None, background=None):
         def violations(self, primers):
             return tuple(violations.get(tuple(sorted(primers)), ()))
 
+        def shortfall(self, primers):
+            """The searches rank on this; see `PoolObjective.shortfall`.
+
+            This stub's violations are named in a table and carry no magnitude,
+            so the count is the only distance available. Zero exactly when
+            nothing is violated, which is the property the ordering needs.
+            """
+            return float(len(self.violations(primers)))
+
         def metrics(self, primers):
             key = tuple(sorted(primers))
             return SimpleNamespace(total_bg_sites=background.get(key, 0))

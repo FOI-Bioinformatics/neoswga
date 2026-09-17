@@ -466,6 +466,21 @@ relatively.
   records a pre-existing objective defect this makes reachable: two panels
   failing the same single constraint tie on violation COUNT, so coverage breaks
   the tie and the deciding metric drifts the wrong way.)
+- **How failing panels are ranked**: `PoolObjective.shortfall`, not the NUMBER
+  of violated constraints. Both objective-scored searches used
+  `len(violations)`, so two panels failing the same single limit tied and
+  coverage broke the tie, letting the deciding metric drift away from the limit
+  it was chasing. Each shortfall term is relative to its own limit so a density
+  floor and a site ceiling are comparable, terms sum, and it is zero exactly
+  when `violations` is empty -- which is what keeps every feasible panel ahead
+  of every infeasible one. A repair that does NOT succeed now returns the panel
+  it was given, which is what makes the ordering safe: on a limit no panel can
+  meet, chasing it would otherwise trade real coverage for a step toward a floor
+  it never reaches. Measured on the Wolbachia pool at an unreachable floor,
+  delivered density rose 20.9 to 28.8 and 14.6 to 19.2 for 2 points of coverage
+  ([measurement](docs/validation/violation_magnitude_2026-09-17.md)). Not fixed:
+  density still falls as the frontier refills, and that drift is the optimizer's
+  own selection rather than the repair's.
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
   again, so each is a different set rather than a reordering. They are numbered

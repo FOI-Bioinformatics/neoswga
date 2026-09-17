@@ -185,7 +185,14 @@ def _repair(primers, pool, objective, reasons, config, target=None, bins=None, w
     budget = getattr(config, "beam_max_evaluations", config.swap_max_evaluations)
     if size < 1 or budget < _BEAM_WIDTH * size:
         record["beam"] = "not affordable within the remaining budget"
-        return repaired, record
+        # A repair that did not succeed returns the panel it was given, not the one
+        # the search wandered to. The row is rejected either way, so a partial move
+        # buys nothing, and it can cost: the search ranks on distance from
+        # feasibility, so on a constraint no panel can meet it will trade real
+        # coverage for a step toward a floor it will never reach. Keeping the
+        # original makes that ordering safe -- progress toward feasibility is
+        # pursued, and failing to get there costs nothing.
+        return list(primers), record
 
     slice_pool = _beam_candidates(pool, repaired, size, budget)
     record["beam_candidates"] = len(slice_pool)
@@ -207,7 +214,9 @@ def _repair(primers, pool, objective, reasons, config, target=None, bins=None, w
     # would show up as a different row's result. And a beam that rediscovers the
     # incumbent has repaired nothing, so it must not report success.
     if beam.violations or len(beam.primers) != size or not _resolved(list(beam.primers)):
-        return repaired, record
+        # Nothing qualified, so the panel this row reports is the one it arrived
+        # with. See the note above.
+        return list(primers), record
     record.update(method="beam", succeeded=True)
     return list(beam.primers), record
 
