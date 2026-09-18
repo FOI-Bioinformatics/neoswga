@@ -49,6 +49,12 @@ LIMIT_KEYS: Tuple[str, ...] = (
     "max_host_coverage",
 )
 
+# Every limit `parameter._apply_params_only_keys` assigns from params.json with
+# no fallback. `max_dimer_dg` is not a panel limit -- it is a term in the dimer
+# screen, which stays outside the objective -- so it rides here for the
+# configuration plumbing only and never reaches `PoolConstraints`.
+CONFIGURED_LIMIT_KEYS: Tuple[str, ...] = LIMIT_KEYS + ("max_dimer_dg",)
+
 
 @dataclass(frozen=True)
 class AcceptanceReport:

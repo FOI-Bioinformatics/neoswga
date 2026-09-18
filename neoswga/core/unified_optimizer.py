@@ -518,6 +518,7 @@ def _build_optimizer_config(
         extension_reach=extension_reach,
         fg_circular=fg_circular,
         max_dimer_bp=pick("max_dimer_bp", 4),
+        max_dimer_dg=pick("max_dimer_dg", None),
         allow_dimer_relaxation=pick("allow_dimer_relaxation", False),
         refinement_method=pick("refinement_method", "network"),
         swap_max_evaluations=pick("swap_max_evaluations", 10000),

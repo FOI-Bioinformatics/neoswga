@@ -127,7 +127,10 @@ def repair_panel(primers, pool, objective, reasons, config, target=None, bins=No
         pool,
         bins,
         weights,
-        LazyDimerCompatibility(config.max_dimer_bp),
+        LazyDimerCompatibility(
+            config.max_dimer_bp,
+            max_dimer_dg=getattr(config, "max_dimer_dg", None),
+        ),
         objective=objective,
         objective_scan_width=width,
         max_evaluations=config.swap_max_evaluations,
@@ -200,7 +203,10 @@ def repair_panel(primers, pool, objective, reasons, config, target=None, bins=No
         slice_pool,
         objective,
         size,
-        dimerises=LazyDimerCompatibility(config.max_dimer_bp).dimerises,
+        dimerises=LazyDimerCompatibility(
+            config.max_dimer_bp,
+            max_dimer_dg=getattr(config, "max_dimer_dg", None),
+        ).dimerises,
         beam_width=_BEAM_WIDTH,
         max_evaluations=budget,
         max_seconds=getattr(config, "beam_max_seconds", config.swap_max_seconds),

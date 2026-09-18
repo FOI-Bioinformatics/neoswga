@@ -200,10 +200,7 @@ def test_sites_at_both_ends_of_a_circle_do_not_double_count():
 def test_a_panel_with_many_sites_each():
     optimizer = _optimizer(3000, True)
     rng = random.Random(20260917)
-    pbp = {
-        primer: sorted(rng.randrange(0, 1_267_782) for _ in range(20))
-        for primer in PRIMERS
-    }
+    pbp = {primer: sorted(rng.randrange(0, 1_267_782) for _ in range(20)) for primer in PRIMERS}
 
     _agree(optimizer, pbp, 1_267_782, tol=1e-9)
 
@@ -224,10 +221,7 @@ def test_randomised_layouts_agree(seed):
     reach = rng.choice([1, 7, 250, 3_000])
     circular = rng.random() < 0.5
     panel = PRIMERS[: rng.randint(1, len(PRIMERS))]
-    pbp = {
-        primer: [rng.randrange(0, length) for _ in range(rng.randint(0, 6))]
-        for primer in panel
-    }
+    pbp = {primer: [rng.randrange(0, length) for _ in range(rng.randint(0, 6))] for primer in panel}
 
     _agree(_optimizer(reach, circular), pbp, length, tol=1e-10)
 

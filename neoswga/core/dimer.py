@@ -154,7 +154,7 @@ def max_complementary_run(seq_1, seq_2):
     return longest
 
 
-def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None):
+def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None, temperature=None):
     """
     Thermodynamic dimer check based on free energy of the longest complementary region.
 
@@ -171,8 +171,12 @@ def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None
         seq_2: Second primer sequence (5' to 3').
         delta_g_threshold: Maximum (most negative) delta-G in kcal/mol for
             the interaction to be considered a dimer. Default -6.0.
-        conditions: Optional ReactionConditions for temperature. If None,
-            uses 37 C.
+        conditions: Optional ReactionConditions; only its `temp` is used.
+        temperature: Reaction temperature in Celsius, taking precedence over
+            `conditions`. Present so a caller on a hot platform need not build a
+            `ReactionConditions`, whose constructor validates the temperature
+            against the polymerase and raises for 63 C under the phi29 default.
+            Falls back to `conditions.temp`, then to 37 C.
 
     Returns:
         True if the longest complementary region has delta-G <= threshold
@@ -210,9 +214,8 @@ def is_dimer_thermodynamic(seq_1, seq_2, delta_g_threshold=-6.0, conditions=None
     binding_seq = seq_1[best_start_1 : best_start_1 + longest_run]
 
     # Calculate free energy of the duplex at reaction temperature
-    temperature = 37.0
-    if conditions is not None:
-        temperature = conditions.temp
+    if temperature is None:
+        temperature = 37.0 if conditions is None else conditions.temp
 
     try:
         delta_g = calculate_free_energy(binding_seq, temperature=temperature)

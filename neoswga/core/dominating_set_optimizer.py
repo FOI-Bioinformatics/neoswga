@@ -370,6 +370,12 @@ class DominatingSetOptimizer:
     Uses graph algorithms to find near-optimal primer sets.
     """
 
+    # Class-level defaults so an instance built with `__new__`, which several
+    # tests and the dimer-screen substitution check do, still answers for them.
+    # `position_cache` carries `_released` at class level for the same reason.
+    max_dimer_dg = None
+    dimer_temp = 37.0
+
     def __init__(
         self,
         cache,
@@ -378,6 +384,8 @@ class DominatingSetOptimizer:
         bin_size: int = 10000,
         extension_reach: int = 0,
         max_dimer_bp: Optional[int] = None,
+        max_dimer_dg=None,
+        dimer_temp: float = 37.0,
         allow_dimer_relaxation: bool = False,
     ):
         """
@@ -407,6 +415,10 @@ class DominatingSetOptimizer:
                 f"{extension_reach:,} bp extension reach"
             )
         self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
+        # Optional additional stability floor, and the temperature to evaluate
+        # it at. None is off; it can only make the screen stricter.
+        self.max_dimer_dg = max_dimer_dg
+        self.dimer_temp = float(dimer_temp)
         # Relaxation is an explicit choice; a stalled greedy search is not a
         # proof that the requested compatible panel does not exist.
         self.relax_dimer_constraint_when_stuck = allow_dimer_relaxation
@@ -465,7 +477,12 @@ class DominatingSetOptimizer:
         # The size decision used to be made here, and only here. Two other
         # searches built the dense matrix unconditionally, so it now lives in
         # `lazy_dimer.dimer_screen` and all three ask it.
-        matrix = dimer_screen(pool, self.max_dimer_bp)
+        matrix = dimer_screen(
+            pool,
+            self.max_dimer_bp,
+            max_dimer_dg=self.max_dimer_dg,
+            temp=self.dimer_temp,
+        )
         if not self.relax_dimer_constraint_when_stuck:
             fixed = list(dict.fromkeys(fixed_primers))
             for i, primer in enumerate(fixed):

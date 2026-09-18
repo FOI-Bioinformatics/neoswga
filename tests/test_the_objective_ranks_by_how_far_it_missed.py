@@ -272,9 +272,7 @@ def test_a_failed_repair_returns_the_panel_it_was_given():
         config = OptimizerConfig(objective_scan_width=None, max_frontier_refills=0)
 
         def optimize(self, candidates, target_size):
-            return SimpleNamespace(
-                primers=start, status=OptimizationStatus.PARTIAL, message=""
-            )
+            return SimpleNamespace(primers=start, status=OptimizationStatus.PARTIAL, message="")
 
         def compute_metrics(self, primers):
             coverage, density, sites = table[KEY(primers)]

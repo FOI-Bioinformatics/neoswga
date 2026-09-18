@@ -656,6 +656,9 @@ class NetworkOptimizer:
     This is the core algorithm replacing greedy BFS.
     """
 
+    # Class-level default so a `__new__`-built instance still answers for it.
+    max_dimer_dg = None
+
     def __init__(
         self,
         position_cache,
@@ -669,6 +672,7 @@ class NetworkOptimizer:
         tm_weight: float = 0.0,
         dimer_penalty: float = 0.0,
         max_dimer_bp: int = 4,
+        max_dimer_dg=None,
         conditions: Optional["ReactionConditions"] = None,
         mechanistic_weight: float = 0.0,
         template_gc: float = 0.5,
@@ -710,6 +714,9 @@ class NetworkOptimizer:
         self.tm_weight = tm_weight
         self.dimer_penalty = dimer_penalty
         self.max_dimer_bp = max_dimer_bp
+        # Optional additional stability floor; None is off. Evaluated at
+        # `reaction_temp`, which this optimizer already carries.
+        self.max_dimer_dg = max_dimer_dg
         self.allow_dimer_relaxation = allow_dimer_relaxation
         # Cache for primer Tm values
         self._tm_cache: Dict[str, float] = {}
@@ -869,7 +876,16 @@ class NetworkOptimizer:
         #
         # Built once over the whole candidate pool rather than per iteration.
         # Unsupported matrix thresholds raise rather than disabling the screen.
-        dimers = dimer_screen(list(candidates), self.max_dimer_bp) if candidates else None
+        dimers = (
+            dimer_screen(
+                list(candidates),
+                self.max_dimer_bp,
+                max_dimer_dg=self.max_dimer_dg,
+                temp=float(getattr(self, "reaction_temp", 37.0) or 37.0),
+            )
+            if candidates
+            else None
+        )
 
         relaxed = False
         while len(selected) < num_primers:
@@ -1489,6 +1505,7 @@ class NetworkBaseOptimizer(BaseOptimizer):
             # as an explicit None, which the default would not replace.
             max_extension=kwargs.get("max_extension") or 70000,
             uniformity_weight=kwargs.get("uniformity_weight", 0.0),
+            max_dimer_dg=getattr(self.config, "max_dimer_dg", None),
             reaction_temp=kwargs.get("reaction_temp"),
             tm_weight=kwargs.get("tm_weight", 0.0),
             dimer_penalty=kwargs.get("dimer_penalty", 0.0),

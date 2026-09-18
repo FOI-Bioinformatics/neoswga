@@ -72,9 +72,7 @@ def test_a_directory_without_one_gives_the_list(tmp_path):
 
 def test_an_explicit_list_wins_over_the_inventory(stocked):
     """A user who named a pool has said which pool to search."""
-    source = open_source_or_list(
-        stocked, CONDITION, [12], fallback=PRIMERS[:2], explicit=True
-    )
+    source = open_source_or_list(stocked, CONDITION, [12], fallback=PRIMERS[:2], explicit=True)
 
     assert isinstance(source, ListCandidateSource)
     assert source.initial() == PRIMERS[:2]
@@ -104,7 +102,7 @@ def test_the_frontier_opens_at_the_size_of_the_list_it_replaces(stocked):
 
 
 def test_which_source_was_taken_is_logged(stocked, caplog):
-    """"Which pool did this run search" should not have to be inferred."""
+    """ "Which pool did this run search" should not have to be inferred."""
     with caplog.at_level(logging.INFO):
         open_source_or_list(stocked, CONDITION, [12], fallback=PRIMERS[:2])
 

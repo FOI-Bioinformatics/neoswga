@@ -64,17 +64,13 @@ POOL = ["AAAA", "CCCC", "GGGG", "TTTT"]
 
 def test_every_candidate_survives():
     """The property the whole change is for."""
-    ordered, rejected = order_candidates_by_background(
-        _cache(SPEC), POOL, FG, BG, min_ratio=1.0
-    )
+    ordered, rejected = order_candidates_by_background(_cache(SPEC), POOL, FG, BG, min_ratio=1.0)
 
     assert sorted(ordered) == sorted(POOL)
 
 
 def test_the_ones_below_the_threshold_go_to_the_back():
-    ordered, rejected = order_candidates_by_background(
-        _cache(SPEC), POOL, FG, BG, min_ratio=1.0
-    )
+    ordered, rejected = order_candidates_by_background(_cache(SPEC), POOL, FG, BG, min_ratio=1.0)
 
     assert ordered[:2] == ["AAAA", "CCCC"]
     assert sorted(ordered[2:]) == ["GGGG", "TTTT"]
@@ -106,18 +102,14 @@ def test_the_order_within_each_group_is_the_order_it_arrived_in():
 
 def test_a_threshold_nothing_meets_still_returns_everything():
     """And in the order it arrived, since the partition is then a no-op."""
-    ordered, rejected = order_candidates_by_background(
-        _cache(SPEC), POOL, FG, BG, min_ratio=1000.0
-    )
+    ordered, rejected = order_candidates_by_background(_cache(SPEC), POOL, FG, BG, min_ratio=1000.0)
 
     assert ordered == POOL
     assert len(rejected) == len(POOL)
 
 
 def test_a_threshold_everything_meets_rejects_nothing():
-    ordered, rejected = order_candidates_by_background(
-        _cache(SPEC), POOL, FG, BG, min_ratio=0.0
-    )
+    ordered, rejected = order_candidates_by_background(_cache(SPEC), POOL, FG, BG, min_ratio=0.0)
 
     assert ordered == POOL
     assert rejected == {}
@@ -132,9 +124,7 @@ def test_an_empty_pool_is_not_an_error():
 
 def test_no_background_prefixes_means_no_ordering():
     """There is no ratio to order on, and inventing one would be worse."""
-    ordered, rejected = order_candidates_by_background(
-        _cache(SPEC), POOL, FG, [], min_ratio=1.0
-    )
+    ordered, rejected = order_candidates_by_background(_cache(SPEC), POOL, FG, [], min_ratio=1.0)
 
     assert ordered == POOL
     assert rejected == {}
@@ -155,12 +145,8 @@ def test_the_outcome_does_not_depend_on_how_many_others_share_the_batch():
     large = POOL + ["GGGG2", "TTTT2"]
     spec = dict(SPEC, GGGG2=(2, 9), TTTT2=(1, 19))
 
-    _, rejected_small = order_candidates_by_background(
-        _cache(spec), small, FG, BG, min_ratio=1.0
-    )
-    _, rejected_large = order_candidates_by_background(
-        _cache(spec), large, FG, BG, min_ratio=1.0
-    )
+    _, rejected_small = order_candidates_by_background(_cache(spec), small, FG, BG, min_ratio=1.0)
+    _, rejected_large = order_candidates_by_background(_cache(spec), large, FG, BG, min_ratio=1.0)
 
     assert ("GGGG" in rejected_small) == ("GGGG" in rejected_large)
 

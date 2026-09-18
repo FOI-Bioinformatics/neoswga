@@ -741,8 +741,8 @@ genome_gc = None
 # assign it or a params.json setting silently does nothing.
 coverage_reach = None
 
-# Panel-level limits the delivered design is held to; all unset by default and
-# they must stay that way. Reasoning in `panel_acceptance`'s docstring.
+# Panel-level limits; all unset by default and they must stay that way.
+# Reasoning in `panel_acceptance`'s docstring.
 min_selectivity_density = None
 max_background_sites = None
 max_worst_hole = None
@@ -764,6 +764,8 @@ max_mismatches = None
 # attribute, so its absence was an AttributeError rather than a fallback.
 max_dimer_bp = 3
 max_self_dimer_bp = 4
+# Optional extra dimer stability floor, kcal/mol; None is off. See lazy_dimer.
+max_dimer_dg = None
 min_tm = None
 max_tm = None
 
@@ -943,20 +945,14 @@ def _apply_params_only_keys(data: dict) -> None:
     global gc_clamp_window
     global max_gc_in_clamp
     global candidate_retention
-    global min_selectivity_density
-    global max_background_sites
-    global max_worst_hole
-    global max_mean_gap
-    global max_evenness
-    global max_host_coverage
 
-    # `data.get` with no fallback: an absent limit is the default.
-    min_selectivity_density = data.get("min_selectivity_density")
-    max_background_sites = data.get("max_background_sites")
-    max_worst_hole = data.get("max_worst_hole")
-    max_mean_gap = data.get("max_mean_gap")
-    max_evenness = data.get("max_evenness")
-    max_host_coverage = data.get("max_host_coverage")
+    # One rule for the panel and dimer limits, and one list of them, in the
+    # module that owns the concept. No fallback: an absent limit IS the default
+    # and must stay distinguishable from a configured value.
+    from .panel_acceptance import CONFIGURED_LIMIT_KEYS
+
+    for _limit in CONFIGURED_LIMIT_KEYS:
+        globals()[_limit] = data.get(_limit)
 
     allow_dimer_relaxation = data["allow_dimer_relaxation"] = data.get(
         "allow_dimer_relaxation", False

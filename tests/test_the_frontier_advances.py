@@ -163,9 +163,7 @@ def test_the_inventory_is_queried_once_however_often_it_advances():
     from neoswga.core.candidate_provider import CandidateProvider
 
     inventory = _StubInventory([f"P{i:03d}" for i in range(40)])
-    source = InventoryCandidateSource(
-        CandidateProvider(inventory, "cond", [12]), frontier=8
-    )
+    source = InventoryCandidateSource(CandidateProvider(inventory, "cond", [12]), frontier=8)
     source.initial()
     for _ in range(4):
         source.advance()

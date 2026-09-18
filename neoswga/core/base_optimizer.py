@@ -691,6 +691,9 @@ class OptimizerConfig:
     target_set_size: int = 6
     max_iterations: int = 100
     max_dimer_bp: int = 4
+    # Optional ADDITIONAL floor on dimer stability, in kcal/mol. None is off.
+    # It can only make the screen stricter; `max_dimer_bp` is applied first.
+    max_dimer_dg: Optional[float] = None
     allow_dimer_relaxation: bool = False
     refinement_method: str = "network"
     swap_max_evaluations: int = 10000

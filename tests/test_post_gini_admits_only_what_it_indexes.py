@@ -103,9 +103,7 @@ def test_what_is_eligible_is_what_is_indexed(tmp_path):
         with CandidateInventory(path) as inventory:
             eligible = set(inventory.iter_eligible(COND, [12], inventory.current_policy(COND)))
             indexed = {
-                sequence
-                for sequence in CLEARED
-                if inventory.metrics(sequence).get("indexed")
+                sequence for sequence in CLEARED if inventory.metrics(sequence).get("indexed")
             }
 
         assert eligible == indexed, f"{retention}: eligible and indexed disagree"
