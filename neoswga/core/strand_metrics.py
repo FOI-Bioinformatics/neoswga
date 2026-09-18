@@ -134,3 +134,48 @@ def worst_convergent_gap(
         if prefix in stats and "strand_alternation_gap_max" in stats[prefix]
     ]
     return max(values) if values else None
+
+
+def panel_occupancy(primers: Sequence[str], conditions: Any) -> Dict[str, float]:
+    """Fraction of the time each primer in the panel is bound, per primer.
+
+    The ingredient item 6 of
+    `docs/validation/getting_ahead_on_spacing_2026-09-18.md` asked for, without
+    the recipe it proposed. An occupancy-WEIGHTED gap statistic is not offered:
+    the 18 published sets with wet-lab outcomes carry published gap figures
+    rather than binding positions, so no weighting rule can be validated
+    against them, and the unweighted statistic already fails to separate their
+    winners at every reach-derived threshold.
+
+    What this does support is telling a user how weakly their weakest primer is
+    bound. Measured, occupancy spans 7 to 9 fold within a panel at equiphi29
+    42 C and only 1.7 to 3.0 fold at phi29 30 C, so it is a real quantity on
+    the platform where additives work and nearly constant on the one where they
+    do not.
+
+    `{}` when there are no conditions, because without a temperature there is
+    no occupancy to evaluate and a fabricated zero would be indistinguishable
+    from a measurement.
+    """
+    if not primers or conditions is None:
+        return {}
+    from .occupancy import site_occupancy
+    from .thermodynamics import calculate_enthalpy_entropy
+
+    temp = getattr(conditions, "temp", None)
+    if temp is None:
+        return {}
+
+    out: Dict[str, float] = {}
+    for primer in primers:
+        sequence = str(primer).upper()
+        if sequence in out:
+            continue
+        try:
+            dh, _ds = calculate_enthalpy_entropy(sequence)
+            tm = conditions.calculate_effective_tm(sequence)
+        except Exception as exc:
+            logger.debug(f"Occupancy unavailable for {sequence}: {exc}")
+            continue
+        out[sequence] = site_occupancy(dh, tm, temp)
+    return out

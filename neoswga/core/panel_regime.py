@@ -187,6 +187,36 @@ def _hole_note(max_gap: Optional[float], reach: int, genome_length: Optional[int
     return ", ".join(parts)
 
 
+def _occupancy_criterion(metrics: Any) -> List[Criterion]:
+    """How weakly the weakest primer in the panel is bound.
+
+    Reported, never ranked: no floor on occupancy can be validated against the
+    outcome data available here. The note carries the median as well, because
+    the minimum alone cannot say whether a panel is uniformly weak or carries
+    one outlier, and that difference is what a reader acts on.
+
+    An occupancy-WEIGHTED gap statistic is deliberately not offered; see
+    `strand_metrics.panel_occupancy` for why.
+    """
+    import statistics
+
+    by_primer = getattr(metrics, "primer_occupancy", None) or {}
+    if not by_primer:
+        return []
+    values = sorted(by_primer.values())
+    weakest, median, strongest = values[0], statistics.median(values), values[-1]
+    spread = (strongest / weakest) if weakest > 0 else float("inf")
+    return [
+        _reported(
+            "weakest_occupancy",
+            weakest,
+            "fraction",
+            f"median {median:.3g}, strongest {strongest:.3g}, spread {spread:.1f}x; "
+            "no reference, since no validated floor on occupancy exists",
+        )
+    ]
+
+
 def _convergent_criteria(
     metrics: Any,
     fg_prefixes: Sequence[str],
@@ -363,6 +393,7 @@ def assess_panel(
 
     criteria.extend(_spacing_criteria(metrics, coverage_reach, genome_length))
     criteria.extend(_convergent_criteria(metrics, fg_prefixes, bg_prefixes))
+    criteria.extend(_occupancy_criterion(metrics))
 
     ranked = [c for c in criteria if c.slack is not None]
     limiting = min(ranked, key=lambda c: c.slack).name if ranked else None

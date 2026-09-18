@@ -123,7 +123,7 @@ it is where being ahead is available.
 
 ## What would put NeoSWGA ahead, by axis
 
-Ordered by evidence, not by appeal. Items 1 to 5 shipped on 2026-09-18; none of them is measured against a re-derived panel.
+Ordered by evidence, not by appeal. Items 1 to 5 shipped on 2026-09-18 and item 6 was declined as proposed; none of what shipped is measured against a re-derived panel.
 
 **1. A regime diagnostic, which nothing else offers. SHIPPED 2026-09-18.** Two benchmarks support
 exactly one conclusion: the limiting property varies by design. No tool tells a
@@ -165,12 +165,30 @@ only after the length screen passes. See
 already computed and used only as a post-hoc warning. No published tool has
 multi-target designs at all, so this extends a lead rather than closing a gap.
 
-**6. Occupancy-weighted spacing, with expectations set low.** A gap bounded by a
-site occupied 10 percent of the time is not really bounded, and no other tool
-can express that. It is the most novel item here and the least supported: the
-unweighted statistic does not separate winners on 18 sets, so weighting it is
-unlikely to. Worth computing as a diagnostic under item 1, not as a scoring
-term.
+**6. Occupancy-weighted spacing. DECLINED 2026-09-18, and the ingredient
+shipped instead.**
+
+The proposal was that a gap bounded by a site occupied a tenth of the time is
+not really bounded, which no other tool can express. Two things ruled out
+building it as stated.
+
+**No weighting rule can be validated.** The 18 published sets carry PUBLISHED
+gap figures, not binding positions, so a weighted gap cannot be recomputed for
+them, and the unweighted statistic already fails to separate their winners at
+every reach-derived threshold. Choosing a weighting rule anyway would be the
+unvalidated scoring change this document exists to refuse.
+
+**It is also a hot-path rewrite.** `_compute_metrics` pools site positions per
+prefix and discards which primer each came from, so a weighted gap needs the
+gap computation restructured to carry primer identity.
+
+What shipped is the ingredient: `primer_occupancy` on the metrics, and
+`weakest_occupancy` in the item 1 report with the median and the spread beside
+it. Measured, occupancy spans 7 to 9 fold within a panel at equiphi29 42 C and
+only 1.7 to 3.0 fold at phi29 30 C, so weighting WOULD reorder rather than
+rescale on the platform where additives work. That makes the idea plausible and
+still unvalidated, which is why the quantity is reported and nothing scores
+it.
 
 **Not on this list: fitting a set-level score.** The position in
 [tool_comparison.md](tool_comparison.md) stands and is now better supported.
