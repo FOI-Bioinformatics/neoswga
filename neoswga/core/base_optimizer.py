@@ -192,6 +192,12 @@ class PrimerSetMetrics:
     # quantity here to the convergent-pair mechanism SWGA runs on.
     strand_stats: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
+    # Fraction of the time each delivered primer is bound, per primer. Empty
+    # when no reaction conditions were attached, because without a temperature
+    # there is no occupancy to evaluate. Reported, never scored: no floor on it
+    # can be validated against the outcome data available here.
+    primer_occupancy: Dict[str, float] = field(default_factory=dict)
+
     # Per-target coverage (Phase 11D). Maps fg_prefix -> coverage fraction
     # so multi-genome runs can surface "target A 95% / target B 40%"
     # instead of a single aggregate. Empty dict in single-genome mode.
@@ -300,6 +306,7 @@ class PrimerSetMetrics:
             "strand_alternation_score": self.strand_alternation_score,
             "strand_coverage_ratio": self.strand_coverage_ratio,
             "strand_stats": {k: dict(v) for k, v in self.strand_stats.items()},
+            "primer_occupancy": dict(self.primer_occupancy),
             "per_target_coverage": dict(self.per_target_coverage),
             "extension_reach": self.extension_reach,
         }
@@ -1278,7 +1285,11 @@ class BaseOptimizer(ABC):
         # Imported here rather than at module scope: this module deliberately
         # has no sibling imports, which is what keeps it free of cycles and out
         # of the CLI's import cost.
-        from .strand_metrics import collect_strand_stats, headline_strand_scalars
+        from .strand_metrics import (
+            collect_strand_stats,
+            headline_strand_scalars,
+            panel_occupancy,
+        )
 
         strand_stats = collect_strand_stats(
             self.cache,
@@ -1287,6 +1298,7 @@ class BaseOptimizer(ABC):
             primers,
         )
         strand_alt_score, strand_cov_ratio = headline_strand_scalars(strand_stats, self.fg_prefixes)
+        occupancy_by_primer = panel_occupancy(primers, self.conditions)
 
         return PrimerSetMetrics(
             fg_coverage=fg_coverage,
@@ -1315,6 +1327,7 @@ class BaseOptimizer(ABC):
             strand_alternation_score=strand_alt_score,
             strand_coverage_ratio=strand_cov_ratio,
             strand_stats=strand_stats,
+            primer_occupancy=occupancy_by_primer,
             extension_reach=self.config.extension_reach,
         )
 
