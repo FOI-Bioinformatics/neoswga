@@ -732,13 +732,28 @@ failure at a floor of 65 is probably correct. Three Stage 1 rules built on the
 accounting each failed to improve a delivered panel, which is best explained by
 there being nothing to find.
 
+Settled with controls on 2026-09-18: **no construction respecting the dimer
+screen beats the search.** Nine of them, over three reference densities and
+three pool sizes, all land between 0.375 and 0.387 coverage against a 0.5 target
+and none exceeds 64.0 density. Selective candidates are GC-richer (0.44-0.48
+against 0.39) and pairwise less compatible (58-63% against 69-71%), but the
+largest mutually compatible subset is NOT smaller -- 18 among the top 64 by
+slack, more than a 12-primer panel needs -- so compatibility is not the barrier.
+The specificity against coverage trade-off is
+([measurement](docs/validation/no_search_headroom_on_this_pool_2026-09-18.md)).
+
 The lesson is the reusable part: **an achievability figure that omits a
-constraint bounds nothing.** Quote 60.112 at coverage 0.6535 as the reference
-for this pool, not 79.807. The full record, including a headroom claim of mine
-that the dimer screen refuted, is in
-`docs/validation/stage_one_constraint_awareness_2026-09-18.md`. The accounting
-lives in `scripts/benchmarking/selectivity_budget.py` as a diagnostic, not in
-the package, because nothing in the search uses it.
+constraint bounds nothing, and a striking ratio without a control is not a
+finding.** Three claims of mine died in sequence here -- a 79.807 ceiling that
+ignored coverage and dimers, an existence proof carrying 30 dimerising pairs out
+of 66, and a "6 of 16" compatibility barrier that sits inside the random range
+of 6 to 8. Three Stage 1 search rules were built on the first two before the
+third was tested. The check that would have killed all three at the outset is
+the same one: evaluate a candidate panel through the acceptance path a delivered
+panel takes, and compare it against a control. Quote 60.112 at coverage 0.6535
+as the reference for this pool. The accounting lives in
+`scripts/benchmarking/selectivity_budget.py` as a diagnostic, not in the
+package, because nothing in the search uses it.
 
 8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
    (audit finding F1b). The key was declared in `params.schema.json`,

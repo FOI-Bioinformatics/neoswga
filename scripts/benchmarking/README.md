@@ -172,6 +172,22 @@ constraint in force nothing beats the search's 60.112 at coverage 0.6535. See
 
 `selectivity_budget.py` holds the accounting both this and that note use.
 
+### `selectivity_compatibility_tension.py` -- is selectivity at odds with compatibility
+
+Compares the most selective candidates against random controls on pairwise dimer
+compatibility, largest mutually compatible subset, and GC content. Answers
+whether the dimer screen caps achievable specificity.
+
+```bash
+python scripts/benchmarking/selectivity_compatibility_tension.py <design_dir> 70
+```
+
+On the Wolbachia pool: pairwise compatibility is 8 to 10 points lower among
+selective candidates and they are GC-richer, but the largest compatible subset
+is not smaller, so compatibility is not the barrier. See
+[no_search_headroom_on_this_pool_2026-09-18.md](../../docs/validation/no_search_headroom_on_this_pool_2026-09-18.md),
+which also records three claims of mine that controls and constraints refuted.
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate
