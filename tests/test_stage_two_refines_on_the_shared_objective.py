@@ -169,12 +169,20 @@ def test_a_fixed_primer_survives_either_rule():
     assert SPARE in result
 
 
-def test_plan_pool_attaches_the_objective_it_accepts_on():
-    """Guard the guard.
+def test_plan_pool_attaches_the_objective_through_the_wrapper():
+    """A fast guard, and no longer a misleading one.
 
-    The wiring is an attribute rather than a parameter, which is easy to drop
-    without any signature changing. This fails if `plan_pool` stops attaching
-    it, which would silently restore the two-rule split.
+    This used to assert by AST that `plan_pool` contained an assignment to an
+    attribute named `pool_objective`. It did, and Stage 2 still received None,
+    because the optimizer `plan_pool` is handed is a wrapper and the stage that
+    reads the attribute is the delegate inside it. Asserting the assignment
+    exists says nothing about where it lands.
+
+    So this now checks that the attachment goes through
+    `attach_search_config`, which sets it on both. The path itself is asserted
+    end to end, through a real factory-built optimizer, in
+    `tests/test_the_objective_reaches_the_stage_that_refines.py`; this remains
+    only as a cheap signal that the mechanism was not swapped back.
     """
     import ast
     import inspect
@@ -183,17 +191,20 @@ def test_plan_pool_attaches_the_objective_it_accepts_on():
     from neoswga.core import pool_planner
 
     source = textwrap.dedent(inspect.getsource(pool_planner.plan_pool))
-    assigned = {
-        node.targets[0].attr
+    attached = {
+        node.args[1].value
         for node in ast.walk(ast.parse(source))
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Attribute)
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "attach_search_config"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
     }
 
-    assert "pool_objective" in assigned, (
-        "plan_pool no longer attaches its objective to the optimizer, so stage 2 "
-        "has gone back to refining on raw bins"
+    assert "pool_objective" in attached, (
+        "plan_pool no longer attaches its objective through attach_search_config. "
+        "A plain attribute assignment reaches the wrapper only, which is how "
+        "stage 2 came to refine on raw bins while the row was accepted on "
+        "occupancy-weighted coverage."
     )
 
 
