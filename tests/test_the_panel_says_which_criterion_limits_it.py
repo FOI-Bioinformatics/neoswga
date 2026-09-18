@@ -330,31 +330,43 @@ class TestAnUncomputedZeroIsNotAMeasurement:
     5, 6 and 13. The diagnostic must not launder it as a measurement.
     """
 
+    def test_a_host_coverage_zero_carries_the_caveat(self):
+        """`bg_coverage` is still 0.0 both when measured zero and when nothing
+        measured it, so its zero still needs the caveat."""
+        regime = _assess(_Metrics(bg_coverage=0.0))
+
+        assert "may mean" in _named(regime, "host_coverage").note
+
+    def test_a_non_zero_host_coverage_does_not(self):
+        regime = _assess(_Metrics(bg_coverage=0.25))
+
+        assert "may mean" not in _named(regime, "host_coverage").note
+
     @pytest.mark.parametrize(
         "name,field",
         [
-            ("host_coverage", "bg_coverage"),
             ("strand_balance", "strand_coverage_ratio"),
             ("strand_alternation", "strand_alternation_score"),
         ],
     )
-    def test_a_zero_carries_the_caveat(self, name, field):
+    def test_the_strand_zeros_no_longer_need_a_caveat(self, name, field):
+        """`core/strand_metrics.py` made these `None` when uncomputed, so a 0.0
+        is now a measurement and captioning it would be wrong."""
         regime = _assess(_Metrics(**{field: 0.0}))
 
-        assert "may mean" in _named(regime, name).note
+        assert "may mean" not in _named(regime, name).note
 
     @pytest.mark.parametrize(
         "name,field",
         [
-            ("host_coverage", "bg_coverage"),
             ("strand_balance", "strand_coverage_ratio"),
             ("strand_alternation", "strand_alternation_score"),
         ],
     )
-    def test_a_non_zero_value_does_not(self, name, field):
-        regime = _assess(_Metrics(**{field: 0.25}))
+    def test_an_uncomputed_strand_value_reads_as_not_measured(self, name, field):
+        regime = _assess(_Metrics(**{field: None}))
 
-        assert "may mean" not in _named(regime, name).note
+        assert _named(regime, name).value is None
 
 
 class TestThePrintedTableDoesNotLaunderAnAmbiguousZero:
@@ -365,10 +377,8 @@ class TestThePrintedTableDoesNotLaunderAnAmbiguousZero:
     to survive into the printed output too.
     """
 
-    def test_the_printed_output_names_the_ambiguous_zeros(self):
-        regime = _assess(
-            _Metrics(bg_coverage=0.0, strand_coverage_ratio=0.0, strand_alternation_score=0.0)
-        )
+    def test_the_printed_output_names_the_ambiguous_zero(self):
+        regime = _assess(_Metrics(bg_coverage=0.0))
         lines = "\n".join(format_regime(regime))
 
         assert "host_coverage" in lines
@@ -376,8 +386,46 @@ class TestThePrintedTableDoesNotLaunderAnAmbiguousZero:
 
     def test_it_says_nothing_when_no_value_is_ambiguous(self):
         regime = _assess(
-            _Metrics(bg_coverage=0.02, strand_coverage_ratio=0.9, strand_alternation_score=0.7)
+            _Metrics(bg_coverage=0.02, strand_coverage_ratio=0.0, strand_alternation_score=0.0)
         )
         lines = "\n".join(format_regime(regime))
 
         assert "may not have been computed" not in lines
+
+
+class TestTheHostConvergentGapReachesTheReport:
+    """`strand_alternation_gap_max` on the HOST is the closest quantity here to
+    the off-target amplification mechanism, and swga 2.0 fits its proxy against
+    measured sequencing breadth. Item 3 started computing it; it has to arrive
+    somewhere a user sees."""
+
+    def test_it_is_reported_when_the_host_was_measured(self):
+        metrics = _Metrics()
+        metrics.strand_stats = {
+            "target": {"strand_alternation_gap_max": 41_000.0},
+            "host": {"strand_alternation_gap_max": 900.0},
+        }
+
+        regime = _assess(metrics, bg_prefixes=["host"])
+
+        criterion = _named(regime, "host_convergent_gap")
+        assert criterion.value == pytest.approx(900.0)
+        assert criterion.reference is None
+
+    def test_it_is_absent_when_no_host_was_measured(self):
+        """Absent rather than zero: an unmeasured host must not read as one
+        whose sites are all adjacent."""
+        metrics = _Metrics()
+        metrics.strand_stats = {"target": {"strand_alternation_gap_max": 41_000.0}}
+
+        regime = _assess(metrics, bg_prefixes=["host"])
+
+        assert "host_convergent_gap" not in [c.name for c in regime.criteria]
+
+    def test_the_target_gap_is_reported_too(self):
+        metrics = _Metrics()
+        metrics.strand_stats = {"target": {"strand_alternation_gap_max": 41_000.0}}
+
+        regime = _assess(metrics, fg_prefixes=["target"])
+
+        assert _named(regime, "convergent_gap").value == pytest.approx(41_000.0)

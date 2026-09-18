@@ -178,9 +178,19 @@ class PrimerSetMetrics:
     gap_gini: float  # Gini coefficient of gaps
     gap_entropy: float  # Shannon entropy of gap distribution (bits)
 
-    # Strand alternation metrics
-    strand_alternation_score: float  # Fraction of adjacent pairs alternating strands (0-1)
-    strand_coverage_ratio: float  # Balance between forward and reverse strand sites (0-1)
+    # Strand alternation metrics for the FIRST foreground genome. `None` means
+    # the position cache could not supply them, which is not the same as zero:
+    # a one-site panel has nothing to alternate and genuinely scores 0.0. See
+    # `core/strand_metrics.py`.
+    strand_alternation_score: Optional[float]
+    strand_coverage_ratio: Optional[float]
+
+    # All five strand figures, per genome, foreground and background. Keyed by
+    # prefix; a prefix the cache could not answer for is ABSENT rather than
+    # zero. Three of the five used to be computed and discarded at the call
+    # site, `strand_alternation_gap_max` among them, which is the closest
+    # quantity here to the convergent-pair mechanism SWGA runs on.
+    strand_stats: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     # Per-target coverage (Phase 11D). Maps fg_prefix -> coverage fraction
     # so multi-genome runs can surface "target A 95% / target B 40%"
@@ -289,6 +299,7 @@ class PrimerSetMetrics:
             "gap_entropy": self.gap_entropy,
             "strand_alternation_score": self.strand_alternation_score,
             "strand_coverage_ratio": self.strand_coverage_ratio,
+            "strand_stats": {k: dict(v) for k, v in self.strand_stats.items()},
             "per_target_coverage": dict(self.per_target_coverage),
             "extension_reach": self.extension_reach,
         }
@@ -441,8 +452,8 @@ class PrimerSetMetrics:
             max_gap=float("inf"),
             gap_gini=1.0,
             gap_entropy=0.0,
-            strand_alternation_score=0.0,
-            strand_coverage_ratio=0.0,
+            strand_alternation_score=None,
+            strand_coverage_ratio=None,
         )
 
 
@@ -1255,20 +1266,24 @@ class BaseOptimizer(ABC):
         # Dimer risk (simplified - would use dimer module in full implementation)
         dimer_risk = self._estimate_dimer_risk(primers)
 
-        # Strand alternation metrics
-        strand_alt_score = 0.0
-        strand_cov_ratio = 0.0
-        if self.cache is not None and hasattr(self.cache, "compute_strand_alternation_stats"):
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
-                try:
-                    strand_stats = self.cache.compute_strand_alternation_stats(
-                        prefix, primers, length
-                    )
-                    strand_alt_score = strand_stats["strand_alternation_score"]
-                    strand_cov_ratio = strand_stats["strand_coverage_ratio"]
-                    break  # Use first fg genome stats
-                except Exception:
-                    pass
+        # Strand metrics: all five figures, for every foreground genome AND the
+        # background. The previous version read two of the five, dropped the
+        # rest, and stopped after the first foreground prefix, so the host was
+        # never measured. `None` rather than 0.0 when nothing could be
+        # computed, because a one-site panel genuinely scores zero.
+        #
+        # Imported here rather than at module scope: this module deliberately
+        # has no sibling imports, which is what keeps it free of cycles and out
+        # of the CLI's import cost.
+        from .strand_metrics import collect_strand_stats, headline_strand_scalars
+
+        strand_stats = collect_strand_stats(
+            self.cache,
+            list(self.fg_prefixes) + list(self.bg_prefixes or []),
+            list(self.fg_seq_lengths) + list(self.bg_seq_lengths or []),
+            primers,
+        )
+        strand_alt_score, strand_cov_ratio = headline_strand_scalars(strand_stats, self.fg_prefixes)
 
         return PrimerSetMetrics(
             fg_coverage=fg_coverage,
@@ -1296,6 +1311,7 @@ class BaseOptimizer(ABC):
             gap_entropy=gap_entropy,
             strand_alternation_score=strand_alt_score,
             strand_coverage_ratio=strand_cov_ratio,
+            strand_stats=strand_stats,
             extension_reach=self.config.extension_reach,
         )
 

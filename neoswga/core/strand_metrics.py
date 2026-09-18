@@ -1,0 +1,136 @@
+"""Collecting the strand quantities, all of them, for every genome.
+
+`PositionCache.compute_strand_alternation_stats` returns five figures per
+genome. The call site in `base_optimizer._compute_metrics` read two, dropped
+three, and `break`ed after the first foreground prefix, so a pan-target design
+reported one target's strand structure as the panel's and the host's was never
+computed although the same method would have produced it.
+
+`strand_alternation_gap_max` is the discarded figure that matters most.
+Exponential amplification needs two sites in convergent orientation within the
+polymerase's reach; one site primes linearly at best. So the widest gap between
+opposite-strand sites is the closest quantity in this codebase to the mechanism
+SWGA runs on, and on the HOST it is the term swga 2.0 approximates with
+`within_mean_gap_ratio` and fits against measured sequencing breadth. Item 3 of
+`docs/validation/getting_ahead_on_spacing_2026-09-18.md`.
+
+Nothing here scores or constrains. The quantities are collected, carried on
+`PrimerSetMetrics`, serialised, and reported by `panel_regime`; no spacing
+threshold derived from the reach separates the published wet-lab winners, so
+turning one into a default would be the scoring change that evidence refuses.
+
+**A prefix the cache cannot answer for is absent from the result, not zero.**
+The old call site initialised both scalars to 0.0 and left them there when the
+cache could not answer, so a zero meant either "measured zero" or "never
+asked". A one-site panel genuinely scores 0.0 for alternation, which is why the
+two cannot be told apart by value alone -- the shape of Known Issues 5, 6
+and 13.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+logger = logging.getLogger(__name__)
+
+# The five figures `compute_strand_alternation_stats` returns, named here so a
+# consumer can iterate them and a dropped one is visible.
+STRAND_KEYS: Tuple[str, ...] = (
+    "strand_alternation_gap_mean",
+    "strand_alternation_gap_max",
+    "strand_alternation_score",
+    "strand_coverage_ratio",
+    "longest_same_strand_run",
+)
+
+
+def collect_strand_stats(
+    cache: Any,
+    prefixes: Sequence[str],
+    seq_lengths: Sequence[int],
+    primers: Sequence[str],
+) -> Dict[str, Dict[str, float]]:
+    """The five strand figures for every genome the cache can answer for.
+
+    Args:
+        cache: A `PositionCache`. Anything without
+            `compute_strand_alternation_stats` yields `{}`, because
+            `StreamingPositionCache` has no such method and metrics must stay
+            computable rather than raising.
+        prefixes: Foreground and background prefixes together. Each is measured
+            against its own length, so the host's gaps are not scaled by the
+            target's size.
+        seq_lengths: Aligned with `prefixes`. A mismatched pair yields `{}`
+            rather than zipping short, which would silently measure the wrong
+            genomes.
+        primers: The delivered panel.
+
+    Returns:
+        `prefix -> {key: value}`, containing only the prefixes that answered.
+        A missing prefix means the quantity was not measured, which is not the
+        same as measuring zero.
+    """
+    if not primers or not prefixes:
+        return {}
+    if len(prefixes) != len(seq_lengths):
+        logger.debug(
+            "Strand stats skipped: %d prefixes against %d lengths",
+            len(prefixes),
+            len(seq_lengths),
+        )
+        return {}
+    if not hasattr(cache, "compute_strand_alternation_stats"):
+        return {}
+
+    collected: Dict[str, Dict[str, float]] = {}
+    for prefix, length in zip(prefixes, seq_lengths):
+        try:
+            stats = cache.compute_strand_alternation_stats(prefix, list(primers), length)
+        except Exception as exc:
+            # Absent rather than zero: a prefix nobody could measure must not
+            # read as a measurement.
+            logger.debug(f"Strand stats unavailable for {prefix}: {exc}")
+            continue
+        collected[prefix] = {key: stats[key] for key in STRAND_KEYS if key in stats}
+    return collected
+
+
+def headline_strand_scalars(
+    stats: Dict[str, Dict[str, float]],
+    fg_prefixes: Sequence[str],
+) -> Tuple[Optional[float], Optional[float]]:
+    """The two scalars `PrimerSetMetrics` has always carried.
+
+    They describe the FIRST foreground genome, which is what the previous call
+    site intended. `(None, None)` when no foreground genome was measured, so a
+    host-only result cannot masquerade as the target's balance and an
+    uncomputed value stays distinguishable from a measured zero.
+    """
+    for prefix in fg_prefixes:
+        entry = stats.get(prefix)
+        if entry:
+            return (
+                entry.get("strand_alternation_score"),
+                entry.get("strand_coverage_ratio"),
+            )
+    return None, None
+
+
+def worst_convergent_gap(
+    stats: Dict[str, Dict[str, float]], prefixes: Sequence[str]
+) -> Optional[float]:
+    """The widest gap between opposite-strand sites across these genomes.
+
+    On the foreground this is the largest stretch a panel cannot amplify
+    exponentially, because it holds no convergent pair. On the background it is
+    the opposite reading: a large value means the host's sites are too far apart
+    to face each other, which is the structure `bg_coverage` also sees and
+    `total_bg_sites` cannot.
+    """
+    values: List[float] = [
+        stats[prefix]["strand_alternation_gap_max"]
+        for prefix in prefixes
+        if prefix in stats and "strand_alternation_gap_max" in stats[prefix]
+    ]
+    return max(values) if values else None

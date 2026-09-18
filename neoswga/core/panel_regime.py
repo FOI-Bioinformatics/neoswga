@@ -128,10 +128,11 @@ def _reported(name: str, value: Optional[float], units: str, note: str) -> Crite
     )
 
 
-# `PrimerSetMetrics.empty` sets these to 0.0, and `_compute_metrics` leaves the
-# two strand figures at 0.0 when the position cache cannot supply them. A zero
-# is therefore indistinguishable from a measured zero, which is the shape of
-# Known Issues 5, 6 and 13. The diagnostic says so rather than laundering it.
+# `bg_coverage` is 0.0 both when measured zero and when nothing measured it, so
+# its zero is indistinguishable from a measurement -- the shape of Known Issues
+# 5, 6 and 13. The diagnostic says so rather than laundering it. The two strand
+# figures used to share this defect and no longer do: `core/strand_metrics.py`
+# makes them None when uncomputed, so a 0.0 there is a measurement.
 _AMBIGUOUS_AT_ZERO = "; a zero here may mean not computed rather than measured"
 
 
@@ -186,6 +187,46 @@ def _hole_note(max_gap: Optional[float], reach: int, genome_length: Optional[int
     return ", ".join(parts)
 
 
+def _convergent_criteria(
+    metrics: Any,
+    fg_prefixes: Sequence[str],
+    bg_prefixes: Sequence[str],
+) -> List[Criterion]:
+    """The widest gap between opposite-strand sites, per genome set.
+
+    Exponential amplification needs two sites in convergent orientation within
+    the polymerase's reach; one site primes linearly at best. So this is the
+    closest quantity in this codebase to the mechanism, and on the HOST it is
+    what swga 2.0 approximates with `within_mean_gap_ratio` and fits against
+    measured sequencing breadth.
+
+    A genome nobody measured yields NO criterion rather than a zero, because an
+    unmeasured host must not read as one whose sites are all adjacent.
+    """
+    from .strand_metrics import worst_convergent_gap
+
+    stats = getattr(metrics, "strand_stats", None) or {}
+    out: List[Criterion] = []
+    for name, prefixes, note in (
+        (
+            "convergent_gap",
+            fg_prefixes,
+            "widest target stretch with no convergent pair, no reference",
+        ),
+        (
+            "host_convergent_gap",
+            bg_prefixes,
+            "widest host stretch with no convergent pair; LARGER is better "
+            "here, since a host whose sites cannot face each other amplifies "
+            "little. No reference",
+        ),
+    ):
+        value = worst_convergent_gap(stats, list(prefixes or []))
+        if value is not None:
+            out.append(_reported(name, value, "bp", note))
+    return out
+
+
 def _spacing_criteria(metrics: Any, reach: int, genome_length: Optional[int]) -> List[Criterion]:
     """The properties with no line to compare against.
 
@@ -231,19 +272,13 @@ def _spacing_criteria(metrics: Any, reach: int, genome_length: Optional[int]) ->
             "strand_balance",
             _as_float(getattr(metrics, "strand_coverage_ratio", None)),
             "ratio",
-            _maybe_ambiguous(
-                _as_float(getattr(metrics, "strand_coverage_ratio", None)),
-                "1 is balanced between strands, no reference",
-            ),
+            "1 is balanced between strands, no reference",
         ),
         _reported(
             "strand_alternation",
             _as_float(getattr(metrics, "strand_alternation_score", None)),
             "fraction",
-            _maybe_ambiguous(
-                _as_float(getattr(metrics, "strand_alternation_score", None)),
-                "adjacent sites on opposite strands, no reference",
-            ),
+            "adjacent sites on opposite strands, no reference",
         ),
     ]
 
@@ -263,6 +298,8 @@ def assess_panel(
     genome_length: Optional[int] = None,
     min_selectivity_density: Optional[float] = None,
     max_background_sites: Optional[int] = None,
+    fg_prefixes: Sequence[str] = (),
+    bg_prefixes: Sequence[str] = (),
 ) -> PanelRegime:
     """Assess one delivered panel against its references.
 
@@ -325,6 +362,7 @@ def assess_panel(
         )
 
     criteria.extend(_spacing_criteria(metrics, coverage_reach, genome_length))
+    criteria.extend(_convergent_criteria(metrics, fg_prefixes, bg_prefixes))
 
     ranked = [c for c in criteria if c.slack is not None]
     limiting = min(ranked, key=lambda c: c.slack).name if ranked else None
@@ -491,6 +529,8 @@ def assess_from_parameter(
         genome_length=int(sum(lengths)) or None,
         min_selectivity_density=getattr(parameter, "min_selectivity_density", None),
         max_background_sites=getattr(parameter, "max_background_sites", None),
+        fg_prefixes=getattr(parameter, "fg_prefixes", []) or [],
+        bg_prefixes=getattr(parameter, "bg_prefixes", []) or [],
     )
 
 
