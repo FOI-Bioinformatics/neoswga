@@ -697,6 +697,37 @@ the measured design: 11 of 12 primers shared, Jaccard 0.846
 ([measurement](docs/validation/background_ordering_2026-09-17.md)).
 `bg_max_removal` is retired with the clause.
 
+**The objective never reached the stage that refines** -- FIXED 2026-09-18.
+`plan_pool` attached `pool_objective` to the optimizer it was handed, which on
+every command-line path is a wrapper (`HybridBaseOptimizer` or
+`BackgroundAwareBaseOptimizer`) that delegates the search to an inner
+`HybridOptimizer`. `_swap_refine` is a method of the INNER one, so
+`refine_hybrid_stage2` read the attribute off an object nobody had set. Measured
+through a real design, the refinement ran once and received None: Stage 2
+refined on raw covered bases while the row was accepted on occupancy-weighted
+coverage under a specificity floor. Delivered density on a failing row went from
+28.78 to 42.62 once connected.
+
+Two tests covered it and neither could see it -- one asserted by AST that
+`plan_pool` assigns an attribute of that name, the other by source text that the
+refinement reads one. Both ends existed and the path did not. Use
+`swap_refinement.attach_search_config` for anything a delegate must read, and
+assert the PATH: `tests/test_the_objective_reaches_the_stage_that_refines.py`
+drives a real factory-built optimizer under both methods.
+
+**Stage 1 is deliberately NOT constraint-aware**, and the reason is measured
+rather than assumed. The specificity density floor is exactly additive over
+primers, so the achievable ceiling is computable: on the shipped pool the best
+12-primer panel reaches 79.807, and a parameter-free rule reaches 78.178 at a
+floor of 65 where the search reaches nothing. But Stage 1 selects
+`max(final_count + 8, final_count * 1.67)` primers and Stage 2 narrows them, so
+a feasible Stage 1 panel does not make the delivered panel feasible. Three rules
+built on the accounting each failed to improve a delivered panel; the table is
+in `docs/validation/stage_one_constraint_awareness_2026-09-18.md`, along with
+what the next attempt should do instead. The accounting lives in
+`scripts/benchmarking/selectivity_budget.py` as a diagnostic, not in the
+package, because nothing in the search uses it.
+
 8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
    (audit finding F1b). The key was declared in `params.schema.json`,
    documented above, accepted by the validator, and read by nothing:

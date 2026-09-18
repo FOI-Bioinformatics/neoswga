@@ -26,6 +26,32 @@ class SwapResult:
     scan_width: int | None = None
 
 
+def attach_search_config(optimizer, name, value):
+    """Set an attribute on the optimizer AND on the delegate that searches.
+
+    `OptimizerFactory` returns a wrapper -- `HybridBaseOptimizer` or
+    `BackgroundAwareBaseOptimizer` -- and each delegates the search to an inner
+    `HybridOptimizer`. `_swap_refine` is a method of the INNER one, so an
+    attribute set on the wrapper is invisible to the stage that reads it.
+
+    That is not hypothetical. `plan_pool` attached `pool_objective` to the
+    wrapper and `refine_hybrid_stage2` read it off the delegate, so on every
+    command-line design the refinement received None: it refined on raw covered
+    bases while the row was accepted on occupancy-weighted coverage under a
+    specificity floor, which is the two-rule split Phase 2 set out to remove.
+
+    Two tests covered it and neither could see it. One asserted by AST that
+    `plan_pool` assigns the attribute; the other asserted by source text that
+    the refinement reads it. Both ends existed and the path did not.
+    `tests/test_the_objective_reaches_the_stage_that_refines.py` asserts the
+    path instead, through a real factory-built optimizer.
+    """
+    setattr(optimizer, name, value)
+    inner = getattr(optimizer, "_hybrid", None)
+    if inner is not None and inner is not optimizer:
+        setattr(inner, name, value)
+
+
 def coverage_bins(optimizer, pool):
     """The optimizer's coverage decomposition, as plain bins and weights.
 

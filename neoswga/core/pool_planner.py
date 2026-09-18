@@ -9,7 +9,7 @@ from .dimer_validator import DimerValidator
 from .lazy_dimer import LazyDimerCompatibility
 from .panel_beam import beam_search
 from .pool_objective import PoolConstraints, PoolObjective
-from .swap_refinement import coverage_bins, refine_by_swaps
+from .swap_refinement import attach_search_config, coverage_bins, refine_by_swaps
 
 # Multiples of the configured reach to report coverage at. The window radius is
 # a design-density convention rather than a measured extension distribution
@@ -427,7 +427,11 @@ def plan_pool(
     # Stage-2 refinement inside the optimizer picks the delivered panel, so it
     # has to score on the same thing this function accepts on. See
     # `swap_refinement.refine_hybrid_stage2`, which reads this attribute.
-    optimizer.pool_objective = objective
+    # Through `attach_search_config`, because the optimizer `plan_pool` is
+    # handed is a wrapper and the stage that reads this is the delegate inside
+    # it. Setting the attribute directly reached the wrapper only, so the
+    # refinement received None on every command-line design.
+    attach_search_config(optimizer, "pool_objective", objective)
     rows = []
     # A row that cannot satisfy its constraints asks the source for more
     # candidates before giving up. Without this the inventory is decorative:
