@@ -155,6 +155,23 @@ nothing: all three universes stop between 60 and 80, and the two larger ones
 deliver identical panels. See
 [retention_changes_no_delivered_panel_2026-09-17.md](../../docs/validation/retention_changes_no_delivered_panel_2026-09-17.md).
 
+### `achievable_density.py` -- a density-only ceiling, and a caution
+
+Exact arithmetic for the highest selectivity density an N-primer panel from a
+pool can reach, using the fact that the occupancy loads are additive over
+primers. Useful for one narrow question: whether retaining more candidates
+raises that ceiling at all. On the Wolbachia pool it does not, which confirms
+Phase 5 by an exact method.
+
+**Do not read its number as headroom.** It ignores the coverage target and the
+dimer screen. On the measured pool the panel achieving 79.807 has coverage
+0.4042 against a 0.5 target and 30 dimerising pairs out of 66, and chasing that
+apparent gap cost three Stage 1 search rules that could not help. With every
+constraint in force nothing beats the search's 60.112 at coverage 0.6535. See
+[stage_one_constraint_awareness_2026-09-18.md](../../docs/validation/stage_one_constraint_awareness_2026-09-18.md).
+
+`selectivity_budget.py` holds the accounting both this and that note use.
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate
