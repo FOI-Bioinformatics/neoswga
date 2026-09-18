@@ -151,10 +151,14 @@ What the evidence now supports:
 - **Treat 60.112 at coverage 0.6535 as the reference** for this pool and panel
   size, not 79.807. Any future claim of headroom must beat it with a dimer-free
   panel that meets the coverage target.
-- **The dimer constraint may be what binds specificity here.** Six mutually
-  compatible candidates among the sixteen most selective is a strong signal that
-  selectivity and compatibility are in tension on this pool, and that is worth
-  measuring directly before any more search work.
+- ~~**The dimer constraint may be what binds specificity here.**~~ Measured on
+  2026-09-18 with controls, and retracted: 6 of 16 sits inside the random range
+  of 6 to 8, and among the top 64 by slack there are 18 mutually compatible
+  primers. Compatibility is not the barrier; the specificity against coverage
+  trade-off is, and no construction respecting the dimer screen beats the
+  search. See
+  [no_search_headroom_on_this_pool_2026-09-18.md](no_search_headroom_on_this_pool_2026-09-18.md).
+  That closes this line of work for this pool.
 
 ## What this does not establish
 
