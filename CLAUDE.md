@@ -1062,3 +1062,75 @@ package, because nothing in the search uses it.
     asked about, including the empty one it returns for a primer the cache does
     not hold, so without that invalidation a candidate would keep answering
     with the zero it gave before its positions arrived.
+
+16. **The stage that picks the panel is the least informed one, and its remedy
+    is unwired** -- found 2026-09-18 (audit
+    [pool_selection_audit_2026-09-18.md](docs/validation/pool_selection_audit_2026-09-18.md)).
+    `optimize_greedy` takes an `objective`, and supplying it makes Stage 1
+    select on occupancy-weighted coverage with a background tie-break instead
+    of on unweighted coverage bins. Commit `59a4ee3` added it under the heading
+    "The greedy now chooses on the quantity the design is judged on". **No
+    production caller passes it.** `hybrid_optimizer.py:711`,
+    `dominating_set_adapter.py:164` and `primer_expansion.py:652` all omit it;
+    the only caller that supplies it is
+    `tests/test_partial_panel_pruning.py:214`.
+
+    It matters exactly where additives matter. Occupancy depends only on the
+    primer, so an unweighted bin count misranks two candidates by the ratio of
+    their occupancies, and across the pool the Tm gate admits that ratio is 1.8
+    on phi29 at 30 C, 7.8 on equiphi29 at 42 C and 8.3 under DMSO 5% plus
+    betaine 1 M. On phi29 occupancy is saturated and the unweighted count is
+    nearly right, which is the same reason phi29 offers no discrimination.
+
+    The ratchets cannot see this class.
+    `tests/test_no_capability_is_unreachable.py` walks reach to FUNCTIONS and
+    `optimize_greedy` is reachable; a PARAMETER no caller supplies is invisible
+    to it. This is a fifth route into Known Issue 8's class, and the list there
+    should be read as covering options and capabilities but not arguments.
+
+17. **A Tm window is the wrong candidate gate for an isothermal reaction** --
+    found 2026-09-18, not acted on. Every polymerase default floor sits 5 to 17
+    C below its reaction temperature (phi29 -10, equiphi29 -5, bst -13, klenow
+    -17), so the pool is padded with primers whose occupancy at the reaction
+    temperature is 0.002 to 0.13, and no bound excludes the saturated primers
+    that cannot discriminate a mismatch. There is no occupancy gate anywhere;
+    `occupancy_ranking` is the nearest thing and it ranks on background load
+    rather than on whether the candidate binds the target.
+
+    The consequence for the additive lever is measured in the audit. Occupancy
+    and mismatch discrimination move in opposite directions along the Tm axis,
+    so an additive improves every GC class at or above 6 of 12 and degrades
+    every class below it, moving the best class up one step. The two routes to
+    specificity conflict: compositional rarity favours GC-rich against an AT-rich
+    host, thermodynamic discrimination favours AT-rich, and their correlation at
+    k = 12 is about -0.89. An additive is the only lever that moves a candidate
+    along the thermodynamic axis without changing its composition, which is why
+    the best design measured in `docs/validation/additive_specificity.md` is an
+    additive design at k = 12 rather than a longer-primer one.
+
+    Do not conclude from the pool-size table that longer primers help. Above
+    k = 15 an additive admits more candidates rather than fewer, and that regime
+    is saturated: mean discrimination is 1.09 at k = 18 against 2.99 at k = 12,
+    and occupancy spread across the admitted pool collapses to 1.0. A draft of
+    the audit recommended k >= 15 before the discrimination column was measured.
+
+18. **`max_gap` and `bg_coverage` are computed and read by nothing that
+    selects** -- found 2026-09-18, not acted on. Both reach
+    `step4_improved_df_summary.json` and the reports. Neither appears in
+    `normalized_score`, in `PoolObjective`, or in any optimizer's scoring.
+
+    `bg_coverage` is the only computed quantity that sees background site
+    POSITION. `selectivity_density` and `total_bg_sites` are additive in
+    per-primer counts -- `occupancy.weighted_site_load` sums `count * theta` per
+    mismatch class and no position enters -- so two backgrounds with identical
+    per-primer counts score identically whether their sites are clustered or
+    dispersed. That distinction is most of off-target amplification, since SWGA
+    needs two convergent sites within the polymerase's reach.
+
+    swga 1.0 made both criteria hard filters in 2017 (`max_fg_bind_dist` and
+    `min_bg_bind_dist`, with cliques ranked by mean background binding
+    distance), and swga 2.0 fits both as `on_gap_gini` and `off_gap_gini`, where
+    `off_gap_gini` carries the second largest weight in the only set-level model
+    fitted against measured sequencing breadth. No background amplification
+    network is built here, in contrast to the foreground network the hybrid and
+    network methods build at about 70 kb.

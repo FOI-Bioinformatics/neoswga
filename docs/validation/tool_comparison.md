@@ -5,7 +5,12 @@
 designers, and an audit of whether NeoSWGA's own design options change the design.
 
 Related: [published_primer_sets.md](published_primer_sets.md), which validates the
-scoring against wet-lab outcomes rather than against other tools.
+scoring against wet-lab outcomes rather than against other tools, and
+[pool_selection_audit_2026-09-18.md](pool_selection_audit_2026-09-18.md), which
+compares the SELECTION RULE rather than the capability set and reaches a less
+flattering conclusion. Two gaps recorded below are sharper than this document
+states them: swga 1.0 made foreground and background site spacing HARD filters
+in 2017, and NeoSWGA constrains neither.
 
 ## The tools
 
@@ -213,7 +218,11 @@ surface and correspondingly the one with least external calibration.
   could be restored the same way.
 - **No background gap evenness.** `off_gap_gini` carries the second-largest weight in
   swga 2.0's fitted model and is not computed anywhere in NeoSWGA. `PrimerSetMetrics`
-  has `gap_gini` for the foreground only.
+  has `gap_gini` for the foreground only, and nothing that SELECTS reads even that
+  one: it enters the post-hoc `normalized_score` at weight 0.10 and the selection
+  path uses a coefficient of variation of gaps instead. `bg_coverage` is the one
+  computed quantity that sees background site position and it has no reader. See
+  Known Issues 17 and 18.
 - **jellyfish is a hard dependency.** There is no in-process counting fallback;
   `kmer_counter.count_kmers_in_sequence` exists but has no callers.
 - **RF training provenance is undocumented.** swga 2.0 states its training set (396
