@@ -127,7 +127,7 @@ count-kmers            filter                 prepare (`score`)      optimize
   amplification score -- see **The `score` stage** below.
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
 - `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
-  effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics). `metrics.strand_stats` holds all five strand figures per genome, foreground and host, keyed by prefix; `panel_regime` holds which criterion limited the panel and which had no reference.
+  effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics). `metrics.strand_stats` holds all five strand figures per genome, foreground and host, keyed by prefix; `metrics.primer_occupancy` holds how much of the time each delivered primer is bound, empty when no conditions were attached; `panel_regime` holds which criterion limited the panel and which had no reference.
   Also `unindexed_candidates`: how many candidates the foreground position
   index could not place. Those cover nothing and so are invisible to
   selection; the pipeline path refuses rather than reporting a coverage
