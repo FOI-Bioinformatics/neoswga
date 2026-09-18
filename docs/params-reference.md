@@ -56,24 +56,30 @@ neoswga schema --dump > params.schema.json
 | `iterations` | integer | min: 1; max: 100 | `8` | - |
 | `k_conc` | number | min: 0.0; max: 1000.0 | `0.0` | K+ concentration (mM). Sums with na_conc and nh4_conc into ionic strength. |
 | `long_primer_mode` | boolean | - | `False` | - |
+| `max_background_sites` | integer | min: 0 | - | Maximum total background binding sites the delivered panel may carry. Unset by default. Needs a background genome and index. |
 | `max_bg_freq` | number | min: 0.0; max: 1.0 | - | - |
 | `max_bl_freq` | number | min: 0.0; max: 1.0 | `0.0` | Maximum permissible blacklist frequency; 0 = zero tolerance. |
 | `max_dimer_bp` | integer | min: 1; max: 7 | - | Longest complementary run tolerated between two different primers in a delivered set. Capped at 7 because the pairwise screen represents t-mers in a 4**8 code space: at 8 and above the matrix cannot be built, and the screen was previously disabled for the whole run with only a warning. Note that a pool supports a bounded panel size at a given threshold; measured on the shipped pools, max_dimer_bp 3 supports 29, 31 and 26 primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and 55. |
+| `max_evenness` | number | min: 0; max: 1 | - | Maximum tolerated Gini index of foreground inter-site gaps for the delivered PANEL (0 is uniform). Unset by default. Distinct from max_gini, which gates individual CANDIDATES during filtering. Evenness separates the winners on the Prevotella sets and runs slightly backwards on Clarke's. |
 | `max_gc_in_clamp` | integer | min: 0; max: 12 | `3` | Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets. |
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
 | `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
+| `max_host_coverage` | number | min: 0; max: 1 | - | Maximum tolerated fraction of the background genome within reach of a panel binding site (bg_coverage). Unset by default. The only limit here that sees background site POSITION rather than counts, so it can distinguish a clustered host from a dispersed one. Needs a background genome and index. |
 | `max_k` | integer | min: 4; max: 30 | - | Maximum primer length (bp). Polymerase-aware default is used if absent. |
+| `max_mean_gap` | number | min: 1 | - | Maximum tolerated mean gap in bp between consecutive foreground binding sites. Unset by default. Binding density, which separates the winners on Clarke's M. tuberculosis sets and not on the Prevotella sets. |
 | `max_mismatches` | integer | min: 1 | `1` | Highest mismatch class counted when ranking step-2 candidates by occupancy-weighted site load. Minimum 1 because the read site (pipeline._configured_positive_int) takes positive integers only; exact-match-only ranking is reached with occupancy_ranking: false instead. Applies to the filter step's ranking; the optimizers carry their own OptimizerConfig.max_mismatches. |
 | `max_primer` | integer | min: 1; max: 10000 | - | - |
 | `max_self_dimer_bp` | integer | min: 1; max: 15 | - | - |
 | `max_sets` | integer | min: 1; max: 100 | `5` | - |
 | `max_tm` | number | min: 0.0; max: 100.0 | `45.0` | - |
+| `max_worst_hole` | number | min: 1 | - | Maximum tolerated gap in bp between consecutive foreground binding sites (max_gap). Unset by default, and deliberately so: no threshold derived from the polymerase reach separates the 18 published sets with wet-lab outcomes, the winners included, so this is a limit for a user who knows their target to draw rather than one NeoSWGA can pick. See docs/validation/getting_ahead_on_spacing_2026-09-18.md. |
 | `mg_conc` | number | min: 0.0; max: 20.0 | - | Mg2+ concentration (mM). Polymerase-aware default is used if absent. |
 | `min_amp_pred` | number | - | - | - |
 | `min_fg_freq` | number | min: 0.0; max: 1.0 | - | - |
 | `min_gini_sites` | integer | min: 1 | `3` | Minimum recorded binding sites, counted across both strands, before the Gini index of gap lengths is treated as a measurement. Below it the index is NaN and the primer is dropped by the evenness gate. One site gives no gap and two give a single gap whose Gini is identically 0.0, the best score available, so an unmeasurable primer used to outrank an evenly spread one. Lower it to 2 or 1 for a small target where single-site primers are most of the pool. |
 | `min_k` | integer | min: 4; max: 30 | - | Minimum primer length (bp). Polymerase-aware default is used if absent. |
 | `min_sample_count` | integer | min: 1 | - | - |
+| `min_selectivity_density` | number | min: 0 | - | Minimum occupancy-weighted selectivity density (foreground load per base over background load per base) the delivered panel must reach. Unset by default. Comparable across backgrounds of different sizes, unlike selectivity_ratio. Needs a background genome and index; a limit on an unmeasured quantity would pass every panel. |
 | `min_tm` | number | min: 0.0; max: 100.0 | `15.0` | - |
 | `mismatch_penalty` | number | min: 0; max: 20 | `4.0` | Per-mismatch Tm penalty in Celsius, used by the occupancy-weighted ranking in the filter step. A linear penalty is a simplification: real destabilisation depends on which bases mismatch and where. |
 | `na_conc` | number | min: 0.0; max: 1000.0 | `50.0` | - |

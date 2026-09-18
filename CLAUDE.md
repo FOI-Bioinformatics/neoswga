@@ -517,6 +517,42 @@ relatively.
   would cap how many primers a run can choose, so `iterations: 8` would quietly
   truncate a 96-oligo panel.
 
+**Panel limits** (params.json only; every one unset by default):
+
+| Key | Holds | Needs a background |
+|---|---|---|
+| `min_selectivity_density` | occupancy-weighted fg load per base over bg load per base, at least | yes |
+| `max_background_sites` | total host binding sites, at most | yes |
+| `max_worst_hole` | largest foreground gap in bp (`max_gap`), at most | no |
+| `max_mean_gap` | mean foreground gap in bp, at most | no |
+| `max_evenness` | Gini of the PANEL's foreground gaps, at most (distinct from `max_gini`, which gates candidates) | no |
+| `max_host_coverage` | fraction of the host within reach of a panel site (`bg_coverage`), at most | yes |
+
+`core/panel_acceptance.py` reads them. **Set none and nothing changes**:
+`constraints_from_parameter` returns None, no objective is built, and the
+delivered panel is byte-identical to what it was. That is deliberate rather
+than cautious -- no spacing threshold derived from the polymerase reach
+separates the 18 published sets with wet-lab outcomes, the winners included, so
+NeoSWGA must not pick one, and a fitted weight is wrong for one of the two
+benchmarks either way. A user drawing a line is a different claim, and the
+"What limits this panel" report is what tells them which properties had no
+reference at all.
+
+Set one and `optimize` prints a "Configured limits" table, attempts ONE bounded
+repair through `pool_planner.repair_panel` (the same repair `plan-pool` uses, so
+there is one in the codebase rather than two that can disagree), and reports
+whether it succeeded. A repair that does not resolve the violation returns the
+panel it was given: on a limit no panel can meet, chasing it trades real
+coverage for a step toward a limit it never reaches. A background-measured limit
+set without a background genome is refused rather than reported as satisfied.
+
+`strand_coverage_ratio` and `strand_alternation_score` are deliberately NOT
+constrainable. Both read 0.0 when measured zero and when the position cache
+could not supply them, and nothing distinguishes the two, so a limit would
+reject a panel for a missing measurement while reporting a violated constraint.
+The dimer limit is outside for a different reason: it is a hard constraint on
+the delivered panel, not a tradeable term.
+
 **Application profiles** (`--application`, and the weighting used to pick an
 ensemble winner):
 

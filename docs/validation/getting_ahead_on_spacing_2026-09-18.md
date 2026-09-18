@@ -123,9 +123,9 @@ it is where being ahead is available.
 
 ## What would put NeoSWGA ahead, by axis
 
-Ordered by evidence, not by appeal.
+Ordered by evidence, not by appeal. Items 1 and 2 shipped on 2026-09-18; none of the rest is measured.
 
-**1. A regime diagnostic, which nothing else offers.** Two benchmarks support
+**1. A regime diagnostic, which nothing else offers. SHIPPED 2026-09-18.** Two benchmarks support
 exactly one conclusion: the limiting property varies by design. No tool tells a
 user which property limits theirs. NeoSWGA has every quantity and has
 `shortfall`, which already measures per-constraint distance in comparable units.
@@ -133,7 +133,7 @@ Reporting which criterion binds a delivered panel, and how far the others are
 from binding, requires no fitting, no threshold and no new science. It is the
 direct implementation of the only thing the outcome data supports.
 
-**2. Generalise `PoolConstraints` and make it reachable from `optimize`.** The
+**2. Generalise `PoolConstraints` and make it reachable from `optimize`. SHIPPED 2026-09-18.** Six limits, all unset by default, in `core/panel_acceptance.py`. The
 spacing quantities above become constrainable rather than scored, so a user in a
 hole-limited regime constrains the hole and a user in a density-limited regime
 does not. swga 1.0 has hard constraints with fixed magic numbers; swga 2.0 has

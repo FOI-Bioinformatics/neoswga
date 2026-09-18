@@ -516,6 +516,38 @@
       ],
       "default": "all_qc",
       "description": "Which candidates get a background position index. 'all_qc' indexes every candidate clearing the declared hard gates, so nothing the max_primer ranking set aside is unreachable; 'post_gini' also requires the evenness gate as an admission rule, keeping a declared requirement while dropping an arbitrary cut; a candidate missing it is not eligible and carries an explicit failed assessment saying so. max_primer still chooses the working shortlist in both modes, so the optimizer's runtime is unchanged. Measured on the Wolbachia design the two index 20,670 and 491,836 candidates, costing about 19 MB and 443 MB. The shortlist-only 'legacy' mode was removed on 2026-09-16: it left every candidate the ranking cut scoring against an empty background, which reads as perfect specificity rather than as a missing measurement."
+    },
+    "min_selectivity_density": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Minimum occupancy-weighted selectivity density (foreground load per base over background load per base) the delivered panel must reach. Unset by default. Comparable across backgrounds of different sizes, unlike selectivity_ratio. Needs a background genome and index; a limit on an unmeasured quantity would pass every panel."
+    },
+    "max_background_sites": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Maximum total background binding sites the delivered panel may carry. Unset by default. Needs a background genome and index."
+    },
+    "max_worst_hole": {
+      "type": "number",
+      "minimum": 1,
+      "description": "Maximum tolerated gap in bp between consecutive foreground binding sites (max_gap). Unset by default, and deliberately so: no threshold derived from the polymerase reach separates the 18 published sets with wet-lab outcomes, the winners included, so this is a limit for a user who knows their target to draw rather than one NeoSWGA can pick. See docs/validation/getting_ahead_on_spacing_2026-09-18.md."
+    },
+    "max_mean_gap": {
+      "type": "number",
+      "minimum": 1,
+      "description": "Maximum tolerated mean gap in bp between consecutive foreground binding sites. Unset by default. Binding density, which separates the winners on Clarke's M. tuberculosis sets and not on the Prevotella sets."
+    },
+    "max_evenness": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Maximum tolerated Gini index of foreground inter-site gaps for the delivered PANEL (0 is uniform). Unset by default. Distinct from max_gini, which gates individual CANDIDATES during filtering. Evenness separates the winners on the Prevotella sets and runs slightly backwards on Clarke's."
+    },
+    "max_host_coverage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Maximum tolerated fraction of the background genome within reach of a panel binding site (bg_coverage). Unset by default. The only limit here that sees background site POSITION rather than counts, so it can distinguish a clustered host from a dispersed one. Needs a background genome and index."
     }
   }
 }

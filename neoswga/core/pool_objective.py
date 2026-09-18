@@ -34,6 +34,69 @@ import math
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
+# Sense of each limit.
+_AT_LEAST = "at_least"
+_AT_MOST = "at_most"
+
+# Every limit a panel can be held to, in one table, so `violations` and
+# `shortfall` cannot drift apart. Each row is
+# (constraint field, metrics field, sense, message, needs a background).
+#
+# The order is the order `violations` reports in, and the first two rows keep
+# their original position because `pool_planner._repair` takes `reasons[0]` as
+# the reason it records.
+#
+# Two quantities are deliberately absent. `strand_coverage_ratio` and
+# `strand_alternation_score` read 0.0 both when measured zero and when the
+# position cache could not supply them, and nothing distinguishes the two, so a
+# limit on either would reject a panel for a MISSING MEASUREMENT while reporting
+# a violated constraint. That is the failure Known Issues 5, 6 and 13 record.
+# The dimer limit is absent for a different reason: it is a hard constraint on
+# the delivered panel rather than a scoring term, and folding it in among these
+# is how it became tradeable.
+_LIMITS = (
+    (
+        "min_selectivity_density",
+        "selectivity_density",
+        _AT_LEAST,
+        "selectivity below minimum",
+        True,
+    ),
+    ("max_background_sites", "total_bg_sites", _AT_MOST, "background sites above maximum", True),
+    ("max_worst_hole", "max_gap", _AT_MOST, "worst hole above maximum", False),
+    ("max_mean_gap", "mean_gap", _AT_MOST, "mean gap above maximum", False),
+    ("max_evenness", "gap_gini", _AT_MOST, "evenness above maximum", False),
+    ("max_host_coverage", "bg_coverage", _AT_MOST, "host coverage above maximum", True),
+)
+
+
+def _unmet(value, limit, sense) -> bool:
+    """Whether this value misses its limit. An unmeasurable value misses it.
+
+    `None` means the evaluator could not produce the quantity, and a limit on
+    something nothing measured must not pass: every panel would clear it, which
+    reads as compliance rather than as an absent measurement.
+    """
+    if value is None:
+        return True
+    if sense == _AT_LEAST:
+        return value < limit
+    return value > limit
+
+
+def _distance(value, limit, sense) -> float:
+    """How far this value is from its limit, relative to the limit itself.
+
+    Scaled so a hole over its ceiling by half scores the same as evenness over
+    its ceiling by half, and neither dominates merely by being measured in
+    larger units. An unmeasurable value is infinitely far rather than large.
+    """
+    if value is None:
+        return math.inf
+    scale = abs(limit) or 1.0
+    gap = (limit - value) if sense == _AT_LEAST else (value - limit)
+    return gap / scale
+
 
 @dataclass(frozen=True)
 class PoolConstraints:
@@ -47,6 +110,18 @@ class PoolConstraints:
     min_selectivity_density: Optional[float] = None
     max_background_sites: Optional[int] = None
 
+    # The spacing quantities, added 2026-09-18. Every one is unset by default
+    # and so inert: NeoSWGA must not pick a spacing threshold, because none
+    # derived from the reach separates the 18 published sets with wet-lab
+    # outcomes, and a fitted weight is wrong for one of the two benchmarks
+    # either way. A user setting one is a different claim, and item 1's report
+    # is what tells them these had no reference at all. See
+    # `docs/validation/getting_ahead_on_spacing_2026-09-18.md`.
+    max_worst_hole: Optional[float] = None
+    max_mean_gap: Optional[float] = None
+    max_evenness: Optional[float] = None
+    max_host_coverage: Optional[float] = None
+
     def __post_init__(self) -> None:
         if self.coverage_metric not in {"effective", "raw"}:
             raise ValueError(
@@ -55,7 +130,12 @@ class PoolConstraints:
 
     @property
     def needs_background(self) -> bool:
-        return self.min_selectivity_density is not None or self.max_background_sites is not None
+        """Whether any limit here is measured against the background genome."""
+        return any(
+            getattr(self, field) is not None
+            for field, _metric, _sense, _message, needs_bg in _LIMITS
+            if needs_bg
+        )
 
     def require_background(self, available: bool) -> None:
         """Refuse a specificity limit when nothing measured the background.
@@ -69,8 +149,13 @@ class PoolConstraints:
                 "A specificity limit was set but no background genome and index "
                 "are available. Without them the limit cannot be evaluated, and "
                 "every panel would pass as if it bound nothing off-target. "
-                "Supply a background, or remove min_selectivity_density and "
-                "max_background_sites."
+                "Supply a background, or remove the limit: "
+                + ", ".join(
+                    field
+                    for field, _m, _s, _msg, needs_bg in _LIMITS
+                    if needs_bg and getattr(self, field) is not None
+                )
+                + "."
             )
 
 
@@ -130,13 +215,12 @@ class PoolObjective:
         if self.coverage(primers) is None:
             reasons.append("coverage unavailable")
 
-        floor = self.constraints.min_selectivity_density
-        if floor is not None and metrics.selectivity_density < floor:
-            reasons.append("selectivity below minimum")
-
-        ceiling = self.constraints.max_background_sites
-        if ceiling is not None and metrics.total_bg_sites > ceiling:
-            reasons.append("background sites above maximum")
+        for field, metric, sense, message, _needs_bg in _LIMITS:
+            limit = getattr(self.constraints, field)
+            if limit is None:
+                continue
+            if _unmet(getattr(metrics, metric, None), limit, sense):
+                reasons.append(message)
 
         return tuple(reasons)
 
@@ -172,15 +256,16 @@ class PoolObjective:
         if self.coverage(primers) is None:
             return math.inf
 
+        # One loop over the same table `violations` reads, which is what keeps
+        # the boundary agreement exact: a term is added exactly when `_unmet`
+        # says the limit is missed, and `_distance` is positive there.
         total = 0.0
-        floor = self.constraints.min_selectivity_density
-        if floor is not None and metrics.selectivity_density < floor:
-            # Scaled by the limit itself, and guarded for a zero limit so the
-            # boundary keeps agreeing with `violations` rather than dividing.
-            total += (floor - metrics.selectivity_density) / (abs(floor) or 1.0)
-
-        ceiling = self.constraints.max_background_sites
-        if ceiling is not None and metrics.total_bg_sites > ceiling:
-            total += (metrics.total_bg_sites - ceiling) / max(abs(ceiling), 1)
+        for field, metric, sense, _message, _needs_bg in _LIMITS:
+            limit = getattr(self.constraints, field)
+            if limit is None:
+                continue
+            value = getattr(metrics, metric, None)
+            if _unmet(value, limit, sense):
+                total += _distance(value, limit, sense)
 
         return total

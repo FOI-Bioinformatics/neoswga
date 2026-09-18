@@ -89,7 +89,7 @@ def _beam_candidates(pool, incumbent, size, budget):
     return slice_pool
 
 
-def _repair(primers, pool, objective, reasons, config, target=None, bins=None, weights=None):
+def repair_panel(primers, pool, objective, reasons, config, target=None, bins=None, weights=None):
     """A bounded second attempt at a panel that missed a limit or a target.
 
     Returns the panel to use and a record of what was tried. The panel is only
@@ -270,7 +270,7 @@ def _evaluate_size(
     # row would report `not_found` beside a panel never asked to reach it.
     missed = max(targets) if coverage is not None and coverage < max(targets) else None
     if repair and (reasons or missed is not None):
-        repaired, repair_record = _repair(
+        repaired, repair_record = repair_panel(
             primers,
             pool,
             objective,
