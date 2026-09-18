@@ -225,6 +225,24 @@ to 6.2 kb band and fitted to these points. Read it as a description instead:
 panels enriching 96 to 120 fold carry 31 to 33 kb holes. See
 [getting_ahead_on_spacing_2026-09-18.md](../../docs/validation/getting_ahead_on_spacing_2026-09-18.md).
 
+### `dimer_policy_comparison.py`
+
+What each dimer policy costs, decides, and admits. Needs no design directory and
+no external tool: it samples GC-matched pools and runs the real screens.
+
+```bash
+python scripts/benchmarking/dimer_policy_comparison.py
+```
+
+Produced the measurements that decided the design of `max_dimer_dg` and
+corrected two claims in the audit that proposed it. The run screen costs 10.8 us
+per pair and the free-energy screen 11.5, so cost is not the obstacle. At the
+shipped `max_dimer_bp` of 3 a floor decides nothing, because every pair it
+rejects the run screen already rejects. And a floor ALONE admits 8 bp
+complementary runs, which is why it is applied only after the length screen
+passes. See
+[dimer_stability_floor_2026-09-18.md](../../docs/validation/dimer_stability_floor_2026-09-18.md).
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate

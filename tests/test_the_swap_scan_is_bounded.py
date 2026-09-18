@@ -201,9 +201,9 @@ def test_the_bound_is_on_evaluations_not_on_pairs_considered():
     )
 
     assert result.pairs_considered > result.objective_evaluations
-    assert result.pairs_considered >= 36 * 4 - 16, (
-        "the cheap pass stopped early, so the prescreen saw only part of the pool"
-    )
+    assert (
+        result.pairs_considered >= 36 * 4 - 16
+    ), "the cheap pass stopped early, so the prescreen saw only part of the pool"
 
 
 def test_a_wide_enough_scan_reproduces_the_unbounded_answer():

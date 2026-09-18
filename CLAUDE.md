@@ -506,6 +506,25 @@ relatively.
   ([measurement](docs/validation/violation_magnitude_2026-09-17.md)). Not fixed:
   density still falls as the frontier refills, and that drift is the optimizer's
   own selection rather than the repair's.
+- `max_dimer_dg`: Optional ADDITIONAL dimer floor in kcal/mol on the free
+  energy of the longest complementary region between two primers, evaluated at
+  the reaction temperature. Unset by default. Applied only to a pair
+  `max_dimer_bp` has already passed, so it can make the screen stricter and
+  never looser, and a configured floor forces the pairwise screen because the
+  dense matrix codes t-mers and cannot express free energy.
+
+  **Do not read it as a way to relax `max_dimer_bp`.** A -6 floor with no
+  length cap admits 8 bp complementary runs, and the 11 bp delivered
+  heterodimer this project recorded is what that looks like. Its use is the
+  opposite: raise `max_dimer_bp` for a larger panel and keep a stability bound.
+  Measured on 200-primer pools, `run <= 3` supports a greedy panel of 17 to 21
+  while `run <= 5` with a -4 floor supports 50 to 77. At the shipped default a
+  floor decides nothing at all, because every pair it rejects the run screen
+  already rejects. Cost is 1.1x the run screen, not the O(n^2) problem the
+  audit guessed. -6.0 follows Rychlik (1995); nothing validates it against a
+  reaction
+  ([measurement](docs/validation/dimer_stability_floor_2026-09-18.md)).
+
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
   again, so each is a different set rather than a reordering. They are numbered

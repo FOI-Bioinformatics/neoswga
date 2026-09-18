@@ -31,7 +31,7 @@ adding a second screen with its own rules.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +48,22 @@ class LazyDimerCompatibility:
     makes it independent of pool size.
     """
 
-    def __init__(self, max_dimer_bp: int, cache_size: int = 200_000):
+    def __init__(
+        self,
+        max_dimer_bp: int,
+        cache_size: int = 200_000,
+        max_dimer_dg: Optional[float] = None,
+        temp: float = 37.0,
+    ):
         self.max_dimer_bp = int(max_dimer_bp)
         self.cache_size = int(cache_size)
+        # An optional ADDITIONAL floor on duplex stability, in kcal/mol. It can
+        # only make the screen stricter: `max_dimer_bp` is still applied first
+        # and a pair failing it is rejected whatever the floor says. A floor
+        # alone admits 8 bp complementary runs, measured, and this project
+        # delivered an 11 bp heterodimer against a configured 3 once already.
+        self.max_dimer_dg = None if max_dimer_dg is None else float(max_dimer_dg)
+        self.temp = float(temp)
         self._cache: Dict[Tuple[str, str], bool] = {}
         # How many pairs were actually computed, so a test can show that the
         # cache is used rather than merely present.
@@ -70,6 +83,19 @@ class LazyDimerCompatibility:
         from neoswga.core.dimer import is_dimer_fast
 
         result = bool(is_dimer_fast(key[0], key[1], max_dimer_bp=self.max_dimer_bp))
+        if not result and self.max_dimer_dg is not None:
+            # Only consulted for a pair the length screen ALREADY passed, which
+            # is what makes the floor purely additive.
+            from neoswga.core.dimer import is_dimer_thermodynamic
+
+            result = bool(
+                is_dimer_thermodynamic(
+                    key[0],
+                    key[1],
+                    delta_g_threshold=self.max_dimer_dg,
+                    temperature=self.temp,
+                )
+            )
         self.computations += 1
         if len(self._cache) >= self.cache_size:
             # Cleared rather than evicted one at a time. A search's working set
@@ -88,7 +114,12 @@ class LazyDimerCompatibility:
         return any(self._pair(upper, str(other).upper()) for other in selected)
 
 
-def dimer_screen(pool: Sequence[str], max_dimer_bp: int):
+def dimer_screen(
+    pool: Sequence[str],
+    max_dimer_bp: int,
+    max_dimer_dg: Optional[float] = None,
+    temp: float = 37.0,
+):
     """The dimer screen suited to this pool's size.
 
     One decision in one place. `dominating_set_optimizer` made it correctly and
@@ -112,8 +143,19 @@ def dimer_screen(pool: Sequence[str], max_dimer_bp: int):
 
     params.schema.json refuses 8 and above anyway, so this is a failure mode
     removed rather than a capability added.
+
+    A stability floor also forces the pairwise branch, for the same reason: the
+    dense matrix codes t-mers and cannot express free energy, so using it would
+    silently ignore a configured floor.
     """
     candidates = list(dict.fromkeys(pool))
+    if max_dimer_dg is not None:
+        logger.info(
+            "A dimer stability floor of %.2f kcal/mol is configured; screening "
+            "pairwise on demand, since the dense matrix cannot express it.",
+            max_dimer_dg,
+        )
+        return LazyDimerCompatibility(max_dimer_bp, max_dimer_dg=max_dimer_dg, temp=temp)
     if len(candidates) > LAZY_DIMER_POOL_THRESHOLD:
         logger.info(
             "Pool of %d candidates: computing dimer compatibility on demand rather "
@@ -122,14 +164,14 @@ def dimer_screen(pool: Sequence[str], max_dimer_bp: int):
             len(candidates) ** 2,
             len(candidates) ** 2 / 1e6,
         )
-        return LazyDimerCompatibility(max_dimer_bp)
+        return LazyDimerCompatibility(max_dimer_bp, max_dimer_dg=max_dimer_dg, temp=temp)
     if not _dense_can_hold(max_dimer_bp, candidates):
         logger.info(
             "max_dimer_bp=%d needs more t-mer codes than the dense matrix allocates; "
             "screening pairwise on demand instead.",
             max_dimer_bp,
         )
-        return LazyDimerCompatibility(max_dimer_bp)
+        return LazyDimerCompatibility(max_dimer_bp, max_dimer_dg=max_dimer_dg, temp=temp)
     from neoswga.core import dimer_matrix as _dimer_matrix
 
     return _dimer_matrix.build(candidates, max_dimer_bp)

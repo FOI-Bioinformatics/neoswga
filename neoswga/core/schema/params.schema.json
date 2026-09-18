@@ -548,6 +548,11 @@
       "minimum": 0,
       "maximum": 1,
       "description": "Maximum tolerated fraction of the background genome within reach of a panel binding site (bg_coverage). Unset by default. The only limit here that sees background site POSITION rather than counts, so it can distinguish a clustered host from a dispersed one. Needs a background genome and index."
+    },
+    "max_dimer_dg": {
+      "type": "number",
+      "maximum": 0,
+      "description": "Optional ADDITIONAL dimer floor, in kcal/mol, on the free energy of the longest complementary region between two primers at the reaction temperature. Unset by default. It can only make the screen stricter: max_dimer_bp is applied first and a pair failing it is rejected whatever this says. Do not treat it as a way to relax max_dimer_bp on its own -- measured, a -6 floor with no length cap admits 8 bp complementary runs. Its use is to raise max_dimer_bp for a larger panel while keeping a stability bound: at run <= 3 a 200-primer pool supports a greedy panel of 14-20, and at run <= 5 with a -4 floor it supports 52-79. -6.0 follows Rychlik (1995) Mol Biotechnol 3:129-134; nothing here validates it against a reaction."
     }
   }
 }

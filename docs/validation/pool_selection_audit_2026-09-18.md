@@ -260,7 +260,7 @@ which rules out both obvious answers.
 | Criterion | swga 1.0 (2017) | swga 2.0 / SoapSWGA (2023) | COATswga (2025) | NeoSWGA |
 |---|---|---|---|---|
 | Set search | all cliques of size 2 to 7 enumerated by a patched `cliquer`, run `--unweighted --all` | beam search, width 5, with drop-out rounds and retries that ban the most-chosen primer | greedy interval tiling on a descending novelty ladder, bedtools for the intervals | greedy set cover, then swap or network refinement; clique available |
-| Dimer-free set | hard, by construction | hard, precomputed pair matrix so an incompatible pair never enters the beam | hard, and the only free-energy model of the four: PrimerROC, rejecting below -2.79 | hard by default; selection stops rather than admit a violating pair, and `clique` additionally finds the MAXIMUM such set |
+| Dimer-free set | hard, by construction | hard, precomputed pair matrix so an incompatible pair never enters the beam | hard, by PrimerROC free energy below -2.79, with NO length cap | hard by default; selection stops rather than admit a violating pair, `clique` additionally finds the MAXIMUM such set, and `max_dimer_dg` adds an optional temperature-aware free-energy floor |
 | Foreground site spacing | **hard**, `max_fg_bind_dist` default 36,000, plus a per-primer Gini ceiling of 0.6 | **fitted**, `on_gap_gini` | deliberately not modelled, see below | reported only; gap CV at weight 0.10 in one refinement mode |
 | Background site spacing | **hard**, a pruning budget inside the search: total background sites may not exceed `bg_length / min_bg_bind_dist` | **fitted**, `off_gap_gini` | not modelled | **not modelled** |
 | Convergent-orientation amplicon geometry | no | the paper's `coverage_ratio` is opposite-strand sites within 70 kb, as a target-to-background ratio; the shipped code has no such feature, see below | `fragment_length`, code default 2,000, target only | foreground network at about 70 kb; **no background network** |
@@ -361,6 +361,12 @@ difference.
   everywhere. Two of the three use the same [15, 45] window irrespective of the
   enzyme, and COATswga applies only the ceiling: its `min_tm` is in the defaults
   dict, exposed as a flag, documented in the README, and read nowhere.
+- **A temperature-aware dimer screen.** `max_dimer_dg`, added 2026-09-18.
+  COATswga's PrimerROC is the only other free-energy dimer model of the four
+  and it cannot see the reaction; measured, its -2.79 threshold with no length
+  cap admits 5 to 6 bp complementary runs where this project's default admits 3.
+  See [dimer_stability_floor_2026-09-18.md](dimer_stability_floor_2026-09-18.md),
+  which corrects two claims made below.
 - **A reaction that the user can reach at all.** This is sharper than "no
   additive term". All three compute Tm through an argument-free call to the same
   package, Clarke's `melt`: `melting.temp(self.seq)` in swga 1.0,

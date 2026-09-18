@@ -121,6 +121,7 @@ class DominatingSetAdapter(BaseOptimizer):
             # not record. That is the default case, not a corner one. Same
             # defect `HybridOptimizer` fixed for its Stage-1 greedy.
             max_dimer_bp=self.config.max_dimer_bp,
+            max_dimer_dg=getattr(self.config, "max_dimer_dg", None),
             allow_dimer_relaxation=self.config.allow_dimer_relaxation,
         )
 

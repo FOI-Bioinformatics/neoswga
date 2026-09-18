@@ -251,9 +251,7 @@ def test_reachability_does_not_flow_through_an_unreachable_caller(monkeypatch):
     import ast as _ast
     import textwrap as _textwrap
 
-    module = _ast.parse(
-        _textwrap.dedent(
-            """
+    module = _ast.parse(_textwrap.dedent("""
             def run_thing(args):
                 reached_helper()
 
@@ -265,9 +263,7 @@ def test_reachability_does_not_flow_through_an_unreachable_caller(monkeypatch):
 
             def only_referenced_here():
                 pass
-            """
-        )
-    )
+            """))
     functions = {}
     for node in _ast.walk(module):
         if isinstance(node, (_ast.FunctionDef, _ast.AsyncFunctionDef)):

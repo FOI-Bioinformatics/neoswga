@@ -447,7 +447,12 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
         pool,
         bins,
         weights,
-        dimer_screen(pool, optimizer.max_dimer_bp),
+        dimer_screen(
+            pool,
+            optimizer.max_dimer_bp,
+            max_dimer_dg=getattr(optimizer, "max_dimer_dg", None),
+            temp=float(getattr(optimizer, "reaction_temp", 37.0) or 37.0),
+        ),
         fixed_primers=fixed_primers,
         background_sites=background,
         objective=objective,

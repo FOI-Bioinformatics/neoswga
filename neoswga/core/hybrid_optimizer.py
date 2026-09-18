@@ -334,6 +334,7 @@ class HybridOptimizer(ThermoScreenMixin):
         tm_weight: float = 0.0,
         dimer_penalty: float = 0.0,
         max_dimer_bp: Optional[int] = None,
+        max_dimer_dg=None,
         template_gc: float = 0.5,
         allow_dimer_relaxation: bool = False,
         refinement_method: str = "network",
@@ -441,6 +442,8 @@ class HybridOptimizer(ThermoScreenMixin):
         if refinement_method not in {"network", "swap"}:
             raise ValueError("refinement_method must be network or swap")
         self.max_dimer_bp = self._resolve_max_dimer_bp(max_dimer_bp)
+        # Optional dimer stability floor, None is off; both stages need it.
+        self.max_dimer_dg = max_dimer_dg
 
         # Initialize both optimizers
         self.dominating_optimizer = DominatingSetOptimizer(
@@ -452,8 +455,10 @@ class HybridOptimizer(ThermoScreenMixin):
             # selection objective matches how the result is scored.
             extension_reach=self.coverage_reach,
             # Omitting this let Stage 1 re-resolve its own threshold, so a
-            # config supplying 4 selected under 3 here and reported against 4.
+            # config supplying 4 selected under 3 and reported against 4.
             max_dimer_bp=self.max_dimer_bp,
+            max_dimer_dg=self.max_dimer_dg,
+            dimer_temp=float(reaction_temp or 37.0),
             allow_dimer_relaxation=allow_dimer_relaxation,
         )
 
@@ -465,9 +470,9 @@ class HybridOptimizer(ThermoScreenMixin):
             bg_seq_lengths=self.bg_seq_lengths,
             max_extension=self.max_extension,
             uniformity_weight=uniformity_weight,
+            max_dimer_dg=self.max_dimer_dg,
             # Propagate ReactionConditions so the inner NetworkOptimizer's
-            # _get_primer_tm applies additive corrections (DMSO / betaine / etc.)
-            # when computing Tm-weighted edges and Tm scores.
+            # _get_primer_tm applies additive corrections (DMSO / betaine etc.)
             conditions=conditions,
             # Phase 13B: forward --use-mechanistic-model weight so the
             # NetworkOptimizer's scoring includes a mechanistic term.
@@ -1545,6 +1550,7 @@ class HybridBaseOptimizer(BaseOptimizer):
             tm_weight=kwargs.get("tm_weight", 0.0),
             dimer_penalty=kwargs.get("dimer_penalty", 0.0),
             max_dimer_bp=getattr(self.config, "max_dimer_bp", 4),
+            max_dimer_dg=getattr(self.config, "max_dimer_dg", None),
             allow_dimer_relaxation=self.config.allow_dimer_relaxation,
             refinement_method=self.config.refinement_method,
             swap_max_evaluations=self.config.swap_max_evaluations,

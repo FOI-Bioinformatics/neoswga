@@ -123,7 +123,7 @@ it is where being ahead is available.
 
 ## What would put NeoSWGA ahead, by axis
 
-Ordered by evidence, not by appeal. Items 1, 2 and 3 shipped on 2026-09-18; none of them is measured against a re-derived panel.
+Ordered by evidence, not by appeal. Items 1 to 4 shipped on 2026-09-18; none of them is measured against a re-derived panel.
 
 **1. A regime diagnostic, which nothing else offers. SHIPPED 2026-09-18.** Two benchmarks support
 exactly one conclusion: the limiting property varies by design. No tool tells a
@@ -142,13 +142,24 @@ fitted weights that assume one regime; this would have neither limitation.
 **3. Stop discarding the strand quantities, and compute them for the host. SHIPPED 2026-09-18.** `core/strand_metrics.py`. All five figures, for every foreground genome and the host, on `PrimerSetMetrics.strand_stats` and in the summary. The widest convergent gap reaches the item 1 report as `convergent_gap` and `host_convergent_gap`. `strand_alternation_gap_max` on the background is the convergent
 pair term swga 2.0 approximates with `within_mean_gap_ratio`.
 
-**4. Wire the condition-aware free-energy dimer model that already exists.**
-`dimer.is_dimer_thermodynamic` takes a delta-G threshold and a
-`ReactionConditions`, is tested, and has no production caller: the shipped
-screen is longest complementary run. COATswga is genuinely ahead here, using
-PrimerROC free energy, and its model is NOT condition-aware. Wiring this one
-would put NeoSWGA ahead rather than level. It is on the O(n^2) hot path, so it
-needs the lazy screen and measurement before it becomes a default.
+**4. Wire the free-energy dimer model that already exists. SHIPPED 2026-09-18
+as `max_dimer_dg`, and measurement corrected two claims in the original of this
+paragraph.**
+
+It is TEMPERATURE-aware, not condition-aware: it reads only `conditions.temp`,
+because `calculate_free_energy` takes no salt and no additive term. And COATswga
+is not ahead here. Measured, its -2.79 PrimerROC threshold with no length cap
+admits complementary runs of 5 to 6 bp where this project's default
+`max_dimer_bp` of 3 admits 3.
+
+The O(n^2) worry was unfounded too: 11.5 us per pair against 10.8 for the run
+screen, a ratio of 1.1. What measurement did establish is that at the shipped
+default a floor decides nothing, because every pair it rejects the run screen
+already rejects, and that its real use is to raise `max_dimer_bp` for a larger
+panel while keeping a stability bound -- 50 to 77 primers from a 200-primer pool
+against 17 to 21 at the default. A floor ALONE admits 8 bp runs, so it applies
+only after the length screen passes. See
+[dimer_stability_floor_2026-09-18.md](dimer_stability_floor_2026-09-18.md).
 
 **5. A worst-target term for multi-genome designs.** `per_target_coverage` is
 already computed and used only as a post-hoc warning. No published tool has
