@@ -127,7 +127,7 @@ count-kmers            filter                 prepare (`score`)      optimize
   amplification score -- see **The `score` stage** below.
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
 - `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
-  effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics).
+  effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics). `metrics.strand_stats` holds all five strand figures per genome, foreground and host, keyed by prefix; `panel_regime` holds which criterion limited the panel and which had no reference.
   Also `unindexed_candidates`: how many candidates the foreground position
   index could not place. Those cover nothing and so are invisible to
   selection; the pipeline path refuses rather than reporting a coverage
@@ -1151,9 +1151,41 @@ package, because nothing in the search uses it.
     the audit recommended k >= 15 before the discrimination column was measured.
 
 18. **`max_gap` and `bg_coverage` are computed and read by nothing that
-    selects** -- found 2026-09-18, not acted on. Both reach
+    selects** -- found 2026-09-18, partly acted on. Both reach
     `step4_improved_df_summary.json` and the reports. Neither appears in
-    `normalized_score`, in `PoolObjective`, or in any optimizer's scoring.
+    `normalized_score` or in any optimizer's scoring, and deliberately still
+    does not.
+
+    What changed the same day: both are now **constrainable** via
+    `max_worst_hole` and `max_host_coverage` (see **Panel limits** above) and
+    both are **reported** by the "What limits this panel" table, which also
+    names them as having no reference. So a user can hold a panel to either,
+    and neither has acquired a default -- no threshold derived from the reach
+    separates the published wet-lab winners, so picking one would be the
+    scoring change that evidence refuses.
+
+    Also fixed on 2026-09-18: three of the five strand quantities
+    `PositionCache.compute_strand_alternation_stats` returns were computed and
+    discarded at the call site, and the loop stopped after the first foreground
+    prefix so the host was never measured at all.
+    `core/strand_metrics.py` collects all five for every foreground genome AND
+    the background onto `PrimerSetMetrics.strand_stats`, keyed by prefix.
+    `strand_alternation_gap_max` is the one that mattered: exponential
+    amplification needs two sites in convergent orientation within the
+    polymerase's reach, so the widest gap between opposite-strand sites is the
+    closest quantity here to the mechanism, and on the host it is what swga 2.0
+    approximates with `within_mean_gap_ratio` and fits against measured
+    sequencing breadth. It reaches the report as `convergent_gap` and
+    `host_convergent_gap`.
+
+    A prefix the cache cannot answer for is now ABSENT from `strand_stats`
+    rather than zero, and the two headline scalars are `None` rather than 0.0.
+    They were initialised to 0.0 and left there, so a zero meant either
+    "measured zero" or "never asked" -- and a one-site panel genuinely scores
+    0.0 for alternation, so the two could not be told apart by value. That is
+    why the strand figures are still NOT constrainable: fixing the ambiguity is
+    what a limit on them would need, and this closes half of it (the metrics
+    side) without yet auditing every consumer.
 
     `bg_coverage` is the only computed quantity that sees background site
     POSITION. `selectivity_density` and `total_bg_sites` are additive in

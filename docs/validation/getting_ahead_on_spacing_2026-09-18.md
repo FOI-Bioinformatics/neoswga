@@ -123,7 +123,7 @@ it is where being ahead is available.
 
 ## What would put NeoSWGA ahead, by axis
 
-Ordered by evidence, not by appeal. Items 1 and 2 shipped on 2026-09-18; none of the rest is measured.
+Ordered by evidence, not by appeal. Items 1, 2 and 3 shipped on 2026-09-18; none of them is measured against a re-derived panel.
 
 **1. A regime diagnostic, which nothing else offers. SHIPPED 2026-09-18.** Two benchmarks support
 exactly one conclusion: the limiting property varies by design. No tool tells a
@@ -139,8 +139,7 @@ hole-limited regime constrains the hole and a user in a density-limited regime
 does not. swga 1.0 has hard constraints with fixed magic numbers; swga 2.0 has
 fitted weights that assume one regime; this would have neither limitation.
 
-**3. Stop discarding the strand quantities, and compute them for the host.**
-Pure wiring. `strand_alternation_gap_max` on the background is the convergent
+**3. Stop discarding the strand quantities, and compute them for the host. SHIPPED 2026-09-18.** `core/strand_metrics.py`. All five figures, for every foreground genome and the host, on `PrimerSetMetrics.strand_stats` and in the summary. The widest convergent gap reaches the item 1 report as `convergent_gap` and `host_convergent_gap`. `strand_alternation_gap_max` on the background is the convergent
 pair term swga 2.0 approximates with `within_mean_gap_ratio`.
 
 **4. Wire the condition-aware free-energy dimer model that already exists.**
