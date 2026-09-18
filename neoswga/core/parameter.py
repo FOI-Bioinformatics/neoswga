@@ -353,6 +353,7 @@ class PipelineParameters:
     max_dimer_bp: int = 3
     allow_dimer_relaxation: bool = False
     refinement_method: str = "network"
+
     swap_max_evaluations: int = 10000
     swap_max_seconds: float = 10.0
     max_self_dimer_bp: int = 4
@@ -740,6 +741,15 @@ genome_gc = None
 # assign it or a params.json setting silently does nothing.
 coverage_reach = None
 
+# Panel-level limits the delivered design is held to; all unset by default and
+# they must stay that way. Reasoning in `panel_acceptance`'s docstring.
+min_selectivity_density = None
+max_background_sites = None
+max_worst_hole = None
+max_mean_gap = None
+max_evenness = None
+max_host_coverage = None
+
 # Step-2 candidate ranking. `pipeline.py` reads all three off this module, so
 # get_params must assign them or a params.json setting silently does nothing.
 # None on the latter two means "use the read site's default"
@@ -933,6 +943,20 @@ def _apply_params_only_keys(data: dict) -> None:
     global gc_clamp_window
     global max_gc_in_clamp
     global candidate_retention
+    global min_selectivity_density
+    global max_background_sites
+    global max_worst_hole
+    global max_mean_gap
+    global max_evenness
+    global max_host_coverage
+
+    # `data.get` with no fallback: an absent limit is the default.
+    min_selectivity_density = data.get("min_selectivity_density")
+    max_background_sites = data.get("max_background_sites")
+    max_worst_hole = data.get("max_worst_hole")
+    max_mean_gap = data.get("max_mean_gap")
+    max_evenness = data.get("max_evenness")
+    max_host_coverage = data.get("max_host_coverage")
 
     allow_dimer_relaxation = data["allow_dimer_relaxation"] = data.get(
         "allow_dimer_relaxation", False

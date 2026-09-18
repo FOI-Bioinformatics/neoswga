@@ -33,6 +33,7 @@ from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerCon
 from .candidate_source import order_candidates_by_background
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
+from .panel_acceptance import apply_configured_limits, constraints_from_parameter
 from .panel_regime import assess_from_parameter, log_regime
 from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
@@ -1247,6 +1248,8 @@ def run_optimization(
             }
         )
 
+    result = _hold_to_configured_limits(result, optimizer, candidates, config, verbose)
+
     if validation is not None:
         _write_validation_report(validation)
 
@@ -1281,6 +1284,31 @@ def run_optimization(
                 (logger.error if lvl == "error" else logger.warning)(msg)
 
     return result
+
+
+def _hold_to_configured_limits(result, optimizer, candidates, config, verbose):
+    """Apply whatever panel limits this run configured. Usually a no-op.
+
+    `constraints_from_parameter` returns None unless a limit is set, so an
+    unconfigured run acquires no objective and its panel is untouched: a limit
+    that changed a delivered panel unasked would be the scoring change two
+    wet-lab benchmarks refuse. The repair behind this is
+    `pool_planner.repair_panel`, the same one `plan-pool` uses, so there is one
+    repair in the codebase rather than two that can disagree.
+    """
+    constraints = constraints_from_parameter(parameter)
+    if constraints is None or not result.primers or optimizer is None:
+        return result
+    replacement = apply_configured_limits(
+        result,
+        optimizer,
+        candidates=candidates,
+        config=config,
+        constraints=constraints,
+        verbose=verbose,
+        background_available=bool(getattr(parameter, "bg_prefixes", None)),
+    )
+    return replacement if replacement is not None else result
 
 
 def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResult:
