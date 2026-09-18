@@ -53,21 +53,50 @@ achievable specificity here.
 and an earlier draft of this work quoted 19.7 points of headroom that partly
 did not exist.
 
-The honest headroom comes from a constructive existence proof. Restricting to
-the candidates that meet the floor on their own and taking the best-coverage
-twelve:
+**CORRECTED 2026-09-18, later the same day. The headroom claimed here did not
+exist.** This section originally presented a constructive existence proof that
+floors of 65 and 70 were satisfiable, and concluded the gap was "about the
+search rather than the pool". Both were wrong: the construction ignored the
+dimer constraint.
 
-| Floor | Individually affordable | Density | Coverage | Both met |
+The panel it offered at floor 65, density 78.178 at coverage 0.5702, carries
+**30 dimerising pairs out of 66** at the configured `max_dimer_bp` of 3. It was
+never deliverable. The largest mutually compatible subset of the 16 candidates
+that meet the floor on their own is **6**, so a 12-primer panel cannot be built
+from affordable candidates at all.
+
+The original table is kept for the record, with that caveat attached.
+
+| Floor | Individually affordable | Density | Coverage | Dimer-free |
 |---|---|---|---|---|
-| 60 | 19 | 75.593 | 0.6100 | yes |
-| 65 | 16 | 78.178 | 0.5702 | yes |
-| 70 | 12 | 79.477 | 0.5706 | yes |
-| 75 | 8 | too few for a 12-panel | | |
-| 79 | 6 | too few | | |
+| 60 | 19 | 75.593 | 0.6100 | **no** |
+| 65 | 16 | 78.178 | 0.5702 | **no** |
+| 70 | 12 | 79.477 | 0.5706 | **no** |
 
-Floors of 65 and 70 are satisfiable with coverage above target, by a rule with
-no parameters. **The shipped search reaches 60.11 and fails at 65.** That gap is
-real, and it is about the search rather than the pool.
+## What is actually achievable, with dimers respected
+
+Three deterministic constructions over the same pool, each screening every pair
+at `max_dimer_bp` 3 as a delivered panel must:
+
+| Ranked by | Density | Coverage | Meets the 0.5 target |
+|---|---|---|---|
+| Slack at D = 70 | 50.636 | 0.5265 | yes |
+| Foreground/background load ratio | 64.008 | 0.3851 | no |
+| Foreground load | 50.636 | 0.5265 | yes |
+| **The shipped search** | **60.112** | **0.6535** | **yes** |
+
+The search beats every one of them on both axes at once; the ratio-greedy
+reaches a higher density only by failing the coverage target.
+
+**So there is no demonstrated headroom, and the search's failure at floor 65 is
+probably correct rather than a defect.** The density-only ceiling of 79.807
+ignores both the coverage target and the dimer constraint, and bounds nothing
+deliverable.
+
+This also explains the next section better than its own structural argument
+does: three Stage 1 rules failed to improve a delivered panel because there was
+very likely nothing for them to find. Not shipping them was right, for a better
+reason than the one recorded at the time.
 
 ## What did not ship, and why
 
@@ -109,22 +138,33 @@ table would be the other one.
 
 ## What the next attempt should do
 
-The evidence points at Stage 2's choice of twelve from twenty, not at Stage 1's
-choice of twenty. Specifically:
+Not what this note first said. Its original brief -- constrain the accounting to
+the delivered panel size, select by total contribution, measure against the
+existence proof -- rested on a proof that ignored dimers.
 
-- Constrain the SIZE the accounting is done at. The feasibility test must be
-  over the delivered panel, which means either Stage 2 carrying the budget or
-  Stage 1 selecting at the final size.
-- Select within the affordable set by total contribution, not marginal gain.
-  The parameter-free rule above reaches 78.178 at floor 65 where the search
-  reaches nothing.
-- Measure against the existence proof, not against the density-only ceiling.
-  79.807 is unattainable under the coverage target; 78.178 at floor 65 is not.
+What the evidence now supports:
+
+- **Bound the problem with every constraint in force, or not at all.** An
+  achievability figure that omits the dimer screen or the coverage target is not
+  an upper bound on anything a user can be given, and quoting one invited
+  exactly the wasted effort recorded above.
+- **Treat 60.112 at coverage 0.6535 as the reference** for this pool and panel
+  size, not 79.807. Any future claim of headroom must beat it with a dimer-free
+  panel that meets the coverage target.
+- **The dimer constraint may be what binds specificity here.** Six mutually
+  compatible candidates among the sixteen most selective is a strong signal that
+  selectivity and compatibility are in tension on this pool, and that is worth
+  measuring directly before any more search work.
 
 ## What this does not establish
 
-- One pair, one panel size, one floor sweep, single runs. The existence proof is
-  a lower bound on what is achievable, not a claim about what is optimal.
+- One pair, one panel size, one floor sweep, single runs.
+- The three dimer-respecting constructions are greedy and deterministic, so they
+  are lower bounds on what is achievable rather than upper bounds. The search
+  beating them does not prove it optimal, only that no cheap construction tried
+  here beats it.
+- Whether a dimer-free 12-primer panel meeting a floor of 65 and the coverage
+  target exists is UNKNOWN. This note no longer claims it does.
 - The four rules were each measured once per floor. The differences between the
   middle two are within a few density points and no spread was measured, so
   "better at two floors and worse at two" should not be read as a reliable

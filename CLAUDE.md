@@ -715,18 +715,30 @@ refinement reads one. Both ends existed and the path did not. Use
 assert the PATH: `tests/test_the_objective_reaches_the_stage_that_refines.py`
 drives a real factory-built optimizer under both methods.
 
-**Stage 1 is deliberately NOT constraint-aware**, and the reason is measured
-rather than assumed. The specificity density floor is exactly additive over
-primers, so the achievable ceiling is computable: on the shipped pool the best
-12-primer panel reaches 79.807, and a parameter-free rule reaches 78.178 at a
-floor of 65 where the search reaches nothing. But Stage 1 selects
-`max(final_count + 8, final_count * 1.67)` primers and Stage 2 narrows them, so
-a feasible Stage 1 panel does not make the delivered panel feasible. Three rules
-built on the accounting each failed to improve a delivered panel; the table is
-in `docs/validation/stage_one_constraint_awareness_2026-09-18.md`, along with
-what the next attempt should do instead. The accounting lives in
-`scripts/benchmarking/selectivity_budget.py` as a diagnostic, not in the
-package, because nothing in the search uses it.
+**Stage 1 is deliberately NOT constraint-aware**, and there is no demonstrated
+reason for it to be. The specificity density floor is exactly additive over
+primers, so a density-only ceiling is computable and comes to 79.807 for a
+12-primer panel on the shipped pool. **That figure bounds nothing deliverable**:
+the panel achieving it has coverage 0.4042 against a 0.5 target, and the
+constructions that appear to beat the search carry 30 dimerising pairs out of 66
+at the configured `max_dimer_bp` of 3. Only 6 of the 16 most selective
+candidates are mutually compatible, so a 12-primer panel cannot be built from
+them at all.
+
+With dimers and coverage both in force, no deterministic construction beats the
+search: the best reach density 50.6 at coverage 0.527, or 64.0 at coverage 0.385
+which fails the target, against the search's **60.112 at 0.6535**. So its
+failure at a floor of 65 is probably correct. Three Stage 1 rules built on the
+accounting each failed to improve a delivered panel, which is best explained by
+there being nothing to find.
+
+The lesson is the reusable part: **an achievability figure that omits a
+constraint bounds nothing.** Quote 60.112 at coverage 0.6535 as the reference
+for this pool, not 79.807. The full record, including a headroom claim of mine
+that the dimer screen refuted, is in
+`docs/validation/stage_one_constraint_awareness_2026-09-18.md`. The accounting
+lives in `scripts/benchmarking/selectivity_budget.py` as a diagnostic, not in
+the package, because nothing in the search uses it.
 
 8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
    (audit finding F1b). The key was declared in `params.schema.json`,
