@@ -219,10 +219,14 @@ def _add_optimize_selection_groups(parser):
     opt_post_group.add_argument(
         "--min-per-target-coverage",
         type=float,
-        default=0.0,
+        # None, not 0.0: a real default would beat `min_per_target_coverage`
+        # in params.json on every run, which is Known Issue 8's shape.
+        default=None,
         help="Multi-genome runs only: minimum coverage required on every "
-        "individual target. Below this, the post-optimization validator "
-        "flags a warning. Default 0.0 (disabled).",
+        "individual target. Below this, the run prints a per-target table "
+        "naming the starved targets and the post-optimization validator "
+        "flags a warning. Unset by default; params.json may set it, and 0.0 "
+        "also means disabled.",
     )
 
     # Validation

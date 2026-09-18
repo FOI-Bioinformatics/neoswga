@@ -749,6 +749,7 @@ max_worst_hole = None
 max_mean_gap = None
 max_evenness = None
 max_host_coverage = None
+min_per_target_coverage = None
 
 # Step-2 candidate ranking. `pipeline.py` reads all three off this module, so
 # get_params must assign them or a params.json setting silently does nothing.

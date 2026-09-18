@@ -33,7 +33,13 @@ from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerCon
 from .candidate_source import order_candidates_by_background
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
-from .panel_acceptance import apply_configured_limits, constraints_from_parameter
+from .panel_acceptance import (
+    apply_configured_limits,
+    check_per_target_coverage,
+    constraints_from_parameter,
+    per_target_floor,
+    report_per_target,
+)
 from .panel_regime import assess_from_parameter, log_regime
 from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
@@ -1195,7 +1201,7 @@ def run_optimization(
         validation = result.validate(
             target_size=target_size,
             min_coverage=0.0,  # soft by default; caller can tighten
-            min_per_target_coverage=kwargs.get("min_per_target_coverage", 0.0),
+            min_per_target_coverage=per_target_floor(kwargs, parameter) or 0.0,
             forbidden_primers=forbidden or None,
         )
     except Exception as e:
@@ -1250,6 +1256,12 @@ def run_optimization(
         )
 
     result = _hold_to_configured_limits(result, optimizer, candidates, config, verbose)
+
+    # Reported, not repaired; `panel_acceptance` says why.
+    if verbose:
+        report_per_target(
+            check_per_target_coverage(result.metrics, per_target_floor(kwargs, parameter))
+        )
 
     if validation is not None:
         _write_validation_report(validation)
