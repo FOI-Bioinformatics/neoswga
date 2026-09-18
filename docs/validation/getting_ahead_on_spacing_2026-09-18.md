@@ -123,7 +123,7 @@ it is where being ahead is available.
 
 ## What would put NeoSWGA ahead, by axis
 
-Ordered by evidence, not by appeal. Items 1 to 4 shipped on 2026-09-18; none of them is measured against a re-derived panel.
+Ordered by evidence, not by appeal. Items 1 to 5 shipped on 2026-09-18; none of them is measured against a re-derived panel.
 
 **1. A regime diagnostic, which nothing else offers. SHIPPED 2026-09-18.** Two benchmarks support
 exactly one conclusion: the limiting property varies by design. No tool tells a
@@ -161,7 +161,7 @@ against 17 to 21 at the default. A floor ALONE admits 8 bp runs, so it applies
 only after the length screen passes. See
 [dimer_stability_floor_2026-09-18.md](dimer_stability_floor_2026-09-18.md).
 
-**5. A worst-target term for multi-genome designs.** `per_target_coverage` is
+**5. A worst-target term for multi-genome designs. SHIPPED 2026-09-18 as `min_per_target_coverage`,** as a reported floor rather than a selection term: the repair scores candidate panels through `compute_metrics`, which does not populate per-target coverage, so a floor chased through the search would score every candidate against an empty dict. `per_target_coverage` is
 already computed and used only as a post-hoc warning. No published tool has
 multi-target designs at all, so this extends a lead rather than closing a gap.
 

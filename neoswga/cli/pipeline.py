@@ -688,7 +688,7 @@ def _step4_optimizer_kwargs(args, **resolved):
         mechanistic_weight=resolved.get("mechanistic_weight"),
         # Phase 11D / 14C -- per-target coverage floor and application
         # profile. Both are consumed by unified_optimizer.run_optimization.
-        min_per_target_coverage=getattr(args, "min_per_target_coverage", 0.0),
+        min_per_target_coverage=getattr(args, "min_per_target_coverage", None),
         application=getattr(args, "application", "balanced"),
         ensemble_methods=getattr(args, "ensemble_methods", None),
         ensemble_combine=getattr(args, "ensemble_combine", "best"),

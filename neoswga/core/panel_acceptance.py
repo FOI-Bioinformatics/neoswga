@@ -53,7 +53,10 @@ LIMIT_KEYS: Tuple[str, ...] = (
 # no fallback. `max_dimer_dg` is not a panel limit -- it is a term in the dimer
 # screen, which stays outside the objective -- so it rides here for the
 # configuration plumbing only and never reaches `PoolConstraints`.
-CONFIGURED_LIMIT_KEYS: Tuple[str, ...] = LIMIT_KEYS + ("max_dimer_dg",)
+CONFIGURED_LIMIT_KEYS: Tuple[str, ...] = LIMIT_KEYS + (
+    "max_dimer_dg",
+    "min_per_target_coverage",
+)
 
 
 @dataclass(frozen=True)
@@ -232,3 +235,98 @@ def apply_configured_limits(
         primers=tuple(report.primers),
         metrics=optimizer.compute_metrics(report.primers),
     )
+
+
+@dataclass(frozen=True)
+class PerTargetReport:
+    """Whether every target cleared the floor, and which did not."""
+
+    floor: float
+    coverage: Tuple[Tuple[str, float], ...]
+    below: Tuple[str, ...]
+
+    @property
+    def met(self) -> bool:
+        return not self.below
+
+    @property
+    def worst_target(self) -> Optional[str]:
+        return self.coverage[-1][0] if self.coverage else None
+
+    @property
+    def worst_coverage(self) -> Optional[float]:
+        return self.coverage[-1][1] if self.coverage else None
+
+    def lines(self) -> List[str]:
+        out = [
+            "",
+            "=" * 72,
+            f"Per-target coverage against a floor of {self.floor:.3g}",
+            "=" * 72,
+        ]
+        for name, value in self.coverage:
+            mark = "NO" if name in self.below else "yes"
+            out.append(f"{name:<52} {value:>10.4f}   {mark}")
+        if self.below:
+            out.append("")
+            out.append(
+                f"Below the floor: {', '.join(self.below)}. Aggregate coverage "
+                "can hide this: a panel covering one target well and another "
+                "barely beats a balanced one on the mean."
+            )
+            out.append(
+                "Not repaired, and not because nothing could be done: the "
+                "repair scores candidate panels through `compute_metrics`, "
+                "which does not populate per-target coverage, so chasing this "
+                "floor would score every candidate against an empty dict. "
+                "Raise the panel size or widen the candidate pool instead."
+            )
+        out.append("=" * 72)
+        return out
+
+
+def check_per_target_coverage(metrics: Any, floor: Optional[float]) -> Optional[PerTargetReport]:
+    """Whether every target cleared `floor`. `None` when there is nothing to say.
+
+    `None` rather than a passing report when no floor is set, when the floor is
+    0.0 (how this option has always spelled "disabled"), or when
+    `per_target_coverage` is empty -- which is the single-genome case, and a
+    floor on an absent measurement must not read as satisfied.
+    """
+    if not floor:
+        return None
+    per_target = dict(getattr(metrics, "per_target_coverage", None) or {})
+    if not per_target:
+        return None
+    ordered = tuple(sorted(per_target.items(), key=lambda kv: (-kv[1], kv[0])))
+    below = tuple(name for name, value in ordered if value < floor)
+    return PerTargetReport(floor=float(floor), coverage=ordered, below=below)
+
+
+def per_target_floor(args: Any, params: Any) -> Optional[float]:
+    """The per-target floor in force: the flag if given, else the config.
+
+    `args` may be an argparse namespace or the kwargs dict `run_optimization`
+    receives, which is the same value by another name.
+
+    `--min-per-target-coverage` carried an argparse default of 0.0, which would
+    have beaten any configured value on every run once the key existed. That is
+    Known Issue 8's shape, so the flag now defaults to `None` and this resolver
+    is what distinguishes "not asked" from "asked for zero".
+    """
+    if isinstance(args, dict):
+        flag = args.get("min_per_target_coverage")
+    else:
+        flag = getattr(args, "min_per_target_coverage", None)
+    if flag is not None:
+        return float(flag)
+    configured = getattr(params, "min_per_target_coverage", None)
+    return None if configured is None else float(configured)
+
+
+def report_per_target(report: Optional[PerTargetReport]) -> None:
+    """Print the per-target table, or nothing at all."""
+    if report is None:
+        return
+    for line in report.lines():
+        logger.info(line)

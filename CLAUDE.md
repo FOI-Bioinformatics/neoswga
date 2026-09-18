@@ -525,6 +525,22 @@ relatively.
   reaction
   ([measurement](docs/validation/dimer_stability_floor_2026-09-18.md)).
 
+- `min_per_target_coverage`: Multi-genome runs only. Minimum coverage required
+  on EVERY individual target, unset by default; 0.0 also means disabled. Set it
+  and `optimize` prints a per-target table naming the starved targets.
+  Aggregate coverage hides them: a panel covering one target 0.9 and another
+  0.1 beats a balanced 0.5/0.5 panel on the mean, and nothing in selection
+  balances across targets.
+
+  **Checked and reported, deliberately not repaired.** The repair scores
+  candidate panels through `compute_metrics`, which does not populate
+  `per_target_coverage` -- that is filled in by the caller so all methods get
+  it uniformly -- so a floor chased through the repair would score every
+  candidate against an empty dict. Same reason `pool_planner.repair_panel`
+  leaves a dimer violation alone. `--min-per-target-coverage` previously
+  carried an argparse default of 0.0 and now uses the `None` sentinel, so a
+  configured value is not beaten on every run.
+
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
   again, so each is a different set rather than a reordering. They are numbered

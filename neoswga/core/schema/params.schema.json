@@ -553,6 +553,12 @@
       "type": "number",
       "maximum": 0,
       "description": "Optional ADDITIONAL dimer floor, in kcal/mol, on the free energy of the longest complementary region between two primers at the reaction temperature. Unset by default. It can only make the screen stricter: max_dimer_bp is applied first and a pair failing it is rejected whatever this says. Do not treat it as a way to relax max_dimer_bp on its own -- measured, a -6 floor with no length cap admits 8 bp complementary runs. Its use is to raise max_dimer_bp for a larger panel while keeping a stability bound: at run <= 3 a 200-primer pool supports a greedy panel of 14-20, and at run <= 5 with a -4 floor it supports 52-79. -6.0 follows Rychlik (1995) Mol Biotechnol 3:129-134; nothing here validates it against a reaction."
+    },
+    "min_per_target_coverage": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Multi-genome runs only: minimum coverage required on EVERY individual target. Unset by default, and 0.0 also means disabled. Aggregate coverage can hide a starved target, since a panel covering one target 0.9 and another 0.1 beats a balanced 0.5/0.5 panel on the mean. Checked and reported after selection; deliberately not repaired, because the repair scores candidate panels through compute_metrics, which does not populate per-target coverage."
     }
   }
 }
