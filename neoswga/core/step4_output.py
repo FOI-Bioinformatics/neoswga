@@ -40,6 +40,7 @@ def save_results(
     include_all_sets: bool = False,
     application: Optional[str] = None,
     primer_sets=None,
+    regime=None,
 ) -> None:
     """
     Save optimization results to CSV.
@@ -48,6 +49,13 @@ def save_results(
         result: OptimizationResult to save
         output_path: Path for output CSV
         include_all_sets: Whether to include all found sets (not just best)
+        application: The profile the run was scored under.
+        primer_sets: Every set the run produced, best first.
+        regime: A `panel_regime.PanelRegime` for the primary set, recorded in
+            the summary so a reader can see which criterion limited the design
+            and which ones had no reference. `None` when it could not be
+            assessed, and then nothing is written rather than a fabricated
+            limit.
     """
     if not result.primers:
         logger.warning("No primers to save")
@@ -114,6 +122,19 @@ def save_results(
             )
         except Exception as exc:  # never lose the result over a cost estimate
             logger.debug(f"Could not estimate synthesis cost: {exc}")
+
+        # Which criterion limited this panel, and which had no reference at
+        # all. Separate entries rather than one figure: two published
+        # benchmarks disagree about which spacing property predicts success, so
+        # a fixed weighting is wrong for one of them either way. See
+        # `core/panel_regime.py`.
+        if regime is not None:
+            try:
+                from neoswga.core.panel_regime import criteria_for_summary
+
+                summary["panel_regime"] = criteria_for_summary(regime)
+            except Exception as exc:
+                logger.debug(f"Could not record the panel regime: {exc}")
 
         # The worst pair in the pool being delivered, recorded unconditionally
         # so a reader can see it without re-deriving it. Whether it is a problem
