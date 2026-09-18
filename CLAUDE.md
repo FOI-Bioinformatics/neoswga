@@ -1127,10 +1127,38 @@ package, because nothing in the search uses it.
     dispersed. That distinction is most of off-target amplification, since SWGA
     needs two convergent sites within the polymerase's reach.
 
-    swga 1.0 made both criteria hard filters in 2017 (`max_fg_bind_dist` and
-    `min_bg_bind_dist`, with cliques ranked by mean background binding
-    distance), and swga 2.0 fits both as `on_gap_gini` and `off_gap_gini`, where
-    `off_gap_gini` carries the second largest weight in the only set-level model
-    fitted against measured sequencing breadth. No background amplification
-    network is built here, in contrast to the foreground network the hybrid and
-    network methods build at about 70 kb.
+    swga 1.0 made both criteria hard in 2017, and they are the only two things
+    that constrain its selection: the clique search runs `--unweighted --all`
+    and stores every clique passing the `max_fg_bind_dist` gap cut, so its score
+    expression ranks the output and never steers the search. The background side
+    is a pruning budget inside the recursion -- each vertex weight is the
+    primer's raw background site count (`weight = primer.bg_freq` in
+    `graph.py`), and a partial clique is pruned once the summed weight exceeds
+    `bg_length / min_bg_bind_dist`. It is NOT a ranking by mean background
+    binding distance; that quantity is what the search emits, as
+    `bg_len / graph_subgraph_weight`, and an earlier draft of this entry
+    conflated the two.
+
+    **The field does not agree that gap statistics belong in the objective.**
+    swga 2.0 fits both as `on_gap_gini` and `off_gap_gini`, where `off_gap_gini`
+    carries the second largest recorded weight in the only set-level model
+    fitted against measured sequencing breadth -- a value nobody has been able
+    to verify from a source that opens, since it sits in a CAPTCHA-gated table.
+    COATswga (2025) computes no Gini and no gap statistic at all, on the stated
+    ground that a per-primer Gini cannot speak for a whole set, which is an
+    argument against `max_gini` as much as for the interval-union objective this
+    project already uses. So treat background evenness as a measurement to make
+    before it is a term to add. No background amplification network is built
+    here, in contrast to the foreground network the hybrid and network methods
+    build at about 70 kb.
+
+    Worth knowing about the ancestry: swga 2.0 is this project's direct
+    ancestor, and the Known Issue 8 class is partly inherited. In its shipped
+    master `filter.filter_extra` implements the GC, homopolymer, GC-clamp and
+    self-dimer rules the paper describes and nothing calls it, and it would
+    raise if called, reading a `default_max_self_dimer_bp` that `parameter.py`
+    never assigns. Its step 2 also computes `ratio = bg_count / fg_count`, where
+    lower is more specific, then keeps `sort_values(by=["ratio"],
+    ascending=False)[:max_primer]`, retaining the LEAST specific survivors.
+    NeoSWGA sorts that ascending. All three were reported from that repository's
+    source and were not re-verified here.

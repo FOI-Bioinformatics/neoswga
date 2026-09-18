@@ -256,45 +256,95 @@ are listed at the end of this section.
 
 | Criterion | swga 1.0 (2017) | swga 2.0 / SoapSWGA (2023) | COATswga (2025) | NeoSWGA |
 |---|---|---|---|---|
-| Set search | max clique, `cliquer` branch and bound | breadth-first greedy with a drop-out step | greedy interval tiling via bedtools | greedy set cover, then swap or network refinement; clique available |
-| Dimer-free set | hard, by construction | pairwise check while growing | hard, by construction | hard in `clique` only; penalised in the others |
-| Foreground site spacing | **hard**, `max_fg_bind_dist`, and "even binding site spacing" is a stated set criterion | **fitted**, `on_gap_gini` | implicit in tiling, with `target_coverage` default 0.95 | reported only; gap CV at weight 0.10 in one refinement mode |
-| Background site spacing | **hard**, `min_bg_bind_dist`, and the clique vertex weight is the mean background binding distance | **fitted**, `off_gap_gini` | not modelled | **not modelled** |
-| Convergent-orientation amplicon geometry | no | yes, `coverage_ratio` at 70 kb, computed for both genomes and taken as a ratio | `fragment_length`, default 10,000, target only | foreground network at about 70 kb; **no background network** |
-| Set score fitted to wet-lab data | no | yes, ridge regression on 46 published SWGA and sequencing sets | no | no, hand-chosen weights |
-| Reaction conditions | mono- and divalent cation Tm correction | Tm window, default [15, 45], no correction stated | Tm window, default [15, 45], none stated | additives, salt, and site occupancy at the reaction temperature |
+| Set search | all cliques of size 2 to 7 enumerated by a patched `cliquer`, run `--unweighted --all` | beam search, width 5, with drop-out rounds and retries that ban the most-chosen primer | greedy interval tiling on a descending novelty ladder, bedtools for the intervals | greedy set cover, then swap or network refinement; clique available |
+| Dimer-free set | hard, by construction | hard, precomputed pair matrix so an incompatible pair never enters the beam | hard, and the only free-energy model of the four: PrimerROC, rejecting below -2.79 | hard in `clique` only; penalised in the others |
+| Foreground site spacing | **hard**, `max_fg_bind_dist` default 36,000, plus a per-primer Gini ceiling of 0.6 | **fitted**, `on_gap_gini` | deliberately not modelled, see below | reported only; gap CV at weight 0.10 in one refinement mode |
+| Background site spacing | **hard**, a pruning budget inside the search: total background sites may not exceed `bg_length / min_bg_bind_dist` | **fitted**, `off_gap_gini` | not modelled | **not modelled** |
+| Convergent-orientation amplicon geometry | no | the paper's `coverage_ratio` is opposite-strand sites within 70 kb, as a target-to-background ratio; the shipped code has no such feature, see below | `fragment_length`, code default 2,000, target only | foreground network at about 70 kb; **no background network** |
+| Set score fitted to wet-lab data | no, and the score does not steer the search | yes, ridge regression on 46 published SWGA and sequencing sets | no | no, hand-chosen weights |
+| Reaction conditions | **none reachable**: `melting.temp(self.seq)`, no arguments | **none**: same call, no arguments | **none**: same call, no arguments | additives, salt, and site occupancy at the reaction temperature |
 
-Three readings follow.
+Every figure in the swga 1.0 and COATswga columns, and the search description
+for all three, comes from the shipped source rather than the papers. I verified
+the three that carry the most weight myself: the clique vertex weight, the
+melting-temperature call, and COATswga's admission rule.
+
+Four readings follow.
 
 **NeoSWGA is alone in modelling the reaction, and alone in constraining neither
-spacing criterion.** swga 1.0 makes both hard: a floor on background site
-spacing and a ceiling on foreground site spacing, with cliques ranked by total
-background binding distance. swga 2.0 replaces both with fitted terms. NeoSWGA
-computes the foreground quantities and constrains none of them, and does not
-compute the background one at all. The oldest tool here is stricter about
-exactly the two things this audit found unconstrained.
+spacing criterion.** swga 1.0 makes both hard, and they are the only two things
+that constrain its selection at all. Its clique search runs `--unweighted --all`
+and stores every clique whose largest foreground gap is at or below
+`max_fg_bind_dist`, so the default score expression
+`(fg_dist_mean * fg_dist_gini) / bg_dist_mean` ranks the output afterwards and
+never steers the search. What does steer it is the max-gap cut and a background
+budget enforced inside the recursion: each vertex carries its raw background
+site count as its weight, and any partial clique whose summed weight exceeds
+`bg_length / min_bg_bind_dist` is pruned. swga 2.0 replaces both with fitted
+terms. NeoSWGA computes the foreground quantities and constrains none of them,
+and does not compute the background one at all.
 
-**The one externally fitted opinion about what makes an SWGA pool work assigns
-background evenness a large weight.** swga 2.0's five set-level terms are
+An earlier version of this section said the clique vertex weight was the mean
+background binding distance. It is the raw count; `graph.py` writes
+`weight = primer.bg_freq if primer.bg_freq > 0 else 1` into the DIMACS node
+line. The mean distance is what the search EMITS, as
+`bg_len / graph_subgraph_weight`, which is where the confusion came from.
+
+**The one externally fitted opinion assigns background evenness a large weight,
+and I could not verify the number.** swga 2.0's five set-level terms are
 `freq_ratio`, `mean_gap_ratio`, `coverage_ratio`, `on_gap_gini` and
 `off_gap_gini`, fitted by ridge regression with 10-fold cross-validation against
 the proportion of the target genome reaching 1x sequencing coverage, over 46
-published sets. `off_gap_gini` is the Gini index of distances between background
-binding sites, per strand. The in-repo record of the coefficients puts it second
-largest at +0.281, behind `freq_ratio` at +0.321; a positive weight means an
-UNEVEN background is better, which is what the amplicon geometry predicts, since
-clustered host sites leave most of the host unreachable. I confirmed the term
-list, the response variable, the sample size and the method from the paper, and
-could not re-extract the coefficient table, so treat the individual values as
-recorded rather than verified. One secondary reading of the table disagreed with
-the recorded sign of `mean_gap_ratio`.
+published sets from *M. tuberculosis* and *H. sapiens*. `off_gap_gini` is a Gini
+index of distances between background binding sites, computed per strand,
+averaged across strands and then across genomes. The in-repo record puts it
+second largest at +0.281 behind `freq_ratio` at +0.321, and a positive weight
+means an UNEVEN background is better, which is what the amplicon geometry
+predicts, since clustered host sites leave most of the host unreachable.
+
+The term list, the definitions, the response variable, the sample size and the
+method are confirmed from the paper. **The coefficient values are not.** They
+sit in Table 3, the PMC copy is now behind a CAPTCHA, and the bioRxiv full text
+references the table without transcribing it. Two independent attempts returned
+the recorded values once and an inconsistent reading of the sign of
+`mean_gap_ratio` once. Treat the individual numbers as recorded, not verified.
+
+A paper-versus-code gap sits beside it: there is no feature named
+`coverage_ratio` in the shipped model. `optimize.evaluate` passes
+`['ratio', 'agnostic_mean_gap_ratio', 'on_gap_gini', 'off_gap_gini',
+'within_mean_gap_ratio']`. The fifth is a background-to-target ratio of
+ALTERNATING-strand gap means, which is the term that encodes facing primer
+pairs. That it is the paper's `coverage_ratio` under another name is an
+inference from the argument order and the pickle filename; neither source says
+so.
 
 **On coverage geometry NeoSWGA and COATswga converge, and COATswga is stricter.**
 Both union fixed-width windows around binding sites and select to tile the
 target: `fragment_length` against `coverage_reach`. COATswga takes dimer-freedom
-as a hard constraint on every set it forms and carries an explicit
-`target_coverage` of 0.95. NeoSWGA's equivalent guarantee exists in one
-non-default method.
+as a hard constraint on every set it forms, with the only free-energy dimer
+model of the four, and carries an explicit `target_coverage` of 0.95. NeoSWGA's
+equivalent guarantee exists in one non-default method.
+
+Its exploration is a descending novelty ladder rather than a plain argmax. A
+primer is admitted when the coverage it adds clears a threshold measured against
+what REMAINS uncovered, `(tot_len - fwd_len) / total_fg_length >=
+coverage_change * (1 - fwd_coverage)`, and `cov_ch` steps down through
+`[0.5, 0.25, 0.15, 0.1, 0.05, 0]` each time the candidate list is exhausted,
+resetting on any admission. Early passes take only primers claiming half the
+remaining genome; later passes fill gaps. That is a different answer to the
+redundancy problem Known Issue 11 measured here and left disabled, and it is a
+relative criterion where the threshold NeoSWGA tested was absolute.
+
+**The field does not agree that gap statistics belong in the objective, and the
+newest tool agrees with NeoSWGA.** COATswga computes no Gini and no gap
+statistic anywhere; `sets.py` contains neither word. The stated reason is that a
+Gini measures one primer's uniformity and cannot guarantee that a full set
+covers the genome evenly, which is an argument against NeoSWGA's per-primer
+`max_gini` gate as much as for its interval-union objective. So the three tools
+split: swga 1.0 constrains foreground and background spacing hard, swga 2.0 fits
+both as Gini terms, and COATswga drops both for interval tiling, which is what
+NeoSWGA does. Read the background-evenness recommendation below in that light
+rather than as a settled omission.
 
 ### Where NeoSWGA is genuinely ahead
 
@@ -303,13 +353,22 @@ difference.
 
 - **Occupancy-weighted coverage and selectivity.** No other tool weights a
   binding site by how much of the time it is bound at the reaction temperature.
-  Every one of the three uses a Tm window and then counts sites at weight 1.0,
-  which is the defect this audit finds in NeoSWGA's Stage 1 and which the
-  others have everywhere. Two of the three use the same [15, 45] window
-  irrespective of the enzyme.
-- **Additives at all.** swga 1.0 corrects Tm for mono- and divalent cations.
-  Neither of the later two states any correction. None models DMSO, betaine or
-  formamide, so none can express the lever measured above.
+  All three use a Tm window and then count sites at weight 1.0, which is the
+  defect this audit finds in NeoSWGA's Stage 1 and which the others have
+  everywhere. Two of the three use the same [15, 45] window irrespective of the
+  enzyme, and COATswga applies only the ceiling: its `min_tm` is in the defaults
+  dict, exposed as a flag, documented in the README, and read nowhere.
+- **A reaction that the user can reach at all.** This is sharper than "no
+  additive term". All three compute Tm through an argument-free call to the same
+  package, Clarke's `melt`: `melting.temp(self.seq)` in swga 1.0,
+  `melting.temp(primer)` in SoapSWGA, `melting.temp(kmer)` in COATswga. That
+  package does implement nearest-neighbour thermodynamics with an
+  Owczarzy-style monovalent and divalent correction, and its signature defaults
+  to 5 uM oligo, 10 mM sodium and 20 mM magnesium. Because no caller passes a
+  concentration, **every design in all three tools is computed at those
+  constants whatever buffer the user intends.** The salt correction is present
+  in the library and unreachable from the tools. No additive term exists in any
+  of the three, or in the package.
 - **Separating coverage reach from processivity**, and fitting the reach to
   sequencing depth.
 - **A specificity floor as a constraint** rather than a scoring term, in
@@ -342,11 +401,15 @@ a re-derived panel yet.
 3. **Let the two regimes share their terms.** A specificity floor on `optimize`,
    or an evenness term in the swap score, whichever the design calls for.
 4. **Compute background gap evenness, or read `bg_coverage`.** This is the
-   only item here with external support: `off_gap_gini` carries the second
-   largest weight in the one set-level model fitted against measured sequencing
-   breadth, and swga 1.0 made background site spacing a hard filter in 2017.
-   `bg_coverage` already exists and is unread, so the cheap version is to use
-   it; the faithful version is a Gini of background inter-site distances.
+   item with the most external support and the least settled. For it:
+   `off_gap_gini` carries the second largest recorded weight in the one
+   set-level model fitted against measured sequencing breadth, and swga 1.0
+   enforced a background site budget inside its search in 2017. Against it: I
+   could not verify that coefficient's value, and COATswga computes no gap
+   statistic at all on the stated ground that a per-primer Gini says nothing
+   about a set. `bg_coverage` already exists and is unread, so the cheap version
+   is to use that; the faithful version is a Gini of background inter-site
+   distances. Either way it is a measurement to make before it is a term to add.
 5. **A worst-target term for multi-genome designs.**
 
 ## What this does not establish
@@ -371,12 +434,19 @@ a re-derived panel yet.
   this additive pair. The mechanism generalises; the number does not.
 - Background clustering blindness is established from the formula, not from a
   case where it changed a panel.
-- The comparison rests on published methods sections and repository
-  documentation, not on running the other three tools. Defaults quoted for them
-  are what their documentation states. The swga 2.0 coefficient values are
-  carried over from [tool_comparison.md](tool_comparison.md) and were not
-  re-verified here; the term list, response variable, sample size and regression
-  method were.
+- The comparison rests on published methods sections and shipped source, not on
+  running the other three tools. Where a tool's documentation and its code
+  disagree the code is quoted, and COATswga's `main.py` defaults disagree with
+  both its README and its committed `params.json` on primer length, maximum
+  ratio, fragment length and target coverage. The swga 2.0 coefficient values
+  are carried over from [tool_comparison.md](tool_comparison.md) and could not
+  be verified from a source that opened; the term list, definitions, response
+  variable, sample size and regression method were.
+- Three of the source-level claims were verified directly and the rest were
+  not: the clique vertex weight, the melting-temperature call and COATswga's
+  admission rule and threshold ladder. The reading that `within_mean_gap_ratio`
+  is the paper's `coverage_ratio` is an inference from argument order, stated as
+  such.
 - Nothing here compares a NeoSWGA panel with a panel from another tool on the
   same input. The comparison is of selection rules, not of outputs.
 - Coverage, occupancy and selectivity all remain modelled site geometry rather
