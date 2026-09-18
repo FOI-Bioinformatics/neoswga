@@ -1,20 +1,28 @@
-"""The background is scanned for the pool that survives, not the pool that does not.
+"""The background scan runs after the cut, over the pool `candidate_retention` keeps.
 
-`step2` scanned background positions for every candidate that passed the
-frequency and sequence-quality gates, and cut the pool to `max_primer` only
-afterwards. On the run that found this, 20,301 primers were scanned and 3,000
-kept.
+Audit finding B1: `step2` scanned background positions for every candidate that
+passed the frequency and sequence-quality gates, and cut to `max_primer` only
+afterwards. Nothing between the two points needs background positions --
+`filter.get_gini` reads the foreground only, and `_rank_and_cut_candidates`
+reaches `occupancy.weighted_site_load`, which reads the jellyfish count tables.
+So the scan moved behind the cut with no approximation. That ORDERING is what
+`test_the_background_scan_runs_after_the_cut` still pins.
 
-Nothing between the two points needs background positions. `filter.get_gini`
-reads the foreground only, and `_rank_and_cut_candidates` reaches
-`occupancy.weighted_site_load`, which reads the jellyfish count tables --
-neither `occupancy.py` nor `mismatch_counts.py` imports h5py. So the scan can
-move behind the cut with no approximation.
+**The SIZE it is handed is a separate contract, and it changed on 2026-09-16.**
+This file used to assert the scan received exactly the `max_primer` shortlist.
+`candidate_retention` deliberately replaced that: indexing only the shortlist
+left every other hard-QC candidate with no background index, so a design
+reaching one scored it against an empty background and read as perfectly
+specific -- the silent-zero shape of Known Issues 5, 6 and 13. The removed
+`legacy` mode is exactly the behaviour the old assertion demanded.
 
-Aho-Corasick cost grows with the pattern count. Audit finding B1 projects about
-15 minutes against about 1 minute on a whole-genome host; that projection was
-not re-measured here, and it is not the same quantity as the 924 s the project
-has recorded for a filter step against a large host.
+So the size is now whatever `candidate_inventory.background_scan_pool` returns
+for the configured mode, and both modes are pinned below. Measured on this
+fixture with `max_primer` 100: `all_qc` scans 5,190, `post_gini` scans 37, and
+the shortlist is 37 either way.
+
+The old assertion failed only once `examples/plasmid_example` was primed, which
+needs jellyfish, so it was invisible on an unprimed checkout and on CI.
 
 Observed by spying on `string_search.get_positions` and recording how many
 primers each call was handed. A timing assertion would not separate the two
@@ -50,8 +58,12 @@ def _reset_pipeline_state(params_file):
 
 
 @pytest.fixture
-def plasmid(tmp_path, monkeypatch):
-    """The plasmid example, copied out and cut hard enough to be observable."""
+def plasmid(tmp_path, monkeypatch, request):
+    """The plasmid example, copied out and cut hard enough to be observable.
+
+    Indirectly parameterisable with a `candidate_retention` mode; the default
+    is whatever params.json carries, which is what a plain run uses.
+    """
     if not plasmid_example_ready():
         pytest.skip("plasmid example not available")
 
@@ -68,6 +80,9 @@ def plasmid(tmp_path, monkeypatch):
     params_path = tmp_path / "params.json"
     params = json.loads(params_path.read_text())
     params["max_primer"] = 100
+    retention = getattr(request, "param", None)
+    if retention is not None:
+        params["candidate_retention"] = retention
     params_path.write_text(json.dumps(params, indent=2))
 
     before = getattr(parameter, "json_file", None)
@@ -81,8 +96,8 @@ def plasmid(tmp_path, monkeypatch):
     string_search.clear_genome_cache()
 
 
-def test_the_background_is_scanned_for_the_cut_pool(plasmid, monkeypatch):
-    """The background call must receive the kept pool, not the pre-cut pool."""
+def _spy_on_scans(monkeypatch):
+    """Record the prefixes and pool size of every position scan, in order."""
     calls = []
     real = string_search.get_positions
 
@@ -92,23 +107,64 @@ def test_the_background_is_scanned_for_the_cut_pool(plasmid, monkeypatch):
         return real(primers, fname_prefixes, fname_genomes, circular, **kwargs)
 
     monkeypatch.setattr(string_search, "get_positions", spy)
+    return calls
 
-    result = pipeline.step2()
+
+def test_the_background_scan_runs_after_the_cut(plasmid, monkeypatch):
+    """Audit finding B1's ordering property, which is independent of size.
+
+    One foreground scan, then one background scan. If the background scan ran
+    in the same pass as the foreground one it could not be handed a different
+    pool at all, whatever `candidate_retention` says.
+    """
+    calls = _spy_on_scans(monkeypatch)
+
+    pipeline.step2()
 
     assert [prefixes for prefixes, _ in calls] == [
         ("pcDNA",),
         ("pLTR",),
     ], f"expected one foreground scan then one background scan, got {calls}"
-    foreground_count, background_count = calls[0][1], calls[1][1]
 
-    assert background_count == len(result), (
-        f"the background scan was handed {background_count} primers but only "
-        f"{len(result)} survive the cut; the scan is still running ahead of "
-        "_rank_and_cut_candidates"
-    )
-    assert background_count < foreground_count, (
-        "the cut removed nothing, so this fixture cannot tell the two orders "
-        f"apart (foreground {foreground_count}, background {background_count})"
+
+@pytest.mark.parametrize(
+    "plasmid,expected",
+    [("all_qc", "every hard-QC candidate"), ("post_gini", "the post-Gini pool")],
+    indirect=["plasmid"],
+)
+def test_the_background_scan_gets_the_pool_retention_asks_for(plasmid, monkeypatch, expected):
+    """The size contract, which `candidate_retention` owns.
+
+    Under `all_qc` the background scan must receive exactly what the foreground
+    scan received: every candidate clearing the hard gates. Anything smaller
+    leaves a retained candidate with no background index, which reads as
+    perfect specificity rather than as a missing measurement.
+
+    Under `post_gini` it must receive fewer, because the evenness gate is an
+    admission rule there.
+    """
+    calls = _spy_on_scans(monkeypatch)
+
+    result = pipeline.step2()
+
+    foreground_count, background_count = calls[0][1], calls[1][1]
+    retention = json.loads((plasmid / "params.json").read_text())["candidate_retention"]
+
+    if retention == "all_qc":
+        assert background_count == foreground_count, (
+            f"{expected} must be indexed, but the background scan got "
+            f"{background_count} of {foreground_count}. A retained candidate "
+            "with no background index scores as perfectly specific."
+        )
+    else:
+        assert background_count < foreground_count, (
+            f"{expected} must be smaller than the hard-QC pool, but the "
+            f"background scan got {background_count} of {foreground_count}"
+        )
+    assert background_count >= len(result), (
+        f"the background scan got {background_count} primers, fewer than the "
+        f"{len(result)} the shortlist delivers, so a delivered primer has no "
+        "background index at all"
     )
 
 

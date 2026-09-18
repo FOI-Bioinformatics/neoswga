@@ -46,21 +46,60 @@ NOT_PARAMETER_GLOBALS = {
 RETIRED = {"retries", "drop_iterations", "top_set_count", "selection_metric", "bl_penalty"}
 
 
+def _keys_bound_by_loading():
+    """Names `_apply_params_only_keys` declares global, read from the source.
+
+    Those keys exist as module attributes only AFTER a config is loaded, so
+    `hasattr` on a bare import cannot see them. Read statically so this holds
+    without loading anything.
+    """
+    import ast
+    import inspect
+
+    from neoswga.core import parameter
+
+    tree = ast.parse(inspect.getsource(parameter))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_apply_params_only_keys":
+            return {
+                name
+                for inner in ast.walk(node)
+                if isinstance(inner, ast.Global)
+                for name in inner.names
+            }
+    return set()
+
+
 @pytest.mark.parametrize("key", sorted(SCHEMA["properties"]))
 def test_every_schema_key_binds_a_parameter_global(key):
-    """`hasattr` is the check, because a missing global is exactly the defect.
+    """A documented key must bind SOMEWHERE in `parameter.py`.
 
-    A reader written as `getattr(parameter, name, default)` cannot tell an
-    unset global from a configured value equal to the default, which is how
-    these stayed invisible.
+    There are three binding sites and this used to check only one.
+    `hasattr` on a bare import is true for a module-level global, and for a
+    dataclass field or a load-assigned key it is true only once something has
+    called `get_params` -- so under `pytest -n 8` this passed or failed by
+    which worker drew the test. One run in three failed with 16 of these,
+    all on the same worker, while the other two were clean.
+
+    Checking all three is deterministic and no weaker: a key bound by none of
+    them is exactly the inert key Known Issue 8 describes, and the five wired
+    on 2026-09-14 bind through the third site rather than the first.
     """
     from neoswga.core import parameter
+    from neoswga.core.parameter import PipelineParameters
 
     if key in NOT_PARAMETER_GLOBALS:
         return
-    assert hasattr(parameter, key), (
-        f"{key} is declared in params.schema.json but binds no parameter global, "
-        f"so every reader takes its fallback and the key does nothing"
+    bound = (
+        hasattr(parameter, key)
+        or key in PipelineParameters.__dataclass_fields__
+        or key in _keys_bound_by_loading()
+    )
+    assert bound, (
+        f"{key} is declared in params.schema.json but binds no parameter "
+        f"global, no PipelineParameters field and nothing in "
+        f"_apply_params_only_keys, so every reader takes its fallback and the "
+        f"key does nothing"
     )
 
 
