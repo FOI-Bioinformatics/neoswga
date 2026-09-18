@@ -209,6 +209,22 @@ the shipped Tm window against a band on occupancy.
 Sampling is over sequence space, not over a genome's distinct k-mers. It
 measures a property of the gate and is not a pool composition.
 
+### `published_gap_thresholds.py`
+
+Tests whether a hard coverage-hole constraint derived from the polymerase reach
+separates the wet-lab winners among the 18 published sets already in
+`tests/validation/data/`. Needs no design directory and no external tool.
+
+```bash
+python scripts/benchmarking/published_gap_thresholds.py
+```
+
+It does not. Every reach-derived threshold rejects all 18, winners included, and
+the only separating threshold implies a 20 kb reach, outside the calibrated 3.0
+to 6.2 kb band and fitted to these points. Read it as a description instead:
+panels enriching 96 to 120 fold carry 31 to 33 kb holes. See
+[getting_ahead_on_spacing_2026-09-18.md](../../docs/validation/getting_ahead_on_spacing_2026-09-18.md).
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate

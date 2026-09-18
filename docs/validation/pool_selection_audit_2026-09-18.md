@@ -252,12 +252,15 @@ An additive cannot move either of the first two by any amount.
 
 [tool_comparison.md](tool_comparison.md) compares capabilities. This compares
 the selection rule, which is a narrower and less flattering question. Sources
-are listed at the end of this section.
+are listed at the end of this section. What to do about the two axes where this
+section puts NeoSWGA behind is worked out in
+[getting_ahead_on_spacing_2026-09-18.md](getting_ahead_on_spacing_2026-09-18.md),
+which rules out both obvious answers.
 
 | Criterion | swga 1.0 (2017) | swga 2.0 / SoapSWGA (2023) | COATswga (2025) | NeoSWGA |
 |---|---|---|---|---|
 | Set search | all cliques of size 2 to 7 enumerated by a patched `cliquer`, run `--unweighted --all` | beam search, width 5, with drop-out rounds and retries that ban the most-chosen primer | greedy interval tiling on a descending novelty ladder, bedtools for the intervals | greedy set cover, then swap or network refinement; clique available |
-| Dimer-free set | hard, by construction | hard, precomputed pair matrix so an incompatible pair never enters the beam | hard, and the only free-energy model of the four: PrimerROC, rejecting below -2.79 | hard in `clique` only; penalised in the others |
+| Dimer-free set | hard, by construction | hard, precomputed pair matrix so an incompatible pair never enters the beam | hard, and the only free-energy model of the four: PrimerROC, rejecting below -2.79 | hard by default; selection stops rather than admit a violating pair, and `clique` additionally finds the MAXIMUM such set |
 | Foreground site spacing | **hard**, `max_fg_bind_dist` default 36,000, plus a per-primer Gini ceiling of 0.6 | **fitted**, `on_gap_gini` | deliberately not modelled, see below | reported only; gap CV at weight 0.10 in one refinement mode |
 | Background site spacing | **hard**, a pruning budget inside the search: total background sites may not exceed `bg_length / min_bg_bind_dist` | **fitted**, `off_gap_gini` | not modelled | **not modelled** |
 | Convergent-orientation amplicon geometry | no | the paper's `coverage_ratio` is opposite-strand sites within 70 kb, as a target-to-background ratio; the shipped code has no such feature, see below | `fragment_length`, code default 2,000, target only | foreground network at about 70 kb; **no background network** |
@@ -401,7 +404,13 @@ a re-derived panel yet.
 3. **Let the two regimes share their terms.** A specificity floor on `optimize`,
    or an evenness term in the swap score, whichever the design calls for.
 4. **Compute background gap evenness, or read `bg_coverage`.** This is the
-   item with the most external support and the least settled. For it:
+   item with the most external support and the least settled. **Followed up on
+   2026-09-18 and narrowed further:** a hard gap constraint derived from the
+   reach rejects all 18 published sets with wet-lab outcomes, winners included,
+   so neither a fitted weight nor a hard threshold survives contact with the
+   data. See
+   [getting_ahead_on_spacing_2026-09-18.md](getting_ahead_on_spacing_2026-09-18.md),
+   which redirects this axis from scoring to diagnosis. For it:
    `off_gap_gini` carries the second largest recorded weight in the one
    set-level model fitted against measured sequencing breadth, and swga 1.0
    enforced a background site budget inside its search in 2017. Against it: I
