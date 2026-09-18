@@ -33,6 +33,7 @@ from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerCon
 from .candidate_source import order_candidates_by_background
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
+from .panel_regime import assess_from_parameter, log_regime
 from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
 from .step4_output import _write_validation_report, save_results
@@ -1512,11 +1513,26 @@ def optimize_step4(
         # The profile this run was scored under, so the CSV's
         # `normalized_score` column agrees with the ensemble comparison
         # table rather than silently using the balanced weights.
+        # Which criterion limits the delivered panel, printed and recorded.
+        # The two wet-lab benchmarks disagree about which spacing property
+        # predicts success, so the useful thing to report is which one is
+        # currently binding rather than a weighted blend of all of them.
+        # `None` when a reference could not be resolved, and then nothing is
+        # printed rather than a limit nothing established.
+        regime = assess_from_parameter(
+            result.metrics,
+            parameter,
+            delivered_size=len(result.primers),
+            application=kwargs.get("application"),
+        )
+        log_regime(regime)
+
         save_results(
             result,
             output_path,
             application=kwargs.get("application"),
             primer_sets=_LAST_PRIMER_SETS or None,
+            regime=regime,
         )
 
         # Return cache placeholder (for compatibility)

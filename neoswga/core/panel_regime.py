@@ -1,0 +1,507 @@
+"""Which criterion limits a delivered panel, and which ones nobody constrained.
+
+Two wet-lab benchmarks in `docs/validation/published_primer_sets.md` disagree
+about which spacing property predicts success: worst gap and evenness separate
+the winners on the *Prevotella* sets and do not on Clarke's *M. tuberculosis*
+sets, where binding density separates them instead. Clarke pre-filtered the
+candidate pool for even binding, so evenness had no residual variance left to
+explain the outcome. The conclusion recorded there is that **what predicts is
+whichever property is currently limiting**, and that compressing the properties
+into one weighted number is therefore the wrong move.
+
+This module is the diagnostic form of that conclusion. It reports each criterion
+separately, says which one is closest to binding, and -- the part that makes it
+honest -- says which ones have no reference to be measured against at all.
+
+Two things it deliberately does not do.
+
+**It invents no references.** A criterion is ranked only against a line the user
+drew (a coverage target, a ratio floor, a requested panel size, an optional
+density or host-site limit) or one physics drew. `max_gap` gets neither: measured
+on the 18 published sets with wet-lab outcomes, every one carries a hole wider
+than twice the calibrated reach, the winners included, so no reach-derived
+threshold separates anything
+(`docs/validation/getting_ahead_on_spacing_2026-09-18.md`). Such a criterion is
+reported with readable units and never ranked. Ranking it would name the worst
+hole as limiting on essentially every real design, which is a slogan rather than
+a diagnostic.
+
+**It produces no composite score.** `normalized_score` already exists for
+cross-optimizer comparison and is a different thing. Every criterion here stays
+separately addressable, because the two benchmarks say a fixed weighting is
+wrong for one of them whichever way it is set.
+
+Not to be merged with `PoolObjective.shortfall`, which looks similar and answers
+a different question. That sums distances over CONFIGURED CONSTRAINTS ONLY, to
+rank infeasible panels during a search. This reports per-criterion distance over
+configured and physical references, for one delivered panel, and never sums.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from dataclasses import dataclass
+from typing import Any, List, Optional, Sequence, Tuple
+
+# Comparison sense of a reference.
+AT_LEAST = "at_least"
+AT_MOST = "at_most"
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Criterion:
+    """One property of a delivered panel, with its reference if it has one.
+
+    `slack` is relative to the reference, so criteria measured on different
+    scales are comparable and the tightest one is not merely the one with the
+    biggest units. Negative means the reference is not met. It is `None` exactly
+    when `reference` is `None`, which is what keeps an unreferenced criterion
+    out of the ranking.
+    """
+
+    name: str
+    value: Optional[float]
+    reference: Optional[float]
+    direction: Optional[str]
+    slack: Optional[float]
+    units: str
+    note: str
+
+
+@dataclass(frozen=True)
+class PanelRegime:
+    """What limits this panel, and what was never constrained."""
+
+    criteria: Tuple[Criterion, ...]
+    limiting: Optional[str]
+    failing: Tuple[str, ...]
+    unreferenced: Tuple[str, ...]
+
+
+def _slack(value: Optional[float], reference: float, direction: str) -> Optional[float]:
+    """Relative distance from a reference. Negative means unmet.
+
+    Scaled by the reference itself, and guarded for a zero reference, so that
+    missing a coverage target of 0.8 by half scores the same as missing a ratio
+    floor of 5.0 by half.
+    """
+    if value is None or not math.isfinite(value):
+        return None
+    scale = abs(reference) or 1.0
+    if direction == AT_LEAST:
+        return (value - reference) / scale
+    return (reference - value) / scale
+
+
+def _referenced(
+    name: str,
+    value: Optional[float],
+    reference: float,
+    direction: str,
+    units: str,
+    note: str,
+) -> Criterion:
+    return Criterion(
+        name=name,
+        value=value,
+        reference=reference,
+        direction=direction,
+        slack=_slack(value, reference, direction),
+        units=units,
+        note=note,
+    )
+
+
+def _reported(name: str, value: Optional[float], units: str, note: str) -> Criterion:
+    """A criterion with no reference: reported, never ranked."""
+    return Criterion(
+        name=name,
+        value=value,
+        reference=None,
+        direction=None,
+        slack=None,
+        units=units,
+        note=note,
+    )
+
+
+# `PrimerSetMetrics.empty` sets these to 0.0, and `_compute_metrics` leaves the
+# two strand figures at 0.0 when the position cache cannot supply them. A zero
+# is therefore indistinguishable from a measured zero, which is the shape of
+# Known Issues 5, 6 and 13. The diagnostic says so rather than laundering it.
+_AMBIGUOUS_AT_ZERO = "; a zero here may mean not computed rather than measured"
+
+
+def _maybe_ambiguous(value: Optional[float], note: str) -> str:
+    if value is not None and value == 0.0:
+        return note + _AMBIGUOUS_AT_ZERO
+    return note
+
+
+def _coverage_criterion(metrics: Any, target: float) -> Criterion:
+    """The coverage figure this panel is judged on, and which one it was.
+
+    `None` from the evaluator means occupancy could not be computed, which is
+    not the same as zero, so the fallback to the raw figure is recorded in the
+    note rather than left for a reader to infer.
+    """
+    effective = getattr(metrics, "effective_fg_coverage", None)
+    if effective is not None:
+        return _referenced(
+            "coverage",
+            float(effective),
+            target,
+            AT_LEAST,
+            "fraction",
+            "occupancy-weighted",
+        )
+    raw = getattr(metrics, "fg_coverage", None)
+    return _referenced(
+        "coverage",
+        None if raw is None else float(raw),
+        target,
+        AT_LEAST,
+        "fraction",
+        "raw, because occupancy could not be computed",
+    )
+
+
+def _hole_note(max_gap: Optional[float], reach: int, genome_length: Optional[int]) -> str:
+    """The worst hole in units a reader can act on.
+
+    A bare base count says nothing without the chemistry and the genome, and
+    those are exactly what decide whether a hole matters.
+    """
+    if max_gap is None or not math.isfinite(max_gap):
+        return "not measurable on this panel"
+    parts = []
+    if reach:
+        parts.append(f"{max_gap / reach:.1f}x the {reach} bp reach")
+    if genome_length:
+        parts.append(f"{100.0 * max_gap / genome_length:.2f}% of the target")
+    parts.append("no reference: no reach-derived threshold separates published winners")
+    return ", ".join(parts)
+
+
+def _spacing_criteria(metrics: Any, reach: int, genome_length: Optional[int]) -> List[Criterion]:
+    """The properties with no line to compare against.
+
+    These are the ones the two benchmarks disagree about, and the ones a future
+    `PoolConstraints` would make constrainable.
+    """
+    max_gap = getattr(metrics, "max_gap", None)
+    mean_gap = getattr(metrics, "mean_gap", None)
+    return [
+        _reported(
+            "worst_hole",
+            None if max_gap is None else float(max_gap),
+            "bp",
+            _hole_note(max_gap, reach, genome_length),
+        ),
+        _reported(
+            "mean_gap",
+            None if mean_gap is None else float(mean_gap),
+            "bp",
+            (
+                f"{mean_gap / reach:.2f}x the {reach} bp reach, no reference"
+                if mean_gap is not None and math.isfinite(mean_gap) and reach
+                else "no reference"
+            ),
+        ),
+        _reported(
+            "evenness",
+            _as_float(getattr(metrics, "gap_gini", None)),
+            "Gini",
+            "0 is uniform spacing, no reference: it separates winners on one "
+            "benchmark and runs backwards on the other",
+        ),
+        _reported(
+            "host_coverage",
+            _as_float(getattr(metrics, "bg_coverage", None)),
+            "fraction",
+            _maybe_ambiguous(
+                _as_float(getattr(metrics, "bg_coverage", None)),
+                "the only quantity here that sees host site position, no reference",
+            ),
+        ),
+        _reported(
+            "strand_balance",
+            _as_float(getattr(metrics, "strand_coverage_ratio", None)),
+            "ratio",
+            _maybe_ambiguous(
+                _as_float(getattr(metrics, "strand_coverage_ratio", None)),
+                "1 is balanced between strands, no reference",
+            ),
+        ),
+        _reported(
+            "strand_alternation",
+            _as_float(getattr(metrics, "strand_alternation_score", None)),
+            "fraction",
+            _maybe_ambiguous(
+                _as_float(getattr(metrics, "strand_alternation_score", None)),
+                "adjacent sites on opposite strands, no reference",
+            ),
+        ),
+    ]
+
+
+def _as_float(value: Any) -> Optional[float]:
+    return None if value is None else float(value)
+
+
+def assess_panel(
+    metrics: Any,
+    *,
+    coverage_target: float,
+    min_fg_bg_ratio: float,
+    requested_size: int,
+    delivered_size: int,
+    coverage_reach: int,
+    genome_length: Optional[int] = None,
+    min_selectivity_density: Optional[float] = None,
+    max_background_sites: Optional[int] = None,
+) -> PanelRegime:
+    """Assess one delivered panel against its references.
+
+    Args:
+        metrics: Anything carrying the `PrimerSetMetrics` fields read here.
+        coverage_target: From the `--application` profile.
+        min_fg_bg_ratio: From the same profile.
+        requested_size: What the run asked for; `num_primers` is a request.
+        delivered_size: What it returned.
+        coverage_reach: The reach the panel was selected and scored on.
+        genome_length: Target length, for expressing a hole as a fraction.
+        min_selectivity_density: Optional floor; a criterion only when set.
+        max_background_sites: Optional ceiling; a criterion only when set.
+
+    An unset optional limit creates NO criterion. Reporting it as satisfied
+    would read as specificity where there is only an absent constraint, which is
+    the shape of Known Issues 5, 6 and 13.
+    """
+    criteria: List[Criterion] = [
+        _coverage_criterion(metrics, coverage_target),
+        _referenced(
+            "fg_bg_ratio",
+            _as_float(getattr(metrics, "selectivity_ratio", None)),
+            min_fg_bg_ratio,
+            AT_LEAST,
+            "ratio",
+            "from the application profile",
+        ),
+        _referenced(
+            "panel_size",
+            float(delivered_size),
+            float(requested_size),
+            AT_LEAST,
+            "primers",
+            "a request, not a guarantee: selection stops rather than admit a " "dimerising pair",
+        ),
+    ]
+
+    if min_selectivity_density is not None:
+        criteria.append(
+            _referenced(
+                "selectivity_density",
+                _as_float(getattr(metrics, "selectivity_density", None)),
+                float(min_selectivity_density),
+                AT_LEAST,
+                "per-base ratio",
+                "configured floor; comparable across background sizes",
+            )
+        )
+    if max_background_sites is not None:
+        criteria.append(
+            _referenced(
+                "background_sites",
+                _as_float(getattr(metrics, "total_bg_sites", None)),
+                float(max_background_sites),
+                AT_MOST,
+                "sites",
+                "configured ceiling",
+            )
+        )
+
+    criteria.extend(_spacing_criteria(metrics, coverage_reach, genome_length))
+
+    ranked = [c for c in criteria if c.slack is not None]
+    limiting = min(ranked, key=lambda c: c.slack).name if ranked else None
+    failing = tuple(c.name for c in ranked if c.slack is not None and c.slack < 0)
+    unreferenced = tuple(c.name for c in criteria if c.reference is None)
+
+    return PanelRegime(
+        criteria=tuple(criteria),
+        limiting=limiting,
+        failing=failing,
+        unreferenced=unreferenced,
+    )
+
+
+def _value_text(criterion: Criterion) -> str:
+    if criterion.value is None:
+        return "not measured"
+    if not math.isfinite(criterion.value):
+        return "unmeasurable"
+    if abs(criterion.value) >= 1000:
+        return f"{criterion.value:,.0f}"
+    return f"{criterion.value:.3f}".rstrip("0").rstrip(".")
+
+
+def format_regime(regime: PanelRegime) -> List[str]:
+    """Lines for the CLI. One criterion per line, no composite figure."""
+    if not regime.criteria:
+        return []
+
+    lines = [
+        "",
+        "=" * 72,
+        "What limits this panel",
+        "=" * 72,
+        f"{'criterion':<20} {'value':>12} {'reference':>12} {'slack':>8}",
+        "-" * 54,
+    ]
+    for criterion in regime.criteria:
+        reference = (
+            "none"
+            if criterion.reference is None
+            else _value_text(
+                Criterion(
+                    criterion.name,
+                    criterion.reference,
+                    None,
+                    None,
+                    None,
+                    criterion.units,
+                    "",
+                )
+            )
+        )
+        slack = "  --  " if criterion.slack is None else f"{criterion.slack:+.3f}"
+        lines.append(
+            f"{criterion.name:<20} {_value_text(criterion):>12} {reference:>12} {slack:>8}"
+        )
+
+    lines.append("")
+    if regime.limiting:
+        # `limiting` is the minimum slack, which means the widest relative MISS
+        # on a panel that fails something and the least HEADROOM on one that
+        # clears everything. Calling both "closest to binding" is wrong in the
+        # first case, which is the case a user sees when something needs fixing.
+        if regime.failing:
+            lines.append(
+                f"Furthest from its reference: {regime.limiting}, in relative "
+                "terms. That is the criterion to move first."
+            )
+        else:
+            lines.append(
+                f"Closest to binding: {regime.limiting}. Everything is met, so "
+                "this is the one with the least headroom."
+            )
+    if regime.failing:
+        lines.append(f"Not met: {', '.join(regime.failing)}.")
+    ambiguous = [c.name for c in regime.criteria if _AMBIGUOUS_AT_ZERO.strip("; ") in c.note]
+    if ambiguous:
+        # Otherwise the table shows a bare 0 and a reader takes it for a
+        # measurement, which is the shape of Known Issues 5, 6 and 13. The note
+        # already says so in the summary JSON; the terminal needs it too.
+        lines.append(
+            f"Reported as zero and may not have been computed: "
+            f"{', '.join(ambiguous)}. Check the background index before reading "
+            "either as specificity."
+        )
+    if regime.unreferenced:
+        lines.append(
+            f"No reference for: {', '.join(regime.unreferenced)}. These are "
+            "reported and never ranked, because no threshold for them "
+            "separates the published wet-lab winners. Read them against each "
+            "other across designs rather than against a line."
+        )
+    lines.append(
+        "Criteria are kept separate deliberately: two published benchmarks "
+        "disagree about which spacing property predicts success, so a fixed "
+        "weighting is wrong for one of them either way."
+    )
+    lines.append("=" * 72)
+    return lines
+
+
+def criteria_for_summary(regime: PanelRegime) -> dict:
+    """The regime as plain data for `step4_improved_df_summary.json`."""
+    return {
+        "limiting": regime.limiting,
+        "failing": list(regime.failing),
+        "unreferenced": list(regime.unreferenced),
+        "criteria": [
+            {
+                "name": c.name,
+                "value": c.value,
+                "reference": c.reference,
+                "direction": c.direction,
+                "slack": c.slack,
+                "units": c.units,
+                "note": c.note,
+            }
+            for c in regime.criteria
+        ],
+    }
+
+
+def assess_from_parameter(
+    metrics: Any,
+    parameter: Any,
+    *,
+    delivered_size: int,
+    application: Optional[str] = None,
+) -> Optional[PanelRegime]:
+    """Assess a panel using the references a pipeline run already resolved.
+
+    Returns `None` rather than a fabricated assessment when the reach or the
+    application profile cannot be resolved, so a caller never prints a limit
+    that nothing established.
+    """
+    from neoswga.core.coverage import resolve_coverage_reach
+    from neoswga.core.mechanistic_params import get_application_profile
+
+    try:
+        profile = get_application_profile(str(application or "enrichment").lower())
+    except ValueError:
+        return None
+
+    polymerase = getattr(parameter, "polymerase", "phi29") or "phi29"
+    try:
+        reach = resolve_coverage_reach(
+            polymerase, override=getattr(parameter, "coverage_reach", None)
+        )
+    except Exception:
+        return None
+
+    lengths: Sequence[int] = getattr(parameter, "fg_seq_lengths", []) or []
+    requested = getattr(parameter, "num_primers", None)
+    requested = getattr(parameter, "target_set_size", requested) or delivered_size
+
+    return assess_panel(
+        metrics,
+        coverage_target=float(profile["default_target_coverage"]),
+        min_fg_bg_ratio=float(profile["default_min_fg_bg_ratio"]),
+        requested_size=int(requested),
+        delivered_size=int(delivered_size),
+        coverage_reach=int(reach),
+        genome_length=int(sum(lengths)) or None,
+        min_selectivity_density=getattr(parameter, "min_selectivity_density", None),
+        max_background_sites=getattr(parameter, "max_background_sites", None),
+    )
+
+
+def log_regime(regime: Optional[PanelRegime]) -> None:
+    """Print the assessment, or nothing at all.
+
+    `None` means a reference could not be resolved, and a report of nothing has
+    to stay silent: printing a limit that nothing established is the failure
+    this module's docstring is about.
+    """
+    if regime is None:
+        return
+    for line in format_regime(regime):
+        logger.info(line)
