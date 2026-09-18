@@ -188,6 +188,27 @@ is not smaller, so compatibility is not the barrier. See
 [no_search_headroom_on_this_pool_2026-09-18.md](../../docs/validation/no_search_headroom_on_this_pool_2026-09-18.md),
 which also records three claims of mine that controls and constraints refuted.
 
+### `candidate_gate_audit.py`
+
+What the candidate gate admits, and how informative it is. Needs no design
+directory and no external tool: it samples random k-mers at a fixed GC fraction
+and runs them through the real `ReactionConditions` and occupancy code.
+
+```bash
+python scripts/benchmarking/candidate_gate_audit.py
+python scripts/benchmarking/candidate_gate_audit.py --gc 0.41 --n 40000 --k 12
+```
+
+Produces every figure in
+[pool_selection_audit_2026-09-18.md](../../docs/validation/pool_selection_audit_2026-09-18.md):
+occupancy spread within the admitted pool, how far each polymerase's Tm floor
+sits below its reaction temperature, which bound of the window binds as a
+function of primer length, what an additive gains and loses per GC class, and
+the shipped Tm window against a band on occupancy.
+
+Sampling is over sequence space, not over a genome's distinct k-mers. It
+measures a property of the gate and is not a pool composition.
+
 ## Stale
 
 `benchmark_suite.py`, `run_benchmarks.py` and `benchmark_improvements.py` predate

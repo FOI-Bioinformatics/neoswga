@@ -5,13 +5,26 @@
 designers, and an audit of whether NeoSWGA's own design options change the design.
 
 Related: [published_primer_sets.md](published_primer_sets.md), which validates the
-scoring against wet-lab outcomes rather than against other tools.
+scoring against wet-lab outcomes rather than against other tools, and
+[pool_selection_audit_2026-09-18.md](pool_selection_audit_2026-09-18.md), which
+compares the SELECTION RULE rather than the capability set and reaches a less
+flattering conclusion. Two gaps recorded below are sharper than this document
+states them: swga 1.0 made foreground and background site spacing HARD filters
+in 2017, and NeoSWGA constrains neither.
 
 ## The tools
 
-- **swga 1.0** — Clarke et al. 2017, *Bioinformatics*. The original. Selects sets by
-  finding a maximum clique in a primer compatibility graph, using the `cliquer` C
-  library, with vertices weighted by mean background binding distance.
+- **swga 1.0** — Clarke et al. 2017, *Bioinformatics*. The original. Enumerates
+  cliques in a primer compatibility graph with a patched `cliquer` C library, run
+  `--unweighted --all`, and stores every clique whose largest foreground gap
+  clears `max_fg_bind_dist`. **Corrected 2026-09-18:** vertices are weighted by
+  each primer's raw BACKGROUND SITE COUNT, not by mean background binding
+  distance, and the weight funds a pruning budget inside the recursion rather
+  than a ranking -- a partial clique is discarded once its summed weight exceeds
+  `bg_length / min_bg_bind_dist`. The mean distance is what the search emits,
+  which is where this document's earlier claim came from. Verified against
+  `graph.py` and `ext/cliquer/set_finder.c`. The default score expression ranks
+  the stored cliques afterwards and never steers the search.
 - **swga 2.0 / soapswga** — Dwivedi-Yu et al. 2023, *PLOS Comput Biol* 19(4):e1010137.
   Adds a random forest primer filter trained on 396 primers from rolling-circle
   amplification experiments, and a set-level score fitted by ridge regression against
@@ -24,8 +37,8 @@ scoring against wet-lab outcomes rather than against other tools.
 | | swga 1.0 | swga 2.0 | COATswga | NeoSWGA |
 |---|---|---|---|---|
 | K-mer counting | DSK (disk-based, low memory) | jellyfish + h5py cache | k-mer counting | jellyfish (hard dependency) + Bloom filter |
-| Set formation | max-clique on compatibility graph | breadth-first greedy with drop-out | interval tiling | greedy set cover + network refinement; **clique also available** |
-| Set scoring | binding metrics | ridge regression fitted to observed coverage | coverage uniformity | `normalized_score`, hand-chosen weights |
+| Set formation | exhaustive clique enumeration, sizes 2-7, under a background-site budget | beam search, width 5, with drop-out rounds and retries | greedy interval tiling on a descending novelty ladder | greedy set cover + network refinement; **clique also available** |
+| Set scoring | binding metrics, applied AFTER the search, not during it | ridge regression fitted to observed coverage | merged interval length, no gap statistic of any kind | `normalized_score`, hand-chosen weights |
 | Primer scoring | filters only | RF, 1500 trees / depth 50 | ML | RF, 100 trees / depth 15 |
 | Coverage reach | — | 70 kb (phi29 processivity) | — | **3 kb, fitted to a measured outcome (3.0-6.2 kb band)**; configurable, also fittable from BAM depth; reported at 3/10/70 kb |
 | Heterodimer-free set | guaranteed by clique | pairwise check while growing | — | guaranteed by `--optimization-method clique`; penalised in the other four |
@@ -213,14 +226,22 @@ surface and correspondingly the one with least external calibration.
   could be restored the same way.
 - **No background gap evenness.** `off_gap_gini` carries the second-largest weight in
   swga 2.0's fitted model and is not computed anywhere in NeoSWGA. `PrimerSetMetrics`
-  has `gap_gini` for the foreground only.
+  has `gap_gini` for the foreground only, and nothing that SELECTS reads even that
+  one: it enters the post-hoc `normalized_score` at weight 0.10 and the selection
+  path uses a coefficient of variation of gaps instead. `bg_coverage` is the one
+  computed quantity that sees background site position and it has no reader. See
+  Known Issues 17 and 18.
 - **jellyfish is a hard dependency.** There is no in-process counting fallback;
   `kmer_counter.count_kmers_in_sequence` exists but has no callers.
 - **RF training provenance is undocumented.** swga 2.0 states its training set (396
   primers from RCA experiments); the model shipped in
   `neoswga/core/models/random_forest_filter.skops` does not have an equivalent record.
 - **Additive coverage is broader than the published tools', and correspondingly less
-  validated.** swga 1.0 and 2.0 model no additives at all. NeoSWGA models thirteen
+  validated.** None of the three models any additive, and their salt handling is
+  weaker than this document implied: all three call the same `melt` package with
+  no arguments, so every design they produce is computed at 5 uM oligo, 10 mM
+  sodium and 20 mM magnesium whatever the user's buffer. The package's
+  Owczarzy-style correction is real and unreachable from the tools. NeoSWGA models thirteen
   plus four buffer species, but the Tm coefficients are literature-derived while the
   enzyme- and kinetics-pathway magnitudes are EMPIRICAL, calibrated to reproduce
   qualitative protocol behaviour rather than measured. `docs/SCIENCE_CITATIONS.md`
