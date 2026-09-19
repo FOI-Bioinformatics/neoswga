@@ -41,6 +41,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+from neoswga.core.deficit_objective import dilate_intervals, recovered_deficit
 from neoswga.core.dominating_set_optimizer import coverage_bin_size as _coverage_bin_size
 
 logger = logging.getLogger(__name__)
@@ -406,25 +407,36 @@ class PrimerExpander:
             c for c in candidates if c.upper() not in fixed_set and c.upper() not in failed_set
         ]
 
-        # Gap-restricted candidate pre-filter (hard filter + fallback). Keep
-        # only candidates whose binding sites fall inside a target gap; if that
-        # leaves fewer than target_new, fall back to the full filtered pool.
+        # Budget prescreen: candidates whose WINDOW can reach a target gap,
+        # which is the gap intervals dilated by one reach. It used to require
+        # the binding SITE inside the gap and never consulted the reach, so a
+        # candidate binding just outside a 50 kb gap whose window would blanket
+        # it was discarded while one binding at the gap's last base and
+        # extending away was kept.
+        #
+        # There is no fallback. Abandoning the prescreen when it left fewer
+        # than `target_new` candidates is what made a gap-targeted run silently
+        # stop targeting gaps; a short list is a finding, not a reason to
+        # search somewhere else.
         if target_gaps:
             in_gap = self._filter_candidates_to_gaps(candidates_filtered, target_gaps)
-            if len(in_gap) >= target_new:
-                if verbose:
-                    logger.info(
-                        f"Gap-restricted pool: {len(in_gap)}/{len(candidates_filtered)} "
-                        f"candidates bind inside {len(target_gaps)} target gap(s)"
-                    )
-                candidates_filtered = in_gap
-            else:
-                if verbose:
-                    logger.warning(
-                        f"Only {len(in_gap)} candidates bind inside target gaps "
-                        f"(< target_new={target_new}); using full pool of "
-                        f"{len(candidates_filtered)}"
-                    )
+            if verbose:
+                logger.info(
+                    f"Gap-reachable pool: {len(in_gap)}/{len(candidates_filtered)} "
+                    f"candidates can reach one of {len(target_gaps)} target gap(s) "
+                    f"within the {self.coverage_reach} bp reach"
+                )
+            if len(in_gap) < target_new:
+                logger.warning(
+                    "Only %d candidate(s) can reach a target gap, fewer than the "
+                    "%d requested. Selecting from those rather than widening to "
+                    "the full pool: a pool that cannot reach the gaps is a "
+                    "finding about the pool, and searching elsewhere would "
+                    "deliver primers that do not address what was asked.",
+                    len(in_gap),
+                    target_new,
+                )
+            candidates_filtered = in_gap
 
         if verbose:
             logger.info("=" * 60)
@@ -489,8 +501,11 @@ class PrimerExpander:
         # Count remaining gaps
         gaps_after = self.identify_gaps(combined_set, min_gap_size=self.bin_size)
 
-        # Calculate gap coverage (fraction of original gaps now covered)
-        gap_coverage = 1.0 - (len(gaps_after) / max(len(gaps_before), 1))
+        # Fraction of the targeted deficit BASES recovered. It used to be
+        # `1 - len(after)/len(before)`, a count of gaps, which goes NEGATIVE
+        # when one long gap splits into two -- progress reported as
+        # regression. See `core/deficit_objective.py`.
+        gap_coverage = self._recovered_deficit_fraction(target_gaps or gaps_before, combined_set)
 
         # Estimate improvement factor
         if coverage_before > 0:
@@ -520,18 +535,69 @@ class PrimerExpander:
             message=result.get("message", ""),
         )
 
+    def _recovered_deficit_fraction(self, target_gaps, combined_set) -> float:
+        """Fraction of the targeted deficit BASES the delivered panel reaches.
+
+        Weight 1 inside a target gap and 0 outside, which is the in-silico
+        case: a gap is a total deficit. A BAM-derived weight per base slots in
+        here unchanged once selection reads it.
+
+        In [0, 1] by construction, so it cannot report progress as regression
+        the way a count of gaps did.
+        """
+        length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        total = 0.0
+        recovered = 0.0
+        for prefix, length in length_by_prefix.items():
+            spans = [
+                (g.start, min(g.end, length))
+                for g in target_gaps
+                if g.chromosome == prefix and g.start < length
+            ]
+            if not spans:
+                continue
+            weights = np.zeros(int(length), dtype=np.float64)
+            for start, end in spans:
+                weights[int(start) : int(end)] = 1.0
+            total += float(weights.sum())
+
+            positions = []
+            for primer in combined_set:
+                positions.extend(int(p) for p in self.cache.get_positions(prefix, primer, "both"))
+            if positions:
+                recovered += recovered_deficit(
+                    positions,
+                    weights,
+                    extension=self.coverage_reach,
+                    length=int(length),
+                    circular=bool(getattr(self, "fg_circular", False)),
+                    record_starts=self.cache.get_record_starts(prefix) or None,
+                )
+        if total <= 0:
+            return 0.0
+        return float(min(1.0, recovered / total))
+
     def _filter_candidates_to_gaps(
         self,
         candidates: List[str],
         target_gaps: List[CoverageGap],
     ) -> List[str]:
-        """Keep candidates with >=1 binding site inside any target gap.
+        """Keep candidates whose WINDOW can reach any target gap.
+
+        The intervals are the gaps dilated by one coverage reach, so a
+        candidate binding within a reach of a gap is kept: its modelled window
+        blankets part of the gap, and the old membership test threw away
+        exactly those. Finding F7.
+
+        This is a budget prescreen. It narrows what is scored and decides
+        nothing; `deficit_objective` ranks what survives by how much missing
+        depth it actually recovers.
 
         Gaps are grouped by chromosome (== fg prefix). For each candidate, its
-        binding positions on that prefix are tested against the gap intervals
-        with a vectorized ``np.searchsorted``. A gap whose ``end`` exceeds the
-        genome length (a circular wrap gap) is split into ``[start, length)``
-        and ``[0, end-length)`` before testing.
+        binding positions on that prefix are tested against the dilated
+        intervals with a vectorized ``np.searchsorted``. A gap whose ``end``
+        exceeds the genome length (a circular wrap gap) is split into
+        ``[start, length)`` and ``[0, end-length)`` before dilation.
         """
         # Build per-prefix sorted interval bounds, expanding wrap gaps.
         length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
@@ -545,12 +611,16 @@ class PrimerExpander:
             else:
                 intervals.append((g.start, g.end))
 
-        # Pre-sort starts/ends per prefix for searchsorted.
+        # Dilate by one reach and merge, then pre-sort for searchsorted.
         prepared = {}
         for prefix, intervals in bounds_by_prefix.items():
-            intervals.sort()
-            starts = np.array([s for s, _ in intervals], dtype=np.int64)
-            ends = np.array([e for _, e in intervals], dtype=np.int64)
+            widened = dilate_intervals(
+                intervals,
+                reach=self.coverage_reach,
+                length=length_by_prefix.get(prefix, max(e for _, e in intervals)),
+            )
+            starts = np.array([s for s, _ in widened], dtype=np.int64)
+            ends = np.array([e for _, e in widened], dtype=np.int64)
             prepared[prefix] = (starts, ends)
 
         kept = []
