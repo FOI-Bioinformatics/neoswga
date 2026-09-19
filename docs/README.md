@@ -128,6 +128,7 @@ Measurement records backing specific claims and defaults elsewhere in the docs:
 | Document | Description |
 |----------|-------------|
 | [Additive specificity](validation/additive_specificity.md) | The additive-to-specificity lever, measured end to end |
+| [Occupancy and discrimination](validation/occupancy_and_discrimination_2026-09-19.md) | Why the pool cannot discriminate, and why a candidate gate is not the fix |
 | [Stage 1 objective](validation/stage_one_objective_2026-09-19.md) | What selecting Stage 1 on the accepted coverage metric buys, and costs |
 | [Frontier refill on optimize](validation/frontier_refill_on_optimize_2026-09-19.md) | Why `optimize` does not refill its candidate frontier |
 | [Reach calibration](validation/reach_calibration.md) | Per-primer extension reach fitted to a published outcome |

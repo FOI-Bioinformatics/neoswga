@@ -1235,14 +1235,55 @@ package, because nothing in the search uses it.
     None on every default run -- silently undoing the Phase 6 fix recorded in
     `attach_search_config`. Four tests caught it; keep the two names apart.
 
-17. **A Tm window is the wrong candidate gate for an isothermal reaction** --
-    found 2026-09-18, not acted on. Every polymerase default floor sits 5 to 17
-    C below its reaction temperature (phi29 -10, equiphi29 -5, bst -13, klenow
-    -17), so the pool is padded with primers whose occupancy at the reaction
-    temperature is 0.002 to 0.13, and no bound excludes the saturated primers
-    that cannot discriminate a mismatch. There is no occupancy gate anywhere;
-    `occupancy_ranking` is the nearest thing and it ranks on background load
-    rather than on whether the candidate binds the target.
+17. **The pool cannot discriminate, and the candidate filter is not the fix**
+    -- measured 2026-09-19. Half of this entry's original diagnosis does not
+    survive measurement, and the remedy it implied makes panels worse.
+
+    **The floor is not padding the pool.** phi29's default floor does sit 10 C
+    below its reaction temperature, but at k = 12 there is nothing down there:
+    of 40,000 random 12-mers, 8 fall in the Tm 20-25 band (0.02%). Moving the
+    floor changes essentially nothing.
+
+    **Saturation is real and severe.** 86% of random 12-mers sit at or above
+    0.998 occupancy at phi29 30 C, where a 4 C mismatch penalty leaves
+    discrimination -- matched over single-mismatch occupancy -- at 1.01 or
+    less. On the real Wolbachia shortlist, 65% of 2,000 candidates are above
+    0.99 occupancy and mean discrimination is 1.11. Specificity in such a pool
+    is a property of where sites fall, not of binding.
+
+    **But gating on occupancy delivers a worse panel.** Measured at n=12 with
+    the candidate list authoritative: capping occupancy at 0.95 raises the
+    delivered panel's discrimination 1.098 to 1.400 and costs coverage 0.7334
+    to 0.4397, selectivity density 25.62 to 6.60, with host sites RISING 149 to
+    237. Discrimination lives in a tail too small to build a panel from --
+    candidates above 2 are 1.6% of the space at k = 12 and 30 C.
+
+    **The lever that works is the reaction.** Same 20,000 12-mers: phi29 30 C
+    gives mean discrimination 1.065 with 1.6% above 2; DMSO 10% plus betaine
+    1.5 M gives 1.374 and 11.3%; equiphi29 at 42 C gives 2.190 and 36.0%.
+    Nothing about the candidates changes in any row. Saturation is a
+    phi29-at-30-C problem, not a filtering problem.
+
+    So what ships is a measurement, not a gate. `occupancy.discrimination_profile`
+    computes the regime and `log_discrimination_profile` reports it at the end
+    of `filter`, warning below `DISCRIMINATION_FLOOR` (1.5, between the two
+    measured regimes) and naming the lever that works and the one that does
+    not. No candidate is filtered and no delivered panel moves
+    ([measurement](docs/validation/occupancy_and_discrimination_2026-09-19.md)).
+
+    There is still no occupancy gate anywhere, and that is now a decision
+    rather than an omission; `occupancy_ranking` remains the nearest thing and
+    ranks on background load rather than on whether the candidate binds the
+    target. Untested: whether a discrimination TERM in selection, as opposed to
+    a gate on the pool, would help.
+
+    A methodological note worth keeping. The first run of the gate experiment
+    appeared to show density IMPROVING to 44.28. It did not:
+    `open_source_or_list` prefers the inventory over the supplied list, so
+    swapping `step3_df.csv` only set the frontier SIZE and the run searched the
+    inventory as usual. The apparent gain was the smaller frontier. It was
+    caught by checking that the delivered primers were actually in the capped
+    pool -- none of them were.
 
     The consequence for the additive lever is measured in the audit. Occupancy
     and mismatch discrimination move in opposite directions along the Tm axis,
