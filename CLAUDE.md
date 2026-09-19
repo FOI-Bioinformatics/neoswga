@@ -1333,11 +1333,30 @@ package, because nothing in the search uses it.
     A prefix the cache cannot answer for is now ABSENT from `strand_stats`
     rather than zero, and the two headline scalars are `None` rather than 0.0.
     They were initialised to 0.0 and left there, so a zero meant either
-    "measured zero" or "never asked" -- and a one-site panel genuinely scores
-    0.0 for alternation, so the two could not be told apart by value. That is
-    why the strand figures are still NOT constrainable: fixing the ambiguity is
-    what a limit on them would need, and this closes half of it (the metrics
-    side) without yet auditing every consumer.
+    "measured zero" or "never asked".
+
+    **The source was fixed on 2026-09-19 and the consumers audited.** A
+    one-site panel does NOT genuinely score 0.0 for alternation, which an
+    earlier note here got wrong: alternation is the fraction of ADJACENT site
+    pairs on opposite strands, so below two sites there is no pair and the
+    fraction is 0/0. `compute_strand_alternation_stats` now returns None there,
+    while two same-strand sites still return a measured 0.0.
+    `strand_coverage_ratio` is min/max over the two strand counts and needs
+    only one site, so it is None only with no sites at all; a lone forward site
+    really is maximally unbalanced. The gap figures keep the genome length,
+    which encodes "no convergent pair anywhere" rather than a missing
+    measurement, and `worst_convergent_gap` reads it that way.
+
+    Every consumer was checked and none needed changing: `panel_regime._as_float`
+    and `report/metrics._safe_float` preserve None, `headline_strand_scalars`
+    already returned `(None, None)`, and the technical report skips a row whose
+    value is None. Pinned by
+    `tests/test_strand_scores_say_when_they_are_unmeasurable.py`.
+
+    They are still NOT constrainable, but the reason is now different: no
+    threshold has a reference, which is why `max_worst_hole` and
+    `max_host_coverage` ship unset rather than defaulted. Adding a strand limit
+    is a decision about evidence, not a blocked repair.
 
     `bg_coverage` is the only computed quantity that sees background site
     POSITION. `selectivity_density` and `total_bg_sites` are additive in

@@ -823,11 +823,27 @@ class PositionCache:
                 sites.append((int(pos), "reverse"))
 
         if len(sites) < 2:
+            # Alternation is the fraction of ADJACENT site pairs on opposite
+            # strands. With fewer than two sites there is no adjacent pair, so
+            # the fraction is 0/0 -- absent, not zero. A panel whose two sites
+            # are both forward genuinely scores 0.0, and the two must stay
+            # distinguishable: a limit on this would otherwise reject a panel
+            # for a missing measurement while reporting a violated constraint,
+            # which is why these are not constrainable (Known Issue 18).
+            #
+            # The coverage ratio is min(fwd, rev) / max(fwd, rev) and needs one
+            # site, not two. A single forward site really is maximally
+            # unbalanced, so 0.0 there is a measurement worth keeping; only the
+            # no-sites case is undefined.
+            #
+            # The gaps keep the genome length. That is not a missing
+            # measurement but a conservative encoding of "no convergent pair
+            # anywhere", and `worst_convergent_gap` reads it that way.
             return {
                 "strand_alternation_gap_mean": float(genome_length),
                 "strand_alternation_gap_max": float(genome_length),
-                "strand_alternation_score": 0.0,
-                "strand_coverage_ratio": 0.0,
+                "strand_alternation_score": None,
+                "strand_coverage_ratio": 0.0 if sites else None,
                 "longest_same_strand_run": len(sites),
             }
 

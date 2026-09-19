@@ -46,11 +46,20 @@ _AT_MOST = "at_most"
 # their original position because `pool_planner._repair` takes `reasons[0]` as
 # the reason it records.
 #
-# Two quantities are deliberately absent. `strand_coverage_ratio` and
-# `strand_alternation_score` read 0.0 both when measured zero and when the
-# position cache could not supply them, and nothing distinguishes the two, so a
-# limit on either would reject a panel for a MISSING MEASUREMENT while reporting
-# a violated constraint. That is the failure Known Issues 5, 6 and 13 record.
+# Two quantities are deliberately absent, and the reason changed on
+# 2026-09-19. `strand_coverage_ratio` and `strand_alternation_score` used to
+# read 0.0 both when measured zero and when they could not be measured, so a
+# limit on either would have rejected a panel for a MISSING MEASUREMENT while
+# reporting a violated constraint -- the failure Known Issues 5, 6 and 13
+# record. That ambiguity is now fixed at the source: alternation is None below
+# two sites, where there is no adjacent pair to score, and the ratio is None
+# only with no sites at all.
+#
+# They stay out because no threshold has a reference. That is the same reason
+# `max_worst_hole` and `max_host_coverage` ship unset rather than defaulted,
+# and adding a limit nobody can choose a value for would be worse than the
+# reporting the regime table already gives. Adding them is now a decision
+# about evidence rather than a blocked repair.
 # The dimer limit is absent for a different reason: it is a hard constraint on
 # the delivered panel rather than a scoring term, and folding it in among these
 # is how it became tradeable.
