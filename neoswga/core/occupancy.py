@@ -35,6 +35,7 @@ phi29 at 30 C when specificity is the binding constraint.
 """
 
 import math
+from dataclasses import dataclass
 from typing import Optional
 
 from neoswga.core.thermodynamics import R
@@ -150,3 +151,128 @@ def weighted_site_load(primers, prefixes, conditions, max_mismatches: int = 1) -
                     dh, mismatch_tm(tm, distance, penalty), conditions.temp
                 )
     return total
+
+
+# Below this mean discrimination the pool cannot tell a true site from a
+# single-mismatch one, so specificity is not being selected for whatever the
+# search does. Measured on 40,000 random 12-mers (2026-09-19): phi29 at 30 C
+# gives 1.065 with 85.6% of candidates above 0.99 occupancy, and equiphi29 at
+# 42 C gives 2.190 with 24.2%. The floor sits between the two regimes.
+DISCRIMINATION_FLOOR = 1.5
+
+# Occupancy above which a site is bound essentially all the time, so a
+# mismatch cannot reduce it much and the primer stops discriminating.
+SATURATED_OCCUPANCY = 0.99
+
+
+@dataclass(frozen=True)
+class DiscriminationProfile:
+    """How well a candidate pool separates its target sites from near-misses.
+
+    Reported, never enforced. Gating candidates on occupancy was measured on
+    the Wolbachia pool and made the delivered panel worse on both axes --
+    coverage 0.7334 to 0.4397 and selectivity density 25.62 to 6.60 at n=12,
+    with host sites rising -- because discrimination lives in a tail too small
+    to build a panel from. See
+    docs/validation/occupancy_and_discrimination_2026-09-19.md.
+    """
+
+    n: int
+    mean_discrimination: float
+    saturated_fraction: float
+    saturated: bool
+    advice: str
+
+
+def discrimination_profile(primers, conditions) -> "DiscriminationProfile":
+    """Mean matched-over-mismatched occupancy across a candidate pool.
+
+    `None` conditions means no temperature at which to evaluate occupancy. An
+    empty profile is returned rather than a fabricated number, which would read
+    exactly like a measured one.
+    """
+    from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+
+    empty = DiscriminationProfile(0, 0.0, 0.0, False, "")
+    if conditions is None or not primers:
+        return empty
+
+    temp = getattr(conditions, "temp", None)
+    if temp is None:
+        return empty
+
+    ratios, saturated = [], 0
+    for primer in primers:
+        try:
+            dh, _ = calculate_enthalpy_entropy(str(primer))
+            tm = conditions.calculate_effective_tm(str(primer))
+        except Exception:
+            continue
+        matched = site_occupancy(dh, tm, temp)
+        mismatched = site_occupancy(dh, mismatch_tm(tm, 1), temp)
+        if mismatched <= 0:
+            continue
+        ratios.append(matched / mismatched)
+        if matched > SATURATED_OCCUPANCY:
+            saturated += 1
+
+    if not ratios:
+        return empty
+
+    mean = float(sum(ratios) / len(ratios))
+    fraction = saturated / len(ratios)
+    is_saturated = mean < DISCRIMINATION_FLOOR
+    advice = ""
+    if is_saturated:
+        advice = (
+            f"This pool cannot discriminate: mean matched/mismatched occupancy "
+            f"is {mean:.2f} and {fraction:.0%} of candidates are bound more "
+            f"than {SATURATED_OCCUPANCY:.0%} of the time, so a single-mismatch "
+            f"site is almost as well bound as a true one. Specificity is not "
+            f"being selected for, whatever the optimizer does. The lever that "
+            f"moves this is the reaction, not the candidate filter: a warmer "
+            f"polymerase (equiphi29 at 42 C measures 2.19 against phi29's 1.07 "
+            f"at 30 C) or an additive (DMSO 10% with betaine 1.5 M reaches "
+            f"1.37). Narrowing the Tm window instead was measured and delivers "
+            f"a worse panel."
+        )
+    return DiscriminationProfile(len(ratios), mean, fraction, is_saturated, advice)
+
+
+def log_discrimination_profile(primers, conditions=None) -> "DiscriminationProfile":
+    """Report whether a candidate pool can discriminate, and how to fix it.
+
+    Known Issue 17. Reported, never enforced: gating candidates on occupancy
+    was measured on the Wolbachia pool and delivers a worse panel on both axes
+    (docs/validation/occupancy_and_discrimination_2026-09-19.md). What a user
+    can act on is the reaction, so the message names that lever and warns
+    against the one that does not work.
+
+    Best-effort. A diagnostic must never fail the step that produced the pool
+    it is describing.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    try:
+        if conditions is None:
+            from neoswga.core import parameter
+            from neoswga.core.reaction_conditions import build_reaction_conditions
+
+            # The same builder the filter's other thermodynamic gates use, so
+            # this describes the reaction the candidates were judged under.
+            conditions = build_reaction_conditions(parameter)
+        profile = discrimination_profile(primers, conditions)
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        log.debug(f"Could not profile pool discrimination: {exc}")
+        return DiscriminationProfile(0, 0.0, 0.0, False, "")
+
+    if profile.n:
+        log.info(
+            "Pool discrimination: mean matched/mismatched occupancy "
+            f"{profile.mean_discrimination:.2f}, "
+            f"{profile.saturated_fraction:.0%} of candidates saturated."
+        )
+    if profile.saturated:
+        log.warning(profile.advice)
+    return profile
