@@ -253,7 +253,17 @@ def run_calibrate_reach(args):
 
     logger.info(f"Fitting reach on {prefix} ({contig}, {length:,} bp, {len(positions)} sites)")
     depth = compute_bam_depth(args.bam, contig, length)
-    fit = fit_reach(depth, positions, contig=contig)
+    # A prefix is one FASTA file, so its coordinate space may concatenate
+    # several records. Bins must not straddle a join, and the kernel may only
+    # wrap when there is exactly one molecule for it to wrap around.
+    record_starts = cache.get_record_starts(prefix)
+    fit = fit_reach(
+        depth,
+        positions,
+        contig=contig,
+        record_starts=record_starts,
+        circular=bool(getattr(parameter, "fg_circular", False)) and len(record_starts) <= 1,
+    )
 
     print(format_reach_table(fit))
 

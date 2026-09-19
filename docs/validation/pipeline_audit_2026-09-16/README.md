@@ -239,6 +239,42 @@ apparent whole-genome recovery.
 
 ### F9 — P2: reach fitting is exploratory and fails for short input
 
+**FIXED 2026-09-19.** Handled, with the statistical half the more consequential.
+
+- A target shorter than one bin returns a non-informative result naming the bin
+  count, in place of the raw numpy `ValueError`.
+- Bins are formed with `np.add.reduceat` from per-record start offsets, so the
+  trailing remainder counts and no bin spans a join between two records of a
+  concatenated prefix. A 10,500 bp target now yields 11 bins, not 10.
+- `predicted_depth(..., circular=True)` wraps the kernel. The clipped form
+  loses a share of each near-boundary triangle that GROWS with the reach being
+  tested: for a site 5 kb in, 0.0% at reach 3 kb, 12.5% at 10 kb, 36.7% at
+  35 kb and 43.1% at 70 kb -- a bias against exactly the large reaches the fit
+  exists to weigh. It is refused, with a note, for a multi-record prefix, where
+  the end of the last record is not adjacent to the start of the first.
+- `correlation` is relabelled in-sample everywhere it is reported, and
+  `cv_correlation` reports the same quantity under spatially blocked
+  cross-validation: each fold re-runs the whole grid selection on the remaining
+  bins and scores the reach it picks on a contiguous block it never saw. Blocks
+  are contiguous rather than interleaved because neighbouring bins share
+  binding sites and mappability.
+- `plausible_reaches` carries every grid point within 0.02 rho of the winner,
+  and `at_grid_edge` flags an optimum at the top of the grid.
+
+**Measured, and it qualifies the fix.** On null depth over twelve seeds the
+in-sample maximum averages +0.058 where the truth is zero -- about a third of
+the 0.15 informativeness threshold, purely from selecting among eleven
+candidates. But that bias is not larger than the fold-to-fold noise in the
+held-out estimate (sd 0.052), so the held-out figure landed ABOVE the in-sample
+one on 2 of 12 seeds. The pair is therefore a stability check, not a corrected
+value, and the documentation says so rather than claiming cross-validation
+removes the optimism. `tests/test_reach_fitting_is_honest.py` asserts the mean
+across seeds for that reason, not an inequality on one.
+
+The remaining model limits below are unchanged and still stand: the kernel is
+symmetric and identical for every site, and the result is a model parameter
+fitted to one dataset rather than a measured constant of the polymerase.
+
 **Executed reproduction:** `fit_reach` with 500 depth values and the default
 1,000-base bins raises `cannot reshape array of size 500 into shape (1,1000)`
 (`neoswga/core/reach_calibration.py:130`). Longer non-divisible inputs discard
