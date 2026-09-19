@@ -19,6 +19,29 @@ removing QC would not establish a better design: search budgets should be
 explicit, biological constraints should remain enforced, and pool quality
 must be defined against coverage and specificity together.
 
+## Status as of 2026-09-19
+
+The conclusion above records what the audit found on 16 September and is left
+as written. Each finding below now carries its own verified status; this is the
+summary.
+
+| Finding | Status | What remains |
+|---|---|---|
+| F1 | Partly fixed | All three commands open the shared inventory source, but only `plan-pool` reaches past the initial frontier. `optimize` and `expand-primers` still search a shortlist-sized universe |
+| F2 | Mostly fixed | A coverage-target miss now triggers repair. The Stage 1 greedy still takes no occupancy objective (Known Issue 16) |
+| F3 | Fixed | -- |
+| F4 | Fixed | -- |
+| F5 | Fixed | -- |
+| F6 | Fixed | -- |
+| F7 | Fixed | -- |
+| F8 | Fixed | -- |
+| F9 | Fixed | The fitted reach stays a model parameter for one dataset; that is a property of the method, not a defect left open |
+
+F1 and F2 were checked against the code rather than against commit titles, and
+both turned out narrower than the commits that closed them suggest. The
+headline claim of F1 -- that candidates beyond the `max_primer` shortlist
+cannot improve a default design -- still holds for `optimize`.
+
 ## Verification
 
 - **98 existing focused tests passed**, including the small end-to-end pipeline,
@@ -43,6 +66,23 @@ audit environment. Temporary references, indexes and BAMs are removed on exit.
 
 ### F1 — P1: retained candidates are not reached by normal optimization
 
+**PARTLY FIXED, verified 2026-09-19.** `core/candidate_source.py` holds the one
+rule all three commands ask: `plan-pool` (`cli/plan_pool.py:66`), `optimize`
+(`core/unified_optimizer.py:815`) and `expand-primers`
+(`core/primer_expansion.py:926`) open the inventory when the directory has one
+and the supplied list otherwise, and the run logs eligible, frontier and
+unexamined counts.
+
+**What is NOT fixed:** the frontier opens at exactly the size of the list the
+command would have read anyway, and only `plan-pool` reaches past it --
+`pool_planner.py:446-475` is the sole caller of `source.advance()`. `optimize`
+and `expand-primers` take `source.initial()` and stop. So on the Wolbachia
+example the 489,836 candidates beyond the 2,000-primer shortlist are still
+unreachable by a default `optimize`, which is this finding's stated effect. What
+changed for those two commands is the ORDER and the reporting, not the reach.
+Closing it means giving them a refill trigger the way `max_frontier_refills`
+gives one to a size row.
+
 **Source evidence:** `neoswga/cli/plan_pool.py:78-85` reads `step3_df.csv` unless
 an explicit CSV is supplied. `neoswga/core/unified_optimizer.py:953-956` does the
 same for standard `optimize`. Neither path constructs a `CandidateProvider` or
@@ -63,6 +103,23 @@ the only primer covering a required interval is outside the initial shortlist.
 Do not solve this by eagerly loading every pairwise dimer relationship.
 
 ### F2 — P1: coverage-target failures do not trigger condition-aware improvement
+
+**MOSTLY FIXED, verified 2026-09-19.** `pool_planner.py:277-278` now reads
+`if repair and (reasons or missed is not None)`, where `missed` is
+`max(targets)` when the delivered coverage falls short of it, so a coverage
+miss triggers repair with no constraint violated. The most demanding target
+drives it, because repairing to the lowest would leave every higher row
+reporting `not_found` beside a panel never asked to reach it. The beam is no
+longer gated on a whole-pool bound it could not meet: `_beam_candidates`
+slices the pool to what the remaining budget affords, and the record says
+`not affordable within the remaining budget` when even that does not fit.
+`refine_hybrid_stage2` receives the objective as of 2026-09-18 (see CLAUDE.md,
+"The objective never reached the stage that refines").
+
+**What is NOT fixed:** this finding's remark that "the dominating-set
+initializer also receives no occupancy objective" still holds. `optimize_greedy`
+accepts an `objective` and no production caller supplies one; that is tracked
+as Known Issue 16 in CLAUDE.md, with the measurement of what it costs.
 
 **Source evidence:** `neoswga/core/pool_planner.py:235` runs repair only when
 `reasons` is nonempty. These reasons cover specificity, missing coverage and
@@ -96,6 +153,17 @@ the whole search; do not present this fallback as exhaustive exploration.
 
 ### F3 — P1: inventory eligibility can outlive the QC decision that created it
 
+**FIXED, verified 2026-09-19.** Two changes, and the finding needed both.
+`qc_policy_fingerprint` (`core/candidate_inventory.py:49`) digests the RESOLVED
+hard-QC thresholds rather than naming a policy version, so two runs with
+different GC, Tm or frequency limits no longer share a verdict; an absent
+threshold is encoded distinctly from one set to its default, because "not
+configured" and "configured to the default" are different statements about what
+was enforced. And assessments carry a `generation`, with `iter_eligible`
+returning only `MAX(generation)` for the condition and policy, so a survivor of
+an earlier, looser run is no longer eligible after a stricter one.
+`tests/test_inventory_eligibility_expires.py` pins it.
+
 **Source evidence:** `record_stage2_inventory`
 (`neoswga/core/candidate_inventory.py:236`) only upserts current survivors as
 passing. It does not invalidate prior survivors absent from the new run.
@@ -118,6 +186,14 @@ directory, not only independent writes into empty databases.
 
 ### F4 — P1: `--design-grid` is accepted but not executed
 
+**FIXED, verified 2026-09-19.** `cli/plan_pool.py:294` reads `args.design_grid`
+and dispatches to `_run_design_grid`, which calls `load_grid_file` and
+`design_sweep` and writes `design_sweep.json`. A condition the filter never
+recorded is reported as having no eligible candidate rather than designed over
+an empty pool, which is the "distinguish unassessed from assessed-and-failed"
+half of the correction. Its entries are gone from both the inert-option and
+unreachable-capability allowlists, so the two ratchets now hold it.
+
 **Source evidence:** `neoswga/cli/plan_pool.py:237` advertises independent
 designs across lengths and conditions. `run_plan_pool` never reads
 `args.design_grid` or calls `load_grid_file`/`design_sweep`. The helpers exist,
@@ -134,6 +210,24 @@ and distinguish unassessed from assessed-and-failed. Test invocation of the
 actual CLI with two conditions and verify two independently designed results.
 
 ### F5 — P1: `all_qc` can still fail at Gini; `post_gini` eligibility is inconsistent
+
+**FIXED, verified 2026-09-19.** Both halves, separately.
+
+`core/stage2_recording.py:95-123` indexes the background and records the
+inventory BEFORE `check_gini_stage_kept_something` runs. The guard still
+raises with the same message, but under `all_qc` a run where evenness happened
+to be unmeasurable no longer aborts before a single inventory row is written.
+Those candidates had cleared every declared requirement; what they had not done
+was bind often enough for their spacing to be measured, which is what
+`min_gini_sites` exists to say is not a judgement about them.
+`tests/test_all_qc_seeds_before_the_evenness_guard.py` pins it.
+
+The eligible set and the indexed set are now the same set in both modes, pinned
+by `tests/test_post_gini_admits_only_what_it_indexes.py`. `post_gini` is an
+ADMISSION policy, not an indexing budget: a candidate missing the evenness gate
+is recorded with an explicit failed assessment naming it and is not eligible.
+The mode is part of the admission-policy digest, so switching it opens a new
+generation rather than inheriting the other mode's verdicts.
 
 **Source evidence:** `neoswga/core/pipeline.py:1336` calls the empty-Gini guard
 before inventory recording at line 1360, regardless of retention mode.
