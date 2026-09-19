@@ -128,6 +128,7 @@ Measurement records backing specific claims and defaults elsewhere in the docs:
 | Document | Description |
 |----------|-------------|
 | [Additive specificity](validation/additive_specificity.md) | The additive-to-specificity lever, measured end to end |
+| [Frontier refill on optimize](validation/frontier_refill_on_optimize_2026-09-19.md) | Why `optimize` does not refill its candidate frontier |
 | [Reach calibration](validation/reach_calibration.md) | Per-primer extension reach fitted to a published outcome |
 | [Published primer sets](validation/published_primer_sets.md) | Scoring checked against seven wet-lab datasets |
 | [Tool comparison](validation/tool_comparison.md) | NeoSWGA against swga 1.0, swga 2.0/soapswga and COATswga |
