@@ -180,6 +180,13 @@ the fix; `num_primers` in params.json is the way to ask for more meanwhile.
   site is one-sided and strand-determined; measured on Prevotella, symmetric
   overstates coverage by 4-14% (growing with set size, shrinking with reach).
   Correcting it would move the fitted reach up slightly.
-- **A BAM would settle this properly.** `calibrate-reach --bam` fits the reach
-  from sequencing depth directly, without the breadth-at-depth proxy or the
-  single-outcome dependence.
+- **A BAM narrows this, but does not settle it.** `calibrate-reach --bam` fits
+  the reach from sequencing depth directly, without the breadth-at-depth proxy
+  or the single-outcome dependence. What it returns is still a model parameter
+  fitted to one dataset, not a measured constant of the polymerase: the reach
+  is chosen by maximising Spearman rho over an eleven-point grid, and on null
+  depth that maximum averages +0.058 where the truth is zero (twelve seeds),
+  about a third of the 0.15 informativeness threshold. The command reports a
+  blocked cross-validated rho beside the in-sample one and a `plausible_reaches`
+  range so the fit can be read as the centre of a sensitivity analysis. Treat a
+  single fitted number the same way the 3.0-6.2 kb range above is treated.
