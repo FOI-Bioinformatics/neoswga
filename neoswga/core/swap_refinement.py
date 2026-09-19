@@ -52,6 +52,58 @@ def attach_search_config(optimizer, name, value):
         setattr(inner, name, value)
 
 
+def stage1_objective(optimizer):
+    """The objective Stage 1's set cover selects on, or None.
+
+    Known Issue 16: `optimize_greedy` accepts one and no production caller
+    supplied it, so the stage that CHOOSES the panel ranked on unweighted
+    coverage bins while the design was accepted on occupancy-weighted
+    coverage. Occupancy depends only on the primer, so the two disagree by the
+    ratio of two candidates' occupancies, and across the pool the Tm gate
+    admits that ratio is 1.8 on phi29 at 30 C but 7.8 on equiphi29 at 42 C.
+
+    An attached `pool_objective` wins, because a design carrying constraints
+    must be searched on the objective those constraints live in. Otherwise a
+    constraint-free one is built: the value here is not the constraints, it is
+    the coverage METRIC.
+
+    None when the optimizer cannot measure metrics, or when it has no reaction
+    conditions and so no temperature at which to evaluate occupancy -- an
+    objective whose `coverage` is None scores every candidate as zero gain,
+    which is worse than not supplying one.
+    """
+    from neoswga.core.pool_objective import PoolConstraints, PoolObjective
+
+    # OFF unless a width is configured. Measured on the Wolbachia design at
+    # n=6/12/24: it improves the metric it selects on (effective coverage
+    # +0.007/+0.014/+0.058) and costs specificity every time (density -1.6,
+    # -6.5, -7.6; host sites 261 to 456 at n=24) for 3.5-8.4x the runtime.
+    # That is a trade, not an improvement, so the shipped default keeps the
+    # unweighted bin count and a user who wants coverage asks for this.
+    if getattr(getattr(optimizer, "config", None), "stage1_objective_width", None) is None:
+        return None
+
+    attached = getattr(optimizer, "pool_objective", None)
+    if attached is not None:
+        return attached
+
+    evaluate = getattr(optimizer, "compute_metrics", None)
+    if evaluate is None:
+        return None
+
+    # Without reaction conditions there is no temperature at which to evaluate
+    # occupancy, so `effective_fg_coverage` is None and `_objective_gain`
+    # reads zero for EVERY candidate -- the greedy then has nothing to prefer
+    # and selects an empty panel. Measured, not guessed:
+    # `test_base_optimizer_adapter_produces_comparable_metrics` builds an
+    # optimizer with no conditions and went from a 5-primer panel to none at
+    # all. An objective that cannot measure the accepted quantity is worse
+    # than no objective, so the bin count stays in charge here.
+    if getattr(optimizer, "conditions", None) is None:
+        return None
+    return PoolObjective(evaluate, PoolConstraints())
+
+
 def coverage_bins(optimizer, pool):
     """The optimizer's coverage decomposition, as plain bins and weights.
 

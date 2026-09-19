@@ -39,6 +39,7 @@ import numpy as np
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.hybrid_optimizer import HybridOptimizer, HybridResult
 from neoswga.core.network_optimizer import NetworkOptimizer
+from neoswga.core.swap_refinement import attach_search_config, stage1_objective
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,11 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
 
         if self.config.verbose:
             logger.info(f"Running background-aware optimization: {len(candidates)} candidates")
+
+        # Stage 1 selects on the accepted quantity, not on unweighted coverage
+        # bins (Known Issue 16). Via `attach_search_config` because the stage
+        # that reads it belongs to the inner optimizer this delegates to.
+        attach_search_config(self, "stage1_pool_objective", stage1_objective(self))
 
         try:
             result = self._hybrid.optimize(

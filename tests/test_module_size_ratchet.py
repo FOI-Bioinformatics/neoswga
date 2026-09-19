@@ -35,6 +35,14 @@ _BUDGETS = {
     # into its three stages is still the right answer for the residue.
     "core/hybrid_optimizer.py": 1650,
     "core/unified_optimizer.py": 1650,
+    # Reviewed 2026-09-19, +1 for `stage1_objective_width`. parameter.py sat at
+    # exactly 1600, so ANY new params.json key costs a line: the key needs a
+    # module global because `unified_optimizer.pick` resolves through
+    # `getattr(parameter, name)`. One `global` declaration was folded into an
+    # adjacent one to pay for half of it. This ceiling is a holding action --
+    # the module is a flat list of per-key assignments and wants splitting by
+    # concern (thermodynamics, dimers, search budgets), not another +1.
+    "core/parameter.py": 1601,
 }
 
 # Any other single module should stay below this. The current second-largest

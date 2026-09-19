@@ -339,6 +339,12 @@
       "minimum": 0,
       "default": 10000
     },
+    "stage1_objective_width": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "default": null,
+      "description": "Candidates per pick that Stage 1's set cover scores with the full objective, selecting on occupancy-weighted coverage instead of unweighted bins. null (default) keeps the bin count. Measured: turning it on raises effective coverage and lowers selectivity density, at 3.5-8.4x the runtime. See docs/validation/stage_one_objective_2026-09-19.md."
+    },
     "swap_max_seconds": {
       "type": "number",
       "minimum": 0,

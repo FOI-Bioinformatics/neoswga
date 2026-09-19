@@ -100,6 +100,7 @@ class OptimizationConfig:
     allow_dimer_relaxation: bool = False
     refinement_method: str = "network"
     swap_max_evaluations: int = 10000
+    stage1_objective_width: Optional[int] = None
     swap_max_seconds: float = 10.0
     uniformity_weight: float = 0.0
     minimize_primers: bool = False
@@ -528,6 +529,7 @@ def _build_optimizer_config(
         allow_dimer_relaxation=pick("allow_dimer_relaxation", False),
         refinement_method=pick("refinement_method", "network"),
         swap_max_evaluations=pick("swap_max_evaluations", 10000),
+        stage1_objective_width=pick("stage1_objective_width", None),
         swap_max_seconds=pick("swap_max_seconds", 10.0),
         max_self_dimer_bp=pick("max_self_dimer_bp", 5),
         # `parameter.max_mismatches` is assigned by _apply_params_only_keys and
@@ -1340,6 +1342,7 @@ def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResu
         refinement_method=config.refinement_method,
         swap_max_evaluations=config.swap_max_evaluations,
         swap_max_seconds=config.swap_max_seconds,
+        stage1_objective_width=config.stage1_objective_width,
         fg_prefixes=config.fg_prefixes,
         fg_seq_lengths=config.fg_seq_lengths,
         bg_prefixes=config.bg_prefixes,

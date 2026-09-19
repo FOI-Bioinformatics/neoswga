@@ -340,6 +340,7 @@ class HybridOptimizer(ThermoScreenMixin):
         refinement_method: str = "network",
         swap_max_evaluations: int = 10000,
         swap_max_seconds: float = 10.0,
+        stage1_objective_width: Optional[int] = None,
     ):
         """
         Initialize hybrid optimizer.
@@ -445,21 +446,20 @@ class HybridOptimizer(ThermoScreenMixin):
         # Optional dimer stability floor, None is off; both stages need it.
         self.max_dimer_dg = max_dimer_dg
 
-        # Initialize both optimizers
         self.dominating_optimizer = DominatingSetOptimizer(
             cache=position_cache,
             fg_prefixes=fg_prefixes,
             fg_seq_lengths=fg_seq_lengths,
             bin_size=bin_size,
-            # Stage-1 coverage uses the realistic per-primer reach so the
-            # selection objective matches how the result is scored.
+            # The realistic per-primer reach, so selection matches scoring.
             extension_reach=self.coverage_reach,
-            # Omitting this let Stage 1 re-resolve its own threshold, so a
-            # config supplying 4 selected under 3 and reported against 4.
+            # Omitted, Stage 1 re-resolved its own threshold: a config
+            # supplying 4 selected under 3 and reported against 4.
             max_dimer_bp=self.max_dimer_bp,
             max_dimer_dg=self.max_dimer_dg,
             dimer_temp=float(reaction_temp or 37.0),
             allow_dimer_relaxation=allow_dimer_relaxation,
+            stage1_objective_width=stage1_objective_width,
         )
 
         self.network_optimizer = NetworkOptimizer(
@@ -718,6 +718,7 @@ class HybridOptimizer(ThermoScreenMixin):
             max_primers=stage1_new_count,
             fixed_primers=fixed_primers,
             verbose=verbose,
+            objective=getattr(self, "stage1_pool_objective", None),
         )
 
         stage1_runtime = time.time() - stage1_start
@@ -1458,6 +1459,7 @@ from neoswga.core.base_optimizer import (
     PrimerSetMetrics,
 )
 from neoswga.core.optimizer_factory import OptimizerFactory
+from neoswga.core.swap_refinement import attach_search_config, stage1_objective
 
 
 @OptimizerFactory.register("hybrid", aliases=["hybrid-optimizer", "two-stage"])
@@ -1555,6 +1557,7 @@ class HybridBaseOptimizer(BaseOptimizer):
             refinement_method=self.config.refinement_method,
             swap_max_evaluations=self.config.swap_max_evaluations,
             swap_max_seconds=self.config.swap_max_seconds,
+            stage1_objective_width=getattr(self.config, "stage1_objective_width", None),
             template_gc=kwargs.get("template_gc", 0.5),
         )
 
@@ -1583,6 +1586,20 @@ class HybridBaseOptimizer(BaseOptimizer):
             logger.info(f"Running hybrid optimization: {len(candidates)} candidates")
             if fixed_primers:
                 logger.info(f"  Fixed primers: {len(fixed_primers)}")
+
+        # Stage 1 picks the panel, so it can select on the quantity the design
+        # is accepted on rather than on unweighted coverage bins (Known Issue
+        # 16), when `stage1_objective_width` asks for it.
+        #
+        # A SEPARATE attribute from `pool_objective`, which Stage 2's swap
+        # refinement reads and which `plan_pool` attaches. Writing this one
+        # into that name overwrote the objective `plan_pool` had attached --
+        # with None on every default run -- which silently undid the Phase 6
+        # fix recorded in `attach_search_config`. Four tests caught it.
+        #
+        # `attach_search_config` because Stage 1 belongs to the INNER
+        # optimizer, and an attribute set here alone is invisible to it.
+        attach_search_config(self, "stage1_pool_objective", stage1_objective(self))
 
         try:
             result = self._hybrid.optimize(

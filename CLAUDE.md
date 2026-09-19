@@ -1180,8 +1180,8 @@ package, because nothing in the search uses it.
     not hold, so without that invalidation a candidate would keep answering
     with the zero it gave before its positions arrived.
 
-16. **The stage that picks the panel is the least informed one, and its remedy
-    is unwired** -- found 2026-09-18 (audit
+16. **The stage that picks the panel is the least informed one** -- WIRED and
+    measured 2026-09-19, and deliberately OFF by default (audit
     [pool_selection_audit_2026-09-18.md](docs/validation/pool_selection_audit_2026-09-18.md)).
     `optimize_greedy` takes an `objective`, and supplying it makes Stage 1
     select on occupancy-weighted coverage with a background tie-break instead
@@ -1204,6 +1204,36 @@ package, because nothing in the search uses it.
     `optimize_greedy` is reachable; a PARAMETER no caller supplies is invisible
     to it. This is a fifth route into Known Issue 8's class, and the list there
     should be read as covering options and capabilities but not arguments.
+
+    **Now reachable, as `stage1_objective_width` in params.json, defaulting to
+    None.** An integer turns the objective on and bounds its cost: the cheap
+    bin gain ranks every candidate and only that many leaders are scored. The
+    bound is not optional -- one `compute_metrics` call costs 36 ms on the
+    Wolbachia design, so a full scan is 14.4 minutes against 39 s for the whole
+    run, which is the likeliest reason this stayed unwired.
+
+    **It is off by default because measurement does not support switching it
+    on.** At n=6/12/24 it improves the metric it now selects on (effective
+    coverage +0.0073, +0.0139, +0.0583) and costs specificity every time
+    (density -1.64, -6.50, -7.60; host sites 261 to 456 at n=24) for 3.5x to
+    8.4x the runtime. With no width set the delivered panel is identical to
+    before, verified at n=12 to the last digit. Same resolution as Known Issue
+    11, for the same reason
+    ([measurement](docs/validation/stage_one_objective_2026-09-19.md)).
+
+    Two things the wiring clarified. `PoolObjective.coverage()` is coverage and
+    nothing else, and `_objective_gain` is a coverage delta, so constraints
+    reach Stage 1 only as a STOP rule and never as a selection criterion --
+    "select on the quantity the design is judged on" changes what COVERAGE
+    means, not whether specificity is weighed. And occupancy weighting favours
+    primers whose Tm sits near the reaction temperature, which is the same
+    property that makes them bind the host, so the unweighted bin count was
+    accidentally the more specific rule. That is Known Issue 17's axis.
+
+    Stage 1 uses `stage1_pool_objective`, NOT `pool_objective`. Writing it into
+    the latter overwrote the objective `plan_pool` attaches for Stage 2 -- with
+    None on every default run -- silently undoing the Phase 6 fix recorded in
+    `attach_search_config`. Four tests caught it; keep the two names apart.
 
 17. **A Tm window is the wrong candidate gate for an isothermal reaction** --
     found 2026-09-18, not acted on. Every polymerase default floor sits 5 to 17
