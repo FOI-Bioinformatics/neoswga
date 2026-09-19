@@ -770,6 +770,10 @@ def expand_primers(
             min_gap_size=min_gap_size,
             circular=fg_circular,
             contig_aliases=contig_aliases,
+            # Finding F8: without the FASTA layout a prefix is matched to one
+            # BAM contig, so a multi-record reference matches nothing and the
+            # gap list is silently empty.
+            fg_genomes=params.get("fg_genomes"),
         )
         if verbose:
             logger.info(f"BAM low-depth gaps: {len(bam_derived_gaps)}")

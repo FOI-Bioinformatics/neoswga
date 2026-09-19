@@ -331,6 +331,9 @@ def run_analyze_coverage(args):
                 min_gap_size=args.min_gap_size,
                 circular=fg_circular,
                 contig_aliases=aliases or None,
+                # Finding F8: a prefix is a FASTA file, not a contig, so
+                # without the layout a multi-record reference matches nothing.
+                fg_genomes=getattr(parameter, "fg_genomes", None),
             )
         except RuntimeError as e:
             logger.error(str(e))

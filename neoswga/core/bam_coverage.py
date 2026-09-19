@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
 from neoswga.core.primer_expansion import CoverageGap
+from neoswga.core.reference_layout import BoundRecords, read_layout, verify_layout
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,78 @@ def compute_bam_depth(bam_path: str, contig: str, length: int) -> np.ndarray:
     return depth
 
 
+@dataclass(frozen=True)
+class DepthProfile:
+    """Observed depth for one prefix, and where it could be observed at all.
+
+    `evaluable` is the half that did not exist. A base is evaluable when a BAM
+    record bound to its FASTA record at a matching length, so a zero in `depth`
+    means measured zero there and nothing at all elsewhere. Reporting the two
+    denominators together is what stops masking a hard region inflating
+    apparent recovery.
+    """
+
+    prefix: str
+    depth: np.ndarray
+    evaluable: np.ndarray
+    bound: "BoundRecords"
+
+    @property
+    def evaluable_bases(self) -> int:
+        return int(self.evaluable.sum())
+
+    @property
+    def total_bases(self) -> int:
+        return int(self.evaluable.size)
+
+
+def bam_depth_profile(
+    bam_path: str,
+    prefix: str,
+    fasta_path: str,
+    configured_length: Optional[int] = None,
+    record_starts: Optional[Sequence[int]] = None,
+    aliases: Optional[Dict[str, str]] = None,
+) -> DepthProfile:
+    """Depth in the prefix's concatenated space, with a non-evaluable mask.
+
+    Binds BAM references to FASTA RECORDS rather than mapping a prefix to a
+    contig, which is finding F8: a prefix is a file, not a contig, so a
+    multi-record reference matched nothing and the BAM contributed nothing.
+
+    A record whose length disagrees with the BAM's is refused rather than
+    accepted on its name, because that mismatch reported a whole record as zero
+    depth -- and zero depth is what BAM-guided expansion targets.
+    """
+    pysam = _require_pysam()
+    layout = read_layout(fasta_path, prefix=prefix)
+    verify_layout(layout, record_starts or [], configured_length)
+
+    with pysam.AlignmentFile(bam_path, "rb") as bam:
+        bam_lengths = {name: int(length) for name, length in zip(bam.references, bam.lengths)}
+
+    bound = layout.bind(bam_lengths, aliases=aliases)
+    depth = np.zeros(layout.total_length, dtype=np.int32)
+    evaluable = np.zeros(layout.total_length, dtype=bool)
+
+    for name in bound.matched:
+        record = layout.record(name)
+        record_depth = compute_bam_depth(bam_path, bound.bam_name_for[name], record.length)
+        depth[record.start : record.end] = record_depth
+        evaluable[record.start : record.end] = True
+
+    if bound.unmatched_records:
+        logger.warning(
+            "%d of %d record(s) in %s are not covered by the BAM (%s); their "
+            "bases are reported as NOT EVALUABLE rather than as zero depth.",
+            len(bound.unmatched_records),
+            len(layout.records),
+            os.path.basename(fasta_path),
+            ", ".join(bound.unmatched_records[:5]),
+        )
+    return DepthProfile(prefix=prefix, depth=depth, evaluable=evaluable, bound=bound)
+
+
 def find_low_depth_gaps(
     depth: np.ndarray,
     prefix: str,
@@ -203,6 +277,72 @@ def find_low_depth_gaps(
     return gaps
 
 
+def _bam_gaps_by_record(
+    bam_path,
+    fg_prefixes,
+    fg_seq_lengths,
+    fg_genomes,
+    min_depth,
+    min_gap_size,
+    circular,
+    contig_aliases,
+    record_starts_by_prefix,
+):
+    """Gaps found per RECORD, so none can span a join between two molecules.
+
+    A gap is sought inside each bound record's own span. Unbound records
+    contribute nothing: the BAM says nothing about them, and inventing a
+    coverage hole from absent evidence is the defect rather than the fix.
+
+    `circular` applies only to a genuinely single-record prefix. Wrapping the
+    first and last records of a multi-record file would join two molecules.
+    """
+    all_gaps: List[CoverageGap] = []
+    for prefix, length, genome in zip(fg_prefixes, fg_seq_lengths, fg_genomes):
+        profile = bam_depth_profile(
+            bam_path,
+            prefix=prefix,
+            fasta_path=genome,
+            configured_length=length,
+            record_starts=record_starts_by_prefix.get(prefix),
+            aliases=contig_aliases,
+        )
+        layout_records = {r.name: r for r in read_layout(genome, prefix=prefix).records}
+        single = len(layout_records) == 1
+        for name in profile.bound.matched:
+            record = layout_records[name]
+            gaps = find_low_depth_gaps(
+                profile.depth[record.start : record.end],
+                prefix,
+                min_depth,
+                min_gap_size,
+                circular=circular and single,
+            )
+            for gap in gaps:
+                all_gaps.append(
+                    CoverageGap(
+                        chromosome=prefix,
+                        start=gap.start + record.start,
+                        end=gap.end + record.start,
+                        size=gap.size,
+                    )
+                )
+        logger.info(
+            "BAM depth for %r: %d of %d bp evaluable across %d bound record(s); "
+            "%d gap(s) at min_depth=%d, min_gap_size=%d.",
+            prefix,
+            profile.evaluable_bases,
+            profile.total_bases,
+            len(profile.bound.matched),
+            len(all_gaps),
+            min_depth,
+            min_gap_size,
+        )
+
+    all_gaps.sort(key=lambda g: g.size, reverse=True)
+    return all_gaps
+
+
 def bam_gaps(
     bam_path: str,
     fg_prefixes: Sequence[str],
@@ -211,12 +351,34 @@ def bam_gaps(
     min_gap_size: int = 10000,
     circular: bool = False,
     contig_aliases: Optional[Dict[str, str]] = None,
+    fg_genomes: Optional[Sequence[str]] = None,
+    record_starts_by_prefix: Optional[Dict[str, Sequence[int]]] = None,
 ) -> List[CoverageGap]:
-    """Compute low-depth coverage gaps across all foreground contigs.
+    """Compute low-depth coverage gaps across all foreground prefixes.
 
     Returns ``CoverageGap`` objects keyed by ``fg_prefix`` (the same
     coordinate space as ``identify_gaps``), sorted largest-first.
+
+    With ``fg_genomes``, depth is bound per RECORD through
+    `reference_layout`, so a multi-record reference works, a gap cannot span a
+    join between two molecules, and a record the BAM does not cover yields no
+    gaps rather than a whole-record hole. Without it the old prefix-level
+    matching runs, which can only handle a single-record reference; a
+    multi-record one is named rather than returned as an empty list.
     """
+    if fg_genomes:
+        return _bam_gaps_by_record(
+            bam_path,
+            fg_prefixes,
+            fg_seq_lengths,
+            fg_genomes,
+            min_depth,
+            min_gap_size,
+            circular,
+            contig_aliases,
+            record_starts_by_prefix or {},
+        )
+
     pysam = _require_pysam()
 
     with pysam.AlignmentFile(bam_path, "rb") as bam:
@@ -225,7 +387,12 @@ def bam_gaps(
 
     mapping = match_contigs(bam_refs, bam_ref_lengths, fg_prefixes, fg_seq_lengths, contig_aliases)
     if not mapping:
-        logger.warning("No foreground contigs matched the BAM header; no BAM gaps produced.")
+        logger.warning(
+            "No foreground prefix matched the BAM header, so no BAM gaps were "
+            "produced. A prefix is a FASTA FILE and not a contig, so a "
+            "multi-record reference cannot match this way: pass fg_genomes so "
+            "the records can be bound individually."
+        )
         return []
 
     all_gaps: List[CoverageGap] = []
