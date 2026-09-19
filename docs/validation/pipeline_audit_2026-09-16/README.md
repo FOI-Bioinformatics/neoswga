@@ -160,6 +160,14 @@ from the measured count: a present zero-match entry is valid data.
 
 ### F6 — P2: count-table provenance misses interior reference changes
 
+**FIXED 2026-09-19** (`45d4610`). `genome_fingerprint` is the SHA-256 of the
+whole file, cached on `(st_size, st_mtime_ns)` so it costs one pass per input
+per run rather than one per k value. The algorithm is named in the sidecar as
+`digest_algorithm`, and a record written under the old partial hash is treated
+as UNKNOWN rather than as a mismatch -- without that distinction every existing
+data directory failed step 2 on upgrade with "counted from a different genome",
+which is both alarming and untrue (28 tests caught it).
+
 **Source evidence:** `genome_fingerprint`
 (`neoswga/core/kmer_counter.py:327`) hashes file size and first/last 1 MiB.
 
@@ -176,6 +184,15 @@ is not a full reference-identity check. Standard `optimize` also lacks the
 explicit `require_record_metadata` call present in `plan-pool`.
 
 ### F7 — P1: BAM-guided redesign does not yet optimize recovery of observed gaps
+
+**FIXED 2026-09-19** (`8a83591`, `d2e834e`, `50e7342`). Both halves.
+`core/deficit_objective.py` scores a candidate by the depth deficit it
+recovers, weighted per base, in place of requiring the binding site itself to
+lie inside a gap; the all-or-nothing fallback to the full candidate list is
+gone and candidates are matched to gaps dilated by the coverage reach.
+`core/design_context.py` is the single params resolution both `plan-pool` and
+`expand-primers` use, so the command that ADDS to a panel no longer runs at a
+hard-coded 3 kb reach with `conditions=None`.
 
 **Source evidence:** `PrimerExpander._filter_candidates_to_gaps`
 (`neoswga/core/primer_expansion.py:516`) requires the binding site itself to lie
@@ -213,6 +230,16 @@ absence of a reported large gap as complete recovery.
 
 ### F8 — P2: sequencing coverage ingestion needs stronger semantics
 
+**FIXED 2026-09-19** (`b68248e`, `b952ee7`). `core/reference_layout.py` binds a
+prefix's records to BAM records by name and length, so a two-record FASTA maps
+to the two BAM records with their offsets instead of returning an empty
+mapping; a name match with a conflicting length is reported rather than
+accepted. `core/depth_policy.py` makes the read-inclusion rules explicit and
+recorded (MAPQ, base quality, duplicates, supplementary, secondary, QC-fail)
+rather than implied by pysam's `'all'` default, which skips UNMAP, SECONDARY,
+QCFAIL and DUP but NOT SUPPLEMENTARY. It deliberately omits overlapping-mate
+and deletion knobs, which `count_coverage` cannot enforce.
+
 **Source/execute evidence:** `match_contigs`
 (`neoswga/core/bam_coverage.py:45`) maps each foreground prefix to one BAM
 record. A two-record FASTA represented by one prefix/total length does not map
@@ -239,7 +266,8 @@ apparent whole-genome recovery.
 
 ### F9 — P2: reach fitting is exploratory and fails for short input
 
-**FIXED 2026-09-19.** Handled, with the statistical half the more consequential.
+**FIXED 2026-09-19** (`7a4a653`). Handled, with the statistical half the more
+consequential.
 
 - A target shorter than one bin returns a non-informative result naming the bin
   count, in place of the raw numpy `ValueError`.
