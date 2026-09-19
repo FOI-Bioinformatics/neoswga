@@ -208,11 +208,11 @@ def run_plan_pool(args):
 
     from neoswga.core.base_optimizer import OptimizerConfig
     from neoswga.core.coverage import resolve_coverage_reach
+    from neoswga.core.design_context import design_context_from_params
     from neoswga.core.optimizer_factory import OptimizerFactory
     from neoswga.core.pool_plan_report import write_pool_plan
     from neoswga.core.pool_planner import plan_pool
     from neoswga.core.position_cache import PositionCache
-    from neoswga.core.reaction_conditions import build_reaction_conditions
     from neoswga.core.unified_optimizer import _ensure_optimizers_registered
 
     source = Path(args.json_file).resolve()
@@ -260,11 +260,11 @@ def run_plan_pool(args):
     # before record-aware geometry looks complete and silently lets coverage
     # windows cross contig boundaries; a new design must not run on one.
     cache.require_record_metadata(fg + bg)
-    conditions = build_reaction_conditions(SimpleNamespace(**params))
-    reach = resolve_coverage_reach(
-        params.get("polymerase", "phi29"),
-        override=args.coverage_reach or params.get("coverage_reach"),
-    )
+    # One resolution, shared with `expand-primers`. Listing the fields here as
+    # well is how `max_dimer_bp` came to be 3 in one place and 4 in another.
+    context = design_context_from_params(params, coverage_reach_override=args.coverage_reach)
+    conditions = context.conditions
+    reach = context.coverage_reach
     # An absent flag takes OptimizerConfig's own default rather than a second,
     # different one declared here; the two used to disagree, 100000 against 10000.
     swap_max_evaluations = (
@@ -272,13 +272,7 @@ def run_plan_pool(args):
         if args.swap_max_evaluations is not None
         else OptimizerConfig.swap_max_evaluations
     )
-    config = OptimizerConfig(
-        max_dimer_bp=params.get("max_dimer_bp", 3),
-        max_self_dimer_bp=params.get("max_self_dimer_bp", 4),
-        min_tm=params.get("min_tm", 20),
-        max_tm=params.get("max_tm", 50),
-        extension_reach=reach,
-        fg_circular=params.get("fg_circular", False),
+    config = context.optimizer_config(
         refinement_method="swap",
         swap_max_evaluations=swap_max_evaluations,
         allow_dimer_relaxation=False,

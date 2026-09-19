@@ -46,6 +46,7 @@ from neoswga.core.deficit_objective import (
     dilate_intervals,
     recovered_deficit,
 )
+from neoswga.core.design_context import design_context_from_params
 from neoswga.core.dominating_set_optimizer import coverage_bin_size as _coverage_bin_size
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,7 @@ class PrimerExpander:
         bin_size: int = 10000,
         max_extension: Optional[int] = None,
         coverage_reach: Optional[int] = None,
+        context=None,
     ):
         """
         Initialize primer expander.
@@ -238,7 +240,19 @@ class PrimerExpander:
         self.bg_prefixes = bg_prefixes or []
         self.bg_seq_lengths = bg_seq_lengths or []
         self.bin_size = bin_size
-        self.coverage_reach = coverage_reach or max_extension or 3000
+        # A `DesignContext` resolves the reach, chemistry, dimer limits and
+        # circularity from one params file, so `expand-primers` designs under
+        # the same conditions `plan-pool` does. Without one the old defaults
+        # stand, because three callers and any library caller pass none; that
+        # default of 3 kb whatever the polymerase is finding F7's
+        # configuration half.
+        self.context = context
+        self.conditions = getattr(context, "conditions", None)
+        self.max_dimer_bp = getattr(context, "max_dimer_bp", None)
+        self.fg_circular = bool(getattr(context, "fg_circular", False))
+        self.coverage_reach = (
+            coverage_reach or getattr(context, "coverage_reach", None) or max_extension or 3000
+        )
         # Retained so existing callers reading the attribute still see the
         # value they set; it has only ever been the coverage reach.
         self.max_extension = self.coverage_reach
@@ -928,12 +942,17 @@ def expand_primers(
     cache = PositionCache(fg_prefixes + bg_prefixes, candidates + fixed_primers)
 
     # Create expander
+    # Resolved from the params this function already held. It used to build the
+    # expander with none of it, so expansion ran at 3 kb with no chemistry
+    # while the panel it was extending had been designed with both.
+    context = design_context_from_params(params)
     expander = PrimerExpander(
         position_cache=cache,
         fg_prefixes=fg_prefixes,
         fg_seq_lengths=fg_seq_lengths,
         bg_prefixes=bg_prefixes,
         bg_seq_lengths=bg_seq_lengths,
+        context=context,
     )
 
     # Build target gaps: in-silico gaps from the fixed set, optionally merged
