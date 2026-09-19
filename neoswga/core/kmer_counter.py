@@ -16,7 +16,7 @@ import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from neoswga.core.thermodynamics import reverse_complement
 
@@ -324,24 +324,70 @@ def table_provenance_path(output_prefix: str, k: int) -> str:
     return f"{output_prefix}_{k}mer_all.provenance.json"
 
 
-def genome_fingerprint(genome_fname: str) -> str:
-    """A cheap, stable identifier for the contents of a genome file.
+# Named in every provenance record, so one written under the partial hash this
+# replaced is recognisable as UNKNOWN rather than reported as a mismatch.
+DIGEST_ALGORITHM = "sha256-full"
 
-    A full SHA-256 of hg38 costs several seconds on every invocation, which is
-    the wrong trade for a guard that runs before a step that may take minutes
-    but usually skips. This hashes the size, the first 1 MB and the last 1 MB,
-    which distinguishes any two assemblies in practice and catches the
-    truncated-download case the pre-flight already looks for.
+# path -> (size, mtime_ns, digest). Computed once per input per run, which is
+# what makes a full digest affordable: `run_jellyfish` fingerprints once per k,
+# so seven k values used to mean seven passes over the genome.
+_DIGEST_CACHE: Dict[str, Tuple[int, int, str]] = {}
+
+
+def genome_fingerprint(genome_fname: str) -> str:
+    """SHA-256 of the whole genome file, computed once per input per run.
+
+    This hashed the size, the first 1 MB and the last 1 MB, on the stated
+    grounds that a full digest of hg38 "costs several seconds on every
+    invocation". Finding F6: a substitution anywhere in the middle of a file
+    over 2 MB left it unchanged, so a same-length consensus or a
+    sample-specific assembly reused the previous genome's counts, index and
+    inventory -- silently, and through the whole design. That is the case the
+    sidecar exists to catch, missed in exactly the situation where the file
+    does not change size.
+
+    The cost objection does not survive measurement. SHA-256 runs at about
+    2.5 GB/s, so hg38 is around a second, and the cache below makes it once per
+    run rather than once per k. The counting step reads the whole file anyway.
+
+    The cache is keyed on size and modification time as well as the path,
+    because caching on the path alone would stop looking at the one file the
+    guard exists to notice changing.
     """
-    size = os.path.getsize(genome_fname)
-    digest = hashlib.sha256(str(size).encode())
-    window = 1024 * 1024
+    stat = os.stat(genome_fname)
+    key = (stat.st_size, stat.st_mtime_ns)
+    cached = _DIGEST_CACHE.get(genome_fname)
+    if cached is not None and cached[:2] == key:
+        return cached[2]
+
+    digest = hashlib.sha256()
     with open(genome_fname, "rb") as fh:
-        digest.update(fh.read(window))
-        if size > 2 * window:
-            fh.seek(-window, os.SEEK_END)
-            digest.update(fh.read(window))
-    return digest.hexdigest()
+        for block in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(block)
+    value = digest.hexdigest()
+    _DIGEST_CACHE[genome_fname] = (key[0], key[1], value)
+    return value
+
+
+def table_provenance_is_comparable(output_prefix: str, k: int) -> bool:
+    """Whether this table's record can be compared with today's digest.
+
+    A record written under the partial hash carries a fingerprint that cannot
+    be checked against a full one. That is UNKNOWN, not wrong, and the
+    distinction matters: step 1 recounts an unknown table once, while step 2
+    REFUSES a table it believes was counted from another genome. Treating the
+    first as the second would refuse every working data directory on upgrade,
+    over a fact nobody measured.
+    """
+    path = table_provenance_path(output_prefix, k)
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path) as fh:
+            record = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    return record.get("digest_algorithm") == DIGEST_ALGORITHM
 
 
 def _table_is_current(output_prefix: str, genome_fname: str, k: int) -> bool:
@@ -372,6 +418,16 @@ def _table_is_current(output_prefix: str, genome_fname: str, k: int) -> bool:
         logger.warning(f"Could not read {record_path} ({exc}). Recounting.")
         return False
 
+    if record.get("digest_algorithm") != DIGEST_ALGORITHM:
+        # Written under the partial hash, whose value cannot be compared with
+        # this one. Unknown rather than stale: recount once, as a table with no
+        # sidecar at all already does.
+        logger.info(
+            "%s was fingerprinted with an older algorithm; recounting once so "
+            "the record can be trusted.",
+            os.path.basename(genome_fname),
+        )
+        return False
     if record.get("fingerprint") != genome_fingerprint(genome_fname):
         logger.warning(
             f"{txt_file} was counted from a different genome "
@@ -389,6 +445,7 @@ def _write_table_provenance(output_prefix: str, genome_fname: str, k: int) -> No
     record = {
         "genome": os.path.abspath(genome_fname),
         "fingerprint": genome_fingerprint(genome_fname),
+        "digest_algorithm": DIGEST_ALGORITHM,
         "k": k,
     }
     with open(table_provenance_path(output_prefix, k), "w") as fh:

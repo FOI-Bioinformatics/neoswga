@@ -117,17 +117,35 @@ class _Cache:
         return self._m.get((prefix, primer), np.array([], dtype=np.int64))
 
 
-def test_filter_candidates_to_gaps_keeps_only_in_gap():
+def test_filter_candidates_to_gaps_keeps_whatever_can_reach_a_gap():
+    """The prescreen tests REACH, not membership. Finding F7.
+
+    This test used to assert that only a candidate binding inside the gap was
+    kept. That is the defect: a candidate binding just outside a gap whose
+    modelled window would blanket it was discarded, while one binding at the
+    gap's last base and extending away was kept. The intervals are now dilated
+    by one coverage reach.
+
+    The fixture needs a reach small against the sequence to say anything at
+    all: at the 3 kb default every primer reaches every gap on a 100 bp
+    genome, which is true and uninformative.
+    """
     cache = _Cache(
         {
-            ("fg", "IN"): np.array([55]),  # inside gap [30,60)
-            ("fg", "OUT"): np.array([5, 80]),  # outside the gap
+            ("fg", "INSIDE"): np.array([55]),  # inside gap [30,60)
+            ("fg", "NEAR"): np.array([25]),  # 5 bp outside, within the reach
+            ("fg", "FAR"): np.array([0]),  # 30 bp outside, beyond it
         }
     )
-    expander = PrimerExpander(cache, ["fg"], [100])
+    expander = PrimerExpander(cache, ["fg"], [100], coverage_reach=10)
     gaps = [CoverageGap("fg", 30, 60, 30)]
-    kept = expander._filter_candidates_to_gaps(["IN", "OUT"], gaps)
-    assert kept == ["IN"]
+
+    kept = expander._filter_candidates_to_gaps(["INSIDE", "NEAR", "FAR"], gaps)
+
+    assert kept == ["INSIDE", "NEAR"], (
+        "a candidate whose window reaches the gap must survive the prescreen, "
+        "and one that cannot reach it must not"
+    )
 
 
 def test_filter_candidates_to_gaps_handles_wrap_gap():
@@ -138,10 +156,15 @@ def test_filter_candidates_to_gaps_handles_wrap_gap():
             ("fg", "MID"): np.array([50]),  # not in wrap
         }
     )
-    expander = PrimerExpander(cache, ["fg"], [100])
+    expander = PrimerExpander(cache, ["fg"], [100], coverage_reach=10)
     gaps = [CoverageGap("fg", 90, 110, 20)]
+
     kept = expander._filter_candidates_to_gaps(["WRAP", "MID"], gaps)
-    assert kept == ["WRAP"]
+
+    assert kept == ["WRAP"], (
+        "the wrap gap covers [90,100) and [0,10); MID at 50 is 30 bp from "
+        "either end and cannot reach it within a 10 bp reach"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -34,12 +34,19 @@ Usage:
     )
 """
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+from neoswga.core.deficit_objective import (
+    DeficitObjective,
+    dilate_intervals,
+    recovered_deficit,
+)
+from neoswga.core.design_context import design_context_from_params
 from neoswga.core.dominating_set_optimizer import coverage_bin_size as _coverage_bin_size
 
 logger = logging.getLogger(__name__)
@@ -131,6 +138,11 @@ class ExpansionResult:
     gaps_remaining: int
     optimization_method: str
     message: str = ""
+    # The read-selection rules any BAM depth behind this result was read
+    # under. `None` when no BAM was used. A breadth figure means nothing
+    # without the rule that produced it, and two runs under different rules
+    # are not comparable. See `core/depth_policy.py`.
+    depth_policy: Optional[Dict] = None
 
     @property
     def n_new(self) -> int:
@@ -163,6 +175,7 @@ class ExpansionResult:
             "gaps_remaining": self.gaps_remaining,
             "optimization_method": self.optimization_method,
             "message": self.message,
+            "depth_policy": self.depth_policy,
         }
 
     def __str__(self) -> str:
@@ -199,6 +212,7 @@ class PrimerExpander:
         bin_size: int = 10000,
         max_extension: Optional[int] = None,
         coverage_reach: Optional[int] = None,
+        context=None,
     ):
         """
         Initialize primer expander.
@@ -226,7 +240,19 @@ class PrimerExpander:
         self.bg_prefixes = bg_prefixes or []
         self.bg_seq_lengths = bg_seq_lengths or []
         self.bin_size = bin_size
-        self.coverage_reach = coverage_reach or max_extension or 3000
+        # A `DesignContext` resolves the reach, chemistry, dimer limits and
+        # circularity from one params file, so `expand-primers` designs under
+        # the same conditions `plan-pool` does. Without one the old defaults
+        # stand, because three callers and any library caller pass none; that
+        # default of 3 kb whatever the polymerase is finding F7's
+        # configuration half.
+        self.context = context
+        self.conditions = getattr(context, "conditions", None)
+        self.max_dimer_bp = getattr(context, "max_dimer_bp", None)
+        self.fg_circular = bool(getattr(context, "fg_circular", False))
+        self.coverage_reach = (
+            coverage_reach or getattr(context, "coverage_reach", None) or max_extension or 3000
+        )
         # Retained so existing callers reading the attribute still see the
         # value they set; it has only ever been the coverage reach.
         self.max_extension = self.coverage_reach
@@ -399,25 +425,36 @@ class PrimerExpander:
             c for c in candidates if c.upper() not in fixed_set and c.upper() not in failed_set
         ]
 
-        # Gap-restricted candidate pre-filter (hard filter + fallback). Keep
-        # only candidates whose binding sites fall inside a target gap; if that
-        # leaves fewer than target_new, fall back to the full filtered pool.
+        # Budget prescreen: candidates whose WINDOW can reach a target gap,
+        # which is the gap intervals dilated by one reach. It used to require
+        # the binding SITE inside the gap and never consulted the reach, so a
+        # candidate binding just outside a 50 kb gap whose window would blanket
+        # it was discarded while one binding at the gap's last base and
+        # extending away was kept.
+        #
+        # There is no fallback. Abandoning the prescreen when it left fewer
+        # than `target_new` candidates is what made a gap-targeted run silently
+        # stop targeting gaps; a short list is a finding, not a reason to
+        # search somewhere else.
         if target_gaps:
             in_gap = self._filter_candidates_to_gaps(candidates_filtered, target_gaps)
-            if len(in_gap) >= target_new:
-                if verbose:
-                    logger.info(
-                        f"Gap-restricted pool: {len(in_gap)}/{len(candidates_filtered)} "
-                        f"candidates bind inside {len(target_gaps)} target gap(s)"
-                    )
-                candidates_filtered = in_gap
-            else:
-                if verbose:
-                    logger.warning(
-                        f"Only {len(in_gap)} candidates bind inside target gaps "
-                        f"(< target_new={target_new}); using full pool of "
-                        f"{len(candidates_filtered)}"
-                    )
+            if verbose:
+                logger.info(
+                    f"Gap-reachable pool: {len(in_gap)}/{len(candidates_filtered)} "
+                    f"candidates can reach one of {len(target_gaps)} target gap(s) "
+                    f"within the {self.coverage_reach} bp reach"
+                )
+            if len(in_gap) < target_new:
+                logger.warning(
+                    "Only %d candidate(s) can reach a target gap, fewer than the "
+                    "%d requested. Selecting from those rather than widening to "
+                    "the full pool: a pool that cannot reach the gaps is a "
+                    "finding about the pool, and searching elsewhere would "
+                    "deliver primers that do not address what was asked.",
+                    len(in_gap),
+                    target_new,
+                )
+            candidates_filtered = in_gap
 
         if verbose:
             logger.info("=" * 60)
@@ -457,10 +494,21 @@ class PrimerExpander:
         # logging about it is how a flag comes to mean nothing; the same class
         # of defect as an inert params.json key.
         if optimization_method in ("hybrid", "two-stage"):
-            result = self._expand_hybrid(candidates_filtered, fixed_primers, target_new, verbose)
+            result = self._expand_hybrid(
+                candidates_filtered,
+                fixed_primers,
+                target_new,
+                verbose,
+                target_gaps=target_gaps,
+            )
         elif optimization_method in ("background-aware", "bg-aware", "clinical"):
             result = self._expand_hybrid(
-                candidates_filtered, fixed_primers, target_new, verbose, background_pruning=True
+                candidates_filtered,
+                fixed_primers,
+                target_new,
+                verbose,
+                background_pruning=True,
+                target_gaps=target_gaps,
             )
         elif optimization_method in ("dominating-set", "dominating_set", "ds"):
             result = self._expand_dominating_set(
@@ -482,8 +530,11 @@ class PrimerExpander:
         # Count remaining gaps
         gaps_after = self.identify_gaps(combined_set, min_gap_size=self.bin_size)
 
-        # Calculate gap coverage (fraction of original gaps now covered)
-        gap_coverage = 1.0 - (len(gaps_after) / max(len(gaps_before), 1))
+        # Fraction of the targeted deficit BASES recovered. It used to be
+        # `1 - len(after)/len(before)`, a count of gaps, which goes NEGATIVE
+        # when one long gap splits into two -- progress reported as
+        # regression. See `core/deficit_objective.py`.
+        gap_coverage = self._recovered_deficit_fraction(target_gaps or gaps_before, combined_set)
 
         # Estimate improvement factor
         if coverage_before > 0:
@@ -513,18 +564,69 @@ class PrimerExpander:
             message=result.get("message", ""),
         )
 
+    def _recovered_deficit_fraction(self, target_gaps, combined_set) -> float:
+        """Fraction of the targeted deficit BASES the delivered panel reaches.
+
+        Weight 1 inside a target gap and 0 outside, which is the in-silico
+        case: a gap is a total deficit. A BAM-derived weight per base slots in
+        here unchanged once selection reads it.
+
+        In [0, 1] by construction, so it cannot report progress as regression
+        the way a count of gaps did.
+        """
+        length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        total = 0.0
+        recovered = 0.0
+        for prefix, length in length_by_prefix.items():
+            spans = [
+                (g.start, min(g.end, length))
+                for g in target_gaps
+                if g.chromosome == prefix and g.start < length
+            ]
+            if not spans:
+                continue
+            weights = np.zeros(int(length), dtype=np.float64)
+            for start, end in spans:
+                weights[int(start) : int(end)] = 1.0
+            total += float(weights.sum())
+
+            positions = []
+            for primer in combined_set:
+                positions.extend(int(p) for p in self.cache.get_positions(prefix, primer, "both"))
+            if positions:
+                recovered += recovered_deficit(
+                    positions,
+                    weights,
+                    extension=self.coverage_reach,
+                    length=int(length),
+                    circular=bool(getattr(self, "fg_circular", False)),
+                    record_starts=self.cache.get_record_starts(prefix) or None,
+                )
+        if total <= 0:
+            return 0.0
+        return float(min(1.0, recovered / total))
+
     def _filter_candidates_to_gaps(
         self,
         candidates: List[str],
         target_gaps: List[CoverageGap],
     ) -> List[str]:
-        """Keep candidates with >=1 binding site inside any target gap.
+        """Keep candidates whose WINDOW can reach any target gap.
+
+        The intervals are the gaps dilated by one coverage reach, so a
+        candidate binding within a reach of a gap is kept: its modelled window
+        blankets part of the gap, and the old membership test threw away
+        exactly those. Finding F7.
+
+        This is a budget prescreen. It narrows what is scored and decides
+        nothing; `deficit_objective` ranks what survives by how much missing
+        depth it actually recovers.
 
         Gaps are grouped by chromosome (== fg prefix). For each candidate, its
-        binding positions on that prefix are tested against the gap intervals
-        with a vectorized ``np.searchsorted``. A gap whose ``end`` exceeds the
-        genome length (a circular wrap gap) is split into ``[start, length)``
-        and ``[0, end-length)`` before testing.
+        binding positions on that prefix are tested against the dilated
+        intervals with a vectorized ``np.searchsorted``. A gap whose ``end``
+        exceeds the genome length (a circular wrap gap) is split into
+        ``[start, length)`` and ``[0, end-length)`` before dilation.
         """
         # Build per-prefix sorted interval bounds, expanding wrap gaps.
         length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
@@ -538,12 +640,16 @@ class PrimerExpander:
             else:
                 intervals.append((g.start, g.end))
 
-        # Pre-sort starts/ends per prefix for searchsorted.
+        # Dilate by one reach and merge, then pre-sort for searchsorted.
         prepared = {}
         for prefix, intervals in bounds_by_prefix.items():
-            intervals.sort()
-            starts = np.array([s for s, _ in intervals], dtype=np.int64)
-            ends = np.array([e for _, e in intervals], dtype=np.int64)
+            widened = dilate_intervals(
+                intervals,
+                reach=self.coverage_reach,
+                length=length_by_prefix.get(prefix, max(e for _, e in intervals)),
+            )
+            starts = np.array([s for s, _ in widened], dtype=np.int64)
+            ends = np.array([e for _, e in widened], dtype=np.int64)
             prepared[prefix] = (starts, ends)
 
         kept = []
@@ -566,7 +672,61 @@ class PrimerExpander:
                 kept.append(cand)
         return kept
 
-    def _build_hybrid_optimizer(self, background_pruning=None):
+    def _deficit_weights(self, target_gaps):
+        """Weight 1 inside a target gap, 0 outside, per prefix.
+
+        The in-silico case, where a gap IS a total deficit. A BAM-derived
+        weight per base slots in here unchanged.
+        """
+        weights_by_prefix = {}
+        lengths_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        for prefix, length in lengths_by_prefix.items():
+            spans = [
+                (g.start, min(g.end, length))
+                for g in target_gaps
+                if g.chromosome == prefix and g.start < length
+            ]
+            if not spans:
+                continue
+            weights = np.zeros(int(length), dtype=np.float64)
+            for start, end in spans:
+                weights[int(start) : int(end)] = 1.0
+            weights_by_prefix[prefix] = weights
+        return weights_by_prefix, lengths_by_prefix
+
+    def _attach_deficit_objective(self, optimizer, target_gaps, verbose):
+        """Make the search rank by recovered deficit rather than by breadth.
+
+        `attach_search_config` sets it on the wrapper AND the delegate: every
+        command-line path is handed a wrapper that delegates the search to an
+        inner `HybridOptimizer`, and assigning to the wrapper alone left the
+        refinement reading an attribute nobody had set, undetected for months.
+        """
+        weights_by_prefix, lengths_by_prefix = self._deficit_weights(target_gaps)
+        if not weights_by_prefix:
+            return
+        from neoswga.core.pool_objective import PoolConstraints, PoolObjective
+        from neoswga.core.swap_refinement import attach_search_config
+
+        inner = PoolObjective(optimizer.compute_metrics, PoolConstraints())
+        objective = DeficitObjective(
+            inner,
+            cache=self.cache,
+            weights_by_prefix=weights_by_prefix,
+            lengths_by_prefix=lengths_by_prefix,
+            extension=self.coverage_reach,
+            circular=bool(getattr(self, "fg_circular", False)),
+        )
+        attach_search_config(optimizer, "pool_objective", objective)
+        if verbose:
+            total = sum(float(w.sum()) for w in weights_by_prefix.values())
+            logger.info(
+                "Selection ranks by recovered deficit over %.0f targeted bases, "
+                "not by genome breadth.",
+                total,
+            )
+
+    def _build_hybrid_optimizer(self, background_pruning=None, refinement_method="network"):
         """Hybrid optimizer configured with both reaches, kept distinct.
 
         `coverage_reach` governs Stage-1 set cover and the reported coverage;
@@ -579,6 +739,13 @@ class PrimerExpander:
         from neoswga.core.hybrid_optimizer import HybridOptimizer
 
         return HybridOptimizer(
+            # `network` does not read `pool_objective` at all, so a deficit
+            # objective attached to it would be a measurement that reached the
+            # code and not the user. `swap` is the Stage 2 that scores
+            # `(-shortfall, coverage, -background)`. The caller chooses, because
+            # the two Stage 2s carry different things: the host term Known
+            # Issue 14 added lives in `network`.
+            refinement_method=refinement_method,
             position_cache=self.cache,
             fg_prefixes=self.fg_prefixes,
             fg_seq_lengths=self.fg_seq_lengths,
@@ -605,9 +772,37 @@ class PrimerExpander:
         target_new: int,
         verbose: bool,
         background_pruning=None,
+        target_gaps=None,
     ) -> Dict:
-        """Use hybrid optimizer for expansion."""
-        optimizer = self._build_hybrid_optimizer(background_pruning=background_pruning)
+        """Use hybrid optimizer for expansion.
+
+        The Stage 2 is chosen rather than fixed, because the two carry
+        different things and neither carries both. `network` holds the host
+        term Known Issue 14 added, which is the whole of what
+        `background-aware` buys. `swap` is the one that reads a
+        `pool_objective`, which is how a deficit objective can steer anything.
+
+        So a host-aware expansion does not yet target the deficit, and a
+        deficit-targeted one is not host-aware. That is stated here and in the
+        log rather than left for a reader to discover from a panel that quietly
+        ignored one of the two.
+        """
+        wants_deficit = bool(target_gaps) and not background_pruning
+        optimizer = self._build_hybrid_optimizer(
+            background_pruning=background_pruning,
+            refinement_method="swap" if wants_deficit else "network",
+        )
+        if wants_deficit:
+            self._attach_deficit_objective(optimizer, target_gaps, verbose)
+        elif target_gaps and background_pruning and verbose:
+            logger.warning(
+                "Host-aware expansion keeps the network refinement, which "
+                "carries the host term but cannot read a deficit objective, so "
+                "the %d target gap(s) narrow the candidate pool without steering "
+                "selection. Run without background pruning to rank by recovered "
+                "deficit instead.",
+                len(target_gaps),
+            )
 
         # Target total = fixed + new
         total_target = len(fixed_primers) + target_new
@@ -747,20 +942,27 @@ def expand_primers(
     cache = PositionCache(fg_prefixes + bg_prefixes, candidates + fixed_primers)
 
     # Create expander
+    # Resolved from the params this function already held. It used to build the
+    # expander with none of it, so expansion ran at 3 kb with no chemistry
+    # while the panel it was extending had been designed with both.
+    context = design_context_from_params(params)
     expander = PrimerExpander(
         position_cache=cache,
         fg_prefixes=fg_prefixes,
         fg_seq_lengths=fg_seq_lengths,
         bg_prefixes=bg_prefixes,
         bg_seq_lengths=bg_seq_lengths,
+        context=context,
     )
 
     # Build target gaps: in-silico gaps from the fixed set, optionally merged
     # with low-depth regions from a mapped BAM.
     fg_circular = bool(params.get("fg_circular", False))
     bam_derived_gaps = None
+    bam_depth_policy = None
     if bam_path:
         from neoswga.core.bam_coverage import bam_gaps
+        from neoswga.core.depth_policy import DepthPolicy
 
         bam_derived_gaps = bam_gaps(
             bam_path,
@@ -770,9 +972,15 @@ def expand_primers(
             min_gap_size=min_gap_size,
             circular=fg_circular,
             contig_aliases=contig_aliases,
+            # Finding F8: without the FASTA layout a prefix is matched to one
+            # BAM contig, so a multi-record reference matches nothing and the
+            # gap list is silently empty.
+            fg_genomes=params.get("fg_genomes"),
         )
+        bam_depth_policy = DepthPolicy().to_dict()
         if verbose:
             logger.info(f"BAM low-depth gaps: {len(bam_derived_gaps)}")
+            logger.info(DepthPolicy().describe())
 
     target_gaps = expander.identify_gaps(
         fixed_primers,
@@ -791,6 +999,11 @@ def expand_primers(
         verbose=verbose,
         target_gaps=target_gaps or None,
     )
+    if bam_depth_policy is not None:
+        # Attached here rather than threaded through `expand`, which does not
+        # read a BAM and should not carry a BAM concern. Recorded because a
+        # breadth figure means nothing without the rule that produced it.
+        result = dataclasses.replace(result, depth_policy=bam_depth_policy)
 
     # Save results if output_dir specified
     if output_dir:

@@ -179,6 +179,10 @@ def run_expand_primers(args):
                     min_gap_size=args.min_gap_size,
                     circular=fg_circular,
                     contig_aliases=aliases or None,
+                    # Finding F8: a prefix is a FASTA file, not a contig, so
+                    # without the layout a multi-record reference matches
+                    # nothing and the gap list is silently empty.
+                    fg_genomes=getattr(parameter, "fg_genomes", None),
                 )
             except RuntimeError as e:  # pysam missing
                 logger.error(str(e))

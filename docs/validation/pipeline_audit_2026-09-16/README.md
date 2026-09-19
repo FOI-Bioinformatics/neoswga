@@ -160,6 +160,14 @@ from the measured count: a present zero-match entry is valid data.
 
 ### F6 — P2: count-table provenance misses interior reference changes
 
+**FIXED 2026-09-19** (`45d4610`). `genome_fingerprint` is the SHA-256 of the
+whole file, cached on `(st_size, st_mtime_ns)` so it costs one pass per input
+per run rather than one per k value. The algorithm is named in the sidecar as
+`digest_algorithm`, and a record written under the old partial hash is treated
+as UNKNOWN rather than as a mismatch -- without that distinction every existing
+data directory failed step 2 on upgrade with "counted from a different genome",
+which is both alarming and untrue (28 tests caught it).
+
 **Source evidence:** `genome_fingerprint`
 (`neoswga/core/kmer_counter.py:327`) hashes file size and first/last 1 MiB.
 
@@ -176,6 +184,15 @@ is not a full reference-identity check. Standard `optimize` also lacks the
 explicit `require_record_metadata` call present in `plan-pool`.
 
 ### F7 — P1: BAM-guided redesign does not yet optimize recovery of observed gaps
+
+**FIXED 2026-09-19** (`8a83591`, `d2e834e`, `50e7342`). Both halves.
+`core/deficit_objective.py` scores a candidate by the depth deficit it
+recovers, weighted per base, in place of requiring the binding site itself to
+lie inside a gap; the all-or-nothing fallback to the full candidate list is
+gone and candidates are matched to gaps dilated by the coverage reach.
+`core/design_context.py` is the single params resolution both `plan-pool` and
+`expand-primers` use, so the command that ADDS to a panel no longer runs at a
+hard-coded 3 kb reach with `conditions=None`.
 
 **Source evidence:** `PrimerExpander._filter_candidates_to_gaps`
 (`neoswga/core/primer_expansion.py:516`) requires the binding site itself to lie
@@ -213,6 +230,16 @@ absence of a reported large gap as complete recovery.
 
 ### F8 — P2: sequencing coverage ingestion needs stronger semantics
 
+**FIXED 2026-09-19** (`b68248e`, `b952ee7`). `core/reference_layout.py` binds a
+prefix's records to BAM records by name and length, so a two-record FASTA maps
+to the two BAM records with their offsets instead of returning an empty
+mapping; a name match with a conflicting length is reported rather than
+accepted. `core/depth_policy.py` makes the read-inclusion rules explicit and
+recorded (MAPQ, base quality, duplicates, supplementary, secondary, QC-fail)
+rather than implied by pysam's `'all'` default, which skips UNMAP, SECONDARY,
+QCFAIL and DUP but NOT SUPPLEMENTARY. It deliberately omits overlapping-mate
+and deletion knobs, which `count_coverage` cannot enforce.
+
 **Source/execute evidence:** `match_contigs`
 (`neoswga/core/bam_coverage.py:45`) maps each foreground prefix to one BAM
 record. A two-record FASTA represented by one prefix/total length does not map
@@ -238,6 +265,43 @@ and excluded denominators so removing difficult regions does not inflate
 apparent whole-genome recovery.
 
 ### F9 — P2: reach fitting is exploratory and fails for short input
+
+**FIXED 2026-09-19** (`7a4a653`). Handled, with the statistical half the more
+consequential.
+
+- A target shorter than one bin returns a non-informative result naming the bin
+  count, in place of the raw numpy `ValueError`.
+- Bins are formed with `np.add.reduceat` from per-record start offsets, so the
+  trailing remainder counts and no bin spans a join between two records of a
+  concatenated prefix. A 10,500 bp target now yields 11 bins, not 10.
+- `predicted_depth(..., circular=True)` wraps the kernel. The clipped form
+  loses a share of each near-boundary triangle that GROWS with the reach being
+  tested: for a site 5 kb in, 0.0% at reach 3 kb, 12.5% at 10 kb, 36.7% at
+  35 kb and 43.1% at 70 kb -- a bias against exactly the large reaches the fit
+  exists to weigh. It is refused, with a note, for a multi-record prefix, where
+  the end of the last record is not adjacent to the start of the first.
+- `correlation` is relabelled in-sample everywhere it is reported, and
+  `cv_correlation` reports the same quantity under spatially blocked
+  cross-validation: each fold re-runs the whole grid selection on the remaining
+  bins and scores the reach it picks on a contiguous block it never saw. Blocks
+  are contiguous rather than interleaved because neighbouring bins share
+  binding sites and mappability.
+- `plausible_reaches` carries every grid point within 0.02 rho of the winner,
+  and `at_grid_edge` flags an optimum at the top of the grid.
+
+**Measured, and it qualifies the fix.** On null depth over twelve seeds the
+in-sample maximum averages +0.058 where the truth is zero -- about a third of
+the 0.15 informativeness threshold, purely from selecting among eleven
+candidates. But that bias is not larger than the fold-to-fold noise in the
+held-out estimate (sd 0.052), so the held-out figure landed ABOVE the in-sample
+one on 2 of 12 seeds. The pair is therefore a stability check, not a corrected
+value, and the documentation says so rather than claiming cross-validation
+removes the optimism. `tests/test_reach_fitting_is_honest.py` asserts the mean
+across seeds for that reason, not an inequality on one.
+
+The remaining model limits below are unchanged and still stand: the kernel is
+symmetric and identical for every site, and the result is a model parameter
+fitted to one dataset rather than a measured constant of the polymerase.
 
 **Executed reproduction:** `fit_reach` with 500 depth values and the default
 1,000-base bins raises `cannot reshape array of size 500 into shape (1,1000)`
