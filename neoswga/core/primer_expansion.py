@@ -41,7 +41,11 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
-from neoswga.core.deficit_objective import dilate_intervals, recovered_deficit
+from neoswga.core.deficit_objective import (
+    DeficitObjective,
+    dilate_intervals,
+    recovered_deficit,
+)
 from neoswga.core.dominating_set_optimizer import coverage_bin_size as _coverage_bin_size
 
 logger = logging.getLogger(__name__)
@@ -476,10 +480,21 @@ class PrimerExpander:
         # logging about it is how a flag comes to mean nothing; the same class
         # of defect as an inert params.json key.
         if optimization_method in ("hybrid", "two-stage"):
-            result = self._expand_hybrid(candidates_filtered, fixed_primers, target_new, verbose)
+            result = self._expand_hybrid(
+                candidates_filtered,
+                fixed_primers,
+                target_new,
+                verbose,
+                target_gaps=target_gaps,
+            )
         elif optimization_method in ("background-aware", "bg-aware", "clinical"):
             result = self._expand_hybrid(
-                candidates_filtered, fixed_primers, target_new, verbose, background_pruning=True
+                candidates_filtered,
+                fixed_primers,
+                target_new,
+                verbose,
+                background_pruning=True,
+                target_gaps=target_gaps,
             )
         elif optimization_method in ("dominating-set", "dominating_set", "ds"):
             result = self._expand_dominating_set(
@@ -643,7 +658,61 @@ class PrimerExpander:
                 kept.append(cand)
         return kept
 
-    def _build_hybrid_optimizer(self, background_pruning=None):
+    def _deficit_weights(self, target_gaps):
+        """Weight 1 inside a target gap, 0 outside, per prefix.
+
+        The in-silico case, where a gap IS a total deficit. A BAM-derived
+        weight per base slots in here unchanged.
+        """
+        weights_by_prefix = {}
+        lengths_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        for prefix, length in lengths_by_prefix.items():
+            spans = [
+                (g.start, min(g.end, length))
+                for g in target_gaps
+                if g.chromosome == prefix and g.start < length
+            ]
+            if not spans:
+                continue
+            weights = np.zeros(int(length), dtype=np.float64)
+            for start, end in spans:
+                weights[int(start) : int(end)] = 1.0
+            weights_by_prefix[prefix] = weights
+        return weights_by_prefix, lengths_by_prefix
+
+    def _attach_deficit_objective(self, optimizer, target_gaps, verbose):
+        """Make the search rank by recovered deficit rather than by breadth.
+
+        `attach_search_config` sets it on the wrapper AND the delegate: every
+        command-line path is handed a wrapper that delegates the search to an
+        inner `HybridOptimizer`, and assigning to the wrapper alone left the
+        refinement reading an attribute nobody had set, undetected for months.
+        """
+        weights_by_prefix, lengths_by_prefix = self._deficit_weights(target_gaps)
+        if not weights_by_prefix:
+            return
+        from neoswga.core.pool_objective import PoolConstraints, PoolObjective
+        from neoswga.core.swap_refinement import attach_search_config
+
+        inner = PoolObjective(optimizer.compute_metrics, PoolConstraints())
+        objective = DeficitObjective(
+            inner,
+            cache=self.cache,
+            weights_by_prefix=weights_by_prefix,
+            lengths_by_prefix=lengths_by_prefix,
+            extension=self.coverage_reach,
+            circular=bool(getattr(self, "fg_circular", False)),
+        )
+        attach_search_config(optimizer, "pool_objective", objective)
+        if verbose:
+            total = sum(float(w.sum()) for w in weights_by_prefix.values())
+            logger.info(
+                "Selection ranks by recovered deficit over %.0f targeted bases, "
+                "not by genome breadth.",
+                total,
+            )
+
+    def _build_hybrid_optimizer(self, background_pruning=None, refinement_method="network"):
         """Hybrid optimizer configured with both reaches, kept distinct.
 
         `coverage_reach` governs Stage-1 set cover and the reported coverage;
@@ -656,6 +725,13 @@ class PrimerExpander:
         from neoswga.core.hybrid_optimizer import HybridOptimizer
 
         return HybridOptimizer(
+            # `network` does not read `pool_objective` at all, so a deficit
+            # objective attached to it would be a measurement that reached the
+            # code and not the user. `swap` is the Stage 2 that scores
+            # `(-shortfall, coverage, -background)`. The caller chooses, because
+            # the two Stage 2s carry different things: the host term Known
+            # Issue 14 added lives in `network`.
+            refinement_method=refinement_method,
             position_cache=self.cache,
             fg_prefixes=self.fg_prefixes,
             fg_seq_lengths=self.fg_seq_lengths,
@@ -682,9 +758,37 @@ class PrimerExpander:
         target_new: int,
         verbose: bool,
         background_pruning=None,
+        target_gaps=None,
     ) -> Dict:
-        """Use hybrid optimizer for expansion."""
-        optimizer = self._build_hybrid_optimizer(background_pruning=background_pruning)
+        """Use hybrid optimizer for expansion.
+
+        The Stage 2 is chosen rather than fixed, because the two carry
+        different things and neither carries both. `network` holds the host
+        term Known Issue 14 added, which is the whole of what
+        `background-aware` buys. `swap` is the one that reads a
+        `pool_objective`, which is how a deficit objective can steer anything.
+
+        So a host-aware expansion does not yet target the deficit, and a
+        deficit-targeted one is not host-aware. That is stated here and in the
+        log rather than left for a reader to discover from a panel that quietly
+        ignored one of the two.
+        """
+        wants_deficit = bool(target_gaps) and not background_pruning
+        optimizer = self._build_hybrid_optimizer(
+            background_pruning=background_pruning,
+            refinement_method="swap" if wants_deficit else "network",
+        )
+        if wants_deficit:
+            self._attach_deficit_objective(optimizer, target_gaps, verbose)
+        elif target_gaps and background_pruning and verbose:
+            logger.warning(
+                "Host-aware expansion keeps the network refinement, which "
+                "carries the host term but cannot read a deficit objective, so "
+                "the %d target gap(s) narrow the candidate pool without steering "
+                "selection. Run without background pruning to rank by recovered "
+                "deficit instead.",
+                len(target_gaps),
+            )
 
         # Target total = fixed + new
         total_target = len(fixed_primers) + target_new

@@ -1085,6 +1085,21 @@ package, because nothing in the search uses it.
     concluding that a measurement reaching the code means it reached the user. A
     query count answers "was it read", not "did it matter".
 
+    **The two Stage 2s carry different things and neither carries both** --
+    found 2026-09-19 while wiring Phase 6's deficit objective. The host term
+    above lives in `_network_refine`. The objective a search can be steered by,
+    `pool_objective`, is read only by `_swap_refine`. So a host-aware expansion
+    cannot rank by recovered deficit, and a deficit-targeted one is not
+    host-aware. `PrimerExpander._expand_hybrid` chooses between them on
+    `background_pruning` and WARNS when target gaps are present but cannot
+    steer selection, rather than narrowing the pool to the gaps and then
+    ranking by something else. Switching expansion to `swap` wholesale was the
+    first attempt and `tests/test_expansion_uses_the_background.py` caught it
+    immediately: background-aware and hybrid returned the same panel, because
+    the host term had been left behind. Combining them means putting the host
+    term into the swap score as a weighted axis rather than its current
+    lexicographic tie-break, which is unmeasured.
+
     `examples/plasmid_example` cannot demonstrate any of this. Six primers
     already cover its 5.4 kb target completely at 3 kb reach, so expansion adds
     nothing and `optimize` early-returns before Stage 1.5. Pin this behaviour on

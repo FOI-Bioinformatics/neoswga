@@ -36,9 +36,11 @@ Windows are marked through `coverage._mark_window`, so they are confined to the
 record holding the site when record starts are supplied. A primer near the end
 of one molecule cannot recover missing depth on another.
 
-What this module does NOT do: it does not select. Composing it with
-`PoolObjective` so `refine_by_swaps` can drive it, and the matching add and
-drop loops, are the next increment of Phase 6.
+`DeficitObjective` composes `PoolObjective` so the swap refinement can drive
+selection by this quantity with no change to the refinement itself: only
+`coverage` is redefined, and the constraints a design is accepted on survive
+untouched. Measuring a deficit without selecting on it changes nothing useful,
+which is the lesson Known Issue 14 records.
 """
 
 from __future__ import annotations
@@ -166,3 +168,85 @@ def dilate_intervals(
         else:
             merged.append((start, end))
     return merged
+
+
+class DeficitObjective:
+    """A `PoolObjective` whose coverage is recovered deficit, not genome breadth.
+
+    Composed rather than substituted. `metrics`, `violations` and `shortfall`
+    are the wrapped objective's, so the specificity floor, the constraint
+    ordering and everything else a design is accepted on survive untouched;
+    only `coverage` is redefined. That is what lets `refine_by_swaps` drive it
+    with no change at all, since its score is
+    `(-shortfall, coverage, -metrics(panel).total_bg_sites)`.
+
+    Replacing the objective instead would silently drop every constraint the
+    expansion was configured with, and redefining `shortfall` would let a
+    coverage figure outbid a constraint -- the ordering `shortfall` exists to
+    protect.
+
+    Measuring the deficit is not targeting it. Known Issue 14 records the
+    lesson: a stage that reads a quantity without choosing the panel changes
+    nothing useful, so this exists to be attached to the search rather than
+    consulted afterwards.
+    """
+
+    def __init__(
+        self,
+        inner,
+        cache,
+        weights_by_prefix,
+        lengths_by_prefix,
+        extension: int,
+        circular: bool = False,
+    ):
+        self._inner = inner
+        self._cache = cache
+        self._weights = dict(weights_by_prefix)
+        self._lengths = dict(lengths_by_prefix)
+        self._extension = int(extension)
+        self._circular = bool(circular)
+        self._total = sum(float(np.asarray(w).sum()) for w in self._weights.values())
+
+    # -- delegated, deliberately ------------------------------------------
+    def metrics(self, primers):
+        return self._inner.metrics(primers)
+
+    def violations(self, primers):
+        return self._inner.violations(primers)
+
+    def shortfall(self, primers):
+        return self._inner.shortfall(primers)
+
+    @property
+    def constraints(self):
+        return getattr(self._inner, "constraints", None)
+
+    # -- the one redefinition ---------------------------------------------
+    def coverage(self, primers):
+        """Fraction of the targeted deficit this panel's windows recover.
+
+        Zero when there is no deficit anywhere, rather than a division by
+        zero: a panel cannot recover what is not missing, and reporting 1.0
+        would make every panel look perfect on a genome with full depth.
+        """
+        if self._total <= 0:
+            return 0.0
+
+        recovered = 0.0
+        for prefix, weights in self._weights.items():
+            length = int(self._lengths.get(prefix, len(weights)))
+            positions = []
+            for primer in primers:
+                positions.extend(int(p) for p in self._cache.get_positions(prefix, primer, "both"))
+            if not positions:
+                continue
+            recovered += recovered_deficit(
+                positions,
+                weights,
+                extension=self._extension,
+                length=length,
+                circular=self._circular,
+                record_starts=self._cache.get_record_starts(prefix) or None,
+            )
+        return float(min(1.0, recovered / self._total))
