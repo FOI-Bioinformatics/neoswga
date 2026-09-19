@@ -49,6 +49,7 @@ def test_matching_provenance_skips_the_count(tmp_path, fake_genome, monkeypatch)
             {
                 "genome": os.path.abspath(fake_genome),
                 "fingerprint": kmer_counter.genome_fingerprint(fake_genome),
+                "digest_algorithm": kmer_counter.DIGEST_ALGORITHM,
             },
             fh,
         )
@@ -68,6 +69,10 @@ def test_stale_provenance_is_detected(tmp_path, fake_genome, other_genome, caplo
             {
                 "genome": os.path.abspath(other_genome),
                 "fingerprint": kmer_counter.genome_fingerprint(other_genome),
+                # A CURRENT record naming a different genome, which is the case
+                # this test is about. Without the algorithm it would be
+                # incomparable instead, and the message would rightly say so.
+                "digest_algorithm": kmer_counter.DIGEST_ALGORITHM,
             },
             fh,
         )
@@ -108,6 +113,11 @@ class TestStep2ChecksTheSameRecord:
                 {
                     "genome": os.path.abspath(genome),
                     "fingerprint": kmer_counter.genome_fingerprint(genome),
+                    # Written as today's code writes it. Without the algorithm
+                    # the record is UNKNOWN rather than comparable, and step 2
+                    # skips it -- which is right for a record from the partial
+                    # hash and wrong for one this helper means to be current.
+                    "digest_algorithm": kmer_counter.DIGEST_ALGORITHM,
                     "k": k,
                 },
                 fh,

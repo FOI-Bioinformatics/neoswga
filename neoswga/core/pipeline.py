@@ -201,8 +201,17 @@ def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> List
     would reject working data directories over a fact that is unknown rather
     than wrong. Step 1 already recounts in that case and writes the record,
     which is where the gap closes.
+
+    A record written under the PARTIAL hash that preceded the full digest gets
+    the same treatment, and for the same reason: its fingerprint cannot be
+    compared with today's, so it is unknown rather than wrong. Refusing on it
+    would reject every existing data directory on upgrade.
     """
-    from neoswga.core.kmer_counter import _table_is_current, table_provenance_path
+    from neoswga.core.kmer_counter import (
+        _table_is_current,
+        table_provenance_is_comparable,
+        table_provenance_path,
+    )
 
     if not genomes or len(genomes) != len(prefixes):
         return []
@@ -213,6 +222,13 @@ def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> List
             continue
         for k in range(min_k, max_k + 1):
             if not os.path.exists(table_provenance_path(prefix, k)):
+                continue
+            if not table_provenance_is_comparable(prefix, k):
+                # Written under the partial hash this replaced. Its fingerprint
+                # cannot be compared with a full digest, so the table is
+                # UNKNOWN rather than stale -- the same treatment an absent
+                # record gets, and for the same reason. Step 1 recounts it once
+                # and writes a comparable record.
                 continue
             if not _table_is_current(prefix, genome, k):
                 stale.append(f"{prefix}_{k}mer_all.txt")

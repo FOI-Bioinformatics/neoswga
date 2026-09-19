@@ -134,7 +134,25 @@ count-kmers            filter                 prepare (`score`)      optimize
   figure that describes only the rest of the pool.
 - `*_positions.h5`: HDF5 files with primer binding positions
 - `*_{k}mer_all.provenance.json`: A sidecar recording the genome each k-mer
-  table was counted from (absolute path, content fingerprint, k). `count-kmers`
+  table was counted from (absolute path, content fingerprint, digest
+  algorithm, k). The fingerprint is a **full SHA-256** as of 2026-09-19. It
+  used to hash the size plus the first and last 1 MB, so a substitution
+  anywhere in the middle of a file over 2 MB left it unchanged and a
+  same-length consensus or sample-specific assembly reused the previous
+  genome's counts, index and inventory silently (audit finding F6). The stated
+  reason was cost and measurement does not support it: SHA-256 runs at about
+  2.5 GB/s, so hg38 is about a second, cached per input per run rather than
+  recomputed once per k.
+
+  `digest_algorithm` is what makes the upgrade safe. A record written under
+  the partial hash carries a value that cannot be compared with a full digest,
+  so it is UNKNOWN rather than stale: step 1 recounts it once, and step 2
+  SKIPS it rather than refusing. Those two must stay distinct. Making
+  `_table_is_current` false for such a record without teaching
+  `_tables_counted_from_another_genome` the difference made every existing
+  data directory fail step 2 with "counted from a different genome", which is
+  alarming and untrue; 28 tests caught it. After the one recount the records
+  are comparable and the guard is stricter than it has ever been. `count-kmers`
   writes it and reuses a table only when it matches; `filter` checks the same
   record before it starts. Without it, repointing `fg_genomes` at a new assembly
   and skipping `count-kmers` built the design from the previous organism's
