@@ -755,6 +755,9 @@ min_per_target_coverage = None
 # get_params must assign them or a params.json setting silently does nothing.
 # None on the latter two means "use the read site's default"
 # (DEFAULT_OCCUPANCY_SHORTLIST, and one mismatch class).
+# Declared here, not only assigned by `get_params`: the ratchet checks
+# `hasattr`, so a load-only key passes or fails by test ORDER.
+candidate_retention = "all_qc"
 occupancy_ranking = True
 occupancy_shortlist = None
 max_mismatches = None

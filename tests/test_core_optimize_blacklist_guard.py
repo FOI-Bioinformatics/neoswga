@@ -73,13 +73,17 @@ def plasmid_with_aliased_blacklist(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_run_optimization_flags_blacklist_candidates(plasmid_with_aliased_blacklist):
+def test_run_optimization_flags_blacklist_candidates(plasmid_with_aliased_blacklist, monkeypatch):
     """When candidates contain blacklist-hitting primers, the validator's
     forbidden_primers list should include them. Library callers can then
     read step4_improved_df_validation.json or
     unified_optimizer._LAST_RESULT.validation to see the guard fired."""
     tmpdir, params_file = plasmid_with_aliased_blacklist
-    os.chdir(tmpdir)
+    # `monkeypatch.chdir` and not `os.chdir`: this restores on teardown.
+    # A bare chdir here leaked a tmpdir as the working directory into every
+    # test that sorts after this file, and seven of them read a source path
+    # relative to the repository root.
+    monkeypatch.chdir(tmpdir)
     _reset_pipeline_state(str(params_file))
 
     from neoswga.core.pipeline import step2, step3
@@ -108,13 +112,19 @@ def test_run_optimization_flags_blacklist_candidates(plasmid_with_aliased_blackl
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_library_caller_with_explicit_blacklist_candidate(plasmid_with_aliased_blacklist):
+def test_library_caller_with_explicit_blacklist_candidate(
+    plasmid_with_aliased_blacklist, monkeypatch
+):
     """Direct library API: hand run_optimization a candidate pool that
     contains a primer with guaranteed blacklist hits. The validator's
     forbidden_primers path fires; if the optimizer selects that primer,
     the validation report carries a blacklist_primer_in_set error."""
     tmpdir, params_file = plasmid_with_aliased_blacklist
-    os.chdir(tmpdir)
+    # `monkeypatch.chdir` and not `os.chdir`: this restores on teardown.
+    # A bare chdir here leaked a tmpdir as the working directory into every
+    # test that sorts after this file, and seven of them read a source path
+    # relative to the repository root.
+    monkeypatch.chdir(tmpdir)
     _reset_pipeline_state(str(params_file))
     from neoswga.core.pipeline import step2, step3
 
