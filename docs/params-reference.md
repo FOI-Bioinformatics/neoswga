@@ -101,6 +101,7 @@ neoswga schema --dump > params.schema.json
 | `schema_version` | integer | min: 1; max: 2 | `2` | Version of this schema the file was written for. Version 2 corrected several scientific constants (Klenow processivity, phi29 extension rate, the Mg2+ activity model, the AG/TC nearest-neighbour parameter) and changed the mg_conc default from 0.0 to the polymerase buffer value; a v1 file still runs but produces different numbers. |
 | `src_dir` | string | - | - | Source directory; usually equal to data_dir. |
 | `ssb` | boolean | - | `False` | Single-stranded binding protein present. Previously accepted by the CLI but absent from this schema. |
+| `stage1_objective_width` | integer or null | min: 1 | `None` | Candidates per pick that Stage 1's set cover scores with the full objective, selecting on occupancy-weighted coverage instead of unweighted bins. null (default) keeps the bin count. Measured: turning it on raises effective coverage and lowers selectivity density, at 3.5-8.4x the runtime. See docs/validation/stage_one_objective_2026-09-19.md. |
 | `swap_max_evaluations` | integer | min: 0 | `10000` | - |
 | `swap_max_seconds` | number | min: 0 | `10.0` | - |
 | `target_set_size` | integer | min: 1; max: 200 | - | - |

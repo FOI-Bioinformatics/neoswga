@@ -935,7 +935,7 @@ def _apply_params_only_keys(data: dict) -> None:
     `get_params`, so the flag lands last.
     """
     global refinement_method
-    global swap_max_evaluations
+    global swap_max_evaluations, stage1_objective_width
     global swap_max_seconds
     global allow_dimer_relaxation
     global coverage_reach
@@ -963,6 +963,7 @@ def _apply_params_only_keys(data: dict) -> None:
     )
     refinement_method = data["refinement_method"] = data.get("refinement_method", "network")
     swap_max_evaluations = data["swap_max_evaluations"] = data.get("swap_max_evaluations", 10000)
+    stage1_objective_width = data["stage1_objective_width"] = data.get("stage1_objective_width")
     swap_max_seconds = data["swap_max_seconds"] = data.get("swap_max_seconds", 10.0)
     coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)

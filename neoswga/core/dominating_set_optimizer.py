@@ -375,6 +375,7 @@ class DominatingSetOptimizer:
     # `position_cache` carries `_released` at class level for the same reason.
     max_dimer_dg = None
     dimer_temp = 37.0
+    stage1_objective_width = None
 
     def __init__(
         self,
@@ -387,6 +388,7 @@ class DominatingSetOptimizer:
         max_dimer_dg=None,
         dimer_temp: float = 37.0,
         allow_dimer_relaxation: bool = False,
+        stage1_objective_width: Optional[int] = None,
     ):
         """
         Initialize optimizer.
@@ -422,6 +424,10 @@ class DominatingSetOptimizer:
         # Relaxation is an explicit choice; a stalled greedy search is not a
         # proof that the requested compatible panel does not exist.
         self.relax_dimer_constraint_when_stuck = allow_dimer_relaxation
+        # How many candidates the objective scores per pick. None is the full
+        # scan: correct, and 14.4 minutes on a 2,000-candidate pool at 36 ms an
+        # evaluation. See `OptimizerConfig.stage1_objective_width`.
+        self.stage1_objective_width = stage1_objective_width
 
     @staticmethod
     def _resolve_max_dimer_bp(max_dimer_bp: Optional[int]) -> int:
@@ -562,6 +568,10 @@ class DominatingSetOptimizer:
         fallback_tie = None
         redundant_skipped = 0
 
+        # First pass: the cheap bin gain for every candidate that survives the
+        # dimer guard. This is the scan the greedy has always run, and it is
+        # what decides which candidates are worth the objective's time.
+        cheap = []
         for primer in scan_order:
             if primer in selected:
                 continue
@@ -570,22 +580,30 @@ class DominatingSetOptimizer:
                 skipped_for_dimer = True
                 continue
 
-            # Count how many NEW regions this primer covers. The region set and
-            # this difference are the only inputs the redundancy test needs, so
-            # it costs no extra lookup.
+            # The region set and this difference are the only inputs the
+            # redundancy test needs, so it costs no extra lookup.
             primer_regions = graph.primer_to_regions.get(primer, set())
-            new_regions = primer_regions - covered_regions
-            n_new = len(new_regions)
+            cheap.append((primer, primer_regions, len(primer_regions - covered_regions)))
 
+        scored = cheap
+        if objective is not None and self.stage1_objective_width:
+            # Rank by the cheap gain, score only the leaders. `sorted` is
+            # stable, so candidates tying on bins keep `scan_order` and the
+            # pick stays deterministic.
+            scored = sorted(cheap, key=lambda item: -item[2])[: self.stage1_objective_width]
+
+        for primer, primer_regions, n_bins in scored:
             if objective is not None:
                 # Full recomputation, which is the correctness reference. An
                 # incremental version has to agree with this.
                 n_new = self._objective_gain(objective, selected, primer)
+                # A cache hit: `_objective_gain` just evaluated this panel.
                 tie_break = (
                     objective.metrics([*selected, primer]).total_bg_sites,
                     primer,
                 )
             else:
+                n_new = n_bins
                 tie_break = None
 
             if _is_better(n_new, tie_break, fallback_new_coverage, fallback_tie):
@@ -594,7 +612,13 @@ class DominatingSetOptimizer:
                 fallback_primer = primer
 
             if primer_regions:
-                redundancy = 1.0 - n_new / len(primer_regions)
+                # Always on the BIN gain, never on the objective gain. The two
+                # are different units -- an occupancy-weighted coverage
+                # fraction against a count of bins -- so dividing the first by
+                # a bin count made `redundancy` about 1.0 for every candidate
+                # and, at any threshold below 1.0, skipped the whole pool. It
+                # was unreachable while no caller passed an objective.
+                redundancy = 1.0 - n_bins / len(primer_regions)
                 if redundancy > redundancy_threshold:
                     redundant_skipped += 1
                     continue

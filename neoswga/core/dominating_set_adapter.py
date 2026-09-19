@@ -37,6 +37,7 @@ from .base_optimizer import (
 from .dominating_set_optimizer import DominatingSetOptimizer
 from .exceptions import NoCandidatesError
 from .optimizer_factory import OptimizerFactory
+from .swap_refinement import stage1_objective
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +124,7 @@ class DominatingSetAdapter(BaseOptimizer):
             max_dimer_bp=self.config.max_dimer_bp,
             max_dimer_dg=getattr(self.config, "max_dimer_dg", None),
             allow_dimer_relaxation=self.config.allow_dimer_relaxation,
+            stage1_objective_width=getattr(self.config, "stage1_objective_width", None),
         )
 
     @property
@@ -162,10 +164,14 @@ class DominatingSetAdapter(BaseOptimizer):
             logger.info(f"Dominating set optimization: {len(candidates)} candidates")
 
         # Delegate to original optimizer
+        # Selects on the quantity the design is accepted on rather than on
+        # unweighted coverage bins (Known Issue 16). Passed directly: this
+        # adapter holds its delegate itself and has no inner wrapper to cross.
         result = self._optimizer.optimize_greedy(
             candidates=candidates,
             max_primers=max_primers,
             verbose=self.config.verbose,
+            objective=stage1_objective(self),
         )
 
         # Compute metrics
