@@ -80,8 +80,24 @@ and `expand-primers` take `source.initial()` and stop. So on the Wolbachia
 example the 489,836 candidates beyond the 2,000-primer shortlist are still
 unreachable by a default `optimize`, which is this finding's stated effect. What
 changed for those two commands is the ORDER and the reporting, not the reach.
-Closing it means giving them a refill trigger the way `max_frontier_refills`
-gives one to a size row.
+**Measured 2026-09-19 before doing that work, and it should not be done as
+stated.** Giving `optimize` the whole 20,670-candidate inventory instead of the
+2,000-primer shortlist changes the delivered panel substantially -- Jaccard
+0.500, 0.263 and 0.171 at n=6, 12 and 24, with 2, 7 and 15 of the delivered
+primers coming from outside the shortlist -- and the change trades specificity
+for coverage: selectivity density falls 12 to 42 per cent while coverage rises
+1 to 6 points. Two causes compound. `max_primer` cuts on `bg_count / fg_count`
+ascending, so the candidates a refill reaches bind the host twice as often and
+the target half as often (median 20/3 against 10/6); and Stage 1's greedy
+carries no specificity term to resist them, which is Known Issue 16.
+
+The earlier `plan-pool` refill measurement does not transfer, because there the
+refill fired only on a size row that could not satisfy its constraints. A
+`optimize` run with no panel limits has no failing row, so an unconditional
+refill has nothing holding it to the specificity the shortlist was selected
+for. Close this by making Stage 1 specificity-aware, or by triggering a refill
+only on an unmet configured panel limit -- not by refilling unconditionally
+([measurement](../frontier_refill_on_optimize_2026-09-19.md)).
 
 **Source evidence:** `neoswga/cli/plan_pool.py:78-85` reads `step3_df.csv` unless
 an explicit CSV is supplied. `neoswga/core/unified_optimizer.py:953-956` does the

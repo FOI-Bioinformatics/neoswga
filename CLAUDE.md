@@ -72,6 +72,19 @@ what follows is only what the filenames do not tell you.
   inventory retained beyond the `max_primer` shortlist unreachable.
   `order_candidates_by_background` lives here too, because ordering the scan is
   the same concern as choosing it.
+  The frontier opens at the supplied list's size and only `plan-pool` reaches
+  past it: `pool_planner` is the sole caller of `source.advance()`. That is
+  deliberate as of 2026-09-19. Handing `optimize` the whole 20,670-candidate
+  Wolbachia inventory instead of its 2,000-primer shortlist moves the delivered
+  panel a long way (Jaccard 0.500/0.263/0.171 at n=6/12/24) and trades
+  specificity for coverage: density falls 12-42% while coverage rises 1-6
+  points. `max_primer` cuts on `bg_count / fg_count` ascending, so the
+  candidates a refill reaches bind the host twice as often and the target half
+  as often, and Stage 1's greedy has no specificity term to resist them (Known
+  Issue 16). Do not give `optimize` an unconditional refill; make Stage 1
+  specificity-aware first, or trigger a refill only on an unmet configured
+  panel limit, the way a size row does
+  ([measurement](docs/validation/frontier_refill_on_optimize_2026-09-19.md)).
 - **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
   than re-reading the HDF5 files. The constructor takes a fixed primer list;
   `load` and `release` move that window afterwards, which is what a frontier
