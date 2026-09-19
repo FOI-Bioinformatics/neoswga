@@ -315,6 +315,7 @@ def run_analyze_coverage(args):
     bam_gaps_list = None
     if getattr(args, "bam", None):
         from neoswga.core.bam_coverage import bam_gaps
+        from neoswga.core.depth_policy import DepthPolicy
 
         aliases = {}
         for item in getattr(args, "contig_alias", None) or []:
@@ -357,6 +358,10 @@ def run_analyze_coverage(args):
                 "min_depth": args.min_depth,
                 "min_gap_size": args.min_gap_size,
                 "used_bam": bool(getattr(args, "bam", None)),
+                # A breadth figure means nothing without the rule that
+                # produced it, and two runs under different rules are not
+                # comparable. See `core/depth_policy.py`.
+                "depth_policy": (DepthPolicy().to_dict() if getattr(args, "bam", None) else None),
                 "gaps": [
                     {"chromosome": g.chromosome, "start": g.start, "end": g.end, "size": g.size}
                     for g in gaps

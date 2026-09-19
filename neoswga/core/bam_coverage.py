@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
+from neoswga.core.depth_policy import DepthPolicy
 from neoswga.core.primer_expansion import CoverageGap
 from neoswga.core.reference_layout import BoundRecords, read_layout, verify_layout
 
@@ -126,17 +127,35 @@ def match_contigs(
     return mapping
 
 
-def compute_bam_depth(bam_path: str, contig: str, length: int) -> np.ndarray:
+def compute_bam_depth(
+    bam_path: str,
+    contig: str,
+    length: int,
+    policy: Optional[DepthPolicy] = None,
+) -> np.ndarray:
     """Return a per-base depth array (int32, len ``length``) for ``contig``.
 
     Uses ``pysam.AlignmentFile.count_coverage`` (sum of A/C/G/T per base).
     Positions beyond the array are ignored; missing positions are 0.
+
+    `policy` states which reads count. It used to be pysam's `'all'` callback
+    with `quality_threshold=0`, which excluded duplicates -- wrong for
+    hyperbranched amplification, where identical start coordinates are
+    independent priming events -- and counted supplementary alignments, which
+    counts one chimeric molecule in several places. See `core/depth_policy.py`.
     """
+    policy = policy or DepthPolicy()
     pysam = _require_pysam()
     depth = np.zeros(length, dtype=np.int32)
     with pysam.AlignmentFile(bam_path, "rb") as bam:
         # count_coverage returns 4 arrays (A,C,G,T) of length (stop-start).
-        cov = bam.count_coverage(contig, start=0, stop=length, quality_threshold=0)
+        cov = bam.count_coverage(
+            contig,
+            start=0,
+            stop=length,
+            quality_threshold=policy.min_base_quality,
+            read_callback=policy.accepts,
+        )
         per_base = np.asarray(cov, dtype=np.int64).sum(axis=0)
         n = min(len(per_base), length)
         depth[:n] = per_base[:n].astype(np.int32)
@@ -158,6 +177,7 @@ class DepthProfile:
     depth: np.ndarray
     evaluable: np.ndarray
     bound: "BoundRecords"
+    policy: DepthPolicy
 
     @property
     def evaluable_bases(self) -> int:
@@ -175,6 +195,7 @@ def bam_depth_profile(
     configured_length: Optional[int] = None,
     record_starts: Optional[Sequence[int]] = None,
     aliases: Optional[Dict[str, str]] = None,
+    policy: Optional[DepthPolicy] = None,
 ) -> DepthProfile:
     """Depth in the prefix's concatenated space, with a non-evaluable mask.
 
@@ -186,6 +207,7 @@ def bam_depth_profile(
     accepted on its name, because that mismatch reported a whole record as zero
     depth -- and zero depth is what BAM-guided expansion targets.
     """
+    policy = policy or DepthPolicy()
     pysam = _require_pysam()
     layout = read_layout(fasta_path, prefix=prefix)
     verify_layout(layout, record_starts or [], configured_length)
@@ -199,7 +221,9 @@ def bam_depth_profile(
 
     for name in bound.matched:
         record = layout.record(name)
-        record_depth = compute_bam_depth(bam_path, bound.bam_name_for[name], record.length)
+        record_depth = compute_bam_depth(
+            bam_path, bound.bam_name_for[name], record.length, policy=policy
+        )
         depth[record.start : record.end] = record_depth
         evaluable[record.start : record.end] = True
 
@@ -212,7 +236,8 @@ def bam_depth_profile(
             os.path.basename(fasta_path),
             ", ".join(bound.unmatched_records[:5]),
         )
-    return DepthProfile(prefix=prefix, depth=depth, evaluable=evaluable, bound=bound)
+    logger.info("%s", policy.describe())
+    return DepthProfile(prefix=prefix, depth=depth, evaluable=evaluable, bound=bound, policy=policy)
 
 
 def find_low_depth_gaps(

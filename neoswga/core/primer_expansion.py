@@ -34,6 +34,7 @@ Usage:
     )
 """
 
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Set, Tuple
@@ -131,6 +132,11 @@ class ExpansionResult:
     gaps_remaining: int
     optimization_method: str
     message: str = ""
+    # The read-selection rules any BAM depth behind this result was read
+    # under. `None` when no BAM was used. A breadth figure means nothing
+    # without the rule that produced it, and two runs under different rules
+    # are not comparable. See `core/depth_policy.py`.
+    depth_policy: Optional[Dict] = None
 
     @property
     def n_new(self) -> int:
@@ -163,6 +169,7 @@ class ExpansionResult:
             "gaps_remaining": self.gaps_remaining,
             "optimization_method": self.optimization_method,
             "message": self.message,
+            "depth_policy": self.depth_policy,
         }
 
     def __str__(self) -> str:
@@ -759,8 +766,10 @@ def expand_primers(
     # with low-depth regions from a mapped BAM.
     fg_circular = bool(params.get("fg_circular", False))
     bam_derived_gaps = None
+    bam_depth_policy = None
     if bam_path:
         from neoswga.core.bam_coverage import bam_gaps
+        from neoswga.core.depth_policy import DepthPolicy
 
         bam_derived_gaps = bam_gaps(
             bam_path,
@@ -775,8 +784,10 @@ def expand_primers(
             # gap list is silently empty.
             fg_genomes=params.get("fg_genomes"),
         )
+        bam_depth_policy = DepthPolicy().to_dict()
         if verbose:
             logger.info(f"BAM low-depth gaps: {len(bam_derived_gaps)}")
+            logger.info(DepthPolicy().describe())
 
     target_gaps = expander.identify_gaps(
         fixed_primers,
@@ -795,6 +806,11 @@ def expand_primers(
         verbose=verbose,
         target_gaps=target_gaps or None,
     )
+    if bam_depth_policy is not None:
+        # Attached here rather than threaded through `expand`, which does not
+        # read a BAM and should not carry a BAM concern. Recorded because a
+        # breadth figure means nothing without the rule that produced it.
+        result = dataclasses.replace(result, depth_policy=bam_depth_policy)
 
     # Save results if output_dir specified
     if output_dir:
