@@ -394,7 +394,9 @@ else:
 
 ### JSON Configuration File
 
-Create `params.json` for workflow configuration:
+Create `params.json` for workflow configuration. Every key below is current;
+`neoswga validate params -j params.json` reports any that are not, and
+[params-reference.md](../params-reference.md) is generated from the schema.
 
 ```json
 {
@@ -406,17 +408,15 @@ Create `params.json` for workflow configuration:
 
   "min_fg_freq": 1e-05,
   "max_bg_freq": 5e-05,
-  "max_gini": 0.6,
+  "max_gini": 0.7,
   "max_primer": 500,
   "min_tm": 15,
   "max_tm": 45,
   "max_self_dimer_bp": 4,
 
-  "min_amp_pred": 5,
   "max_dimer_bp": 4,
   "iterations": 8,
   "max_sets": 5,
-  "top_sets_count": 10,
 
   "polymerase": "equiphi29",
   "dmso_percent": 5.0,
@@ -424,6 +424,14 @@ Create `params.json` for workflow configuration:
   "cpus": 8
 }
 ```
+
+Two keys this sample used to carry are gone rather than updated.
+`top_sets_count` was never a schema key and produced an "unrecognised
+parameter" warning on every run that copied this block. `min_amp_pred` is real
+but inert: the amplification gate was retired from the default path on
+2026-09-05 and only runs under `--amp-model`, so setting it here changed
+nothing. `max_gini` is 0.7 rather than 0.6 because the lower value was measured
+to remove primers the optimizer had selected.
 
 ---
 
