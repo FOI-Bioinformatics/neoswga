@@ -15,21 +15,36 @@ random k-mers per length, median occupancy:
     phi29 30 C   0.017   0.145   0.661   0.960   0.996   1.000
     equiphi29 42 C 0.001  0.005   0.032   0.205   0.611   0.917
 
-So a phi29 panel spanning k 7 to 11 holds oligos bound under 2% of the time
-beside oligos bound essentially always. They are not equal contributors, and a
-panel size counts them as though they were.
+That is the raw k-mer space. **How much of it survives into a real pool is set
+by the Tm window, not by the length range**, and a control changed this entry's
+conclusion:
 
-Length is not the only driver: on the bundled plasmid panel two 8-mers sit at
-0.066 and 0.693, which is composition rather than length. What the per-length
-view adds is that the pool-wide mean `filter` reports describes no length in a
-mixed pool at all -- on that pool it is 2.405 where the lengths run 3.010 down
-to 1.015.
+    pool                     Tm window   median Tm spread   occupancy range
+    plasmid, phi29 30 C        30 C          23.5 C          0.042 - 0.994
+    Prevotella, equiphi29      12 C           2.0 C          0.580 - 0.794
+
+Both pools span three or more lengths. The wide window admits a 7-mer bound 4%
+of the time beside an 11-mer bound 99%; the narrow one admits oligos that are
+comparable at every length, because a Tm gate selects on the very quantity
+occupancy is computed from. So a mixed-length design is not inherently
+unbalanced, and the lever is the Tm window at least as much as the temperature.
+
+Length is not the only driver either: on the bundled plasmid panel two 8-mers
+sit at 0.066 and 0.693, which is composition. What the per-length view adds is
+that the pool-wide mean `filter` reports describes no length in a mixed pool --
+on that pool it is 2.405 where the lengths run 3.010 down to 1.015.
 
 **Reported, never enforced**, which is the resolution Known Issue 17 reached
 for the same quantity. Gating candidates on occupancy was measured on the
-Wolbachia pool and made the delivered panel worse on both axes. The lever that
-works is the reaction, not the filter, so this names the temperature and says
-what a low-occupancy member means; it removes nothing.
+Wolbachia pool and made the delivered panel worse on both axes, so nothing here
+removes a candidate.
+
+Known Issue 17 concluded "the lever is the reaction, not the filter". The Tm
+window is a filter setting and it moves this quantity too, which is not a
+contradiction: gating on occupancy DIRECTLY still fails, because discrimination
+lives in a tail too small to build a panel from. A Tm window does something
+different -- it decides which lengths are comparable, rather than ranking
+candidates by how tightly they bind.
 
 Silent on a single-length design, which is every design in this repository
 before 2026-09-21, so no existing run acquires new output.
@@ -173,9 +188,12 @@ def log_occupancy_spread(primers: Sequence[str], conditions, label: str = "pool"
         logger.warning(
             "At %s the %d-mers in this %s are bound about %.1f%% of the time "
             "against %.1f%% for the %d-mers. The short members contribute "
-            "little at this temperature. Nothing is removed for it: the lever "
-            "is the reaction, so lower the temperature or drop the shortest "
-            "length if you meant every member to bind.",
+            "little at this temperature. Nothing is removed for it. The lever "
+            "is the Tm window as much as the reaction: a window this wide "
+            "admits very differently bound oligos at different lengths, and "
+            "narrowing min_tm/max_tm around the reaction temperature is what "
+            "makes the lengths comparable. Measured on a 12 C window the "
+            "spread nearly vanishes.",
             f"{temp} C" if temp is not None else "this temperature",
             weakest.length,
             label,

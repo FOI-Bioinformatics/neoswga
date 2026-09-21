@@ -1956,3 +1956,59 @@ package, because nothing in the search uses it.
     ascending=False)[:max_primer]`, retaining the LEAST specific survivors.
     NeoSWGA sorts that ascending. All three were reported from that repository's
     source and were not re-verified here.
+
+19. **Four commands meant "every alternative set" where they should have meant
+    one** -- FIXED 2026-09-21. `step4_improved_df.csv` holds up to `max_sets`
+    (default 5) primer sets, one per `set_index`, and they are ALTERNATIVES:
+    each is found by excluding the primers already chosen and selecting again.
+    Set 0 is the one the summary describes. `export`, `interpret`, `report` and
+    `simulate` all read every row and treated the union as one panel.
+
+    The costly one is `export`, whose output the tool calls "Primers ready for
+    ordering!". Measured on the bundled plasmid example at 300 bp reach, where
+    the pool is large enough for alternatives to be found: set 0 is 8 oligos
+    with no pair above the configured `max_dimer_bp` of 3, while the exported
+    FASTA was 18 oligos with five pairs above it, the worst a 9 bp
+    complementary run. All five join oligos from DIFFERENT sets, so no screen
+    had ever compared them and by construction none could. Nothing in the file
+    marked a set boundary: records run SWGA_001 upward straight through.
+    `interpret` reported 18 primers, a count matching no orderable set.
+
+    This is the 11 bp delivered heterodimer of the `max_dimer_bp` entry reached
+    by a second route, with selection behaving correctly throughout. No saved
+    run in this repository exhibits it -- every one holds set 0 alone -- which
+    is why it survived. It needs only a pool big enough for a second set.
+
+    `core/delivered_set.py` holds the rule once. Default set 0; `--set N` on
+    `export` and `interpret`; a requested set the file does not hold raises
+    `ReferenceDataError` rather than returning an empty panel; a file with no
+    `set_index` column is older output holding one set and every row is
+    returned. Tests: `tests/test_commands_read_one_primer_set.py`.
+
+20. **Mixed oligo lengths work, and on the one pair measured they bought
+    nothing.** A design may mix lengths: the schema admits k of 4 to 30, the
+    scan writes one index per length, `PositionCache.load` groups by length and
+    the dimer screen codes t-mers. No delivered panel here had ever mixed,
+    so this was an argument until
+    `tests/integration/test_variable_oligo_length.py` took a k 7-11 design
+    through all four steps and out to an ordering file.
+
+    Measured on Prevotella against human chr21 at equiphi29 42 C, a mixed
+    k 10-12 design lands BETWEEN the single-length designs on both axes at
+    panel sizes 8 and 20. It is beaten on coverage by the all-11-mer panel and
+    on specificity by the all-12-mer panel, which binds the host once against
+    the mixed panel's seventeen at n=8. **Choosing k matters far more than
+    choosing whether to mix.**
+
+    The occupancy spread across lengths is governed by the Tm WINDOW, not by
+    the length range, which a control established after a first draft concluded
+    otherwise. A 30 C window gives a 23.5 C median Tm spread across lengths and
+    occupancy from 0.042 to 0.994; a 12 C window gives 2.0 C and 0.580 to
+    0.794. `core/length_occupancy.py` reports this per length from `filter` and
+    `optimize` and never enforces it, the resolution Known Issue 17 reached for
+    the same quantity. Silent on a single-length design
+    ([measurement](docs/validation/variable_oligo_length_2026-09-21.md)).
+
+    Not established: the recorded HDF5 `BlockingIOError` in
+    `tests/validation/genomes/f_mixed.log` did not reproduce. A mixed k 10-12
+    `filter` over the same pair in a clean directory completed in 146 s.
