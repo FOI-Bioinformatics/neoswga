@@ -208,6 +208,8 @@ class DeficitObjective:
         self._circular = bool(circular)
         self._total = sum(float(np.asarray(w).sum()) for w in self._weights.values())
 
+    metric_name = "predicted_deficit_recovery"
+
     # -- delegated, deliberately ------------------------------------------
     def metrics(self, primers):
         return self._inner.metrics(primers)

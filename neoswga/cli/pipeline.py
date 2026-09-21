@@ -21,6 +21,7 @@ from neoswga.cli._common import (
     validate_params_json_file,
     warn_on_condition_drift,
 )
+from neoswga.cli._failure import exit_on_step_failure
 from neoswga.cli._optimize_parser import _add_optimize_option_groups
 from neoswga.cli._params_preread import (
     apply_polymerase_choice,
@@ -30,6 +31,7 @@ from neoswga.cli._params_preread import (
 )
 from neoswga.cli._step4_reporting import (
     _report_marginal_coverage,
+    _report_occupancy_by_length,
     _report_pareto_frontier,
 )
 
@@ -40,7 +42,8 @@ logger = logging.getLogger(__name__)
 # reaches scikit-learn through `rf_preprocessing`. The previous try/except
 # ImportError fallback defined a *different* class, which would not have
 # caught what `core/pipeline.py` raises.
-from neoswga.core.exceptions import StepPrerequisiteError
+from neoswga.cli._failure import clear_failure_artifact
+from neoswga.core.exceptions import DesignError, StepPrerequisiteError
 
 
 def run_step1(args):
@@ -361,7 +364,7 @@ def run_step2(args):
             apply_qa_to_step2_output(parameter.data_dir, verbose=not args.quiet)
 
         if not args.quiet:
-            print("\nNext: neoswga score -j params.json")
+            print("\nNext: neoswga prepare-candidates -j params.json")
 
     except ImportError as e:
         logger.error(f"Failed to import pipeline module: {e}")
@@ -377,13 +380,10 @@ def run_step2(args):
         logger.error("Ensure Step 1 (count-kmers) has completed successfully.")
         logger.error("Run: neoswga count-kmers -j params.json")
         sys.exit(1)
+    except DesignError:
+        raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
-        logger.error(f"Step 2 failed: {e}")
-        if logger.level <= logging.DEBUG:
-            import traceback
-
-            traceback.print_exc()
-        sys.exit(1)
+        exit_on_step_failure("Step 2", e, logger, getattr(parameter, "data_dir", None))
     _data_dir = getattr(parameter, "data_dir", None)
     _step2_out = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
     _elapsed = _time.time() - _t0
@@ -447,9 +447,11 @@ def run_step3(args):
         # computed them cost 767.6 s against 6.1 s on a 449-candidate pool for a
         # mean absolute score change of 0.0016, Pearson 1.0000 and an identical
         # delivered order, so it was removed on 2026-09-10.
+        # The histogram features stay skipped; this was the only behaviour
+        # `--fast-score` ever selected, and it has been the default since the
+        # amplification model left the default path. The flag is gone rather
+        # than accepted-and-ignored, which is the Known Issue 8 shape.
         parameter.fast_score = True
-        if getattr(args, "fast_score", False):
-            logger.info("--fast-score is now the default; flag is a no-op")
 
         # Run step3, then blend the QA scores into what it wrote
         pipeline.step3()
@@ -475,19 +477,16 @@ def run_step3(args):
         logger.error("Ensure Step 2 (filter) has completed successfully.")
         logger.error("Run: neoswga filter -j params.json")
         sys.exit(1)
+    except DesignError:
+        raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
-        logger.error(f"Step 3 failed: {e}")
-        if logger.level <= logging.DEBUG:
-            import traceback
-
-            traceback.print_exc()
-        sys.exit(1)
+        exit_on_step_failure("Step 3", e, logger, getattr(parameter, "data_dir", None))
     _data_dir = getattr(parameter, "data_dir", None)
     _step3_in = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
     _step3_out = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
     _elapsed = _time.time() - _t0
     _record_run_manifest(
-        "score",
+        "prepare-candidates",
         args,
         parameter,
         input_files=[p for p in [_step3_in] if p],
@@ -894,6 +893,35 @@ def run_step4(args):
                 "amplification-factor term to every primer."
             )
 
+        # Resolve and validate the whole request before any search begins.
+        # A setting that cannot be applied is named here, with the field, while
+        # the run has cost nothing; the alternative is finding out after the
+        # position cache is built, or not finding out at all because a reader
+        # took its own fallback. `request_hash` is what lets the saved result
+        # name the configuration that produced it.
+        from neoswga.core.design_request import design_request_for_run
+        from neoswga.core.reference_check import (
+            verify_index_geometry,
+            verify_reference_digests,
+        )
+
+        _request = design_request_for_run(args, parameter)
+        if _request is not None:
+            logger.info("Design request %s", _request.request_hash[:12])
+            # Reference IDENTITY is checked here rather than inside the
+            # optimizer, because this is the layer at which a prefix and the
+            # genome it belongs to are both named by the same request. A
+            # structurally perfect index built from a different assembly is the
+            # failure a passing test suite is least likely to catch.
+            _manifest = _request.reference_manifest()
+            _lengths = sorted(set(_request.primer_lengths))
+            verify_reference_digests(_manifest, _lengths)
+            # Geometry is decided here too, and not inside the evaluator:
+            # whether an index NEEDS record starts depends on how many records
+            # its reference holds, and only the request pairs a prefix with a
+            # genome.
+            verify_index_geometry(_manifest, _lengths)
+
         # Use unified optimizer framework (all methods handled via factory pattern)
         from neoswga.core.unified_optimizer import list_available_optimizers, optimize_step4
 
@@ -966,6 +994,7 @@ def run_step4(args):
                 ):
                     logger.warning(line)
             _report_marginal_coverage(parameter, cache, results[0])
+            _report_occupancy_by_length(parameter, results[0])
         else:
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)
@@ -1145,8 +1174,13 @@ def run_step4(args):
                 # said. This is the number the run actually used.
                 "effective_set_size": getattr(parameter, "num_primers", None),
                 "optimization_method": resolve_optimization_method(args),
+                "request_hash": _request.request_hash if _request else None,
+                "request_default_sources": (dict(_request.default_sources) if _request else None),
             },
         )
+        # This run finished, so a failure record from an earlier one no
+        # longer describes anything and must not go on blocking the export.
+        clear_failure_artifact(_data_dir)
         logger.info(f"Step 4 complete in {_elapsed:.1f}s")
         if not args.quiet:
             data_dir = getattr(parameter, "data_dir", ".")
@@ -1162,17 +1196,12 @@ def run_step4(args):
     except FileNotFoundError as e:
         logger.error(f"Required file not found: {e}")
         logger.error("Ensure Step 3 (score) has completed successfully.")
-        logger.error("Run: neoswga score -j params.json")
+        logger.error("Run: neoswga prepare-candidates -j params.json")
         sys.exit(1)
+    except DesignError:
+        raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
-        logger.error(f"Step 4 failed: {e}")
-        if logger.level <= logging.DEBUG:
-            import traceback
-
-            traceback.print_exc()
-        else:
-            logger.error("Run with --verbose for full traceback")
-        sys.exit(1)
+        exit_on_step_failure("Step 4", e, logger, getattr(parameter, "data_dir", None))
 
 
 def run_build_filter(args):
@@ -1537,7 +1566,18 @@ def add_parsers(subparsers):
     # =========================================================================
 
     score_parser = subparsers.add_parser(
-        "score", help="Prepare the candidate pool for optimization"
+        "prepare-candidates",
+        help="Prepare the ordered candidate pool that optimization reads",
+        description=(
+            "Write step3_df.csv, the ordered candidate pool the optimizer reads. "
+            "It was called `score` until 2026-09-21, which described work it "
+            "stopped doing on 2026-09-05 when the bundled amplification model "
+            "left the default path: a prediction was computed for every "
+            "candidate and then discarded, and every step-4 consumer reads only "
+            "the primer column. What the stage produces is the deterministic "
+            "order that makes an unseeded run reproducible. Pass --amp-model to "
+            "restore the score column and its gate."
+        ),
     )
     add_common_options(score_parser)
 
@@ -1556,13 +1596,6 @@ def add_parsers(subparsers):
         help="Minimum amplification prediction score (default: 10). "
         "Requires --amp-model; without it the gate is retired and this "
         "value does nothing.",
-    )
-    score_parser.add_argument(
-        "--fast-score",
-        action="store_true",
-        help="Deprecated alias for the current default behavior "
-        "(thermodynamic histogram features are skipped). "
-        "Accepted for backwards compatibility.",
     )
     score_parser.add_argument(
         "--seed",

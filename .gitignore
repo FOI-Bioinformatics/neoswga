@@ -178,8 +178,11 @@ examples/ecoli_environmental/ecoli_K12_MG1655.fasta
 # file left the defect in place. tests/test_the_suite_leaves_no_files_behind.py
 # fails if one reappears.
 
-# Local planning/spec scratch (not part of the package)
-docs/superpowers/
+# Local planning/spec scratch, except the active reviewed implementation roadmap.
+docs/superpowers/*
+!docs/superpowers/plans/
+docs/superpowers/plans/*
+!docs/superpowers/plans/2026-09-21-valid-design-no-fallbacks.md
 
 # Per-machine Claude Code permission allowlist -- not shared project config.
 # Project-level skills under .claude/skills/ ARE tracked and are not matched

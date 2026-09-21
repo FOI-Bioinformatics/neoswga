@@ -138,7 +138,7 @@ def run_workflow_selector():
     """
     main_options = [
         ("Set up new project", "Create params.json with guided configuration"),
-        ("Run primer design pipeline", "Execute count-kmers, filter, score, optimize"),
+        ("Run primer design pipeline", "Execute count-kmers, filter, prepare-candidates, optimize"),
         ("Validate configuration", "Check params.json for errors before running"),
         ("Interpret results", "Get quality assessment of primer design output"),
         ("Advanced features", "Multi-genome design, simulation, analysis tools"),
@@ -214,7 +214,10 @@ def run_workflow_selector():
                     steps = [
                         (["neoswga", "count-kmers", "-j"], "Step 1: Count k-mers"),
                         (["neoswga", "filter", "-j"], "Step 2: Filter primers"),
-                        (["neoswga", "score", "-j"], "Step 3: Score candidates"),
+                        (
+                            ["neoswga", "prepare-candidates", "-j"],
+                            "Step 3: Prepare the candidate pool",
+                        ),
                         (["neoswga", "optimize", "-j"], "Step 4: Optimize set"),
                     ]
                     for base_cmd, desc in steps:
@@ -234,7 +237,8 @@ def run_workflow_selector():
                     )
                 elif pipe_choice == 4:
                     prompt_execute(
-                        ["neoswga", "score", "-j", params_file], "Predict amplification efficacy"
+                        ["neoswga", "prepare-candidates", "-j", params_file],
+                        "Prepare the candidate pool",
                     )
                 elif pipe_choice == 5:
                     print("\nOptimization methods available:")

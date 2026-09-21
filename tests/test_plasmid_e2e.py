@@ -67,7 +67,7 @@ class TestPlasmidE2E:
         assert step2.stat().st_size > 100, "step2_df.csv is too small"
 
         # Step 3: score
-        self._run("score")
+        self._run("prepare-candidates")
         step3 = self.workdir / "step3_df.csv"
         assert step3.exists(), "step3_df.csv not produced"
         assert step3.stat().st_size > 100, "step3_df.csv is too small"

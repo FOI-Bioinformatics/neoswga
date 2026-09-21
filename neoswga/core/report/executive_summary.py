@@ -580,7 +580,10 @@ def _render_gap_analysis(coverage):
     reader needs to see which regime they are in. See
     docs/validation/published_primer_sets.md.
     """
-    if coverage is None or coverage.mean_gap <= 0:
+    if coverage is None:
+        return ""
+    measured = (coverage.mean_gap, coverage.max_gap, coverage.gap_gini)
+    if any(value is None for value in measured) or coverage.mean_gap <= 0:
         return ""
 
     from neoswga.core.coverage import gap_regime_note, interpret_gap_metrics

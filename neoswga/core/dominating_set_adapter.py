@@ -169,7 +169,8 @@ class DominatingSetAdapter(BaseOptimizer):
         # adapter holds its delegate itself and has no inner wrapper to cross.
         result = self._optimizer.optimize_greedy(
             candidates=candidates,
-            max_primers=max_primers,
+            max_primers=max(0, max_primers - len(kwargs.get("fixed_primers") or ())),
+            fixed_primers=kwargs.get("fixed_primers"),
             verbose=self.config.verbose,
             objective=stage1_objective(self),
         )

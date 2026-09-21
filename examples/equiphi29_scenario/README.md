@@ -21,7 +21,7 @@ Replace `target.fasta` / `host.fasta` with your real files (or remove
 ```bash
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 neoswga report -d .
 ```

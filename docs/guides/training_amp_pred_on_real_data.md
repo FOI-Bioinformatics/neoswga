@@ -21,7 +21,7 @@ training_data.csv
 enhanced_rf_model.pkl
        |
        v   predict_new_primers_enhanced(model_path=...) in Python -- see Step 4;
-           there is no CLI flag that wires this into `neoswga score` yet
+           there is no CLI flag that wires this into `neoswga prepare-candidates` yet
 ```
 
 ## Step 1: collect lab measurements
@@ -99,7 +99,7 @@ the model in production.
 
 ## Step 4: use the trained model
 
-There is currently no CLI path to this: `neoswga score`'s `--use-enhanced-features`
+There is currently no CLI path to this: `neoswga prepare-candidates`'s `--use-enhanced-features`
 and `--enhanced-model-path` flags are accepted but explicitly unimplemented
 (`neoswga/cli/_common.py:UNIMPLEMENTED_OPTIONS`; the `score` step's help text
 says so too), and the real `score` step (`core/pipeline.py`) calls only

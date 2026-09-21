@@ -25,19 +25,33 @@ EXAMPLE_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "plas
 
 
 def _reset_pipeline_state(params_file):
+    """Point the pipeline at a new params file, the one supported way.
+
+    This used to clear the nine `pipeline` globals by hand. `pipeline` has a
+    `reset_pipeline_state` for exactly this, and the hand-rolled copy had
+    drifted from it: the real one also drops `filter`'s cached
+    `ReactionConditions` singleton, and its docstring says to call it whenever
+    `parameter.json_file` changes.
+
+    **That omission failed CI on 2026-09-21 and could not be seen locally.**
+    CI runs `pytest tests/` serially in one process; the usual local command
+    is `-n 8`, which puts this test and the preset tests in
+    `tests/cli/test_pipeline_inprocess.py` on different workers. Serially, a
+    preset filter run cached conditions with no additives, this test reused
+    them, and so `filter` recorded its candidate inventory under a reaction
+    fingerprint with betaine 0.0 while `optimize` looked it up under betaine
+    1.5 -- the very additives this test exists to check.
+
+    It only became a FAILURE once `open_design_source` started refusing a
+    fingerprint mismatch instead of quietly falling back to the shortlist.
+    Under the old fallback the same staleness produced a design over the wrong
+    pool and a passing test, which is what this test was doing.
+    """
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
 
-    pipeline_mod._initialized = False
-    pipeline_mod.fg_prefixes = None
-    pipeline_mod.bg_prefixes = None
-    pipeline_mod.fg_genomes = None
-    pipeline_mod.bg_genomes = None
-    pipeline_mod.fg_seq_lengths = None
-    pipeline_mod.bg_seq_lengths = None
-    pipeline_mod.fg_circular = None
-    pipeline_mod.bg_circular = None
     parameter.json_file = params_file
+    pipeline_mod.reset_pipeline_state()
 
 
 def _build_scenario(tmp_path, overrides):

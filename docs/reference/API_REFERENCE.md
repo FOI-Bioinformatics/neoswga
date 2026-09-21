@@ -85,7 +85,7 @@ Prepare the candidate pool. The bundled random forest was retired from the
 default path on 2026-09-05; pass `--amp-model` to restore it.
 
 ```bash
-neoswga score -j params.json [options]
+neoswga prepare-candidates -j params.json [options]
 ```
 
 **Options:**

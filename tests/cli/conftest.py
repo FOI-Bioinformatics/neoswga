@@ -193,7 +193,7 @@ def pipeline_run(tmp_path_factory, genome_seq):
     params_file = work / "params.json"
     params_file.write_text(json.dumps(params, indent=2))
 
-    for step in ("count-kmers", "filter", "score"):
+    for step in ("count-kmers", "filter", "prepare-candidates"):
         proc = subprocess.run(
             [sys.executable, "-m", "neoswga.cli_unified", step, "-j", str(params_file)],
             capture_output=True,
@@ -227,6 +227,49 @@ def scored_primers(pipeline_run):
         rows = list(csv.DictReader(fh))
     key = "primer" if rows and "primer" in rows[0] else list(rows[0])[0]
     return [r[key] for r in rows]
+
+
+@pytest.fixture(scope="session")
+def searchable_primers(pipeline_run, scored_primers):
+    """Every candidate the run was allowed to select, not just the shortlist.
+
+    `step3_df.csv` holds the `max_primer` shortlist; the inventory holds every
+    candidate that cleared hard QC, and a design searches the inventory when
+    the directory has one (audit finding F1). So the shortlist is the wrong
+    reference for "did the optimizer invent a sequence" -- it is a subset of
+    the legitimate answers, and comparing against it fails on a candidate that
+    was correctly reachable.
+
+    Read through the inventory's own reader rather than by reconstructing its
+    schema here, and fall back to the shortlist when the directory has no
+    inventory, which is the same rule the design path follows.
+    """
+    import json
+
+    from neoswga.core.candidate_source import open_design_source
+    from neoswga.core.design_context import design_context_from_params
+    from neoswga.core.run_manifest import read_effective_conditions
+
+    # The reaction the run ACTUALLY used, not the one params.json declares.
+    # `retune_for_polymerase` and the GC-adaptive strategy set temperature and
+    # additives at run time and never write back to the file, so a fingerprint
+    # rebuilt from params.json addresses a chemistry the inventory may hold
+    # nothing under. `export` and `report` read the manifest for the same
+    # reason.
+    with open(pipeline_run["params_file"]) as handle:
+        params = json.load(handle)
+    params["data_dir"] = pipeline_run["data_dir"]
+    recorded = read_effective_conditions(pipeline_run["data_dir"])
+    if recorded:
+        params = {**params, **recorded}
+    context = design_context_from_params(params)
+    source = open_design_source(
+        pipeline_run["data_dir"],
+        context.conditions.fingerprint(),
+        sorted({len(primer) for primer in scored_primers}),
+        fallback=list(scored_primers),
+    )
+    return source.universe()
 
 
 @pytest.fixture(scope="session")

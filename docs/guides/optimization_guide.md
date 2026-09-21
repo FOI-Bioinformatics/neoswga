@@ -4,6 +4,25 @@ This guide helps you choose the right optimization method for your SWGA primer d
 
 ## Plan pool size against coverage and specificity
 
+Configured chemistry must be valid before a new optimization starts. Invalid
+reaction settings and failures in the configured network Tm calculation now
+stop that design instead of substituting a different buffer or ignoring
+additives. Condition-free library evaluators remain available explicitly.
+
+Standard optimization now attaches a shared panel objective before generating
+proposals and applies bounded swap refinement under that objective. With
+reaction conditions, the objective uses effective coverage and the configured
+panel limits. `--minimize-primers` preserves the same metric and limits when
+removing oligos. This can change previously delivered panels and adds bounded
+refinement work; it does not establish improved experimental recovery.
+
+`plan-pool` carries supported search settings from params.json, including
+`stage1_objective_width`, refill controls, and swap budgets. An explicit CLI
+swap-evaluation budget overrides the parameter-file value. Stage-one scoring
+remains geometric unless its objective width is configured; refinement and
+final acceptance use the selected panel objective. Chemistry-independent
+sequence dimer limits remain mandatory.
+
 After `count-kmers`, `filter`, and `score`, use `plan-pool` to compare oligo
 counts and find small panels meeting explicit targets:
 
@@ -370,7 +389,8 @@ neoswga optimize -j params.json --optimization-method=ensemble
 neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combine=union
 ```
 
-Selection is by `normalized_score`, a [0,1] value comparable across optimizers,
+With a shared panel evaluator, selection prioritizes constraints, then objective
+coverage and background load. The reported `normalized_score` is a [0,1] descriptive value across optimizers,
 weighted by `--application`; the raw `score` is not comparable between methods.
 The runner-up table is written to `step4_improved_df_summary.json` as
 `ensemble_comparison`. `--ensemble-combine union` additionally re-optimizes over
@@ -515,3 +535,47 @@ Try:
 1. Use `network` method
 2. Adjust `min_tm` and `max_tm` parameters
 3. Consider polymerase-specific presets
+
+### Shared panel stages
+
+`OptimizationRequest` and `run_panel_search` in `core/optimization_service.py`
+provide the panel-stage entry point used by standard optimization, pool planning
+(including condition-grid rows), contraction, and expansion with a resolved design context.
+Reference loading and candidate-frontier orchestration remain with the front ends.
+The optimizer carries the resolved chemistry, indexes and evaluator; a request
+adds the candidate frontier, fixed/excluded oligos, size bounds and stage choices.
+
+The sequence is proposal selection, bounded repair of unmet limits or an explicit
+coverage target, shared-objective refinement, and optional pool reduction.
+After a reduction, repair/refinement can run again before further deletion.
+Deletion preserves the requested coverage, panel limits and fixed oligos.
+These are bounded searches for smaller qualifying pools, not proofs of minimum
+pool size. Swap and deletion passes each use the configured evaluation/time
+budget; multiple stages may consume more total computation than one pass.
+
+Ensemble proposals use constraint-first objective ranking when a common evaluator
+is available. Result-only library optimizers retain their normalized-score
+comparison. The normalized score remains a reported metric, but does not override
+an explicit panel constraint. Sequence-based dimer checks and the optional
+stability floor are checked on changed panels at the configured temperature;
+this does not establish a full additive-dependent dimer equilibrium model.
+
+Results include stage history with pool sizes, objective coverage, failed limits,
+time, and available search counts/stopping reasons. Pool reports show this history
+under each row. Expansion labels deficit recovery separately from genome coverage
+and retains the panel constraints when using a deficit objective. It refuses a
+configured expansion that cannot produce a qualifying pool.
+
+Pool planning refills a candidate frontier when constraints or the requested
+coverage remain unmet, within `max_frontier_refills`. It retains the best feasible
+panel found and records all frontier attempts. Standard optimization and expansion
+still need a common frontier/refill policy; this stage runner does not by itself
+make every retained candidate reachable from those front ends.
+
+`contract-set` uses the same bounded deletion stage and effective-coverage metric.
+It scans the supplied primers against the reference FASTAs without changing
+pipeline indexes, keeps target/background circularity separate, and reports raw
+coverage alongside effective coverage. Its existing `--min-coverage 0` option is
+supported. When no qualifying reduction is found, the original panel is retained
+and `meets_target` states whether it actually satisfies the request. Removal
+traces retain per-primer coverage; stage history also includes timing and budgets.

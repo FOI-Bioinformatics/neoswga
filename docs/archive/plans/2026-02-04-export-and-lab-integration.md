@@ -1120,7 +1120,7 @@ def run_export(args):
     except FileNotFoundError as e:
         logger.error(str(e))
         print(f"Error: {e}")
-        print("Make sure to run the full pipeline (count-kmers, filter, score, optimize) first.")
+        print("Make sure to run the full pipeline (count-kmers, filter, prepare-candidates, optimize) first.")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Export failed: {e}")

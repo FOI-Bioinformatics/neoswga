@@ -7,6 +7,8 @@ from typing import List, Optional
 from neoswga.core import utility as _utility
 from neoswga.core.registry import views as _registry_views
 
+from .parameter_warnings import _warn_about_schema_version, _warn_about_unknown_keys
+
 logger = logging.getLogger(__name__)
 
 
@@ -935,6 +937,7 @@ def _apply_params_only_keys(data: dict) -> None:
     `get_params`, so the flag lands last.
     """
     global refinement_method
+    global total_search_evaluations, total_search_seconds, max_frontier_refills
     global swap_max_evaluations, stage1_objective_width
     global swap_max_seconds
     global allow_dimer_relaxation
@@ -954,18 +957,26 @@ def _apply_params_only_keys(data: dict) -> None:
     # module that owns the concept. No fallback: an absent limit IS the default
     # and must stay distinguishable from a configured value.
     from .panel_acceptance import CONFIGURED_LIMIT_KEYS
+    from .search_control import resolve_search_settings
 
     for _limit in CONFIGURED_LIMIT_KEYS:
         globals()[_limit] = data.get(_limit)
 
-    allow_dimer_relaxation = data["allow_dimer_relaxation"] = data.get(
-        "allow_dimer_relaxation", False
-    )
-    refinement_method = data["refinement_method"] = data.get("refinement_method", "network")
-    swap_max_evaluations = data["swap_max_evaluations"] = data.get("swap_max_evaluations", 10000)
-    stage1_objective_width = data["stage1_objective_width"] = data.get("stage1_objective_width")
-    swap_max_seconds = data["swap_max_seconds"] = data.get("swap_max_seconds", 10.0)
-    coverage_reach = data["coverage_reach"] = data.get("coverage_reach")
+    # Assigned by name rather than through `globals()[key]` in a loop: the
+    # inert-key ratchet reads `global` declarations out of the source, so a key
+    # bound only at run time is invisible to the check that exists to catch
+    # exactly the keys Known Issue 8 lists.
+    _search = resolve_search_settings(data)
+    data.update(_search)
+    total_search_evaluations = _search["total_search_evaluations"]
+    total_search_seconds = _search["total_search_seconds"]
+    max_frontier_refills = _search["max_frontier_refills"]
+    allow_dimer_relaxation = _search["allow_dimer_relaxation"]
+    refinement_method = _search["refinement_method"]
+    swap_max_evaluations = _search["swap_max_evaluations"]
+    swap_max_seconds = _search["swap_max_seconds"]
+    stage1_objective_width = _search["stage1_objective_width"]
+    coverage_reach = _search["coverage_reach"]
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
     occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")
     max_mismatches = data["max_mismatches"] = data.get("max_mismatches")
@@ -992,63 +1003,6 @@ def _apply_params_only_keys(data: dict) -> None:
     gc_clamp_window = data["gc_clamp_window"] = data.get("gc_clamp_window")
     max_gc_in_clamp = data["max_gc_in_clamp"] = data.get("max_gc_in_clamp")
     candidate_retention = data["candidate_retention"] = data.get("candidate_retention", "all_qc")
-
-
-def _warn_about_schema_version(data):
-    """Warn when params.json declares no schema version, or a different one.
-
-    Extracted from ``get_params`` unchanged, to keep that function inside its
-    length budget. The messages and the three branches are as they were.
-    """
-    schema_version = data.get("schema_version", None) if isinstance(data, dict) else None
-    if schema_version is None:
-        logger.warning(
-            "params.json has no 'schema_version' field. "
-            "Defaults may differ between NeoSWGA versions. "
-            f"Add '\"schema_version\": {CURRENT_SCHEMA_VERSION}' to your "
-            "params.json for reproducibility."
-        )
-    elif schema_version < CURRENT_SCHEMA_VERSION:
-        logger.warning(
-            f"params.json declares schema_version {schema_version}; this "
-            f"NeoSWGA uses version {CURRENT_SCHEMA_VERSION}. Several "
-            f"scientific constants were corrected in v2 and results will "
-            f"differ from a v1 run:\n"
-            f"{SCHEMA_V2_MIGRATION_NOTE}"
-        )
-    elif schema_version > CURRENT_SCHEMA_VERSION:
-        logger.warning(
-            f"params.json schema_version {schema_version} is newer than "
-            f"this NeoSWGA version supports (max: {CURRENT_SCHEMA_VERSION}). "
-            f"Some parameters may not be recognized."
-        )
-
-
-def _warn_about_unknown_keys(data):
-    """Warn about params.json keys the schema does not declare.
-
-    `validate params` runs the same check, but a user who never runs it still
-    gets one line here rather than a silently applied default: the schema sets
-    `additionalProperties: true`, so `max_bg_freqency` was accepted in silence
-    and the default for `max_bg_freq` applied, changing the design.
-
-    Never raises. A failure to check is not a reason to fail the run.
-    """
-    try:
-        from neoswga.core.param_validator import unknown_param_keys
-
-        for key, suggestion in unknown_param_keys(data):
-            if suggestion:
-                logger.warning(
-                    "Unknown parameter '%s' in params.json; it will be ignored. "
-                    "Did you mean '%s'?",
-                    key,
-                    suggestion,
-                )
-            else:
-                logger.warning("Unknown parameter '%s' in params.json; it will be ignored.", key)
-    except Exception as e:  # pragma: no cover - defensive
-        logger.debug(f"Unknown-key check skipped: {e}")
 
 
 def get_params(args):

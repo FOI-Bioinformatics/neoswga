@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence
 
 from neoswga.core.candidate_inventory import STAGE2_INVENTORY_NAME
+from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.position_cache import MissingPositionsError
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,14 @@ INVENTORY_EXHAUSTED = "inventory_exhausted"
 # A refill doubles rather than adding a fixed batch, so reaching a distant
 # candidate costs a logarithmic number of refills rather than a linear one.
 FRONTIER_GROWTH = 2
+
+
+class CandidateFrontier(list):
+    """Initial candidates with their source retained for later refills."""
+
+    def __init__(self, source):
+        super().__init__(source.initial())
+        self.source = source
 
 
 class ListCandidateSource:
@@ -149,6 +158,16 @@ class InventoryCandidateSource:
 
     def frontier(self) -> List[str]:
         return list(self._examined)
+
+    def universe(self) -> List[str]:
+        """Every eligible candidate, including the ones past the frontier.
+
+        `universe_size` already reports the length. A caller asking whether a
+        delivered primer was a legitimate choice needs the sequences instead:
+        `step3_df.csv` holds only the `max_primer` shortlist, so it is a strict
+        subset of the correct answers whenever an inventory is present.
+        """
+        return list(self._provider._eligible_in_search_order())
 
     def advance(self, keep: Iterable[str] = ()) -> bool:
         """Widen the frontier over the next candidates in recorded order.
@@ -273,38 +292,89 @@ def open_candidate_source(
     return InventoryCandidateSource(provider, frontier=frontier)
 
 
-def open_source_or_list(data_dir, condition_id, lengths, fallback, explicit=False):
-    """The inventory when this directory has one, the supplied list otherwise.
+def open_explicit_source(candidates):
+    """The pool the user named, searched exactly as given.
 
-    One rule for every command, because three copies of "which pool am I
-    searching" would drift while each stayed self-consistent. `plan-pool`,
-    `optimize` and `expand-primers` all read `step3_df.csv` for themselves
-    before this: the inventory holds every candidate that cleared hard QC and
-    the CSV holds the `max_primer` shortlist, so reading the CSV directly made
-    the rest unreachable. Audit finding F1 named all three.
+    A `--candidates` file is a statement about which pool to design over.
+    Searching a different one is worse than useless, and it has already cost
+    this project a whole experiment: the occupancy-gate measurement recorded in
+    Known Issue 17 appeared to improve selectivity density to 44.28, and did
+    not. `open_source_or_list` had preferred the inventory over the capped list
+    that was handed to it, so the run searched the inventory as usual and the
+    apparent gain was the smaller frontier. None of the delivered primers were
+    in the capped pool.
+    """
+    pool = list(candidates)
+    logger.info("Searching the %d candidates named on the command line.", len(pool))
+    return ListCandidateSource(pool)
 
-    `explicit` marks a pool the user named, with `--candidates` or equivalent.
-    That always wins: quietly searching a different pool would be worse than
-    useless.
 
-    The frontier opens at exactly the size of `fallback`, the list the command
-    would have read anyway, which is the choice increment 1 made for
-    `plan-pool`. It keeps delivered panels where they were while making the
-    counts visible, and increment 5's refill is what reaches past it.
+def open_inventory_source(data_dir, condition_id, lengths, frontier=None):
+    """The inventory for this directory, or None when it does not have one.
 
-    A fingerprint the inventory holds nothing for falls back to the list rather
-    than designing over nothing, and says so: a mismatch is how the inventory
-    read as empty when `plan-pool` first opened it.
+    The return value and the exception mean different things, and conflating
+    them is what this function was split out to stop.
+
+    `None` is a fact about the directory: it holds no inventory, because it was
+    written before inventories existed or because `filter` has not run here. A
+    caller with a candidate list of its own may use that list, and the choice
+    is the caller's to declare.
+
+    A `ReferenceDataError` means the directory HAS an inventory that cannot
+    answer this request, which is almost always a reaction fingerprint that no
+    candidate was assessed under. Falling back to a list there would design
+    over a pool chosen by an error rather than by anyone, and the candidates
+    the inventory holds would be silently unreachable.
+    """
+    path = Path(data_dir) / STAGE2_INVENTORY_NAME
+    if not path.is_file():
+        return None
+
+    from neoswga.core.candidate_inventory import CandidateInventory
+    from neoswga.core.candidate_provider import CandidateProvider
+
+    inventory = CandidateInventory(path)
+    provider = CandidateProvider(inventory, condition_id, lengths)
+    if not provider._eligible_in_search_order():
+        inventory.close()
+        raise ReferenceDataError(
+            f"candidate inventory {path}",
+            f"holds no eligible candidate of length(s) {sorted(lengths)} under "
+            f"reaction fingerprint {condition_id}",
+            "Re-run `neoswga filter` under the chemistry you are designing for.",
+        )
+    return InventoryCandidateSource(provider, frontier=frontier)
+
+
+def open_design_source(data_dir, condition_id, lengths, fallback, explicit=False):
+    """Which pool this command searches, decided once and said out loud.
+
+    Replaces `open_source_or_list` on 2026-09-21. The rule is the same in the
+    ordinary case -- the inventory when the directory has one, because the
+    inventory holds every candidate that cleared hard QC and a `max_primer`
+    shortlist hides the rest (audit finding F1) -- but the two ways it used to
+    be reached are now distinguishable.
+
+    What changed is the error path. Opening the inventory used to be wrapped in
+    `except ValueError`, so a directory with an unusable inventory silently
+    became a run over the caller's CSV, at the caller's smaller frontier, with
+    one `logger.info` line to say so. That is a pool chosen by an exception.
+
+    The frontier still opens at the size of `fallback`, so no delivered panel
+    moves; `plan-pool` is the only caller that reaches past it.
     """
     pool = list(fallback)
     if explicit:
-        logger.info("Searching the %d candidates named on the command line.", len(pool))
-        return ListCandidateSource(pool)
+        return open_explicit_source(pool)
 
-    try:
-        source = open_candidate_source(data_dir, condition_id, lengths, frontier=len(pool) or None)
-    except ValueError as exc:
-        logger.info("Searching the candidate list: %s", exc)
+    source = open_inventory_source(data_dir, condition_id, lengths, frontier=len(pool) or None)
+    if source is None:
+        logger.info(
+            "No candidate inventory in %s; searching the candidate list supplied "
+            "(%d candidates).",
+            data_dir,
+            len(pool),
+        )
         return ListCandidateSource(pool)
 
     described = source.describe()

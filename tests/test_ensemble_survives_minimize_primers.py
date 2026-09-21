@@ -17,9 +17,9 @@ step4_improved_df.csv, no summary, no validation report. The `auto` and `all`
 aliases reach the same branch.
 """
 
-import pytest
-
 from dataclasses import replace
+
+import pytest
 
 from neoswga.core.base_optimizer import OptimizationResult, PrimerSetMetrics
 
@@ -52,11 +52,13 @@ def test_minimize_primers_survives_an_ensemble_run(monkeypatch, method):
     monkeypatch.setattr(uo, "_run_ensemble", lambda *a, **k: winner)
     monkeypatch.setattr(uo, "save_results", lambda *a, **k: None)
 
+    from neoswga.core import optimization_service
+
     trimmed = []
     monkeypatch.setattr(
-        uo,
-        "_minimize_primer_count",
-        lambda **kw: trimmed.append(kw) or kw["result"],
+        optimization_service,
+        "reduce_result",
+        lambda result, optimizer, *a: trimmed.append(optimizer) or result,
     )
 
     result = uo.run_optimization(
@@ -75,4 +77,4 @@ def test_minimize_primers_survives_an_ensemble_run(monkeypatch, method):
     assert trimmed, "the minimisation post-process never ran"
     # It needs SOMETHING to measure coverage with. None is acceptable only if
     # the callee tolerates it; an unbound name never is.
-    assert "optimizer" in trimmed[0]
+    assert trimmed[0] is not None

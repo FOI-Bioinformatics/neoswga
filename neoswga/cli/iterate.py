@@ -46,7 +46,7 @@ def _resolve_expansion_candidates(candidates_file, data_dir, quiet=False):
         if not os.path.exists(source):
             logger.error(f"Step 3 output not found: {source}")
             logger.error(
-                "Run 'neoswga score' first, or pass --candidates-file with your "
+                "Run 'neoswga prepare-candidates' first, or pass --candidates-file with your "
                 "own candidate list."
             )
             sys.exit(1)
@@ -64,6 +64,31 @@ def _resolve_expansion_candidates(candidates_file, data_dir, quiet=False):
         )
         sys.exit(1)
     return df[primer_col].tolist()
+
+
+def _open_expansion_source(parameter, args, candidates):
+    """Resolve the reaction and the candidate universe an expansion searches.
+
+    Extracted from `run_expand_primers` on 2026-09-21. It is the same pair of
+    decisions a new design makes -- which chemistry, and which pool -- so it
+    reads better beside them than inline in a 240-line command, and the
+    function-length ratchet had gone red without it.
+
+    Returns the resolved context, the opened source, and the frontier the
+    source hands back, which is not necessarily the list that was passed in.
+    """
+    from neoswga.core.candidate_source import open_design_source
+    from neoswga.core.design_context import design_context_from_params
+
+    context = design_context_from_params(vars(parameter))
+    source = open_design_source(
+        getattr(parameter, "data_dir", "."),
+        context.conditions.fingerprint(),
+        sorted({len(primer) for primer in candidates}),
+        candidates,
+        explicit=bool(getattr(args, "candidates_file", None)),
+    )
+    return context, source, source.initial()
 
 
 def run_expand_primers(args):
@@ -88,6 +113,17 @@ def run_expand_primers(args):
     if not quiet:
         logger.info("Primer Set Expansion")
         logger.info("=" * 60)
+
+    # The same gate `optimize` and `plan-pool` apply. Expansion adds to a
+    # delivered panel, so it must accept exactly the configurations that
+    # produced one; a command that accepts what another refuses is how one
+    # params file came to mean different chemistry depending on which command
+    # was run.
+    from neoswga.core.design_request import design_request_for_run
+
+    request = design_request_for_run(args, None)
+    if request is not None and not quiet:
+        logger.info("Design request %s", request.request_hash[:12])
 
     # Load and validate primers using consolidated helper
     fixed_primers = collect_primers_from_args(
@@ -146,6 +182,7 @@ def run_expand_primers(args):
         # indistinguishable downstream from a perfectly specific panel.
         cache = PositionCache(fg_prefixes + bg_prefixes, all_primers)
 
+        context, candidate_source, candidates = _open_expansion_source(parameter, args, candidates)
         # Create expander
         expander = PrimerExpander(
             position_cache=cache,
@@ -153,6 +190,8 @@ def run_expand_primers(args):
             fg_seq_lengths=fg_seq_lengths,
             bg_prefixes=bg_prefixes,
             bg_seq_lengths=bg_seq_lengths,
+            context=context,
+            candidate_source=candidate_source,
         )
 
         # Build target gaps: in-silico gaps from the fixed set, optionally
@@ -283,7 +322,7 @@ def run_expand_primers(args):
         raise
     except (FileNotFoundError, KeyError) as e:
         logger.error(f"Primer expansion failed: {e}")
-        logger.error("Check that 'neoswga score' has run and params.json is valid.")
+        logger.error("Check that 'neoswga prepare-candidates' has run and params.json is valid.")
         sys.exit(1)
     except RuntimeError as e:
         logger.error(f"Primer expansion failed: {e}")
@@ -485,7 +524,6 @@ def run_contract_set(args):
 
     import neoswga.core.pipeline as pipeline_mod
     from neoswga.core import parameter
-    from neoswga.core.position_cache import PositionCache
 
     pipeline_mod._initialized = False
     pipeline_mod._initialize()
@@ -499,159 +537,44 @@ def run_contract_set(args):
         logger.error("fg_seq_lengths missing from params; cannot compute coverage.")
         sys.exit(1)
 
-    cache = PositionCache(fg_prefixes, current)
+    from neoswga.core.design_context import design_context_from_params
+    from neoswga.core.dominating_set_adapter import DominatingSetAdapter
+    from neoswga.core.panel_contraction import contract_panel, scan_panel_positions
 
-    def _coverage(primers):
-        # Union of binding positions across all fg prefixes, binned at 1 bp granularity.
-        total_genome = sum(fg_lengths) if fg_lengths else 0
-        if not total_genome:
-            return 0.0
-        covered = 0
-        extension = _realistic_reach()
-        import numpy as _np
-
-        for prefix, length in zip(fg_prefixes, fg_lengths or [0] * len(fg_prefixes)):
-            if length <= 0:
-                continue
-            occupied = _np.zeros(length, dtype=bool)
-            for primer in primers:
-                positions = cache.get_positions(prefix, primer, "both")
-                for pos in positions:
-                    start = max(0, int(pos) - extension)
-                    end = min(length, int(pos) + extension)
-                    occupied[start:end] = True
-            covered += int(occupied.sum())
-        return covered / total_genome if total_genome else 0.0
-
-    baseline = _coverage(current)
-    if not args.quiet:
-        logger.info(f"Baseline coverage with {len(current)} primers: {baseline:.1%}")
-
-    # Quality-weighted removal ranking (Phase 12C).
-    # When multiple primers can be dropped without falling below the coverage
-    # threshold, prefer to drop the one with the worst quality: highest
-    # dimer interactions with the rest of the set, worst Tm fit under the
-    # reaction conditions, lowest per-primer strand alternation. Weights:
-    #   w_cov   = 0.40  (penalize loss of coverage contribution)
-    #   w_dimer = 0.25  (prefer removing dimer-prone primers)
-    #   w_tm    = 0.20  (prefer removing primers with poor Tm fit)
-    #   w_bg    = 0.15  (prefer removing primers with high bg frequency)
-    from neoswga.core.dimer_network_analyzer import create_dimer_network_analyzer
-    from neoswga.core.integrated_quality_scorer import IntegratedQualityScorer
-    from neoswga.core.reaction_conditions import build_reaction_conditions
-
-    conditions = build_reaction_conditions()
-    scorer = IntegratedQualityScorer(conditions=conditions)
-    dimer_analyzer = create_dimer_network_analyzer(conditions=conditions)
-
-    W_COV, W_DIMER, W_TM, W_BG = 0.40, 0.25, 0.20, 0.15
-    min_tm = getattr(parameter, "min_tm", 15.0) or 15.0
-    max_tm = getattr(parameter, "max_tm", 45.0) or 45.0
-    target_tm = (min_tm + max_tm) / 2.0
-    tm_window = max(1.0, (max_tm - min_tm) / 2.0)
-
-    def _deficit_score(primer: str, primers_in_set: list, set_cov: float) -> float:
-        # 1. Coverage contribution: how much does removing this primer cost?
-        without = [p for p in primers_in_set if p != primer]
-        cov_without = _coverage(without) if without else 0.0
-        cov_contribution = max(0.0, set_cov - cov_without)
-
-        # 2. Dimer risk: pairwise severity with rest of set
-        if len(primers_in_set) > 1:
-            try:
-                bmetrics, profiles, _ = dimer_analyzer.analyze_primer_set(
-                    primers_in_set,
-                    verbose=False,
-                )
-                prof = profiles.get(primer)
-                dimer_risk = float(prof.mean_severity) if prof else 0.0
-            except Exception:
-                dimer_risk = 0.0
-        else:
-            dimer_risk = 0.0
-
-        # 3. Tm fit under conditions
-        try:
-            gc = sum(1 for b in primer if b in "GC") / max(len(primer), 1)
-            tm = scorer._primer_tm(primer, gc, len(primer))
-            tm_deficit = abs(tm - target_tm) / tm_window
-        except Exception:
-            tm_deficit = 0.0
-
-        # 4. Background frequency (approximate from position cache counts
-        # across bg_prefixes if available). Zero when no background
-        # data present.
-        bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
-        bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
-        if not bg_lengths and getattr(parameter, "_json_data", None):
-            bg_lengths = list(parameter._json_data.get("bg_seq_lengths", []) or [])
-        bg_freq = 0.0
-        if bg_prefixes and bg_lengths:
-            try:
-                bg_cache = PositionCache(bg_prefixes, [primer])
-                hits = 0
-                total = 0
-                for p, L in zip(bg_prefixes, bg_lengths):
-                    hits += len(bg_cache.get_positions(p, primer, "both"))
-                    total += L
-                bg_freq = hits / total if total else 0.0
-            except Exception:
-                bg_freq = 0.0
-
-        # Higher deficit = more reason to remove.
-        # We INVERT cov_contribution — losing a lot of coverage means low
-        # removal preference.
-        deficit = (
-            -W_COV * cov_contribution
-            + W_DIMER * dimer_risk
-            + W_TM * min(tm_deficit, 1.0)
-            + W_BG * min(bg_freq * 1000, 1.0)  # scale bg_freq for visibility
+    current = list(dict.fromkeys(current))
+    if any(set(p) - set("ACGT") for p in current):
+        raise ValueError("Primers must contain only A, C, G and T")
+    context = design_context_from_params(vars(parameter))
+    bg_prefixes, bg_lengths = _prefix_lengths(parameter, "bg")
+    references = []
+    for group, prefixes, lengths in (
+        ("fg", fg_prefixes, fg_lengths),
+        ("bg", bg_prefixes, bg_lengths),
+    ):
+        genomes = list(getattr(parameter, f"{group}_genomes", []) or [])
+        if len(genomes) != len(prefixes) or len(lengths) != len(prefixes):
+            raise ValueError(f"{group} reference FASTAs, prefixes and lengths must align")
+        references.extend(
+            zip(
+                prefixes,
+                genomes,
+                lengths,
+                [bool(getattr(parameter, f"{group}_circular", False))] * len(prefixes),
+            )
         )
-        return deficit
-
-    kept = list(current)
-    removed = []
-    while True:
-        set_cov = _coverage(kept)
-        # Rank candidates by deficit score (higher = remove first)
-        ranked = sorted(
-            kept,
-            key=lambda p: _deficit_score(p, kept, set_cov),
-            reverse=True,
-        )
-
-        dropped_this_round = False
-        for candidate in ranked:
-            trial = [p for p in kept if p != candidate]
-            if not trial:
-                break
-            trial_cov = _coverage(trial)
-            if trial_cov >= args.min_coverage:
-                kept = trial
-                removed.append(
-                    {
-                        "primer": candidate,
-                        "resulting_coverage": trial_cov,
-                    }
-                )
-                if not args.quiet:
-                    logger.info(
-                        f"Removed {candidate} (quality-weighted) -> coverage {trial_cov:.1%}"
-                    )
-                dropped_this_round = True
-                break
-        if not dropped_this_round:
-            break
-
-    result = {
-        "original_set": list(current),
-        "contracted_set": kept,
-        "removed_primers": [r["primer"] for r in removed],
-        "removal_trace": removed,
-        "baseline_coverage": baseline,
-        "final_coverage": _coverage(kept),
-        "min_coverage_threshold": args.min_coverage,
-    }
+    cache = scan_panel_positions(current, references)
+    optimizer = DominatingSetAdapter(
+        cache,
+        fg_prefixes,
+        fg_lengths,
+        bg_prefixes,
+        bg_lengths,
+        config=context.optimizer_config(verbose=False),
+        conditions=context.conditions,
+    )
+    result = contract_panel(
+        optimizer, current, args.min_coverage, context.constraints, positions_source="fasta_scan"
+    )
 
     output_json = _json.dumps(result, indent=2)
     if args.output:
@@ -879,7 +802,7 @@ def add_parsers(subparsers):
     expand_parser.add_argument(
         "--candidates-file",
         help="CSV of candidate primers to draw new ones from. Without this, "
-        "expand-primers requires data_dir/step3_df.csv from a prior 'score' run; "
+        "expand-primers requires data_dir/step3_df.csv from a prior 'prepare-candidates' run; "
         "with it, that becomes a fallback rather than a precondition.",
     )
     expand_parser.add_argument(
@@ -989,7 +912,7 @@ def add_parsers(subparsers):
         "--min-coverage",
         type=float,
         default=0.70,
-        help="Minimum foreground coverage to keep (default: 0.70)",
+        help="Minimum chemistry-adjusted foreground coverage to keep (default: 0.70)",
     )
     contract_parser.add_argument("--output", "-o")
     contract_parser.add_argument(

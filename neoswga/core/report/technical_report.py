@@ -877,7 +877,12 @@ def _render_gap_section(coverage):
     Clarke 2017's M. tuberculosis sets, evenness and the worst hole in their
     Wolbachia sets and in Dwivedi-Yu 2023. See docs/validation/.
     """
-    if not (coverage and coverage.from_optimizer and coverage.mean_gap > 0):
+    if not (coverage and coverage.from_optimizer):
+        return ""
+    measured = (coverage.mean_gap, coverage.max_gap, coverage.gap_gini)
+    if any(value is None for value in measured) or coverage.mean_gap <= 0:
+        return ""
+    if coverage.gap_entropy is None:
         return ""
 
     from neoswga.core.coverage import gap_regime_note, interpret_gap_metrics

@@ -15,7 +15,7 @@ from neoswga.core import filter as filter_module
 from neoswga.core import parameter, rf_preprocessing, string_search, utility
 from neoswga.core.filter import check_gini_stage_kept_something
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
-from neoswga.core.occupancy import log_discrimination_profile
+from neoswga.core.pool_diagnostics import report_pool_diagnostics
 from neoswga.core.progress import progress_context
 from neoswga.core.stage2_recording import _index_and_record
 from neoswga.core.step3_ordering import _candidate_carry_columns, order_step3_rows
@@ -344,7 +344,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             valid=False,
             missing_files=[step3_file],
             error_message="Step 3 output not found. Step 4 requires scored primers from Step 3.",
-            remediation="Run 'neoswga score -j params.json' (Step 3) first.",
+            remediation="Run 'neoswga prepare-candidates -j params.json' (Step 3) first.",
         )
 
     # Check file has primers
@@ -358,7 +358,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
                 remediation=(
                     "Relax the filter step: raise max_bg_freq or max_gini, widen "
                     "min_k-max_k, or raise max_primer, then re-run "
-                    "'neoswga filter -j params.json' and 'neoswga score -j params.json'."
+                    "'neoswga filter -j params.json' and 'neoswga prepare-candidates -j params.json'."
                 ),
             )
     except Exception as e:
@@ -366,7 +366,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             valid=False,
             missing_files=[step3_file],
             error_message=f"Cannot read Step 3 output: {e}",
-            remediation="Re-run 'neoswga score -j params.json' (Step 3).",
+            remediation="Re-run 'neoswga prepare-candidates -j params.json' (Step 3).",
         )
 
     # Check position files for each primer length present in step3_df.csv.
@@ -468,7 +468,7 @@ def validate_index_covers_candidates(cache, fg_prefixes, n_candidates, refuse) -
             ),
             remediation=(
                 "Re-run 'neoswga filter -j params.json' (Step 2) so every "
-                "candidate is indexed, then 'neoswga score' and "
+                "candidate is indexed, then 'neoswga prepare-candidates' and "
                 "'neoswga optimize' again."
             ),
         ),
@@ -1349,9 +1349,7 @@ def step2(all_primers=None, validate_prerequisites=True):
     filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
 
-    # Known Issue 17: say whether this pool can tell a true site from a
-    # near-miss at the configured reaction. Reported, never enforced.
-    log_discrimination_profile(list(filtered_gini_df["primer"].astype(str)))
+    report_pool_diagnostics(list(filtered_gini_df["primer"].astype(str)), parameter)
 
     # Write the real filtering funnel so reports show genuine per-stage counts
     # instead of a fabricated estimate. Best-effort: never fail the filter step.

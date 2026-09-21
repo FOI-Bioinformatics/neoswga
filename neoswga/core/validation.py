@@ -689,7 +689,7 @@ def _run_smoke_pipeline(workdir, smoke_params, verbose):
     stages = [
         ("count-kmers", cli_unified.run_step1),
         ("filter", cli_unified.run_step2),
-        ("score", cli_unified.run_step3),
+        ("prepare-candidates", cli_unified.run_step3),
         ("optimize", cli_unified.run_step4),
     ]
     previous = os.getcwd()
@@ -723,7 +723,7 @@ def smoke_validation(params_path: Optional[str] = None, verbose: bool = True) ->
     thirty-second filter, let alone a sixteen-minute one against hg38.
 
     This checks the configuration itself -- schema, unknown keys, file
-    existence -- and then runs count-kmers, filter, score and optimize end to
+    existence -- and then runs count-kmers, filter, prepare-candidates and optimize end to
     end on the packaged plasmid pair, under the reaction conditions from the
     user's params.json.
 

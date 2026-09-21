@@ -8,7 +8,7 @@ from .candidate_source import INVENTORY_EXHAUSTED, as_candidate_source
 from .dimer_validator import DimerValidator
 from .lazy_dimer import LazyDimerCompatibility
 from .panel_beam import beam_search
-from .pool_objective import PoolConstraints, PoolObjective
+from .pool_objective import PoolConstraints
 from .swap_refinement import attach_search_config, coverage_bins, refine_by_swaps
 
 # Multiples of the configured reach to report coverage at. The window radius is
@@ -89,7 +89,18 @@ def _beam_candidates(pool, incumbent, size, budget):
     return slice_pool
 
 
-def repair_panel(primers, pool, objective, reasons, config, target=None, bins=None, weights=None):
+def repair_panel(
+    primers,
+    pool,
+    objective,
+    reasons,
+    config,
+    target=None,
+    bins=None,
+    weights=None,
+    fixed_primers=(),
+    temp=37.0,
+):
     """A bounded second attempt at a panel that missed a limit or a target.
 
     Returns the panel to use and a record of what was tried. The panel is only
@@ -130,8 +141,10 @@ def repair_panel(primers, pool, objective, reasons, config, target=None, bins=No
         LazyDimerCompatibility(
             config.max_dimer_bp,
             max_dimer_dg=getattr(config, "max_dimer_dg", None),
+            temp=temp,
         ),
         objective=objective,
+        fixed_primers=fixed_primers,
         objective_scan_width=width,
         max_evaluations=config.swap_max_evaluations,
         max_seconds=config.swap_max_seconds,
@@ -206,7 +219,9 @@ def repair_panel(primers, pool, objective, reasons, config, target=None, bins=No
         dimerises=LazyDimerCompatibility(
             config.max_dimer_bp,
             max_dimer_dg=getattr(config, "max_dimer_dg", None),
+            temp=temp,
         ).dimerises,
+        fixed=fixed_primers,
         beam_width=_BEAM_WIDTH,
         max_evaluations=budget,
         max_seconds=getattr(config, "beam_max_seconds", config.swap_max_seconds),
@@ -239,6 +254,7 @@ def _evaluate_size(
     repair_weights,
     background_known,
     progress,
+    budget=None,
 ):
     """One size row: optimise, assess, repair, and report what happened.
 
@@ -248,7 +264,21 @@ def _evaluate_size(
     started = time.monotonic()
     if progress:
         progress(requested)
-    result = optimizer.optimize(pool, target_size=requested)
+    from .optimization_service import OptimizationRequest, run_panel_search
+
+    result = run_panel_search(
+        OptimizationRequest(
+            optimizer,
+            tuple(pool),
+            requested,
+            refine=repair,
+            repair=repair,
+            repair_target=max(targets),
+            repair_bins=repair_bins,
+            repair_weights=repair_weights,
+            budget=budget,
+        )
+    )
     primers = list(dict.fromkeys(result.primers))
     if not primers or result.status not in {
         OptimizationStatus.SUCCESS,
@@ -268,29 +298,10 @@ def _evaluate_size(
         raise ValueError("Optimizer returned a panel outside the requested candidate/size bounds")
 
     metrics, coverage, reasons, violations, self_dimers = _assess(objective, validator, primers)
-    repair_record = dict(
-        attempted=False, method=None, reason=None, succeeded=False, swaps=0, evaluations=0
+    repair_record = next(
+        (dict(stage) for stage in reversed(result.stage_history) if stage["stage"] == "repair"),
+        dict(attempted=False, method=None, reason=None, succeeded=False, swaps=0, evaluations=0),
     )
-    # The most demanding request drives the repair. Repairing to the lowest
-    # would stop as soon as the easiest target was cleared, and every higher
-    # row would report `not_found` beside a panel never asked to reach it.
-    missed = max(targets) if coverage is not None and coverage < max(targets) else None
-    if repair and (reasons or missed is not None):
-        repaired, repair_record = repair_panel(
-            primers,
-            pool,
-            objective,
-            reasons,
-            optimizer.config,
-            target=missed,
-            bins=repair_bins,
-            weights=repair_weights,
-        )
-        if repaired != primers:
-            primers = repaired
-            metrics, coverage, reasons, violations, self_dimers = _assess(
-                objective, validator, primers
-            )
     for value in (metrics.fg_coverage, metrics.effective_fg_coverage):
         if value is not None and (not math.isfinite(value) or not 0 <= value <= 1):
             raise ValueError("Optimizer returned invalid coverage")
@@ -311,6 +322,7 @@ def _evaluate_size(
         violating_pairs=len(violations),
         self_dimers=len(self_dimers),
         repair=repair_record,
+        stage_history=list(result.stage_history),
         max_gap=metrics.max_gap,
         seconds=time.monotonic() - started,
     )
@@ -372,6 +384,87 @@ def _vet_frontier(optimizer, source, primer_length, sequences):
     return pool, validator, bins, weights
 
 
+def _search_size_with_refills(
+    requested,
+    optimizer,
+    source,
+    pool,
+    validator,
+    objective,
+    targets,
+    repair,
+    repair_bins,
+    repair_weights,
+    background_known,
+    progress,
+    max_refills,
+    primer_length,
+    budget,
+):
+    from .optimization_service import panel_rank
+    from .search_control import search_frontiers
+
+    def prepare(sequences):
+        nonlocal validator, repair_bins, repair_weights
+        prepared, validator, repair_bins, repair_weights = _vet_frontier(
+            optimizer, source, primer_length, sequences
+        )
+        return prepared
+
+    def attempt(pool):
+        return _evaluate_size(
+            requested,
+            optimizer,
+            pool,
+            validator,
+            objective,
+            targets,
+            repair,
+            repair_bins,
+            repair_weights,
+            background_known,
+            progress,
+            budget,
+        )
+
+    def assess(row):
+        evaluated = row.get("status") == "evaluated"
+        primers = row.get("primers", [])
+        eligible = bool(row.get("eligible"))
+        qualified = (
+            evaluated
+            and eligible
+            and row.get("coverage") is not None
+            and row["coverage"] >= max(targets)
+        )
+        rank = (
+            (eligible, *panel_rank(objective, primers))
+            if evaluated
+            else (False, -math.inf, -math.inf, -math.inf)
+        )
+        return qualified, rank, primers
+
+    row, pool, history = search_frontiers(
+        source, pool, attempt, assess, prepare, max_refills, budget
+    )
+    if row is None:
+        row = dict(
+            requested_size=requested,
+            size=0,
+            primers=[],
+            status="budget_exhausted",
+            eligible=False,
+            coverage=None,
+            message=budget.stop_reason,
+        )
+    row.update(history)
+    row["seconds"] = sum(item["seconds"] for item in history["frontier_attempts"])
+    row["candidates_exhausted"] = (
+        source.exhaustion() if hasattr(source, "exhaustion") else INVENTORY_EXHAUSTED
+    )
+    return row, pool, validator, repair_bins, repair_weights
+
+
 def plan_pool(
     optimizer,
     candidates,
@@ -384,6 +477,7 @@ def plan_pool(
     coverage_metric="effective",
     repair=True,
     progress=None,
+    panel_constraints=None,
 ):
     """Re-optimize each size; retain panels satisfying all requested constraints.
 
@@ -407,17 +501,32 @@ def plan_pool(
     # One contract for search and acceptance. `plan_pool` used to restate the
     # coverage choice and both specificity limits in its own words, and two
     # copies of a rule drift while each stays self-consistent.
-    constraints = PoolConstraints(
+    from dataclasses import replace
+
+    constraints = replace(
+        panel_constraints or PoolConstraints(),
         coverage_metric=coverage_metric,
-        min_selectivity_density=min_selectivity_density,
-        max_background_sites=max_background_sites,
+        **{
+            key: value
+            for key, value in (
+                ("min_selectivity_density", min_selectivity_density),
+                ("max_background_sites", max_background_sites),
+            )
+            if value is not None
+        },
     )
+    min_selectivity_density = constraints.min_selectivity_density
+    max_background_sites = constraints.max_background_sites
     constraints.require_background(available=background_known)
     # The focused evaluator when the optimizer has one, because the repair path
     # calls it thousands of times per design and reads five of its fields. A
     # caller passing its own optimizer-shaped object keeps the full one.
-    evaluate = getattr(optimizer, "compute_pool_metrics", None) or optimizer.compute_metrics
-    objective = PoolObjective(evaluate, constraints)
+    from .panel_refinement import objective_for_optimizer
+
+    # A planner invocation defines a new run, even when a library caller reuses
+    # the optimizer object. Rebind the objective to these explicitly supplied limits.
+    attach_search_config(optimizer, "pool_objective", None)
+    objective = objective_for_optimizer(optimizer, constraints)
     if background_known and min_selectivity_density is None and max_background_sites is None:
         raise ValueError("Specify a minimum selectivity density or maximum background sites")
     if coverage_metric == "effective" and optimizer.conditions is None:
@@ -443,41 +552,27 @@ def plan_pool(
     # candidates before giving up. Without this the inventory is decorative:
     # 20,670 candidates are eligible on the Wolbachia design and 2,000 were
     # ever searched. A row that already qualifies never refills.
+    from .search_control import SearchBudget
+
+    budget = SearchBudget.from_config(optimizer.config)
     max_refills = getattr(optimizer.config, "max_frontier_refills", 0)
     for requested in sizes:
-        refills = 0
-        while True:
-            row = _evaluate_size(
-                requested,
-                optimizer,
-                pool,
-                validator,
-                objective,
-                targets,
-                repair,
-                repair_bins,
-                repair_weights,
-                background_known,
-                progress,
-            )
-            qualified = row.get("status") == "evaluated" and not row.get("failed_constraints")
-            if qualified or refills >= max_refills:
-                break
-            if not hasattr(source, "advance") or not source.advance(keep=row.get("primers") or ()):
-                break
-            refills += 1
-            # The widened frontier is vetted, not assumed: it admits candidates
-            # the position cache was not built over, which is the case
-            # `PositionCache.load` and `ensure_positions` exist for.
-            pool, validator, repair_bins, repair_weights = _vet_frontier(
-                optimizer, source, primer_length, source.frontier()
-            )
-        row["frontier_refills"] = refills
-        # Which kind of "nothing left" this row ended on. `frontier_exhausted`
-        # means the universe still holds candidates and a bigger budget would
-        # reach them; `inventory_exhausted` means it does not.
-        row["candidates_exhausted"] = (
-            source.exhaustion() if hasattr(source, "exhaustion") else INVENTORY_EXHAUSTED
+        row, pool, validator, repair_bins, repair_weights = _search_size_with_refills(
+            requested,
+            optimizer,
+            source,
+            pool,
+            validator,
+            objective,
+            targets,
+            repair,
+            repair_bins,
+            repair_weights,
+            background_known,
+            progress,
+            max_refills,
+            primer_length,
+            budget,
         )
         rows.append(row)
     recommendations = []
@@ -523,6 +618,7 @@ def plan_pool(
     return dict(
         primer_length=primer_length,
         candidate_count=len(pool),
+        search_budget=budget.describe(),
         candidate_source=source.describe(),
         reach_sensitivity=sensitivity,
         coverage_metric=coverage_metric,

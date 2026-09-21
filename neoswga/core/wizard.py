@@ -700,7 +700,7 @@ class SetupWizard:
         print("Next steps:")
         print("  1. neoswga count-kmers -j params.json")
         print("  2. neoswga filter -j params.json")
-        print("  3. neoswga score -j params.json")
+        print("  3. neoswga prepare-candidates -j params.json")
         print("  4. neoswga optimize -j params.json")
 
 
@@ -828,7 +828,7 @@ def run_wizard(
     print(f"  3. Run pipeline:")
     print(f"       neoswga count-kmers -j {output_path}")
     print(f"       neoswga filter -j {output_path}")
-    print(f"       neoswga score -j {output_path}")
+    print(f"       neoswga prepare-candidates -j {output_path}")
     print(f"       neoswga optimize -j {output_path}")
     print(f"  4. Interpret results:    neoswga interpret -d {output_dir}")
     print("-" * 50)

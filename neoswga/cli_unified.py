@@ -3,7 +3,7 @@
 Unified NeoSWGA Command Line Interface.
 
 Single entry point for all SWGA primer design functionality:
-- Standard pipeline (count-kmers, filter, score, optimize)
+- Standard pipeline (count-kmers, filter, prepare-candidates, optimize)
 - Improved optimization (network-based, 10-100x better)
 - Utility commands (build-filter, validate)
 - Advanced features (optimize-conditions, analyze-set)
@@ -12,7 +12,7 @@ Usage:
     # Standard workflow
     neoswga count-kmers [options]
     neoswga filter [options]
-    neoswga score [options]
+    neoswga prepare-candidates [options]
     neoswga optimize [options] [--optimization-method=hybrid|dominating-set|network|background-aware|ensemble]
 
     # Utility commands
@@ -28,7 +28,7 @@ Examples:
     # Standard workflow
     neoswga count-kmers -j params.json
     neoswga filter -j params.json
-    neoswga score -j params.json
+    neoswga prepare-candidates -j params.json
     neoswga optimize -j params.json
 
     # Control optimization method (hybrid|dominating-set|network|background-aware|ensemble)
@@ -58,7 +58,12 @@ import sys
 # `typing` and `dataclasses`. It used to be imported from `core.pipeline`,
 # whose import chain reaches scikit-learn and cost about 0.6 s on every
 # invocation including `--help`.
-from neoswga.core.exceptions import StepPrerequisiteError  # noqa: F401
+from neoswga.cli._failure import (
+    RunState,
+)
+from neoswga.cli._failure import report_design_failure as _report_design_failure  # noqa: F401
+from neoswga.cli._failure import write_failure_artifact as _write_failure_artifact
+from neoswga.core.exceptions import DesignError, StepPrerequisiteError  # noqa: F401
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
@@ -94,7 +99,7 @@ COMMAND_GROUPS = [
         [
             "count-kmers",
             "filter",
-            "score",
+            "prepare-candidates",
             "optimize",
             "plan-pool",
             "report-pool",
@@ -199,7 +204,7 @@ def create_parser():
   neoswga init --genome target.fasta --background host.fasta
   neoswga count-kmers -j params.json
   neoswga filter -j params.json
-  neoswga score -j params.json
+  neoswga prepare-candidates -j params.json
   neoswga optimize -j params.json
 
 Run "neoswga <command> --help" for details on a specific command.
@@ -334,7 +339,7 @@ def main():
         # Standard pipeline
         "count-kmers": run_step1,
         "filter": run_step2,
-        "score": run_step3,
+        "prepare-candidates": run_step3,
         "optimize": run_step4,
         "plan-pool": run_plan_pool,
         "report-pool": run_report_pool,
@@ -387,7 +392,19 @@ def main():
         try:
             command_func(args)
         except KeyboardInterrupt:
+            # An interrupted run keeps its own state. It is not a finished run
+            # that happened to stop early, and nothing it holds is recommendable.
             logger.info("\nInterrupted by user")
+            _write_failure_artifact(args, None, RunState.INTERRUPTED)
+            sys.exit(130)
+        except DesignError as e:
+            # The design path refused to substitute a value for a failed
+            # calculation, a missing reference answer or an unsupported model.
+            # That refusal is the point: the alternative is a panel that reads
+            # like a measured one. Record what failed, where, and for which
+            # input, then exit nonzero so no downstream step treats the output
+            # directory as current.
+            _report_design_failure(args, e)
             sys.exit(1)
         except FileNotFoundError as e:
             logger.error(f"File not found: {e}")
@@ -414,7 +431,11 @@ def main():
             logger.error("Check that the output directory is writable.")
             sys.exit(1)
         except Exception as e:
+            # Unexpected, so it keeps a traceback and is recorded as such.
+            # `expected: false` in the artifact is what distinguishes a
+            # contract failure from a defect in this program.
             logger.error(f"Command failed: {e}")
+            _report_design_failure(args, e, expected=False)
             if getattr(args, "verbose", False):
                 import traceback
 

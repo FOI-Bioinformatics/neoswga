@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .exceptions import ModelEvaluationError, ReferenceDataError, UnsupportedModelError
+
 
 def compute_per_prefix_coverage(
     cache,
@@ -210,11 +212,23 @@ def _record_starts_for(cache, prefix):
     """
     getter = getattr(cache, "get_record_starts", None)
     if getter is None:
+        # No getter at all: an index written before record starts were stored,
+        # or one of the cache-shaped stubs the geometry helpers accept. The
+        # window is not confined to a record and behaviour is what it was.
         return None
     try:
         return getter(prefix) or None
-    except Exception:  # pragma: no cover - a stub that defines it but fails
-        return None
+    except Exception as exc:
+        # A getter that exists and FAILS is a different event. Losing record
+        # boundaries lets a coverage window run across a record edge, so the
+        # panel is credited with covering bases on a contig its site is not on.
+        # That inflates coverage silently and in proportion to how fragmented
+        # the reference is.
+        raise ReferenceDataError(
+            f"record starts for prefix '{prefix}'",
+            str(exc),
+            "Re-run `neoswga filter` to rebuild the position index.",
+        ) from exc
 
 
 def _mark_window(
@@ -404,17 +418,33 @@ def polymerase_extension_reach(
     Returns:
         Extension reach in bp.
     """
+    if coverage_metric not in ("processivity", "realistic"):
+        raise UnsupportedModelError("coverage reach", coverage_metric, "realistic | processivity")
     try:
         if coverage_metric == "processivity":
             from .reaction_conditions import get_polymerase_processivity
 
-            return int(get_polymerase_processivity(polymerase))
-        # realistic (default)
-        from .reaction_conditions import get_typical_amplicon_length
+            value = get_polymerase_processivity(polymerase)
+        else:
+            from .reaction_conditions import get_typical_amplicon_length
 
-        return int(get_typical_amplicon_length(polymerase))
-    except Exception:
-        return default
+            value = get_typical_amplicon_length(polymerase)
+    except (KeyError, LookupError, ValueError) as exc:
+        # An unknown polymerase used to return `default`. Coverage scales
+        # directly with reach -- the same wMel panel reads 41.3% at 1 kb and
+        # 93.5% at 5 kb -- so a substituted reach silently rescales every
+        # coverage figure in the report and the user has no way to see it.
+        raise UnsupportedModelError(
+            "polymerase reach", polymerase, "phi29 | equiphi29 | bst | klenow"
+        ) from exc
+    except Exception as exc:
+        raise ModelEvaluationError("polymerase reach", polymerase, str(exc)) from exc
+
+    if value is None:
+        raise UnsupportedModelError(
+            "polymerase reach", polymerase, "phi29 | equiphi29 | bst | klenow"
+        )
+    return int(value)
 
 
 # Reaches at which coverage is reported alongside the one used for selection.
@@ -451,11 +481,19 @@ def product_reach(polymerase, default=10000):
         from .registry import views as _views
 
         entry = _views.as_characteristics().get(str(polymerase).lower())
-        if entry:
-            return int(entry.get("product_length") or entry["typical_amplicon_length"])
-    except Exception:  # pragma: no cover - registry always present in practice
-        pass
-    return default
+    except Exception as exc:
+        raise ReferenceDataError(
+            "polymerase registry", str(exc), "Reinstall the package; the registry ships with it."
+        ) from exc
+
+    if not entry:
+        # This reach is the one headline coverage is REPORTED at, so an
+        # unrecognised polymerase silently substituting 10 kb changes the
+        # headline number rather than any internal one.
+        raise UnsupportedModelError(
+            "product reach", polymerase, ", ".join(sorted(_views.as_characteristics()))
+        )
+    return int(entry.get("product_length") or entry["typical_amplicon_length"])
 
 
 def resolve_coverage_reach(polymerase, override=None, default=3000):

@@ -16,7 +16,21 @@ import pytest
 from neoswga.core import pipeline, unified_optimizer
 from neoswga.core.pipeline import StepPrerequisiteError
 
-_CANDIDATES = ["AAACCCGGGTTT", "ACCCGGGTTTAA", "CCCGGGTTTAAA"]
+# Chosen to clear the self-dimer screen, which runs before selection: the
+# previous three ("AAACCCGGGTTT" and friends) are self-complementary, so once
+# the shared search applied that screen the whole frontier was removed and the
+# optimizer received an empty list. That made this file's subject -- what the
+# UNINDEXED guard does -- unreachable behind an unrelated rejection.
+_CANDIDATES = ["GCTAAAGACAAT", "ACGTCAGCACGA", "CAGTGTGAATCG"]
+
+
+def _mark_index_current(handle):
+    """Give a hand-written index the geometry and version a design requires."""
+    from neoswga.core.string_search import INDEX_FORMAT_VERSION, RECORD_STARTS_KEY
+
+    handle.attrs["index_format_version"] = INDEX_FORMAT_VERSION
+    if RECORD_STARTS_KEY not in handle:
+        handle.create_dataset(RECORD_STARTS_KEY, data=[0])
 
 
 @pytest.fixture
@@ -34,6 +48,11 @@ def partial_index(tmp_path):
 
     with h5py.File(str(tmp_path / "fg_12mer_positions.h5"), "w") as fh:
         fh.create_dataset(_CANDIDATES[0], data=[100, 5000, 20000])
+        # Record geometry and a format stamp, so a design is refused for the
+        # reason this file is about -- a pool the index only partly covers --
+        # rather than for having a concatenation-era index. A hand-written
+        # fixture has to carry what `write_to_h5py` would have written.
+        _mark_index_current(fh)
 
     return tmp_path
 
@@ -98,6 +117,7 @@ def test_a_fully_indexed_pool_is_not_refused(partial_index, monkeypatch):
     with h5py.File(str(partial_index / "fg_12mer_positions.h5"), "a") as fh:
         fh.create_dataset(_CANDIDATES[1], data=[300, 9000])
         fh.create_dataset(_CANDIDATES[2], data=[700, 15000])
+        _mark_index_current(fh)
 
     monkeypatch.setattr(parameter, "data_dir", str(partial_index), raising=False)
     result = unified_optimizer.run_optimization(

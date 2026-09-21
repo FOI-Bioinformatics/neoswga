@@ -110,7 +110,7 @@ what follows is only what the filenames do not tell you.
 ### Data Flow
 
 ```
-count-kmers            filter                 prepare (`score`)      optimize
+count-kmers            filter                 prepare-candidates     optimize
      |                    |                     |                       |
      v                    v                     v                       v
  *_Xmer_all.txt  -->  step2_df.csv +    -->  step3_df.csv      -->  step4_improved_df.csv
@@ -137,7 +137,7 @@ count-kmers            filter                 prepare (`score`)      optimize
   measurements in a deterministic order. Step 2's own ranking leads that order
   (`step2_rank`, read off step2_df.csv's row order), with Gini demoted to a
   tie-break and the primer sequence last for totality. It no longer holds an
-  amplification score -- see **The `score` stage** below.
+  amplification score -- see **The `prepare-candidates` stage** below.
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
 - `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
   effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics). `metrics.strand_stats` holds all five strand figures per genome, foreground and host, keyed by prefix; `metrics.primer_occupancy` holds how much of the time each delivered primer is bound, empty when no conditions were attached; `panel_regime` holds which criterion limited the panel and which had no reference.
@@ -189,7 +189,7 @@ commands are documented in the `neoswga-cli` skill
 ```bash
 neoswga count-kmers -j params.json  # Step 1: Generate k-mer counts
 neoswga filter -j params.json       # Step 2: Filter candidate primers
-neoswga score -j params.json        # Step 3: Prepare the candidate pool
+neoswga prepare-candidates -j params.json        # Step 3: Prepare the candidate pool
 neoswga optimize -j params.json     # Step 4: Find optimal primer sets
 ```
 
@@ -212,7 +212,7 @@ Accepted by every pipeline step; each one routes through
   a `qa_score` column, writes `qa_report.txt`, and corrects the last stage of
   `filter_stats.json`. A QA pass that rejects every candidate fails the step
   instead of writing an empty pool.
-- `score --enable-qa` re-orders step3_df.csv by a `composite_score`. With the
+- `prepare-candidates --enable-qa` re-orders step3_df.csv by a `composite_score`. With the
   amplification model retired there is no RF half to blend, so this is the QA
   score alone; pass `--amp-model` to get the 0.7 RF / 0.3 QA blend back. The QA
   scores come from step2_df.csv when `filter --enable-qa` produced them, and
@@ -226,9 +226,16 @@ Accepted by every pipeline step; each one routes through
 The flag is per-invocation: it is assigned to `parameter.enable_qa` on every
 step, so it cannot carry over to a later step in the same process.
 
-### The `score` stage
+### The `prepare-candidates` stage
 
-`score` prepares the candidate pool; it does not score it. The bundled random
+**Renamed from `score` on 2026-09-21, with no alias.** The old name described
+work the stage stopped doing on 2026-09-05, and an alias would have left it
+reachable and in every example someone copies. `neoswga score` now fails with a
+message naming the new command. `--fast-score` went with it: it selected the
+behaviour that had been the default since the model left the default path, so it
+was a published flag that did nothing.
+
+The stage prepares the candidate pool; it does not score it. The bundled random
 forest was retired from the default path on 2026-09-05 (audit finding F0).
 
 It was computing a prediction for every candidate and then discarding it. The
@@ -619,8 +626,29 @@ reject a panel for a missing measurement while reporting a violated constraint.
 The dimer limit is outside for a different reason: it is a hard constraint on
 the delivered panel, not a tradeable term.
 
-**Application profiles** (`--application`, and the weighting used to pick an
-ensemble winner):
+**Application profiles** (`--application`). **On the default `hybrid` method
+this changes nothing about what is selected** -- measured 2026-09-21, all four
+profiles deliver an identical panel. The profile sets `tm_weight` and
+`uniformity_weight`, both of which `HybridOptimizer` hands to a
+`NetworkOptimizer` that nothing ever reads back; Stage 2 is
+`_network_refine`, a method on the class itself, with no Tm or uniformity
+term. The comment beside that construction claimed it was "the object that
+performs refinement" and has been corrected. Known Issue 8's class again, in
+`attach_search_config`'s shape: both ends exist and the path does not.
+
+What the profile DOES still do: weight `normalized_score` when picking an
+ensemble winner, and steer `--auto-size`. `network` reads `tm_weight`
+properly. Setting either weight now warns
+([measurement](docs/validation/selection_weights_are_inert_2026-09-21.md)).
+
+Wiring them into `_network_refine` would move every delivered panel and is a
+decision, not a repair -- more so because the Tm term is a Gaussian peaked at
+`reaction_temp + 5` while `occupancy.site_occupancy` is monotone increasing in
+Tm, so connecting it silently picks one of two unreconciled models. Its span
+across oligo lengths is large: median `tm_score` on the plasmid pool runs
+0.000014 at k=7 to 0.697 at k=9, 48,488-fold.
+
+The table below is the weighting used to pick an ensemble winner:
 
 | Application | Coverage Target | Specificity | Typical Size | Use Case |
 |-------------|-----------------|-------------|--------------|----------|
@@ -628,6 +656,552 @@ ensemble winner):
 | `clinical` | 70% | 90% | 6-10 | Diagnostics, minimize false positives |
 | `enrichment` | 80% | 75% | 8-12 | Sequencing enrichment, balanced |
 | `metagenomics` | 95% | 50% | 15-20 | Capture diversity |
+
+## The design-failure contract (2026-09-21)
+
+A required calculation that fails now fails the run. It does not return a
+substitute value. Four errors in `core/exceptions.py` carry this, all under
+`DesignError`: `InvalidDesignRequest`, `ReferenceDataError`,
+`UnsupportedModelError` and `ModelEvaluationError`. `SearchBudgetExhausted` is
+deliberately outside the family, because spending an allowance is a recorded
+stopping point rather than a failure.
+
+The distinction the family draws is between a measurement and its absence. A
+candidate that misses a Tm window has been measured and rejected; a candidate
+whose Tm raised has not been measured at all. `DesignError.qc_reason` is always
+None, so code asking "was this a QC rejection" gets a definite no.
+
+What changed, and what each substitution used to cost:
+
+| Site | Was | Now |
+|---|---|---|
+| `thermodynamics.calculate_tm_batch` | NaN for any failure | raises; a non-ACGT base is a named `InvalidSequenceError` with `qc_reason`, which is a QC rejection and stays one |
+| `thermodynamic_filter._check_heterodimer_pair` | 0.0 free energy, the most permissive answer the screen has | raises; a positive or infinite duplex energy still returns 0.0, because that is a measurement |
+| `coverage.polymerase_extension_reach`, `product_reach` | a default reach for an unknown polymerase | raises `UnsupportedModelError` naming the supported set |
+| `coverage._record_starts_for` | None when the getter raised | raises; a cache with NO getter still returns None, which is absence rather than failure |
+| `occupancy.discrimination_profile` | skipped a failed primer | raises; a mean over an unknown subset was reported with the authority of a mean over the pool |
+| `unified_optimizer` per-target coverage | empty dict | raises; `base_optimizer` gates the floor on a non-empty dict, so a requested `min_per_target_coverage` passed vacuously |
+| `unified_optimizer` application weights | debug line, defaults applied | raises; `--application clinical` silently had no effect |
+| `unified_optimizer` ensemble winner evaluator | debug line, `optimizer=None` | raises; with None every configured panel limit went unenforced |
+| `unified_optimizer` post-optimization validator | skipped | raises; skipping disarms the duplicate, size-drift, zero-coverage, blacklist and delivered-dimer checks at once, and writes no validation file, so `export` prints "ready for ordering" |
+| `_reseed` | `pass` | raises; the caller logged "set for reproducibility" either way |
+| ensemble member failure | any exception became an `status: "error"` row | a `DesignError` propagates, because the next member computes the same quantity from the same data; an algorithm that cannot run on this pool is still a visible row |
+
+`core/design_result.py` separates three things that were one. **Run state** is
+what happened to the process (`finished`, `failed`, `interrupted`). **Termination
+reason** is why the search stopped (`qualified`, `budget_exhausted`,
+`candidates_exhausted`, `refill_exhausted`, `error`). **Qualification** is a
+property of the panel. `recommendation_allowed(run_state, qualified)` needs both,
+and refuses an unknown state rather than defaulting either way.
+
+At the command boundary a `DesignError` prints the stage, field, artifact, model
+and input, then writes `design_failure.json` into the run directory and exits
+nonzero. The record exists because an output directory holding last week's
+`step4_improved_df.csv` reads exactly like one holding this morning's. Each
+pipeline step re-raises `DesignError` rather than reducing it to "step N
+failed"; `cli/_failure.py` owns the record.
+
+## One resolved design request
+
+`core/design_request.py` resolves a params mapping into a frozen `DesignRequest`
+carrying references, chemistry, candidate-source identity, fixed and excluded
+oligos, panel limits, size policy, search budgets, seed, model identifiers and
+the concentration policy. Nested content is tuples, so a stage cannot append to
+a list it was handed.
+
+`default_sources` records, per setting, whether the request supplied it or which
+default did. `request_hash` is a SHA-256 over a canonical JSON form, so it is
+stable across processes and independent of key order; it is recorded in the run
+manifest for `optimize`.
+
+`optimize` resolves the request from the params FILE before the search starts,
+not from the `parameter` module: `get_params` runs inside `optimize_step4`, so
+at that point every reaction global still holds its default. This is the same
+ordering trap `warn_on_condition_drift` documents.
+
+Refusals it makes that used to be silent: unknown and retired keys (a leading
+underscore marks a comment and is accepted), non-finite values, `coverage_reach`
+of 0, negative budgets, an oligo that is both fixed and excluded, a
+background-measured panel limit with no background genome, and an unsupported
+polymerase. The explicit zero matters on its own: `design_context_from_params`
+used `override or params.get("coverage_reach")`, and 0 is falsy, so it silently
+became 3 kb and every coverage figure was reported at a reach the request did
+not ask for.
+
+All three design commands resolve it from the same file: `optimize`,
+`plan-pool` and `expand-primers`. A command that skipped the gate would accept
+what the others refuse, which is how one params file came to mean different
+chemistry depending on which command was run.
+`tests/test_resolved_design_request.py` walks the call path from each handler
+rather than checking that a call appears somewhere in the module.
+
+**Not yet done from the plan's Task 2**: evaluator code still reads `parameter`
+globals at run time, and `OptimizationRequest.optimizer` still owns the
+scientific settings. The request is a validation gate and a provenance record,
+not yet the single channel those settings travel through.
+
+One instance of the mutable-global read was found and removed the hard way. An
+index-identity check placed inside `run_optimization` read
+`parameter.fg_genomes` and paired it with the prefixes the CALL was given;
+under `pytest -n 8` that paired a test's own prefix with another test's FASTA
+and the design refused its own index. Reference identity now travels on the
+request, where a prefix and its genome are named together.
+
+## Which candidate pool a command searches
+
+`open_source_or_list` is gone, replaced by three functions in
+`candidate_source.py` that keep absence and failure apart.
+
+- `open_explicit_source(candidates)`: the pool the user named. It always wins.
+- `open_inventory_source(...)`: the inventory, or **None** when the directory has
+  none, which is a fact about the directory. It raises `ReferenceDataError` when
+  the directory HAS an inventory that holds nothing under this reaction.
+- `open_design_source(...)`: the rule every command asks, built from those two.
+
+The old function wrapped the inventory open in `except ValueError` and fell back
+to the caller's CSV for both cases. A reaction fingerprint mismatch therefore
+became a quiet run over the `max_primer` shortlist, at the shortlist's frontier,
+with everything the inventory held unreachable and one `logger.info` line to say
+so. That is how the occupancy-gate measurement in Known Issue 17 produced an
+apparent density improvement that was not real.
+
+So `filter --preset enhanced_equiphi29` followed by a plain `optimize` now
+refuses, naming the remedy, where it used to warn and proceed.
+`tests/test_optimize_warns_on_condition_drift.py` was inverted to match.
+
+A self-dimer screen that empties a non-empty frontier now raises
+`NoCandidatesError` naming the screen and its threshold, instead of handing an
+empty list to an optimizer that answered "candidates list cannot be empty".
+
+## Two scanners, one quantity
+
+Fixed 2026-09-21. `string_search` has two position scanners: the
+Aho-Corasick `get_all_positions_multi_k`, and the sliding-window
+`get_all_positions_per_k` used when that package is absent or one k is being
+scanned. Records are concatenated with no separator, so the last k-1 bases of
+one record and the first bases of the next form k-mers that occur in neither.
+The Aho-Corasick path rejected those matches. The sliding-window path did not.
+
+So the same reference produced different site sets depending on which path
+ran, and the sliding-window path stored up to k-1 fabricated sites per record
+join. On a two-record fixture `ACGGTA` is absent from both records and was
+stored at offset 4. A fabricated foreground site inflates coverage, a
+fabricated background site deflates specificity, and nothing downstream can
+tell either from a real one.
+
+Single-record references are unaffected: with no joins the two scanners always
+agreed, which is why every complete bacterial genome and every plasmid in this
+repository reads the same before and after. Draft assemblies and hg38 are where
+it bit.
+
+`spans_a_record_join` now holds the rule once and both scanners call it. A
+match beginning exactly ON a boundary starts a record and is kept; off by one
+here would delete the first k-1 sites of every contig.
+
+`INDEX_FORMAT_VERSION` is 2. A version 1 index is refused for a MULTI-RECORD
+reference only, because a single-record one cannot carry the defect and
+refusing it would force a recount for something that never applied to it.
+
+**Missing record GEOMETRY is judged the same way, and by a different layer.**
+An index with no `#record_starts` lets a coverage window run past a contig
+edge into the next record. Whether that matters depends on how many records
+the reference holds, and only the resolved request pairs a prefix with a
+genome, so `reference_check.verify_index_geometry` decides it against the
+manifest rather than `PositionCache` deciding it alone. Deciding it in the
+evaluator means reading `parameter.fg_genomes` and pairing it with the
+prefixes the call was GIVEN, which is the defect that made a design refuse
+its own index under `pytest -n 8`. Record counting reads header lines; the
+genome loader would hold 8.5 GB for hg38 to answer it.
+
+Measured on the shipped Wolbachia design: the 12-oligo panel's `bg_coverage`
+against *Drosophila* reads 0.00217080 unconfined against 0.00207162 confined,
+an inflation of 14,255 bp or **+4.788% relative**, from 52 host sites across
+1,870 records. The error overstates host coverage, so it is not flattering,
+but `max_host_coverage` is a configurable limit and a panel could be rejected
+for coverage it does not have.
+
+The same measurement on Prevotella, two chromosomes and one join, with 724
+target sites, gives **exactly zero**: the region either side of the join is
+already covered from both directions. So the magnitude is joins times
+sparsity, and neither figure generalises alone
+([measurement](docs/validation/record_geometry_on_drosophila_2026-09-21.md)).
+
+**Consequence for the shipped example.** Both its indexes predate record
+geometry. wMel is one record, so its index is accepted. *Drosophila* has 1,870
+and is refused until regenerated. `plan-pool` already refused both before this
+work; what changed is that `optimize` applies the same standard.
+
+`tests/test_positions_agree_with_an_independent_count.py` checks the scan
+against a brute-force sliding window written in that file, which calls neither
+scanner nor any helper they call. It covers overlapping occurrences,
+palindromes, a reverse complement that also occurs forward, ambiguous bases, a
+circular origin, record joins, and an exhaustive pass over every window of a
+small reference. It also asserts the two scanners agree, which is the check
+that would have caught this.
+
+## What the chemistry model supports
+
+`neoswga/core/registry/model_evidence.json` records, per constant, what it is
+and over what domain the model supports it. `model_evidence.py` loads it and
+`require_model_support(request)` runs inside `resolve_design_request`, so a
+computation outside a recorded domain is refused before any index is opened.
+
+Five statuses, and the line that carries the weight is between the first two.
+
+| Status | Meaning |
+|---|---|
+| `measured` | the cited work reports this value for a case the model applies it to |
+| `estimated` | extrapolated from data at another temperature, on longer DNA, or in another buffer |
+| `empirical` | chosen so the model behaves plausibly; no source reports it |
+| `assumed` | a modelling decision with a stated reason and no measurement |
+| `absent` | nothing computes this effect, and the code must not report zero for it |
+
+Most additive coefficients are 37 C figures for PCR-length duplexes applied to
+12-mers at 30 C. That may well be fine; it is not a measurement of it. Only
+`tm_urea` was chosen because its source concerns short oligos.
+
+**The registry does not claim the literature was re-read.** Every `source` is
+the attribution the repository already carried. What the registry adds is the
+second judgement the prose ledger never made: whether the cited work covers
+this case. A registry that implied verification would break, in the act of
+recording it, the rule it exists to enforce.
+
+**What is refused**: an unknown polymerase; an oligo length outside the
+enzyme's modelled range, which is the defect where a Bst design was filtered
+through phi29's 6-12 bp window; and an additive whose duplex effect nothing
+computes while the literature expects one. Estimates are NOT refused. A model
+that declined to run on an extrapolated coefficient would decline to run.
+
+Two findings from compiling it, both in
+[docs/validation/chemistry_model_evidence.md](docs/validation/chemistry_model_evidence.md):
+
+- **Glycerol is accepted, range-validated, printed, and changes no Tm.**
+  Measured here: a 12-mer at 10% glycerol returns the same effective Tm as at
+  0%, to the last digit. The literature expects a real destabilisation, and the
+  shipped `q_solution` preset sets 10%. No coefficient is invented to close
+  this, because inventing one is the promotion of an assumption the registry
+  exists to prevent; a design that sets glycerol is refused instead. BSA and
+  PEG also have no Tm term and are `assumed` rather than `absent`: they act on
+  the enzyme and on crowding, not on duplex stability.
+- **`neoswga.core.registry` was not installed.** It was missing from
+  `pyproject.toml`'s explicit `packages` list, so a built wheel contained none
+  of it, while `core/parameter.py` imports `registry.views` at module scope.
+  Verified by building a wheel. Package data could not have helped:
+  `include-package-data` applies to packages that are being installed. A test
+  now compares the declared list against the packages on disk.
+
+`docs/SCIENCE_CITATIONS.md` had drifted: it states Klenow processivity as
+10,000 bp citing Bambara (1978) while the shipped registry says 40 bp. The
+prose was right when written and the code moved. The registry is checked
+against `registry/views.as_characteristics()` by a test, so the two cannot
+disagree silently; read the prose document as commentary rather than as the
+record.
+
+## One panel assessment, and a coverage oracle that is not the code
+
+`core/panel_evaluation.py` holds `evaluate_panel(request, oligos, metrics) ->
+PanelAssessment`: one immutable record carrying the panel, the request hash,
+every metric WITH its units and the reach and denominator it was computed at,
+per-target results, every hard-constraint violation, and qualification as a
+boolean that is true exactly when there are none.
+
+Three rules it enforces, each for a failure this project has seen the shape of:
+
+- **A non-finite required quantity fails the run.** NaN compares False against
+  every threshold, so a panel carrying one passes no limit and fails no limit.
+- **Unavailable and zero have different representations.** A panel that binds
+  the host nowhere and a panel whose host index was never opened both read zero
+  otherwise. `Measurement` refuses to hold both a value and a reason for not
+  having one.
+- **A verified zero background is a zero denominator, not a ratio.**
+  `base_optimizer` reports `MAX_SELECTIVITY` (1e6) there, deliberately, because
+  it is finite and JSON carries it; its own docstring says that means "no
+  background binding was detected", not "measured this well", which concedes a
+  reader cannot tell them apart from the number. The assessment says undefined
+  and why, and keeps the site count. The sentinel is left in place because
+  changing it moves every saved summary.
+
+It is NOT yet routed through the optimizer, the acceptance path or the report.
+Those still assemble their own answers, which is the rest of Task 5.
+
+`tests/test_coverage_independent_oracle.py` checks coverage against a
+base-by-base oracle written in that file. It calls neither
+`merged_window_intervals` nor `_mark_window` nor anything they call, so
+agreement is evidence rather than a restatement. It is deliberately the slow
+implementation production replaced: the fast one accumulates log(1 - theta) at
+window edges, and an edge-accounting error is invisible from inside that
+formulation. Verified load-bearing by mutating the production grouping from
+per-primer to per-site, which fails four of its cases.
+
+The window convention, measured rather than assumed: a site at `pos` with reach
+`r` covers `[pos - r, pos + r)`, so a window is `2r` wide.
+
+**The two production coverage paths disagree across a record join, measured and
+not fixed.** `compute_per_prefix_coverage` marks through `_mark_window` WITH
+record starts, so a window stops at a contig edge. `_union_coverage` and the
+occupancy path go through `merged_window_intervals`, which takes no record
+starts by design. On the fixture in that file a site 2 bases before a join
+covers 12 bases confined and 20 unconfined. So a multi-record reference has two
+coverage figures and which one a reader sees depends on the code path. The test
+asserts both numbers so the gap cannot grow unnoticed.
+
+## The report and the saved result must agree
+
+`tests/test_report_agrees_with_the_saved_result.py` asserts that every quantity
+the report renders equals the one the summary holds, for the exact exported
+panel. The report computes its own estimates from the results CSV and overrides
+them with the optimizer summary where the summary has an opinion, which is the
+right order; `from_optimizer` says which a reader is looking at.
+
+**Writing that check found a favourable default.** `mean_gap`, `max_gap`,
+`gap_gini` and `gap_entropy` were read with `.get(key, 0.0)`, and zero is the
+BEST value for every one of them. A `max_gap` of 0.0 says the panel leaves no
+coverage hole anywhere. A summary that did not carry the key therefore rendered
+as the best possible measurement rather than as no measurement, and directories
+written before these keys existed are explicitly supported, so this was
+reachable rather than theoretical.
+
+The four fields are now `Optional[float] = None`, read without a literal
+default, and both render sites skip the gap section unless every figure in it
+was measured. Rendering it with one missing is what put a "no coverage hole"
+verdict beside three real numbers.
+
+This is the silent-zero family again, in its fourth shape: not a scan that
+found nothing, an integer that saturated, a cache asked for what it does not
+hold, or a guard with the wrong predicate, but a dictionary lookup whose
+fallback happens to be the answer everyone wants.
+
+## Two counters, and only one of them bounds the run
+
+`SearchBudget` is the SHARED ledger. It counts uncached evaluations of the
+shared objective across every stage and raises when spent, so a later stage
+cannot get a fresh allowance. `swap_max_evaluations` is a PER-STAGE allowance
+inside the deletion and swap loops, and it starts at zero every time one of
+them is entered.
+
+The per-stage one is not a defect; bounding one loop is reasonable. What would
+be a defect is believing it bounds the run. It defaults to 10,000 and looks
+like a total. The only setting that is a total is `total_search_evaluations`,
+and it is None by default, so **by default there is no total bound at all.**
+
+`describe()` now carries `uncounted_scopes`, naming the two kinds of work the
+ledger does not see, rather than leaving a reader to infer them from a count
+lower than they expected:
+
+- **proposal generation**: an optimizer scoring candidate panels through
+  `compute_metrics` directly rather than through the shared objective. Only
+  `clique` does this, in a loop bounded by its own `max_scored_sets`.
+- **final assessment**: one `compute_metrics` per stage once the panel is
+  decided, deliberately uncharged so reporting cannot consume a search's
+  allowance.
+
+`tests/test_search_budget_contract.py` holds the ratchet.
+`UNCOUNTED_SEARCH_LOOPS` lists every function that evaluates panels in a loop
+outside the objective, with its reason and the bound that does apply, and the
+list can only shrink. A call made ONCE per stage is final assessment and is
+not flagged; one inside a `for` or `while` is search work, and search work the
+ledger cannot see is what the check is for. Verified load-bearing by wrapping
+an existing single call in a loop, which fails it.
+
+## The smallest pool, and what deletion cannot reach
+
+`--minimize-primers` reduces a panel by removing one primer at a time and
+keeping it when no single removal still qualifies. That is a local optimum, not
+the smallest pool, and the two differ whenever one candidate covers what two
+others cover between them.
+
+`tests/test_smallest_pool_search.py` enumerates every subset of a four-candidate
+set-cover fixture and compares the search against the enumerated answer. The
+fixture is constructed so the structure is visible: one candidate covers the
+union of two others, so `{P1,P2,P3}` qualifies at size 3, no single deletion
+from it qualifies, and `{P4,P3}` qualifies at size 2. Deletion stops at 3;
+`panel_beam.beam_search` asked for 2 finds `{P4,P3}`.
+
+**The capability exists and `optimize` cannot reach it.** `beam_search` is
+called only from `pool_planner`, so `plan-pool` can escape this local optimum
+and `optimize --minimize-primers` cannot.
+
+**On a real design it costs nothing, measured on five instances.** Greedy at
+n=12, deletion at the greedy's own coverage, then a beam at width 4 over the
+delivered panel plus 100 candidates:
+
+| target | greedy coverage | deletion | beam best at n=11 |
+|---|---|---|---|
+| E. coli | 0.2551 | 12 | 0.2497 |
+| S. aureus | 0.1985 | 12 | 0.1859 |
+| M. tuberculosis | 0.1661 | 12 | 0.1619 |
+| wMel against chr21 | 0.6652 | 12 | 0.6553 |
+| wMel against *Drosophila* | 0.7334 | 12 | 0.7239 |
+
+Deletion removes nothing on any of them, and neither does the beam find
+anything smaller: every best-eleven falls short of the greedy's own coverage
+([measurement](docs/validation/beam_does_not_beat_deletion_2026-09-21.md)).
+
+**An earlier entry here claimed the opposite and was wrong.** It reported the
+beam finding 11 at 0.7599 against a greedy baseline of 0.7529 on the last row
+above. That baseline matches nothing else in this repository: two records
+written before the beam work, Known Issue 17 and
+`occupancy_and_discrimination_2026-09-19.md`, both put that panel at **0.7334**,
+which is what re-running it returns. The panel the beam was asked to beat was
+therefore not the panel this design delivers, and beating a weaker twelve with
+an eleven is an easier problem. The earlier run was measured inline with no
+script kept, so what it actually did is not recoverable.
+
+The check that would have caught it is free: **compare a baseline against the
+project's own recorded figure for the same quantity before drawing a
+conclusion from the delta.** A measurement whose baseline disagrees is
+reporting on a different object.
+
+A regime explanation was tested and refuted on the way. Widening only the reach
+put S. aureus at 0.8017 coverage, comparable to the Wolbachia figure, and the
+beam still found no smaller panel (0.7773 at n=11). Saturation is not the
+difference, because there is no difference.
+
+So it stays unwired, and back to the reason it had before: a capability with no
+demonstrated benefit, the resolution Known Issues 11 and 16 reached. Each row
+is "no saving found within a ~110-oligo beam pool" rather than "none exists",
+and a wider pool can only help the beam -- which is what makes the earlier
+positive suspect rather than these negatives weak.
+
+The file also states the claim the plan forbids, as arithmetic: a search that
+examined every candidate examined `n` things, while the subsets number `2**n`.
+Exhausting candidates is not exhausting candidate subsets, and only a toy case
+like this one can produce a minimum certificate.
+
+## A failed run leaves nothing exportable
+
+An output directory is the only thing a later command sees, and nothing in it
+carries a timestamp anyone compares. A directory whose most recent run FAILED
+therefore looked exactly like one whose run succeeded: the previous run's
+`step4_improved_df.csv` was still sitting there, real and stale, and `export`
+turned it into an oligo order.
+
+Task 1 wrote `design_failure.json` for exactly this, **and nothing read it.**
+That is the Known Issue 8 class in artifact form: the evidence exists and the
+check does not.
+
+`export.export_is_blocked(results_dir)` is that check, and `neoswga export`
+now consults it before loading anything, exiting nonzero with the recorded
+stage and reason. It refuses a `failed` or `interrupted` run, and also a
+`finished` one that did not qualify, since finishing is not finding something.
+
+A record that cannot be parsed blocks rather than passes. Unknown is not
+success, and defaulting the other way would make a corrupted artifact the most
+permissive state available, which is every silent-zero in this file.
+
+`cli/_failure.clear_failure_artifact` removes the record when step 4 finishes.
+A record that is never cleared is as wrong as one that is never read: the user
+fixes the problem, the next run succeeds, and the export refuses on evidence
+that no longer describes anything.
+
+Verified end to end: a directory carrying a failure record exits 1 and writes
+no FASTA; the same directory with the record cleared exits 0 and writes one.
+`tests/test_design_report_provenance.py` also pins that the CSV, the summary
+JSON, the rendered report and the exported FASTA all name the same panel.
+
+## Sequencing feedback must know which sequence it is reading
+
+`bam_coverage.match_contigs` bound a BAM contig to a foreground reference by
+**unique sequence length** when no name matched. That fallback is gone as of
+2026-09-21.
+
+Equal length is not identity. This repository ships two plasmids of 5,386 bp
+each, and two chromosomes from different assemblies routinely agree. When the
+lengths agree every coordinate lines up, so the depth profile reads cleanly
+against a sequence the design was not made for. Feedback drives redesign --
+low-depth regions become targeted additions -- so the additions would aim at
+gaps in the wrong genome, and nothing downstream could notice.
+
+Binding is now by name only: explicit alias, exact match, basename, then
+chr-prefix normalisation. Each is a name agreeing with a name, which is a
+claim somebody made. An unmatched prefix is skipped with a warning naming
+`--contig-alias`, which is the same claim made by someone who can check it.
+
+A name match whose LENGTHS disagree still binds, because the names are an
+assertion this code should not overrule, but it now warns: that combination
+means the BAM was aligned against a different version of the sequence.
+
+`core/sequencing_feedback.require_disjoint_experiments` refuses a validation
+set sharing an experiment with the training set, and names which. It also
+refuses an empty set on either side: nothing held out is not the same as
+nothing overlapping, and an out-of-sample result computed on no samples is an
+unsupported claim rather than a weaker one. A repeated identifier within one
+set is untidy rather than leakage and is allowed.
+
+## Refusals, end to end
+
+`tests/integration/test_strict_design_pipeline.py` runs the four steps over the
+packaged 5.4 kb plasmid and then injects one bad configuration at a time. Each
+injection is a params file somebody could write, not a monkeypatched internal:
+the point is that a refusal survives argument parsing, parameter resolution,
+the step's own `except` clause and the command boundary. Known Issue 8's class
+is exactly a check that exists and is not reached.
+
+**Two refusal mechanisms, and only one owes a failure record.**
+
+A setting the SCHEMA rejects -- `coverage_reach: 0`, `polymerase: taq` -- never
+enters the design path. It exits nonzero naming the permitted values, writes no
+record, and wants none: there is no stage to name and no step-4 output for
+anyone to mistake for current. That is an earlier and better refusal than the
+design-request contract's.
+
+A setting the DESIGN PATH rejects -- an additive with no Tm model, a
+background-measured limit with no background -- owes all three: nonzero exit, a
+record saying what failed, and nothing the next command will export.
+
+**The record was not being written**, found here and nowhere else. Both
+design-path refusals fire inside `resolve_design_request`, which runs BEFORE
+`get_params` populates the `parameter` module, so the failure writer looked for
+an output directory the module did not yet know about and wrote nowhere. The
+run exited nonzero and the directory still looked like its previous success.
+`_failure_artifact_path` now falls back to the `data_dir` named in the params
+file, resolved relative to that file as every command resolves paths. Same
+ordering trap as `warn_on_condition_drift`, reached from the other side.
+
+Also covered: a deleted position index, a FASTA replaced after indexing so the
+index is complete and describes another sequence, a reaction the filter never
+recorded, and the retired `score` command name.
+
+## What references are available to measure against
+
+All gitignored, so `git ls-files` shows none of them and a search of the
+tracked tree concludes there is nothing to test on. That conclusion has been
+reached and acted on at least once; see the correction in **The smallest pool**
+above.
+
+| Reference | Size | Records | Location |
+|---|---|---|---|
+| hg38 | 3.30 Gb | 705 | `tests/validation/genomes/human_full.fna` |
+| *Drosophila* | 144 Mb | 1,870 | `examples/wolbachia_pool_design/input/` |
+| human chr21 | 46.7 Mb | 1 | `tests/validation/genomes/` |
+| E. coli | 4.64 Mb | 1 | `tests/validation/genomes/` |
+| M. tuberculosis | 4.41 Mb | 1 | `tests/validation/genomes/` |
+| Prevotella | 3.17 Mb | 2 | `tests/validation/genomes/` |
+| S. aureus | 2.82 Mb | 1 | `tests/validation/genomes/` |
+| Wolbachia wMel | 1.27 Mb | 1 | both locations |
+| two plasmids | ~6 kb | 1 | `examples/plasmid_example/`, packaged in `core/smoke/` |
+
+**The Wolbachia design is prepared and is the one to reach for.**
+`examples/wolbachia_pool_design/work` holds 12-mer position indexes for wMel
+and *Drosophila* and a `step3_df.csv` whose funnel matches the figures quoted
+throughout this file: 874,596 k-mers, 491,836 past the thermodynamic gate,
+20,670 past evenness, 2,000 shortlisted. One `compute_metrics` call on it
+costs 40 ms, so a few thousand evaluations is minutes rather than hours.
+
+Prevotella and chr21 also carry k-mer tables and position indexes. The other
+bacterial genomes and hg38 have the FASTA only and would need counting first;
+hg38 at k=12 is about seven minutes and a 138 MB table.
+
+**There is no BAM or CRAM anywhere**, so anything needing measured sequencing
+depth is blocked: `calibrate-reach`, the reach calibration, and Task 9's
+held-out evaluation. Neither coverage reach has ever been measured against a
+reaction, and this is why.
+
+**The multi-record references are the interesting ones for geometry.**
+*Drosophila* has 1,870 records and hg38 has 705, which is exactly where the
+record-join scanner defect fabricated sites and where the two coverage paths
+disagree. Both of those fixes are currently justified on constructed fixtures
+alone; these references are what would measure them.
 
 ## Testing
 
@@ -926,7 +1500,8 @@ package, because nothing in the search uses it.
    **Declared closed twice, and closed neither time.** The audit of 2026-09-16
    found `--design-grid` on `plan-pool` parsed, documented in the help text, and
    never read -- added *after* the second closure. Checking for more found
-   `--data-dir` inert on `count-kmers`, `filter`, `score`, `optimize`, `design`
+   `--data-dir` inert on `count-kmers`, `filter`, `prepare-candidates`,
+   `optimize`, `design`
    and `evaluate-set`, and `--min-gini-sites` inert on `filter`, which the Key
    Parameters section above documented as working. Both were verified by
    resolving a config whose flag value differed from the file value: the file
@@ -1401,3 +1976,120 @@ package, because nothing in the search uses it.
     ascending=False)[:max_primer]`, retaining the LEAST specific survivors.
     NeoSWGA sorts that ascending. All three were reported from that repository's
     source and were not re-verified here.
+
+19. **Four commands meant "every alternative set" where they should have meant
+    one** -- FIXED 2026-09-21. `step4_improved_df.csv` holds up to `max_sets`
+    (default 5) primer sets, one per `set_index`, and they are ALTERNATIVES:
+    each is found by excluding the primers already chosen and selecting again.
+    Set 0 is the one the summary describes. `export`, `interpret`, `report` and
+    `simulate` all read every row and treated the union as one panel.
+
+    The costly one is `export`, whose output the tool calls "Primers ready for
+    ordering!". Measured on the bundled plasmid example at 300 bp reach, where
+    the pool is large enough for alternatives to be found: set 0 is 8 oligos
+    with no pair above the configured `max_dimer_bp` of 3, while the exported
+    FASTA was 18 oligos with five pairs above it, the worst a 9 bp
+    complementary run. All five join oligos from DIFFERENT sets, so no screen
+    had ever compared them and by construction none could. Nothing in the file
+    marked a set boundary: records run SWGA_001 upward straight through.
+    `interpret` reported 18 primers, a count matching no orderable set.
+
+    This is the 11 bp delivered heterodimer of the `max_dimer_bp` entry reached
+    by a second route, with selection behaving correctly throughout. No saved
+    run in this repository exhibits it -- every one holds set 0 alone -- which
+    is why it survived. It needs only a pool big enough for a second set.
+
+    `core/delivered_set.py` holds the rule once. Default set 0; `--set N` on
+    `export` and `interpret`; a requested set the file does not hold raises
+    `ReferenceDataError` rather than returning an empty panel; a file with no
+    `set_index` column is older output holding one set and every row is
+    returned. Tests: `tests/test_commands_read_one_primer_set.py`.
+
+20. **Mixed oligo lengths work, and on the one pair measured they bought
+    nothing.** A design may mix lengths: the schema admits k of 4 to 30, the
+    scan writes one index per length, `PositionCache.load` groups by length and
+    the dimer screen codes t-mers. No delivered panel here had ever mixed,
+    so this was an argument until
+    `tests/integration/test_variable_oligo_length.py` took a k 7-11 design
+    through all four steps and out to an ordering file.
+
+    Measured on Prevotella against human chr21 at equiphi29 42 C, a mixed
+    k 10-12 design lands BETWEEN the single-length designs on both axes at
+    panel sizes 8 and 20. It is beaten on coverage by the all-11-mer panel and
+    on specificity by the all-12-mer panel, which binds the host once against
+    the mixed panel's seventeen at n=8. **Choosing k matters far more than
+    choosing whether to mix.**
+
+    The occupancy spread across lengths is governed by the Tm WINDOW, not by
+    the length range, which a control established after a first draft concluded
+    otherwise. A 30 C window gives a 23.5 C median Tm spread across lengths and
+    occupancy from 0.042 to 0.994; a 12 C window gives 2.0 C and 0.580 to
+    0.794. `core/length_occupancy.py` reports this per length from `filter` and
+    `optimize` and never enforces it, the resolution Known Issue 17 reached for
+    the same quantity. Silent on a single-length design
+    ([measurement](docs/validation/variable_oligo_length_2026-09-21.md)).
+
+21. **The HDF5 lock failure is two runs sharing a data directory, not mixed
+    length** -- established 2026-09-21. `tests/validation/genomes/f_mixed.log`
+    records `BlockingIOError: [Errno 35] unable to lock file` from a
+    mixed-length run, and mixed length was blamed because that is what the
+    config changed.
+
+    Four measurements settle it. **The errno is cross-process by
+    construction**: a foreign process holding the file, even read-only,
+    produces exactly the recorded message, while a second handle inside ONE
+    process produces `OSError: ... file is already open for read-only` with no
+    errno 35, so a leaked handle cannot be the cause of this message. **A
+    reader is enough to stop a writer**, so a command that only reads the
+    index can stop a `filter`. How wide that window is depends on the cache:
+    the default `PositionCache` opens each file in a `with` block and closes
+    it promptly, making the collision a race, while `StreamingPositionCache`
+    holds handles until `close()` and is selected only when the in-memory
+    cache is DISABLED. An earlier version of this entry said `optimize` holds
+    them for a whole run, which is true only of that non-default path. **Concurrent pairs failed 10 of 11
+    across two trials and single-process runs 0 of 11**, the latter including
+    multi-k runs at realistic scale; a mixed k 10-12 `filter` in a clean
+    directory takes 146 s and exits 0. **The recorded directory shows the
+    collision directly**: its `run_manifest.json` has `score` on that config
+    completing 2.2 s before the failing filter's last log write and `optimize`
+    8.7 s after, with no `filter` entry at all because the manifest is written
+    on completion, and a `prevotella_13mer_positions.h5` of 800 bytes holding
+    zero datasets sits there with the same mtime for a k that run never
+    requested.
+
+    The recorded traceback differs from the reproduction only in `h5f.open`
+    against `h5f.create`, which is whether the target file already existed.
+    The frames match the sequential Aho-Corasick branch, so the per-k
+    multiprocessing fallback -- the first guess -- did not run.
+
+    **Which process held the lock is NOT determined, and probably cannot be.**
+    At least three runs were live in that window. Because the default cache
+    holds each file only briefly the collision is a race, so the blocker is
+    whichever process had that one file open at that one instant, and no
+    durable fact about "the holder" exists for the artifacts to have recorded.
+    Read it as "not determined" rather than "not determined yet": better
+    evidence would not settle it. The cause is settled and the mechanism is
+    not fully reconstructed, which are different claims. Nothing depends on
+    the answer, since the remedy is the same either way.
+
+    `core/concurrent_runs.py` translates it at the step boundary: steps 2, 3
+    and 4 all write HDF5 and each consults it. No lock is taken and no retry is
+    attempted -- a retry loop would hide a genuine second process, and two
+    designs writing one directory have a provenance problem that outlasts the
+    lock. The message steers AWAY from `HDF5_USE_FILE_LOCKING=FALSE`, which is
+    the usual first hit for this error and risks a corrupt index. The predicate
+    matches on errno AND message, because EAGAIN alone is raised by unrelated
+    things. Tests: `tests/test_two_runs_sharing_a_directory_say_so.py`.
+
+    **This entry took three corrections and they were all the same shape**,
+    which is worth keeping because it is the silent-zero family in a register
+    this file does not otherwise cover: not a value, but a SENTENCE that reads
+    as more definite than its evidence. "Another writer" when a reader
+    suffices. "`optimize` holds these for its whole run" when only the
+    non-default cache does. "Nothing in the artifacts separates the three
+    processes" when a race means there is nothing to separate. None was wrong
+    about the cause; each was wrong about the size of the claim, and the first
+    two shipped to users in an error message. A diagnostic written from a
+    finding is a claim about someone's machine, so name the mechanism that
+    generalises rather than the command that happened to be involved, and say
+    "not determined" only when better evidence would in fact settle it.

@@ -25,7 +25,7 @@ bacterial targets up to ~1 Mb.
 cd examples/plasmid_example
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 neoswga report -d .
 ```

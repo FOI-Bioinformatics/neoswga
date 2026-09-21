@@ -93,13 +93,66 @@ def _run(step, work):
 
 
 def test_the_design_path_runs_end_to_end_on_a_small_fixture(design_dir):
-    for step in ("count-kmers", "filter", "score"):
+    for step in ("count-kmers", "filter", "prepare-candidates"):
         result = _run(step, design_dir)
         assert result.returncode == 0, f"{step} failed:\n{result.stderr[-2000:]}"
 
     assert (design_dir / "step2_df.csv").is_file()
     assert (design_dir / "step3_df.csv").is_file()
     assert (design_dir / "candidate_inventory.sqlite").is_file()
+
+
+def test_plan_pool_forwards_search_controls_to_real_optimizer(design_dir, monkeypatch):
+    import argparse
+
+    from Bio import SeqIO
+
+    from neoswga.cli.plan_pool import add_parsers, run_plan_pool
+    from neoswga.core.optimizer_factory import OptimizerFactory
+
+    for step in ("count-kmers", "filter", "prepare-candidates"):
+        completed = _run(step, design_dir)
+        assert completed.returncode == 0, completed.stderr
+    path = design_dir / "params.json"
+    params = json.loads(path.read_text())
+    params.update(stage1_objective_width=8, swap_max_evaluations=17)
+    for label, filename in (("fg", "target.fna"), ("bg", "background.fna")):
+        params[f"{label}_seq_lengths"] = [
+            sum(len(record.seq) for record in SeqIO.parse(design_dir / filename, "fasta"))
+        ]
+    path.write_text(json.dumps(params))
+    seen = []
+    create = OptimizerFactory.create
+
+    def capture(*args, **kwargs):
+        optimizer = create(*args, **kwargs)
+        seen.append(optimizer.config)
+        return optimizer
+
+    monkeypatch.setattr(OptimizerFactory, "create", capture)
+    parser = argparse.ArgumentParser()
+    add_parsers(parser.add_subparsers())
+    output = design_dir / "plan"
+    args = parser.parse_args(
+        [
+            "plan-pool",
+            "-j",
+            str(path),
+            "--candidates",
+            str(design_dir / "step3_df.csv"),
+            "--method",
+            "dominating-set",
+            "--max-size",
+            "1",
+            "--no-background",
+            "-o",
+            str(output),
+        ]
+    )
+    run_plan_pool(args)
+    assert seen and seen[0].stage1_objective_width == 8
+    assert seen[0].swap_max_evaluations == 17
+    assert (output / "pool_plan.json").is_file()
 
 
 def test_the_inventory_holds_more_than_the_shortlist(design_dir):

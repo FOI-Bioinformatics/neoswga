@@ -19,7 +19,7 @@ Replace the FASTA paths with your real files:
 ```bash
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```
 

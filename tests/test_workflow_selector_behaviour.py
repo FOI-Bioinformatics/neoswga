@@ -266,7 +266,7 @@ def test_full_pipeline_runs_all_four_steps_in_order(monkeypatch):
     assert calls == [
         ["neoswga", "count-kmers", "-j", "params.json"],
         ["neoswga", "filter", "-j", "params.json"],
-        ["neoswga", "score", "-j", "params.json"],
+        ["neoswga", "prepare-candidates", "-j", "params.json"],
         ["neoswga", "optimize", "-j", "params.json"],
     ]
 
@@ -293,7 +293,7 @@ def test_full_pipeline_stops_after_a_declined_step(monkeypatch):
     [
         ("2", ["neoswga", "count-kmers", "-j", "params.json"]),
         ("3", ["neoswga", "filter", "-j", "params.json"]),
-        ("4", ["neoswga", "score", "-j", "params.json"]),
+        ("4", ["neoswga", "prepare-candidates", "-j", "params.json"]),
     ],
 )
 def test_individual_pipeline_step_maps_to_correct_command(monkeypatch, step_choice, expected_cmd):

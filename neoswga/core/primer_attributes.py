@@ -274,10 +274,35 @@ def get_gini_from_txt(
     Returns:
         The average gini_index across all gini indices computed for each primer.
     """
-    # Use parameter k-mer range instead of hardcoded [6-12]
+    # Score the lengths we were actually handed.
+    #
+    # This used to iterate `range(parameter.min_k, parameter.max_k + 1)`, so a
+    # primer whose length fell outside the configured window got no task, no
+    # entry in `primer_to_all_ginis`, and the comprehension at the end of this
+    # function raised `KeyError` on it.
+    #
+    # `string_search.get_positions` records and fixed the identical defect --
+    # there it returned an empty position list, indistinguishable from "binds
+    # nowhere". Here it crashes instead, which is at least visible, but it
+    # takes out every bring-your-own-oligo flow: `expand-primers`,
+    # `evaluate-set`, and any mixed-length pool whose lengths do not exactly
+    # match the window. Deriving the range from the pool is what that function
+    # does, and doing the same here is what stops the two drifting again.
     import neoswga.core.parameter as parameter
 
-    k_range = range(parameter.min_k, parameter.max_k + 1)
+    k_range = sorted({len(primer) for primer in primer_list})
+    outside = sorted(
+        {length for length in k_range if length < parameter.min_k or length > parameter.max_k}
+    )
+    if outside:
+        logger.info(
+            "Scoring evenness for k-mer length(s) %s, which fall outside the "
+            "configured min_k-max_k window (%s-%s). They are included because "
+            "they were asked for.",
+            outside,
+            parameter.min_k,
+            parameter.max_k,
+        )
 
     # Resolved here, in the parent, and passed as data. See the helper: a
     # spawned worker reading the module global would see the import-time

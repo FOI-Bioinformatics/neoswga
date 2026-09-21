@@ -32,6 +32,8 @@ from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .candidate_source import order_candidates_by_background
 from .dimer import dimer_validation_issue, worst_heterodimer
+from .ensemble_comparison import _ensemble_error_row, _select_ensemble_winner
+from .exceptions import DesignError, ModelEvaluationError, ReferenceDataError
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
 from .panel_acceptance import (
     apply_configured_limits,
@@ -164,10 +166,17 @@ def _reseed(seed) -> None:
     np.random.seed(seed)
     try:
         from .rf_preprocessing import set_kmer_sampling_seed
-
+    except ImportError:
+        # The amplification model was retired from the default path, so its
+        # sampling RNG may not be importable at all. Nothing consumed it, so
+        # there is nothing to make reproducible.
+        return
+    try:
         set_kmer_sampling_seed(seed)
-    except Exception:
-        pass
+    except Exception as exc:
+        # A seed that was asked for and not applied is a broken promise, and
+        # the caller logs "set for reproducibility" immediately afterwards.
+        raise ModelEvaluationError("random seed", seed, str(exc)) from exc
 
 
 def _resolve_target_coverage(kwargs, default=0.70):
@@ -236,47 +245,6 @@ def collect_alternative_sets(
     return sets
 
 
-def _select_ensemble_winner(results, application):
-    """Which method's set to deliver, decided by a stated rule.
-
-    Ranked on `normalized_score` (application-weighted), then -- and this is the
-    part that was missing -- on explicit tie-breaks rather than on whichever
-    method happened to be listed first.
-
-    `max()` over the results dict returns the FIRST key attaining the maximum,
-    and that dict is built in `--ensemble-methods` order, so flag order decided
-    every tie. Ties are the common case: on the plasmid example hybrid,
-    dominating-set and background-aware return the identical set and score
-    0.9003 alike, and reordering the flag moved the winner each time. Here the
-    tied methods returned the same primers so only provenance moved, but the tie
-    is on the composite score rather than on the set, so two methods returning
-    different pools can tie and then flag order picks what gets ordered.
-
-    Tie-breaks, in order:
-
-    1. the higher `normalized_score`;
-    2. the SMALLER set -- fewer oligos at equal quality is cheaper to
-       synthesise and simpler to run;
-    3. the method name, alphabetically, purely so the answer is stable.
-
-    Rule 3 is arbitrary on purpose. Something has to settle a true tie, and an
-    arbitrary rule that is written down and reproducible is better than an
-    arbitrary rule that depends on argument order and is documented as
-    order-independent.
-    """
-
-    def rank(method):
-        result = results[method]
-        return (
-            result.metrics.normalized_score(application=application),
-            -len(result.primers),
-            # `max` takes the largest, so invert the name to prefer the earliest.
-            tuple(-ord(c) for c in method),
-        )
-
-    return max(results, key=rank)
-
-
 def _run_ensemble(
     methods: List[str],
     cache,
@@ -294,22 +262,20 @@ def _run_ensemble(
     combine: str = "best",
     **kwargs,
 ) -> OptimizationResult:
-    """Run several optimizers on one shared cache; keep the best.
+    """Compare proposals under one evaluator and attach per-method metrics.
 
-    Methods are compared by ``normalized_score`` (a [0,1] value comparable
-    across optimizer types, weighted by ``application``) — NOT raw ``score``,
-    which is on per-optimizer scales. A per-method comparison table is attached
-    to the returned result as ``ensemble_comparison``. Per-method failures are
-    logged and skipped (graceful degradation); if every method fails the result
-    is an ERROR.
-
-    Building the PositionCache once (passed in as ``cache``) is the key speed
-    win over calling run_optimization N times.
+    Method failures are reported and skipped. Normalized application scores
+    remain descriptive; an available shared objective decides the winner.
     """
     from dataclasses import replace as _dc_replace
 
     rows: List[Dict[str, Any]] = []
     results: Dict[str, OptimizationResult] = {}
+    from .search_control import SearchBudget
+
+    shared_objective = None
+    search_budget = kwargs.pop("search_budget", None) or SearchBudget.from_config(config)
+    candidate_source = kwargs.pop("candidate_source", None)
 
     for m in methods:
         _reseed(seed)  # order-independent reproducibility
@@ -325,22 +291,43 @@ def _run_ensemble(
                 conditions=conditions,
                 **kwargs,
             )
+            from .optimization_service import OptimizationRequest, run_panel_search
+            from .panel_refinement import objective_for_optimizer
+
+            if shared_objective is None:
+                shared_objective = objective_for_optimizer(
+                    optimizer, constraints_from_parameter(parameter)
+                )
+            else:
+                from .swap_refinement import attach_search_config
+
+                attach_search_config(optimizer, "pool_objective", shared_objective)
             with progress_context(f"  ensemble: {optimizer.name}", disable=not verbose):
-                res = optimizer.optimize(candidates, target_size)
+                res = run_panel_search(
+                    OptimizationRequest(
+                        optimizer,
+                        tuple(candidates),
+                        target_size,
+                        budget=search_budget,
+                        candidate_source=candidate_source,
+                    )
+                )
+        except DesignError:
+            # A failed calculation, a missing reference answer or an
+            # unsupported model is not a property of this ensemble member: the
+            # next member would compute the same quantity from the same data.
+            # Recording it as one method's error and letting another method
+            # win returns a panel built on the same unmeasured ground, with
+            # nothing in the comparison table to say so.
+            raise
         except Exception as e:
+            # A member that fails for its own reasons -- an algorithm that
+            # cannot run on this pool -- stays a visible row in
+            # `ensemble_comparison` rather than failing the command. The
+            # ensemble was asked for several methods precisely because any one
+            # of them may not apply.
             logger.warning(f"  ensemble method '{m}' failed: {e}")
-            rows.append(
-                {
-                    "method": m,
-                    "normalized_score": 0.0,
-                    "score": float("-inf"),
-                    "n_primers": 0,
-                    "fg_coverage": 0.0,
-                    "bg_coverage": 0.0,
-                    "status": "error",
-                    "selected": False,
-                }
-            )
+            rows.append(_ensemble_error_row(m))
             continue
 
         norm = res.metrics.normalized_score(application=application)
@@ -373,7 +360,7 @@ def _run_ensemble(
     if not results:
         return OptimizationResult.failure("ensemble", f"All ensemble methods failed: {methods}")
 
-    best_method = _select_ensemble_winner(results, application)
+    best_method = _select_ensemble_winner(results, application, shared_objective)
     for row in rows:
         row["selected"] = row["method"] == best_method and row["status"] != "error"
 
@@ -406,10 +393,34 @@ def _run_ensemble(
                     conditions=conditions,
                     **kwargs,
                 )
-                combined = combiner.optimize(union_pool, target_size)
+                if shared_objective is not None:
+                    from .swap_refinement import attach_search_config
+
+                    attach_search_config(combiner, "pool_objective", shared_objective)
+                else:
+                    objective_for_optimizer(combiner, constraints_from_parameter(parameter))
+                combined = run_panel_search(
+                    OptimizationRequest(
+                        combiner, tuple(union_pool), target_size, budget=search_budget
+                    )
+                )
                 c_norm = combined.metrics.normalized_score(application=application)
                 w_norm = winner.metrics.normalized_score(application=application)
-                if combined.primers and c_norm >= w_norm:
+                from .optimization_service import panel_rank
+
+                improved = (
+                    panel_rank(shared_objective, combined.primers)
+                    >= panel_rank(shared_objective, winner.primers)
+                    if shared_objective is not None and combined.primers
+                    else c_norm >= w_norm
+                )
+                from .optimization_service import panel_violations
+
+                if (
+                    combined.primers
+                    and improved
+                    and not panel_violations(combiner, combined.primers)
+                ):
                     winner = combined
                     for row in rows:
                         row["selected"] = False
@@ -434,6 +445,35 @@ def _run_ensemble(
                 logger.warning(f"  ensemble union-combine skipped: {e}")
 
     return _dc_replace(winner, ensemble_comparison=tuple(rows))
+
+
+def _vet_the_index(cache, fg_prefixes, bg_prefixes, candidate_count, pipeline_path):
+    """Refuse an index a new design cannot honestly be scored against.
+
+    Two checks with two different subjects. The first asks whether the index is
+    of a shape a current design can use: record geometry, so a coverage window
+    stops at a contig edge, and an on-disk format this version understands. The
+    second asks whether it covers the pool, rather than letting selection run
+    over whichever part happens to be present.
+
+    Reference IDENTITY is deliberately NOT checked here. It is a relation
+    between a prefix and a genome, and only the resolved request names both;
+    `cli/pipeline.run_step4` does it there. Reading `parameter.fg_genomes` at
+    this point pairs the prefixes this call was GIVEN with whatever genomes the
+    module currently holds, and under `pytest -n 8` that paired a test's own
+    prefix with another test's FASTA. A mutable global is not a manifest.
+
+    Both are skipped for a caller that supplied its own pool, which is the
+    library path: it has not asked step 4 to read step 3 and is not subject to
+    step 4's prerequisites.
+    """
+    from .pipeline import validate_index_covers_candidates
+
+    if pipeline_path:
+        cache.require_record_metadata(list(fg_prefixes) + list(bg_prefixes or []))
+    return validate_index_covers_candidates(
+        cache, fg_prefixes, candidate_count, refuse=pipeline_path
+    )
 
 
 def _make_position_cache(prefixes, primers, use_cache=True):
@@ -512,7 +552,10 @@ def _build_optimizer_config(
             )
             extra[field.name] = pick(field.name, default)
 
+    from .search_control import SEARCH_CONTROL_DEFAULTS
+
     return config_class(
+        **{key: pick(key, default) for key, default in SEARCH_CONTROL_DEFAULTS.items()},
         **extra,
         target_set_size=target_size,
         # params.json calls this `iterations` and `get_params` assigns that
@@ -582,8 +625,12 @@ def _resolve_selection_weights(kwargs: dict, application, verbose: bool) -> None
                 f"uniformity={kwargs['uniformity_weight']:.2f}, "
                 f"dimer_penalty={kwargs['dimer_penalty']:.2f}"
             )
-    except Exception as e:
-        logger.debug(f"application weight lookup skipped: {e}")
+    except KeyError as exc:
+        # `--application clinical` that quietly has no effect optimizes under
+        # weights the user did not ask for and reports normally. The profile
+        # table is a package constant, so a miss here is a programming error
+        # rather than a user one, and it must not be absorbed.
+        raise ModelEvaluationError("application weights", application, str(exc)) from exc
 
 
 def _collect_forbidden_primers(candidates, verbose: bool) -> list:
@@ -614,9 +661,16 @@ def _collect_forbidden_primers(candidates, verbose: bool) -> list:
                 f"max_bl_freq={max_bl}; validator will flag any that reached the set."
             )
         return forbidden
-    except Exception as e:
-        logger.debug(f"library blacklist guard skipped ({e})")
-        return []
+    except Exception as exc:
+        # An empty list here is indistinguishable from "no candidate is
+        # blacklisted", so the validator then receives `forbidden_primers=None`
+        # and a blacklisted primer in the delivered set goes unflagged. The
+        # blacklist is configured, so failing to apply it is a design failure.
+        raise ReferenceDataError(
+            "blacklist k-mer counts",
+            str(exc),
+            "Re-run `neoswga count-kmers` for the blacklist genomes, or unset bl_prefixes.",
+        ) from exc
 
 
 def _dispatch_optimizer(
@@ -641,6 +695,8 @@ def _dispatch_optimizer(
     `run_optimization` measures coverage with it.
     """
     optimizer = None
+    search_budget = kwargs.pop("search_budget", None)
+    candidate_source = kwargs.pop("candidate_source", None)
 
     if method in ("ensemble", "auto", "all"):
         ensemble_methods = kwargs.pop("ensemble_methods", None) or [
@@ -668,6 +724,8 @@ def _dispatch_optimizer(
             seed=seed,
             verbose=verbose,
             combine=ensemble_combine,
+            search_budget=search_budget,
+            candidate_source=candidate_source,
             **kwargs,
         )
 
@@ -691,7 +749,15 @@ def _dispatch_optimizer(
                 **kwargs,
             )
         except Exception as exc:
-            logger.debug(f"No measuring optimizer for the ensemble winner: {exc}")
+            # Without this optimizer `_hold_to_configured_limits` returns the
+            # panel unrepaired, so every configured panel limit is silently
+            # not enforced and the run reports a clean result. A limit the
+            # user set is a hard constraint, not a preference.
+            raise ModelEvaluationError(
+                "ensemble winner evaluator",
+                getattr(result, "optimizer_name", None) or ensemble_methods[0],
+                str(exc),
+            ) from exc
     else:
         # Create optimizer via factory
         try:
@@ -710,91 +776,39 @@ def _dispatch_optimizer(
             logger.error(f"Failed to create optimizer '{method}': {e}")
             return OptimizationResult.failure(method, str(e)), None
 
+        from .optimization_service import OptimizationRequest, run_panel_search
+        from .panel_refinement import objective_for_optimizer
+
+        objective_for_optimizer(optimizer, constraints_from_parameter(parameter))
         # Run optimization
         with progress_context(f"Running {optimizer.name} optimizer", disable=not verbose):
-            result = optimizer.optimize(candidates, target_size)
+            result = run_panel_search(
+                OptimizationRequest(
+                    optimizer,
+                    tuple(candidates),
+                    target_size,
+                    budget=search_budget,
+                    candidate_source=candidate_source,
+                )
+            )
 
+    if optimizer is not None:
+        from .panel_refinement import objective_for_optimizer
+
+        objective_for_optimizer(optimizer, constraints_from_parameter(parameter))
     return result, optimizer
 
 
 def _minimize_primer_count(result, optimizer, target_coverage: float, verbose: bool):
-    """Trim a selected set to the fewest primers still meeting a coverage target.
+    """Remove redundant primers while preserving the shared panel contract.
 
-    Repeatedly drops whichever primer costs the least coverage, for as long as
-    what remains still clears `target_coverage`. This is deliberately a
-    post-process rather than a selection criterion: the optimizer picks the best
-    set it can at the requested size, and this asks separately whether a smaller
-    subset would still do the job.
-
-    Coverage is measured with `optimizer.compute_metrics`, the same base-level
-    figure written to `step4_improved_df_summary.json`. That matters more than
-    it looks. `MinimalPrimerSelector`, the module apparently written for this
-    job and never called by anything, counts `covered_positions` as the set of
-    binding-site COORDINATES -- so a primer covers as many bases as it has
-    sites, and extension is ignored entirely. On a 30 kb genome, 30 sites reads
-    as 0.1% coverage and no target is ever reachable. Using it here would have
-    given the flag a criterion that cannot fire. One coverage semantics, and it
-    is the reported one.
-
-    Guarded in both directions: a trimmed set is accepted only if it is
-    genuinely smaller and still clears the target, so the flag can shrink a set
-    but never silently degrade one.
+    Each deletion must meet the requested coverage under the design's selected
+    metric and all configured panel limits. Condition-free library evaluators
+    retain geometric coverage; configured designs use effective coverage.
     """
-    from dataclasses import replace as _replace
+    from .optimization_service import reduce_result
 
-    try:
-        current = list(result.primers)
-        if len(current) < 2:
-            return result
-
-        best_metrics = None
-        while len(current) > 1:
-            candidate_drops = []
-            for primer in current:
-                remaining = [p for p in current if p != primer]
-                metrics = optimizer.compute_metrics(remaining)
-                if metrics.fg_coverage >= target_coverage:
-                    candidate_drops.append((metrics.fg_coverage, primer, remaining, metrics))
-
-            if not candidate_drops:
-                break
-
-            # Drop the primer whose removal leaves the most coverage standing.
-            _cov, _primer, remaining, metrics = max(candidate_drops, key=lambda d: d[0])
-            current, best_metrics = remaining, metrics
-
-        if len(current) >= len(result.primers):
-            if verbose:
-                logger.info(
-                    f"--minimize-primers: no smaller subset holds "
-                    f"{target_coverage:.0%} coverage; keeping {len(result.primers)}."
-                )
-            return result
-
-        if verbose:
-            logger.info(
-                f"--minimize-primers: {len(result.primers)} -> {len(current)} primers "
-                f"at {best_metrics.fg_coverage:.1%} coverage (target {target_coverage:.0%})."
-            )
-        # `score` has to move with the set. Replacing primers and metrics and
-        # leaving `score` alone reported the FOUR-primer score for a set trimmed
-        # to one, in both the CSV `score` column and the summary JSON -- a
-        # number describing a set that no longer exists.
-        #
-        # `normalized_score` is the comparable [0,1] composite and is derived
-        # from the metrics, which have been recomputed, so it is the honest
-        # value to carry. The per-optimizer raw score cannot be recomputed here
-        # without re-running the optimizer on the trimmed set.
-        return _replace(
-            result,
-            primers=tuple(current),
-            metrics=best_metrics,
-            score=float(best_metrics.normalized_score()),
-        )
-
-    except Exception as e:
-        logger.warning(f"--minimize-primers skipped ({e}); keeping the full set.")
-        return result
+    return reduce_result(result, optimizer, target_coverage)
 
 
 def _pool_for_this_run(fg_prefixes, conditions):
@@ -814,7 +828,7 @@ def _pool_for_this_run(fg_prefixes, conditions):
     position cache falls back to `on_missing="warn"`, which calls the coverage
     number meaningless and then lets the run report one anyway.
     """
-    from .candidate_source import open_source_or_list
+    from .candidate_source import open_design_source
     from .pipeline import StepPrerequisiteError, validate_step4_prerequisites
 
     validation = validate_step4_prerequisites(parameter.data_dir, list(fg_prefixes or []))
@@ -823,13 +837,15 @@ def _pool_for_this_run(fg_prefixes, conditions):
 
     step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
     shortlist = pd.read_csv(step3_path)["primer"].astype(str).tolist()
-    source = open_source_or_list(
+    source = open_design_source(
         parameter.data_dir,
         conditions.fingerprint() if hasattr(conditions, "fingerprint") else "",
         sorted({len(primer) for primer in shortlist}),
         fallback=shortlist,
     )
-    return source.initial()
+    from .candidate_source import CandidateFrontier
+
+    return CandidateFrontier(source)
 
 
 def run_optimization(
@@ -910,31 +926,12 @@ def run_optimization(
         if verbose:
             logger.info("  Host-free mode: no background genome data used")
 
-    # Validate user-supplied reaction conditions BEFORE loading candidates
-    # so a params.json bounds error (e.g. formamide>10%) is reported as
-    # the specific config problem it is — not masked by a downstream
-    # "empty candidate pool" message. The failure is non-fatal: the
-    # optimizer still runs (additive-blind), but the user sees it in both
-    # the log and the validator-banner.
+    # Invalid configured chemistry must stop the design before candidate loading.
     conditions = kwargs.pop("conditions", None)
-    _conditions_init_error: str = ""
     if conditions is None:
-        try:
-            from .reaction_conditions import build_reaction_conditions
+        from .reaction_conditions import build_reaction_conditions
 
-            conditions = build_reaction_conditions()
-        except (ValueError, TypeError, KeyError) as e:
-            _conditions_init_error = str(e)
-            logger.error(
-                f"ReactionConditions construction failed: {e}. "
-                f"Optimizer will run additive-BLIND — Tm calculations will "
-                f"fall back to the Wallace formula and your DMSO / betaine / "
-                f"formamide / etc. concentrations will be ignored. Check "
-                f"that your params.json values are within the bounds listed "
-                f"in `neoswga suggest --help` (e.g. DMSO 0-10%, betaine "
-                f"0-2.5M, formamide 0-10%)."
-            )
-            conditions = None
+        conditions = build_reaction_conditions()
 
     # Load candidates from step3, after checking that the index step 4 will
     # score against actually exists. Without this the position cache falls back
@@ -943,6 +940,7 @@ def run_optimization(
     _pool_read_from_step3 = candidates is None
     if candidates is None:
         candidates = _pool_for_this_run(fg_prefixes, conditions)
+    _candidate_source = getattr(candidates, "source", None)
 
     # Empty candidate pool guard: downstream optimizers behave inconsistently
     # on an empty pool (some raise, some return an empty result without saying
@@ -973,12 +971,10 @@ def run_optimization(
         np.random.seed(seed)
         # Also seed the RF k-mer sampling RNG so any re-scoring during
         # optimization is reproducible (k-mer sampling is on by default).
-        try:
-            from .rf_preprocessing import set_kmer_sampling_seed
-
-            set_kmer_sampling_seed(seed)
-        except Exception as e:
-            logger.debug(f"Could not seed k-mer sampling RNG: {e}")
+        # This used to log "set for reproducibility" whether or not the seed
+        # had actually been applied. `_reseed` now raises instead of passing,
+        # so the line below is only reached when the claim is true.
+        _reseed(seed)
         if verbose:
             logger.info(f"Random seed set to {seed} for reproducibility")
 
@@ -993,12 +989,14 @@ def run_optimization(
             fg_prefixes + (bg_prefixes or []), candidates, kwargs.get("use_cache", True)
         )
 
-    # Refuse a pool the index only partly covers, rather than optimizing over
-    # whichever part happens to be present. See validate_index_covers_candidates.
-    from .pipeline import validate_index_covers_candidates
-
-    _unindexed = validate_index_covers_candidates(
-        cache, fg_prefixes, len(candidates), refuse=_pool_read_from_step3
+    # Refuse an index a new design cannot be scored against: missing record
+    # geometry, an older on-disk format, or one built from another reference.
+    # Only `plan-pool` used to check, so the two commands most people run
+    # scored against whatever the directory happened to hold. Skipped when the
+    # caller supplied its own pool AND no params file named the genomes, which
+    # is the library path; `_pool_read_from_step3` marks the pipeline path.
+    _unindexed = _vet_the_index(
+        cache, fg_prefixes, bg_prefixes, len(candidates), _pool_read_from_step3
     )
 
     # Orders by fg/bg ratio; deletes nothing. See order_candidates_by_background
@@ -1044,10 +1042,6 @@ def run_optimization(
     _minimize_primers = bool(kwargs.pop("minimize_primers", False))
     _target_coverage = _resolve_target_coverage(kwargs)
 
-    # By this point `conditions` is either a valid object or None (with
-    # `_conditions_init_error` populated for validator-banner reporting
-    # further down).
-
     _application = kwargs.pop("application", None)
     _resolve_selection_weights(kwargs, _application, verbose)
 
@@ -1063,6 +1057,11 @@ def run_optimization(
     # every ensemble method to completion and thrown all of it away: no CSV, no
     # summary, no validation report. The `auto` and `all` aliases hit the same
     # branch.
+    from .search_control import SearchBudget
+
+    search_budget = SearchBudget.from_config(config)
+    kwargs["search_budget"] = search_budget
+    kwargs["candidate_source"] = _candidate_source
     result, optimizer = _dispatch_optimizer(
         method,
         cache,
@@ -1079,6 +1078,8 @@ def run_optimization(
         _application,
         kwargs,
     )
+    if _candidate_source is not None:
+        candidates = list(_candidate_source.frontier())
     if result is not None and getattr(result, "status", None) is OptimizationStatus.ERROR:
         return result
 
@@ -1097,12 +1098,22 @@ def run_optimization(
             "measure coverage with; the set is returned untrimmed."
         )
     elif _minimize_primers and result.primers:
-        result = _minimize_primer_count(
-            result=result,
-            optimizer=optimizer,
-            target_coverage=_target_coverage,
-            verbose=verbose,
+        from .optimization_service import OptimizationRequest, run_panel_search
+
+        result = run_panel_search(
+            OptimizationRequest(
+                optimizer,
+                tuple(candidates),
+                target_size,
+                minimize=True,
+                target_coverage=_target_coverage,
+                budget=search_budget,
+            ),
+            initial_result=result,
         )
+
+    # Resolve any remaining repair before derived coverage and validation reports.
+    result = _hold_to_configured_limits(result, optimizer, candidates, config, verbose)
 
     # Alternative sets, when `max_sets` asks for more than one. Done here, on
     # the finished primary result, so an alternative is a genuinely different
@@ -1190,8 +1201,15 @@ def run_optimization(
                                     ),
                                 }
                             )
-    except Exception as e:
-        logger.debug(f"per_target_coverage population skipped ({e})")
+    except DesignError:
+        raise
+    except Exception as exc:
+        # `base_optimizer` gates the per-target floor on a non-empty dict, so
+        # an empty one makes a REQUESTED floor pass vacuously: the panel that
+        # starves one target is reported as satisfying the limit set to stop
+        # exactly that. Aggregate coverage cannot reveal it either, which is
+        # why the floor exists.
+        raise ModelEvaluationError("per_target_coverage", sorted(fg_prefixes), str(exc)) from exc
 
     # Post-optimization sanity validation. Catches duplicates, size drift,
     # zero coverage, and accidental blacklist re-injection. The result is
@@ -1206,9 +1224,15 @@ def run_optimization(
             min_per_target_coverage=per_target_floor(kwargs, parameter) or 0.0,
             forbidden_primers=forbidden or None,
         )
-    except Exception as e:
-        logger.debug(f"Post-optimization validator crashed ({e}); skipping")
-        validation = None
+    except DesignError:
+        raise
+    except Exception as exc:
+        # Skipping the validator disarms every post-optimization guard at once
+        # -- duplicates, size drift, zero coverage, blacklist re-injection and
+        # the delivered-panel dimer check -- and writes no validation file, so
+        # `neoswga export` finds nothing to block on and prints "ready for
+        # ordering".
+        raise ModelEvaluationError("post-optimization validation", method, str(exc)) from exc
 
     # Attach saturation warnings so the HTML report surfaces them via
     # the validator-banner path. Warnings only; the `ok` flag is
@@ -1240,24 +1264,6 @@ def run_optimization(
             validation.setdefault("issues", []).append(_dimer_issue)
             if verbose:
                 logger.warning(f"{_dimer_issue['code']}: {_dimer_issue['detail']}")
-
-    # Surface the ReactionConditions init failure in the banner too.
-    # Marked as a warning (not error) because the optimizer still
-    # produced a primer set — just with additive-blind Tm.
-    if validation is not None and _conditions_init_error:
-        validation.setdefault("issues", []).append(
-            {
-                "level": "warning",
-                "code": "reaction_conditions_init_failed",
-                "detail": (
-                    f"{_conditions_init_error}. Optimizer ran additive-blind; "
-                    f"Tm calculations fell back to Wallace. Re-check params.json "
-                    f"against the bounds documented in `neoswga suggest --help`."
-                ),
-            }
-        )
-
-    result = _hold_to_configured_limits(result, optimizer, candidates, config, verbose)
 
     # Reported, not repaired; `panel_acceptance` says why.
     if verbose:
@@ -1302,15 +1308,7 @@ def run_optimization(
 
 
 def _hold_to_configured_limits(result, optimizer, candidates, config, verbose):
-    """Apply whatever panel limits this run configured. Usually a no-op.
-
-    `constraints_from_parameter` returns None unless a limit is set, so an
-    unconfigured run acquires no objective and its panel is untouched: a limit
-    that changed a delivered panel unasked would be the scoring change two
-    wet-lab benchmarks refuse. The repair behind this is
-    `pool_planner.repair_panel`, the same one `plan-pool` uses, so there is one
-    repair in the codebase rather than two that can disagree.
-    """
+    """Report configured panel limits and resolve any remaining bounded repair."""
     constraints = constraints_from_parameter(parameter)
     if constraints is None or not result.primers or optimizer is None:
         return result

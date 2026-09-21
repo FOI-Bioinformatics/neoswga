@@ -280,35 +280,34 @@ class TestTheFloorReachesTheOptimizersThatBuildScreens:
         )
 
     def test_the_hybrid_forwards_its_own_floor_to_both_stages(self):
-        """Both inner constructions must receive `self.max_dimer_dg`.
+        """Both inner optimizers must carry the floor the hybrid was given.
 
-        Forwarding a literal `None`, or forwarding to Stage 1 only, would pass
-        the test above while leaving the floor half-enforced.
+        Driven through a real construction rather than read off
+        `__init__`'s source. The source-text form of this test broke on
+        2026-09-21 when the unread `NetworkOptimizer` construction moved to
+        `core/selection_weights.py` -- the floor was still forwarded, and the
+        test saw only that the call had left the function it was reading.
+        That is the failure `attach_search_config` records from the other
+        side: asserting where code sits rather than what it does.
         """
-        import ast
-        import inspect
-
         from neoswga.core.hybrid_optimizer import HybridOptimizer
 
-        import textwrap
-
-        # A method's source is indented, which `ast.parse` refuses.
-        tree = ast.parse(textwrap.dedent(inspect.getsource(HybridOptimizer.__init__)))
-        forwarded = set()
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = getattr(node.func, "id", None)
-            if name not in {"DominatingSetOptimizer", "NetworkOptimizer"}:
-                continue
-            for keyword in node.keywords:
-                if keyword.arg != "max_dimer_dg":
-                    continue
-                value = keyword.value
-                if isinstance(value, ast.Attribute) and value.attr == "max_dimer_dg":
-                    forwarded.add(name)
-
-        assert forwarded == {"DominatingSetOptimizer", "NetworkOptimizer"}, (
-            "the hybrid does not forward its own floor to both stages; it "
-            f"reached {sorted(forwarded)}"
+        floor = -7.25
+        optimizer = HybridOptimizer(
+            position_cache=None,
+            fg_prefixes=["fg"],
+            fg_seq_lengths=[10_000],
+            bg_prefixes=[],
+            bg_seq_lengths=[],
+            max_dimer_dg=floor,
         )
+
+        reached = {
+            "DominatingSetOptimizer": optimizer.dominating_optimizer.max_dimer_dg,
+            "NetworkOptimizer": optimizer.network_optimizer.max_dimer_dg,
+        }
+
+        assert reached == {
+            "DominatingSetOptimizer": floor,
+            "NetworkOptimizer": floor,
+        }, f"the hybrid does not forward its own floor to both stages; got {reached}"

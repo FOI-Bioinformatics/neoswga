@@ -68,7 +68,7 @@ This writes `ecoli_K12_MG1655.fasta` (~4.5 MB). The file is gitignored.
 ```bash
 neoswga count-kmers -j params.json
 neoswga filter      -j params.json
-neoswga score       -j params.json
+neoswga prepare-candidates       -j params.json
 neoswga optimize    -j params.json --optimization-method=dominating-set \
                     --auto-size --application metagenomics
 ```

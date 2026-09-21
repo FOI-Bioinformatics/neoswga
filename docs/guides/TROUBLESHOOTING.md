@@ -86,7 +86,7 @@ supported.
 ModuleNotFoundError: No module named 'sklearn'
 ```
 
-Or unpickling errors when `neoswga score --amp-model` loads the random forest
+Or unpickling errors when `neoswga prepare-candidates --amp-model` loads the random forest
 model (the model is not loaded by default -- see
 [The score stage](../../CLAUDE.md#the-score-stage)):
 
@@ -215,11 +215,11 @@ Run: neoswga filter -j params.json
 ```
 ERROR: Required file not found: <path>
 Ensure Step 3 (score) has completed successfully.
-Run: neoswga score -j params.json
+Run: neoswga prepare-candidates -j params.json
 ```
 
 **Cause:** Each pipeline step depends on output files from the previous step.
-The steps must run in order: count-kmers, filter, score, optimize.
+The steps must run in order: count-kmers, filter, prepare-candidates, optimize.
 
 **Solution:**
 
@@ -228,7 +228,7 @@ Run the full pipeline in sequence:
 ```bash
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```
 

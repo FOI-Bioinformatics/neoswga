@@ -54,10 +54,28 @@ def match_contigs(
 ) -> Dict[str, str]:
     """Map foreground prefixes to BAM reference (contig) names.
 
-    Strategy, in order: explicit alias, exact match, basename match,
-    chr-prefix normalization, then unique sequence-length match. Foreground
-    prefixes with no confident match are omitted (and logged); BAM references
-    that match nothing are ignored.
+    Strategy, in order: explicit alias, exact match, basename match, then
+    chr-prefix normalization. Every one of those is a NAME agreeing with a
+    name, which is a claim somebody made. A prefix with no such match is
+    omitted and logged; BAM references matching nothing are ignored.
+
+    **Length is not identity, and is no longer a fallback.** A "unique
+    sequence-length match" bound a BAM contig to a foreground reference purely
+    because the two were the same size and nothing else in the BAM was. Equal
+    length happens: this repository ships two plasmids of 5,386 bp each, and
+    two chromosomes from different assemblies routinely agree. When it
+    happens every coordinate lines up, so the depth profile reads cleanly
+    against a sequence the design was not made for -- and sequencing feedback
+    drives redesign, so the low-depth regions it reports become targeted
+    additions aimed at gaps in the wrong genome.
+
+    The remedy the warning names is `--contig-alias`, which is the same claim
+    made by someone who can check it.
+
+    A name match whose lengths DISAGREE still binds, because the names are an
+    assertion and this code should not overrule it, but it warns: that
+    combination means the BAM was aligned against a different version of the
+    sequence this design used.
 
     Args:
         bam_refs: BAM @SQ reference names (header order).
@@ -72,53 +90,54 @@ def match_contigs(
     aliases = aliases or {}
     ref_set = set(bam_refs)
     ref_by_stripped = {_strip_chr(r): r for r in bam_refs}
-    # length -> bam_refs (for unique-length fallback)
-    refs_by_len: Dict[int, List[str]] = {}
-    for r, ln in zip(bam_refs, bam_ref_lengths):
-        refs_by_len.setdefault(int(ln), []).append(r)
+    # Kept to report a disagreement on a NAME match, not to make one.
+    length_by_ref: Dict[str, int] = {str(r): int(ln) for r, ln in zip(bam_refs, bam_ref_lengths)}
 
     mapping: Dict[str, str] = {}
     for prefix, length in zip(fg_prefixes, fg_seq_lengths):
         base = os.path.basename(prefix)
 
+        matched = None
+
         # 1. explicit alias (by full prefix or basename)
         if prefix in aliases and aliases[prefix] in ref_set:
-            mapping[prefix] = aliases[prefix]
-            continue
-        if base in aliases and aliases[base] in ref_set:
-            mapping[prefix] = aliases[base]
-            continue
-
+            matched = aliases[prefix]
+        elif base in aliases and aliases[base] in ref_set:
+            matched = aliases[base]
         # 2. exact match on prefix or basename
-        if prefix in ref_set:
-            mapping[prefix] = prefix
-            continue
-        if base in ref_set:
-            mapping[prefix] = base
-            continue
-
+        elif prefix in ref_set:
+            matched = prefix
+        elif base in ref_set:
+            matched = base
         # 3. chr-prefix normalization (chrI <-> I)
-        stripped = _strip_chr(base)
-        if stripped in ref_by_stripped:
-            mapping[prefix] = ref_by_stripped[stripped]
-            continue
+        elif _strip_chr(base) in ref_by_stripped:
+            matched = ref_by_stripped[_strip_chr(base)]
 
-        # 4. unique sequence-length match
-        same_len = refs_by_len.get(int(length), [])
-        if len(same_len) == 1:
-            mapping[prefix] = same_len[0]
-            logger.info(
-                "Matched fg prefix '%s' to BAM contig '%s' by length (%d bp)",
-                prefix,
-                same_len[0],
-                length,
-            )
+        if matched is not None:
+            mapping[prefix] = matched
+            recorded = length_by_ref.get(matched)
+            if recorded is not None and int(recorded) != int(length):
+                # The names agree and the sequences cannot both be right. Bind
+                # it, because the name is somebody's assertion, but say so: a
+                # BAM aligned against another version of this reference puts
+                # every downstream coordinate slightly elsewhere.
+                logger.warning(
+                    "BAM contig '%s' is %d bp and foreground prefix '%s' is %d bp. "
+                    "The names match, so they are treated as the same reference, "
+                    "but one of them is a different version of the sequence.",
+                    matched,
+                    int(recorded),
+                    prefix,
+                    int(length),
+                )
             continue
 
         logger.warning(
             "Could not match foreground prefix '%s' (%d bp) to any BAM contig "
-            "(%s). It will be skipped for BAM-gap detection; pass "
-            "--contig-alias to map it explicitly.",
+            "by name (%s). It will be skipped for BAM-gap detection. Matching "
+            "on sequence length alone is deliberately not attempted, because "
+            "equal length is not identity; pass --contig-alias to map it "
+            "explicitly.",
             prefix,
             length,
             ", ".join(bam_refs) or "<none>",

@@ -175,7 +175,7 @@ Validation passed with 1 warning(s).
 # Run pipeline
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 
 # Generate quick report
@@ -248,7 +248,7 @@ The pipeline hasn't completed. Run all steps:
 ```bash
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```
 

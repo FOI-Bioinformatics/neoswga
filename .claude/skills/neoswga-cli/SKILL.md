@@ -1,11 +1,11 @@
 ---
 name: neoswga-cli
-description: Reference for NeoSWGA commands outside the four-step pipeline - init, start, suggest, validate, interpret, report, multi-genome, simulate, analyze-set, analyze-genome, analyze-dimers, analyze-coverage, expand-primers - plus the mechanistic-model flags on optimize, RF model retraining, and the plasmid example. Use for any neoswga subcommand other than count-kmers, filter, score and optimize.
+description: Reference for NeoSWGA commands outside the four-step pipeline - init, start, suggest, validate, interpret, report, multi-genome, simulate, analyze-set, analyze-genome, analyze-dimers, analyze-coverage, expand-primers - plus the mechanistic-model flags on optimize, RF model retraining, and the plasmid example. Use for any neoswga subcommand other than count-kmers, filter, prepare-candidates and optimize.
 ---
 
 # NeoSWGA CLI reference (beyond the four-step pipeline)
 
-The standard pipeline (`count-kmers`, `filter`, `score`, `optimize`), the
+The standard pipeline (`count-kmers`, `filter`, `prepare-candidates`, `optimize`), the
 optimization methods, the params.json reference and the known issues live in
 the repository's `CLAUDE.md`. This file covers everything else.
 
@@ -145,7 +145,7 @@ python scripts/convert_model_to_skops.py
 cd tests/integration/equiphi29_baseline
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```
 
@@ -158,6 +158,6 @@ neoswga optimize -j params.json
 cd examples/plasmid_example
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```

@@ -23,10 +23,9 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from neoswga.core.delivered_set import DEFAULT_SET_INDEX, read_delivered_set
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.strand_conventions import to_bed_strand
-
-if TYPE_CHECKING:
-    from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
 
@@ -759,7 +758,10 @@ class PrimerExporter:
 
     @classmethod
     def from_results_dir(
-        cls, results_dir: str, params_file: Optional[str] = None
+        cls,
+        results_dir: str,
+        params_file: Optional[str] = None,
+        set_index: Optional[int] = DEFAULT_SET_INDEX,
     ) -> "PrimerExporter":
         """
         Create exporter from pipeline results directory.
@@ -767,6 +769,11 @@ class PrimerExporter:
         Args:
             results_dir: Path to results directory containing step4_improved_df.csv
             params_file: Optional path to params.json for reaction conditions
+            set_index: Which primer set to export. Default 0, the set
+                `step4_improved_df_summary.json` describes. `None` pools every
+                alternative, which is what this used to do unconditionally --
+                see `core/delivered_set.py` for the 9 bp heterodimer that put
+                in an ordering file.
 
         Returns:
             PrimerExporter instance
@@ -780,13 +787,8 @@ class PrimerExporter:
         if not step4_file.exists():
             raise FileNotFoundError(f"Step 4 results not found: {step4_file}")
 
-        primers = []
-        with open(step4_file, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                primer = row.get("primer", row.get("sequence", ""))
-                if primer and primer not in primers:
-                    primers.append(primer)
+        delivered = read_delivered_set(step4_file, set_index)
+        primers = list(delivered.primers)
 
         if not primers:
             raise ValueError("No primers found in step4 results")
@@ -1010,3 +1012,61 @@ class PrimerExporter:
         block = summary["five_prime_block"] or "none"
         print(f"  5' blocking: {block}")
         print("=" * 50 + "\n")
+
+
+#: Written by the command boundary when a design run does not finish.
+#: See `cli/_failure.py`.
+DESIGN_FAILURE_FILENAME = "design_failure.json"
+
+
+def export_is_blocked(results_dir):
+    """Why this directory must not produce a recommendation, or None.
+
+    An output directory is the only thing a later command sees, and nothing in
+    it carries a timestamp anyone compares. A directory whose most recent run
+    FAILED therefore looks exactly like one whose run succeeded: the previous
+    run's `step4_improved_df.csv` is still sitting there, real and stale, and
+    `export` happily turns it into an oligo order.
+
+    `design_failure.json` was added for exactly this and was read by nothing,
+    which is the same defect in artifact form -- the evidence exists and the
+    check does not.
+
+    A record that cannot be parsed blocks rather than passes. Unknown is not
+    success, and defaulting the other way would make a corrupted artifact the
+    most permissive state available.
+    """
+    import json
+    import os
+
+    from neoswga.core.design_result import recommendation_allowed
+
+    path = os.path.join(str(results_dir), DESIGN_FAILURE_FILENAME)
+    if not os.path.exists(path):
+        return None
+
+    try:
+        with open(path) as handle:
+            record = json.load(handle)
+        state = record["run_state"]
+        qualified = bool(record.get("qualified", False))
+    except (OSError, ValueError, KeyError, TypeError):
+        return (
+            f"{path} exists and cannot be read, so whether the last run finished "
+            f"is unknown. Re-run the design, or delete the file if you know it is "
+            f"stale."
+        )
+
+    try:
+        if recommendation_allowed(state, qualified):
+            return None
+    except ValueError:
+        return f"{path} records an unrecognised run state {state!r}."
+
+    stage = record.get("stage") or "the design"
+    detail = record.get("message") or record.get("error_type") or "no reason recorded"
+    return (
+        f"The last run in this directory did not finish with a qualifying panel: "
+        f"{stage} recorded run_state={state!r} ({detail}). Any result files here "
+        f"are from an earlier run. Re-run the design before ordering."
+    )

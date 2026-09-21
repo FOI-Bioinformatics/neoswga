@@ -60,7 +60,7 @@ def _run(results_by_method, monkeypatch):
     return uo._run_ensemble(
         methods=list(results_by_method),
         cache=None,
-        candidates=["AAACCCGGGT"],
+        candidates=["AAACCCGGGT", "ACCCGGGTTT"],
         fg_prefixes=["fg"],
         fg_seq_lengths=[10_000],
         bg_prefixes=[],

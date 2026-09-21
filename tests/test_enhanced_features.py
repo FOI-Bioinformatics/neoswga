@@ -108,7 +108,9 @@ class TestCLIEnhancedFeatures:
         from neoswga.cli_unified import create_parser
 
         parser = create_parser()
-        args = parser.parse_args(["score", "-j", "test.json", "--use-enhanced-features"])
+        args = parser.parse_args(
+            ["prepare-candidates", "-j", "test.json", "--use-enhanced-features"]
+        )
 
         assert hasattr(args, "use_enhanced_features")
         assert args.use_enhanced_features == True
@@ -119,7 +121,13 @@ class TestCLIEnhancedFeatures:
 
         parser = create_parser()
         args = parser.parse_args(
-            ["score", "-j", "test.json", "--enhanced-model-path", "/path/to/model.pkl"]
+            [
+                "prepare-candidates",
+                "-j",
+                "test.json",
+                "--enhanced-model-path",
+                "/path/to/model.pkl",
+            ]
         )
 
         assert hasattr(args, "enhanced_model_path")

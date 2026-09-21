@@ -184,6 +184,33 @@ def get_genome_cache_stats() -> Dict[str, int]:
 MAX_SCAN_CHUNK = 2**30
 
 
+def spans_a_record_join(start: int, length: int, boundaries) -> bool:
+    """Whether a match at `start` exists only because two records were joined.
+
+    Records are concatenated with no separator, so the last k-1 bases of one
+    record and the first bases of the next form k-mers that occur in neither.
+    On a draft assembly every join manufactures up to k-1 of them, and each one
+    becomes a binding site for a primer that does not occur there: a foreground
+    site inflates coverage, a background site deflates specificity, and nothing
+    downstream can tell them from real ones.
+
+    `bisect_right` gives the first boundary strictly after the match start. A
+    match that begins exactly ON a boundary starts a record and is real; one
+    that contains a boundary strictly inside it spans the join.
+
+    Extracted on 2026-09-21 because the two scanners disagreed.
+    `get_all_positions_multi_k` applied this rule and
+    `get_all_positions_per_k` did not, so the same reference produced different
+    site sets depending on whether pyahocorasick was installed. Two
+    implementations of one quantity is how this codebase has produced
+    disagreeing coverage numbers before.
+    """
+    if not boundaries:
+        return False
+    nxt = bisect.bisect_right(boundaries, start)
+    return nxt < len(boundaries) and boundaries[nxt] < start + length
+
+
 def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular, chunk_size=None):
     """Scan genome once for primers of all k-values using Aho-Corasick.
 
@@ -241,14 +268,8 @@ def get_all_positions_multi_k(primer_lists_by_k, seq_fname, circular, chunk_size
                 continue
             if abs_start >= seq_len:
                 continue
-            # Reject a match formed only by the join between two records.
-            # `bisect_right` gives the first boundary strictly after the match
-            # start; if it also falls strictly inside the match, the match
-            # spans it and exists in neither record.
-            if boundaries:
-                nxt = bisect.bisect_right(boundaries, abs_start)
-                if nxt < len(boundaries) and boundaries[nxt] < abs_start + len(primer):
-                    continue
+            if spans_a_record_join(abs_start, len(primer), boundaries):
+                continue
             all_primers[primer].append(abs_start)
         start = stop
 
@@ -288,6 +309,7 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
     # Optimized sliding window search using cached sequence
     seq_len = len(sequence)
     search_len = seq_len if not circular else seq_len + k - 1
+    boundaries = get_cached_record_boundaries(seq_fname)
 
     for i in range(search_len - k + 1):
         if i < seq_len - k + 1:
@@ -298,8 +320,14 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
             wrap_pos = i - (seq_len - k + 1)
             current_kmer = sequence[seq_len - k + 1 + wrap_pos :] + sequence[: wrap_pos + 1]
 
-        if current_kmer in kmer_dict:
-            kmer_dict[current_kmer].append(i)
+        if current_kmer not in kmer_dict:
+            continue
+        # The same rule the Aho-Corasick path applies. Without it this scanner
+        # reported k-mers that occur in no record: on a two-record fixture
+        # `ACGGTA` is absent from both and was stored at the join.
+        if spans_a_record_join(i, k, boundaries):
+            continue
+        kmer_dict[current_kmer].append(i)
 
     return kmer_dict
 
@@ -310,10 +338,21 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
 # ignores it.
 RECORD_STARTS_KEY = "#record_starts"
 
-# Bumped when the on-disk geometry an index carries changes shape. Version 1 is
-# the first to store record starts, so an index without this attribute predates
-# record-aware scanning and its coverage windows crossed contig boundaries.
-INDEX_FORMAT_VERSION = 1
+# Bumped when the on-disk geometry an index carries changes shape.
+#
+# Version 1 is the first to store record starts, so an index without this
+# attribute predates record-aware scanning and its coverage windows crossed
+# contig boundaries.
+#
+# Version 2 (2026-09-21) is the first whose SITES are record-aware.
+# `get_all_positions_per_k` scanned the concatenated sequence without applying
+# the join rule its Aho-Corasick counterpart already had, so on a multi-record
+# reference it stored k-mers that occur in no record -- up to k-1 fabricated
+# sites per join. Nothing in the file records which scanner wrote it, so a
+# version 1 index cannot be vouched for and is refused rather than read.
+# Single-record references are unaffected either way: with no joins the two
+# scanners always agreed.
+INDEX_FORMAT_VERSION = 2
 
 
 def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None, genome_fname=None):

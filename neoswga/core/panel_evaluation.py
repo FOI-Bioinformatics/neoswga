@@ -1,0 +1,254 @@
+"""One complete acceptance record for a panel, produced once and read everywhere.
+
+Task 5 of the 2026-09-21 valid-design plan. A panel is currently measured in
+several places and the answers are assembled differently at each: the optimizer
+holds `PrimerSetMetrics`, the acceptance path builds an `AcceptanceReport`, the
+summary JSON is written by a third piece of code and the report renders a
+fourth. Nothing makes them agree, and this project has already shipped a run
+printing two coverage figures that differ by construction.
+
+`PanelAssessment` is the one record. It carries:
+
+- the panel and the request that produced it, by hash, so a saved result names
+  its own configuration;
+- named metrics WITH their units and the reach and denominator they were
+  computed at, because a coverage figure without its reach carries almost no
+  information: one saved 26-oligo panel reads 41.3% at 1 kb and 93.5% at 5 kb;
+- which quantities were unavailable and why, separately from quantities that
+  measured zero;
+- every hard-constraint violation, and qualification as a single boolean that
+  is true exactly when there are none.
+
+Three rules it enforces.
+
+**A required quantity that is NaN or infinite fails.** Not "is reported as
+NaN": a non-finite coverage compares False against every threshold, so a panel
+carrying one passes no limit and fails no limit, and the run reports a number
+that arithmetic cannot use.
+
+**A verified zero background is represented, not divided by.** A panel with no
+host sites has infinite selectivity, which is not a number JSON has and not a
+claim about enrichment. It is recorded as a zero denominator with the site
+count beside it.
+
+**Measurement is separated from policy inside, and returned together.** What
+the panel is and whether it is acceptable are different questions with
+different evidence, but a caller that can get one without the other will
+eventually report a metric alongside a verdict computed from something else.
+"""
+
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass, field
+from typing import Any, Dict, Mapping, Optional, Tuple
+
+from .exceptions import ModelEvaluationError
+
+__all__ = [
+    "Measurement",
+    "PanelAssessment",
+    "evaluate_panel",
+]
+
+#: Quantities a design cannot proceed without. A non-finite value for any of
+#: them fails the run rather than being reported.
+REQUIRED_METRICS = ("fg_coverage",)
+
+
+@dataclass(frozen=True)
+class Measurement:
+    """One number, its unit, and what it was computed against.
+
+    `value` is None when the quantity could not be measured, and `unavailable`
+    then says why. That is not the same as a measured zero, and the two must
+    not share a representation: a panel that binds the host nowhere and a panel
+    whose host index was never opened both read zero otherwise.
+    """
+
+    name: str
+    value: Optional[float]
+    units: str
+    basis: str = ""
+    unavailable: str = ""
+
+    def __post_init__(self):
+        if self.value is None and not self.unavailable:
+            raise ValueError(f"{self.name} has no value and no reason for not having one")
+        if self.value is not None and self.unavailable:
+            raise ValueError(f"{self.name} has both a value and a reason for not having one")
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {
+            "value": self.value,
+            "units": self.units,
+            "basis": self.basis,
+            "unavailable": self.unavailable or None,
+        }
+
+
+@dataclass(frozen=True)
+class PanelAssessment:
+    """What a panel is, and whether it is acceptable. One record, one answer."""
+
+    primers: Tuple[str, ...]
+    request_hash: str
+    metrics: Mapping[str, Measurement]
+    per_target: Mapping[str, Measurement]
+    violations: Tuple[str, ...]
+    qualified: bool
+    model_versions: Tuple[Tuple[str, str], ...] = ()
+    notes: Tuple[str, ...] = ()
+    #: Present only when the background genome carries no sites at all. The
+    #: selectivity ratio is then undefined rather than infinite.
+    zero_background: bool = False
+    evidence: Mapping[str, str] = field(default_factory=dict)
+
+    def value(self, name: str) -> Optional[float]:
+        measurement = self.metrics.get(name)
+        return measurement.value if measurement else None
+
+    def as_dict(self) -> Dict[str, Any]:
+        """A JSON-serializable form. No infinities, no NaN.
+
+        The report and the saved result both read this, so that a rendered
+        figure and a stored one cannot come from different arithmetic.
+        """
+        return {
+            "primers": list(self.primers),
+            "request_hash": self.request_hash,
+            "qualified": self.qualified,
+            "violations": list(self.violations),
+            "zero_background": self.zero_background,
+            "metrics": {name: m.as_dict() for name, m in sorted(self.metrics.items())},
+            "per_target": {name: m.as_dict() for name, m in sorted(self.per_target.items())},
+            "model_versions": [list(pair) for pair in self.model_versions],
+            "evidence": dict(sorted(self.evidence.items())),
+            "notes": list(self.notes),
+        }
+
+
+def _finite_or_fail(name: str, value, subject) -> Optional[float]:
+    """Refuse a non-finite required quantity rather than reporting it.
+
+    NaN compares False against every threshold, so a panel carrying one passes
+    no limit and fails no limit. Infinity is worse: it is not representable in
+    JSON and, on a selectivity ratio, reads as guaranteed enrichment.
+    """
+    if value is None:
+        return None
+    number = float(value)
+    if not math.isfinite(number):
+        raise ModelEvaluationError(name, subject, f"non-finite value ({value})")
+    return number
+
+
+def _measure(name, value, units, basis, subject, *, required=False) -> Measurement:
+    if value is None:
+        if required:
+            raise ModelEvaluationError(name, subject, "required quantity was not computed")
+        return Measurement(name, None, units, basis, unavailable="not computed for this panel")
+    return Measurement(name, _finite_or_fail(name, value, subject), units, basis)
+
+
+def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessment:
+    """One assessment of one panel under one request.
+
+    `metrics` is the evaluator's own `PrimerSetMetrics`, passed in rather than
+    recomputed here: this function's job is to give one shape to what was
+    measured and to decide acceptance from it, not to add a fourth place where
+    coverage is calculated.
+
+    `objective` supplies the configured hard limits. With none, the panel has
+    no limits to fail and qualifies on having been measured at all, which is
+    the documented behaviour when no panel limit is configured: setting none
+    must leave the delivered panel byte-identical.
+    """
+    primers = tuple(oligos)
+    subject = f"panel of {len(primers)}"
+    reach = getattr(request, "coverage_reach", None)
+    basis = f"reach {reach} bp" if reach else "reach not recorded"
+
+    named: Dict[str, Measurement] = {}
+    named["fg_coverage"] = _measure(
+        "fg_coverage",
+        getattr(metrics, "fg_coverage", None),
+        "fraction of target bases",
+        f"{basis}; denominator is total target length",
+        subject,
+        required=True,
+    )
+    named["bg_coverage"] = _measure(
+        "bg_coverage",
+        getattr(metrics, "bg_coverage", None),
+        "fraction of host bases",
+        f"{basis}; denominator is total host length",
+        subject,
+    )
+    for name, units, note in (
+        ("total_fg_sites", "exact-match sites", "exact matches only"),
+        ("total_bg_sites", "exact-match sites", "exact matches only"),
+        ("mean_gap", "bp", "between adjacent target sites"),
+        ("max_gap", "bp", "largest target hole"),
+        ("gap_gini", "dimensionless", "evenness of target gaps"),
+        ("mean_tm", "C", "under the resolved reaction"),
+    ):
+        named[name] = _measure(name, getattr(metrics, name, None), units, note, subject)
+
+    # A verified zero background is a measurement and a useful one. It is not a
+    # selectivity of infinity, which is neither a number JSON carries nor a
+    # claim anybody has evidence for.
+    zero_background = named["total_bg_sites"].value == 0
+    if zero_background:
+        named["selectivity_ratio"] = Measurement(
+            "selectivity_ratio",
+            None,
+            "dimensionless",
+            "undefined: the host carries no exact-match site for this panel",
+            unavailable="zero denominator",
+        )
+    else:
+        named["selectivity_ratio"] = _measure(
+            "selectivity_ratio",
+            getattr(metrics, "selectivity_ratio", None),
+            "dimensionless",
+            "effective foreground load over effective background load",
+            subject,
+        )
+
+    per_target: Dict[str, Measurement] = {}
+    for prefix, value in (getattr(metrics, "per_target_coverage", None) or {}).items():
+        per_target[str(prefix)] = _measure(
+            f"coverage[{prefix}]", value, "fraction of target bases", basis, subject
+        )
+
+    violations = tuple(objective.violations(primers)) if objective is not None else ()
+
+    notes = []
+    if zero_background:
+        notes.append(
+            "The host carries no exact-match site for this panel. That is a "
+            "measurement, not an enrichment estimate: mismatched binding is "
+            "not counted here."
+        )
+    if named["fg_coverage"].value is not None:
+        notes.append(
+            "Coverage is a geometric proxy at the declared reach. It is not a "
+            "predicted sequencing breadth and has not been calibrated against one."
+        )
+
+    return PanelAssessment(
+        primers=primers,
+        request_hash=getattr(request, "request_hash", ""),
+        metrics=named,
+        per_target=per_target,
+        violations=violations,
+        qualified=not violations,
+        model_versions=tuple(getattr(request, "model_versions", ()) or ()),
+        notes=tuple(notes),
+        zero_background=zero_background,
+        evidence={
+            "coverage_reach": "assumed (design-density convention; never measured)",
+            "mismatch_penalty": "assumed (uniform in identity and position)",
+        },
+    )

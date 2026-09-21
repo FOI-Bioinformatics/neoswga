@@ -45,7 +45,10 @@ _BUDGETS = {
     # three stages remains the real remedy; it was not attempted on the day the
     # stage semantics changed.
     "core/hybrid_optimizer.py::optimize": 360,
-    "core/hybrid_optimizer.py::__init__": 210,
+    # __init__ dropped off this list on 2026-09-21. The NetworkOptimizer it
+    # builds and never reads moved to core/selection_weights.py, beside the
+    # warning about the weights that object is handed. That is the ratchet
+    # working: the entry went away by extraction, not by a raised budget.
     "core/report/technical_report.py::render_technical_report": 325,
     "core/workflow_selector.py::run_workflow_selector": 260,
     "cli/iterate.py::run_expand_primers": 245,

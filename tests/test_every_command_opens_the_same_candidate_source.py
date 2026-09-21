@@ -9,7 +9,7 @@ the Wolbachia inventory retains could not affect what either of them selected,
 and the shortlist they did read is 2,000. Audit finding F1 named all three.
 
 Three copies of "which pool am I searching" would drift, so
-`candidate_source.open_source_or_list` holds the rule: the inventory when the
+`candidate_source.open_design_source` holds the rule: the inventory when the
 directory has one, the supplied list otherwise, and a line saying which it
 took, because which pool a run searched should not have to be inferred.
 
@@ -28,7 +28,7 @@ from neoswga.core.candidate_inventory import record_stage2_inventory
 from neoswga.core.candidate_source import (
     InventoryCandidateSource,
     ListCandidateSource,
-    open_source_or_list,
+    open_design_source,
 )
 
 PRIMERS = ["GCTAAAGACAAT", "TACATAACATAC", "ACGTCAGCACGA", "CAGTCAGGATCA"]
@@ -56,7 +56,7 @@ def stocked(tmp_path):
 
 
 def test_a_directory_with_an_inventory_gives_the_inventory(stocked):
-    source = open_source_or_list(stocked, CONDITION, [12], fallback=PRIMERS[:2])
+    source = open_design_source(stocked, CONDITION, [12], fallback=PRIMERS[:2])
 
     assert isinstance(source, InventoryCandidateSource)
     assert source.universe_size() == len(PRIMERS)
@@ -64,7 +64,7 @@ def test_a_directory_with_an_inventory_gives_the_inventory(stocked):
 
 def test_a_directory_without_one_gives_the_list(tmp_path):
     """A run directory written before the inventory existed still works."""
-    source = open_source_or_list(tmp_path, CONDITION, [12], fallback=PRIMERS[:2])
+    source = open_design_source(tmp_path, CONDITION, [12], fallback=PRIMERS[:2])
 
     assert isinstance(source, ListCandidateSource)
     assert source.initial() == PRIMERS[:2]
@@ -72,29 +72,46 @@ def test_a_directory_without_one_gives_the_list(tmp_path):
 
 def test_an_explicit_list_wins_over_the_inventory(stocked):
     """A user who named a pool has said which pool to search."""
-    source = open_source_or_list(stocked, CONDITION, [12], fallback=PRIMERS[:2], explicit=True)
+    source = open_design_source(stocked, CONDITION, [12], fallback=PRIMERS[:2], explicit=True)
 
     assert isinstance(source, ListCandidateSource)
     assert source.initial() == PRIMERS[:2]
 
 
-def test_an_inventory_holding_nothing_for_this_reaction_gives_the_list(stocked):
-    """Recorded under another chemistry is the same as not recorded.
+def test_an_inventory_holding_nothing_for_this_reaction_is_refused(stocked):
+    """Reverses a 2026-09-19 expectation, deliberately.
 
-    A fingerprint mismatch is exactly how the inventory read as empty when
-    `plan-pool` first opened it, and it is worth falling back rather than
-    designing over nothing.
+    This used to assert that a fingerprint mismatch fell back to the supplied
+    list, on the reasoning that designing over something beats designing over
+    nothing. The valid-design contract disagrees, because the fallback is not
+    the harmless smaller pool it looks like.
+
+    The directory HAS an inventory; the run simply cannot address it under this
+    chemistry. Falling back searches the caller's shortlist at the caller's
+    frontier, so every candidate the inventory holds becomes unreachable and
+    nothing in the output distinguishes that from a design that considered them
+    and passed. The condition mismatch is the actual finding, and the remedy --
+    re-run `filter` under this chemistry -- is only available if it is reported.
+
+    An absent inventory is a different event and still falls back; that is the
+    next test.
     """
-    source = open_source_or_list(
-        stocked, "tm-test:a-different-reaction", [12], fallback=PRIMERS[:2]
-    )
+    from neoswga.core.exceptions import ReferenceDataError
+
+    with pytest.raises(ReferenceDataError, match="filter"):
+        open_design_source(stocked, "tm-test:a-different-reaction", [12], fallback=PRIMERS[:2])
+
+
+def test_a_directory_with_no_inventory_at_all_gives_the_list(tmp_path):
+    """Absence is a fact about the directory, not a failure to report."""
+    source = open_design_source(tmp_path, CONDITION, [12], fallback=PRIMERS[:2])
 
     assert isinstance(source, ListCandidateSource)
 
 
 def test_the_frontier_opens_at_the_size_of_the_list_it_replaces(stocked):
     """Behaviour-preserving by construction, as in increment 1."""
-    source = open_source_or_list(stocked, CONDITION, [12], fallback=PRIMERS[:2])
+    source = open_design_source(stocked, CONDITION, [12], fallback=PRIMERS[:2])
 
     assert source.initial() == list(source.frontier())
     assert len(source.frontier()) == 2
@@ -104,16 +121,16 @@ def test_the_frontier_opens_at_the_size_of_the_list_it_replaces(stocked):
 def test_which_source_was_taken_is_logged(stocked, caplog):
     """ "Which pool did this run search" should not have to be inferred."""
     with caplog.at_level(logging.INFO):
-        open_source_or_list(stocked, CONDITION, [12], fallback=PRIMERS[:2])
+        open_design_source(stocked, CONDITION, [12], fallback=PRIMERS[:2])
 
     assert "inventory" in caplog.text.lower()
 
 
 def test_the_fallback_says_why_it_fell_back(tmp_path, caplog):
     with caplog.at_level(logging.INFO):
-        open_source_or_list(tmp_path, CONDITION, [12], fallback=PRIMERS[:2])
+        open_design_source(tmp_path, CONDITION, [12], fallback=PRIMERS[:2])
 
-    assert "candidate list" in caplog.text.lower()
+    assert "no candidate inventory" in caplog.text.lower()
 
 
 # -- and every command uses it --------------------------------------------
@@ -132,7 +149,7 @@ def _candidate_source_callers():
             if not isinstance(node, ast.Call):
                 continue
             name = getattr(node.func, "attr", None) or getattr(node.func, "id", None)
-            if name in {"open_source_or_list", "open_candidate_source"}:
+            if name in {"open_design_source", "open_candidate_source"}:
                 callers.setdefault(path.relative_to(package).as_posix(), set()).add(name)
     return callers
 
@@ -164,7 +181,7 @@ def test_no_command_reads_the_candidate_csv_for_itself():
 
     assert not offenders, (
         "These modules pick their own candidate pool out of step3_df.csv instead "
-        f"of asking open_source_or_list: {sorted(offenders)}. The inventory holds "
+        f"of asking open_design_source: {sorted(offenders)}. The inventory holds "
         "every candidate that cleared hard QC and the CSV holds the shortlist, so "
         "reading the CSV directly makes the rest unreachable (audit finding F1)."
     )

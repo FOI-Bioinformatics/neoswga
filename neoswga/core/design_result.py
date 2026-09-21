@@ -1,0 +1,148 @@
+"""Run status, termination reason, panel qualification and output eligibility.
+
+Three properties of a design run that used to be one. Collapsing them is how a
+run that crashed during final validation, and a run that finished having found
+nothing acceptable, both ended up writing an oligo pool.
+
+- **Run state** is what happened to the process: it finished, it failed, or it
+  was interrupted. Nothing about the panel.
+- **Termination reason** is why the search stopped: it qualified, it spent its
+  allowance, it ran out of candidates, or it hit an error. A spent allowance is
+  a recorded stopping point, not a failure and not a proof of infeasibility.
+- **Qualification** is a property of the delivered panel: does it satisfy every
+  hard constraint under the request's own chemistry.
+
+Only a finished run with a qualifying panel may write a recommended pool. A
+finished run that stopped on its budget may recommend its verified incumbent,
+with the limit stated and no completeness claim; that is still `FINISHED` and
+still qualified, so the gate here admits it. A failed run writes a failure
+artifact and may keep a separately marked diagnostic checkpoint, which is not a
+recommendation.
+
+This module holds no dependencies beyond the standard library, for the same
+reason `exceptions.py` does not: the CLI boundary imports it on every command.
+"""
+
+from __future__ import annotations
+
+import traceback
+from typing import Any, Dict, Optional
+
+from .exceptions import DesignError
+
+__all__ = [
+    "RunState",
+    "TerminationReason",
+    "recommendation_allowed",
+    "describe_failure",
+]
+
+
+class RunState:
+    """What happened to the run. Not what happened to the panel."""
+
+    #: The run completed its declared work, whatever it found.
+    FINISHED = "finished"
+    #: The run stopped on an error. A panel it held is diagnostic only.
+    FAILED = "failed"
+    #: The run was stopped from outside (signal, cancellation).
+    INTERRUPTED = "interrupted"
+
+    ALL = frozenset({FINISHED, FAILED, INTERRUPTED})
+
+
+class TerminationReason:
+    """Why the search stopped. Recorded on finished and failed runs alike."""
+
+    #: A qualifying panel was found and the size policy was satisfied.
+    QUALIFIED = "qualified"
+    #: The shared allowance was spent. The incumbent is valid; the search is
+    #: incomplete. Not a model failure and not a proof that no panel exists.
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    #: Every eligible candidate was examined. This exhausts candidates, not
+    #: candidate subsets, so it is still not an infeasibility certificate.
+    CANDIDATES_EXHAUSTED = "candidates_exhausted"
+    #: The frontier could not be widened further within its refill allowance.
+    REFILL_EXHAUSTED = "refill_exhausted"
+    #: A required calculation or reference answer failed. Always with FAILED.
+    ERROR = "error"
+
+    ALL = frozenset({QUALIFIED, BUDGET_EXHAUSTED, CANDIDATES_EXHAUSTED, REFILL_EXHAUSTED, ERROR})
+
+
+def recommendation_allowed(run_state: str, qualified: bool) -> bool:
+    """May this run write a recommended oligo pool?
+
+    Both conditions, because each without the other has produced an invalid
+    recommendation: an unqualified panel from a finished run is a panel that
+    broke a constraint the user set, and a qualifying panel from a failed run
+    was qualified against measurements the failure says we do not have.
+
+    An unknown state raises rather than defaulting either way. A typo that
+    returns False silently suppresses a legitimate recommendation, and one that
+    returns True is the failure this function exists to prevent.
+    """
+    if run_state not in RunState.ALL:
+        raise ValueError(f"Unknown run state {run_state!r}; expected one of {sorted(RunState.ALL)}")
+    return run_state == RunState.FINISHED and bool(qualified)
+
+
+def describe_failure(
+    error: BaseException,
+    stage: str,
+    request_hash: Optional[str] = None,
+    include_traceback: bool = True,
+) -> Dict[str, Any]:
+    """A JSON-serializable failure record naming stage, input and model.
+
+    Written in place of a result so that a stale output directory cannot leave
+    an apparently current recommendation beside a run that failed. Every value
+    is a string, a bool or None, so the record round-trips through JSON
+    unchanged; a caller that needs the live exception still has it.
+
+    `include_traceback` is on by default because an unexpected exception must
+    retain one. A `DesignError` is expected and self-describing, so its
+    traceback is informative rather than required.
+    """
+    record: Dict[str, Any] = {
+        "run_state": RunState.FAILED,
+        "termination": TerminationReason.ERROR,
+        "stage": str(stage),
+        "request_hash": str(request_hash) if request_hash is not None else None,
+        "error_type": type(error).__name__,
+        "message": str(error),
+        "expected": isinstance(error, DesignError),
+        "recommendation_written": False,
+        "qualified": False,
+    }
+
+    # Identifiers the four DesignError subclasses carry. Absent on an
+    # unexpected exception, in which case the field stays None rather than
+    # being filled with a guess.
+    for field in ("field", "artifact", "model", "quantity"):
+        value = getattr(error, field, None)
+        record[field] = str(value) if value is not None else None
+    for field in ("subject", "requested", "value"):
+        value = getattr(error, field, None)
+        if value is not None and record.get("input") is None:
+            record["input"] = str(value)
+    record.setdefault("input", None)
+    remediation = getattr(error, "remediation", None)
+    record["remediation"] = str(remediation) if remediation else None
+
+    # A QC rejection and a failed calculation mean opposite things. This family
+    # is never the former, and the record says so explicitly rather than
+    # leaving a consumer to infer it.
+    record["qc_reason"] = None
+
+    cause = error.__cause__ or error.__context__
+    record["cause_type"] = type(cause).__name__ if cause is not None else None
+    record["cause_message"] = str(cause) if cause is not None else None
+
+    if include_traceback:
+        record["traceback"] = "".join(
+            traceback.format_exception(type(error), error, error.__traceback__)
+        )
+    else:
+        record["traceback"] = None
+    return record

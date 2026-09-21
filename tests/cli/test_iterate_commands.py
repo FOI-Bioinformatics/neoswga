@@ -181,6 +181,9 @@ def test_contract_set_keeps_coverage_above_the_floor(run_cli, pipeline_run, prim
 def test_contract_set_is_reproducible_with_a_seed(run_cli, pipeline_run, primers, tmp_path):
     a = _contract(run_cli, pipeline_run, primers, tmp_path / "a.json", 0.5, seed=7)
     b = _contract(run_cli, pipeline_run, primers, tmp_path / "b.json", 0.5, seed=7)
+    for payload in (a, b):
+        for stage in payload["stage_history"]:
+            stage.pop("seconds", None)
     assert a == b
 
 
@@ -206,50 +209,34 @@ def test_contract_set_prints_when_no_output_given(run_cli, pipeline_run, primers
 # ----------------------------------------------------------------------
 
 
-def test_unindexed_primer_is_warned_about_not_silently_zeroed(
-    run_cli, pipeline_run, primers, absent_primer, tmp_path, caplog
+def test_unindexed_primer_is_scanned_before_contraction(
+    run_cli, pipeline_run, primers, absent_primer, tmp_path
 ):
-    """A primer absent from the index scores zero for a reason worth stating.
-
-    Before the audit this was entirely silent, so "binds nowhere" and "was never
-    looked up" were indistinguishable. PositionCache now defaults to
-    on_missing='warn', which is what carries the distinction here -- these
-    commands cannot scan a FASTA to resolve it (see the test below).
-    """
-    import logging
-
-    with caplog.at_level(logging.WARNING):
-        _run_to_json(
-            run_cli,
-            [
-                "contract-set",
-                "-j",
-                pipeline_run["params_file"],
-                "--primers",
-                *primers[:3],
-                absent_primer,
-                "--min-coverage",
-                "0.0",
-                "--seed",
-                "1",
-            ],
-            tmp_path / "mixed.json",
-        )
-
-    assert "no cached" in caplog.text or "not in the HDF5" in caplog.text
+    payload = _run_to_json(
+        run_cli,
+        [
+            "contract-set",
+            "-j",
+            pipeline_run["params_file"],
+            "--primers",
+            *primers[:3],
+            absent_primer,
+            "--min-coverage",
+            "0.0",
+            "--seed",
+            "1",
+        ],
+        tmp_path / "mixed.json",
+    )
+    assert payload["positions_source"] == "fasta_scan"
+    assert payload["baseline_coverage"] is not None
 
 
-def test_iterate_commands_cannot_yet_scan_a_genome():
-    """Documents an incomplete piece of the bring-your-own-oligo work.
+def test_iterate_commands_still_require_a_params_file():
+    """The standalone --genome shortcut remains specific to evaluate-set.
 
-    `add_position_source_options` gives a command `--genome`, letting
-    PositionCache scan a FASTA for primers missing from the index -- turning an
-    unknown into a measurement. Its own help text says it "also lets -j be
-    omitted entirely". It is wired into `evaluate-set` only, so on the iterate
-    commands an outside primer set can be warned about but not resolved.
-
-    If this starts failing, the option has been extended and the note in
-    docs/ should be updated to match.
+    contract-set scans the FASTAs supplied through params.json; it does not
+    expose the separate standalone --genome option.
     """
     import inspect
 

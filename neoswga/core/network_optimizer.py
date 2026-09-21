@@ -764,22 +764,9 @@ class NetworkOptimizer:
                 # per-oligo concentration were dropped with it.
                 tm = self.conditions.calculate_effective_tm(primer)
             except Exception as exc:
-                # The fallback is not equivalent: `calculate_primer_tm` uses the
-                # model's fixed 10 mM Na / 20 mM Mg and drops the additive
-                # correction entirely, so a silent swap here changes which
-                # primers score well by several degrees. Say so once per run
-                # rather than let a configured reaction quietly stop applying.
-                if not getattr(self, "_tm_fallback_warned", False):
-                    logger.warning(
-                        "Effective Tm could not be computed from the configured "
-                        "reaction (%s: %s); falling back to the fixed 10 mM Na / "
-                        "20 mM Mg estimate, which ignores salt and additives. "
-                        "Tm-weighted scoring will not reflect this reaction.",
-                        type(exc).__name__,
-                        exc,
-                    )
-                    self._tm_fallback_warned = True
-                tm = calculate_primer_tm(primer)
+                raise ValueError(
+                    f"Cannot evaluate Tm for {primer} under the configured chemistry: {exc}"
+                ) from exc
         else:
             tm = calculate_primer_tm(primer)
         self._tm_cache[key] = tm

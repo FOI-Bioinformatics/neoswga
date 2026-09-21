@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from neoswga.core import quality_thresholds as _thresholds
+from neoswga.core.delivered_set import DEFAULT_SET_INDEX, read_delivered_set
 
 logger = logging.getLogger(__name__)
 
@@ -171,14 +172,17 @@ class ResultsInterpreter:
         interpreter.print_report(report)
     """
 
-    def __init__(self, results_dir: str):
+    def __init__(self, results_dir: str, set_index: Optional[int] = DEFAULT_SET_INDEX):
         """
         Initialize interpreter with results directory.
 
         Args:
             results_dir: Path to directory containing pipeline output
+            set_index: Which of the alternative primer sets to assess.
+                Default 0, the set the run summary describes.
         """
         self.results_dir = Path(results_dir)
+        self.set_index = set_index
         self.step4_file = self.results_dir / "step4_improved_df.csv"
         self.step3_file = self.results_dir / "step3_df.csv"
         # The optimizer's own findings about the set it just produced. This
@@ -370,13 +374,15 @@ class ResultsInterpreter:
         )
 
     def _load_step4_results(self) -> List[Dict]:
-        """Load results from step4 output file."""
-        primers = []
-        with open(self.step4_file) as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                primers.append(row)
-        return primers
+        """The delivered set, not every alternative in the file.
+
+        This read every row until 2026-09-21, so a run that found alternatives
+        was assessed as one panel that is the union of several mutually
+        exclusive ones -- reporting a primer count nobody will order and a
+        dimer verdict over pairs that cannot meet. See `core/delivered_set.py`.
+        """
+        delivered = read_delivered_set(self.step4_file, self.set_index)
+        return list(delivered.rows)
 
     def _load_step3_results(self) -> List[Dict]:
         """Load results from step3 output file."""
@@ -668,7 +674,9 @@ class ResultsInterpreter:
         print()
 
 
-def interpret_results(results_dir: str, verbose: bool = True) -> ResultsReport:
+def interpret_results(
+    results_dir: str, verbose: bool = True, set_index: Optional[int] = DEFAULT_SET_INDEX
+) -> ResultsReport:
     """
     Interpret pipeline results.
 
@@ -679,7 +687,7 @@ def interpret_results(results_dir: str, verbose: bool = True) -> ResultsReport:
     Returns:
         ResultsReport with assessments and recommendations
     """
-    interpreter = ResultsInterpreter(results_dir)
+    interpreter = ResultsInterpreter(results_dir, set_index=set_index)
     report = interpreter.analyze()
 
     if verbose:

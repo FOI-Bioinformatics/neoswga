@@ -57,11 +57,12 @@ neoswga schema --dump > params.schema.json
 | `k_conc` | number | min: 0.0; max: 1000.0 | `0.0` | K+ concentration (mM). Sums with na_conc and nh4_conc into ionic strength. |
 | `long_primer_mode` | boolean | - | `False` | - |
 | `max_background_sites` | integer | min: 0 | - | Maximum total background binding sites the delivered panel may carry. Unset by default. Needs a background genome and index. |
-| `max_bg_freq` | number | min: 0.0; max: 1.0 | - | - |
+| `max_bg_freq` | number | min: 0.0; max: 1.0 | - | Maximum background k-mer frequency a candidate may have. A dimensionless frequency in 0-1, not a site count; default 5e-6. Rescaled per primer length by 4^(10-k) like the foreground floor, which the ceiling's argument does not support in the same way, so `filter` reports the effective threshold per length and warns when it has fallen below one site and no value in range can loosen it. |
 | `max_bl_freq` | number | min: 0.0; max: 1.0 | `0.0` | Maximum permissible blacklist frequency; 0 = zero tolerance. |
 | `max_dimer_bp` | integer | min: 1; max: 7 | - | Longest complementary run tolerated between two different primers in a delivered set. Capped at 7 because the pairwise screen represents t-mers in a 4**8 code space: at 8 and above the matrix cannot be built, and the screen was previously disabled for the whole run with only a warning. Note that a pool supports a bounded panel size at a given threshold; measured on the shipped pools, max_dimer_bp 3 supports 29, 31 and 26 primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and 55. |
 | `max_dimer_dg` | number | max: 0 | - | Optional ADDITIONAL dimer floor, in kcal/mol, on the free energy of the longest complementary region between two primers at the reaction temperature. Unset by default. It can only make the screen stricter: max_dimer_bp is applied first and a pair failing it is rejected whatever this says. Do not treat it as a way to relax max_dimer_bp on its own -- measured, a -6 floor with no length cap admits 8 bp complementary runs. Its use is to raise max_dimer_bp for a larger panel while keeping a stability bound: at run <= 3 a 200-primer pool supports a greedy panel of 14-20, and at run <= 5 with a -4 floor it supports 52-79. -6.0 follows Rychlik (1995) Mol Biotechnol 3:129-134; nothing here validates it against a reaction. |
 | `max_evenness` | number | min: 0; max: 1 | - | Maximum tolerated Gini index of foreground inter-site gaps for the delivered PANEL (0 is uniform). Unset by default. Distinct from max_gini, which gates individual CANDIDATES during filtering. Evenness separates the winners on the Prevotella sets and runs slightly backwards on Clarke's. |
+| `max_frontier_refills` | integer | min: 0 | `4` | Maximum candidate frontier refills for one pool size or expansion. |
 | `max_gc_in_clamp` | integer | min: 0; max: 12 | `3` | Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets. |
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
 | `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
@@ -75,8 +76,8 @@ neoswga schema --dump > params.schema.json
 | `max_tm` | number | min: 0.0; max: 100.0 | `45.0` | - |
 | `max_worst_hole` | number | min: 1 | - | Maximum tolerated gap in bp between consecutive foreground binding sites (max_gap). Unset by default, and deliberately so: no threshold derived from the polymerase reach separates the 18 published sets with wet-lab outcomes, the winners included, so this is a limit for a user who knows their target to draw rather than one NeoSWGA can pick. See docs/validation/getting_ahead_on_spacing_2026-09-18.md. |
 | `mg_conc` | number | min: 0.0; max: 20.0 | - | Mg2+ concentration (mM). Polymerase-aware default is used if absent. |
-| `min_amp_pred` | number | - | - | - |
-| `min_fg_freq` | number | min: 0.0; max: 1.0 | - | - |
+| `min_amp_pred` | number | - | - | Minimum predicted amplification score a candidate must reach. RETIRED FROM THE DEFAULT PATH on 2026-09-05 and does nothing unless --amp-model is passed: the bundled random forest is fitted to synthetic data and every step-4 consumer reads only the primer column. The default is 10.0, so setting it to 10 changes nothing and warns about nothing. Where the gate was enabled it removed 7 of 1222 candidates on one panel and 0 of 449 and 0 of 319 on two others. |
+| `min_fg_freq` | number | min: 0.0; max: 1.0 | - | Minimum foreground k-mer frequency a candidate must reach. Rescaled per primer length by 4^(10-k), so the site count it demands is comparable across lengths; `filter` reports the effective threshold and the site count for every k it runs. |
 | `min_gini_sites` | integer | min: 1 | `3` | Minimum recorded binding sites, counted across both strands, before the Gini index of gap lengths is treated as a measurement. Below it the index is NaN and the primer is dropped by the evenness gate. One site gives no gap and two give a single gap whose Gini is identically 0.0, the best score available, so an unmeasurable primer used to outrank an evenly spread one. Lower it to 2 or 1 for a small target where single-site primers are most of the pool. |
 | `min_k` | integer | min: 4; max: 30 | - | Minimum primer length (bp). Polymerase-aware default is used if absent. |
 | `min_per_target_coverage` | number | min: 0; max: 1 | - | Multi-genome runs only: minimum coverage required on EVERY individual target. Unset by default, and 0.0 also means disabled. Aggregate coverage can hide a starved target, since a panel covering one target 0.9 and another 0.1 beats a balanced 0.5/0.5 panel on the mean. Checked and reported after selection; deliberately not repaired, because the repair scores candidate panels through compute_metrics, which does not populate per-target coverage. |
@@ -106,6 +107,8 @@ neoswga schema --dump > params.schema.json
 | `swap_max_seconds` | number | min: 0 | `10.0` | - |
 | `target_set_size` | integer | min: 1; max: 200 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
+| `total_search_evaluations` | integer or null | min: 0 | `None` | Total uncached shared panel-objective evaluations across stages and refills. Null retains per-stage budgets only. |
+| `total_search_seconds` | number or null | min: 0 | `None` | Cooperative total search deadline in seconds; an in-flight solver call can overrun it. |
 | `trehalose_m` | number | min: 0.0; max: 1.0 | `0.0` | - |
 | `urea_m` | number | min: 0.0; max: 2.0 | `0.0` | - |
 | `use_bloom_filter` | boolean | - | `False` | - |
