@@ -953,6 +953,42 @@ not flagged; one inside a `for` or `while` is search work, and search work the
 ledger cannot see is what the check is for. Verified load-bearing by wrapping
 an existing single call in a loop, which fails it.
 
+## The smallest pool, and what deletion cannot reach
+
+`--minimize-primers` reduces a panel by removing one primer at a time and
+keeping it when no single removal still qualifies. That is a local optimum, not
+the smallest pool, and the two differ whenever one candidate covers what two
+others cover between them.
+
+`tests/test_smallest_pool_search.py` enumerates every subset of a four-candidate
+set-cover fixture and compares the search against the enumerated answer. The
+fixture is constructed so the structure is visible: one candidate covers the
+union of two others, so `{P1,P2,P3}` qualifies at size 3, no single deletion
+from it qualifies, and `{P4,P3}` qualifies at size 2. Deletion stops at 3;
+`panel_beam.beam_search` asked for 2 finds `{P4,P3}`.
+
+**The capability exists and `optimize` cannot reach it.** `beam_search` is
+called only from `pool_planner`, so `plan-pool` can escape this local optimum
+and `optimize --minimize-primers` cannot.
+
+**It is not wired, because the gap did not reproduce on either real instance
+available** (measured 2026-09-21). On `examples/plasmid_example` one primer
+covers the target completely at 3 kb, so there is nothing to reduce. On a
+300 kb random sequence with 60 candidates, deletion stopped at the requested 20
+and a beam over the same pool found nothing smaller at the same coverage.
+Random sequence rarely produces the dominance structure the fixture has.
+
+So: the local optimum is real, the beam escapes it, and whether it costs
+anything on a pool anyone would design from is unmeasured. Same resolution as
+Known Issues 11 and 16 -- a mechanism that fires without a demonstrated benefit
+does not ship on by default. Measuring it needs a real multi-kb target with a
+candidate pool that is not saturated, which this repository does not contain.
+
+The file also states the claim the plan forbids, as arithmetic: a search that
+examined every candidate examined `n` things, while the subsets number `2**n`.
+Exhausting candidates is not exhausting candidate subsets, and only a toy case
+like this one can produce a minimum certificate.
+
 ## Testing
 
 ```bash
