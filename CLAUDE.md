@@ -921,6 +921,38 @@ found nothing, an integer that saturated, a cache asked for what it does not
 hold, or a guard with the wrong predicate, but a dictionary lookup whose
 fallback happens to be the answer everyone wants.
 
+## Two counters, and only one of them bounds the run
+
+`SearchBudget` is the SHARED ledger. It counts uncached evaluations of the
+shared objective across every stage and raises when spent, so a later stage
+cannot get a fresh allowance. `swap_max_evaluations` is a PER-STAGE allowance
+inside the deletion and swap loops, and it starts at zero every time one of
+them is entered.
+
+The per-stage one is not a defect; bounding one loop is reasonable. What would
+be a defect is believing it bounds the run. It defaults to 10,000 and looks
+like a total. The only setting that is a total is `total_search_evaluations`,
+and it is None by default, so **by default there is no total bound at all.**
+
+`describe()` now carries `uncounted_scopes`, naming the two kinds of work the
+ledger does not see, rather than leaving a reader to infer them from a count
+lower than they expected:
+
+- **proposal generation**: an optimizer scoring candidate panels through
+  `compute_metrics` directly rather than through the shared objective. Only
+  `clique` does this, in a loop bounded by its own `max_scored_sets`.
+- **final assessment**: one `compute_metrics` per stage once the panel is
+  decided, deliberately uncharged so reporting cannot consume a search's
+  allowance.
+
+`tests/test_search_budget_contract.py` holds the ratchet.
+`UNCOUNTED_SEARCH_LOOPS` lists every function that evaluates panels in a loop
+outside the objective, with its reason and the bound that does apply, and the
+list can only shrink. A call made ONCE per stage is final assessment and is
+not flagged; one inside a `for` or `while` is search work, and search work the
+ledger cannot see is what the check is for. Verified load-bearing by wrapping
+an existing single call in a loop, which fails it.
+
 ## Testing
 
 ```bash
