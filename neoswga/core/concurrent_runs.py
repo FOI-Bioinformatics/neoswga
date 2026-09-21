@@ -23,10 +23,19 @@ Four things, each measured:
   produces a different one, `OSError: ... file is already open for read-only`,
   with no errno 35. So a leaked handle inside one process cannot be the cause
   of THIS message.
-- **A reader is enough to stop a writer**, which is the shape that actually
-  bites: `optimize` holds read handles open for a whole run through
-  `StreamingPositionCache`, so an `optimize` and a `filter` on one directory
-  collide even though only one of them writes.
+- **A reader is enough to stop a writer.** Any process holding a read handle
+  on a `*_positions.h5` collides with a writer, so a `filter` and a reading
+  command on one directory collide although only one of them writes.
+
+  How WIDE that window is depends on which cache is in use, and an earlier
+  version of this module got it wrong by naming `optimize` flatly. The
+  default `PositionCache` opens each file inside a `with` block and closes it
+  promptly (`position_cache.py:363`), so its window is brief but not zero --
+  brief enough that a collision is a race rather than a certainty.
+  `StreamingPositionCache` keeps its handles in `self.file_handles` until
+  `close()` (`position_cache.py:1040`, `:1068`, `:1131`), so it holds them for
+  a whole run. It is selected only when the in-memory cache is DISABLED
+  (`unified_optimizer.py:493-495`), which is not the default path.
 - **Two runs reproduce it and one does not.** Concurrent pairs failed 6 of 7
   and 4 of 4 in two separate trials, at the same frame as the recorded log.
   Single-process runs failed 0 of 6 and 0 of 5, including multi-k ones over
@@ -76,9 +85,10 @@ def locked_file_advice(exc: BaseException, data_dir=None) -> str:
     return (
         f"A position file{where} is locked by another process. A data "
         "directory takes one neoswga run at a time. The other run does not "
-        "have to be writing: `optimize` keeps these files open for READING "
-        "for its whole duration, and that alone stops a `filter` writing "
-        "them, so an optimize and a filter on one directory collide. "
+        "have to be WRITING: any process holding one of these files open for "
+        "reading blocks a writer, so a command that only reads the index can "
+        "stop a `filter`. With the in-memory cache disabled that hold lasts a "
+        "whole run; otherwise it is brief, and the collision is a race. "
         "Measured across processes only -- a second handle inside one process "
         "reports something else entirely -- and reproduced in 10 of 11 "
         "concurrent attempts against 0 of 11 single-process runs. "

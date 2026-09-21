@@ -139,10 +139,16 @@ read-only`, with no errno 35. So a leaked handle within a single run cannot
 produce this message at all.
 
 **A reader is enough to stop a writer**, and that is the shape a user will
-actually hit. `optimize` keeps position files open for reading for its whole
-run through `StreamingPositionCache`, so an optimize and a filter on one
-directory collide although only one of them writes. The error message says so,
-because "another writer" would send someone looking for a second filter.
+actually hit: a command that only reads the index can stop a `filter`. The
+error message says so, because "another writer" would send someone looking for
+a second filter.
+
+How wide the window is depends on which cache is in use, and a first version of
+this section overstated it by naming `optimize` flatly. The default
+`PositionCache` opens each file inside a `with` block and closes it promptly,
+so the collision is a race rather than a certainty. `StreamingPositionCache`
+keeps its handles until `close()` and holds them for a whole run, but it is
+selected only when the in-memory cache is disabled, which is not the default.
 
 **The recorded directory shows the collision directly.** Its
 `run_manifest.json` records `score` on that same config completing 2.2 s before

@@ -2020,10 +2020,13 @@ package, because nothing in the search uses it.
     produces exactly the recorded message, while a second handle inside ONE
     process produces `OSError: ... file is already open for read-only` with no
     errno 35, so a leaked handle cannot be the cause of this message. **A
-    reader is enough to stop a writer**, which is the shape that bites --
-    `optimize` holds read handles open for a whole run through
-    `StreamingPositionCache`, so an optimize and a filter on one directory
-    collide although only one writes. **Concurrent pairs failed 10 of 11
+    reader is enough to stop a writer**, so a command that only reads the
+    index can stop a `filter`. How wide that window is depends on the cache:
+    the default `PositionCache` opens each file in a `with` block and closes
+    it promptly, making the collision a race, while `StreamingPositionCache`
+    holds handles until `close()` and is selected only when the in-memory
+    cache is DISABLED. An earlier version of this entry said `optimize` holds
+    them for a whole run, which is true only of that non-default path. **Concurrent pairs failed 10 of 11
     across two trials and single-process runs 0 of 11**, the latter including
     multi-k runs at realistic scale; a mixed k 10-12 `filter` in a clean
     directory takes 146 s and exits 0. **The recorded directory shows the

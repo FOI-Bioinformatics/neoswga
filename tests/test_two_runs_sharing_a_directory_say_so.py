@@ -67,15 +67,52 @@ def test_the_advice_names_the_reader_blocks_writer_shape():
     """The surprising half, and the one a user will actually hit.
 
     Measured: a foreign process holding the file READ-ONLY produces exactly
-    the recorded error. `optimize` keeps read handles open for a whole run
-    through `StreamingPositionCache`, so an optimize and a filter on one
-    directory collide although only one of them writes. A message that said
-    only "another writer" would send someone looking for a second filter.
+    the recorded error, so a command that only reads the index can stop a
+    `filter`. A message saying only "another writer" would send someone
+    looking for a second filter.
     """
     advice = locked_file_advice(lock_error())
 
-    assert "READING" in advice
-    assert "optimize" in advice
+    assert "reading" in advice.lower()
+    assert "WRITING" in advice, "the point is that the other run need not write"
+
+
+def test_the_advice_does_not_overstate_how_long_a_reader_holds_the_file():
+    """A first version claimed `optimize` holds these open for its whole run.
+
+    That is true only of `StreamingPositionCache`, which is selected when the
+    in-memory cache is DISABLED. The default `PositionCache` opens each file
+    inside a `with` block and closes it promptly, so on the default path the
+    collision is a race rather than a certainty. Naming one command flatly
+    told a user something untrue about their own run.
+    """
+    advice = locked_file_advice(lock_error())
+
+    assert "brief" in advice and "race" in advice
+
+
+def test_the_two_caches_really_do_differ_in_how_long_they_hold_a_handle():
+    """The distinction the message now rests on, asserted against the source.
+
+    Driving this would mean opening real HDF5 files and inspecting handle
+    lifetimes, which is what the caches exist to manage; what matters here is
+    only that one keeps a handle dictionary and the other does not.
+    """
+    import inspect
+
+    from neoswga.core.position_cache import PositionCache, StreamingPositionCache
+
+    streaming = inspect.getsource(StreamingPositionCache)
+    assert "self.file_handles" in streaming, (
+        "StreamingPositionCache no longer retains handles; if it now closes "
+        "promptly, the lock message's 'whole run' case is stale"
+    )
+    assert "def close" in streaming
+
+    assert "file_handles" not in inspect.getsource(PositionCache), (
+        "PositionCache now retains handles too, so the default path holds "
+        "these files for a whole run and the lock message understates it"
+    )
 
 
 def test_the_advice_says_rerunning_is_safe():
