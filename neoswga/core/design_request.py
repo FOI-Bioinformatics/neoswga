@@ -112,6 +112,8 @@ class DesignRequest:
     fg_seq_lengths: Tuple[int, ...]
     bg_prefixes: Tuple[str, ...]
     bg_seq_lengths: Tuple[int, ...]
+    fg_genomes: Tuple[str, ...]
+    bg_genomes: Tuple[str, ...]
     fg_circular: bool
 
     # Chemistry
@@ -185,6 +187,26 @@ class DesignRequest:
         return self.concentration_policy.concentrations(tuple(oligos))
 
     # ----------------------------------------------------------------- helpers
+
+    def reference_manifest(self) -> Dict[str, str]:
+        """Each prefix paired with the genome its index must have been built from.
+
+        Paired positionally, which is how every other part of this codebase
+        relates the two lists, and only where both are present. A prefix with no
+        genome is absent from the manifest rather than paired with a guess: the
+        identity check then does not run for it, which is honest, while pairing
+        it with whatever happened to be in a mutable global is not. That pairing
+        is what made a design refuse its own index under `pytest -n 8`.
+        """
+        manifest: Dict[str, str] = {}
+        for prefixes, genomes in (
+            (self.fg_prefixes, self.fg_genomes),
+            (self.bg_prefixes, self.bg_genomes),
+        ):
+            for prefix, genome in zip(prefixes, genomes):
+                if prefix and genome:
+                    manifest[str(prefix)] = str(genome)
+        return manifest
 
     def design_context(self):
         """The chemistry subset, for the code that already takes a context."""
@@ -446,6 +468,8 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         fg_seq_lengths=tuple(int(n) for n in params.get("fg_seq_lengths") or ()),
         bg_prefixes=tuple(str(p) for p in params.get("bg_prefixes") or ()),
         bg_seq_lengths=tuple(int(n) for n in params.get("bg_seq_lengths") or ()),
+        fg_genomes=tuple(str(g) for g in params.get("fg_genomes") or ()),
+        bg_genomes=tuple(str(g) for g in params.get("bg_genomes") or ()),
         fg_circular=bool(params.get("fg_circular", False)),
         polymerase=polymerase,
         conditions=conditions,

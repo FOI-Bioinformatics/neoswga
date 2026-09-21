@@ -16,6 +16,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 import h5py
 import numpy as np
 
+from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.thermodynamics import reverse_complement
 
 
@@ -325,7 +326,20 @@ class PositionCache:
 
                 from .string_search import RECORD_STARTS_KEY
 
-                with h5py.File(hdf5_path, "r") as db:
+                try:
+                    handle = h5py.File(hdf5_path, "r")
+                except OSError as exc:
+                    # A file that exists and cannot be opened is a corrupt or
+                    # truncated index. Letting the OSError out names the HDF5
+                    # library rather than the artifact, and `PositionFileCorruptError`
+                    # is not on the design-error path, so the command boundary
+                    # could not tell it from a missing genome file.
+                    raise ReferenceDataError(
+                        f"position index {hdf5_path}",
+                        f"cannot be opened ({exc})",
+                        "Regenerate it with 'neoswga count-kmers' followed by " "'neoswga filter'.",
+                    ) from exc
+                with handle as db:
                     # Where each FASTA record starts, so a coverage window can
                     # be confined to the record holding its site. Absent from
                     # indexes written before 2026-09-14, which then behave as
@@ -513,8 +527,8 @@ class PositionCache:
             missing=[fname_prefix],
         )
 
-    def require_record_metadata(self, fname_prefixes: Sequence[str]) -> None:
-        """Refuse an index that predates record-aware geometry.
+    def require_record_metadata(self, fname_prefixes: Sequence[str], genomes=None) -> None:
+        """Refuse an index a new design cannot be scored against.
 
         Record starts were added to the position index on 2026-09-14, so that
         coverage windows stop at contig edges and k-mers are not matched across
@@ -535,6 +549,7 @@ class PositionCache:
         import os
 
         lengths = sorted({len(p) for p in self.primers}) or [12]
+        genomes = dict(genomes or {})
         stale = []
         for prefix in fname_prefixes:
             paths = [f"{prefix}_{k}mer_positions.h5" for k in lengths]
@@ -542,20 +557,70 @@ class PositionCache:
             if not existing:
                 stale.append((prefix, "no position index"))
                 continue
-            if not self.get_record_starts(prefix):
-                stale.append((prefix, "no record geometry"))
+            reason = self._index_defect(existing, prefix, genomes.get(prefix))
+            if reason:
+                stale.append((prefix, reason))
 
         if not stale:
             return
         detail = "; ".join(f"{prefix} ({why})" for prefix, why in stale)
-        raise ValueError(
-            f"These position indexes cannot be used for a new pool design: {detail}. "
-            f"They predate record-aware geometry, so coverage windows would cross "
-            f"FASTA record boundaries and k-mers could be matched across the joins "
-            f"between records. Regenerate them with 'neoswga count-kmers -j "
-            f"params.json' followed by 'neoswga filter -j params.json'. Reading an "
-            f"existing saved report does not require this."
+        raise ReferenceDataError(
+            "position index",
+            f"these indexes cannot be used for a new pool design: {detail}. An "
+            f"index that predates record-aware geometry lets coverage windows "
+            f"cross FASTA record boundaries, and one built from a different "
+            f"reference describes a genome this design is not targeting. Either "
+            f"way the coverage reported would not be about what was asked for",
+            "Regenerate with 'neoswga count-kmers -j params.json' followed by "
+            "'neoswga filter -j params.json'. Reading an existing saved report "
+            "does not require this.",
         )
+
+    def _index_defect(self, paths: Sequence[str], prefix: str, genome=None):
+        """Why this prefix's index cannot be scored against, or None.
+
+        Four separable defects, kept separate because the remedies differ and
+        because a message naming the wrong one sends the user to the wrong
+        command. The digest check is the one a passing suite is least likely to
+        catch on its own: a stale index is structurally perfect and simply
+        describes another sequence.
+        """
+        from .string_search import INDEX_FORMAT_VERSION
+
+        for path in paths:
+            try:
+                with h5py.File(path, "r") as handle:
+                    attrs = dict(handle.attrs)
+            except OSError:
+                return "unreadable or corrupt"
+
+            version = attrs.get("index_format_version")
+            if version is not None and int(version) < INDEX_FORMAT_VERSION:
+                return (
+                    f"index format {int(version)}, this version writes " f"{INDEX_FORMAT_VERSION}"
+                )
+
+            if genome is None:
+                continue
+            recorded = attrs.get("reference_digest")
+            if recorded is None:
+                # Unknown, which is not the same as matching. An index written
+                # before the digest existed cannot be vouched for, and the one
+                # recount it costs is cheaper than a design scored against the
+                # wrong genome.
+                return "no recorded reference digest to compare"
+            from neoswga.core import kmer_counter
+
+            try:
+                expected = kmer_counter.genome_fingerprint(str(genome))
+            except OSError:
+                return f"reference {genome} cannot be read to check the index against"
+            if str(recorded) != str(expected):
+                return "built from a different reference"
+
+        if not self.get_record_starts(prefix):
+            return "no record geometry"
+        return None
 
     def get_record_starts(self, fname_prefix: str) -> List[int]:
         """Offsets at which each FASTA record begins, for one prefix.

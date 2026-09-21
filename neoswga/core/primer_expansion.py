@@ -1032,6 +1032,23 @@ def expand_primers(
     # indistinguishable downstream from a perfectly specific panel.
     cache = PositionCache(fg_prefixes + bg_prefixes, candidates + fixed_primers)
 
+    # The same index check a new design makes. Expansion exists to ADD to a
+    # delivered panel, so it is scored against the same references the panel
+    # was, and an index that has since gone stale would put the additions on a
+    # different genome from the primers they are joining.
+    cache.require_record_metadata(
+        fg_prefixes + bg_prefixes,
+        genomes={
+            str(prefix): str(genome)
+            for prefixes, genomes in (
+                (fg_prefixes, params.get("fg_genomes") or []),
+                (bg_prefixes, params.get("bg_genomes") or []),
+            )
+            for prefix, genome in zip(list(prefixes), list(genomes))
+            if genome
+        },
+    )
+
     # Create expander
     # Resolved from the params this function already held. It used to build the
     # expander with none of it, so expansion ran at 3 kb with no chemistry

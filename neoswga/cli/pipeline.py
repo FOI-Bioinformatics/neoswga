@@ -905,10 +905,20 @@ def run_step4(args):
         # took its own fallback. `request_hash` is what lets the saved result
         # name the configuration that produced it.
         from neoswga.core.design_request import design_request_for_run
+        from neoswga.core.reference_check import verify_reference_digests
 
         _request = design_request_for_run(args, parameter)
         if _request is not None:
             logger.info("Design request %s", _request.request_hash[:12])
+            # Reference IDENTITY is checked here rather than inside the
+            # optimizer, because this is the layer at which a prefix and the
+            # genome it belongs to are both named by the same request. A
+            # structurally perfect index built from a different assembly is the
+            # failure a passing test suite is least likely to catch.
+            verify_reference_digests(
+                _request.reference_manifest(),
+                sorted(set(_request.primer_lengths)),
+            )
 
         # Use unified optimizer framework (all methods handled via factory pattern)
         from neoswga.core.unified_optimizer import list_available_optimizers, optimize_step4

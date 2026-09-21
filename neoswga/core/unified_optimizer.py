@@ -447,6 +447,35 @@ def _run_ensemble(
     return _dc_replace(winner, ensemble_comparison=tuple(rows))
 
 
+def _vet_the_index(cache, fg_prefixes, bg_prefixes, candidate_count, pipeline_path):
+    """Refuse an index a new design cannot honestly be scored against.
+
+    Two checks with two different subjects. The first asks whether the index is
+    of a shape a current design can use: record geometry, so a coverage window
+    stops at a contig edge, and an on-disk format this version understands. The
+    second asks whether it covers the pool, rather than letting selection run
+    over whichever part happens to be present.
+
+    Reference IDENTITY is deliberately NOT checked here. It is a relation
+    between a prefix and a genome, and only the resolved request names both;
+    `cli/pipeline.run_step4` does it there. Reading `parameter.fg_genomes` at
+    this point pairs the prefixes this call was GIVEN with whatever genomes the
+    module currently holds, and under `pytest -n 8` that paired a test's own
+    prefix with another test's FASTA. A mutable global is not a manifest.
+
+    Both are skipped for a caller that supplied its own pool, which is the
+    library path: it has not asked step 4 to read step 3 and is not subject to
+    step 4's prerequisites.
+    """
+    from .pipeline import validate_index_covers_candidates
+
+    if pipeline_path:
+        cache.require_record_metadata(list(fg_prefixes) + list(bg_prefixes or []))
+    return validate_index_covers_candidates(
+        cache, fg_prefixes, candidate_count, refuse=pipeline_path
+    )
+
+
 def _make_position_cache(prefixes, primers, use_cache=True):
     """The position cache a run should use.
 
@@ -960,12 +989,14 @@ def run_optimization(
             fg_prefixes + (bg_prefixes or []), candidates, kwargs.get("use_cache", True)
         )
 
-    # Refuse a pool the index only partly covers, rather than optimizing over
-    # whichever part happens to be present. See validate_index_covers_candidates.
-    from .pipeline import validate_index_covers_candidates
-
-    _unindexed = validate_index_covers_candidates(
-        cache, fg_prefixes, len(candidates), refuse=_pool_read_from_step3
+    # Refuse an index a new design cannot be scored against: missing record
+    # geometry, an older on-disk format, or one built from another reference.
+    # Only `plan-pool` used to check, so the two commands most people run
+    # scored against whatever the directory happened to hold. Skipped when the
+    # caller supplied its own pool AND no params file named the genomes, which
+    # is the library path; `_pool_read_from_step3` marks the pipeline path.
+    _unindexed = _vet_the_index(
+        cache, fg_prefixes, bg_prefixes, len(candidates), _pool_read_from_step3
     )
 
     # Orders by fg/bg ratio; deletes nothing. See order_candidates_by_background

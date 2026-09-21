@@ -22,6 +22,7 @@ import pytest
 h5py = pytest.importorskip("h5py")
 
 from neoswga.core import string_search
+from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.position_cache import PositionCache
 
 PRIMER = "ACGTACGTACGT"
@@ -57,7 +58,7 @@ def test_an_index_without_record_geometry_is_refused(tmp_path):
     _write_index(prefix, record_starts=None)
 
     cache = PositionCache([prefix], [PRIMER])
-    with pytest.raises(ValueError, match="record geometry") as excinfo:
+    with pytest.raises(ReferenceDataError, match="record geometry") as excinfo:
         cache.require_record_metadata([prefix])
 
     message = str(excinfo.value)
@@ -75,7 +76,7 @@ def test_every_offending_prefix_is_named_at_once(tmp_path, two_records):
     _write_index(bad_two, record_starts=None)
 
     cache = PositionCache([good, bad_one, bad_two], [PRIMER])
-    with pytest.raises(ValueError) as excinfo:
+    with pytest.raises(ReferenceDataError) as excinfo:
         cache.require_record_metadata([good, bad_one, bad_two])
 
     message = str(excinfo.value)
@@ -85,7 +86,7 @@ def test_every_offending_prefix_is_named_at_once(tmp_path, two_records):
 
 def test_a_missing_index_is_refused_rather_than_passed(tmp_path):
     cache = PositionCache([str(tmp_path / "absent")], [PRIMER])
-    with pytest.raises(ValueError):
+    with pytest.raises(ReferenceDataError):
         cache.require_record_metadata([str(tmp_path / "absent")])
 
 
