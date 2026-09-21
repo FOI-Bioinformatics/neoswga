@@ -138,7 +138,7 @@ def run_workflow_selector():
     """
     main_options = [
         ("Set up new project", "Create params.json with guided configuration"),
-        ("Run primer design pipeline", "Execute count-kmers, filter, score, optimize"),
+        ("Run primer design pipeline", "Execute count-kmers, filter, prepare-candidates, optimize"),
         ("Validate configuration", "Check params.json for errors before running"),
         ("Interpret results", "Get quality assessment of primer design output"),
         ("Advanced features", "Multi-genome design, simulation, analysis tools"),

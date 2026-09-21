@@ -802,7 +802,7 @@ def add_parsers(subparsers):
     expand_parser.add_argument(
         "--candidates-file",
         help="CSV of candidate primers to draw new ones from. Without this, "
-        "expand-primers requires data_dir/step3_df.csv from a prior 'score' run; "
+        "expand-primers requires data_dir/step3_df.csv from a prior 'prepare-candidates' run; "
         "with it, that becomes a fallback rather than a precondition.",
     )
     expand_parser.add_argument(

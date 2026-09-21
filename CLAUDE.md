@@ -1049,6 +1049,40 @@ nothing overlapping, and an out-of-sample result computed on no samples is an
 unsupported claim rather than a weaker one. A repeated identifier within one
 set is untidy rather than leakage and is allowed.
 
+## Refusals, end to end
+
+`tests/integration/test_strict_design_pipeline.py` runs the four steps over the
+packaged 5.4 kb plasmid and then injects one bad configuration at a time. Each
+injection is a params file somebody could write, not a monkeypatched internal:
+the point is that a refusal survives argument parsing, parameter resolution,
+the step's own `except` clause and the command boundary. Known Issue 8's class
+is exactly a check that exists and is not reached.
+
+**Two refusal mechanisms, and only one owes a failure record.**
+
+A setting the SCHEMA rejects -- `coverage_reach: 0`, `polymerase: taq` -- never
+enters the design path. It exits nonzero naming the permitted values, writes no
+record, and wants none: there is no stage to name and no step-4 output for
+anyone to mistake for current. That is an earlier and better refusal than the
+design-request contract's.
+
+A setting the DESIGN PATH rejects -- an additive with no Tm model, a
+background-measured limit with no background -- owes all three: nonzero exit, a
+record saying what failed, and nothing the next command will export.
+
+**The record was not being written**, found here and nowhere else. Both
+design-path refusals fire inside `resolve_design_request`, which runs BEFORE
+`get_params` populates the `parameter` module, so the failure writer looked for
+an output directory the module did not yet know about and wrote nowhere. The
+run exited nonzero and the directory still looked like its previous success.
+`_failure_artifact_path` now falls back to the `data_dir` named in the params
+file, resolved relative to that file as every command resolves paths. Same
+ordering trap as `warn_on_condition_drift`, reached from the other side.
+
+Also covered: a deleted position index, a FASTA replaced after indexing so the
+index is complete and describes another sequence, a reaction the filter never
+recorded, and the retired `score` command name.
+
 ## Testing
 
 ```bash

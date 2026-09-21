@@ -219,7 +219,7 @@ Run: neoswga prepare-candidates -j params.json
 ```
 
 **Cause:** Each pipeline step depends on output files from the previous step.
-The steps must run in order: count-kmers, filter, score, optimize.
+The steps must run in order: count-kmers, filter, prepare-candidates, optimize.
 
 **Solution:**
 

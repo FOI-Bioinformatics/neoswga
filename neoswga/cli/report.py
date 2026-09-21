@@ -415,7 +415,7 @@ def run_export(args):
     except FileNotFoundError as e:
         logger.error(str(e))
         logger.error(
-            "Make sure to run the full pipeline (count-kmers, filter, score, optimize) first."
+            "Make sure to run the full pipeline (count-kmers, filter, prepare-candidates, optimize) first."
         )
         sys.exit(1)
     except Exception as e:

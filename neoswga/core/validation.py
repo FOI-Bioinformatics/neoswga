@@ -723,7 +723,7 @@ def smoke_validation(params_path: Optional[str] = None, verbose: bool = True) ->
     thirty-second filter, let alone a sixteen-minute one against hg38.
 
     This checks the configuration itself -- schema, unknown keys, file
-    existence -- and then runs count-kmers, filter, score and optimize end to
+    existence -- and then runs count-kmers, filter, prepare-candidates and optimize end to
     end on the packaged plasmid pair, under the reaction conditions from the
     user's params.json.
 

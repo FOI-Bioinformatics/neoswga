@@ -25,6 +25,27 @@ logger = logging.getLogger(__name__)
 __all__ = ["RunState", "write_failure_artifact", "report_design_failure"]
 
 
+def _data_dir_from_params_file(json_file):
+    """The output directory a params file names, resolved as a run resolves it.
+
+    Relative to the file's own directory, which is how every command reads
+    paths out of params.json.
+    """
+    if not json_file:
+        return None
+    try:
+        with open(json_file) as handle:
+            params = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    directory = params.get("data_dir")
+    if not directory:
+        return None
+    if os.path.isabs(directory):
+        return directory
+    return os.path.join(os.path.dirname(os.path.abspath(json_file)), directory)
+
+
 def _failure_artifact_path(args):
     """Where a failure record is written, or None when there is no run directory.
 
@@ -45,6 +66,17 @@ def _failure_artifact_path(args):
             directory = getattr(parameter, "data_dir", None)
         except ImportError:  # pragma: no cover - the package is always importable
             directory = None
+    if not directory:
+        # And when the refusal came BEFORE `get_params` ran, that module still
+        # holds its default and knows nothing about this run. Every validation
+        # added by the design-request contract fires there, which is exactly
+        # when a record is most wanted: `optimize -j params.json` with an
+        # unusable setting exited nonzero and left nothing behind, so the
+        # directory still looked like its previous successful run.
+        #
+        # The same ordering trap as `warn_on_condition_drift`, reached from
+        # the other side.
+        directory = _data_dir_from_params_file(getattr(args, "json_file", None))
     if not directory:
         return None
     try:

@@ -3,7 +3,7 @@
 Unified NeoSWGA Command Line Interface.
 
 Single entry point for all SWGA primer design functionality:
-- Standard pipeline (count-kmers, filter, score, optimize)
+- Standard pipeline (count-kmers, filter, prepare-candidates, optimize)
 - Improved optimization (network-based, 10-100x better)
 - Utility commands (build-filter, validate)
 - Advanced features (optimize-conditions, analyze-set)
