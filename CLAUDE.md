@@ -626,8 +626,29 @@ reject a panel for a missing measurement while reporting a violated constraint.
 The dimer limit is outside for a different reason: it is a hard constraint on
 the delivered panel, not a tradeable term.
 
-**Application profiles** (`--application`, and the weighting used to pick an
-ensemble winner):
+**Application profiles** (`--application`). **On the default `hybrid` method
+this changes nothing about what is selected** -- measured 2026-09-21, all four
+profiles deliver an identical panel. The profile sets `tm_weight` and
+`uniformity_weight`, both of which `HybridOptimizer` hands to a
+`NetworkOptimizer` that nothing ever reads back; Stage 2 is
+`_network_refine`, a method on the class itself, with no Tm or uniformity
+term. The comment beside that construction claimed it was "the object that
+performs refinement" and has been corrected. Known Issue 8's class again, in
+`attach_search_config`'s shape: both ends exist and the path does not.
+
+What the profile DOES still do: weight `normalized_score` when picking an
+ensemble winner, and steer `--auto-size`. `network` reads `tm_weight`
+properly. Setting either weight now warns
+([measurement](docs/validation/selection_weights_are_inert_2026-09-21.md)).
+
+Wiring them into `_network_refine` would move every delivered panel and is a
+decision, not a repair -- more so because the Tm term is a Gaussian peaked at
+`reaction_temp + 5` while `occupancy.site_occupancy` is monotone increasing in
+Tm, so connecting it silently picks one of two unreconciled models. Its span
+across oligo lengths is large: median `tm_score` on the plasmid pool runs
+0.000014 at k=7 to 0.697 at k=9, 48,488-fold.
+
+The table below is the weighting used to pick an ensemble winner:
 
 | Application | Coverage Target | Specificity | Typical Size | Use Case |
 |-------------|-----------------|-------------|--------------|----------|

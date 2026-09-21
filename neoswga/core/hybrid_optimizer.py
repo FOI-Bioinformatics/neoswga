@@ -32,6 +32,10 @@ from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.hybrid_thermo_screen import ThermoScreenMixin
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
 from neoswga.core.registry import POLYMERASES as _POLYMERASES
+from neoswga.core.selection_weights import (
+    build_unread_network_optimizer,
+    warn_about_inert_selection_weights,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -462,34 +466,22 @@ class HybridOptimizer(ThermoScreenMixin):
             stage1_objective_width=stage1_objective_width,
         )
 
-        self.network_optimizer = NetworkOptimizer(
-            position_cache=position_cache,
-            fg_prefixes=fg_prefixes,
-            bg_prefixes=self.bg_prefixes,
-            fg_seq_lengths=fg_seq_lengths,
-            bg_seq_lengths=self.bg_seq_lengths,
-            max_extension=self.max_extension,
-            uniformity_weight=uniformity_weight,
-            max_dimer_dg=self.max_dimer_dg,
-            # Propagate ReactionConditions so the inner NetworkOptimizer's
-            # _get_primer_tm applies additive corrections (DMSO / betaine etc.)
-            conditions=conditions,
-            # Phase 13B: forward --use-mechanistic-model weight so the
-            # NetworkOptimizer's scoring includes a mechanistic term.
-            mechanistic_weight=mechanistic_weight,
-            # The Stage-2 scoring parameters. Omitting these left the object
-            # that performs refinement at its own defaults, so `--application`
-            # and a configured `max_dimer_bp` reached the adapter and stopped
-            # there. `network` has always passed them; the default method did
-            # not. See tests/test_optimizer_config_reaches_optimizers.py.
-            reaction_temp=reaction_temp,
-            tm_weight=tm_weight,
-            dimer_penalty=dimer_penalty,
-            max_dimer_bp=self.max_dimer_bp,
-            allow_dimer_relaxation=allow_dimer_relaxation,
-            template_gc=template_gc,
+        self.network_optimizer = build_unread_network_optimizer(
+            self,
+            position_cache,
+            fg_prefixes,
+            fg_seq_lengths,
+            conditions,
+            mechanistic_weight,
+            reaction_temp,
+            tm_weight,
+            uniformity_weight,
+            dimer_penalty,
+            allow_dimer_relaxation,
+            template_gc,
         )
-        # Retain for introspection / rescoring hooks.
+        warn_about_inert_selection_weights(tm_weight, uniformity_weight)
+
         self.conditions = conditions
 
         # collect_alternative_sets re-enters optimize() once per alternative
