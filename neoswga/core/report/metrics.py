@@ -258,10 +258,13 @@ class CoverageMetrics:
     medium_gaps: int = 0  # 20-50kb
     low_gaps: int = 0  # <20kb
     gap_locations: List[Dict] = field(default_factory=list)
-    mean_gap: float = 0.0
-    max_gap: float = 0.0
-    gap_gini: float = 0.0
-    gap_entropy: float = 0.0
+    # None means no measurement, which is NOT the same as a measured 0.0 and
+    # must not share its representation: zero is the FAVOURABLE value for each
+    # of these, so an absent one rendered as the best possible result.
+    mean_gap: Optional[float] = None
+    max_gap: Optional[float] = None
+    gap_gini: Optional[float] = None
+    gap_entropy: Optional[float] = None
     from_optimizer: bool = False
     # Per-primer extension reach (bp) used by the optimizer to compute
     # overall_coverage. None when the value comes from the fallback
@@ -977,11 +980,21 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
                 metrics.coverage.covered_bases = int(
                     opt_metrics["fg_coverage"] * metrics.coverage.total_bases
                 )
-        # Add gap metrics
-        metrics.coverage.mean_gap = opt_metrics.get("mean_gap", 0.0)
-        metrics.coverage.max_gap = opt_metrics.get("max_gap", 0.0)
-        metrics.coverage.gap_gini = opt_metrics.get("gap_gini", 0.0)
-        metrics.coverage.gap_entropy = opt_metrics.get("gap_entropy", 0.0)
+        # Gap metrics, read WITHOUT a literal default.
+        #
+        # These used to be read with `.get(key, 0.0)`, and zero is the
+        # FAVOURABLE value for every one of them: a `max_gap` of 0.0 says the
+        # panel leaves no coverage hole anywhere, which is the best result
+        # available. A summary that does not carry the key therefore rendered
+        # as the best possible measurement rather than as no measurement.
+        # Directories written before these keys existed are explicitly
+        # supported, so this was reachable rather than theoretical.
+        for _gap_key in ("mean_gap", "max_gap", "gap_gini", "gap_entropy"):
+            setattr(
+                metrics.coverage,
+                _gap_key,
+                _safe_float(opt_metrics.get(_gap_key), default=None),
+            )
         # Per-target coverage (multi-genome) and measured coverage uniformity.
         if isinstance(opt_metrics.get("per_target_coverage"), dict):
             metrics.coverage.per_target_coverage = opt_metrics["per_target_coverage"]

@@ -553,13 +553,22 @@ class TestOptimizerSummaryIngestion:
         assert metrics.coverage.from_optimizer is False
         assert metrics.coverage.overall_coverage > 0  # estimated
 
-    def test_coverage_metrics_new_fields_default(self):
-        """New CoverageMetrics fields have correct defaults."""
+    def test_an_unmeasured_gap_field_is_none_rather_than_zero(self):
+        """Reverses a default deliberately, on 2026-09-21.
+
+        These four used to default to 0.0, and zero is the FAVOURABLE value for
+        every one of them: a `max_gap` of 0.0 says the panel leaves no coverage
+        hole anywhere. A summary that did not carry the key therefore rendered
+        as the best possible measurement rather than as no measurement, and
+        directories written before these keys existed are explicitly supported.
+
+        None is the honest default and is what the render guards now skip on.
+        """
         cm = CoverageMetrics()
-        assert cm.mean_gap == 0.0
-        assert cm.max_gap == 0.0
-        assert cm.gap_gini == 0.0
-        assert cm.gap_entropy == 0.0
+        assert cm.mean_gap is None
+        assert cm.max_gap is None
+        assert cm.gap_gini is None
+        assert cm.gap_entropy is None
         assert cm.from_optimizer is False
 
 

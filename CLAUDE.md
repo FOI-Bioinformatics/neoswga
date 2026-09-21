@@ -895,6 +895,32 @@ covers 12 bases confined and 20 unconfined. So a multi-record reference has two
 coverage figures and which one a reader sees depends on the code path. The test
 asserts both numbers so the gap cannot grow unnoticed.
 
+## The report and the saved result must agree
+
+`tests/test_report_agrees_with_the_saved_result.py` asserts that every quantity
+the report renders equals the one the summary holds, for the exact exported
+panel. The report computes its own estimates from the results CSV and overrides
+them with the optimizer summary where the summary has an opinion, which is the
+right order; `from_optimizer` says which a reader is looking at.
+
+**Writing that check found a favourable default.** `mean_gap`, `max_gap`,
+`gap_gini` and `gap_entropy` were read with `.get(key, 0.0)`, and zero is the
+BEST value for every one of them. A `max_gap` of 0.0 says the panel leaves no
+coverage hole anywhere. A summary that did not carry the key therefore rendered
+as the best possible measurement rather than as no measurement, and directories
+written before these keys existed are explicitly supported, so this was
+reachable rather than theoretical.
+
+The four fields are now `Optional[float] = None`, read without a literal
+default, and both render sites skip the gap section unless every figure in it
+was measured. Rendering it with one missing is what put a "no coverage hole"
+verdict beside three real numbers.
+
+This is the silent-zero family again, in its fourth shape: not a scan that
+found nothing, an integer that saturated, a cache asked for what it does not
+hold, or a guard with the wrong predicate, but a dictionary lookup whose
+fallback happens to be the answer everyone wants.
+
 ## Testing
 
 ```bash
