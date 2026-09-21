@@ -463,7 +463,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
 
     target_size = int(params.get("target_set_size") or params.get("num_primers") or 6)
 
-    return DesignRequest(
+    request = DesignRequest(
         fg_prefixes=tuple(str(p) for p in params.get("fg_prefixes") or ()),
         fg_seq_lengths=tuple(int(n) for n in params.get("fg_seq_lengths") or ()),
         bg_prefixes=tuple(str(p) for p in params.get("bg_prefixes") or ()),
@@ -496,6 +496,15 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         model_versions=_model_versions(),
         default_sources=dict(sorted(sources.items())),
     )
+
+    # Last, because it reads the resolved request rather than the mapping. A
+    # computation outside a recorded domain is refused here, before any index
+    # is opened: the alternative is a number produced with no evidence behind
+    # it, which looks exactly like one produced with evidence.
+    from .model_evidence import require_model_support
+
+    require_model_support(request)
+    return request
 
 
 def _model_versions() -> Tuple[Tuple[str, str], ...]:

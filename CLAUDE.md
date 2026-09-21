@@ -789,6 +789,64 @@ circular origin, record joins, and an exhaustive pass over every window of a
 small reference. It also asserts the two scanners agree, which is the check
 that would have caught this.
 
+## What the chemistry model supports
+
+`neoswga/core/registry/model_evidence.json` records, per constant, what it is
+and over what domain the model supports it. `model_evidence.py` loads it and
+`require_model_support(request)` runs inside `resolve_design_request`, so a
+computation outside a recorded domain is refused before any index is opened.
+
+Five statuses, and the line that carries the weight is between the first two.
+
+| Status | Meaning |
+|---|---|
+| `measured` | the cited work reports this value for a case the model applies it to |
+| `estimated` | extrapolated from data at another temperature, on longer DNA, or in another buffer |
+| `empirical` | chosen so the model behaves plausibly; no source reports it |
+| `assumed` | a modelling decision with a stated reason and no measurement |
+| `absent` | nothing computes this effect, and the code must not report zero for it |
+
+Most additive coefficients are 37 C figures for PCR-length duplexes applied to
+12-mers at 30 C. That may well be fine; it is not a measurement of it. Only
+`tm_urea` was chosen because its source concerns short oligos.
+
+**The registry does not claim the literature was re-read.** Every `source` is
+the attribution the repository already carried. What the registry adds is the
+second judgement the prose ledger never made: whether the cited work covers
+this case. A registry that implied verification would break, in the act of
+recording it, the rule it exists to enforce.
+
+**What is refused**: an unknown polymerase; an oligo length outside the
+enzyme's modelled range, which is the defect where a Bst design was filtered
+through phi29's 6-12 bp window; and an additive whose duplex effect nothing
+computes while the literature expects one. Estimates are NOT refused. A model
+that declined to run on an extrapolated coefficient would decline to run.
+
+Two findings from compiling it, both in
+[docs/validation/chemistry_model_evidence.md](docs/validation/chemistry_model_evidence.md):
+
+- **Glycerol is accepted, range-validated, printed, and changes no Tm.**
+  Measured here: a 12-mer at 10% glycerol returns the same effective Tm as at
+  0%, to the last digit. The literature expects a real destabilisation, and the
+  shipped `q_solution` preset sets 10%. No coefficient is invented to close
+  this, because inventing one is the promotion of an assumption the registry
+  exists to prevent; a design that sets glycerol is refused instead. BSA and
+  PEG also have no Tm term and are `assumed` rather than `absent`: they act on
+  the enzyme and on crowding, not on duplex stability.
+- **`neoswga.core.registry` was not installed.** It was missing from
+  `pyproject.toml`'s explicit `packages` list, so a built wheel contained none
+  of it, while `core/parameter.py` imports `registry.views` at module scope.
+  Verified by building a wheel. Package data could not have helped:
+  `include-package-data` applies to packages that are being installed. A test
+  now compares the declared list against the packages on disk.
+
+`docs/SCIENCE_CITATIONS.md` had drifted: it states Klenow processivity as
+10,000 bp citing Bambara (1978) while the shipped registry says 40 bp. The
+prose was right when written and the code moved. The registry is checked
+against `registry/views.as_characteristics()` by a test, so the two cannot
+disagree silently; read the prose document as commentary rather than as the
+record.
+
 ## Testing
 
 ```bash
