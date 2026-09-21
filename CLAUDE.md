@@ -1020,6 +1020,35 @@ no FASTA; the same directory with the record cleared exits 0 and writes one.
 `tests/test_design_report_provenance.py` also pins that the CSV, the summary
 JSON, the rendered report and the exported FASTA all name the same panel.
 
+## Sequencing feedback must know which sequence it is reading
+
+`bam_coverage.match_contigs` bound a BAM contig to a foreground reference by
+**unique sequence length** when no name matched. That fallback is gone as of
+2026-09-21.
+
+Equal length is not identity. This repository ships two plasmids of 5,386 bp
+each, and two chromosomes from different assemblies routinely agree. When the
+lengths agree every coordinate lines up, so the depth profile reads cleanly
+against a sequence the design was not made for. Feedback drives redesign --
+low-depth regions become targeted additions -- so the additions would aim at
+gaps in the wrong genome, and nothing downstream could notice.
+
+Binding is now by name only: explicit alias, exact match, basename, then
+chr-prefix normalisation. Each is a name agreeing with a name, which is a
+claim somebody made. An unmatched prefix is skipped with a warning naming
+`--contig-alias`, which is the same claim made by someone who can check it.
+
+A name match whose LENGTHS disagree still binds, because the names are an
+assertion this code should not overrule, but it now warns: that combination
+means the BAM was aligned against a different version of the sequence.
+
+`core/sequencing_feedback.require_disjoint_experiments` refuses a validation
+set sharing an experiment with the training set, and names which. It also
+refuses an empty set on either side: nothing held out is not the same as
+nothing overlapping, and an out-of-sample result computed on no samples is an
+unsupported claim rather than a weaker one. A repeated identifier within one
+set is untidy rather than leakage and is allowed.
+
 ## Testing
 
 ```bash

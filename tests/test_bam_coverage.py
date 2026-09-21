@@ -67,9 +67,22 @@ def test_match_contigs_chr_prefix():
     assert m == {"chrI": "I"}
 
 
-def test_match_contigs_length_fallback():
+def test_match_contigs_does_not_fall_back_to_length():
+    """Reverses a deliberate expectation, on 2026-09-21.
+
+    This used to assert that a unique sequence-length match bound a BAM contig
+    to a foreground reference. Equal length is not identity: this repository
+    ships two plasmids of 5,386 bp each, and two chromosomes from different
+    assemblies routinely agree. When lengths agree every coordinate lines up,
+    so the depth profile reads cleanly against a sequence the design was not
+    made for -- and sequencing feedback drives redesign, so its low-depth
+    regions become additions aimed at gaps in the wrong genome.
+
+    The remedy is `--contig-alias`, which is the same claim made by someone
+    who can check it.
+    """
     m = match_contigs(["weird_name"], [12345], ["fg"], [12345])
-    assert m == {"fg": "weird_name"}
+    assert m == {}
 
 
 def test_match_contigs_alias_and_unmatched():
@@ -77,7 +90,7 @@ def test_match_contigs_alias_and_unmatched():
         ["bamctg"],
         [999],
         ["fg"],
-        [1000],  # length differs -> no fallback
+        [1000],  # length differs; the alias is what binds
         aliases={"fg": "bamctg"},
     )
     assert m == {"fg": "bamctg"}
