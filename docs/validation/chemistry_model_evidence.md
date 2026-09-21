@@ -135,3 +135,42 @@ discussion and should be read as commentary rather than as the record.
   `calibrate-reach --bam` exists and there is no BAM in this repository.
 - The mismatch penalty is uniform in identity and position. Any specificity
   claim resting on it is an exact-match claim with a uniform correction.
+
+## Concentration policy: measured, and not yet propagated
+
+`DesignRequest.concentrations_molar` implements both declared allocation modes.
+It is **not** propagated into per-candidate evaluation, and that is a decision
+rather than an omission.
+
+Under a fixed total of 4 µM, the per-oligo concentration falls with panel size
+and the melting temperature falls with it. Measured on a 12-mer, 21 September
+2026:
+
+| Panel | Per-oligo (M) | Tm (°C) |
+|---|---|---|
+| 1 | 4.000e-06 | 59.362 |
+| 6 | 6.667e-07 | 55.191 |
+| 24 | 1.667e-07 | 52.035 |
+| 96 | 4.167e-08 | 48.940 |
+
+Ten degrees across the range, which is large. The quantity selection actually
+uses is occupancy, and occupancy barely moves, for the reason recorded in Known
+Issue 17: at phi29 30 °C almost everything is saturated.
+
+| Reaction | Occupancy at n=6 | at n=96 | Ratio |
+|---|---|---|---|
+| phi29 30 °C | 0.999993 | 0.999888 | 1.000 |
+| equiphi29 42 °C | 0.997476 | 0.961089 | 1.038 |
+| phi29 30 °C, DMSO 10 % + betaine 1.5 M | 0.999781 | 0.996007 | 1.004 |
+
+So a fixed-total policy changes the occupancy-weighted objective by under 4 % at
+the warmest supported reaction and by nothing measurable at the default one.
+Threading concentration through every evaluation and cache key is a large change
+for that, and this project's standard is that a change without a demonstrated
+benefit does not ship on by default. The policy is therefore recorded on the
+request, reported, and available to a caller, while selection continues to use
+the configured `primer_conc`.
+
+What this does **not** license is quoting a Tm from a fixed-total design without
+its panel size. That figure moves by ten degrees and the report should say which
+size it was computed at.

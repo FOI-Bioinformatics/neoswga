@@ -344,3 +344,50 @@ def test_the_evidence_loads_from_an_arbitrary_working_directory(tmp_path, monkey
     monkeypatch.setattr(module, "_CACHE", None, raising=False)
 
     assert module.load_evidence()["reach_phi29"].value == "3000"
+
+
+# ---------------------------------------------------------------------------
+# 5. The concentration policy, and why it is not propagated
+# ---------------------------------------------------------------------------
+
+
+def test_a_fixed_total_moves_tm_a_lot_and_occupancy_almost_not_at_all():
+    """The measurement behind not threading concentration through evaluation.
+
+    Under a fixed total the per-oligo concentration falls with panel size, and
+    Tm falls about ten degrees between a 1-oligo and a 96-oligo panel. The
+    quantity selection uses is occupancy, and at phi29 30 C almost everything
+    is saturated, so the same change moves it by about one part in ten
+    thousand. Known Issue 17 is the reason.
+
+    Pinned so that a future decision to propagate concentration is taken
+    against a number rather than against an intuition, and so that a change
+    making occupancy concentration-sensitive at the default reaction shows up
+    here.
+    """
+    from neoswga.core.occupancy import site_occupancy
+    from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+
+    sequence = "ACGTTGCAAGGC"
+    enthalpy, _entropy = calculate_enthalpy_entropy(sequence)
+    conditions = ReactionConditions(temp=30.0, polymerase="phi29")
+    total = 4e-6
+
+    tms = [conditions.calculate_effective_tm(sequence, primer_conc=total / n) for n in (1, 96)]
+    occupancies = [site_occupancy(enthalpy, tm, 30.0) for tm in tms]
+
+    assert tms[0] - tms[1] > 9.0, tms
+    assert occupancies[0] / occupancies[1] < 1.001, occupancies
+
+
+def test_the_request_conserves_a_fixed_total_across_panel_sizes():
+    request = resolve_design_request(
+        base_params(concentration_mode="fixed_total", total_primer_molar=4e-6)
+    )
+
+    for count in (2, 6, 24):
+        values = request.concentrations_molar(tuple(f"ACGTACGTAC{i:02d}" for i in range(count)))
+        assert len(values) == count
+        assert sum(values) == pytest.approx(4e-6)
+        assert all(value > 0 for value in values)
