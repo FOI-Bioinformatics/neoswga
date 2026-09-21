@@ -62,7 +62,7 @@ neoswga count-kmers -j params.json
 # Step 2: Filter candidates (1-5 min)
 neoswga filter -j params.json
 
-# Step 3: Score primers (1-5 min)
+# Step 3: Prepare the candidate pool (under a minute)
 neoswga prepare-candidates -j params.json
 
 # Step 4: Optimize selection (1-10 min)

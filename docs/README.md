@@ -5,8 +5,10 @@ Documentation for NeoSWGA, a tool for designing primer sets for selective whole-
 ## Quick Links
 
 - **[Quick Start](guides/QUICK_START.md)** - Get started in minutes
+- **[Why the pipeline has four steps](guides/why-four-steps.md)** - what each step is for, what it decides for you, and what this tool does not model
 - **[User Guide](guides/user-guide.md)** - Comprehensive usage documentation
 - **[SWGA Science](SWGA_SCIENCE.md)** - Scientific background and additive guide
+- **[Production scenarios](production-scenarios.md)** - worked configurations by organism and situation; the organism-oriented parameter guide
 - **[API Reference](reference/API_REFERENCE.md)** - Complete API documentation
 - **[Troubleshooting](guides/TROUBLESHOOTING.md)** - When a run fails or disappoints
 - **[Changelog](CHANGELOG.md)** - Version history and release notes

@@ -235,10 +235,12 @@ neoswga filter -j params.json
 
 **Output**: `step2_df.csv` and HDF5 files with primer positions
 
-#### score: Prepare the candidate pool
+#### prepare-candidates: Prepare the candidate pool
 
-`score` prepares the pool; it does not score it. The bundled random forest was
-retired from the default path on 2026-09-05.
+The stage prepares the pool; it does not score it. The bundled random forest
+was retired from the default path on 2026-09-05, and the stage was renamed
+from `score` on 2026-09-21 with no alias, so the old name now fails with a
+message naming this one. `--amp-model` restores the model and its gate.
 
 ```bash
 neoswga prepare-candidates -j params.json
