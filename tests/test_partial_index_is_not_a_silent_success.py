@@ -16,7 +16,12 @@ import pytest
 from neoswga.core import pipeline, unified_optimizer
 from neoswga.core.pipeline import StepPrerequisiteError
 
-_CANDIDATES = ["AAACCCGGGTTT", "ACCCGGGTTTAA", "CCCGGGTTTAAA"]
+# Chosen to clear the self-dimer screen, which runs before selection: the
+# previous three ("AAACCCGGGTTT" and friends) are self-complementary, so once
+# the shared search applied that screen the whole frontier was removed and the
+# optimizer received an empty list. That made this file's subject -- what the
+# UNINDEXED guard does -- unreachable behind an unrelated rejection.
+_CANDIDATES = ["GCTAAAGACAAT", "ACGTCAGCACGA", "CAGTGTGAATCG"]
 
 
 @pytest.fixture

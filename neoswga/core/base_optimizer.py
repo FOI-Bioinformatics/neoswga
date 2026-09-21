@@ -527,6 +527,7 @@ class OptimizationResult:
     # unified_optimizer._check_candidate_index_coverage); this field is what
     # makes the count auditable on the paths that proceed.
     unindexed_candidates: int = 0
+    stage_history: Tuple[Dict[str, Any], ...] = ()
 
     @property
     def num_primers(self) -> int:
@@ -564,6 +565,8 @@ class OptimizationResult:
             "message": self.message,
             "unindexed_candidates": self.unindexed_candidates,
         }
+        if self.stage_history:
+            d["stage_history"] = list(self.stage_history)
         if self.pareto_front is not None:
             d["pareto_front"] = [list(p) for p in self.pareto_front]
             if self.pareto_metrics is not None:
@@ -709,7 +712,6 @@ class OptimizerConfig:
     # whatever the swaps left over, and the swaps routinely spend all of it: on
     # a 2,000-candidate shortlist the swap loop hits its evaluation limit and
     # the beam is handed nothing, so the beam never ran outside its own tests.
-    # Two searches with one purse is one search.
     beam_max_evaluations: int = 10000
     beam_max_seconds: float = 10.0
     # How many panels the swap repair scores with the full objective per round.
@@ -746,10 +748,9 @@ class OptimizerConfig:
     # universe, and a row that already qualifies never refills at all. 0
     # reproduces the behaviour before this existed.
     max_frontier_refills: int = 4
-    # Self-dimer threshold. The clique optimizer reached for this with
-    # `getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)` and the
-    # fallback fired every time, because the field did not exist -- so a
-    # params.json setting it had no effect anywhere.
+    total_search_evaluations: int | None = None
+    total_search_seconds: float | None = None
+    # Self-dimer threshold shared by proposal and panel validation.
     max_self_dimer_bp: int = 5
     # Highest mismatch class counted when weighting background load. 0
     # reproduces exact-match counting. 2 is affordable (405 lookups for a
@@ -796,6 +797,9 @@ class OptimizerConfig:
             raise ValueError("Beam budgets must be finite and non-negative")
         if not isinstance(self.allow_dimer_relaxation, bool):
             raise ValueError("allow_dimer_relaxation must be a boolean")
+        from .search_control import SearchBudget
+
+        SearchBudget.from_config(self)
         if (
             not isinstance(self.max_frontier_refills, int)
             or isinstance(self.max_frontier_refills, bool)
@@ -1568,14 +1572,7 @@ class CompositeOptimizer(BaseOptimizer):
         application: str = "balanced",
         **kwargs,
     ) -> OptimizationResult:
-        """Run all sub-optimizers and return the best result.
-
-        Selection is by ``normalized_score`` (a [0,1] value comparable across
-        optimizer types), NOT raw ``score`` — raw scores are on
-        per-optimizer scales and are not comparable.
-        """
-        from dataclasses import replace as _dc_replace
-
+        """Run sub-optimizers and compare their normalized application scores."""
         candidates = self._validate_candidates(candidates)
         target = target_size or self.config.target_set_size
 

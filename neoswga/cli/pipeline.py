@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # reaches scikit-learn through `rf_preprocessing`. The previous try/except
 # ImportError fallback defined a *different* class, which would not have
 # caught what `core/pipeline.py` raises.
-from neoswga.core.exceptions import StepPrerequisiteError
+from neoswga.core.exceptions import DesignError, StepPrerequisiteError
 
 
 def run_step1(args):
@@ -377,6 +377,8 @@ def run_step2(args):
         logger.error("Ensure Step 1 (count-kmers) has completed successfully.")
         logger.error("Run: neoswga count-kmers -j params.json")
         sys.exit(1)
+    except DesignError:
+        raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
         logger.error(f"Step 2 failed: {e}")
         if logger.level <= logging.DEBUG:
@@ -475,6 +477,8 @@ def run_step3(args):
         logger.error("Ensure Step 2 (filter) has completed successfully.")
         logger.error("Run: neoswga filter -j params.json")
         sys.exit(1)
+    except DesignError:
+        raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
         logger.error(f"Step 3 failed: {e}")
         if logger.level <= logging.DEBUG:
@@ -894,6 +898,18 @@ def run_step4(args):
                 "amplification-factor term to every primer."
             )
 
+        # Resolve and validate the whole request before any search begins.
+        # A setting that cannot be applied is named here, with the field, while
+        # the run has cost nothing; the alternative is finding out after the
+        # position cache is built, or not finding out at all because a reader
+        # took its own fallback. `request_hash` is what lets the saved result
+        # name the configuration that produced it.
+        from neoswga.core.design_request import design_request_for_run
+
+        _request = design_request_for_run(args, parameter)
+        if _request is not None:
+            logger.info("Design request %s", _request.request_hash[:12])
+
         # Use unified optimizer framework (all methods handled via factory pattern)
         from neoswga.core.unified_optimizer import list_available_optimizers, optimize_step4
 
@@ -1145,6 +1161,8 @@ def run_step4(args):
                 # said. This is the number the run actually used.
                 "effective_set_size": getattr(parameter, "num_primers", None),
                 "optimization_method": resolve_optimization_method(args),
+                "request_hash": _request.request_hash if _request else None,
+                "request_default_sources": (dict(_request.default_sources) if _request else None),
             },
         )
         logger.info(f"Step 4 complete in {_elapsed:.1f}s")
@@ -1164,6 +1182,8 @@ def run_step4(args):
         logger.error("Ensure Step 3 (score) has completed successfully.")
         logger.error("Run: neoswga score -j params.json")
         sys.exit(1)
+    except DesignError:
+        raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
         logger.error(f"Step 4 failed: {e}")
         if logger.level <= logging.DEBUG:

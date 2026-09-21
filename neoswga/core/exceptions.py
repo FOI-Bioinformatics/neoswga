@@ -456,3 +456,109 @@ class StepPrerequisiteError(NeoSWGAError):
         message += f"\nTo fix this:\n  {validation.remediation}\n"
         message += f"{'='*60}\n"
         super().__init__(message)
+
+
+# =============================================================================
+# Design-path errors
+# =============================================================================
+#
+# Added 2026-09-21 for the valid-design contract. These exist because the
+# design path used to answer a failed calculation with a plausible substitute:
+# zero free energy for a dimer check that raised, NaN for a Tm that could not
+# be computed, a default reach for an unknown polymerase, an empty position
+# array for a prefix nobody indexed. Each substitute is the most permissive
+# value available, so the run continues and delivers a panel that reads exactly
+# like a measured one.
+#
+# The distinction this family draws is between a MEASUREMENT and its ABSENCE.
+# A candidate that misses a Tm window has been measured and rejected; a
+# candidate whose Tm raised has not been measured at all. `DesignError` is
+# never a QC reason code, and `describe_failure` in `design_result.py` records
+# it as a failed run rather than as a screened candidate.
+#
+# `SearchBudgetExhausted` is deliberately NOT in this family: spending an
+# allowance is control flow and a recorded termination reason, not a failure.
+#
+# Keep this module's imports to `dataclasses`, `typing` and `enum`. It is
+# imported at CLI startup and Known Issue 12 is what a heavier import costs.
+
+
+class DesignError(NeoSWGAError):
+    """A design run cannot continue and must not deliver a panel.
+
+    Catch this at the command boundary, write a structured failure record and
+    exit nonzero. Do not catch it to try a different model or algorithm: an
+    unrequested substitution is what this family exists to prevent.
+    """
+
+    #: Never set on this family. Present so that code asking "was this a QC
+    #: rejection?" gets a definite no rather than an AttributeError.
+    qc_reason = None
+
+
+class InvalidDesignRequest(DesignError):
+    """The requested design cannot be resolved into a valid configuration.
+
+    Unknown or retired settings, contradictory ones, non-finite values, and
+    missing required fields. Raised before any search begins.
+    """
+
+    def __init__(self, field: str, reason: str, value: Any = None):
+        self.field = field
+        self.reason = reason
+        self.value = value
+        detail = f"Invalid design request field '{field}': {reason}"
+        if value is not None:
+            detail += f" (got {value!r})"
+        super().__init__(detail)
+
+
+class ReferenceDataError(DesignError):
+    """A reference answer is missing, stale, corrupt or of an unknown schema.
+
+    Distinct from a verified zero. An index that records "this primer occurs
+    nowhere on this reference" is a measurement; an index that was never asked
+    the question is not, and returning an empty array for the second is the
+    silent-zero shape recorded in Known Issues 5, 6, 13 and 15.
+    """
+
+    def __init__(self, artifact: str, reason: str, remediation: str = ""):
+        self.artifact = artifact
+        self.reason = reason
+        self.remediation = remediation
+        detail = f"Reference data unusable ({artifact}): {reason}"
+        if remediation:
+            detail += f"\nTo fix this: {remediation}"
+        super().__init__(detail)
+
+
+class UnsupportedModelError(DesignError):
+    """A requested computation falls outside the supported domain of its model.
+
+    An unknown polymerase, an oligo length no parameter set covers, an additive
+    combination with no coefficient, a modified base with no terms. The absence
+    of an effect model is not a known zero effect.
+    """
+
+    def __init__(self, model: str, requested: Any, supported: str = ""):
+        self.model = model
+        self.requested = requested
+        self.supported = supported
+        detail = f"Model '{model}' does not support {requested!r}"
+        if supported:
+            detail += f"; supported domain: {supported}"
+        super().__init__(detail)
+
+
+class ModelEvaluationError(DesignError):
+    """A supported computation failed or returned a non-finite value.
+
+    The quantity is named so the failure record can say what could not be
+    computed, for which input, rather than reporting that "the command failed".
+    """
+
+    def __init__(self, quantity: str, subject: Any, reason: str):
+        self.quantity = quantity
+        self.subject = subject
+        self.reason = reason
+        super().__init__(f"Could not compute {quantity} for {subject!r}: {reason}")

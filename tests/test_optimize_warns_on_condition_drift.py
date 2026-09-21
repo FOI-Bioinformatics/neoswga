@@ -181,9 +181,15 @@ def test_a_real_optimize_run_warns_after_a_preset_filter(tmp_path):
         )
     )
 
-    def _step(*extra):
+    def _step(*extra, expect_failure=False):
         argv = [sys.executable, "-m", "neoswga.cli_unified", *extra, "-j", str(params_file)]
         proc = subprocess.run(argv, capture_output=True, text=True, cwd=str(tmp_path), timeout=900)
+        if expect_failure:
+            assert proc.returncode != 0, (
+                f"{extra[0]} succeeded on a pool selected under another reaction:\n"
+                f"{proc.stdout[-2000:]}"
+            )
+            return proc
         if proc.returncode != 0:
             # A step that RAN and failed is a failure, not a skip. Skipping
             # here turned a broken pipeline green: on 2026-09-10 two full-suite
@@ -197,10 +203,18 @@ def test_a_real_optimize_run_warns_after_a_preset_filter(tmp_path):
     _step("count-kmers")
     _step("filter", "--preset", "enhanced_equiphi29")
     _step("score")
-    optimize = _step("optimize", "--seed", "1")
+    optimize = _step("optimize", "--seed", "1", expect_failure=True)
 
     output = optimize.stdout + optimize.stderr
-    assert (
-        "Reaction conditions differ" in output
-    ), "optimize scored a pool selected under equiphi29 at 42C and said nothing"
+    # Strengthened on 2026-09-21. This used to assert a warning and a
+    # successful run. A warning was as far as the old code could go, because
+    # the inventory-open error quietly switched the search to `step3_df.csv`
+    # -- so the run did proceed, over a shortlist selected at 42 C under
+    # equiphi29 while scoring it at 30 C under phi29, and every candidate the
+    # inventory held was unreachable.
+    #
+    # Under the valid-design contract that is a refusal with a named remedy.
+    # The drift is the finding, not a footnote to a result.
+    assert "candidate inventory" in output, output[-2000:]
+    assert "neoswga filter" in output, output[-2000:]
     assert "polymerase" in output

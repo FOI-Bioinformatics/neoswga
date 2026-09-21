@@ -44,6 +44,8 @@ class DesignContext:
     fg_circular: bool
     polymerase: str
     max_dimer_dg: Optional[float] = None
+    constraints: Any = None
+    optimizer_settings: tuple[tuple[str, Any], ...] = ()
 
     def optimizer_config(self, **overrides):
         """An `OptimizerConfig` carrying exactly these values.
@@ -55,7 +57,8 @@ class DesignContext:
         """
         from neoswga.core.base_optimizer import OptimizerConfig
 
-        settings = dict(
+        settings = dict(self.optimizer_settings)
+        settings.update(
             max_dimer_bp=self.max_dimer_bp,
             max_self_dimer_bp=self.max_self_dimer_bp,
             max_dimer_dg=self.max_dimer_dg,
@@ -79,16 +82,28 @@ def design_context_from_params(
     order `plan-pool` already used; lifting it here is what lets
     `expand-primers` use the same one instead of 3 kb.
     """
+    from dataclasses import fields
+
+    from neoswga.core.base_optimizer import OptimizerConfig
     from neoswga.core.coverage import resolve_coverage_reach
     from neoswga.core.reaction_conditions import build_reaction_conditions
 
     polymerase = params.get("polymerase", "phi29") or "phi29"
     conditions = build_reaction_conditions(SimpleNamespace(**dict(params)))
-    reach = resolve_coverage_reach(
-        polymerase,
-        override=coverage_reach_override or params.get("coverage_reach"),
+    # `override if override is not None else ...` rather than `or`: an explicit
+    # 0 is falsy, so the old form silently replaced it with the polymerase
+    # default and reported coverage at 3 kb for a request that said otherwise.
+    # `resolve_coverage_reach` refuses 0, which is the answer the user needs.
+    override = (
+        coverage_reach_override
+        if coverage_reach_override is not None
+        else params.get("coverage_reach")
     )
+    reach = resolve_coverage_reach(polymerase, override=override)
+    from .panel_acceptance import constraints_from_parameter
+
     return DesignContext(
+        constraints=constraints_from_parameter(SimpleNamespace(**dict(params))),
         conditions=conditions,
         coverage_reach=int(reach),
         max_dimer_bp=int(params.get("max_dimer_bp", 3)),
@@ -98,4 +113,9 @@ def design_context_from_params(
         fg_circular=bool(params.get("fg_circular", False)),
         polymerase=str(polymerase),
         max_dimer_dg=params.get("max_dimer_dg"),
+        optimizer_settings=tuple(
+            (field.name, params[field.name])
+            for field in fields(OptimizerConfig)
+            if field.name in params and params[field.name] is not None
+        ),
     )

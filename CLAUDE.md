@@ -629,6 +629,108 @@ ensemble winner):
 | `enrichment` | 80% | 75% | 8-12 | Sequencing enrichment, balanced |
 | `metagenomics` | 95% | 50% | 15-20 | Capture diversity |
 
+## The design-failure contract (2026-09-21)
+
+A required calculation that fails now fails the run. It does not return a
+substitute value. Four errors in `core/exceptions.py` carry this, all under
+`DesignError`: `InvalidDesignRequest`, `ReferenceDataError`,
+`UnsupportedModelError` and `ModelEvaluationError`. `SearchBudgetExhausted` is
+deliberately outside the family, because spending an allowance is a recorded
+stopping point rather than a failure.
+
+The distinction the family draws is between a measurement and its absence. A
+candidate that misses a Tm window has been measured and rejected; a candidate
+whose Tm raised has not been measured at all. `DesignError.qc_reason` is always
+None, so code asking "was this a QC rejection" gets a definite no.
+
+What changed, and what each substitution used to cost:
+
+| Site | Was | Now |
+|---|---|---|
+| `thermodynamics.calculate_tm_batch` | NaN for any failure | raises; a non-ACGT base is a named `InvalidSequenceError` with `qc_reason`, which is a QC rejection and stays one |
+| `thermodynamic_filter._check_heterodimer_pair` | 0.0 free energy, the most permissive answer the screen has | raises; a positive or infinite duplex energy still returns 0.0, because that is a measurement |
+| `coverage.polymerase_extension_reach`, `product_reach` | a default reach for an unknown polymerase | raises `UnsupportedModelError` naming the supported set |
+| `coverage._record_starts_for` | None when the getter raised | raises; a cache with NO getter still returns None, which is absence rather than failure |
+| `occupancy.discrimination_profile` | skipped a failed primer | raises; a mean over an unknown subset was reported with the authority of a mean over the pool |
+| `unified_optimizer` per-target coverage | empty dict | raises; `base_optimizer` gates the floor on a non-empty dict, so a requested `min_per_target_coverage` passed vacuously |
+| `unified_optimizer` application weights | debug line, defaults applied | raises; `--application clinical` silently had no effect |
+| `unified_optimizer` ensemble winner evaluator | debug line, `optimizer=None` | raises; with None every configured panel limit went unenforced |
+| `unified_optimizer` post-optimization validator | skipped | raises; skipping disarms the duplicate, size-drift, zero-coverage, blacklist and delivered-dimer checks at once, and writes no validation file, so `export` prints "ready for ordering" |
+| `_reseed` | `pass` | raises; the caller logged "set for reproducibility" either way |
+| ensemble member failure | any exception became an `status: "error"` row | a `DesignError` propagates, because the next member computes the same quantity from the same data; an algorithm that cannot run on this pool is still a visible row |
+
+`core/design_result.py` separates three things that were one. **Run state** is
+what happened to the process (`finished`, `failed`, `interrupted`). **Termination
+reason** is why the search stopped (`qualified`, `budget_exhausted`,
+`candidates_exhausted`, `refill_exhausted`, `error`). **Qualification** is a
+property of the panel. `recommendation_allowed(run_state, qualified)` needs both,
+and refuses an unknown state rather than defaulting either way.
+
+At the command boundary a `DesignError` prints the stage, field, artifact, model
+and input, then writes `design_failure.json` into the run directory and exits
+nonzero. The record exists because an output directory holding last week's
+`step4_improved_df.csv` reads exactly like one holding this morning's. Each
+pipeline step re-raises `DesignError` rather than reducing it to "step N
+failed"; `cli/_failure.py` owns the record.
+
+## One resolved design request
+
+`core/design_request.py` resolves a params mapping into a frozen `DesignRequest`
+carrying references, chemistry, candidate-source identity, fixed and excluded
+oligos, panel limits, size policy, search budgets, seed, model identifiers and
+the concentration policy. Nested content is tuples, so a stage cannot append to
+a list it was handed.
+
+`default_sources` records, per setting, whether the request supplied it or which
+default did. `request_hash` is a SHA-256 over a canonical JSON form, so it is
+stable across processes and independent of key order; it is recorded in the run
+manifest for `optimize`.
+
+`optimize` resolves the request from the params FILE before the search starts,
+not from the `parameter` module: `get_params` runs inside `optimize_step4`, so
+at that point every reaction global still holds its default. This is the same
+ordering trap `warn_on_condition_drift` documents.
+
+Refusals it makes that used to be silent: unknown and retired keys (a leading
+underscore marks a comment and is accepted), non-finite values, `coverage_reach`
+of 0, negative budgets, an oligo that is both fixed and excluded, a
+background-measured panel limit with no background genome, and an unsupported
+polymerase. The explicit zero matters on its own: `design_context_from_params`
+used `override or params.get("coverage_reach")`, and 0 is falsy, so it silently
+became 3 kb and every coverage figure was reported at a reach the request did
+not ask for.
+
+**Not yet done from the plan's Task 2**: evaluator code still reads `parameter`
+globals at run time, and `OptimizationRequest.optimizer` still owns the
+scientific settings. The request is a validation gate and a provenance record,
+not yet the single channel those settings travel through.
+
+## Which candidate pool a command searches
+
+`open_source_or_list` is gone, replaced by three functions in
+`candidate_source.py` that keep absence and failure apart.
+
+- `open_explicit_source(candidates)`: the pool the user named. It always wins.
+- `open_inventory_source(...)`: the inventory, or **None** when the directory has
+  none, which is a fact about the directory. It raises `ReferenceDataError` when
+  the directory HAS an inventory that holds nothing under this reaction.
+- `open_design_source(...)`: the rule every command asks, built from those two.
+
+The old function wrapped the inventory open in `except ValueError` and fell back
+to the caller's CSV for both cases. A reaction fingerprint mismatch therefore
+became a quiet run over the `max_primer` shortlist, at the shortlist's frontier,
+with everything the inventory held unreachable and one `logger.info` line to say
+so. That is how the occupancy-gate measurement in Known Issue 17 produced an
+apparent density improvement that was not real.
+
+So `filter --preset enhanced_equiphi29` followed by a plain `optimize` now
+refuses, naming the remedy, where it used to warn and proceed.
+`tests/test_optimize_warns_on_condition_drift.py` was inverted to match.
+
+A self-dimer screen that empties a non-empty frontier now raises
+`NoCandidatesError` naming the screen and its threshold, instead of handing an
+empty list to an optimizer that answered "candidates list cannot be empty".
+
 ## Testing
 
 ```bash

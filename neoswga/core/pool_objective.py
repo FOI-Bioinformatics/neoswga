@@ -194,6 +194,9 @@ class PoolObjective:
         """
         key = tuple(sorted(str(p).upper() for p in primers))
         if key not in self._cache:
+            budget = getattr(self, "evaluation_budget", None)
+            if budget is not None:
+                budget.consume()
             if len(self._cache) >= self._cache_size:
                 self._cache.clear()
             self._cache[key] = self._evaluate(list(primers))

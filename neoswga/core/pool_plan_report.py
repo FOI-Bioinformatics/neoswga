@@ -293,11 +293,30 @@ def write_pool_plan(plan, output):
             if r.get("effective_coverage") is not None
             else "unavailable"
         )
+        stage_details = ""
+        history = r.get("stage_history") or []
+        if history:
+            items = []
+            for stage in history:
+                coverage = stage.get("coverage")
+                coverage_text = f"{coverage:.1%}" if coverage is not None else "unavailable"
+                text = (
+                    f"{stage['stage']}: {stage.get('before_size', 0)} to {stage.get('after_size', 0)} oligos; "
+                    f"{stage.get('coverage_metric') or 'coverage'} {coverage_text}"
+                )
+                if stage.get("stop_reason"):
+                    text += f"; {stage['stop_reason']}"
+                if stage.get("evaluations") is not None:
+                    text += f"; {stage['evaluations']} evaluations"
+                items.append(f"<li>{_text(text)}</li>")
+            stage_details = (
+                "<details><summary>Search stages</summary><ul>" + "".join(items) + "</ul></details>"
+            )
         table.append(
             f"<tr><td>{_text(r['requested_size'])}</td><td>{_text(r['size'])}</td>"
             f"<td>{_text(geometric)}</td><td>{_text(weighted)}</td>"
             f"<td>{_text(density)}</td><td>{_text(sites)}</td>"
-            f"<td>{_text(reason)}</td></tr>"
+            f"<td>{_text(reason)}{stage_details}</td></tr>"
         )
     density_limit = _text(
         plan["min_selectivity_density"]

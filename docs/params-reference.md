@@ -62,6 +62,7 @@ neoswga schema --dump > params.schema.json
 | `max_dimer_bp` | integer | min: 1; max: 7 | - | Longest complementary run tolerated between two different primers in a delivered set. Capped at 7 because the pairwise screen represents t-mers in a 4**8 code space: at 8 and above the matrix cannot be built, and the screen was previously disabled for the whole run with only a warning. Note that a pool supports a bounded panel size at a given threshold; measured on the shipped pools, max_dimer_bp 3 supports 29, 31 and 26 primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and 55. |
 | `max_dimer_dg` | number | max: 0 | - | Optional ADDITIONAL dimer floor, in kcal/mol, on the free energy of the longest complementary region between two primers at the reaction temperature. Unset by default. It can only make the screen stricter: max_dimer_bp is applied first and a pair failing it is rejected whatever this says. Do not treat it as a way to relax max_dimer_bp on its own -- measured, a -6 floor with no length cap admits 8 bp complementary runs. Its use is to raise max_dimer_bp for a larger panel while keeping a stability bound: at run <= 3 a 200-primer pool supports a greedy panel of 14-20, and at run <= 5 with a -4 floor it supports 52-79. -6.0 follows Rychlik (1995) Mol Biotechnol 3:129-134; nothing here validates it against a reaction. |
 | `max_evenness` | number | min: 0; max: 1 | - | Maximum tolerated Gini index of foreground inter-site gaps for the delivered PANEL (0 is uniform). Unset by default. Distinct from max_gini, which gates individual CANDIDATES during filtering. Evenness separates the winners on the Prevotella sets and runs slightly backwards on Clarke's. |
+| `max_frontier_refills` | integer | min: 0 | `4` | Maximum candidate frontier refills for one pool size or expansion. |
 | `max_gc_in_clamp` | integer | min: 0; max: 12 | `3` | Maximum G/C bases allowed within the clamp window. Widened automatically for GC-rich targets. |
 | `max_gini` | number | min: 0.0; max: 1.0 | - | - |
 | `max_homopolymer_run` | integer | min: 2; max: 20 | `5` | Longest run of a single base a primer may contain. From PCR primer design; neither swga 1.0 nor 2.0 applies it. |
@@ -106,6 +107,8 @@ neoswga schema --dump > params.schema.json
 | `swap_max_seconds` | number | min: 0 | `10.0` | - |
 | `target_set_size` | integer | min: 1; max: 200 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
+| `total_search_evaluations` | integer or null | min: 0 | `None` | Total uncached shared panel-objective evaluations across stages and refills. Null retains per-stage budgets only. |
+| `total_search_seconds` | number or null | min: 0 | `None` | Cooperative total search deadline in seconds; an in-flight solver call can overrun it. |
 | `trehalose_m` | number | min: 0.0; max: 1.0 | `0.0` | - |
 | `urea_m` | number | min: 0.0; max: 2.0 | `0.0` | - |
 | `use_bloom_filter` | boolean | - | `False` | - |

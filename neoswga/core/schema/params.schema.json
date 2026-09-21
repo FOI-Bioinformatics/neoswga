@@ -340,7 +340,10 @@
       "default": 10000
     },
     "stage1_objective_width": {
-      "type": ["integer", "null"],
+      "type": [
+        "integer",
+        "null"
+      ],
       "minimum": 1,
       "default": null,
       "description": "Candidates per pick that Stage 1's set cover scores with the full objective, selecting on occupancy-weighted coverage instead of unweighted bins. null (default) keeps the bin count. Measured: turning it on raises effective coverage and lowers selectivity density, at 3.5-8.4x the runtime. See docs/validation/stage_one_objective_2026-09-19.md."
@@ -565,6 +568,30 @@
       "minimum": 0,
       "maximum": 1,
       "description": "Multi-genome runs only: minimum coverage required on EVERY individual target. Unset by default, and 0.0 also means disabled. Aggregate coverage can hide a starved target, since a panel covering one target 0.9 and another 0.1 beats a balanced 0.5/0.5 panel on the mean. Checked and reported after selection; deliberately not repaired, because the repair scores candidate panels through compute_metrics, which does not populate per-target coverage."
+    },
+    "total_search_evaluations": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "default": null,
+      "description": "Total uncached shared panel-objective evaluations across stages and refills. Null retains per-stage budgets only."
+    },
+    "total_search_seconds": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "default": null,
+      "description": "Cooperative total search deadline in seconds; an in-flight solver call can overrun it."
+    },
+    "max_frontier_refills": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 4,
+      "description": "Maximum candidate frontier refills for one pool size or expansion."
     }
   }
 }

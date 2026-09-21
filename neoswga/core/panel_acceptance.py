@@ -11,15 +11,9 @@ This module is the bridge. It reads the limits a run configured, builds the same
 `PoolConstraints` `plan-pool` builds, evaluates the delivered panel against them
 and attempts the same bounded repair.
 
-**Every limit is unset by default and this module is inert until one is set.**
-That is deliberate rather than cautious. No spacing threshold derived from the
-polymerase reach separates the 18 published sets with wet-lab outcomes, the
-winners included, and a fitted weight is wrong for one of the two benchmarks
-either way; so NeoSWGA must not pick a limit, and a limit that changed a
-delivered panel unasked would be exactly the scoring change that evidence
-refuses. `constraints_from_parameter` returns `None` when nothing is configured,
-and a run that asks for nothing acquires no objective at all. See
-`docs/validation/getting_ahead_on_spacing_2026-09-18.md`.
+Every numeric limit is unset by default. The shared service still selects an
+explicit coverage metric when no extra panel limits were requested. Configured
+limits remain hard requirements rather than application-weighted score terms.
 
 The dimer guarantee stays outside, as it does in `PoolObjective`: it is a hard
 constraint on the delivered panel rather than a scoring term, and folding it in
@@ -32,7 +26,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Tuple
 
-from .pool_objective import PoolConstraints, PoolObjective
+from .pool_objective import PoolConstraints
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +150,9 @@ def enforce_constraints(
     would trade real coverage for a step toward a limit it never reaches, which
     was measured on the Wolbachia pool at an unreachable floor.
     """
-    objective = PoolObjective(optimizer.compute_metrics, constraints)
+    from .panel_refinement import objective_for_optimizer
+
+    objective = objective_for_optimizer(optimizer, constraints)
     panel = list(primers)
     violations = objective.violations(panel)
     repaired = False
@@ -211,30 +207,41 @@ def apply_configured_limits(
     Lives here rather than in `unified_optimizer` because it is acceptance
     logic, and because that module is at its size budget.
     """
-    from dataclasses import replace as _dc_replace
-
     # A limit on a quantity nothing measured would pass every panel, which
     # reads as compliance rather than as an absent measurement. Refuse loudly
     # rather than report a limit that was never evaluated.
     constraints.require_background(background_available)
 
-    report = enforce_constraints(
-        list(result.primers),
-        optimizer,
-        candidates=list(candidates or []),
-        constraints=constraints,
-        config=config,
-    )
-    if verbose:
-        report_acceptance(report)
+    from .optimization_service import repair_result
+    from .panel_refinement import objective_for_optimizer
 
-    if list(report.primers) == list(result.primers):
+    objective = objective_for_optimizer(optimizer, constraints)
+    updated, details = repair_result(result, optimizer, list(candidates or result.primers))
+    if verbose:
+        report_acceptance(
+            AcceptanceReport(
+                list(updated.primers),
+                objective.violations(updated.primers),
+                objective.shortfall(updated.primers),
+                _configured_values(constraints, objective.metrics(updated.primers)),
+                bool(details.get("succeeded")),
+            )
+        )
+    if updated is result:
         return None
-    return _dc_replace(
-        result,
-        primers=tuple(report.primers),
-        metrics=optimizer.compute_metrics(report.primers),
+    from dataclasses import replace
+
+    stage = dict(
+        details,
+        stage="repair",
+        before_size=len(result.primers),
+        after_size=len(updated.primers),
+        coverage=objective.coverage(updated.primers),
+        coverage_metric=objective.constraints.coverage_metric,
+        failed_constraints=list(objective.violations(updated.primers)),
+        changed=True,
     )
+    return replace(updated, stage_history=(*updated.stage_history, stage))
 
 
 @dataclass(frozen=True)

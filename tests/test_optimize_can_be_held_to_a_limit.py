@@ -200,4 +200,5 @@ class TestTheOptimizePathReachesIt:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
 
-        assert "enforce_constraints" in names
+        assert "repair_result" in names
+        assert "objective_for_optimizer" in names

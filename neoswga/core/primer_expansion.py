@@ -143,6 +143,7 @@ class ExpansionResult:
     # without the rule that produced it, and two runs under different rules
     # are not comparable. See `core/depth_policy.py`.
     depth_policy: Optional[Dict] = None
+    stage_history: tuple = ()
 
     @property
     def n_new(self) -> int:
@@ -174,6 +175,7 @@ class ExpansionResult:
             "predicted_improvement": self.predicted_improvement,
             "gaps_remaining": self.gaps_remaining,
             "optimization_method": self.optimization_method,
+            "stage_history": list(self.stage_history),
             "message": self.message,
             "depth_policy": self.depth_policy,
         }
@@ -213,6 +215,7 @@ class PrimerExpander:
         max_extension: Optional[int] = None,
         coverage_reach: Optional[int] = None,
         context=None,
+        candidate_source=None,
     ):
         """
         Initialize primer expander.
@@ -247,6 +250,7 @@ class PrimerExpander:
         # default of 3 kb whatever the polymerase is finding F7's
         # configuration half.
         self.context = context
+        self.candidate_source = candidate_source
         self.conditions = getattr(context, "conditions", None)
         self.max_dimer_bp = getattr(context, "max_dimer_bp", None)
         self.fg_circular = bool(getattr(context, "fg_circular", False))
@@ -417,6 +421,7 @@ class PrimerExpander:
             ExpansionResult with new and combined primer sets
         """
         failed_primers = failed_primers or []
+        self._excluded_primers = tuple(str(p).upper() for p in failed_primers)
         fixed_set = set(p.upper() for p in fixed_primers)
         failed_set = set(p.upper() for p in failed_primers)
 
@@ -512,7 +517,7 @@ class PrimerExpander:
             )
         elif optimization_method in ("dominating-set", "dominating_set", "ds"):
             result = self._expand_dominating_set(
-                candidates_filtered, fixed_primers, target_new, verbose
+                candidates_filtered, fixed_primers, target_new, verbose, target_gaps=target_gaps
             )
         else:
             raise ValueError(
@@ -562,6 +567,7 @@ class PrimerExpander:
             gaps_remaining=len(gaps_after),
             optimization_method=optimization_method,
             message=result.get("message", ""),
+            stage_history=tuple(result.get("stage_history", ())),
         )
 
     def _recovered_deficit_fraction(self, target_gaps, combined_set) -> float:
@@ -708,7 +714,11 @@ class PrimerExpander:
         from neoswga.core.pool_objective import PoolConstraints, PoolObjective
         from neoswga.core.swap_refinement import attach_search_config
 
-        inner = PoolObjective(optimizer.compute_metrics, PoolConstraints())
+        from .panel_refinement import objective_for_optimizer
+
+        inner = objective_for_optimizer(optimizer) or PoolObjective(
+            optimizer.compute_metrics, PoolConstraints()
+        )
         objective = DeficitObjective(
             inner,
             cache=self.cache,
@@ -765,6 +775,66 @@ class PrimerExpander:
             ),
         )
 
+    def _expand_configured(
+        self,
+        candidates,
+        fixed_primers,
+        target_new,
+        verbose,
+        method="hybrid",
+        target_gaps=None,
+        background_pruning=None,
+    ):
+        """Configured expansion uses the same panel stages as a new design."""
+        from .optimization_service import OptimizationRequest, panel_violations, run_panel_search
+        from .optimizer_factory import OptimizerFactory
+        from .panel_refinement import objective_for_optimizer
+        from .unified_optimizer import _ensure_optimizers_registered
+
+        _ensure_optimizers_registered()
+        optimizer = OptimizerFactory.create(
+            name=method,
+            position_cache=self.cache,
+            fg_prefixes=self.fg_prefixes,
+            fg_seq_lengths=self.fg_seq_lengths,
+            bg_prefixes=self.bg_prefixes,
+            bg_seq_lengths=self.bg_seq_lengths,
+            conditions=self.conditions,
+            config=self.context.optimizer_config(verbose=verbose, refinement_method="swap"),
+            polymerase=self.context.polymerase,
+            background_pruning=(
+                bool(self.bg_prefixes) if background_pruning is None else background_pruning
+            ),
+        )
+        objective_for_optimizer(optimizer, self.context.constraints)
+        if target_gaps:
+            self._attach_deficit_objective(optimizer, target_gaps, verbose)
+        result = run_panel_search(
+            OptimizationRequest(
+                optimizer,
+                tuple(candidates),
+                len(fixed_primers) + target_new,
+                fixed_primers=tuple(fixed_primers),
+                excluded_primers=getattr(self, "_excluded_primers", ()),
+                candidate_source=self.candidate_source,
+                prepare_candidates=(
+                    (lambda pool: self._filter_candidates_to_gaps(pool, target_gaps))
+                    if target_gaps
+                    else None
+                ),
+            )
+        )
+        violations = (
+            panel_violations(optimizer, result.primers) if result.primers else ("no panel found",)
+        )
+        if violations:
+            raise ValueError("Expansion did not find a qualifying pool: " + "; ".join(violations))
+        return {
+            "new_primers": [p for p in result.primers if p not in set(fixed_primers)],
+            "message": result.message,
+            "stage_history": list(result.stage_history),
+        }
+
     def _expand_hybrid(
         self,
         candidates: List[str],
@@ -787,6 +857,15 @@ class PrimerExpander:
         log rather than left for a reader to discover from a panel that quietly
         ignored one of the two.
         """
+        if self.context is not None:
+            return self._expand_configured(
+                candidates,
+                fixed_primers,
+                target_new,
+                verbose,
+                target_gaps=target_gaps,
+                background_pruning=background_pruning,
+            )
         wants_deficit = bool(target_gaps) and not background_pruning
         optimizer = self._build_hybrid_optimizer(
             background_pruning=background_pruning,
@@ -832,8 +911,18 @@ class PrimerExpander:
         fixed_primers: List[str],
         target_new: int,
         verbose: bool,
+        target_gaps=None,
     ) -> Dict:
         """Use dominating set optimizer for expansion."""
+        if self.context is not None:
+            return self._expand_configured(
+                candidates,
+                fixed_primers,
+                target_new,
+                verbose,
+                method="dominating-set",
+                target_gaps=target_gaps,
+            )
         from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 
         optimizer = DominatingSetOptimizer(
@@ -923,10 +1012,12 @@ def expand_primers(
     # Through the shared source. `expand-primers` exists to add primers to an
     # existing panel, so the pool it may draw from is the whole point, and the
     # CSV shortlist is a fraction of what the inventory retains.
-    from neoswga.core.candidate_source import open_source_or_list
+    from neoswga.core.candidate_source import open_design_source
 
+    context = design_context_from_params(params)
+    conditions = context.conditions
     shortlist = pd.read_csv(step3_path)["primer"].astype(str).tolist()
-    candidate_source = open_source_or_list(
+    candidate_source = open_design_source(
         data_dir,
         conditions.fingerprint() if hasattr(conditions, "fingerprint") else "",
         sorted({len(p) for p in shortlist}),
@@ -953,6 +1044,7 @@ def expand_primers(
         bg_prefixes=bg_prefixes,
         bg_seq_lengths=bg_seq_lengths,
         context=context,
+        candidate_source=candidate_source,
     )
 
     # Build target gaps: in-silico gaps from the fixed set, optionally merged

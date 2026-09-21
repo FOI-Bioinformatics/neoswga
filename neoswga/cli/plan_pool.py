@@ -140,10 +140,24 @@ def _sweep_over_grid(
             "design each condition from."
         )
 
-    constraints = PoolConstraints(
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from neoswga.core.panel_acceptance import constraints_from_parameter
+
+    constraints = replace(
+        constraints_from_parameter(SimpleNamespace(**params)) or PoolConstraints(),
         coverage_metric=args.coverage_metric,
-        min_selectivity_density=args.min_selectivity_density,
-        max_background_sites=args.max_background_sites,
+        min_selectivity_density=(
+            args.min_selectivity_density
+            if args.min_selectivity_density is not None
+            else params.get("min_selectivity_density")
+        ),
+        max_background_sites=(
+            args.max_background_sites
+            if args.max_background_sites is not None
+            else params.get("max_background_sites")
+        ),
     )
 
     def run_design(condition, length, sizes, coverage_targets, constraints, provider):
@@ -172,6 +186,7 @@ def _sweep_over_grid(
             max_background_sites=constraints.max_background_sites,
             coverage_metric=constraints.coverage_metric,
             repair=not args.no_repair,
+            panel_constraints=constraints,
         )
 
     with CandidateInventory(inventory_path) as inventory:
@@ -270,7 +285,7 @@ def run_plan_pool(args):
     swap_max_evaluations = (
         args.swap_max_evaluations
         if args.swap_max_evaluations is not None
-        else OptimizerConfig.swap_max_evaluations
+        else params.get("swap_max_evaluations", OptimizerConfig.swap_max_evaluations)
     )
     config = context.optimizer_config(
         refinement_method="swap",
@@ -319,6 +334,7 @@ def run_plan_pool(args):
         coverage_metric=args.coverage_metric,
         repair=not args.no_repair,
         progress=lambda n: logger.info("Evaluating a pool of up to %d oligos", n),
+        panel_constraints=context.constraints,
     )
     plan["inputs"] = dict(
         params=str(source),

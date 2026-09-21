@@ -164,14 +164,23 @@ def test_reported_coverage_is_a_real_fraction(optimized):
     assert 0.0 < coverage <= 1.0, coverage
 
 
-def test_selected_primers_come_from_the_scored_pool(optimized, scored_primers):
-    """The optimizer must choose from the candidates, not invent sequences."""
+def test_selected_primers_come_from_the_searchable_pool(optimized, searchable_primers):
+    """The optimizer must choose from the candidates, not invent sequences.
+
+    Checked against the universe the run was allowed to search rather than
+    against `step3_df.csv`. The CSV holds the `max_primer` shortlist while the
+    inventory holds every hard-QC survivor, and a design searches the inventory
+    when the directory has one (audit finding F1), so the shortlist is a strict
+    subset of the legitimate answers. Comparing against it failed on a primer
+    that was correctly reachable, which looks like the invention this test is
+    written to catch and is not.
+    """
     path = os.path.join(optimized["data_dir"], "step4_improved_df_summary.json")
     summary = json.loads(open(path).read())
 
     chosen = summary.get("primers") or []
     assert chosen, "optimize selected no primers"
-    assert set(chosen) <= set(scored_primers), set(chosen) - set(scored_primers)
+    assert set(chosen) <= set(searchable_primers), set(chosen) - set(searchable_primers)
 
 
 def test_coverage_is_scored_at_the_realistic_reach(optimized):

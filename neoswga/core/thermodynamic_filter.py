@@ -26,6 +26,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from neoswga.core.exceptions import DesignError, ModelEvaluationError
 from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.secondary_structure import check_hairpins, check_heterodimer, check_homodimer
 from neoswga.core.thermodynamics import calculate_free_energy, calculate_tm_with_salt, gc_content
@@ -63,12 +64,23 @@ def _check_heterodimer_pair(args):
         conditions = ReactionConditions(**conditions_dict)
         result = check_heterodimer(seq1, seq2, conditions)
         dg = result.get("energy", 0.0)
-        if dg == float("inf") or dg > 0:
-            dg = 0.0
-        return (i, j, dg)
-    except Exception as e:
-        logger.debug(f"Ignored error in heterodimer check for pair ({i}, {j}): {e}")
-        return (i, j, 0.0)
+    except DesignError:
+        raise
+    except Exception as exc:
+        # Zero free energy is the most permissive answer this screen has: it
+        # says the pair does not dimerise. Returning it for a check that FAILED
+        # admits exactly the pairs the screen exists to reject, and the
+        # delivered panel then carries a duplex nobody measured. The pair is
+        # named so the failure record can identify it.
+        raise ModelEvaluationError("heterodimer_dg", f"{seq1}/{seq2}", str(exc)) from exc
+
+    if dg is None or (isinstance(dg, float) and dg != dg):
+        raise ModelEvaluationError("heterodimer_dg", f"{seq1}/{seq2}", "non-finite result")
+    # A positive or infinite duplex free energy means no stable duplex forms.
+    # That IS a measurement, and zero is its correct representation here.
+    if dg == float("inf") or dg > 0:
+        dg = 0.0
+    return (i, j, dg)
 
 
 @dataclass

@@ -1,24 +1,9 @@
-"""Phase 17D — loud failure when ReactionConditions cannot be built.
-
-Previously, a bare `except Exception` around ReactionConditions()
-caught out-of-bounds additive concentrations (e.g. formamide>10%),
-logged at debug/warning, set conditions=None, and let the optimizer
-run additive-blind. The user's wet-lab cocktail was silently ignored
-and the Tm estimates were off by several degrees.
-
-These tests lock in the Phase 17D behaviour:
-- The catch is narrowed to (ValueError, TypeError, KeyError) so
-  genuine bugs still propagate.
-- Logging level is ERROR, not debug.
-- A `reaction_conditions_init_failed` warning shows up in the
-  validator report so Phase 17A surfaces it in the HTML.
-"""
+"""Invalid requested chemistry aborts before any design is attempted."""
 
 import logging
 
 import pytest
 
-from neoswga.core.base_optimizer import OptimizationStatus
 from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.unified_optimizer import run_optimization
 
@@ -30,21 +15,14 @@ def test_formamide_out_of_bounds_raises_valueerror():
         ReactionConditions(formamide_percent=15.0)
 
 
-def test_run_optimization_logs_error_on_bad_conditions(caplog, monkeypatch):
-    """Out-of-bounds formamide must emit an ERROR-level log line — not
-    a debug, not a warning — so CLI users see it in their terminal."""
+def test_run_optimization_rejects_bad_conditions(monkeypatch):
     from neoswga.core import parameter as param_mod
 
     monkeypatch.setattr(param_mod, "formamide_percent", 15.0, raising=False)
     monkeypatch.setattr(param_mod, "polymerase", "phi29", raising=False)
     monkeypatch.setattr(param_mod, "reaction_temp", 30.0, raising=False)
-
-    with caplog.at_level(logging.ERROR, logger="neoswga.core.unified_optimizer"):
-        # Phase 17D: ReactionConditions construction now happens BEFORE
-        # the 17C empty-candidate guard, so a bad formamide value is
-        # reported first. Empty candidates still short-circuit afterwards
-        # (which is why this call returns quickly without a real pool).
-        result = run_optimization(
+    with pytest.raises(ValueError, match="Formamide"):
+        run_optimization(
             method="hybrid",
             candidates=[],
             fg_prefixes=["x"],
@@ -52,16 +30,6 @@ def test_run_optimization_logs_error_on_bad_conditions(caplog, monkeypatch):
             target_size=3,
             verbose=False,
         )
-
-    # The error log message must contain the specific bound-violation
-    # text and the actionable hint.
-    error_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
-    assert any("ReactionConditions construction failed" in m for m in error_msgs), (
-        f"Expected an ERROR-level log line about ReactionConditions, " f"got: {error_msgs}"
-    )
-    assert any(
-        "Formamide" in m for m in error_msgs
-    ), "Error log should echo the specific out-of-bounds additive"
 
 
 def test_narrow_catch_propagates_genuine_bugs(monkeypatch):

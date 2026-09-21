@@ -29,8 +29,27 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from neoswga.core.exceptions import ModelEvaluationError, NeoSWGAError
 from neoswga.core.utility import complement as _util_complement
 from neoswga.core.utility import reverse as _util_reverse
+
+
+class InvalidSequenceError(NeoSWGAError):
+    """A supplied sequence is not DNA this model can evaluate.
+
+    A named QC rejection, deliberately NOT a `DesignError`. The distinction
+    matters at the point where a batch is screened: a user sequence carrying a
+    base outside ACGT is a fact about the input and is reported as such, while
+    a nearest-neighbour table that fails to load is an absence of measurement
+    and fails the run. Both used to become NaN, which is the same value.
+    """
+
+    def __init__(self, sequence: str, reason: str, qc_reason: str = "invalid_sequence"):
+        self.sequence = sequence
+        self.reason = reason
+        self.qc_reason = qc_reason
+        super().__init__(f"Cannot evaluate sequence {sequence!r}: {reason}")
+
 
 logger = logging.getLogger(__name__)
 
@@ -971,6 +990,29 @@ def log_cache_stats(label: str = "") -> None:
 # ========================================
 
 
+_EVALUABLE_BASES = frozenset("ACGT")
+
+
+def _require_evaluable_sequence(sequence) -> str:
+    """Named QC rejections for input this model cannot evaluate at all.
+
+    Raised before the calculation so that an unevaluable input is reported as
+    the input problem it is. Everything that gets past here and still fails is
+    a model failure, which is a different event with a different remedy.
+    """
+    if not isinstance(sequence, str) or not sequence:
+        raise InvalidSequenceError(str(sequence), "empty or not a string", "empty_sequence")
+    upper = sequence.upper()
+    unknown = sorted(set(upper) - _EVALUABLE_BASES)
+    if unknown:
+        raise InvalidSequenceError(
+            sequence,
+            f"contains non-ACGT base(s): {''.join(unknown)}",
+            "invalid_base",
+        )
+    return upper
+
+
 def calculate_tm_batch(
     sequences: List[str], na_conc: float = 50.0, mg_conc: float = 0.0, primer_conc: float = 0.5e-6
 ) -> np.ndarray:
@@ -997,16 +1039,16 @@ def calculate_tm_batch(
     tm_values = np.zeros(n_seqs)
 
     for i, seq in enumerate(sequences):
+        _require_evaluable_sequence(seq)
         try:
-            tm_values[i] = calculate_tm_with_salt(seq, na_conc, mg_conc, primer_conc)
-        except (ValueError, KeyError) as e:
-            # Handle expected errors: invalid bases, missing NN parameters
-            logger.debug(f"Could not calculate Tm for sequence {seq}: {e}")
-            tm_values[i] = np.nan
-        except Exception as e:
-            # Log unexpected errors for debugging
-            logger.warning(f"Unexpected error calculating Tm for sequence {seq}: {e}")
-            tm_values[i] = np.nan
+            value = calculate_tm_with_salt(seq, na_conc, mg_conc, primer_conc)
+        except InvalidSequenceError:
+            raise
+        except Exception as exc:
+            raise ModelEvaluationError("tm", seq, str(exc)) from exc
+        if not np.isfinite(value):
+            raise ModelEvaluationError("tm", seq, f"non-finite result ({value})")
+        tm_values[i] = value
 
     return tm_values
 

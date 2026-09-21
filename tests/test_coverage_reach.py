@@ -244,7 +244,33 @@ def test_product_reach_falls_back_rather_than_inventing_a_number():
     assert product_reach("phi29") == 10000
 
 
-def test_an_unknown_polymerase_does_not_raise():
-    from neoswga.core.coverage import product_reach
+def test_an_unknown_polymerase_is_refused_rather_than_given_a_default_reach():
+    """Reverses a 2026-09-21 expectation, deliberately.
 
-    assert product_reach("not-a-polymerase") > 0
+    This used to assert that an unknown polymerase returned a positive number,
+    on the reasoning that a reach is always needed. The valid-design contract
+    reverses it: reach is the scale factor on every coverage figure the report
+    prints, so substituting 10 kb for a polymerase nobody modelled reports a
+    coverage the user cannot trace to anything. The same wMel panel reads 41.3%
+    at 1 kb and 93.5% at 5 kb.
+
+    The message names the supported set, so the remedy is in the failure.
+    """
+    import pytest
+
+    from neoswga.core.coverage import polymerase_extension_reach, product_reach
+    from neoswga.core.exceptions import UnsupportedModelError
+
+    with pytest.raises(UnsupportedModelError, match="phi29"):
+        product_reach("not-a-polymerase")
+    with pytest.raises(UnsupportedModelError):
+        polymerase_extension_reach("not-a-polymerase")
+
+
+def test_a_known_polymerase_still_resolves_without_its_default_argument():
+    """The `default` arguments are now unreachable, and that is the point."""
+    from neoswga.core.coverage import polymerase_extension_reach, product_reach
+
+    assert polymerase_extension_reach("phi29") == 3000
+    assert polymerase_extension_reach("phi29", coverage_metric="processivity") == 70000
+    assert product_reach("phi29") == 10000

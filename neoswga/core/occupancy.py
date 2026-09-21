@@ -191,6 +191,7 @@ def discrimination_profile(primers, conditions) -> "DiscriminationProfile":
     empty profile is returned rather than a fabricated number, which would read
     exactly like a measured one.
     """
+    from neoswga.core.exceptions import DesignError, ModelEvaluationError
     from neoswga.core.thermodynamics import calculate_enthalpy_entropy
 
     empty = DiscriminationProfile(0, 0.0, 0.0, False, "")
@@ -206,8 +207,16 @@ def discrimination_profile(primers, conditions) -> "DiscriminationProfile":
         try:
             dh, _ = calculate_enthalpy_entropy(str(primer))
             tm = conditions.calculate_effective_tm(str(primer))
-        except Exception:
-            continue
+        except DesignError:
+            raise
+        except Exception as exc:
+            # Skipping a failed primer leaves a mean over an unknown subset,
+            # reported with the same authority as a mean over the whole pool.
+            # The number this diagnostic exists to produce -- "can this pool
+            # discriminate at all" -- is exactly the number a systematic
+            # failure would bias, because the primers whose parameters are
+            # missing are not a random sample of the pool.
+            raise ModelEvaluationError("discrimination", str(primer), str(exc)) from exc
         matched = site_occupancy(dh, tm, temp)
         mismatched = site_occupancy(dh, mismatch_tm(tm, 1), temp)
         if mismatched <= 0:

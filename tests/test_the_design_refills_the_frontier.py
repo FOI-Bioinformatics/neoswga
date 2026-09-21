@@ -269,3 +269,37 @@ def test_the_refill_budget_is_honoured():
 def test_a_refill_budget_that_is_not_a_non_negative_integer_is_refused(budget):
     with pytest.raises(ValueError):
         OptimizerConfig(max_frontier_refills=budget).validate()
+
+
+def test_feasible_pool_below_coverage_target_refills():
+    class CoverageOptimizer(_Optimizer):
+        def compute_metrics(self, primers):
+            metrics = super().compute_metrics(primers)
+            metrics.selectivity_density = 20
+            metrics.effective_fg_coverage = 0.95 if POOL[2] in primers else 0.8
+            return metrics
+
+    source = _GrowingSource(POOL[:3], frontier=1)
+    plan = plan_pool(
+        CoverageOptimizer(), source, [1], [0.9], min_selectivity_density=10, repair=False
+    )
+    assert plan["rows"][0]["coverage"] == 0.95
+    assert source.advances == 2
+
+
+def test_refill_keeps_better_feasible_incumbent():
+    class CoverageOptimizer(_Optimizer):
+        def compute_metrics(self, primers):
+            metrics = super().compute_metrics(primers)
+            metrics.selectivity_density = 20
+            metrics.effective_fg_coverage = 0.95 if POOL[0] in primers else 0.8
+            return metrics
+
+    source = _GrowingSource(POOL[:3], frontier=1)
+    plan = plan_pool(
+        CoverageOptimizer(), source, [1], [0.99], min_selectivity_density=10, repair=False
+    )
+    row = plan["rows"][0]
+    assert row["primers"] == [POOL[0]]
+    assert row["coverage"] == 0.95
+    assert len(row["frontier_attempts"]) == 3
