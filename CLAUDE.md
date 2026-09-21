@@ -847,6 +847,54 @@ against `registry/views.as_characteristics()` by a test, so the two cannot
 disagree silently; read the prose document as commentary rather than as the
 record.
 
+## One panel assessment, and a coverage oracle that is not the code
+
+`core/panel_evaluation.py` holds `evaluate_panel(request, oligos, metrics) ->
+PanelAssessment`: one immutable record carrying the panel, the request hash,
+every metric WITH its units and the reach and denominator it was computed at,
+per-target results, every hard-constraint violation, and qualification as a
+boolean that is true exactly when there are none.
+
+Three rules it enforces, each for a failure this project has seen the shape of:
+
+- **A non-finite required quantity fails the run.** NaN compares False against
+  every threshold, so a panel carrying one passes no limit and fails no limit.
+- **Unavailable and zero have different representations.** A panel that binds
+  the host nowhere and a panel whose host index was never opened both read zero
+  otherwise. `Measurement` refuses to hold both a value and a reason for not
+  having one.
+- **A verified zero background is a zero denominator, not a ratio.**
+  `base_optimizer` reports `MAX_SELECTIVITY` (1e6) there, deliberately, because
+  it is finite and JSON carries it; its own docstring says that means "no
+  background binding was detected", not "measured this well", which concedes a
+  reader cannot tell them apart from the number. The assessment says undefined
+  and why, and keeps the site count. The sentinel is left in place because
+  changing it moves every saved summary.
+
+It is NOT yet routed through the optimizer, the acceptance path or the report.
+Those still assemble their own answers, which is the rest of Task 5.
+
+`tests/test_coverage_independent_oracle.py` checks coverage against a
+base-by-base oracle written in that file. It calls neither
+`merged_window_intervals` nor `_mark_window` nor anything they call, so
+agreement is evidence rather than a restatement. It is deliberately the slow
+implementation production replaced: the fast one accumulates log(1 - theta) at
+window edges, and an edge-accounting error is invisible from inside that
+formulation. Verified load-bearing by mutating the production grouping from
+per-primer to per-site, which fails four of its cases.
+
+The window convention, measured rather than assumed: a site at `pos` with reach
+`r` covers `[pos - r, pos + r)`, so a window is `2r` wide.
+
+**The two production coverage paths disagree across a record join, measured and
+not fixed.** `compute_per_prefix_coverage` marks through `_mark_window` WITH
+record starts, so a window stops at a contig edge. `_union_coverage` and the
+occupancy path go through `merged_window_intervals`, which takes no record
+starts by design. On the fixture in that file a site 2 bases before a join
+covers 12 bases confined and 20 unconfined. So a multi-record reference has two
+coverage figures and which one a reader sees depends on the code path. The test
+asserts both numbers so the gap cannot grow unnoticed.
+
 ## Testing
 
 ```bash
