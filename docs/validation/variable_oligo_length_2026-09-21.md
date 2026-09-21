@@ -111,13 +111,32 @@ measuring that an occupancy gate makes delivered panels worse on both axes. A
 test walks the package and fails if any caller reads the threshold. It is
 silent on a single-length design, so no existing run gains output.
 
-## What was not established
+## The locking failure was a concurrent run, not mixed length
 
-The recorded HDF5 `BlockingIOError` from `tests/validation/genomes/f_mixed.log`
-did not reproduce. A mixed-length `filter` run over k 10-12 on the same
-Prevotella and chr21 pair, in a clean directory, completed in 146 s with exit
-status 0. That is evidence that mixed length alone does not cause it, and not
-evidence about what does.
+`tests/validation/genomes/f_mixed.log` records a `BlockingIOError: [Errno 35]
+unable to lock file` from a mixed-length run. Mixed length was the suspect
+because it is what the config changed.
+
+| runs | attempts | reproduced the error |
+|---|---|---|
+| two processes, one data directory | 7 | 6 |
+| one process, including multi-k | 6 | 0 |
+
+A mixed k 10-12 `filter` over the same Prevotella and chr21 pair, in a clean
+directory, completed in 146 s with exit status 0. The recorded traceback
+differs from the reproduction only in `h5f.open` against `h5f.create`, which is
+whether the target file already existed.
+
+The directory holding the recorded log has about 60 run logs in it, which is
+what made a concurrent run the likelier explanation once it was tested rather
+than assumed.
+
+The remedy is a message, not a change to the scan. `core/concurrent_runs.py`
+translates the error at the step boundary; steps 2, 3 and 4 each consult it.
+Verified against a real collision: four concurrent filters over one directory,
+three lost the lock, and all three printed the message naming the directory and
+the cause. Nothing takes a lock or retries, because a retry loop would hide a
+genuine second process.
 
 ## Caveats
 

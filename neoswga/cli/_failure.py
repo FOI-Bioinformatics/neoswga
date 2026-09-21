@@ -17,12 +17,18 @@ Known Issue 12 records what a heavier import chain costs there.
 import json
 import logging
 import os
+import sys
 
 from neoswga.core.design_result import RunState, describe_failure
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["RunState", "write_failure_artifact", "report_design_failure"]
+__all__ = [
+    "RunState",
+    "exit_on_step_failure",
+    "report_design_failure",
+    "write_failure_artifact",
+]
 
 
 def _data_dir_from_params_file(json_file):
@@ -169,3 +175,34 @@ def clear_failure_artifact(directory):
         return
     except OSError as exc:  # pragma: no cover - unwritable directory
         logger.debug("Could not clear the failure record at %s: %s", path, exc)
+
+
+def exit_on_step_failure(step_name, error, logger, data_dir=None):
+    """Report a step's failure the one way, then exit nonzero.
+
+    Steps 2, 3 and 4 each had this block inline and they had drifted: only
+    one of them explained an HDF5 lock collision, which is the failure a user
+    is most likely to hit and least likely to diagnose. Keeping it in one
+    place is what stops the next addition landing in one step and not the
+    others.
+
+    `DesignError` does not come here. It carries its own record and is
+    re-raised to the command boundary; see `report_design_failure`.
+    """
+    import logging as _logging
+
+    from neoswga.core.concurrent_runs import locked_file_advice
+
+    logger.error(f"{step_name} failed: {error}")
+    advice = locked_file_advice(error, data_dir)
+    if advice:
+        logger.error(advice)
+    if logger.level <= _logging.DEBUG:
+        import traceback
+
+        traceback.print_exc()
+    else:
+        # Step 4 alone printed this hint. Another drift the three inline
+        # copies had accumulated, and the reason they are now one.
+        logger.error("Run with --verbose for full traceback")
+    sys.exit(1)

@@ -21,6 +21,7 @@ from neoswga.cli._common import (
     validate_params_json_file,
     warn_on_condition_drift,
 )
+from neoswga.cli._failure import exit_on_step_failure
 from neoswga.cli._optimize_parser import _add_optimize_option_groups
 from neoswga.cli._params_preread import (
     apply_polymerase_choice,
@@ -382,12 +383,7 @@ def run_step2(args):
     except DesignError:
         raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
-        logger.error(f"Step 2 failed: {e}")
-        if logger.level <= logging.DEBUG:
-            import traceback
-
-            traceback.print_exc()
-        sys.exit(1)
+        exit_on_step_failure("Step 2", e, logger, getattr(parameter, "data_dir", None))
     _data_dir = getattr(parameter, "data_dir", None)
     _step2_out = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
     _elapsed = _time.time() - _t0
@@ -484,12 +480,7 @@ def run_step3(args):
     except DesignError:
         raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
-        logger.error(f"Step 3 failed: {e}")
-        if logger.level <= logging.DEBUG:
-            import traceback
-
-            traceback.print_exc()
-        sys.exit(1)
+        exit_on_step_failure("Step 3", e, logger, getattr(parameter, "data_dir", None))
     _data_dir = getattr(parameter, "data_dir", None)
     _step3_in = os.path.join(_data_dir, "step2_df.csv") if _data_dir else None
     _step3_out = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
@@ -1210,14 +1201,7 @@ def run_step4(args):
     except DesignError:
         raise  # the boundary writes the record; see `cli/_failure.py`
     except Exception as e:
-        logger.error(f"Step 4 failed: {e}")
-        if logger.level <= logging.DEBUG:
-            import traceback
-
-            traceback.print_exc()
-        else:
-            logger.error("Run with --verbose for full traceback")
-        sys.exit(1)
+        exit_on_step_failure("Step 4", e, logger, getattr(parameter, "data_dir", None))
 
 
 def run_build_filter(args):

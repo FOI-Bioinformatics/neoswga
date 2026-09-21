@@ -2009,6 +2009,26 @@ package, because nothing in the search uses it.
     the same quantity. Silent on a single-length design
     ([measurement](docs/validation/variable_oligo_length_2026-09-21.md)).
 
-    Not established: the recorded HDF5 `BlockingIOError` in
-    `tests/validation/genomes/f_mixed.log` did not reproduce. A mixed k 10-12
-    `filter` over the same pair in a clean directory completed in 146 s.
+21. **The HDF5 lock failure is two runs sharing a data directory, not mixed
+    length** -- established 2026-09-21. `tests/validation/genomes/f_mixed.log`
+    records `BlockingIOError: [Errno 35] unable to lock file` from a
+    mixed-length run, and mixed length was blamed because that is what the
+    config changed.
+
+    Two neoswga processes against one directory reproduced the identical error
+    in 6 of 7 attempts; 6 of 6 single-process runs completed cleanly, including
+    a multi-k one over the same references. A mixed k 10-12 `filter` in a clean
+    directory takes 146 s and exits 0. The recorded traceback differs from the
+    reproduction only in `h5f.open` against `h5f.create`, which is whether the
+    target file already existed. That directory holds about 60 run logs, which
+    is what made a concurrent run the likelier explanation once it was tested
+    rather than assumed.
+
+    `core/concurrent_runs.py` translates it at the step boundary: steps 2, 3
+    and 4 all write HDF5 and each consults it. No lock is taken and no retry is
+    attempted -- a retry loop would hide a genuine second process, and two
+    designs writing one directory have a provenance problem that outlasts the
+    lock. The message steers AWAY from `HDF5_USE_FILE_LOCKING=FALSE`, which is
+    the usual first hit for this error and risks a corrupt index. The predicate
+    matches on errno AND message, because EAGAIN alone is raised by unrelated
+    things. Tests: `tests/test_two_runs_sharing_a_directory_say_so.py`.
