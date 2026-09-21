@@ -20,6 +20,27 @@ from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.thermodynamics import reverse_complement
 
 
+def _record_count(genome):
+    """How many records a FASTA holds, or None when it cannot be read.
+
+    Counts header lines and nothing else. `get_cached_record_boundaries` would
+    answer the same question by loading the whole sequence, which is 8.5 GB of
+    resident memory for hg38 and absurd for a question answerable by counting
+    ">" at the start of a line.
+    """
+    if not genome:
+        return None
+    try:
+        count = 0
+        with open(genome, "rb") as handle:
+            for line in handle:
+                if line.startswith(b">"):
+                    count += 1
+        return count or None
+    except OSError:
+        return None
+
+
 class MissingPositionsError(RuntimeError):
     """Raised when primers have no cached binding positions.
 
@@ -628,7 +649,30 @@ class PositionCache:
                 return "built from a different reference"
 
         if not self.get_record_starts(prefix):
-            return "no record geometry"
+            # No geometry recorded. That only matters when the reference has
+            # joins for a window to cross: a single-record reference has none,
+            # so confining a window to "its record" and not confining it are
+            # the same operation, and refusing it would force a recount for a
+            # defect that cannot apply.
+            #
+            # The shipped Wolbachia example is exactly this case. Its wMel
+            # index carries no record starts and wMel is one record, while its
+            # Drosophila index carries none and Drosophila has 1,870 -- so the
+            # first is usable and the second is not, and a rule that cannot
+            # tell them apart either blocks a valid design or admits an
+            # inflated coverage figure.
+            records = _record_count(genome)
+            if records is not None and records > 1:
+                return f"no record geometry, and the reference holds {records} records"
+            # One record, or no genome to ask. A single-record reference needs
+            # no geometry, and without the genome this layer cannot tell the
+            # two apart -- so the question moves to `reference_check`, which
+            # runs against the resolved request and therefore knows which
+            # genome each prefix belongs to. Deciding it here would mean
+            # reading `parameter.fg_genomes` and pairing it with the prefixes
+            # this call was GIVEN, which is the defect that made a design
+            # refuse its own index under `pytest -n 8`.
+            return None
         return None
 
     def get_record_starts(self, fname_prefix: str) -> List[int]:

@@ -26,10 +26,11 @@ import os
 from typing import Mapping, Sequence
 
 from .exceptions import ReferenceDataError
+from .string_search import RECORD_STARTS_KEY
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["verify_reference_digests"]
+__all__ = ["verify_reference_digests", "verify_index_geometry"]
 
 
 def verify_reference_digests(manifest: Mapping[str, str], lengths: Sequence[int]) -> None:
@@ -96,3 +97,80 @@ def _recorded_digest(path: str):
             "Regenerate it with 'neoswga count-kmers' followed by 'neoswga filter'.",
         ) from exc
     return None if value is None else str(value)
+
+
+def verify_index_geometry(manifest: Mapping[str, str], lengths: Sequence[int]) -> None:
+    """Refuse an index with no record geometry for a multi-record reference.
+
+    Record starts let a coverage window stop at a contig edge. An index
+    without them lets the window run into the next record, crediting a panel
+    with covering bases on a contig its site is not on, which on a fragmented
+    assembly inflates coverage throughout.
+
+    A SINGLE-record reference has no joins, so the geometry is not merely
+    absent but unnecessary, and refusing it would force a recount for a defect
+    that cannot apply. The shipped Wolbachia example is exactly that pair: its
+    wMel index carries no record starts and wMel is one record, while its
+    Drosophila index carries none and Drosophila has 1,870.
+
+    This lives beside the digest check rather than in `PositionCache` for the
+    same reason: which genome a prefix belongs to is a relation only the
+    resolved request knows. Deciding it inside the evaluator means reading a
+    mutable global and pairing it with the prefixes the call was given, which
+    is how a design came to refuse its own index under `pytest -n 8`.
+    """
+    if not manifest:
+        return
+
+    import h5py
+
+    problems = []
+    for prefix, genome in sorted(manifest.items()):
+        paths = [f"{prefix}_{k}mer_positions.h5" for k in lengths]
+        existing = [path for path in paths if os.path.exists(path)]
+        if not existing:
+            continue
+        records = _count_records(genome)
+        if records is None or records <= 1:
+            continue
+        for path in existing:
+            try:
+                with h5py.File(path, "r") as handle:
+                    has_geometry = RECORD_STARTS_KEY in handle
+            except OSError as exc:
+                raise ReferenceDataError(
+                    f"position index {path}",
+                    f"cannot be opened ({exc})",
+                    "Regenerate it with 'neoswga count-kmers' then 'neoswga filter'.",
+                ) from exc
+            if not has_geometry:
+                problems.append(f"{path}: no record geometry, and {genome} holds {records} records")
+
+    if not problems:
+        return
+    raise ReferenceDataError(
+        "position index",
+        "; ".join(problems),
+        "Regenerate with 'neoswga count-kmers -j params.json' followed by "
+        "'neoswga filter -j params.json'. Without record starts a coverage "
+        "window runs past a contig edge into the next record.",
+    )
+
+
+def _count_records(genome) -> "int | None":
+    """Header lines in a FASTA, or None when it cannot be read.
+
+    Counting ">" rather than loading the sequence: the loader would hold 8.5 GB
+    for hg38 to answer a question this settles by reading bytes.
+    """
+    if not genome or not os.path.exists(str(genome)):
+        return None
+    try:
+        count = 0
+        with open(genome, "rb") as handle:
+            for line in handle:
+                if line.startswith(b">"):
+                    count += 1
+        return count or None
+    except OSError:
+        return None

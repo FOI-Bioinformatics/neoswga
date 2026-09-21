@@ -110,12 +110,27 @@ def test_a_prefix_the_cache_never_indexed_is_refused(indexed):
         cache.get_positions("host", PRIMER, "both")
 
 
-def test_an_index_without_record_geometry_is_refused(tmp_path):
+def test_an_index_without_record_geometry_is_refused_when_the_reference_has_joins(tmp_path):
+    """The decision moved layers on 2026-09-21; the refusal did not go away.
+
+    `PositionCache` used to refuse any index lacking record starts. That is
+    right for a multi-record reference and wrong for a single-record one,
+    where there are no joins and the geometry is unnecessary rather than
+    missing -- and the cache cannot tell the two apart, because which genome
+    a prefix belongs to is a relation only the resolved request knows.
+
+    So the cache no longer decides it, and `reference_check` does, against
+    the manifest. The refusal is asserted here through that path.
+    """
+    from neoswga.core.reference_check import verify_index_geometry
+
     prefix = str(tmp_path / "old")
     write_index(prefix, record_starts=None)
+    fasta = tmp_path / "joined.fna"
+    fasta.write_text(">a\nACGTACGT\n>b\nTTTTGGGG\n")
 
     with pytest.raises(ReferenceDataError, match="record geometry"):
-        PositionCache([prefix], [PRIMER]).require_record_metadata([prefix])
+        verify_index_geometry({prefix: str(fasta)}, [12])
 
 
 def test_an_index_of_an_older_format_is_refused(tmp_path, genome):
@@ -166,7 +181,7 @@ def test_the_matching_reference_passes_the_same_check(tmp_path, genome):
 
 def test_an_index_with_no_recorded_digest_is_refused_when_one_is_expected(tmp_path, genome):
     """Unknown is not "matches". An index predating the digest cannot be vouched for."""
-    prefix = str(tmp_path / "nodigest"),
+    prefix = (str(tmp_path / "nodigest"),)
     prefix = prefix[0]
     write_index(prefix, genome=None)
     with h5py.File(f"{prefix}_12mer_positions.h5", "a") as handle:
@@ -326,3 +341,83 @@ def test_an_index_with_no_recorded_digest_is_unknown_not_matching(tmp_path, geno
 
     with pytest.raises(ReferenceDataError, match="no recorded reference digest"):
         verify_reference_digests({prefix: str(genome)}, [12])
+
+
+# ---------------------------------------------------------------------------
+# Geometry is only required where there are joins to cross
+# ---------------------------------------------------------------------------
+
+
+def write_bare_index(prefix, sites=(5, 70)):
+    """An index with datasets and no record geometry at all."""
+    with h5py.File(f"{prefix}_12mer_positions.h5", "w") as handle:
+        handle.create_dataset(PRIMER, data=list(sites))
+
+
+def test_a_single_record_reference_needs_no_geometry(tmp_path):
+    """Refusing it would force a recount for a defect that cannot apply.
+
+    With one record there are no joins, so confining a window to its record
+    and not confining it are the same operation. The shipped Wolbachia
+    example is this case: its wMel index carries no record starts and wMel is
+    one record.
+    """
+    from neoswga.core.reference_check import verify_index_geometry
+
+    fasta = tmp_path / "one.fna"
+    fasta.write_text(">only\n" + "ACGT" * 30 + "\n")
+    prefix = str(tmp_path / "single")
+    write_bare_index(prefix)
+
+    verify_index_geometry({prefix: str(fasta)}, [12])
+
+
+def test_a_multi_record_reference_without_geometry_is_refused(tmp_path):
+    """1,870 records is the real case: Drosophila in the same example.
+
+    Without record starts a window runs past a contig edge into the next
+    record, crediting the panel with covering bases its site is nowhere near.
+    """
+    from neoswga.core.reference_check import verify_index_geometry
+
+    fasta = tmp_path / "many.fna"
+    fasta.write_text(">a\nACGTACGT\n>b\nTTTTGGGG\n>c\nCCCCAAAA\n")
+    prefix = str(tmp_path / "multi")
+    write_bare_index(prefix)
+
+    with pytest.raises(ReferenceDataError, match="3 records"):
+        verify_index_geometry({prefix: str(fasta)}, [12])
+
+
+def test_a_multi_record_reference_with_geometry_passes(tmp_path, genome):
+    from neoswga.core.reference_check import verify_index_geometry
+
+    prefix = str(tmp_path / "proper")
+    write_index(prefix, record_starts=[0, 60], genome=str(genome))
+
+    verify_index_geometry({prefix: str(genome)}, [12])
+
+
+def test_a_prefix_with_no_genome_is_not_judged_on_geometry(tmp_path):
+    """Undecidable, so not decided. The evaluator cannot know either."""
+    from neoswga.core.reference_check import verify_index_geometry
+
+    prefix = str(tmp_path / "unpaired")
+    write_bare_index(prefix)
+
+    verify_index_geometry({}, [12])
+
+
+def test_the_cache_no_longer_refuses_missing_geometry_on_its_own(tmp_path):
+    """The decision moved, and this pins that it moved rather than vanished.
+
+    `PositionCache` cannot tell a single-record reference from a multi-record
+    one without the genome, and reading that pairing off a mutable global is
+    what made a design refuse its own index under `pytest -n 8`. So the cache
+    checks format and identity, and `reference_check` decides geometry
+    against the resolved request.
+    """
+    prefix = str(tmp_path / "bare")
+    write_bare_index(prefix)
+
+    PositionCache([prefix], [PRIMER]).require_record_metadata([prefix])

@@ -781,6 +781,30 @@ here would delete the first k-1 sites of every contig.
 reference only, because a single-record one cannot carry the defect and
 refusing it would force a recount for something that never applied to it.
 
+**Missing record GEOMETRY is judged the same way, and by a different layer.**
+An index with no `#record_starts` lets a coverage window run past a contig
+edge into the next record. Whether that matters depends on how many records
+the reference holds, and only the resolved request pairs a prefix with a
+genome, so `reference_check.verify_index_geometry` decides it against the
+manifest rather than `PositionCache` deciding it alone. Deciding it in the
+evaluator means reading `parameter.fg_genomes` and pairing it with the
+prefixes the call was GIVEN, which is the defect that made a design refuse
+its own index under `pytest -n 8`. Record counting reads header lines; the
+genome loader would hold 8.5 GB for hg38 to answer it.
+
+Measured on the shipped Wolbachia design: the 12-oligo panel's `bg_coverage`
+against *Drosophila* reads 0.00217080 unconfined against 0.00207162 confined,
+an inflation of 14,255 bp or **+4.788% relative**, from 52 host sites across
+1,870 records. The error overstates host coverage, so it is not flattering,
+but `max_host_coverage` is a configurable limit and a panel could be rejected
+for coverage it does not have
+([measurement](docs/validation/record_geometry_on_drosophila_2026-09-21.md)).
+
+**Consequence for the shipped example.** Both its indexes predate record
+geometry. wMel is one record, so its index is accepted. *Drosophila* has 1,870
+and is refused until regenerated. `plan-pool` already refused both before this
+work; what changed is that `optimize` applies the same standard.
+
 `tests/test_positions_agree_with_an_independent_count.py` checks the scan
 against a brute-force sliding window written in that file, which calls neither
 scanner nor any helper they call. It covers overlapping occurrences,

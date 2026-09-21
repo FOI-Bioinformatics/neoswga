@@ -53,13 +53,24 @@ def test_a_modern_index_satisfies_the_requirement(tmp_path, two_records):
 
 
 def test_an_index_without_record_geometry_is_refused(tmp_path):
-    """The concatenation-era case this exists for."""
+    """The concatenation-era case this exists for.
+
+    The decision moved layers on 2026-09-21 and the refusal did not go away.
+    Whether an index NEEDS record starts depends on how many records its
+    reference holds -- a single-record reference has no joins for a window to
+    cross -- and only the resolved request pairs a prefix with a genome.
+    `PositionCache` cannot answer that without reading a mutable global, which
+    is the defect that made a design refuse its own index under `pytest -n 8`.
+    """
+    from neoswga.core.reference_check import verify_index_geometry
+
     prefix = str(tmp_path / "old")
     _write_index(prefix, record_starts=None)
+    fasta = tmp_path / "joined.fna"
+    fasta.write_text(">a\n" + "A" * 60 + "\n>b\n" + "C" * 60 + "\n")
 
-    cache = PositionCache([prefix], [PRIMER])
     with pytest.raises(ReferenceDataError, match="record geometry") as excinfo:
-        cache.require_record_metadata([prefix])
+        verify_index_geometry({prefix: str(fasta)}, [12])
 
     message = str(excinfo.value)
     assert "old" in message, "the message must name the prefix at fault"
@@ -70,14 +81,16 @@ def test_an_index_without_record_geometry_is_refused(tmp_path):
 
 def test_every_offending_prefix_is_named_at_once(tmp_path, two_records):
     """A user regenerating indexes should not discover them one run at a time."""
+    from neoswga.core.reference_check import verify_index_geometry
+
     good, bad_one, bad_two = (str(tmp_path / n) for n in ("good", "bad1", "bad2"))
     _write_index(good, record_starts=[0, 60], genome=str(two_records))
     _write_index(bad_one, record_starts=None)
     _write_index(bad_two, record_starts=None)
 
-    cache = PositionCache([good, bad_one, bad_two], [PRIMER])
+    manifest = {p: str(two_records) for p in (good, bad_one, bad_two)}
     with pytest.raises(ReferenceDataError) as excinfo:
-        cache.require_record_metadata([good, bad_one, bad_two])
+        verify_index_geometry(manifest, [12])
 
     message = str(excinfo.value)
     assert "bad1" in message and "bad2" in message
