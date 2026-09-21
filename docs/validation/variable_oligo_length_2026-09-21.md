@@ -158,16 +158,20 @@ Beside them sits a `prevotella_13mer_positions.h5` of 800 bytes holding zero
 datasets, with the same mtime, for a k that run never requested -- a third
 process still running under a config edited minutes earlier.
 
-**Which process held the lock is not determined.** The manifest proves that
-runs overlapped; it does not say which handle blocked the filter. The `score`
-that completed 2.2 s earlier, the `optimize` 8.7 s later and the third process
-that left the stray 13-mer index are all candidates, and nothing in the
-artifacts separates them. The correction above makes this MORE open rather than
-less: with the default cache holding each file only briefly, a collision is a
-race, so the holder is whichever process happened to have the file open in that
-instant rather than whichever one ran longest.
+**Which process held the lock is not determined, and probably cannot be.**
+Read that as "not determined" rather than "not determined yet". The manifest
+proves runs overlapped and at least three were live in that window: the `score`
+completing 2.2 s earlier, the `optimize` 8.7 s later, and whatever left the
+stray 13-mer index. It is tempting to treat those as candidates the evidence
+merely fails to separate, but the correction above rules that reading out.
 
-That limit is worth stating because the cause is settled and the mechanism is
+With the default cache holding each file only briefly, the collision is a race,
+so the blocker is whichever process happened to have that one file open at that
+one instant. There is no durable fact about which process "was the holder" for
+the artifacts to have recorded, so better evidence would not settle it. The
+question is closer to ill-posed than to open.
+
+The limit is worth stating because the cause is settled and the mechanism is
 not fully reconstructed, and those are different claims. Nothing downstream
 depends on the answer: the remedy is the same whichever process it was.
 

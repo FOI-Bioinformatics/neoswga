@@ -2042,9 +2042,13 @@ package, because nothing in the search uses it.
     The frames match the sequential Aho-Corasick branch, so the per-k
     multiprocessing fallback -- the first guess -- did not run.
 
-    **Which process held the lock is NOT determined.** The manifest proves the
-    runs overlapped; it does not name the holder, and the artifacts do not
-    separate the three candidates. The cause is settled and the mechanism is
+    **Which process held the lock is NOT determined, and probably cannot be.**
+    At least three runs were live in that window. Because the default cache
+    holds each file only briefly the collision is a race, so the blocker is
+    whichever process had that one file open at that one instant, and no
+    durable fact about "the holder" exists for the artifacts to have recorded.
+    Read it as "not determined" rather than "not determined yet": better
+    evidence would not settle it. The cause is settled and the mechanism is
     not fully reconstructed, which are different claims. Nothing depends on
     the answer, since the remedy is the same either way.
 
