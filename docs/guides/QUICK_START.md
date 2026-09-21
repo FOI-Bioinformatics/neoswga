@@ -63,7 +63,7 @@ neoswga count-kmers -j params.json
 neoswga filter -j params.json
 
 # Step 3: Score primers (1-5 min)
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 
 # Step 4: Optimize selection (1-10 min)
 neoswga optimize -j params.json
@@ -213,6 +213,6 @@ Test with provided example:
 cd tests/integration/phi29_baseline
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```

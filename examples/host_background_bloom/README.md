@@ -31,7 +31,7 @@ trading a small false-positive rate for a ~100x memory reduction.
    ```bash
    neoswga count-kmers -j params.json   # only counts target k-mers
    neoswga filter -j params.json        # queries the Bloom filter for bg freq
-   neoswga score -j params.json
+   neoswga prepare-candidates -j params.json
    neoswga optimize -j params.json
    ```
 

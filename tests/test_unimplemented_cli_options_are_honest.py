@@ -65,8 +65,16 @@ PUBLISHED_FLAGS = [
     "--background-bloom-path",
     "--background-sampled-path",
     "--max-optimization-time",
-    "--fast-score",
 ]
+
+# Removed on 2026-09-21 with the `score` to `prepare-candidates` rename. It
+# selected the behaviour that has been the default since the amplification
+# model left the default path, so it was a published flag that did nothing --
+# the Known Issue 8 shape this file exists to police. The plan's first global
+# constraint is that backward compatibility is not a requirement, and keeping
+# an argument solely so a script does not fail is how an inert option survives
+# an audit that was looking for it.
+REMOVED_FLAGS = ["--fast-score"]
 
 
 @pytest.mark.parametrize("flag", PUBLISHED_FLAGS)
@@ -78,6 +86,16 @@ def test_the_flag_is_still_accepted(flag):
     of correcting a log message.
     """
     assert flag in all_help_text()
+
+
+@pytest.mark.parametrize("flag", REMOVED_FLAGS)
+def test_a_removed_flag_is_gone_rather_than_accepted_and_ignored(flag):
+    """The opposite decision, made deliberately and recorded here.
+
+    A flag that is accepted and does nothing reads as applied. Removing it
+    turns the same script into a parse error, which says what happened.
+    """
+    assert flag not in all_help_text()
 
 
 # ----------------------------------------------------------------------

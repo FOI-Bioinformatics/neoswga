@@ -617,7 +617,7 @@ sequenceDiagram
     Filter->>Filter: Gini calculation
     Filter-->>CLI: step2_df.csv
 
-    User->>CLI: neoswga score -j params.json
+    User->>CLI: neoswga prepare-candidates -j params.json
     CLI->>Cache: Load positions
     CLI->>RF: Feature engineering
     RF->>RF: Predict amplification

@@ -93,7 +93,7 @@ def _run(step, work):
 
 
 def test_the_design_path_runs_end_to_end_on_a_small_fixture(design_dir):
-    for step in ("count-kmers", "filter", "score"):
+    for step in ("count-kmers", "filter", "prepare-candidates"):
         result = _run(step, design_dir)
         assert result.returncode == 0, f"{step} failed:\n{result.stderr[-2000:]}"
 
@@ -110,7 +110,7 @@ def test_plan_pool_forwards_search_controls_to_real_optimizer(design_dir, monkey
     from neoswga.cli.plan_pool import add_parsers, run_plan_pool
     from neoswga.core.optimizer_factory import OptimizerFactory
 
-    for step in ("count-kmers", "filter", "score"):
+    for step in ("count-kmers", "filter", "prepare-candidates"):
         completed = _run(step, design_dir)
         assert completed.returncode == 0, completed.stderr
     path = design_dir / "params.json"

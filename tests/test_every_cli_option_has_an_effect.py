@@ -64,11 +64,11 @@ KNOWN_INERT = {
         "min_gini_sites": "EmptyOptions; params.json wins (verified). "
         "CLAUDE.md documents this flag as working; it does not",
     },
-    "score": {
+    "prepare-candidates": {
         "data_dir": "EmptyOptions; params.json wins",
-        "enhanced_model_path": "no reader on the score path",
+        "enhanced_model_path": "no reader on the candidate-preparation path",
         "polymerase": "EmptyOptions; params.json wins",
-        "use_enhanced_features": "no reader on the score path",
+        "use_enhanced_features": "no reader on the candidate-preparation path",
     },
     "optimize": {
         "background_bloom_path": "no reader on the optimize path",

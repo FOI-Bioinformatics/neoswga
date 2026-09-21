@@ -239,7 +239,7 @@ def test_the_amp_model_flag_exists_on_the_score_subparser():
     from neoswga.cli_unified import create_parser
 
     parser = create_parser()
-    score = [a for a in parser._subparsers._group_actions][0].choices["score"]
+    score = [a for a in parser._subparsers._group_actions][0].choices["prepare-candidates"]
     dests = {a.dest for a in score._actions}
 
     assert "amp_model" in dests, f"--amp-model is not offered: {sorted(dests)}"

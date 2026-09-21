@@ -635,7 +635,7 @@ neoswga analyze-dimers \
 ```bash
 # Try stricter parameters
 neoswga filter -j params.json  # Edit params.json first
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json --optimization-method background-aware
 ```
 

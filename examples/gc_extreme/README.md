@@ -21,7 +21,7 @@ Additives help further:
 ```bash
 neoswga count-kmers -j params.json
 neoswga filter -j params.json    # adaptive GC engages automatically
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```
 

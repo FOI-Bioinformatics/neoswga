@@ -222,7 +222,7 @@ def test_optimize_prints_the_table_and_it_agrees_with_fg_coverage(tmp_path):
 
     _step("count-kmers")
     _step("filter")
-    _step("score")
+    _step("prepare-candidates")
     optimize = _step("optimize", "--seed", "1")
 
     output = optimize.stdout + optimize.stderr

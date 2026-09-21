@@ -46,7 +46,7 @@ def _resolve_expansion_candidates(candidates_file, data_dir, quiet=False):
         if not os.path.exists(source):
             logger.error(f"Step 3 output not found: {source}")
             logger.error(
-                "Run 'neoswga score' first, or pass --candidates-file with your "
+                "Run 'neoswga prepare-candidates' first, or pass --candidates-file with your "
                 "own candidate list."
             )
             sys.exit(1)
@@ -311,7 +311,7 @@ def run_expand_primers(args):
         raise
     except (FileNotFoundError, KeyError) as e:
         logger.error(f"Primer expansion failed: {e}")
-        logger.error("Check that 'neoswga score' has run and params.json is valid.")
+        logger.error("Check that 'neoswga prepare-candidates' has run and params.json is valid.")
         sys.exit(1)
     except RuntimeError as e:
         logger.error(f"Primer expansion failed: {e}")

@@ -14,7 +14,7 @@ import sys
 
 def test_the_flag_is_rejected():
     result = subprocess.run(
-        [sys.executable, "-m", "neoswga.cli_unified", "score", "--full-score"],
+        [sys.executable, "-m", "neoswga.cli_unified", "prepare-candidates", "--full-score"],
         capture_output=True,
         text=True,
     )
@@ -26,7 +26,7 @@ def test_amp_model_survives():
     """The flag that works correctly, and the only thing that makes the
     quality column vary, is kept."""
     result = subprocess.run(
-        [sys.executable, "-m", "neoswga.cli_unified", "score", "--help"],
+        [sys.executable, "-m", "neoswga.cli_unified", "prepare-candidates", "--help"],
         capture_output=True,
         text=True,
         check=True,

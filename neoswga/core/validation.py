@@ -689,7 +689,7 @@ def _run_smoke_pipeline(workdir, smoke_params, verbose):
     stages = [
         ("count-kmers", cli_unified.run_step1),
         ("filter", cli_unified.run_step2),
-        ("score", cli_unified.run_step3),
+        ("prepare-candidates", cli_unified.run_step3),
         ("optimize", cli_unified.run_step4),
     ]
     previous = os.getcwd()

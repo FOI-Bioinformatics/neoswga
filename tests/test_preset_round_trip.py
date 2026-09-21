@@ -139,7 +139,7 @@ def test_cli_preset_choices_all_resolve():
 
     parser = create_parser()
     subparsers = parser._subparsers._group_actions[0].choices
-    for command in ("filter", "score", "optimize"):
+    for command in ("filter", "prepare-candidates", "optimize"):
         if command not in subparsers:
             continue
         action = next((a for a in subparsers[command]._actions if a.dest == "preset"), None)

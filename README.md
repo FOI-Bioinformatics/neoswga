@@ -80,7 +80,7 @@ neoswga design -j params.json
 # Or run each step individually:
 neoswga count-kmers -j params.json    # Generate k-mer counts
 neoswga filter -j params.json         # Filter candidate primers
-neoswga score -j params.json          # Score amplification potential
+neoswga prepare-candidates -j params.json          # Score amplification potential
 neoswga optimize -j params.json       # Find optimal primer sets
 
 # Host-free optimization (no background genome required):

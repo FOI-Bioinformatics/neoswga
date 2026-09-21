@@ -12,7 +12,7 @@ suitable for verifying a new installation.
 cd examples/plasmid_example
 neoswga count-kmers -j params.json   # Step 1 - count 6-12mer frequencies
 neoswga filter -j params.json        # Step 2 - apply sequence filters
-neoswga score -j params.json         # Step 3 - predict amplification efficacy
+neoswga prepare-candidates -j params.json         # Step 3 - prepare the candidate pool
 neoswga optimize -j params.json      # Step 4 - select optimal primer set
 ```
 

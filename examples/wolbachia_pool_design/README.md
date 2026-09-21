@@ -76,7 +76,7 @@ decompress it before use. Export the target as FASTA from its linked accession.
 python examples/wolbachia_pool_design/prepare.py
 neoswga count-kmers -j examples/wolbachia_pool_design/params.json
 neoswga filter -j examples/wolbachia_pool_design/params.json
-neoswga score -j examples/wolbachia_pool_design/params.json
+neoswga prepare-candidates -j examples/wolbachia_pool_design/params.json
 neoswga plan-pool -j examples/wolbachia_pool_design/params.json \
   --primer-length 12 --min-size 1 --max-size 64 \
   --coverage-targets 0.5 0.7 0.8 0.9 0.95 \

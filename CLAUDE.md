@@ -110,7 +110,7 @@ what follows is only what the filenames do not tell you.
 ### Data Flow
 
 ```
-count-kmers            filter                 prepare (`score`)      optimize
+count-kmers            filter                 prepare-candidates     optimize
      |                    |                     |                       |
      v                    v                     v                       v
  *_Xmer_all.txt  -->  step2_df.csv +    -->  step3_df.csv      -->  step4_improved_df.csv
@@ -137,7 +137,7 @@ count-kmers            filter                 prepare (`score`)      optimize
   measurements in a deterministic order. Step 2's own ranking leads that order
   (`step2_rank`, read off step2_df.csv's row order), with Gini demoted to a
   tie-break and the primer sequence last for totality. It no longer holds an
-  amplification score -- see **The `score` stage** below.
+  amplification score -- see **The `prepare-candidates` stage** below.
 - `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
 - `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
   effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics). `metrics.strand_stats` holds all five strand figures per genome, foreground and host, keyed by prefix; `metrics.primer_occupancy` holds how much of the time each delivered primer is bound, empty when no conditions were attached; `panel_regime` holds which criterion limited the panel and which had no reference.
@@ -189,7 +189,7 @@ commands are documented in the `neoswga-cli` skill
 ```bash
 neoswga count-kmers -j params.json  # Step 1: Generate k-mer counts
 neoswga filter -j params.json       # Step 2: Filter candidate primers
-neoswga score -j params.json        # Step 3: Prepare the candidate pool
+neoswga prepare-candidates -j params.json        # Step 3: Prepare the candidate pool
 neoswga optimize -j params.json     # Step 4: Find optimal primer sets
 ```
 
@@ -212,7 +212,7 @@ Accepted by every pipeline step; each one routes through
   a `qa_score` column, writes `qa_report.txt`, and corrects the last stage of
   `filter_stats.json`. A QA pass that rejects every candidate fails the step
   instead of writing an empty pool.
-- `score --enable-qa` re-orders step3_df.csv by a `composite_score`. With the
+- `prepare-candidates --enable-qa` re-orders step3_df.csv by a `composite_score`. With the
   amplification model retired there is no RF half to blend, so this is the QA
   score alone; pass `--amp-model` to get the 0.7 RF / 0.3 QA blend back. The QA
   scores come from step2_df.csv when `filter --enable-qa` produced them, and
@@ -226,9 +226,16 @@ Accepted by every pipeline step; each one routes through
 The flag is per-invocation: it is assigned to `parameter.enable_qa` on every
 step, so it cannot carry over to a later step in the same process.
 
-### The `score` stage
+### The `prepare-candidates` stage
 
-`score` prepares the candidate pool; it does not score it. The bundled random
+**Renamed from `score` on 2026-09-21, with no alias.** The old name described
+work the stage stopped doing on 2026-09-05, and an alias would have left it
+reachable and in every example someone copies. `neoswga score` now fails with a
+message naming the new command. `--fast-score` went with it: it selected the
+behaviour that had been the default since the model left the default path, so it
+was a published flag that did nothing.
+
+The stage prepares the candidate pool; it does not score it. The bundled random
 forest was retired from the default path on 2026-09-05 (audit finding F0).
 
 It was computing a prediction for every candidate and then discarding it. The
@@ -1028,7 +1035,8 @@ package, because nothing in the search uses it.
    **Declared closed twice, and closed neither time.** The audit of 2026-09-16
    found `--design-grid` on `plan-pool` parsed, documented in the help text, and
    never read -- added *after* the second closure. Checking for more found
-   `--data-dir` inert on `count-kmers`, `filter`, `score`, `optimize`, `design`
+   `--data-dir` inert on `count-kmers`, `filter`, `prepare-candidates`,
+   `optimize`, `design`
    and `evaluate-set`, and `--min-gini-sites` inert on `filter`, which the Key
    Parameters section above documented as working. Both were verified by
    resolving a config whose flag value differed from the file value: the file

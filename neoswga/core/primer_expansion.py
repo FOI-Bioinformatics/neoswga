@@ -1006,7 +1006,7 @@ def expand_primers(
     step3_path = os.path.join(data_dir, "step3_df.csv")
     if not os.path.exists(step3_path):
         raise FileNotFoundError(
-            f"Step 3 output not found: {step3_path}. Run 'neoswga score' first."
+            f"Step 3 output not found: {step3_path}. Run 'neoswga prepare-candidates' first."
         )
 
     # Through the shared source. `expand-primers` exists to add primers to an

@@ -145,7 +145,7 @@ python scripts/convert_model_to_skops.py
 cd tests/integration/equiphi29_baseline
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```
 
@@ -158,6 +158,6 @@ neoswga optimize -j params.json
 cd examples/plasmid_example
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```

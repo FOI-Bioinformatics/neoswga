@@ -1385,7 +1385,7 @@ def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]]
     step3_path = os.path.join(parameter.data_dir, "step3_df.csv")
     if not os.path.exists(step3_path):
         raise FileNotFoundError(
-            f"Step 3 output not found: {step3_path}. Run 'neoswga score' first."
+            f"Step 3 output not found: {step3_path}. Run 'neoswga prepare-candidates' first."
         )
 
     step3_df = pd.read_csv(step3_path)

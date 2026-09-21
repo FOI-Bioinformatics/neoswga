@@ -1793,7 +1793,7 @@ Run:
 cd examples/plasmid_example
 neoswga count-kmers -j params.json
 neoswga filter -j params.json
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
 ```
 Expected: All four steps complete without error. `step4_improved_df.csv` contains the expected columns and non-zero rows.

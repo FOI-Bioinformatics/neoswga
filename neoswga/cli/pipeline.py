@@ -361,7 +361,7 @@ def run_step2(args):
             apply_qa_to_step2_output(parameter.data_dir, verbose=not args.quiet)
 
         if not args.quiet:
-            print("\nNext: neoswga score -j params.json")
+            print("\nNext: neoswga prepare-candidates -j params.json")
 
     except ImportError as e:
         logger.error(f"Failed to import pipeline module: {e}")
@@ -449,9 +449,11 @@ def run_step3(args):
         # computed them cost 767.6 s against 6.1 s on a 449-candidate pool for a
         # mean absolute score change of 0.0016, Pearson 1.0000 and an identical
         # delivered order, so it was removed on 2026-09-10.
+        # The histogram features stay skipped; this was the only behaviour
+        # `--fast-score` ever selected, and it has been the default since the
+        # amplification model left the default path. The flag is gone rather
+        # than accepted-and-ignored, which is the Known Issue 8 shape.
         parameter.fast_score = True
-        if getattr(args, "fast_score", False):
-            logger.info("--fast-score is now the default; flag is a no-op")
 
         # Run step3, then blend the QA scores into what it wrote
         pipeline.step3()
@@ -491,7 +493,7 @@ def run_step3(args):
     _step3_out = os.path.join(_data_dir, "step3_df.csv") if _data_dir else None
     _elapsed = _time.time() - _t0
     _record_run_manifest(
-        "score",
+        "prepare-candidates",
         args,
         parameter,
         input_files=[p for p in [_step3_in] if p],
@@ -1190,7 +1192,7 @@ def run_step4(args):
     except FileNotFoundError as e:
         logger.error(f"Required file not found: {e}")
         logger.error("Ensure Step 3 (score) has completed successfully.")
-        logger.error("Run: neoswga score -j params.json")
+        logger.error("Run: neoswga prepare-candidates -j params.json")
         sys.exit(1)
     except DesignError:
         raise  # the boundary writes the record; see `cli/_failure.py`
@@ -1567,7 +1569,18 @@ def add_parsers(subparsers):
     # =========================================================================
 
     score_parser = subparsers.add_parser(
-        "score", help="Prepare the candidate pool for optimization"
+        "prepare-candidates",
+        help="Prepare the ordered candidate pool that optimization reads",
+        description=(
+            "Write step3_df.csv, the ordered candidate pool the optimizer reads. "
+            "It was called `score` until 2026-09-21, which described work it "
+            "stopped doing on 2026-09-05 when the bundled amplification model "
+            "left the default path: a prediction was computed for every "
+            "candidate and then discarded, and every step-4 consumer reads only "
+            "the primer column. What the stage produces is the deterministic "
+            "order that makes an unseeded run reproducible. Pass --amp-model to "
+            "restore the score column and its gate."
+        ),
     )
     add_common_options(score_parser)
 
@@ -1586,13 +1599,6 @@ def add_parsers(subparsers):
         help="Minimum amplification prediction score (default: 10). "
         "Requires --amp-model; without it the gate is retired and this "
         "value does nothing.",
-    )
-    score_parser.add_argument(
-        "--fast-score",
-        action="store_true",
-        help="Deprecated alias for the current default behavior "
-        "(thermodynamic histogram features are skipped). "
-        "Accepted for backwards compatibility.",
     )
     score_parser.add_argument(
         "--seed",

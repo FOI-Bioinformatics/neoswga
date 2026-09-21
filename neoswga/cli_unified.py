@@ -12,7 +12,7 @@ Usage:
     # Standard workflow
     neoswga count-kmers [options]
     neoswga filter [options]
-    neoswga score [options]
+    neoswga prepare-candidates [options]
     neoswga optimize [options] [--optimization-method=hybrid|dominating-set|network|background-aware|ensemble]
 
     # Utility commands
@@ -28,7 +28,7 @@ Examples:
     # Standard workflow
     neoswga count-kmers -j params.json
     neoswga filter -j params.json
-    neoswga score -j params.json
+    neoswga prepare-candidates -j params.json
     neoswga optimize -j params.json
 
     # Control optimization method (hybrid|dominating-set|network|background-aware|ensemble)
@@ -99,7 +99,7 @@ COMMAND_GROUPS = [
         [
             "count-kmers",
             "filter",
-            "score",
+            "prepare-candidates",
             "optimize",
             "plan-pool",
             "report-pool",
@@ -204,7 +204,7 @@ def create_parser():
   neoswga init --genome target.fasta --background host.fasta
   neoswga count-kmers -j params.json
   neoswga filter -j params.json
-  neoswga score -j params.json
+  neoswga prepare-candidates -j params.json
   neoswga optimize -j params.json
 
 Run "neoswga <command> --help" for details on a specific command.
@@ -339,7 +339,7 @@ def main():
         # Standard pipeline
         "count-kmers": run_step1,
         "filter": run_step2,
-        "score": run_step3,
+        "prepare-candidates": run_step3,
         "optimize": run_step4,
         "plan-pool": run_plan_pool,
         "report-pool": run_report_pool,

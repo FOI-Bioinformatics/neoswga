@@ -193,7 +193,7 @@ def pipeline_run(tmp_path_factory, genome_seq):
     params_file = work / "params.json"
     params_file.write_text(json.dumps(params, indent=2))
 
-    for step in ("count-kmers", "filter", "score"):
+    for step in ("count-kmers", "filter", "prepare-candidates"):
         proc = subprocess.run(
             [sys.executable, "-m", "neoswga.cli_unified", step, "-j", str(params_file)],
             capture_output=True,

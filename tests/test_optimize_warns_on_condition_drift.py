@@ -202,7 +202,7 @@ def test_a_real_optimize_run_warns_after_a_preset_filter(tmp_path):
 
     _step("count-kmers")
     _step("filter", "--preset", "enhanced_equiphi29")
-    _step("score")
+    _step("prepare-candidates")
     optimize = _step("optimize", "--seed", "1", expect_failure=True)
 
     output = optimize.stdout + optimize.stderr

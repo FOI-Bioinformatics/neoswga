@@ -704,7 +704,7 @@ def apply_qa_to_step3_output(
 ) -> pd.DataFrame:
     """Blend QA scores into `step3_df.csv` in place.
 
-    This is what `neoswga score --enable-qa` runs after the random-forest
+    This is what `neoswga prepare-candidates --enable-qa` runs after the random-forest
     scoring. QA scores come from step2_df.csv when `filter --enable-qa`
     produced them, and are computed here otherwise, so the flag is usable on
     the score step alone.

@@ -43,7 +43,7 @@ class TestSubcommandHelp:
     SUBCOMMANDS = [
         "count-kmers",
         "filter",
-        "score",
+        "prepare-candidates",
         "optimize",
         "design",
         "build-filter",

@@ -322,7 +322,7 @@ def test_show_frontier_reports_a_real_number_end_to_end(tmp_path):
 
     _step("count-kmers")
     _step("filter")
-    _step("score")
+    _step("prepare-candidates")
     optimize = _step("optimize", "--show-frontier", "--seed", "1")
 
     output = optimize.stdout + optimize.stderr

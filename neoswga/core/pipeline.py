@@ -344,7 +344,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             valid=False,
             missing_files=[step3_file],
             error_message="Step 3 output not found. Step 4 requires scored primers from Step 3.",
-            remediation="Run 'neoswga score -j params.json' (Step 3) first.",
+            remediation="Run 'neoswga prepare-candidates -j params.json' (Step 3) first.",
         )
 
     # Check file has primers
@@ -358,7 +358,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
                 remediation=(
                     "Relax the filter step: raise max_bg_freq or max_gini, widen "
                     "min_k-max_k, or raise max_primer, then re-run "
-                    "'neoswga filter -j params.json' and 'neoswga score -j params.json'."
+                    "'neoswga filter -j params.json' and 'neoswga prepare-candidates -j params.json'."
                 ),
             )
     except Exception as e:
@@ -366,7 +366,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
             valid=False,
             missing_files=[step3_file],
             error_message=f"Cannot read Step 3 output: {e}",
-            remediation="Re-run 'neoswga score -j params.json' (Step 3).",
+            remediation="Re-run 'neoswga prepare-candidates -j params.json' (Step 3).",
         )
 
     # Check position files for each primer length present in step3_df.csv.
@@ -468,7 +468,7 @@ def validate_index_covers_candidates(cache, fg_prefixes, n_candidates, refuse) -
             ),
             remediation=(
                 "Re-run 'neoswga filter -j params.json' (Step 2) so every "
-                "candidate is indexed, then 'neoswga score' and "
+                "candidate is indexed, then 'neoswga prepare-candidates' and "
                 "'neoswga optimize' again."
             ),
         ),

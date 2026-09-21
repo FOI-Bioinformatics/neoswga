@@ -241,7 +241,7 @@ neoswga filter -j params.json
 retired from the default path on 2026-09-05.
 
 ```bash
-neoswga score -j params.json
+neoswga prepare-candidates -j params.json
 ```
 
 **Output**: `step3_df.csv`, carrying the step-2 measurements (`step2_rank`,
