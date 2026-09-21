@@ -114,6 +114,17 @@ def run_expand_primers(args):
         logger.info("Primer Set Expansion")
         logger.info("=" * 60)
 
+    # The same gate `optimize` and `plan-pool` apply. Expansion adds to a
+    # delivered panel, so it must accept exactly the configurations that
+    # produced one; a command that accepts what another refuses is how one
+    # params file came to mean different chemistry depending on which command
+    # was run.
+    from neoswga.core.design_request import design_request_for_run
+
+    request = design_request_for_run(args, None)
+    if request is not None and not quiet:
+        logger.info("Design request %s", request.request_hash[:12])
+
     # Load and validate primers using consolidated helper
     fixed_primers = collect_primers_from_args(
         cli_primers=args.fixed_primers,

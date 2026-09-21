@@ -272,3 +272,99 @@ def test_the_policy_is_immutable():
     assert isinstance(policy, ConcentrationPolicy)
     with pytest.raises(dataclasses.FrozenInstanceError):
         policy.molar = 1e-6
+
+
+# ---------------------------------------------------------------------------
+# 5. Every design command resolves the same request from the same file
+# ---------------------------------------------------------------------------
+
+
+def test_the_cli_and_the_library_reach_the_same_request(tmp_path):
+    """The plan's requirement: equivalent requests must hash equal.
+
+    A hash that differed by route would make the provenance record useless for
+    the thing it exists for, which is saying that two runs were the same run.
+    """
+    import json as json_module
+
+    from neoswga.core.design_request import design_request_for_run
+
+    params = base_params()
+    path = tmp_path / "params.json"
+    path.write_text(json_module.dumps(params))
+
+    class Args:
+        json_file = str(path)
+
+    from_file = design_request_for_run(Args(), None)
+    from_mapping = resolve_design_request(params)
+
+    assert from_file.request_hash == from_mapping.request_hash
+
+
+def test_a_command_with_no_params_file_gets_no_request_rather_than_a_default():
+    """None is an absence. A default-valued request would be a fabrication."""
+    from neoswga.core.design_request import design_request_for_run
+
+    class Args:
+        json_file = None
+
+    assert design_request_for_run(Args(), None) is None
+
+
+def _resolves_a_design_request(module_name, function_name):
+    """Whether a handler reaches the resolver, transitively.
+
+    Asserted on the PATH rather than on a call appearing somewhere in the
+    module, for the reason recorded in
+    `tests/test_the_objective_reaches_the_stage_that_refines.py`: two tests
+    each confirmed one end of a connection that did not exist.
+    """
+    import ast
+    import importlib
+    import inspect
+
+    resolvers = {"resolve_design_request", "design_request_for_run"}
+    seen = set()
+    queue = [(module_name, function_name)]
+    while queue:
+        module_name, function_name = queue.pop()
+        if (module_name, function_name) in seen:
+            continue
+        seen.add((module_name, function_name))
+        try:
+            tree = ast.parse(inspect.getsource(importlib.import_module(module_name)))
+        except (ImportError, OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name != function_name:
+                continue
+            for inner in ast.walk(node):
+                if not isinstance(inner, ast.Call):
+                    continue
+                name = getattr(inner.func, "attr", None) or getattr(inner.func, "id", None)
+                if name in resolvers:
+                    return True
+                if name:
+                    queue.append((module_name, name))
+    return False
+
+
+@pytest.mark.parametrize(
+    "module_name,function_name",
+    [
+        ("neoswga.cli.pipeline", "run_step4"),
+        ("neoswga.cli.plan_pool", "run_plan_pool"),
+        ("neoswga.cli.iterate", "run_expand_primers"),
+    ],
+)
+def test_every_design_command_resolves_the_request(module_name, function_name):
+    """One gate, three commands. A command that skips it accepts what the
+    others refuse, which is how one params file came to mean different
+    chemistry depending on which command was run."""
+    assert _resolves_a_design_request(module_name, function_name), (
+        f"{module_name}.{function_name} designs without resolving the request, so a "
+        "setting it cannot apply is never named"
+    )

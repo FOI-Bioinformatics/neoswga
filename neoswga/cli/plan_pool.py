@@ -232,6 +232,17 @@ def run_plan_pool(args):
 
     source = Path(args.json_file).resolve()
     params = json.loads(source.read_text())
+
+    # The same gate `optimize` applies, on the same file, so a setting that
+    # cannot be applied is named before any index is opened. Two commands that
+    # accept different configurations from one params file is the drift
+    # `design_context` was created to stop, and validating in one of them only
+    # leaves the other accepting what the first refuses.
+    from neoswga.core.design_request import resolve_design_request
+
+    request = resolve_design_request(params)
+    logger.info("Design request %s", request.request_hash[:12])
+
     base = source.parent
     fg = [str((base / p).resolve()) for p in params["fg_prefixes"]]
     bg = (

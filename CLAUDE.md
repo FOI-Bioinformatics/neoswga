@@ -707,10 +707,24 @@ used `override or params.get("coverage_reach")`, and 0 is falsy, so it silently
 became 3 kb and every coverage figure was reported at a reach the request did
 not ask for.
 
+All three design commands resolve it from the same file: `optimize`,
+`plan-pool` and `expand-primers`. A command that skipped the gate would accept
+what the others refuse, which is how one params file came to mean different
+chemistry depending on which command was run.
+`tests/test_resolved_design_request.py` walks the call path from each handler
+rather than checking that a call appears somewhere in the module.
+
 **Not yet done from the plan's Task 2**: evaluator code still reads `parameter`
 globals at run time, and `OptimizationRequest.optimizer` still owns the
 scientific settings. The request is a validation gate and a provenance record,
 not yet the single channel those settings travel through.
+
+One instance of the mutable-global read was found and removed the hard way. An
+index-identity check placed inside `run_optimization` read
+`parameter.fg_genomes` and paired it with the prefixes the CALL was given;
+under `pytest -n 8` that paired a test's own prefix with another test's FASTA
+and the design refused its own index. Reference identity now travels on the
+request, where a prefix and its genome are named together.
 
 ## Which candidate pool a command searches
 
