@@ -298,3 +298,64 @@ def test_the_retired_command_name_is_refused(tmp_path):
 
     assert result.returncode != 0
     assert "prepare-candidates" in result.stdout + result.stderr
+
+
+# ---------------------------------------------------------------------------
+# The pipeline can produce what the checks demand
+# ---------------------------------------------------------------------------
+
+
+def write_multi_record_reference(workspace, records):
+    import random
+
+    rng = random.Random(5)
+    parts = []
+    for name, length in records:
+        seq = "".join(rng.choice("ACGT") for _ in range(length))
+        parts.append(
+            f">{name}\n" + "\n".join(seq[i : i + 70] for i in range(0, len(seq), 70)) + "\n"
+        )
+    (workspace / "multi.fasta").write_text("".join(parts))
+
+
+def test_a_fresh_multi_record_run_produces_geometry_the_checks_accept(tmp_path):
+    """Closes the loop on the record-geometry refusal.
+
+    `verify_index_geometry` refuses a multi-record reference whose index
+    carries no record starts. That is only defensible if the pipeline can
+    actually produce one that does -- otherwise the check would make
+    multi-record references unusable rather than merely requiring a recount,
+    and every index in this repository predates the feature, so nothing here
+    would have caught it.
+
+    Three records, so the rule applies, and all four steps must complete.
+    """
+    import h5py
+
+    from neoswga.core.reference_check import verify_index_geometry
+    from neoswga.core.string_search import INDEX_FORMAT_VERSION, RECORD_STARTS_KEY
+
+    workspace = tmp_path / "work"
+    workspace.mkdir()
+    write_multi_record_reference(workspace, [("chrA", 9000), ("chrB", 8000), ("chrC", 7000)])
+    write_params(
+        workspace,
+        fg_genomes=["multi.fasta"],
+        fg_prefixes=["multi"],
+        max_primer=50,
+    )
+
+    for step in ("count-kmers", "filter", "prepare-candidates", "optimize"):
+        result = run([step, "-j", "params.json"], workspace)
+        assert result.returncode == 0, f"{step}:\n{result.stdout}\n{result.stderr}"
+
+    index = workspace / "multi_10mer_positions.h5"
+    assert index.exists()
+    with h5py.File(index, "r") as handle:
+        assert int(handle.attrs["index_format_version"]) == INDEX_FORMAT_VERSION
+        starts = [int(v) for v in handle[RECORD_STARTS_KEY]]
+
+    assert starts == [0, 9000, 17000], starts
+
+    # And the check the pipeline's own output has to satisfy.
+    verify_index_geometry({str(workspace / "multi"): str(workspace / "multi.fasta")}, [10])

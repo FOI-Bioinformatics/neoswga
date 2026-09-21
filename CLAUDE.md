@@ -797,7 +797,12 @@ against *Drosophila* reads 0.00217080 unconfined against 0.00207162 confined,
 an inflation of 14,255 bp or **+4.788% relative**, from 52 host sites across
 1,870 records. The error overstates host coverage, so it is not flattering,
 but `max_host_coverage` is a configurable limit and a panel could be rejected
-for coverage it does not have
+for coverage it does not have.
+
+The same measurement on Prevotella, two chromosomes and one join, with 724
+target sites, gives **exactly zero**: the region either side of the join is
+already covered from both directions. So the magnitude is joins times
+sparsity, and neither figure generalises alone
 ([measurement](docs/validation/record_geometry_on_drosophila_2026-09-21.md)).
 
 **Consequence for the shipped example.** Both its indexes predate record
