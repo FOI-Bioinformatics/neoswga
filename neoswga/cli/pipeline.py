@@ -30,6 +30,7 @@ from neoswga.cli._params_preread import (
 )
 from neoswga.cli._step4_reporting import (
     _report_marginal_coverage,
+    _report_occupancy_by_length,
     _report_pareto_frontier,
 )
 
@@ -1002,6 +1003,7 @@ def run_step4(args):
                 ):
                     logger.warning(line)
             _report_marginal_coverage(parameter, cache, results[0])
+            _report_occupancy_by_length(parameter, results[0])
         else:
             logger.error("No primer sets found. Optimization failed.")
             sys.exit(1)

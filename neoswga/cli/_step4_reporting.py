@@ -11,6 +11,28 @@ import os
 logger = logging.getLogger(__name__)
 
 
+def _report_occupancy_by_length(parameter, primers):
+    """What a mixed-length delivered panel asks of one reaction.
+
+    A panel size counts a 7-mer bound 4% of the time and an 11-mer bound 99%
+    of the time as one member each. Silent on a single-length panel, which is
+    every panel this project delivered before 2026-09-21.
+
+    Best-effort: a diagnostic must not fail the step that produced the panel.
+    """
+    try:
+        from neoswga.core.length_occupancy import log_occupancy_spread
+        from neoswga.core.reaction_conditions import build_reaction_conditions
+
+        log_occupancy_spread(
+            [str(primer) for primer in primers],
+            build_reaction_conditions(parameter),
+            label="delivered panel",
+        )
+    except Exception as exc:  # pragma: no cover - diagnostic only
+        logger.debug(f"Could not report occupancy by length: {exc}")
+
+
 def _report_marginal_coverage(parameter, cache, primers):
     """Print cumulative foreground coverage as the delivered primers are added.
 
