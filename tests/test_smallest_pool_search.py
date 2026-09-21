@@ -24,20 +24,25 @@ single deletion from {P1,P2,P3} qualifies**: dropping any one of them loses
 bins nothing else in that panel covers. A search that only deletes is stuck at
 3 while the answer is 2, and reaching 2 needs a swap before a deletion.
 
-**The gap is constructed, and did not reproduce on either real instance
-available here** (measured 2026-09-21). On `examples/plasmid_example` one
-primer covers the target completely at 3 kb reach, so there is nothing to
-reduce. On a 300 kb random sequence with 60 candidates, deletion stopped at
-the requested 20 and a beam over the same pool found nothing smaller at the
-same coverage. Random sequence rarely produces the structure this fixture
-has, where one candidate dominates the union of two others.
+**The gap is real on the shipped Wolbachia design**, measured 2026-09-21 and
+recorded in `docs/validation/smallest_pool_on_wolbachia_2026-09-21.md`.
+Deletion removes nothing from the greedy's 12-oligo panel; a beam over the
+same pool finds 11 oligos at coverage 0.7599 against the target 0.7529. Ten
+falls short at 0.7485. So one oligo of twelve, for MORE coverage rather than
+less: the greedy's twelve is not an optimal twelve, and a better eleven exists
+inside the same pool.
 
-So the deletion-only local optimum is real and the beam does escape it, both
-shown below. What is NOT established is that it costs anything on a candidate
-pool anyone would design from, and that is why `optimize --minimize-primers`
-is left on the deletion path rather than switched to the beam. Same resolution
-as Known Issues 11 and 16: a mechanism that fires without a demonstrated
-benefit does not ship on by default.
+An earlier version of this docstring said the gap did not reproduce on any
+real instance. That was wrong, and wrong for a reason worth keeping: the only
+instances tried were the bundled 6 kb plasmid, which one primer covers
+completely, and a 300 kb random sequence, which has no dominance structure.
+Neither is representative, and the prepared Wolbachia design that shows the
+gap immediately was already in the repository. **Two unrepresentative
+negatives are not a negative result.**
+
+`optimize --minimize-primers` is still on the deletion path. That is now a
+pending decision rather than a measurement-backed deferral: switching it
+changes every delivered panel, which is the user's call.
 """
 
 import itertools

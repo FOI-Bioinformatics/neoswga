@@ -971,18 +971,27 @@ from it qualifies, and `{P4,P3}` qualifies at size 2. Deletion stops at 3;
 called only from `pool_planner`, so `plan-pool` can escape this local optimum
 and `optimize --minimize-primers` cannot.
 
-**It is not wired, because the gap did not reproduce on either real instance
-available** (measured 2026-09-21). On `examples/plasmid_example` one primer
-covers the target completely at 3 kb, so there is nothing to reduce. On a
-300 kb random sequence with 60 candidates, deletion stopped at the requested 20
-and a beam over the same pool found nothing smaller at the same coverage.
-Random sequence rarely produces the dominance structure the fixture has.
+**It costs a real oligo on the shipped Wolbachia design.** Measured
+2026-09-21 on wMel against *Drosophila*, 12-mers at 3 kb: deletion removes
+nothing from the greedy's 12-oligo panel, while a beam over the same pool
+finds 11 at coverage 0.7599 against the target 0.7529. Ten falls short at
+0.7485. Coverage RISES as the panel shrinks, because the greedy's twelve is
+not an optimal twelve and a better eleven exists in the same pool
+([measurement](docs/validation/smallest_pool_on_wolbachia_2026-09-21.md)).
 
-So: the local optimum is real, the beam escapes it, and whether it costs
-anything on a pool anyone would design from is unmeasured. Same resolution as
-Known Issues 11 and 16 -- a mechanism that fires without a demonstrated benefit
-does not ship on by default. Measuring it needs a real multi-kb target with a
-candidate pool that is not saturated, which this repository does not contain.
+An earlier note here said the gap did not reproduce on any real instance.
+**That was wrong.** The only instances tried were the bundled 6 kb plasmid,
+which one primer covers completely, and a 300 kb random sequence, which has no
+dominance structure; the prepared Wolbachia design that shows it immediately
+was already in the repository, under `examples/wolbachia_pool_design/work`,
+and is the design most of this file's other measurements come from. Two
+unrepresentative negatives are not a negative result, and
+`tests/validation/genomes` holds full E. coli, S. aureus, M. tuberculosis,
+Prevotella, chr21 and hg38 besides.
+
+It is still not wired, but that is now a pending decision rather than a
+measurement-backed deferral: switching `--minimize-primers` to the beam would
+deliver 11 oligos where it currently delivers 12, on every design.
 
 The file also states the claim the plan forbids, as arithmetic: a search that
 examined every candidate examined `n` things, while the subsets number `2**n`.
@@ -1082,6 +1091,47 @@ ordering trap as `warn_on_condition_drift`, reached from the other side.
 Also covered: a deleted position index, a FASTA replaced after indexing so the
 index is complete and describes another sequence, a reaction the filter never
 recorded, and the retired `score` command name.
+
+## What references are available to measure against
+
+All gitignored, so `git ls-files` shows none of them and a search of the
+tracked tree concludes there is nothing to test on. That conclusion has been
+reached and acted on at least once; see the correction in **The smallest pool**
+above.
+
+| Reference | Size | Records | Location |
+|---|---|---|---|
+| hg38 | 3.30 Gb | 705 | `tests/validation/genomes/human_full.fna` |
+| *Drosophila* | 144 Mb | 1,870 | `examples/wolbachia_pool_design/input/` |
+| human chr21 | 46.7 Mb | 1 | `tests/validation/genomes/` |
+| E. coli | 4.64 Mb | 1 | `tests/validation/genomes/` |
+| M. tuberculosis | 4.41 Mb | 1 | `tests/validation/genomes/` |
+| Prevotella | 3.17 Mb | 2 | `tests/validation/genomes/` |
+| S. aureus | 2.82 Mb | 1 | `tests/validation/genomes/` |
+| Wolbachia wMel | 1.27 Mb | 1 | both locations |
+| two plasmids | ~6 kb | 1 | `examples/plasmid_example/`, packaged in `core/smoke/` |
+
+**The Wolbachia design is prepared and is the one to reach for.**
+`examples/wolbachia_pool_design/work` holds 12-mer position indexes for wMel
+and *Drosophila* and a `step3_df.csv` whose funnel matches the figures quoted
+throughout this file: 874,596 k-mers, 491,836 past the thermodynamic gate,
+20,670 past evenness, 2,000 shortlisted. One `compute_metrics` call on it
+costs 40 ms, so a few thousand evaluations is minutes rather than hours.
+
+Prevotella and chr21 also carry k-mer tables and position indexes. The other
+bacterial genomes and hg38 have the FASTA only and would need counting first;
+hg38 at k=12 is about seven minutes and a 138 MB table.
+
+**There is no BAM or CRAM anywhere**, so anything needing measured sequencing
+depth is blocked: `calibrate-reach`, the reach calibration, and Task 9's
+held-out evaluation. Neither coverage reach has ever been measured against a
+reaction, and this is why.
+
+**The multi-record references are the interesting ones for geometry.**
+*Drosophila* has 1,870 records and hg38 has 705, which is exactly where the
+record-join scanner defect fabricated sites and where the two coverage paths
+disagree. Both of those fixes are currently justified on constructed fixtures
+alone; these references are what would measure them.
 
 ## Testing
 
