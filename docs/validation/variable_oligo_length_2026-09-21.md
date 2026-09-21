@@ -158,6 +158,19 @@ Beside them sits a `prevotella_13mer_positions.h5` of 800 bytes holding zero
 datasets, with the same mtime, for a k that run never requested -- a third
 process still running under a config edited minutes earlier.
 
+**Which process held the lock is not determined.** The manifest proves that
+runs overlapped; it does not say which handle blocked the filter. The `score`
+that completed 2.2 s earlier, the `optimize` 8.7 s later and the third process
+that left the stray 13-mer index are all candidates, and nothing in the
+artifacts separates them. The correction above makes this MORE open rather than
+less: with the default cache holding each file only briefly, a collision is a
+race, so the holder is whichever process happened to have the file open in that
+instant rather than whichever one ran longest.
+
+That limit is worth stating because the cause is settled and the mechanism is
+not fully reconstructed, and those are different claims. Nothing downstream
+depends on the answer: the remedy is the same whichever process it was.
+
 The remedy is a message, not a change to the scan. `core/concurrent_runs.py`
 translates the error at the step boundary; steps 2, 3 and 4 each consult it.
 Verified against a real collision: four concurrent filters over one directory,

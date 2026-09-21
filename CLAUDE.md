@@ -2042,6 +2042,12 @@ package, because nothing in the search uses it.
     The frames match the sequential Aho-Corasick branch, so the per-k
     multiprocessing fallback -- the first guess -- did not run.
 
+    **Which process held the lock is NOT determined.** The manifest proves the
+    runs overlapped; it does not name the holder, and the artifacts do not
+    separate the three candidates. The cause is settled and the mechanism is
+    not fully reconstructed, which are different claims. Nothing depends on
+    the answer, since the remedy is the same either way.
+
     `core/concurrent_runs.py` translates it at the step boundary: steps 2, 3
     and 4 all write HDF5 and each consults it. No lock is taken and no retry is
     attempted -- a retry loop would hide a genuine second process, and two
