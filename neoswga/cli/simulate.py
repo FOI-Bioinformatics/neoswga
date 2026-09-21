@@ -137,8 +137,14 @@ def run_simulate(args):
         if "primer" not in df.columns:
             logger.error(f"CSV file {csv_path} has no 'primer' column")
             sys.exit(1)
-        primers = df["primer"].tolist()
-        logger.info(f"Loaded {len(primers)} primers from results")
+        # One set. Simulating the pooled alternatives models a reaction nobody
+        # would set up, and its dimer behaviour is the pooled file's, not the
+        # delivered panel's. See `core/delivered_set.py`.
+        from neoswga.core.delivered_set import select_delivered_set
+
+        delivered = select_delivered_set(df.to_dict("records"))
+        primers = list(delivered.primers)
+        logger.info(f"Loaded {delivered.describe()} from results")
     else:
         primers = args.primers
 

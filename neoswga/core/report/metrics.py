@@ -13,6 +13,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+from neoswga.core.delivered_set import select_delivered_set
+
 logger = logging.getLogger(__name__)
 
 
@@ -951,6 +953,12 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         filepath = results_path / step_file
         if filepath.exists():
             primer_rows = _load_csv(filepath)
+            if step_file == "step4_improved_df.csv":
+                # One set, not the union of every alternative. The report used
+                # to describe a panel that is the pooled rows of up to
+                # `max_sets` mutually exclusive answers, so its primer count
+                # matched no orderable set. See `core/delivered_set.py`.
+                primer_rows = list(select_delivered_set(primer_rows).rows)
             logger.info(f"Loaded {len(primer_rows)} primers from {step_file}")
             break
 

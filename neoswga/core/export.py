@@ -23,10 +23,9 @@ from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from neoswga.core.delivered_set import DEFAULT_SET_INDEX, read_delivered_set
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.strand_conventions import to_bed_strand
-
-if TYPE_CHECKING:
-    from neoswga.core.reaction_conditions import ReactionConditions
 
 logger = logging.getLogger(__name__)
 
@@ -759,7 +758,10 @@ class PrimerExporter:
 
     @classmethod
     def from_results_dir(
-        cls, results_dir: str, params_file: Optional[str] = None
+        cls,
+        results_dir: str,
+        params_file: Optional[str] = None,
+        set_index: Optional[int] = DEFAULT_SET_INDEX,
     ) -> "PrimerExporter":
         """
         Create exporter from pipeline results directory.
@@ -767,6 +769,11 @@ class PrimerExporter:
         Args:
             results_dir: Path to results directory containing step4_improved_df.csv
             params_file: Optional path to params.json for reaction conditions
+            set_index: Which primer set to export. Default 0, the set
+                `step4_improved_df_summary.json` describes. `None` pools every
+                alternative, which is what this used to do unconditionally --
+                see `core/delivered_set.py` for the 9 bp heterodimer that put
+                in an ordering file.
 
         Returns:
             PrimerExporter instance
@@ -780,13 +787,8 @@ class PrimerExporter:
         if not step4_file.exists():
             raise FileNotFoundError(f"Step 4 results not found: {step4_file}")
 
-        primers = []
-        with open(step4_file, "r") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                primer = row.get("primer", row.get("sequence", ""))
-                if primer and primer not in primers:
-                    primers.append(primer)
+        delivered = read_delivered_set(step4_file, set_index)
+        primers = list(delivered.primers)
 
         if not primers:
             raise ValueError("No primers found in step4 results")

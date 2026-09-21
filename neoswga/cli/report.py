@@ -342,7 +342,9 @@ def run_export(args):
 
         # Load exporter from results
         exporter = PrimerExporter.from_results_dir(
-            args.dir, params_file=getattr(args, "json_file", None)
+            args.dir,
+            params_file=getattr(args, "json_file", None),
+            set_index=getattr(args, "set_index", 0),
         )
         exporter.modifications = mods
 
@@ -494,6 +496,13 @@ Examples:
     )
     export_parser.add_argument(
         "-o", "--output", default="./export", help="Output directory (default: ./export)"
+    )
+    export_parser.add_argument(
+        "--set",
+        dest="set_index",
+        type=int,
+        default=0,
+        help="Which of the alternative primer sets to use (default: 0, the set the run summary describes). Alternatives are separate answers to the same design, not additions to it; they are never pooled.",
     )
     export_parser.add_argument(
         "--project", default="SWGA", help="Project name for file naming (default: SWGA)"

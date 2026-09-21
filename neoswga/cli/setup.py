@@ -424,7 +424,7 @@ def run_interpret(args):
     from neoswga.core.results_interpreter import interpret_results
 
     try:
-        interpret_results(args.dir, verbose=True)
+        interpret_results(args.dir, verbose=True, set_index=getattr(args, "set_index", 0))
     except FileNotFoundError as e:
         logger.error(str(e))
         sys.exit(1)
@@ -644,6 +644,13 @@ def add_parsers(subparsers):
     )
     interpret_parser.add_argument(
         "-d", "--dir", required=True, help="Results directory containing step4_improved_df.csv"
+    )
+    interpret_parser.add_argument(
+        "--set",
+        dest="set_index",
+        type=int,
+        default=0,
+        help="Which of the alternative primer sets to use (default: 0, the set the run summary describes). Alternatives are separate answers to the same design, not additions to it; they are never pooled.",
     )
 
     # =========================================================================
