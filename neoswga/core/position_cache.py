@@ -596,9 +596,18 @@ class PositionCache:
 
             version = attrs.get("index_format_version")
             if version is not None and int(version) < INDEX_FORMAT_VERSION:
-                return (
-                    f"index format {int(version)}, this version writes " f"{INDEX_FORMAT_VERSION}"
-                )
+                # Version 2 fixed a scanner that stored k-mers spanning the
+                # join between two FASTA records. A reference with at most one
+                # record has no joins, so both scanners necessarily agreed and
+                # a version 1 index of it is correct. Refusing it anyway would
+                # force every plasmid and every complete bacterial genome to be
+                # recounted for a defect that cannot have touched them.
+                if len(self.get_record_starts(prefix) or []) > 1:
+                    return (
+                        f"index format {int(version)}, this version writes "
+                        f"{INDEX_FORMAT_VERSION}; on a multi-record reference that "
+                        f"format could store sites spanning a record join"
+                    )
 
             if genome is None:
                 continue

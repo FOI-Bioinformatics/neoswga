@@ -738,6 +738,43 @@ A self-dimer screen that empties a non-empty frontier now raises
 `NoCandidatesError` naming the screen and its threshold, instead of handing an
 empty list to an optimizer that answered "candidates list cannot be empty".
 
+## Two scanners, one quantity
+
+Fixed 2026-09-21. `string_search` has two position scanners: the
+Aho-Corasick `get_all_positions_multi_k`, and the sliding-window
+`get_all_positions_per_k` used when that package is absent or one k is being
+scanned. Records are concatenated with no separator, so the last k-1 bases of
+one record and the first bases of the next form k-mers that occur in neither.
+The Aho-Corasick path rejected those matches. The sliding-window path did not.
+
+So the same reference produced different site sets depending on which path
+ran, and the sliding-window path stored up to k-1 fabricated sites per record
+join. On a two-record fixture `ACGGTA` is absent from both records and was
+stored at offset 4. A fabricated foreground site inflates coverage, a
+fabricated background site deflates specificity, and nothing downstream can
+tell either from a real one.
+
+Single-record references are unaffected: with no joins the two scanners always
+agreed, which is why every complete bacterial genome and every plasmid in this
+repository reads the same before and after. Draft assemblies and hg38 are where
+it bit.
+
+`spans_a_record_join` now holds the rule once and both scanners call it. A
+match beginning exactly ON a boundary starts a record and is kept; off by one
+here would delete the first k-1 sites of every contig.
+
+`INDEX_FORMAT_VERSION` is 2. A version 1 index is refused for a MULTI-RECORD
+reference only, because a single-record one cannot carry the defect and
+refusing it would force a recount for something that never applied to it.
+
+`tests/test_positions_agree_with_an_independent_count.py` checks the scan
+against a brute-force sliding window written in that file, which calls neither
+scanner nor any helper they call. It covers overlapping occurrences,
+palindromes, a reverse complement that also occurs forward, ambiguous bases, a
+circular origin, record joins, and an exhaustive pass over every window of a
+small reference. It also asserts the two scanners agree, which is the check
+that would have caught this.
+
 ## Testing
 
 ```bash
