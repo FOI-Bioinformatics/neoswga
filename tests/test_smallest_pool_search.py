@@ -24,25 +24,36 @@ single deletion from {P1,P2,P3} qualifies**: dropping any one of them loses
 bins nothing else in that panel covers. A search that only deletes is stuck at
 3 while the answer is 2, and reaching 2 needs a swap before a deletion.
 
-**The gap is real on the shipped Wolbachia design**, measured 2026-09-21 and
-recorded in `docs/validation/smallest_pool_on_wolbachia_2026-09-21.md`.
-Deletion removes nothing from the greedy's 12-oligo panel; a beam over the
-same pool finds 11 oligos at coverage 0.7599 against the target 0.7529. Ten
-falls short at 0.7485. So one oligo of twelve, for MORE coverage rather than
-less: the greedy's twelve is not an optimal twelve, and a better eleven exists
-inside the same pool.
+**The gap is real here and has not been found on any real design.** Five
+instances were measured on 2026-09-21 -- E. coli, S. aureus, M. tuberculosis,
+and wMel against both chr21 and *Drosophila* -- and on every one the beam's
+best eleven-primer panel falls short of the greedy's own twelve-primer
+coverage. Deletion removes nothing; neither does the beam find anything
+smaller. See `docs/validation/beam_does_not_beat_deletion_2026-09-21.md`.
 
-An earlier version of this docstring said the gap did not reproduce on any
-real instance. That was wrong, and wrong for a reason worth keeping: the only
-instances tried were the bundled 6 kb plasmid, which one primer covers
-completely, and a 300 kb random sequence, which has no dominance structure.
-Neither is representative, and the prepared Wolbachia design that shows the
-gap immediately was already in the repository. **Two unrepresentative
-negatives are not a negative result.**
+This docstring twice said otherwise and was twice wrong, in opposite
+directions, which is the part worth keeping.
 
-`optimize --minimize-primers` is still on the deletion path. That is now a
-pending decision rather than a measurement-backed deferral: switching it
-changes every delivered panel, which is the user's call.
+First it said the gap did not reproduce on any real instance, having tried
+only the bundled 6 kb plasmid, which one primer covers completely, and a
+300 kb random sequence with no dominance structure. Two unrepresentative
+negatives are not a negative result.
+
+Then it said the gap was real on the Wolbachia design, quoting a beam finding
+11 at 0.7599 against a greedy baseline of 0.7529. That baseline matched
+nothing else in the repository: two earlier records put the same panel at
+0.7334, which is what re-running it returns. The beam had been asked to beat a
+panel the design does not deliver, and beating a weaker twelve is an easier
+problem.
+
+So: check a baseline against what the project already records for the same
+quantity, before concluding anything from the delta.
+
+What this file proves is unaffected by either error, because it is proved by
+enumeration rather than by a design: deletion is a local optimum and the beam
+escapes it, on a fixture where every subset can be checked.
+`optimize --minimize-primers` remains on the deletion path, now for the reason
+it had originally -- no demonstrated benefit.
 """
 
 import itertools

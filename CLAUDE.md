@@ -1021,27 +1021,47 @@ from it qualifies, and `{P4,P3}` qualifies at size 2. Deletion stops at 3;
 called only from `pool_planner`, so `plan-pool` can escape this local optimum
 and `optimize --minimize-primers` cannot.
 
-**It costs a real oligo on the shipped Wolbachia design.** Measured
-2026-09-21 on wMel against *Drosophila*, 12-mers at 3 kb: deletion removes
-nothing from the greedy's 12-oligo panel, while a beam over the same pool
-finds 11 at coverage 0.7599 against the target 0.7529. Ten falls short at
-0.7485. Coverage RISES as the panel shrinks, because the greedy's twelve is
-not an optimal twelve and a better eleven exists in the same pool
-([measurement](docs/validation/smallest_pool_on_wolbachia_2026-09-21.md)).
+**On a real design it costs nothing, measured on five instances.** Greedy at
+n=12, deletion at the greedy's own coverage, then a beam at width 4 over the
+delivered panel plus 100 candidates:
 
-An earlier note here said the gap did not reproduce on any real instance.
-**That was wrong.** The only instances tried were the bundled 6 kb plasmid,
-which one primer covers completely, and a 300 kb random sequence, which has no
-dominance structure; the prepared Wolbachia design that shows it immediately
-was already in the repository, under `examples/wolbachia_pool_design/work`,
-and is the design most of this file's other measurements come from. Two
-unrepresentative negatives are not a negative result, and
-`tests/validation/genomes` holds full E. coli, S. aureus, M. tuberculosis,
-Prevotella, chr21 and hg38 besides.
+| target | greedy coverage | deletion | beam best at n=11 |
+|---|---|---|---|
+| E. coli | 0.2551 | 12 | 0.2497 |
+| S. aureus | 0.1985 | 12 | 0.1859 |
+| M. tuberculosis | 0.1661 | 12 | 0.1619 |
+| wMel against chr21 | 0.6652 | 12 | 0.6553 |
+| wMel against *Drosophila* | 0.7334 | 12 | 0.7239 |
 
-It is still not wired, but that is now a pending decision rather than a
-measurement-backed deferral: switching `--minimize-primers` to the beam would
-deliver 11 oligos where it currently delivers 12, on every design.
+Deletion removes nothing on any of them, and neither does the beam find
+anything smaller: every best-eleven falls short of the greedy's own coverage
+([measurement](docs/validation/beam_does_not_beat_deletion_2026-09-21.md)).
+
+**An earlier entry here claimed the opposite and was wrong.** It reported the
+beam finding 11 at 0.7599 against a greedy baseline of 0.7529 on the last row
+above. That baseline matches nothing else in this repository: two records
+written before the beam work, Known Issue 17 and
+`occupancy_and_discrimination_2026-09-19.md`, both put that panel at **0.7334**,
+which is what re-running it returns. The panel the beam was asked to beat was
+therefore not the panel this design delivers, and beating a weaker twelve with
+an eleven is an easier problem. The earlier run was measured inline with no
+script kept, so what it actually did is not recoverable.
+
+The check that would have caught it is free: **compare a baseline against the
+project's own recorded figure for the same quantity before drawing a
+conclusion from the delta.** A measurement whose baseline disagrees is
+reporting on a different object.
+
+A regime explanation was tested and refuted on the way. Widening only the reach
+put S. aureus at 0.8017 coverage, comparable to the Wolbachia figure, and the
+beam still found no smaller panel (0.7773 at n=11). Saturation is not the
+difference, because there is no difference.
+
+So it stays unwired, and back to the reason it had before: a capability with no
+demonstrated benefit, the resolution Known Issues 11 and 16 reached. Each row
+is "no saving found within a ~110-oligo beam pool" rather than "none exists",
+and a wider pool can only help the beam -- which is what makes the earlier
+positive suspect rather than these negatives weak.
 
 The file also states the claim the plan forbids, as arithmetic: a search that
 examined every candidate examined `n` things, while the subsets number `2**n`.

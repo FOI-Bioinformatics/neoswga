@@ -1,5 +1,25 @@
 # Deletion stops one oligo short on the Wolbachia design
 
+> **SUPERSEDED AND WITHDRAWN, 21 September 2026, the same day it was written.**
+> The central claim below does not reproduce. Re-running the same instance with
+> the greedy panel and the beam produced by one script returns a greedy
+> coverage of **0.7334**, not the 0.7529 quoted here, and at that baseline the
+> beam's best eleven reaches only 0.7239 -- short. 0.7334 is what two records
+> written before this one already said for the same panel, in
+> `occupancy_and_discrimination_2026-09-19.md` and Known Issue 17.
+>
+> So the panel this measurement asked the beam to beat was not the panel the
+> design delivers, and beating a weaker twelve with an eleven is an easier
+> problem. It was measured inline with no script kept, so what it actually did
+> cannot be recovered.
+>
+> Four further instances agree that there is no saving. See
+> [beam_does_not_beat_deletion_2026-09-21.md](beam_does_not_beat_deletion_2026-09-21.md).
+>
+> Kept rather than deleted because the correction is the useful part: a
+> baseline that disagrees with the project's own figure for the same quantity
+> is reporting on a different object, and checking it costs nothing.
+
 Measured 21 September 2026, on `examples/wolbachia_pool_design/work`: wMel
 (1,267,782 bp) against *Drosophila* (143,726,002 bp), 12-mers, phi29 at 30 C,
 3 kb reach, the 2,000-candidate shortlist the filter produced.
