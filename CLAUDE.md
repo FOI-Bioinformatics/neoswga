@@ -2060,3 +2060,16 @@ package, because nothing in the search uses it.
     the usual first hit for this error and risks a corrupt index. The predicate
     matches on errno AND message, because EAGAIN alone is raised by unrelated
     things. Tests: `tests/test_two_runs_sharing_a_directory_say_so.py`.
+
+    **This entry took three corrections and they were all the same shape**,
+    which is worth keeping because it is the silent-zero family in a register
+    this file does not otherwise cover: not a value, but a SENTENCE that reads
+    as more definite than its evidence. "Another writer" when a reader
+    suffices. "`optimize` holds these for its whole run" when only the
+    non-default cache does. "Nothing in the artifacts separates the three
+    processes" when a race means there is nothing to separate. None was wrong
+    about the cause; each was wrong about the size of the claim, and the first
+    two shipped to users in an error message. A diagnostic written from a
+    finding is a claim about someone's machine, so name the mechanism that
+    generalises rather than the command that happened to be involved, and say
+    "not determined" only when better evidence would in fact settle it.
