@@ -40,6 +40,7 @@ logger = logging.getLogger(__name__)
 # reaches scikit-learn through `rf_preprocessing`. The previous try/except
 # ImportError fallback defined a *different* class, which would not have
 # caught what `core/pipeline.py` raises.
+from neoswga.cli._failure import clear_failure_artifact
 from neoswga.core.exceptions import DesignError, StepPrerequisiteError
 
 
@@ -1177,6 +1178,9 @@ def run_step4(args):
                 "request_default_sources": (dict(_request.default_sources) if _request else None),
             },
         )
+        # This run finished, so a failure record from an earlier one no
+        # longer describes anything and must not go on blocking the export.
+        clear_failure_artifact(_data_dir)
         logger.info(f"Step 4 complete in {_elapsed:.1f}s")
         if not args.quiet:
             data_dir = getattr(parameter, "data_dir", ".")

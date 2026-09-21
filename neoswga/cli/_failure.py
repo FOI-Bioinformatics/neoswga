@@ -114,3 +114,26 @@ def report_design_failure(args, error, expected=True):
     path = write_failure_artifact(args, error)
     if path:
         logger.error("  failure record: %s", path)
+
+
+def clear_failure_artifact(directory):
+    """Remove a failure record once a run in this directory has succeeded.
+
+    A record that is never cleared is as wrong as one that is never read: the
+    user fixes the problem, the next run succeeds, and the export still
+    refuses on evidence that no longer describes anything.
+
+    Deliberately quiet about a missing file. Most runs have nothing to clear,
+    and the absence is the normal case rather than a condition worth reporting.
+    """
+    from neoswga.core.export import DESIGN_FAILURE_FILENAME
+
+    if not directory:
+        return
+    path = os.path.join(str(directory), DESIGN_FAILURE_FILENAME)
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        return
+    except OSError as exc:  # pragma: no cover - unwritable directory
+        logger.debug("Could not clear the failure record at %s: %s", path, exc)

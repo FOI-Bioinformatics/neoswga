@@ -989,6 +989,37 @@ examined every candidate examined `n` things, while the subsets number `2**n`.
 Exhausting candidates is not exhausting candidate subsets, and only a toy case
 like this one can produce a minimum certificate.
 
+## A failed run leaves nothing exportable
+
+An output directory is the only thing a later command sees, and nothing in it
+carries a timestamp anyone compares. A directory whose most recent run FAILED
+therefore looked exactly like one whose run succeeded: the previous run's
+`step4_improved_df.csv` was still sitting there, real and stale, and `export`
+turned it into an oligo order.
+
+Task 1 wrote `design_failure.json` for exactly this, **and nothing read it.**
+That is the Known Issue 8 class in artifact form: the evidence exists and the
+check does not.
+
+`export.export_is_blocked(results_dir)` is that check, and `neoswga export`
+now consults it before loading anything, exiting nonzero with the recorded
+stage and reason. It refuses a `failed` or `interrupted` run, and also a
+`finished` one that did not qualify, since finishing is not finding something.
+
+A record that cannot be parsed blocks rather than passes. Unknown is not
+success, and defaulting the other way would make a corrupted artifact the most
+permissive state available, which is every silent-zero in this file.
+
+`cli/_failure.clear_failure_artifact` removes the record when step 4 finishes.
+A record that is never cleared is as wrong as one that is never read: the user
+fixes the problem, the next run succeeds, and the export refuses on evidence
+that no longer describes anything.
+
+Verified end to end: a directory carrying a failure record exits 1 and writes
+no FASTA; the same directory with the record cleared exits 0 and writes one.
+`tests/test_design_report_provenance.py` also pins that the CSV, the summary
+JSON, the rendered report and the exported FASTA all name the same panel.
+
 ## Testing
 
 ```bash

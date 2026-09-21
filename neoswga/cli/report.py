@@ -330,6 +330,16 @@ def run_export(args):
             if args.pto_bonds is not None:
                 mods.pto_bonds = args.pto_bonds
 
+        # Refuse a directory whose most recent run did not finish with a
+        # qualifying panel. The result files here would be from an earlier
+        # run: real, stale, and indistinguishable from current without this.
+        from neoswga.core.export import export_is_blocked
+
+        blocked_run = export_is_blocked(args.dir)
+        if blocked_run:
+            logger.error(blocked_run)
+            sys.exit(1)
+
         # Load exporter from results
         exporter = PrimerExporter.from_results_dir(
             args.dir, params_file=getattr(args, "json_file", None)
