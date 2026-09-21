@@ -63,6 +63,21 @@ def test_the_advice_names_the_directory_when_it_is_known():
     assert "/tmp/design" in advice
 
 
+def test_the_advice_names_the_reader_blocks_writer_shape():
+    """The surprising half, and the one a user will actually hit.
+
+    Measured: a foreign process holding the file READ-ONLY produces exactly
+    the recorded error. `optimize` keeps read handles open for a whole run
+    through `StreamingPositionCache`, so an optimize and a filter on one
+    directory collide although only one of them writes. A message that said
+    only "another writer" would send someone looking for a second filter.
+    """
+    advice = locked_file_advice(lock_error())
+
+    assert "READING" in advice
+    assert "optimize" in advice
+
+
 def test_the_advice_says_rerunning_is_safe():
     """The one thing a user needs to know before touching anything."""
     advice = locked_file_advice(lock_error())

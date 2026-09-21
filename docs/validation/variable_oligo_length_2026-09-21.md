@@ -119,17 +119,38 @@ because it is what the config changed.
 
 | runs | attempts | reproduced the error |
 |---|---|---|
-| two processes, one data directory | 7 | 6 |
-| one process, including multi-k | 6 | 0 |
+| two processes, one data directory | 11 | 10 |
+| one process, including multi-k | 11 | 0 |
 
-A mixed k 10-12 `filter` over the same Prevotella and chr21 pair, in a clean
-directory, completed in 146 s with exit status 0. The recorded traceback
-differs from the reproduction only in `h5f.open` against `h5f.create`, which is
-whether the target file already existed.
+Two independent sets of trials, agreeing. A mixed k 10-12 `filter` over the
+same Prevotella and chr21 pair, in a clean directory, completed in 146 s with
+exit status 0, and a Prevotella-against-Wolbachia run at k 10-12 with
+`max_primer` 5000 completed in 253 s. The recorded traceback differs from the
+reproduction only in `h5f.open` against `h5f.create`, which is whether the
+target file already existed, and its frames are the sequential Aho-Corasick
+branch, so the per-k multiprocessing fallback that was first suspected did not
+run.
 
-The directory holding the recorded log has about 60 run logs in it, which is
-what made a concurrent run the likelier explanation once it was tested rather
-than assumed.
+**The errno is cross-process by construction**, which is what makes the
+conclusion firm rather than statistical. A foreign process holding the file,
+even read-only, produces exactly the recorded message. A second handle inside
+ONE process produces something else, `OSError: ... file is already open for
+read-only`, with no errno 35. So a leaked handle within a single run cannot
+produce this message at all.
+
+**A reader is enough to stop a writer**, and that is the shape a user will
+actually hit. `optimize` keeps position files open for reading for its whole
+run through `StreamingPositionCache`, so an optimize and a filter on one
+directory collide although only one of them writes. The error message says so,
+because "another writer" would send someone looking for a second filter.
+
+**The recorded directory shows the collision directly.** Its
+`run_manifest.json` records `score` on that same config completing 2.2 s before
+the failing filter's last log write and `optimize` completing 8.7 s after, with
+no `filter` entry at all, because the manifest is written on step completion.
+Beside them sits a `prevotella_13mer_positions.h5` of 800 bytes holding zero
+datasets, with the same mtime, for a k that run never requested -- a third
+process still running under a config edited minutes earlier.
 
 The remedy is a message, not a change to the scan. `core/concurrent_runs.py`
 translates the error at the step boundary; steps 2, 3 and 4 each consult it.

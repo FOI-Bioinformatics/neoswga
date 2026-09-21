@@ -2015,14 +2015,29 @@ package, because nothing in the search uses it.
     mixed-length run, and mixed length was blamed because that is what the
     config changed.
 
-    Two neoswga processes against one directory reproduced the identical error
-    in 6 of 7 attempts; 6 of 6 single-process runs completed cleanly, including
-    a multi-k one over the same references. A mixed k 10-12 `filter` in a clean
-    directory takes 146 s and exits 0. The recorded traceback differs from the
-    reproduction only in `h5f.open` against `h5f.create`, which is whether the
-    target file already existed. That directory holds about 60 run logs, which
-    is what made a concurrent run the likelier explanation once it was tested
-    rather than assumed.
+    Four measurements settle it. **The errno is cross-process by
+    construction**: a foreign process holding the file, even read-only,
+    produces exactly the recorded message, while a second handle inside ONE
+    process produces `OSError: ... file is already open for read-only` with no
+    errno 35, so a leaked handle cannot be the cause of this message. **A
+    reader is enough to stop a writer**, which is the shape that bites --
+    `optimize` holds read handles open for a whole run through
+    `StreamingPositionCache`, so an optimize and a filter on one directory
+    collide although only one writes. **Concurrent pairs failed 10 of 11
+    across two trials and single-process runs 0 of 11**, the latter including
+    multi-k runs at realistic scale; a mixed k 10-12 `filter` in a clean
+    directory takes 146 s and exits 0. **The recorded directory shows the
+    collision directly**: its `run_manifest.json` has `score` on that config
+    completing 2.2 s before the failing filter's last log write and `optimize`
+    8.7 s after, with no `filter` entry at all because the manifest is written
+    on completion, and a `prevotella_13mer_positions.h5` of 800 bytes holding
+    zero datasets sits there with the same mtime for a k that run never
+    requested.
+
+    The recorded traceback differs from the reproduction only in `h5f.open`
+    against `h5f.create`, which is whether the target file already existed.
+    The frames match the sequential Aho-Corasick branch, so the per-k
+    multiprocessing fallback -- the first guess -- did not run.
 
     `core/concurrent_runs.py` translates it at the step boundary: steps 2, 3
     and 4 all write HDF5 and each consults it. No lock is taken and no retry is
