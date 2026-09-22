@@ -45,6 +45,29 @@ def _strip_chr(name: str) -> str:
     return name[3:] if name.lower().startswith("chr") else name
 
 
+def require_matching_targets(fg_prefixes, fg_seq_lengths) -> None:
+    """Refuse a prefix list and a length list that do not correspond.
+
+    These come from two separate params.json keys and are paired with `zip`,
+    which stops at the shorter one. A file naming three targets and two lengths
+    therefore analysed two of them, with no error and no warning, and every gap
+    in the third was reported as absent -- so `expand-primers`, whose job is to
+    add oligos for the gaps, would never add one for that target.
+
+    `optimizer_factory.create` already refuses this, which is why the optimizer
+    path was safe and this one was not: the coverage commands do not build an
+    optimizer. The rule belongs in both places rather than in a shared module
+    neither would naturally import.
+    """
+    if len(fg_prefixes) != len(fg_seq_lengths):
+        raise ValueError(
+            f"fg_prefixes names {len(fg_prefixes)} target(s) and fg_seq_lengths "
+            f"gives {len(fg_seq_lengths)} length(s). They are paired positionally, "
+            f"so a mismatch silently drops a target from the analysis. Check "
+            f"params.json: the two lists must correspond one to one."
+        )
+
+
 def match_contigs(
     bam_refs: Sequence[str],
     bam_ref_lengths: Sequence[int],
@@ -87,6 +110,7 @@ def match_contigs(
     Returns:
         dict mapping ``fg_prefix -> bam_ref`` (only confident matches).
     """
+    require_matching_targets(fg_prefixes, fg_seq_lengths)
     aliases = aliases or {}
     ref_set = set(bam_refs)
     ref_by_stripped = {_strip_chr(r): r for r in bam_refs}
@@ -410,6 +434,7 @@ def bam_gaps(
     matching runs, which can only handle a single-record reference; a
     multi-record one is named rather than returned as an empty list.
     """
+    require_matching_targets(fg_prefixes, fg_seq_lengths)
     if fg_genomes:
         return _bam_gaps_by_record(
             bam_path,
