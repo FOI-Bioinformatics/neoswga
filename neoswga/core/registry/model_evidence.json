@@ -60,7 +60,12 @@
       "buffer_domain": "PCR buffer",
       "temperature_domain": "37 C reference, extrapolated to 30-45 C by an Arrhenius term",
       "uncertainty": "the cited range is 0.6-0.75 C/%, so the shipped value sits below its own source",
-      "notes": "Known issue: -0.55 makes DMSO look gentler on Tm than the cited work reports."
+      "notes": "Known issue: -0.55 makes DMSO look gentler on Tm than the cited work reports.",
+      "temperature_range_c": [
+        30.0,
+        45.0
+      ],
+      "temperature_range_note": "Derived from this record's own temperature_domain sentence, not from a fresh reading of the source. It is the only one of the 23 records whose prose states a range: ten give a single reference point and twelve give no number. No range is invented for the others, because recording a domain nobody stated would break, in the act of recording it, the rule this registry exists to enforce."
     },
     {
       "quantity": "tm_betaine_uniform",
