@@ -27,7 +27,17 @@ from neoswga.core.design_request import resolve_design_request
 from neoswga.core.exceptions import ModelEvaluationError
 from neoswga.core.panel_evaluation import Measurement, PanelAssessment, evaluate_panel
 
-PRIMERS = ("AAAACCCCGGGG", "TTTTGGGGCCCC")
+# A pair whose worst complementary run is 3 bp, at the default
+# `max_dimer_bp` of 3 and so within it. The previous fixture,
+# ("AAAACCCCGGGG", "TTTTGGGGCCCC"), shares a 4 bp run and broke it.
+#
+# That did not matter while `evaluate_panel` enforced nothing but measurement
+# validity. It does now: as of 2026-09-22 the assessment also checks the
+# requested size and the delivered-panel dimer limit, both of which were
+# already enforced elsewhere and neither of which reached this record. A
+# fixture that violates the rule under test would make these tests assert the
+# wrong thing.
+PRIMERS = ("ACCACAGATAGC", "GTTGTAGATGGA")
 
 
 class Metrics:
@@ -64,7 +74,10 @@ def request(**overrides):
         "reaction_temp": 30.0,
         "min_k": 8,
         "max_k": 12,
-        "num_primers": 12,
+        # Was 12 while the fixture delivered 2 and nothing checked. The
+        # assessment now enforces the requested size, so the fixture has to
+        # ask for what it hands over.
+        "num_primers": len(PRIMERS),
     }
     params.update(overrides)
     return resolve_design_request(params)
@@ -220,8 +233,14 @@ def test_a_non_zero_background_keeps_its_ratio():
 # ---------------------------------------------------------------------------
 
 
-def test_no_configured_limits_means_nothing_to_fail():
-    """Setting no limit must leave the delivered panel byte-identical."""
+def test_no_configured_limits_means_no_configured_limit_can_fail():
+    """Setting no limit must leave the delivered panel byte-identical.
+
+    Narrowed 2026-09-22. The promise is about CONFIGURED limits, and still
+    holds. It never was that an assessment cannot fail at all: a panel short of
+    its requested size, or carrying a pair above `max_dimer_bp`, fails whether
+    or not a limit is configured, because neither is configurable.
+    """
     assessment = evaluate_panel(request(), PRIMERS, Metrics(), objective=None)
 
     assert assessment.violations == ()
