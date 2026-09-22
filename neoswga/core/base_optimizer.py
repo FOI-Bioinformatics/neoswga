@@ -1245,7 +1245,7 @@ class BaseOptimizer(ABC):
         # one molecule and the start of another is not a distance a polymerase
         # could ever travel.
         gaps = []
-        for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+        for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
             gaps.extend(self._compute_gaps(fg_by_prefix.get(prefix, []), length))
         mean_gap = np.mean(gaps) if gaps else float("inf")
         max_gap = max(gaps) if gaps else float("inf")
@@ -1351,7 +1351,7 @@ class BaseOptimizer(ABC):
             return 0.0
 
         covered = 0.0
-        for prefix, length in zip(prefixes, seq_lengths):
+        for prefix, length in zip(prefixes, seq_lengths, strict=True):
             length = int(length)
             if length <= 0:
                 continue
@@ -1367,7 +1367,7 @@ class BaseOptimizer(ABC):
     def _coverage_by_reach_over_prefixes(self, positions_by_prefix, prefixes, seq_lengths):
         """`_compute_coverage_by_reach`, aggregated the same way."""
         reaches = set()
-        for prefix, length in zip(prefixes, seq_lengths):
+        for prefix, length in zip(prefixes, seq_lengths, strict=True):
             reaches.update(
                 self._compute_coverage_by_reach(positions_by_prefix.get(prefix, []), int(length))
             )

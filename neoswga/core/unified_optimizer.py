@@ -1130,7 +1130,7 @@ def run_optimization(
                 # plasmid-scale scenarios for "perfect design".
                 n_primers = len(result.primers)
                 if n_primers > 0 and _ext > 0:
-                    for prefix, length in zip(fg_prefixes, fg_seq_lengths):
+                    for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
                         if length <= 0:
                             continue
                         expected_window = n_primers * 2 * _ext

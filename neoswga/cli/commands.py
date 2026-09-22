@@ -386,7 +386,7 @@ def run_analyze_coverage(args):
     if primers:
         from neoswga.core.export import export_to_bedgraph
 
-        for prefix, length in zip(fg_prefixes, fg_seq_lengths):
+        for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
             positions = {}
             for p in primers:
                 sites = []

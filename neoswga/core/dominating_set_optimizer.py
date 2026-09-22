@@ -931,7 +931,7 @@ class DominatingSetOptimizer:
 
         # Add fixed primers first
         for primer in fixed_primers:
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 fw = self.cache.get_positions(prefix, primer, "forward")
                 rv = self.cache.get_positions(prefix, primer, "reverse")
                 both = self.cache.get_positions(prefix, primer, "both")
@@ -948,7 +948,7 @@ class DominatingSetOptimizer:
 
         # Add candidate primers
         for primer in candidates:
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 fw = self.cache.get_positions(prefix, primer, "forward")
                 rv = self.cache.get_positions(prefix, primer, "reverse")
                 both = self.cache.get_positions(prefix, primer, "both")
@@ -1087,7 +1087,7 @@ class DominatingSetOptimizer:
         graph = BipartiteGraph(bin_size=self.bin_size)
 
         for primer in candidates:
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 # PositionCache uses 'forward', 'reverse', 'both' for strand
                 positions = self.cache.get_positions(prefix, primer, "both")
 

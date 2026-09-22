@@ -560,6 +560,10 @@ def run_contract_set(args):
                 genomes,
                 lengths,
                 [bool(getattr(parameter, f"{group}_circular", False))] * len(prefixes),
+                # The guard above already refuses a mismatch, so this can only
+                # fire if that check is ever removed. Kept so the guarantee is
+                # local to the pairing rather than two lines away.
+                strict=True,
             )
         )
     cache = scan_panel_positions(current, references)
@@ -686,7 +690,7 @@ def run_rescore_set(args):
             per_prefix: dict = {}
             total_cov = 0
             total_len = 0
-            for prefix, length in zip(prefix_list, length_list):
+            for prefix, length in zip(prefix_list, length_list, strict=True):
                 if length <= 0:
                     per_prefix[prefix] = 0.0
                     continue

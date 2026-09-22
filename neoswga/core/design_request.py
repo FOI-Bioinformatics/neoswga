@@ -247,7 +247,15 @@ class DesignRequest:
             (self.fg_prefixes, self.fg_genomes),
             (self.bg_prefixes, self.bg_genomes),
         ):
-            for prefix, genome in zip(prefixes, genomes):
+            # strict=False DELIBERATELY. Truncation is the documented
+            # behaviour here: a prefix with no genome is absent from the
+            # manifest rather than paired with a guess, which is what made
+            # a design refuse its own index under `pytest -n 8`. Written
+            # out so the next reader does not "fix" it to strict=True, and
+            # so the ratchet in
+            # tests/test_pairing_a_prefix_with_its_length_cannot_truncate.py
+            # sees a decision rather than an omission.
+            for prefix, genome in zip(prefixes, genomes, strict=False):
                 if prefix and genome:
                     manifest[str(prefix)] = str(genome)
         return manifest

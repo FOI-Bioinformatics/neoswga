@@ -1311,7 +1311,7 @@ class NetworkOptimizer:
 
         # Strand alternation analysis
         if self.cache is not None and hasattr(self.cache, "compute_strand_alternation_stats"):
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 try:
                     strand_stats = self.cache.compute_strand_alternation_stats(
                         prefix, primers, length

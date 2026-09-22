@@ -261,7 +261,7 @@ class PositionCache:
         for prefix, primer in outstanding:
             by_prefix[prefix].append(primer)
 
-        for prefix, genome_path in zip(self.fname_prefixes, self.genome_paths):
+        for prefix, genome_path in zip(self.fname_prefixes, self.genome_paths, strict=True):
             wanted = by_prefix.get(prefix)
             if not wanted:
                 continue

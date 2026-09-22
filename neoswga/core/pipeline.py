@@ -218,7 +218,9 @@ def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> List
         return []
 
     stale = []
-    for prefix, genome in zip(prefixes, genomes):
+    # strict=False DELIBERATELY, for the reason `DesignRequest.reference_manifest`
+    # gives: a prefix with no genome is absent rather than paired with a guess.
+    for prefix, genome in zip(prefixes, genomes, strict=False):
         if not os.path.exists(genome):
             continue
         for k in range(min_k, max_k + 1):

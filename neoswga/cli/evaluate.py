@@ -90,7 +90,7 @@ def _gap_statistics(cache, primers, prefixes, lengths, circular):
     import numpy as _np
 
     gaps = []
-    for prefix, length in zip(prefixes, lengths):
+    for prefix, length in zip(prefixes, lengths, strict=True):
         pos = sorted({int(x) for primer in primers for x in cache.get_positions(prefix, primer)})
         if len(pos) < 2:
             continue

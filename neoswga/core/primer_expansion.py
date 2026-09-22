@@ -292,7 +292,7 @@ class PrimerExpander:
         if not primers:
             # Entire genome is a gap
             gaps = []
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 gaps.append(CoverageGap(chromosome=prefix, start=0, end=length, size=length))
             if extra_gaps and merge:
                 gaps = merge_gap_intervals(gaps + list(extra_gaps))
@@ -301,7 +301,7 @@ class PrimerExpander:
         # Collect all binding positions
         all_positions = {}  # prefix -> sorted positions
 
-        for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+        for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
             positions = []
             for primer in primers:
                 pos = self.cache.get_positions(prefix, primer, "both")
@@ -311,7 +311,7 @@ class PrimerExpander:
         # Find gaps
         gaps = []
 
-        for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+        for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
             positions = all_positions.get(prefix, [])
 
             if not positions:
@@ -370,7 +370,7 @@ class PrimerExpander:
         graph = BipartiteGraph(bin_size=bin_size)
 
         for primer in primers:
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 positions = self.cache.get_positions(prefix, primer, "both")
                 if len(positions) > 0:
                     # Without `extension_reach` this marked only the bin each
@@ -580,7 +580,7 @@ class PrimerExpander:
         In [0, 1] by construction, so it cannot report progress as regression
         the way a count of gaps did.
         """
-        length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths, strict=True))
         total = 0.0
         recovered = 0.0
         for prefix, length in length_by_prefix.items():
@@ -635,7 +635,7 @@ class PrimerExpander:
         ``[start, length)`` and ``[0, end-length)`` before dilation.
         """
         # Build per-prefix sorted interval bounds, expanding wrap gaps.
-        length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        length_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths, strict=True))
         bounds_by_prefix: dict = {}
         for g in target_gaps:
             length = length_by_prefix.get(g.chromosome)
@@ -685,7 +685,7 @@ class PrimerExpander:
         weight per base slots in here unchanged.
         """
         weights_by_prefix = {}
-        lengths_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths))
+        lengths_by_prefix = dict(zip(self.fg_prefixes, self.fg_seq_lengths, strict=True))
         for prefix, length in lengths_by_prefix.items():
             spans = [
                 (g.start, min(g.end, length))

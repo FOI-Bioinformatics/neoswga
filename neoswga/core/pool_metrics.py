@@ -108,7 +108,7 @@ def compute_pool_metrics(optimizer, primers: List[str]) -> PoolMetrics:
     )
 
     gaps = []
-    for prefix, length in zip(optimizer.fg_prefixes, optimizer.fg_seq_lengths):
+    for prefix, length in zip(optimizer.fg_prefixes, optimizer.fg_seq_lengths, strict=True):
         gaps.extend(optimizer._compute_gaps(fg_by_prefix.get(prefix, []), length))
 
     return PoolMetrics(
