@@ -582,102 +582,12 @@ class OptimizationResult:
         min_per_target_coverage: float = 0.0,
         forbidden_primers: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Post-optimization sanity validation.
+        """Post-optimization sanity validation; see `core/result_validation.py`."""
+        from .result_validation import validate_result
 
-        Catches the broad class of silent failures an optimizer can produce
-        without explicit assertions: duplicates, unexpected set size, zero
-        coverage, blacklist re-injection. Returns a report dict that
-        `unified_optimizer.run_optimization` stores on the result and writes
-        alongside ``step4_improved_df.csv``.
-
-        This never mutates the result. It emits warnings (``level='warning'``)
-        for degenerate-but-acceptable outcomes (e.g., target_size underfilled
-        when status is already PARTIAL) and errors (``level='error'``) for
-        genuine correctness bugs (e.g., duplicate primers).
-        """
-        issues: List[Dict[str, Any]] = []
-
-        primer_set = list(self.primers)
-        n = len(primer_set)
-
-        # Duplicate check — a hard error regardless of status.
-        unique = set(primer_set)
-        if len(unique) != n:
-            dup_counts = {p: primer_set.count(p) for p in unique}
-            duplicates = [p for p, c in dup_counts.items() if c > 1]
-            issues.append(
-                {
-                    "level": "error",
-                    "code": "duplicate_primers",
-                    "detail": f"{len(duplicates)} duplicate primer(s): {duplicates[:5]}",
-                }
-            )
-
-        # Set size check — warning unless the optimizer already flagged PARTIAL.
-        if target_size is not None and n != target_size:
-            issues.append(
-                {
-                    "level": ("warning" if self.status.value == "partial" else "error"),
-                    "code": "set_size_mismatch",
-                    "detail": f"Requested target_size={target_size}, got {n}",
-                }
-            )
-
-        # Non-empty foreground coverage. ERROR status already carries 0.0
-        # coverage implicitly, so skip that case.
-        if self.status.value != "error":
-            fg_cov = getattr(self.metrics, "fg_coverage", 0.0)
-            if fg_cov < min_coverage:
-                issues.append(
-                    {
-                        "level": ("warning" if self.status.value == "partial" else "error"),
-                        "code": "coverage_below_threshold",
-                        "detail": (f"fg_coverage={fg_cov:.3f} < min_coverage={min_coverage:.3f}"),
-                    }
-                )
-
-        # Per-target coverage (multi-genome mode). Optimizers that populate
-        # `metrics.per_target_coverage` (Phase 11D) have their minimum
-        # checked here. Missing attribute means single-genome mode or the
-        # optimizer did not report per-target numbers yet.
-        per_target = getattr(self.metrics, "per_target_coverage", None)
-        if per_target and min_per_target_coverage > 0.0:
-            below = {k: v for k, v in per_target.items() if v < min_per_target_coverage}
-            if below:
-                issues.append(
-                    {
-                        "level": "warning",
-                        "code": "per_target_coverage_below_threshold",
-                        "detail": (
-                            f"{len(below)} target(s) below {min_per_target_coverage:.2f}: {below}"
-                        ),
-                    }
-                )
-
-        # Blacklist re-injection guard. Caller passes forbidden_primers when
-        # a blacklist is configured; catches the case where expand-primers
-        # or swap-primer fed a non-filtered candidate pool into the optimizer.
-        if forbidden_primers:
-            hits = set(primer_set) & set(forbidden_primers)
-            if hits:
-                issues.append(
-                    {
-                        "level": "error",
-                        "code": "blacklist_primer_in_set",
-                        "detail": f"Primers in blacklist: {sorted(hits)[:5]}",
-                    }
-                )
-
-        # Callers append to `issues` after this returns and must recompute
-        # `ok` from the final list; `panel_validation_is_ok` says why.
-        from .design_result import panel_validation_is_ok
-
-        return {
-            "optimizer": self.optimizer_name,
-            "num_primers": n,
-            "ok": panel_validation_is_ok(issues),
-            "issues": issues,
-        }
+        return validate_result(
+            self, target_size, min_coverage, min_per_target_coverage, forbidden_primers
+        )
 
     @classmethod
     def failure(cls, optimizer_name: str, message: str) -> "OptimizationResult":

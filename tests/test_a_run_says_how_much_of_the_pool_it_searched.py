@@ -28,7 +28,7 @@ import json
 import pytest
 
 from neoswga.core.candidate_source import CandidateFrontier, ListCandidateSource, describe_reach
-from neoswga.core.report.technical_report import _render_candidate_reach
+from neoswga.core.report.funnel_section import render_candidate_reach as _render_candidate_reach
 
 # ---------------------------------------------------------------------------
 # The measurement
