@@ -381,13 +381,24 @@ def test_a_fixed_total_moves_tm_a_lot_and_occupancy_almost_not_at_all():
     assert occupancies[0] / occupancies[1] < 1.001, occupancies
 
 
-def test_the_request_conserves_a_fixed_total_across_panel_sizes():
-    request = resolve_design_request(
-        base_params(concentration_mode="fixed_total", total_primer_molar=4e-6)
-    )
+def test_a_fixed_total_is_refused_rather_than_silently_ignored():
+    """Inverted 2026-09-22, and the test above it is the reason.
 
-    for count in (2, 6, 24):
-        values = request.concentrations_molar(tuple(f"ACGTACGTAC{i:02d}" for i in range(count)))
-        assert len(values) == count
-        assert sum(values) == pytest.approx(4e-6)
-        assert all(value > 0 for value in values)
+    `test_a_fixed_total_moves_tm_a_lot_and_occupancy_almost_not_at_all` pins
+    that a fixed total moves Tm by more than nine degrees between a 1-oligo and
+    a 96-oligo panel. Nothing propagated it: `total_primer_molar` is not a
+    `ReactionConditions` field, so every oligo was evaluated at the 0.5 uM
+    default whatever the user declared.
+
+    Those two facts together are why the mode is now refused rather than
+    accepted. A quantity that large cannot be accepted and discarded. The
+    allocation arithmetic is still tested, through `ConcentrationPolicy` in
+    `tests/test_resolved_design_request.py`, because it is what a future
+    wiring would use.
+    """
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    with pytest.raises(InvalidDesignRequest, match="fixed_total"):
+        resolve_design_request(
+            base_params(concentration_mode="fixed_total", total_primer_molar=4e-6)
+        )

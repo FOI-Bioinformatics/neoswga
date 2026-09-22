@@ -61,6 +61,18 @@ RETIRED_SETTINGS: Dict[str, str] = {
         "retired with the background prefilter that deleted candidates; "
         "ordering replaced it and deletes nothing."
     ),
+    "concentration_mode:fixed_total": (
+        "concentration_mode='fixed_total' is declared, validated and hashed, "
+        "and then changes nothing: `total_primer_molar` is not a "
+        "ReactionConditions field, so it never reaches a melting temperature, "
+        "and `concentrations_molar` has no production caller. Measured "
+        "2026-09-22: 12 uM across 12 oligos still evaluates every one at the "
+        "0.5 uM default, and the effective Tm is identical under both modes. "
+        "Accepting it would mean a 96-oligo panel silently evaluated 24-fold "
+        "too concentrated, in a quantity that moves Tm about ten degrees "
+        "across that range. Use concentration_mode='per_oligo' with "
+        "primer_conc, which is applied."
+    ),
 }
 
 #: Accepted concentration allocation modes.
@@ -154,6 +166,22 @@ class DesignRequest:
     #: Where each resolved setting came from: "request", or a named default.
     default_sources: Mapping[str, str] = field(default_factory=dict)
 
+    # Settings that change what the search does and were outside the identity
+    # until 2026-09-22. Each is declared in the schema and consumed elsewhere,
+    # so the resolver accepted them and stored nothing: acceptance is checked
+    # against the schema, not against the fields kept. A run therefore recorded
+    # a hash that several of its own settings could not move, which defeats the
+    # one thing the hash is for. `bg_circular` is the plainest case, since
+    # `fg_circular` was already a field and its background twin was not.
+    #
+    # Defaulted so a hand-constructed request keeps working.
+    bg_circular: bool = False
+    iterations: Optional[int] = None
+    refinement_method: Optional[str] = None
+    stage1_objective_width: Optional[int] = None
+    swap_max_evaluations: Optional[int] = None
+    swap_max_seconds: Optional[float] = None
+
     # ---------------------------------------------------------------- hashing
 
     def to_dict(self) -> Dict[str, Any]:
@@ -162,6 +190,20 @@ class DesignRequest:
         payload["default_sources"] = dict(sorted(self.default_sources.items()))
         payload["request_hash"] = self.request_hash
         return payload
+
+    @property
+    def conditions_fingerprint(self) -> str:
+        """The chemistry's identity, captured when this request was built.
+
+        Read from `_conditions_fingerprint`, which `resolve_design_request`
+        sets. Falling back to a live call keeps a hand-constructed request
+        working; such a request has no construction-time snapshot to honour.
+        """
+        stored = getattr(self, "_conditions_fingerprint", None)
+        if stored:
+            return stored
+        fingerprint = getattr(self.conditions, "fingerprint", None)
+        return fingerprint() if callable(fingerprint) else str(self.conditions)
 
     @property
     def request_hash(self) -> str:
@@ -229,9 +271,24 @@ class DesignRequest:
 #: Fields that identify the design. `conditions` is folded in through its own
 #: fingerprint rather than by serialising the object, so an unrelated change to
 #: that class does not move every stored hash.
+#: `conditions` is excluded and `conditions_fingerprint` stands in for it.
+#:
+#: The class is frozen and its docstring says "including its nested content".
+#: It was not: `conditions` holds a plain mutable object, and folding it in by
+#: calling `fingerprint()` at hash time meant setting `.temp` on it afterwards
+#: silently re-identified a record whose whole job is to say what a saved
+#: result was produced under.
+#:
+#: Freezing `ReactionConditions` itself is not the fix.
+#: `optimize_conditions_for_primers` and `recommend_conditions` mutate
+#: conditions in place, on objects they build themselves, and are correct to.
+#: Capturing the fingerprint once at construction makes the record's promise
+#: true without constraining anyone else's object.
 _HASHED_FIELDS = tuple(
-    name for name in (f.name for f in fields(DesignRequest)) if name not in {"default_sources"}
-)
+    name
+    for name in (f.name for f in fields(DesignRequest))
+    if name not in {"default_sources", "conditions"}
+) + ("conditions_fingerprint",)
 
 
 def _plain(value):
@@ -417,6 +474,39 @@ def _require_references(params: Mapping[str, Any]) -> None:
         )
 
 
+def _resolve_panel_size(params: Mapping[str, Any]) -> int:
+    """The requested panel size, treating an explicit 0 as a value.
+
+    This was `params.get("target_set_size") or params.get("num_primers") or 6`,
+    so a configured 0 fell through to the next key and finally to 6. The same
+    sentinel-versus-value confusion `_resolve_reach` documents, one field away:
+    there an explicit `coverage_reach` of 0 silently became 3 kb and every
+    coverage figure was reported at a reach nobody asked for.
+
+    A zero or negative panel is refused rather than corrected. Substituting a
+    size the user did not ask for is the class of silent answer this module
+    exists to remove.
+    """
+    for key in ("target_set_size", "num_primers"):
+        if params.get(key) is None:
+            continue
+        try:
+            size = int(params[key])
+        except (TypeError, ValueError):
+            raise InvalidDesignRequest(
+                key, "must be a whole number of oligos", params[key]
+            ) from None
+        if size < 1:
+            raise InvalidDesignRequest(
+                key,
+                "must be at least 1; a request for no oligos has no answer. "
+                "Omit the key to take the default.",
+                size,
+            )
+        return size
+    return 6
+
+
 def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     """Resolve a params mapping into one frozen request, or refuse it by name.
 
@@ -444,7 +534,11 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     from .reaction_conditions import build_reaction_conditions
 
     try:
-        conditions = build_reaction_conditions(SimpleNamespace(**params))
+        # `from_mapping_only` is what makes the promise above true. Without
+        # it the builder falls through to the `parameter` module for any
+        # field this mapping omits, so an identical request resolved to
+        # betaine 0.0 in a fresh process and 1.5 after another run.
+        conditions = build_reaction_conditions(SimpleNamespace(**params), from_mapping_only=True)
     except (KeyError, LookupError) as exc:
         raise UnsupportedModelError("reaction conditions", polymerase) from exc
     except ValueError as exc:
@@ -461,7 +555,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     if min_k > max_k:
         raise InvalidDesignRequest("min_k", f"is above max_k ({max_k})", min_k)
 
-    target_size = int(params.get("target_set_size") or params.get("num_primers") or 6)
+    target_size = _resolve_panel_size(params)
 
     request = DesignRequest(
         fg_prefixes=tuple(str(p) for p in params.get("fg_prefixes") or ()),
@@ -495,6 +589,13 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         concentration_policy=policy,
         model_versions=_model_versions(),
         default_sources=dict(sorted(sources.items())),
+        # Recorded so the hash moves when they do. See the field comment.
+        bg_circular=bool(params.get("bg_circular", False)),
+        iterations=params.get("iterations"),
+        refinement_method=params.get("refinement_method"),
+        stage1_objective_width=params.get("stage1_objective_width"),
+        swap_max_evaluations=params.get("swap_max_evaluations"),
+        swap_max_seconds=params.get("swap_max_seconds"),
     )
 
     # Last, because it reads the resolved request rather than the mapping. A
@@ -502,6 +603,18 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     # is opened: the alternative is a number produced with no evidence behind
     # it, which looks exactly like one produced with evidence.
     from .model_evidence import require_model_support
+
+    # Capture the chemistry's identity now, while the conditions object is the
+    # one this resolver built. `_HASHED_FIELDS` reads it instead of calling
+    # `fingerprint()` at hash time, so a later mutation of the shared object
+    # cannot re-identify a frozen record. `object.__setattr__` because the
+    # dataclass is frozen, which is the point.
+    fingerprint = getattr(conditions, "fingerprint", None)
+    object.__setattr__(
+        request,
+        "_conditions_fingerprint",
+        fingerprint() if callable(fingerprint) else str(conditions),
+    )
 
     require_model_support(request)
     return request

@@ -35,6 +35,7 @@ neoswga schema --dump > params.schema.json
 | `bloom_filter_path` | string or null | - | - | - |
 | `bsa_ug_ml` | number | min: 0.0; max: 400.0 | `0.0` | - |
 | `candidate_retention` | string | one of: all_qc, post_gini | `all_qc` | Which candidates get a background position index. 'all_qc' indexes every candidate clearing the declared hard gates, so nothing the max_primer ranking set aside is unreachable; 'post_gini' also requires the evenness gate as an admission rule, keeping a declared requirement while dropping an arbitrary cut; a candidate missing it is not eligible and carries an explicit failed assessment saying so. max_primer still chooses the working shortlist in both modes, so the optimizer's runtime is unchanged. Measured on the Wolbachia design the two index 20,670 and 491,836 candidates, costing about 19 MB and 443 MB. The shortlist-only 'legacy' mode was removed on 2026-09-16: it left every candidate the ranking cut scoring against an empty background, which reads as perfect specificity rather than as a missing measurement. |
+| `concentration_mode` | string | one of: per_oligo | `per_oligo` | How the oligo concentration in `primer_conc` is interpreted. Only 'per_oligo' is supported: each member of the panel is at that concentration. 'fixed_total' was accepted until 2026-09-22 and changed nothing, because the total never reached a melting temperature; it is now refused rather than silently ignored. Supporting it means propagating a per-panel allocation into every evaluation and cache key, which moves Tm about ten degrees across panel sizes and so needs measuring before it ships. |
 | `coverage_reach` | integer | min: 1 | - | Per-primer extension reach in bp used for set-cover selection and reported fg_coverage. Defaults to the polymerase's realistic per-primer reach (phi29 ~3000, equiphi29 ~4000). Coverage figures are not comparable across different reaches; swga 2.0 reports at ~70000. Estimate from sequencing depth with 'neoswga calibrate-reach --bam'. |
 | `cpus` | integer | min: 1; max: 128 | - | - |
 | `dmso_percent` | number | min: 0.0; max: 10.0 | `0.0` | - |
@@ -107,6 +108,7 @@ neoswga schema --dump > params.schema.json
 | `swap_max_seconds` | number | min: 0 | `10.0` | - |
 | `target_set_size` | integer | min: 1; max: 200 | - | - |
 | `tmac_m` | number | min: 0.0; max: 0.1 | `0.0` | - |
+| `total_primer_molar` | number | - | - | Total oligo concentration shared across the panel, in molar. Read only under concentration_mode='fixed_total', which is currently refused, so setting this has no effect. Declared here because it was accepted through an internal whitelist while absent from the schema, so no schema-driven validator could see it. |
 | `total_search_evaluations` | integer or null | min: 0 | `None` | Total uncached shared panel-objective evaluations across stages and refills. Null retains per-stage budgets only. |
 | `total_search_seconds` | number or null | min: 0 | `None` | Cooperative total search deadline in seconds; an in-flight solver call can overrun it. |
 | `trehalose_m` | number | min: 0.0; max: 1.0 | `0.0` | - |

@@ -595,6 +595,19 @@
       "minimum": 0,
       "default": 4,
       "description": "Maximum candidate frontier refills for one pool size or expansion."
+    },
+    "concentration_mode": {
+      "type": "string",
+      "enum": [
+        "per_oligo"
+      ],
+      "default": "per_oligo",
+      "description": "How the oligo concentration in `primer_conc` is interpreted. Only 'per_oligo' is supported: each member of the panel is at that concentration. 'fixed_total' was accepted until 2026-09-22 and changed nothing, because the total never reached a melting temperature; it is now refused rather than silently ignored. Supporting it means propagating a per-panel allocation into every evaluation and cache key, which moves Tm about ten degrees across panel sizes and so needs measuring before it ships."
+    },
+    "total_primer_molar": {
+      "type": "number",
+      "exclusiveMinimum": 0.0,
+      "description": "Total oligo concentration shared across the panel, in molar. Read only under concentration_mode='fixed_total', which is currently refused, so setting this has no effect. Declared here because it was accepted through an internal whitelist while absent from the schema, so no schema-driven validator could see it."
     }
   }
 }
