@@ -45,6 +45,7 @@ from .panel_acceptance import (
 from .panel_regime import assess_from_parameter, log_regime
 from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
+from .search_control import SearchBudgetExhausted, collect_alternative_sets  # noqa: F401
 from .step4_output import _write_validation_report, save_results
 
 logger = logging.getLogger(__name__)
@@ -191,58 +192,6 @@ def _resolve_target_coverage(kwargs, default=0.70):
     """
     value = kwargs.pop("target_coverage", None)
     return float(default) if value is None else float(value)
-
-
-def collect_alternative_sets(
-    primary, optimizer, candidates, target_size, max_sets=1, max_iterations=8
-):
-    """Up to `max_sets` distinct primer sets, best first.
-
-    Alternatives are found by removing the primers already chosen from the
-    candidate pool and running selection again, so each one is a genuinely
-    different set rather than a reordering of the same oligos. `max_iterations`
-    caps how many such attempts are made, which matters because a pool can run
-    out of usable candidates long before `max_sets` is reached.
-
-    Fewer than `max_sets` is a normal outcome, not a failure: a small pool
-    simply cannot yield many disjoint sets. The primary result is always first.
-
-    Both parameters were documented and inert -- `max_sets` reached only
-    `search_context.BFSConfig`, which has no callers, and no optimizer reads
-    `config.max_iterations`. The output format already anticipated this: the
-    `set_index` column of step4_improved_df.csv was hardcoded to 0.
-
-    Note `max_iterations` bounds the search for ALTERNATIVES only. Bounding the
-    primary selection with it would cap how many primers a run can choose, so
-    `iterations: 8` would quietly truncate a 96-oligo panel.
-    """
-    sets = [tuple(primary.primers)]
-    if not primary.primers or max_sets <= 1:
-        return sets
-
-    seen = {frozenset(primary.primers)}
-    remaining = [p for p in candidates if p not in set(primary.primers)]
-    attempts = 0
-
-    while len(sets) < max_sets and attempts < max(1, int(max_iterations)):
-        attempts += 1
-        if len(remaining) < target_size:
-            break
-        try:
-            result = optimizer.optimize(remaining, target_size)
-        except Exception as exc:
-            logger.debug(f"Alternative set search stopped: {exc}")
-            break
-
-        chosen = tuple(result.primers)
-        if not chosen or frozenset(chosen) in seen:
-            break
-
-        sets.append(chosen)
-        seen.add(frozenset(chosen))
-        remaining = [p for p in remaining if p not in set(chosen)]
-
-    return sets
 
 
 def _run_ensemble(

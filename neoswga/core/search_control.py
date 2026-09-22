@@ -1,11 +1,14 @@
 """Shared search limits and candidate-frontier traversal."""
 
+import logging
 import math
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 
-from .exceptions import InvalidDesignRequest
+from .exceptions import DesignError, InvalidDesignRequest
+
+logger = logging.getLogger(__name__)
 
 SEARCH_CONTROL_DEFAULTS = {
     "total_search_evaluations": None,
@@ -229,3 +232,85 @@ def resolve_search_settings(data):
         ) from exc
 
     return resolved
+
+
+# ---------------------------------------------------------------------------
+# Alternative sets
+# ---------------------------------------------------------------------------
+#
+# Moved here from `unified_optimizer` on 2026-09-22, for two reasons that point
+# the same way. That module sits against its size budget, and this loop runs a
+# whole optimizer per iteration OUTSIDE the ledger below -- so it belongs beside
+# the accounting it currently evades rather than in the module that dispatches
+# optimizers. `unified_optimizer` re-exports it, so every existing importer is
+# unaffected.
+
+
+def collect_alternative_sets(
+    primary, optimizer, candidates, target_size, max_sets=1, max_iterations=8
+):
+    """Up to `max_sets` distinct primer sets, best first.
+
+    Alternatives are found by removing the primers already chosen from the
+    candidate pool and running selection again, so each one is a genuinely
+    different set rather than a reordering of the same oligos. `max_iterations`
+    caps how many such attempts are made, which matters because a pool can run
+    out of usable candidates long before `max_sets` is reached.
+
+    Fewer than `max_sets` is a normal outcome, not a failure: a small pool
+    simply cannot yield many disjoint sets. The primary result is always first.
+
+    Both parameters were documented and inert -- `max_sets` reached only
+    `search_context.BFSConfig`, which has no callers, and no optimizer reads
+    `config.max_iterations`. The output format already anticipated this: the
+    `set_index` column of step4_improved_df.csv was hardcoded to 0.
+
+    Note `max_iterations` bounds the search for ALTERNATIVES only. Bounding the
+    primary selection with it would cap how many primers a run can choose, so
+    `iterations: 8` would quietly truncate a 96-oligo panel.
+    """
+    sets = [tuple(primary.primers)]
+    if not primary.primers or max_sets <= 1:
+        return sets
+
+    seen = {frozenset(primary.primers)}
+    remaining = [p for p in candidates if p not in set(primary.primers)]
+    attempts = 0
+
+    while len(sets) < max_sets and attempts < max(1, int(max_iterations)):
+        attempts += 1
+        if len(remaining) < target_size:
+            break
+        try:
+            result = optimizer.optimize(remaining, target_size)
+        except DesignError:
+            # Identical policy, and for the identical reason, to the ensemble
+            # path below: a failed calculation, a missing reference answer or
+            # an unsupported model is not a property of THIS attempt. The
+            # primary set was computed from the same data and the same models,
+            # so reporting "the alternative search stopped" names the symptom
+            # and hides the cause. The two sat in one module with opposite
+            # policy on the same exception class until 2026-09-22.
+            raise
+        except SearchBudgetExhausted as exc:
+            # Deliberately outside the DesignError family: spending an
+            # allowance is a recorded stopping point, not a failure. The
+            # primary set stands and the run continues.
+            logger.info(f"Alternative set search stopped on its budget: {exc}")
+            break
+        except Exception as exc:
+            # Anything else is unexpected here. It was logged at DEBUG, which
+            # is invisible at default verbosity, so a user got fewer sets than
+            # `max_sets` with no reason given anywhere they would look.
+            logger.warning(f"Alternative set search stopped: {exc}")
+            break
+
+        chosen = tuple(result.primers)
+        if not chosen or frozenset(chosen) in seen:
+            break
+
+        sets.append(chosen)
+        seen.add(frozenset(chosen))
+        remaining = [p for p in remaining if p not in set(chosen)]
+
+    return sets
