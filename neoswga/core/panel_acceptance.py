@@ -23,6 +23,7 @@ among tradeable terms is how it came to be traded.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Tuple
 
@@ -188,6 +189,13 @@ def report_acceptance(report: Optional[AcceptanceReport]) -> None:
         logger.info(line)
 
 
+@contextmanager
+def _nothing():
+    """A no-op scope, so the repair below reads the same with and without a
+    budget rather than being written twice."""
+    yield
+
+
 def apply_configured_limits(
     result: Any,
     optimizer: Any,
@@ -197,6 +205,7 @@ def apply_configured_limits(
     constraints: PoolConstraints,
     verbose: bool = False,
     background_available: bool = False,
+    budget: Any = None,
 ) -> Optional[Any]:
     """Hold one delivered result to its limits, repairing once if it misses.
 
@@ -216,7 +225,21 @@ def apply_configured_limits(
     from .panel_refinement import objective_for_optimizer
 
     objective = objective_for_optimizer(optimizer, constraints)
-    updated, details = repair_result(result, optimizer, list(candidates or result.primers))
+
+    # This repair runs AFTER `_run_panel_stages` returns, so it sat outside the
+    # one seam that binds the shared ledger to an evaluator. It can spend up to
+    # `swap_max_evaluations` -- 10,000 by default -- and none of it was counted,
+    # so a run that declared `total_search_evaluations` got that allowance for
+    # the search and a second, undeclared one afterwards.
+    #
+    # It was never unbounded, so this is the ledger telling the truth rather
+    # than runaway cost. With no budget the binding is a no-op and the repair
+    # runs exactly as before, which is every default run: the allowance is
+    # None unless someone sets it.
+    from .search_control import budgeted_objective
+
+    with budgeted_objective(objective, budget) if budget is not None else _nothing():
+        updated, details = repair_result(result, optimizer, list(candidates or result.primers))
     if verbose:
         report_acceptance(
             AcceptanceReport(

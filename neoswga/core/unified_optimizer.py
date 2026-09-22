@@ -1062,7 +1062,9 @@ def run_optimization(
         )
 
     # Resolve any remaining repair before derived coverage and validation reports.
-    result = _hold_to_configured_limits(result, optimizer, candidates, config, verbose)
+    result = _hold_to_configured_limits(
+        result, optimizer, candidates, config, verbose, budget=search_budget
+    )
 
     # Alternative sets, when `max_sets` asks for more than one. Done here, on
     # the finished primary result, so an alternative is a genuinely different
@@ -1256,7 +1258,7 @@ def run_optimization(
     return result
 
 
-def _hold_to_configured_limits(result, optimizer, candidates, config, verbose):
+def _hold_to_configured_limits(result, optimizer, candidates, config, verbose, budget=None):
     """Report configured panel limits and resolve any remaining bounded repair."""
     constraints = constraints_from_parameter(parameter)
     if constraints is None or not result.primers or optimizer is None:
@@ -1269,6 +1271,7 @@ def _hold_to_configured_limits(result, optimizer, candidates, config, verbose):
         constraints=constraints,
         verbose=verbose,
         background_available=bool(getattr(parameter, "bg_prefixes", None)),
+        budget=budget,
     )
     return replacement if replacement is not None else result
 
