@@ -30,6 +30,26 @@ jobs:
       - name: Check import ordering with isort
         run: isort --check neoswga/
 
+      - name: Lint with ruff (BLOCKING, defect-prone rules only)
+        # Blocking because these catch wrong behaviour, not style, and the
+        # package is already clean of every one of them -- so this costs
+        # nothing today and guards against the next instance.
+        #
+        # Kept narrow deliberately. The full ruff run reports about 2,700
+        # findings in `neoswga/`, of which roughly 2,200 are typing
+        # modernisation (`typing.List` -> `list`) with no behavioural content.
+        # Blocking on those would mean a 2,200-line mechanical diff for no
+        # defect caught, and would bury the rules that do catch defects.
+        #
+        # The case for this step is not hypothetical: the `zip()`-without-
+        # `strict` family surfaced a real one on 2026-09-22, where coverage
+        # analysis silently dropped a target when two params.json lists
+        # disagreed. B905 is NOT yet in this set -- 64 sites need a judgement
+        # each -- which is the next increment.
+        run: >
+          ruff check neoswga
+          --select E711,E712,E713,E714,F632,F702,B006,B008,B017,S102,S307
+
       - name: Lint with ruff (non-blocking informational baseline)
         continue-on-error: true
         run: ruff check neoswga tests
@@ -125,3 +145,15 @@ jobs:
           assert report_tpl.is_file(), "report HTML template not packaged"
           print(f"wheel import-smoke OK: cli submodules={len(subs)}, model+checksums+template present")
           PY
+
+      - name: Run the installed console script
+        # Importing `neoswga.cli_unified` does not prove the `neoswga` entry
+        # point is wired: a wheel can ship every module and still declare the
+        # console script wrongly, and the import-smoke above would pass. These
+        # are the three commands that need no genome, no jellyfish and no
+        # params file, so they run anywhere.
+        run: |
+          /tmp/wheel-venv/bin/neoswga --version
+          /tmp/wheel-venv/bin/neoswga --help > /dev/null
+          /tmp/wheel-venv/bin/neoswga show-presets > /dev/null
+          echo "installed console script OK"
