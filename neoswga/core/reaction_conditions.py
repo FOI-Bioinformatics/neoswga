@@ -1106,6 +1106,7 @@ def build_reaction_conditions(
     *,
     polymerase: Optional[str] = None,
     temp: Optional[float] = None,
+    from_mapping_only: bool = False,
     **overrides,
 ) -> ReactionConditions:
     """Build `ReactionConditions` from pipeline configuration.
@@ -1146,13 +1147,25 @@ def build_reaction_conditions(
     from neoswga.core.parameter import default_reaction_temp
 
     def _resolve(name):
-        """Explicit keyword, then CLI args, then params.json. None = unset."""
+        """Explicit keyword, then CLI args, then params.json. None = unset.
+
+        The last step reads the `parameter` MODULE, which is process-global
+        state a previous command may have written. That is right for the
+        pipeline, whose steps share one configuration, and wrong for anything
+        that must be a function of its input: measured 2026-09-22, one mapping
+        resolved to betaine 0.0 in a fresh process and 1.5 after another run,
+        giving different chemistry and a different request hash for identical
+        input. `from_mapping_only=True` stops at the mapping and lets the
+        constructor's documented defaults fill the rest.
+        """
         if overrides.get(name) is not None:
             return overrides[name]
         if args is not None:
             value = getattr(args, name, None)
             if value is not None:
                 return value
+        if from_mapping_only:
+            return None
         return getattr(_parameter, name, None)
 
     field_names = list(_inspect.signature(ReactionConditions.__init__).parameters)[1:]

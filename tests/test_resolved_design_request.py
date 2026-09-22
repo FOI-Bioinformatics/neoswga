@@ -238,12 +238,43 @@ def assert_concentration_conserved(request, oligos):
 
 
 @pytest.mark.parametrize("count", [2, 4])
-def test_a_fixed_total_is_shared_out_and_conserved(count):
-    request = resolve_design_request(
-        base_params(concentration_mode="fixed_total", total_primer_molar=4e-6)
-    )
+def test_the_fixed_total_arithmetic_is_still_right(count):
+    """The POLICY still divides correctly. The MODE is what is refused.
 
-    assert_concentration_conserved(request, ["ACGTACGTACGT"[:12]] * 0 + [f"A{'CGT' * 3}{i:02d}" for i in range(count)])
+    Inverted 2026-09-22. This used to resolve a `fixed_total` request and check
+    the allocation; that mode is now refused at the request boundary, because
+    the total never reached a melting temperature and a user asking for 96
+    oligos to share 12 uM got each evaluated at the 0.5 uM default.
+
+    The arithmetic is kept under test because it is correct and is what a
+    future wiring would use. Testing it through `ConcentrationPolicy` rather
+    than through the resolver keeps that distinction visible: the sum is
+    conserved, and nothing consumes it yet.
+    """
+    from neoswga.core.design_request import ConcentrationPolicy
+
+    policy = ConcentrationPolicy(mode="fixed_total", molar=4e-6)
+    oligos = tuple(f"A{'CGT' * 3}{i:02d}" for i in range(count))
+
+    values = policy.concentrations(oligos)
+
+    assert len(values) == count
+    assert sum(values) == pytest.approx(4e-6)
+    assert all(value > 0 for value in values)
+
+
+def test_a_fixed_total_request_is_refused():
+    """Declared, validated, hashed, and then it changed nothing.
+
+    Measured 2026-09-22: 12 uM across 12 oligos still evaluates every one at
+    5e-07 and the effective Tm is identical under both modes, because
+    `total_primer_molar` is not a `ReactionConditions` field and
+    `concentrations_molar` has no production caller.
+    """
+    with pytest.raises(InvalidDesignRequest, match="fixed_total"):
+        resolve_design_request(
+            base_params(concentration_mode="fixed_total", total_primer_molar=4e-6)
+        )
 
 
 def test_fixed_per_oligo_keeps_each_concentration_while_the_total_moves():

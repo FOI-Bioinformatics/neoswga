@@ -61,6 +61,18 @@ RETIRED_SETTINGS: Dict[str, str] = {
         "retired with the background prefilter that deleted candidates; "
         "ordering replaced it and deletes nothing."
     ),
+    "concentration_mode:fixed_total": (
+        "concentration_mode='fixed_total' is declared, validated and hashed, "
+        "and then changes nothing: `total_primer_molar` is not a "
+        "ReactionConditions field, so it never reaches a melting temperature, "
+        "and `concentrations_molar` has no production caller. Measured "
+        "2026-09-22: 12 uM across 12 oligos still evaluates every one at the "
+        "0.5 uM default, and the effective Tm is identical under both modes. "
+        "Accepting it would mean a 96-oligo panel silently evaluated 24-fold "
+        "too concentrated, in a quantity that moves Tm about ten degrees "
+        "across that range. Use concentration_mode='per_oligo' with "
+        "primer_conc, which is applied."
+    ),
 }
 
 #: Accepted concentration allocation modes.
@@ -417,6 +429,39 @@ def _require_references(params: Mapping[str, Any]) -> None:
         )
 
 
+def _resolve_panel_size(params: Mapping[str, Any]) -> int:
+    """The requested panel size, treating an explicit 0 as a value.
+
+    This was `params.get("target_set_size") or params.get("num_primers") or 6`,
+    so a configured 0 fell through to the next key and finally to 6. The same
+    sentinel-versus-value confusion `_resolve_reach` documents, one field away:
+    there an explicit `coverage_reach` of 0 silently became 3 kb and every
+    coverage figure was reported at a reach nobody asked for.
+
+    A zero or negative panel is refused rather than corrected. Substituting a
+    size the user did not ask for is the class of silent answer this module
+    exists to remove.
+    """
+    for key in ("target_set_size", "num_primers"):
+        if params.get(key) is None:
+            continue
+        try:
+            size = int(params[key])
+        except (TypeError, ValueError):
+            raise InvalidDesignRequest(
+                key, "must be a whole number of oligos", params[key]
+            ) from None
+        if size < 1:
+            raise InvalidDesignRequest(
+                key,
+                "must be at least 1; a request for no oligos has no answer. "
+                "Omit the key to take the default.",
+                size,
+            )
+        return size
+    return 6
+
+
 def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     """Resolve a params mapping into one frozen request, or refuse it by name.
 
@@ -444,7 +489,11 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     from .reaction_conditions import build_reaction_conditions
 
     try:
-        conditions = build_reaction_conditions(SimpleNamespace(**params))
+        # `from_mapping_only` is what makes the promise above true. Without
+        # it the builder falls through to the `parameter` module for any
+        # field this mapping omits, so an identical request resolved to
+        # betaine 0.0 in a fresh process and 1.5 after another run.
+        conditions = build_reaction_conditions(SimpleNamespace(**params), from_mapping_only=True)
     except (KeyError, LookupError) as exc:
         raise UnsupportedModelError("reaction conditions", polymerase) from exc
     except ValueError as exc:
@@ -461,7 +510,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     if min_k > max_k:
         raise InvalidDesignRequest("min_k", f"is above max_k ({max_k})", min_k)
 
-    target_size = int(params.get("target_set_size") or params.get("num_primers") or 6)
+    target_size = _resolve_panel_size(params)
 
     request = DesignRequest(
         fg_prefixes=tuple(str(p) for p in params.get("fg_prefixes") or ()),

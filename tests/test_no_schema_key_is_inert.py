@@ -41,6 +41,16 @@ NOT_PARAMETER_GLOBALS = {
     # whether the adaptive GC window is computed at all. It has effect without
     # becoming a global, which is the distinction this list exists to draw.
     "adaptive_gc",
+    # Consumed by `design_request.resolve_design_request`, not by `parameter`.
+    # The request is resolved from the params FILE before any global is
+    # populated, which is the whole reason it exists, so these two cannot bind
+    # a global by construction. Declared in the schema as of 2026-09-22 because
+    # they were accepted through an internal whitelist while invisible to every
+    # schema-driven validator. `fixed_total` is currently REFUSED, so
+    # `total_primer_molar` has no effect and its description says so; that is a
+    # documented refusal rather than the silent inertness this file guards.
+    "concentration_mode",
+    "total_primer_molar",
 }
 
 RETIRED = {"retries", "drop_iterations", "top_set_count", "selection_metric", "bl_penalty"}
