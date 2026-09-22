@@ -151,6 +151,41 @@ def _measure(name, value, units, basis, subject, *, required=False) -> Measureme
     return Measurement(name, _finite_or_fail(name, value, subject), units, basis)
 
 
+def _panel_violations(request, primers) -> list:
+    """Hard properties of a delivered panel, independent of configured limits.
+
+    Both were enforced already and neither reached this record. Requested size
+    lives in `optimization_service`'s `assess` closure and again in
+    `base_optimizer.validate`; the delivered-panel dimer screen runs during the
+    search in `optimization_service.panel_violations` and again afterwards at
+    warning level only, so `validation["ok"]` stayed true for a pool that broke
+    the user's own threshold.
+
+    Candidate composition and QC are deliberately absent. In this codebase
+    those are ADMISSION rules applied during `filter`, not properties of a
+    delivered panel, and no panel-level path re-checks them.
+    """
+    found = []
+
+    requested = getattr(request, "target_size", None)
+    if requested and len(primers) < requested:
+        found.append(f"panel size {len(primers)} is below the requested {requested}")
+
+    limit = getattr(request, "max_dimer_bp", None)
+    if limit and len(primers) > 1:
+        from neoswga.core.dimer import max_complementary_run
+
+        for index, first in enumerate(primers):
+            for second in primers[index + 1 :]:
+                run = max_complementary_run(first, second)
+                if run > limit:
+                    found.append(
+                        f"delivered pair {first}/{second} shares a {run} bp "
+                        f"complementary run against max_dimer_bp {limit}"
+                    )
+    return found
+
+
 def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessment:
     """One assessment of one panel under one request.
 
@@ -177,6 +212,16 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
         f"{basis}; denominator is total target length",
         subject,
         required=True,
+    )
+    # The record reported the geometric figure while the live acceptance path
+    # selects on this one, so the two answered different questions about the
+    # same panel. Both are kept and both say which they are.
+    named["effective_fg_coverage"] = _measure(
+        "effective_fg_coverage",
+        getattr(metrics, "effective_fg_coverage", None),
+        "fraction of target bases",
+        f"{basis}; occupancy-weighted, the quantity selection uses",
+        subject,
     )
     named["bg_coverage"] = _measure(
         "bg_coverage",
@@ -222,7 +267,11 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
             f"coverage[{prefix}]", value, "fraction of target bases", basis, subject
         )
 
-    violations = tuple(objective.violations(primers)) if objective is not None else ()
+    # Hard properties of the delivered panel, each already enforced elsewhere
+    # and brought here so one record can be believed. `objective` keeps owning
+    # the CONFIGURED limits; these three are not configurable and never were.
+    violations = list(objective.violations(primers)) if objective is not None else []
+    violations.extend(_panel_violations(request, primers))
 
     notes = []
     if zero_background:
@@ -242,7 +291,7 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
         request_hash=getattr(request, "request_hash", ""),
         metrics=named,
         per_target=per_target,
-        violations=violations,
+        violations=tuple(violations),
         qualified=not violations,
         model_versions=tuple(getattr(request, "model_versions", ()) or ()),
         notes=tuple(notes),
