@@ -73,6 +73,7 @@ class SimulationBasedEvaluator:
         conditions: Optional[ReactionConditions] = None,
         n_replicates: int = 3,
         simulation_duration: float = 3600.0,
+        seed: Optional[int] = None,
     ):
         """
         Initialize simulation-based evaluator.
@@ -84,6 +85,16 @@ class SimulationBasedEvaluator:
             conditions: Reaction conditions (uses defaults if None)
             n_replicates: Number of simulation replicates
             simulation_duration: Simulation time (seconds)
+            seed: Base seed for the replicates. None keeps the existing
+                nondeterministic behaviour. `SimulationConfig.seed` has always
+                been honoured by `Phi29Simulator.run`, and this was the only
+                construction site of that config, so nothing could reach it.
+                It is worth reaching: a set binding nine planted sites in a
+                20 kb target simulates to ZERO coverage in 48.5% of single
+                replicates (200 trials), the outcome otherwise averaging 0.67.
+                So a zero from this evaluator does not mean the set does not
+                bind, and comparing two sets on one unseeded replicate each is
+                close to a coin toss.
         """
         self.genome_sequence = genome_sequence
         self.genome_length = genome_length
@@ -91,6 +102,7 @@ class SimulationBasedEvaluator:
         self.conditions = conditions
         self.n_replicates = n_replicates
         self.simulation_duration = simulation_duration
+        self.seed = seed
 
         logger.info("Simulation-based evaluator initialized")
         logger.info(f"  Genome length: {genome_length:,} bp")
@@ -154,10 +166,14 @@ class SimulationBasedEvaluator:
             if verbose:
                 logger.info(f"  Replicate {i+1}/{self.n_replicates}")
 
+            # Derived per replicate, not shared: one seed for all of them
+            # would make the replicates copies of each other, and their spread
+            # is the only thing `std_coverage` reports.
             config = SimulationConfig(
                 duration=self.simulation_duration,
                 time_step=1.0,
                 polymerase_type=polymerase_type,
+                seed=None if self.seed is None else self.seed + i,
             )
 
             simulator = Phi29Simulator(
