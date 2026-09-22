@@ -58,11 +58,27 @@ jobs:
         continue-on-error: true
         run: mypy neoswga --ignore-missing-imports --no-strict-optional
 
-      - name: Dependency vulnerability audit (non-blocking advisory)
+      - name: Dependency vulnerability audit (advisory, not blocking)
+        # Suppressed once, not twice. This step carried BOTH
+        # `continue-on-error: true` and a trailing `|| true`, and the second
+        # one is the harmful half: it makes the step exit 0 whatever pip-audit
+        # found, so a run with vulnerable dependencies renders as a green tick
+        # beside the words "vulnerability audit". A reader glancing at CI reads
+        # that as "no vulnerabilities" -- which is this repository's recurring
+        # defect, a favourable default standing in for an unmeasured result.
+        #
+        # `continue-on-error` alone is the honest form of the same policy: a
+        # finding shows the step as not-green and annotates the run, while the
+        # job still passes. Nobody is blocked and nobody is misled.
+        #
+        # Not blocking, deliberately. A CVE published against a transitive
+        # dependency turns CI red with no change to this repository, which
+        # trains people to merge through a red tick. Making it blocking is a
+        # decision about who fields that alert, not a repair.
         continue-on-error: true
         run: |
           pip install pip-audit
-          pip-audit --progress-spinner off || true
+          pip-audit --progress-spinner off
 
   test:
     needs: lint
