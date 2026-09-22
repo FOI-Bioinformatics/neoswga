@@ -1260,6 +1260,9 @@ def run_optimization(
             check_per_target_coverage(result.metrics, per_target_floor(kwargs, parameter))
         )
 
+    if validation is not None and design_request is not None and result.primers:
+        validation["assessment"] = _panel_assessment(design_request, result, optimizer)
+
     if validation is not None:
         # `result.validate` folded `ok` out of the issues it had built, and
         # the saturation warnings and the dimer finding are appended above.
@@ -1271,6 +1274,35 @@ def run_optimization(
         log_optimization_outcome(result, target_size, method, validation)
 
     return result
+
+
+def _panel_assessment(design_request, result, optimizer):
+    """The one acceptance record for the delivered panel, as a JSON dict.
+
+    Recorded, not consulted. `evaluate_panel` carries each metric WITH its
+    units and the reach it was computed at, keeps an unavailable quantity apart
+    from a measured zero, and refuses a non-finite required value. Until Task 1
+    it had no production caller at all, because it takes a `DesignRequest` and
+    `run_optimization` had none.
+
+    It adds no issue, so it cannot change what `export` refuses: the gate is
+    `design_result.BLOCKING_VALIDATOR_CODES`, not the `ok` flag. That is
+    deliberate. This record and `result_validation.validate_result` check
+    different things -- duplicates, blacklist re-injection and drift in either
+    direction are the validator's; the configured panel limits, the units and
+    the non-finite refusal are this one's -- so neither subsumes the other, and
+    letting this one decide today would move verdicts in cases nobody has
+    enumerated.
+    """
+    from .panel_evaluation import evaluate_panel
+    from .panel_refinement import objective_for_optimizer
+
+    return evaluate_panel(
+        design_request,
+        list(result.primers),
+        result.metrics,
+        objective=objective_for_optimizer(optimizer) if optimizer is not None else None,
+    ).as_dict()
 
 
 def _hold_to_configured_limits(result, optimizer, candidates, config, verbose, budget=None):
