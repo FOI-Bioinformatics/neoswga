@@ -44,6 +44,8 @@ from .exceptions import InvalidDesignRequest, UnsupportedModelError
 __all__ = [
     "ConcentrationPolicy",
     "DesignRequest",
+    "effective_design_request",
+    "effective_request_for_manifest",
     "resolve_design_request",
 ]
 
@@ -685,3 +687,52 @@ def design_request_for_run(args, parameter) -> Optional[DesignRequest]:
     with open(path) as handle:
         supplied = json.load(handle)
     return resolve_design_request(supplied)
+
+
+def effective_design_request(args, target_size=None) -> Optional[DesignRequest]:
+    """The request the run actually executed, for the record.
+
+    `design_request_for_run` reads the params FILE, and is right to: it runs
+    before the search so that a setting which cannot be applied is named while
+    the run has cost nothing. But by the time `run_step4` builds it, the panel
+    size has already been overridden twice -- once from `args.num_primers` and
+    again, if `--auto-size` is on, from the recommendation. So a run with
+    `--num-primers 40` against a file saying 12 recorded the hash of a
+    12-oligo design and delivered a 40-oligo one, which defeats the one thing
+    the hash is for.
+
+    This is the second call: same resolver, same refusals, the effective values
+    overlaid. Keeping them as two calls rather than moving the first one later
+    is deliberate. Validation belongs before the position cache is built; a
+    typo should not cost a full index.
+
+    Only values that are actually overridden are overlaid. Sweeping the
+    `parameter` module instead would move every hash, not just an overridden
+    run's, and would lose the "request" versus "default" distinction that
+    `default_sources` exists to record.
+    """
+    path = getattr(args, "json_file", None)
+    if not path:
+        return None
+    with open(path) as handle:
+        supplied = json.load(handle)
+
+    if target_size is not None:
+        supplied = {**supplied, "target_set_size": target_size, "num_primers": target_size}
+
+    return resolve_design_request(supplied)
+
+
+def effective_request_for_manifest(args, target_size) -> Optional[DesignRequest]:
+    """The effective request, or the file's if the overlay cannot be built.
+
+    A manifest entry must never be the reason a finished run fails, so a
+    resolver error here falls back to the file-resolved request rather than
+    raising. That is a provenance degradation, not a substituted measurement:
+    the same resolver already ran and passed at the start of the command, so
+    anything failing now is a bug in the overlay rather than a bad setting.
+    """
+    try:
+        return effective_design_request(args, target_size=target_size)
+    except Exception:  # pragma: no cover - provenance must not fail a run
+        return design_request_for_run(args, None)

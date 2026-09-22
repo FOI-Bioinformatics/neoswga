@@ -899,7 +899,10 @@ def run_step4(args):
         # position cache is built, or not finding out at all because a reader
         # took its own fallback. `request_hash` is what lets the saved result
         # name the configuration that produced it.
-        from neoswga.core.design_request import design_request_for_run
+        from neoswga.core.design_request import (
+            design_request_for_run,
+            effective_request_for_manifest,
+        )
         from neoswga.core.reference_check import (
             verify_index_geometry,
             verify_reference_digests,
@@ -956,6 +959,13 @@ def run_step4(args):
 
         # Pass explicit target_size from parameter module to avoid re-initialization override
         target_size = getattr(parameter, "target_set_size", getattr(parameter, "num_primers", 6))
+        # Captured HERE because this is where the optimizer takes it, which
+        # makes it the effective size by definition. Reading
+        # `parameter.num_primers` again at manifest time gives the FILE's
+        # value: `_initialize()` re-reads params.json partway through this
+        # function, so a run invoked with `-n 4` against a file saying 6
+        # targeted 4 and recorded 6.
+        _effective_size = target_size
 
         results, scores, cache = optimize_step4(
             **_step4_optimizer_kwargs(
@@ -1161,6 +1171,7 @@ def run_step4(args):
         _step4_out = os.path.join(_data_dir, "step4_improved_df.csv") if _data_dir else None
 
         _elapsed = _time.time() - _t0
+        _effective = effective_request_for_manifest(args, _effective_size)
         _record_run_manifest(
             "optimize",
             args,
@@ -1172,9 +1183,15 @@ def run_step4(args):
                 # resolved_params is a verbatim copy of params.json, so a run
                 # invoked with `-n 160` is recorded there as whatever the file
                 # said. This is the number the run actually used.
-                "effective_set_size": getattr(parameter, "num_primers", None),
+                "effective_set_size": _effective_size,
                 "optimization_method": resolve_optimization_method(args),
-                "request_hash": _request.request_hash if _request else None,
+                # Resolved a SECOND time, after the overrides. `_request` above
+                # is the file, validated early so a bad setting costs nothing;
+                # this is the run. They differ whenever --num-primers or
+                # --auto-size moved the size, which is the case the separate
+                # `effective_set_size` field above was added to work around.
+                "request_hash": (_effective.request_hash if _effective else None),
+                "request_from_file_hash": _request.request_hash if _request else None,
                 "request_default_sources": (dict(_request.default_sources) if _request else None),
             },
         )
