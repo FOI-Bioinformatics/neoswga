@@ -176,6 +176,20 @@ class DesignRequest:
         return payload
 
     @property
+    def conditions_fingerprint(self) -> str:
+        """The chemistry's identity, captured when this request was built.
+
+        Read from `_conditions_fingerprint`, which `resolve_design_request`
+        sets. Falling back to a live call keeps a hand-constructed request
+        working; such a request has no construction-time snapshot to honour.
+        """
+        stored = getattr(self, "_conditions_fingerprint", None)
+        if stored:
+            return stored
+        fingerprint = getattr(self.conditions, "fingerprint", None)
+        return fingerprint() if callable(fingerprint) else str(self.conditions)
+
+    @property
     def request_hash(self) -> str:
         """SHA-256 over a canonical form of every setting that affects a design.
 
@@ -241,9 +255,24 @@ class DesignRequest:
 #: Fields that identify the design. `conditions` is folded in through its own
 #: fingerprint rather than by serialising the object, so an unrelated change to
 #: that class does not move every stored hash.
+#: `conditions` is excluded and `conditions_fingerprint` stands in for it.
+#:
+#: The class is frozen and its docstring says "including its nested content".
+#: It was not: `conditions` holds a plain mutable object, and folding it in by
+#: calling `fingerprint()` at hash time meant setting `.temp` on it afterwards
+#: silently re-identified a record whose whole job is to say what a saved
+#: result was produced under.
+#:
+#: Freezing `ReactionConditions` itself is not the fix.
+#: `optimize_conditions_for_primers` and `recommend_conditions` mutate
+#: conditions in place, on objects they build themselves, and are correct to.
+#: Capturing the fingerprint once at construction makes the record's promise
+#: true without constraining anyone else's object.
 _HASHED_FIELDS = tuple(
-    name for name in (f.name for f in fields(DesignRequest)) if name not in {"default_sources"}
-)
+    name
+    for name in (f.name for f in fields(DesignRequest))
+    if name not in {"default_sources", "conditions"}
+) + ("conditions_fingerprint",)
 
 
 def _plain(value):
@@ -551,6 +580,18 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     # is opened: the alternative is a number produced with no evidence behind
     # it, which looks exactly like one produced with evidence.
     from .model_evidence import require_model_support
+
+    # Capture the chemistry's identity now, while the conditions object is the
+    # one this resolver built. `_HASHED_FIELDS` reads it instead of calling
+    # `fingerprint()` at hash time, so a later mutation of the shared object
+    # cannot re-identify a frozen record. `object.__setattr__` because the
+    # dataclass is frozen, which is the point.
+    fingerprint = getattr(conditions, "fingerprint", None)
+    object.__setattr__(
+        request,
+        "_conditions_fingerprint",
+        fingerprint() if callable(fingerprint) else str(conditions),
+    )
 
     require_model_support(request)
     return request

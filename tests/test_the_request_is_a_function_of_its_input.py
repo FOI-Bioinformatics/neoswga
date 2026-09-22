@@ -178,3 +178,41 @@ def test_the_concentration_keys_are_declared_in_the_schema():
 
     for key in ("concentration_mode", "total_primer_molar"):
         assert key in schema["properties"], f"{key} is accepted but undeclared"
+
+
+# ---------------------------------------------------------------------------
+# Frozen means frozen, including what it points at
+# ---------------------------------------------------------------------------
+
+
+def test_mutating_the_conditions_does_not_move_the_hash():
+    """`DesignRequest` is a frozen dataclass whose docstring says "It is
+    frozen, including its nested content". It was not.
+
+    `conditions` holds a plain mutable class, and the hash folds it in by
+    calling `fingerprint()` at hash time. So setting `.temp` on it afterwards
+    silently re-identified a record whose whole purpose is to say what a saved
+    result was produced under.
+
+    Freezing the CLASS is not the fix: `optimize_conditions_for_primers` and
+    `recommend_conditions` both mutate conditions objects in place, on objects
+    they build themselves. The fix is that the request captures its identity
+    once, at construction.
+    """
+    resolved = resolve_design_request(dict(MAPPING))
+    before = resolved.request_hash
+
+    resolved.conditions.temp = 45.0
+
+    assert resolved.request_hash == before, (
+        "mutating the conditions changed the identity of a frozen request"
+    )
+
+
+def test_two_requests_with_different_chemistry_still_differ():
+    """Guard the guard: pinning the hash at construction must not make every
+    request hash alike."""
+    plain = resolve_design_request(dict(MAPPING))
+    with_betaine = resolve_design_request({**MAPPING, "betaine_m": 1.0})
+
+    assert plain.request_hash != with_betaine.request_hash
