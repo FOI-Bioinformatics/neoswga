@@ -237,8 +237,12 @@ class ResultsInterpreter:
         except (OSError, ValueError):
             return False
 
-        blocking = {"delivered_pool_exceeds_max_dimer_bp"}
-        return any(issue.get("code") in blocking for issue in payload.get("issues", []) or [])
+        from neoswga.core.design_result import BLOCKING_VALIDATOR_CODES
+
+        return any(
+            issue.get("code") in BLOCKING_VALIDATOR_CODES
+            for issue in payload.get("issues", []) or []
+        )
 
     def analyze(self) -> ResultsReport:
         """
