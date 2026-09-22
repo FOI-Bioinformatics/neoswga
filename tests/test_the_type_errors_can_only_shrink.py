@@ -81,11 +81,25 @@ def test_a_clean_file_outside_the_baseline_is_fine(ratchet):
     assert ratchet.compare({}, {}) == []
 
 
-def test_a_file_that_became_clean_must_leave_the_baseline(ratchet):
-    """A fix is not finished until it also removes its excuse."""
+def test_a_file_that_became_clean_is_reported_but_does_not_block(ratchet):
+    """A baseline that never shrinks is a fiction, so this is reported. It does
+    not fail the build, and the reason is the environment sensitivity again.
+
+    Measured 2026-09-22: seven files clean on CI's ubuntu/3.11.16 runner carry
+    errors on a macOS/3.11.14 machine with the identical pinned mypy and the
+    identical installed set. Blocking here would demand deleting a baseline
+    entry on the evidence of one platform, and the file would then be UNLISTED
+    -- so the first error on any other platform would fail as a new module. The
+    rule would make the gate worse the more environments it ran in.
+    """
     kinds = [kind for kind, _ in ratchet.compare({}, {"a.py": 3})]
 
     assert kinds == ["stale"]
+    assert "stale" not in ratchet.BLOCKING
+    assert ratchet.BLOCKING == {"worse", "unlisted"}, (
+        "the blocking set changed; the two rules that must stay are a file "
+        "getting worse and a file outside the baseline carrying errors"
+    )
 
 
 def test_the_message_names_the_file_and_both_numbers(ratchet):

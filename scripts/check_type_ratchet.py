@@ -82,8 +82,25 @@ def measure():
     return counts
 
 
+#: Kinds that fail the build. `stale` is deliberately not among them, and the
+#: reason is the same environment sensitivity this whole file is about: a file
+#: reported clean HERE may carry errors on another platform. Measured
+#: 2026-09-22 -- seven files clean on CI's ubuntu/3.11.16 runner carry errors on
+#: a macOS/3.11.14 machine with the identical pinned mypy and the identical
+#: installed set.
+#:
+#: Blocking on stale would therefore demand deleting a baseline entry on the
+#: evidence of one platform, and the file would then be UNLISTED, so the first
+#: error on any other platform would fail as a new module. The rule would make
+#: the gate worse the more environments it ran in.
+#:
+#: It is still reported, because a baseline that never shrinks is a fiction.
+#: Re-record with --record to clear them.
+BLOCKING = {"worse", "unlisted"}
+
+
 def compare(counts, baseline):
-    """Every way the measurement fails the ratchet, as (kind, detail) pairs.
+    """Every way the measurement differs from the ratchet, as (kind, detail).
 
     Three rules, and the second is the one a repository-wide count cannot give
     you. New code is where a type error is cheapest to fix and likeliest to be
@@ -131,12 +148,18 @@ def main() -> int:
         return 0
 
     problems = compare(counts, json.loads(BASELINE.read_text()))
-    if not problems:
+    blocking = [item for item in problems if item[0] in BLOCKING]
+
+    for kind, detail in problems:
+        if kind not in BLOCKING:
+            print(f"  note [{kind}] {detail}")
+
+    if not blocking:
         print(f"type-error ratchet: {sum(counts.values())} errors in {len(counts)} files, held")
         return 0
 
     print(f"type-error ratchet FAILED ({version}):", file=sys.stderr)
-    for kind, detail in problems:
+    for kind, detail in blocking:
         print(f"  [{kind}] {detail}", file=sys.stderr)
     if BASELINE_MYPY_VERSION not in version:
         print(

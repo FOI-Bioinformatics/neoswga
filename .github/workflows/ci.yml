@@ -83,6 +83,13 @@ jobs:
         # It is a script rather than a test because `tests/conftest.py` imports
         # numpy, which this job does not have. `tests/test_the_type_errors_can
         # _only_shrink.py` tests the rule it applies, against synthetic counts.
+        #
+        # A file the baseline lists and this run finds CLEAN is reported and
+        # does not fail: seven such files are clean on this runner and carry
+        # errors on a macOS/3.11.14 machine with the identical pinned mypy.
+        # Deleting the entry on one platform's evidence would make the file
+        # unlisted, so the first error anywhere else would fail as a new
+        # module -- the rule would get worse the more environments it saw.
         run: python scripts/check_type_ratchet.py
 
       - name: Static type check with mypy (informational; the ratchet above is the gate)
