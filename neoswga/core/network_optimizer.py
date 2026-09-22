@@ -1350,7 +1350,7 @@ class NetworkOptimizer:
             (self.fg_prefixes, self.fg_seq_lengths),
             (self.bg_prefixes, self.bg_seq_lengths),
         ):
-            for prefix, size in zip(group or [], sizes or []):
+            for prefix, size in zip(group or [], sizes or [], strict=True):
                 lengths[prefix] = int(size)
 
         separator = int(self.max_extension) + 1

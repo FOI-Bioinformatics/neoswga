@@ -306,7 +306,7 @@ def plot_enrichment(ax, result, simulator):
     ax.grid(alpha=0.3, axis="y")
 
     # Add value labels on bars
-    for bar, val, orig_val in zip(bars, [target_log, bg_log], [target_amp, bg_amp]):
+    for bar, val, orig_val in zip(bars, [target_log, bg_log], [target_amp, bg_amp], strict=True):
         height = bar.get_height()
         ax.text(
             bar.get_x() + bar.get_width() / 2.0,
@@ -449,7 +449,7 @@ def plot_primer_contributions(ax, primer_contributions: List):
     ax.grid(alpha=0.3, axis="x")
 
     # Add value labels
-    for i, (bar, score) in enumerate(zip(bars, scores)):
+    for i, (bar, score) in enumerate(zip(bars, scores, strict=True)):
         width = bar.get_width()
         ax.text(
             width + 0.02,

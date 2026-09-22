@@ -128,7 +128,9 @@ def plot_frontier(
             )
 
     # Plot Pareto frontier line
-    sorted_pareto = sorted(zip(pareto_coverage, pareto_ratio, pareto_sizes), key=lambda x: x[0])
+    sorted_pareto = sorted(
+        zip(pareto_coverage, pareto_ratio, pareto_sizes, strict=True), key=lambda x: x[0]
+    )
     cov_sorted = [x[0] for x in sorted_pareto]
     ratio_sorted = [x[1] for x in sorted_pareto]
 

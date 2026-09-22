@@ -202,7 +202,7 @@ class StepProgress:
         elapsed = time.time() - self.start_time
 
         print(f"\n--- Pipeline Progress ({_format_time(elapsed)}) ---")
-        for i, (step, status) in enumerate(zip(self.steps, self.step_status)):
+        for i, (step, status) in enumerate(zip(self.steps, self.step_status, strict=True)):
             if status == "done":
                 icon = "[OK]"
             elif status == "running":

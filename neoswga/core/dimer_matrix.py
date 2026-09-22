@@ -127,7 +127,7 @@ class DimerMatrix:
     def flagged_pairs(self) -> Iterator[Tuple[int, int]]:
         """Every dimerising pair, as `i < j` index tuples."""
         rows, cols = np.nonzero(np.triu(self.pairs, k=1))
-        for i, j in zip(rows.tolist(), cols.tolist()):
+        for i, j in zip(rows.tolist(), cols.tolist(), strict=True):
             yield i, j
 
 

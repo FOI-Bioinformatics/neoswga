@@ -603,7 +603,7 @@ def _collect_forbidden_primers(candidates, verbose: bool) -> list:
         _mask, freqs = _filter_blacklist_penalty(
             list(candidates), bl_prefixes_list, bl_lengths_list, max_bl_freq=max_bl
         )
-        forbidden = [p for p, f in zip(candidates, freqs) if f > max_bl]
+        forbidden = [p for p, f in zip(candidates, freqs, strict=True) if f > max_bl]
         if forbidden and verbose:
             logger.warning(
                 f"Library blacklist guard: {len(forbidden)} candidate(s) exceed "

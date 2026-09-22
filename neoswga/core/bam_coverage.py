@@ -115,7 +115,9 @@ def match_contigs(
     ref_set = set(bam_refs)
     ref_by_stripped = {_strip_chr(r): r for r in bam_refs}
     # Kept to report a disagreement on a NAME match, not to make one.
-    length_by_ref: Dict[str, int] = {str(r): int(ln) for r, ln in zip(bam_refs, bam_ref_lengths)}
+    length_by_ref: Dict[str, int] = {
+        str(r): int(ln) for r, ln in zip(bam_refs, bam_ref_lengths, strict=True)
+    }
 
     mapping: Dict[str, str] = {}
     for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
@@ -256,7 +258,9 @@ def bam_depth_profile(
     verify_layout(layout, record_starts or [], configured_length)
 
     with pysam.AlignmentFile(bam_path, "rb") as bam:
-        bam_lengths = {name: int(length) for name, length in zip(bam.references, bam.lengths)}
+        bam_lengths = {
+            name: int(length) for name, length in zip(bam.references, bam.lengths, strict=True)
+        }
 
     bound = layout.bind(bam_lengths, aliases=aliases)
     depth = np.zeros(layout.total_length, dtype=np.int32)
@@ -313,7 +317,7 @@ def find_low_depth_gaps(
     starts = np.where(diffs == 1)[0]
     ends = np.where(diffs == -1)[0]  # exclusive
 
-    runs = list(zip(starts.tolist(), ends.tolist()))
+    runs = list(zip(starts.tolist(), ends.tolist(), strict=True))
 
     # Circular merge: a run ending at `length` joins a run starting at 0.
     if circular and len(runs) >= 2:

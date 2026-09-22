@@ -89,7 +89,7 @@ def _variants_at_distance(seq: str, n_mismatches: int) -> Set[str]:
 
 
 def _hamming(a: str, b: str) -> int:
-    return sum(1 for x, y in zip(a, b) if x != y)
+    return sum(1 for x, y in zip(a, b, strict=True) if x != y)
 
 
 @lru_cache(maxsize=32)

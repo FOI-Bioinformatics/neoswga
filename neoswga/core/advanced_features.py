@@ -306,7 +306,7 @@ class AdvancedFeatureEngineer:
     def _palindrome_score(self, primer: str) -> float:
         """Calculate how palindromic the sequence is (0-1)."""
         rc_primer = thermo.reverse_complement(primer)
-        matches = sum(1 for a, b in zip(primer, rc_primer) if a == b)
+        matches = sum(1 for a, b in zip(primer, rc_primer, strict=True) if a == b)
         return matches / len(primer)
 
     # ========================================
@@ -673,7 +673,7 @@ class AdvancedFeatureEngineer:
         hist_norm = hist / hist_total if hist_total > 0 else np.zeros_like(hist, dtype=float)
 
         features = {}
-        for i, (low, high) in enumerate(zip(bins[:-1], bins[1:])):
+        for i, (low, high) in enumerate(zip(bins[:-1], bins[1:], strict=True)):
             features[f"binding_hist_{low}to{high}"] = hist_norm[i]
 
         # Statistical features

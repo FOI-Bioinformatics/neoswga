@@ -430,11 +430,11 @@ class MultiGenomeFilter:
         penalty = 0.0
 
         # Background penalty
-        for genome, freq in zip(self.genome_set.backgrounds, background_freqs):
+        for genome, freq in zip(self.genome_set.backgrounds, background_freqs, strict=True):
             penalty += freq * genome.penalty_weight
 
         # Blacklist penalty (much higher weight)
-        for genome, freq in zip(self.genome_set.blacklists, blacklist_freqs):
+        for genome, freq in zip(self.genome_set.blacklists, blacklist_freqs, strict=True):
             penalty += freq * genome.penalty_weight
 
         # Apply filters

@@ -84,7 +84,7 @@ def compute_pool_metrics(optimizer, primers: List[str]) -> PoolMetrics:
                 optimizer._compute_effective_coverage(fg_positions_by_primer[prefix], length)
                 * length
                 for prefix, length in zip(
-                    optimizer.fg_prefixes, optimizer.fg_seq_lengths, strict=False
+                    optimizer.fg_prefixes, optimizer.fg_seq_lengths, strict=True
                 )
                 if length > 0
             )

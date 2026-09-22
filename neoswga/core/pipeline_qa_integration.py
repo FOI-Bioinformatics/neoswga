@@ -755,7 +755,7 @@ def _step2_qa_scores(step2_path: Path) -> Dict[str, float]:
     if "qa_score" not in step2_df.columns:
         return {}
     seq_col = primer_column(step2_df)
-    return dict(zip(step2_df[seq_col].astype(str), step2_df["qa_score"]))
+    return dict(zip(step2_df[seq_col].astype(str), step2_df["qa_score"], strict=True))
 
 
 def qa_prefiltered_candidates(

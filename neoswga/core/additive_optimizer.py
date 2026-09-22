@@ -393,7 +393,7 @@ class AdditiveOptimizer:
         # Generate combinations
         combinations = []
         for values in itertools.product(*value_lists):
-            combo = dict(zip(keys, values))
+            combo = dict(zip(keys, values, strict=True))
             combinations.append(combo)
 
         return combinations

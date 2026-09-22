@@ -221,7 +221,7 @@ def get_gini_from_txt_for_one_k(
         gini_reverse = _utility.gini_exact(position_diffs_reverse)
         ginis.append((gini_forward, gini_reverse))
 
-    primer_to_ginis = dict(zip(primer_list, ginis))
+    primer_to_ginis = dict(zip(primer_list, ginis, strict=True))
     return primer_to_ginis
 
 

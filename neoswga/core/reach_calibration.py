@@ -177,7 +177,7 @@ def _bin_starts(length: int, bin_size: int, record_starts: Optional[Sequence[int
     """
     bounds = sorted({0} | {int(s) for s in (record_starts or ()) if 0 < int(s) < length})
     starts: List[int] = []
-    for start, end in zip(bounds, bounds[1:] + [length]):
+    for start, end in zip(bounds, bounds[1:] + [length], strict=True):
         starts.extend(range(start, end, bin_size))
     return np.asarray(starts, dtype=np.int64)
 
@@ -233,7 +233,12 @@ def _blocked_cv_correlation(
 
     edges = np.linspace(0, n_bins, folds + 1).astype(int)
     held_out: List[float] = []
-    for lo, hi in zip(edges, edges[1:]):
+    # strict=False DELIBERATELY: `edges` holds folds+1 boundaries and
+    # `edges[1:]` holds folds, so this pairs each block with its successor and
+    # the lists differ by one BY CONSTRUCTION. strict=True would raise on every
+    # call. Distinct from `_bin_starts` above, where the sliced list is padded
+    # back to full length and the pairing is therefore exact.
+    for lo, hi in zip(edges, edges[1:], strict=False):
         if hi - lo < MIN_CV_BLOCK_BINS:
             continue
         keep = np.ones(n_bins, dtype=bool)
