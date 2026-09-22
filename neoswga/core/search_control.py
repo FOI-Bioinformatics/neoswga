@@ -114,17 +114,43 @@ def budgeted_objective(objective, budget):
         base.evaluation_budget = previous
 
 
-def search_frontiers(source, pool, attempt, assess, prepare, max_refills, budget=None):
+def search_frontiers(
+    source,
+    pool,
+    attempt,
+    assess,
+    prepare,
+    max_refills,
+    budget=None,
+    stop_on_first_qualified=True,
+):
     """Widen on unmet requests; preserve the best incumbent across attempts.
 
     `assess` returns (qualified, rank, primers). Front ends own only preparation
     and result shape; stopping, incumbent retention and accounting live here.
+
+    `stop_on_first_qualified` is the search POLICY, and True is what this
+    function has always done:
+
+    - **True, `first_feasible`.** Stop as soon as any attempt qualifies. Refills
+      then exist only to rescue a search that has not qualified, so a run that
+      qualifies on its opening frontier never looks wider. On the Wolbachia
+      design that is about 2,000 candidates of some 492,000.
+    - **False, `improve_until_budget`.** Keep widening while the allowance and
+      the refill cap permit, retaining the best-ranked incumbent. A qualifying
+      panel is never lost: `best` is already kept across attempts by rank, so
+      this policy can only return the same panel or a better-ranked one.
+
+    The default is True and stays True until a measurement says otherwise.
+    Shipping the other as the default would move every delivered panel, and
+    this project does not change a default on reasoning.
     """
     best = None
     best_rank = None
     records = []
     refills = 0
     reason = "qualified"
+    qualified_seen = False
     while True:
         if budget is not None:
             try:
@@ -146,7 +172,9 @@ def search_frontiers(source, pool, attempt, assess, prepare, max_refills, budget
         if best is None or rank > best_rank:
             best, best_rank = outcome, rank
         if qualified:
-            break
+            qualified_seen = True
+            if stop_on_first_qualified:
+                break
         if budget is not None:
             try:
                 budget.check()
@@ -162,6 +190,12 @@ def search_frontiers(source, pool, attempt, assess, prepare, max_refills, budget
             break
         pool = prepare(source.frontier())
         refills += 1
+    if qualified_seen and reason != "qualified":
+        # It qualified and then kept looking, so the loop ended on its budget
+        # or its refill cap. Both facts matter: a reader must not read
+        # "refill_budget" as "never found one".
+        reason = f"{reason}_after_qualifying"
+
     return (
         best,
         pool,
