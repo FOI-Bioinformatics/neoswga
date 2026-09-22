@@ -908,16 +908,16 @@ def run_step4(args):
             verify_reference_digests,
         )
 
-        _request = design_request_for_run(args, parameter)
-        if _request is not None:
-            logger.info("Design request %s", _request.request_hash[:12])
+        design_request = design_request_for_run(args, parameter)
+        if design_request is not None:
+            logger.info("Design request %s", design_request.request_hash[:12])
             # Reference IDENTITY is checked here rather than inside the
             # optimizer, because this is the layer at which a prefix and the
             # genome it belongs to are both named by the same request. A
             # structurally perfect index built from a different assembly is the
             # failure a passing test suite is least likely to catch.
-            _manifest = _request.reference_manifest()
-            _lengths = sorted(set(_request.primer_lengths))
+            _manifest = design_request.reference_manifest()
+            _lengths = sorted(set(design_request.primer_lengths))
             verify_reference_digests(_manifest, _lengths)
             # Geometry is decided here too, and not inside the evaluator:
             # whether an index NEEDS record starts depends on how many records
@@ -968,6 +968,10 @@ def run_step4(args):
         _effective_size = target_size
 
         results, scores, cache = optimize_step4(
+            # Explicit rather than folded into the kwargs builder: this is the
+            # object the assessment needs, and an option that travels inside
+            # **kwargs is the shape this repository has repeatedly lost one in.
+            design_request=design_request,
             **_step4_optimizer_kwargs(
                 args,
                 candidates=_qa_candidates,
@@ -980,7 +984,7 @@ def run_step4(args):
                 seed=seed,
                 target_size=target_size,
                 mechanistic_weight=_mech_weight,
-            )
+            ),
         )
 
         # `filter` carries sixteen chemistry flags and a --preset; this step
@@ -1185,14 +1189,16 @@ def run_step4(args):
                 # said. This is the number the run actually used.
                 "effective_set_size": _effective_size,
                 "optimization_method": resolve_optimization_method(args),
-                # Resolved a SECOND time, after the overrides. `_request` above
+                # Resolved a SECOND time, after the overrides. `design_request` above
                 # is the file, validated early so a bad setting costs nothing;
                 # this is the run. They differ whenever --num-primers or
                 # --auto-size moved the size, which is the case the separate
                 # `effective_set_size` field above was added to work around.
                 "request_hash": (_effective.request_hash if _effective else None),
-                "request_from_file_hash": _request.request_hash if _request else None,
-                "request_default_sources": (dict(_request.default_sources) if _request else None),
+                "request_from_file_hash": design_request.request_hash if design_request else None,
+                "request_default_sources": (
+                    dict(design_request.default_sources) if design_request else None
+                ),
             },
         )
         # This run finished, so a failure record from an earlier one no
