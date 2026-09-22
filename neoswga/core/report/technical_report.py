@@ -54,6 +54,8 @@ from neoswga.core.report.visualizations import (
     render_tm_gc_distribution,
 )
 
+from .funnel_section import render_candidate_reach, render_funnel
+
 logger = logging.getLogger(__name__)
 
 
@@ -502,65 +504,6 @@ def _render_parameters(params: Dict) -> str:
         <div class="param-item">
             <span class="param-label">{label}</span>
             <span class="param-value">{value_str}</span>
-        </div>
-        """
-    return html
-
-
-def _render_candidate_reach(reach: Optional[Dict]) -> str:
-    """How much of the available pool the search examined.
-
-    Rendered beneath the funnel because it answers the question the funnel
-    stops one step short of. The funnel ends at "shortlisted by max_primer";
-    this says how many of the candidates behind that shortlist the search
-    then looked at.
-
-    Nothing is rendered when the figure is absent. A run over a named
-    candidate list has no universe behind it, and a directory written before
-    this field existed has no record either -- and 0% would say the search
-    reached none of the pool, which is the favourable-default failure this
-    project keeps meeting from the other direction.
-    """
-    if not reach or not reach.get("universe"):
-        return ""
-
-    examined, universe = int(reach["examined"]), int(reach["universe"])
-    if reach.get("complete"):
-        return f"<p><em>The search examined all {universe:,} available candidates." f"</em></p>"
-
-    return (
-        f"<p><em>The search examined <strong>{examined:,} of {universe:,}</strong> "
-        f"available candidates ({examined / universe:.1%}). It stops at the first "
-        f"frontier that satisfies the configured limits; widening it further was "
-        f"measured to raise coverage slightly and cost more specificity, so this "
-        f"is a deliberate default rather than an incomplete run. See "
-        f"<code>docs/validation/looking_further_costs_specificity_2026-09-22.md"
-        f"</code>.</em></p>"
-    )
-
-
-def _render_funnel(stages: List[tuple]) -> str:
-    """Render filtering funnel visualization."""
-    if not stages:
-        return (
-            "<p><em>Filtering funnel not recorded for this run "
-            "(filter_stats.json absent). Re-run <code>neoswga filter</code> to "
-            "capture per-stage counts.)</em></p>"
-        )
-
-    max_count = max(s[1] for s in stages) if stages else 1
-    html = ""
-
-    for i, (label, count) in enumerate(stages):
-        width_pct = max(5, (count / max_count) * 100)
-        pct_of_total = (count / stages[0][1] * 100) if stages[0][1] > 0 else 0
-        safe_label = html_escape(str(label))
-
-        html += f"""
-        <div class="funnel-stage">
-            <div class="funnel-bar" style="width: {width_pct}%">{count:,}</div>
-            <span class="funnel-label">{safe_label}</span>
-            <span class="funnel-pct">{pct_of_total:.1f}%</span>
         </div>
         """
     return html
@@ -1197,8 +1140,8 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         ),
         coverage_gaps_html=_render_coverage_gaps(metrics.coverage_gaps),
         strand_balance_html=_render_strand_balance(metrics.uniformity),
-        funnel_html=_render_funnel(data.filtering_stages)
-        + _render_candidate_reach(data.candidate_reach),
+        funnel_html=render_funnel(data.filtering_stages)
+        + render_candidate_reach(data.candidate_reach),
         # Coverage
         coverage_pct=coverage_pct,
         coverage_class=coverage_class,
