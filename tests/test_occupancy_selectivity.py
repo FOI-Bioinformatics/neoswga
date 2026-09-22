@@ -225,10 +225,10 @@ def test_it_falls_back_and_says_so_without_kmer_files(world, tmp_path):
     Switching silently between two definitions of one number is the failure
     mode this audit has met most often.
     """
+    import shutil
+
     from neoswga.core.dominating_set_adapter import DominatingSetAdapter
     from neoswga.core.position_cache import PositionCache
-
-    import shutil
 
     bare = tmp_path / "bare"
     bare.mkdir()

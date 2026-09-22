@@ -15,11 +15,11 @@ import pytest
 
 from neoswga.core.base_optimizer import PrimerSetMetrics
 from neoswga.core.results_interpreter import (
-    QualityRating,
     COVERAGE_THRESHOLDS,
+    DIMER_SCORE_THRESHOLDS,
     ENRICHMENT_THRESHOLDS,
     UNIFORMITY_THRESHOLDS,
-    DIMER_SCORE_THRESHOLDS,
+    QualityRating,
 )
 
 

@@ -5,12 +5,13 @@ Uses importlib to avoid loading the full neoswga package.
 """
 
 import csv
+import importlib.util
 import json
 import sys
-import pytest
 from pathlib import Path
 from typing import Dict, List
-import importlib.util
+
+import pytest
 
 # Add the project root to sys.path for direct imports
 project_root = Path(__file__).parent.parent.parent
@@ -26,14 +27,14 @@ sys.modules["neoswga.core"].__path__ = [str(project_root / "neoswga" / "core")]
 
 # Now we can import the report module directly
 from neoswga.core.report.metrics import (
+    CoverageMetrics,
+    FilteringStats,
+    GenomeInfo,
     PipelineMetrics,
     PrimerMetrics,
-    GenomeInfo,
-    CoverageMetrics,
     SpecificityMetrics,
     ThermodynamicMetrics,
     UniformityMetrics,
-    FilteringStats,
     collect_pipeline_metrics,
 )
 

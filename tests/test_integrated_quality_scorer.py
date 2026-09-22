@@ -11,16 +11,16 @@ Tests all functionality including:
 """
 
 import unittest
-from typing import List, Dict
+from typing import Dict, List
 
 from neoswga.core.integrated_quality_scorer import (
+    IntegratedQualityScorer,
     PrimerQualityScore,
     SetQualityScore,
-    IntegratedQualityScorer,
     quick_score_primers,
 )
-from neoswga.core.strand_bias_analyzer import StrandBindingSite
 from neoswga.core.reaction_conditions import ReactionConditions
+from neoswga.core.strand_bias_analyzer import StrandBindingSite
 
 
 class TestPrimerQualityScore(unittest.TestCase):

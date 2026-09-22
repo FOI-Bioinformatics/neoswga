@@ -10,16 +10,17 @@ Tests:
 - Background pruning option
 """
 
-import pytest
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
 from typing import List
+from unittest.mock import MagicMock, Mock, patch
+
+import numpy as np
+import pytest
 
 from neoswga.core.hybrid_optimizer import (
+    POLYMERASE_PRESETS,
     HybridOptimizer,
     HybridResult,
     PolymeraseConfig,
-    POLYMERASE_PRESETS,
     _get_polymerase_config,
 )
 

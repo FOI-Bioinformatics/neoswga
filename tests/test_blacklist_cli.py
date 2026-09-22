@@ -1,7 +1,8 @@
 """Tests for CLI blacklist argument parsing."""
 
-import pytest
 import sys
+
+import pytest
 
 
 class TestBlacklistCLIArguments:

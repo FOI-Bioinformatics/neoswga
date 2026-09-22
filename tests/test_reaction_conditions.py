@@ -12,9 +12,9 @@ import unittest
 
 from neoswga.core.reaction_conditions import (
     ReactionConditions,
-    get_q_solution_equivalent,
-    get_gc_melt_conditions,
     get_crude_sample_conditions,
+    get_gc_melt_conditions,
+    get_q_solution_equivalent,
 )
 
 

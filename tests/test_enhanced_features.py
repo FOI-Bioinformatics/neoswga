@@ -5,10 +5,11 @@ Verifies that the enhanced feature engineering with 120+ features
 and synthetic training data integration works correctly.
 """
 
-import pytest
+from unittest.mock import Mock, patch
+
 import numpy as np
 import pandas as pd
-from unittest.mock import Mock, patch
+import pytest
 
 
 class TestAdvancedFeatureEngineer:

@@ -175,6 +175,9 @@ class TestTheDepthPathUsesIt:
         from neoswga.core.bam_coverage import DepthProfile
 
         assert "policy" in DepthProfile.__dataclass_fields__
-        assert "policy" in inspect.signature(
-            __import__("neoswga.core.bam_coverage", fromlist=["x"]).bam_depth_profile
-        ).parameters
+        assert (
+            "policy"
+            in inspect.signature(
+                __import__("neoswga.core.bam_coverage", fromlist=["x"]).bam_depth_profile
+            ).parameters
+        )

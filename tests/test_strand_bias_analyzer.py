@@ -12,10 +12,10 @@ import unittest
 from typing import List
 
 from neoswga.core.strand_bias_analyzer import (
-    StrandBindingSite,
     PrimerStrandBias,
     SetStrandBias,
     StrandBiasAnalyzer,
+    StrandBindingSite,
     create_strand_bias_analyzer,
     filter_primers_by_strand_bias,
 )

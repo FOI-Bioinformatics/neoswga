@@ -29,7 +29,7 @@ mode the deduplicated counts feed `selectivity_ratio`.
 import numpy as np
 import pytest
 
-from neoswga.core.base_optimizer import BaseOptimizer, OptimizerConfig, OptimizationResult
+from neoswga.core.base_optimizer import BaseOptimizer, OptimizationResult, OptimizerConfig
 
 TARGET_LENGTH = 100_000
 REACH = 3_000

@@ -5,9 +5,9 @@ genome length parsing, and the parameter migration utility.
 """
 
 import json
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
-from unittest.mock import patch, MagicMock, PropertyMock
 
 from neoswga.core.improved_pipeline import (
     ImprovedPipeline,

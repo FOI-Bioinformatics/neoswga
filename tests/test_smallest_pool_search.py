@@ -62,8 +62,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from neoswga.core.base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
-from neoswga.core.base_optimizer import PrimerSetMetrics
+from neoswga.core.base_optimizer import (
+    OptimizationResult,
+    OptimizationStatus,
+    OptimizerConfig,
+    PrimerSetMetrics,
+)
 
 # Distinct 12-mers, so nothing is rejected by a self-dimer or length rule.
 P1, P2, P3, P4 = "ACGGACGGACGG", "AGGAGGAGGAGG", "ACAACAACAACA", "AGCAGCAGCAGC"
@@ -254,8 +258,8 @@ def test_the_beam_reaches_the_enumerated_optimum_at_the_right_size():
     incumbent and delete: it grows a panel of the size it is asked for. Asked
     for 2, it must find the one qualifying pair.
     """
-    from neoswga.core.panel_beam import beam_search
     from neoswga.core.panel_acceptance import PoolConstraints
+    from neoswga.core.panel_beam import beam_search
     from neoswga.core.panel_refinement import objective_for_optimizer
 
     optimizer = make_optimizer(BINS)
@@ -274,8 +278,8 @@ def test_the_beam_reaches_the_enumerated_optimum_at_the_right_size():
 
 def test_the_beam_at_the_incumbent_size_does_not_do_worse():
     """A larger request must not return less coverage than a smaller one."""
-    from neoswga.core.panel_beam import beam_search
     from neoswga.core.panel_acceptance import PoolConstraints
+    from neoswga.core.panel_beam import beam_search
     from neoswga.core.panel_refinement import objective_for_optimizer
 
     optimizer = make_optimizer(BINS)

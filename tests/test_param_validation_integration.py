@@ -1,8 +1,9 @@
 """Test that pipeline commands auto-validate params.json."""
 
 import json
-import tempfile
 import os
+import tempfile
+
 import pytest
 
 

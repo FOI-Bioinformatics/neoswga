@@ -6,11 +6,12 @@ used in the mechanistic SWGA model.
 """
 
 import pytest
+
 from neoswga.core.mechanistic_params import (
-    MECHANISTIC_MODEL_PARAMS,
     APPLICATION_PROFILES,
-    get_polymerase_params,
+    MECHANISTIC_MODEL_PARAMS,
     get_application_profile,
+    get_polymerase_params,
     list_applications,
     list_polymerases,
 )

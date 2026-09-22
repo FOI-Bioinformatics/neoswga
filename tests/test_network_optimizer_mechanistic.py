@@ -5,9 +5,10 @@ Tests that mechanistic weighting affects primer selection and
 produces expected metrics.
 """
 
-import pytest
-import numpy as np
 from unittest.mock import MagicMock
+
+import numpy as np
+import pytest
 
 from neoswga.core.network_optimizer import NetworkOptimizer
 from neoswga.core.reaction_conditions import ReactionConditions

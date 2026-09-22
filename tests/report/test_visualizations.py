@@ -5,9 +5,10 @@ Tests Plotly availability detection and chart rendering functions,
 including graceful degradation when Plotly is not installed.
 """
 
-import pytest
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestPlotlyAvailability:
@@ -96,8 +97,9 @@ class TestDimerThermodynamics:
 
     def test_calculate_heterodimer_dg_different_sequences(self):
         """Different sequence pairs should give different delta G values."""
-        from neoswga.core.report.visualizations import _calculate_heterodimer_dg
         import math
+
+        from neoswga.core.report.visualizations import _calculate_heterodimer_dg
 
         # Different pairs should give different thermodynamic values
         dg1 = _calculate_heterodimer_dg("ATCGATCG", "CGATCGAT")
@@ -128,8 +130,8 @@ class TestDimerThermodynamics:
 
     def test_build_dimer_matrix_returns_tuple(self):
         """_build_dimer_matrix should return tuple of matrix, labels, sequences."""
-        from neoswga.core.report.visualizations import _build_dimer_matrix
         from neoswga.core.report.metrics import PrimerMetrics
+        from neoswga.core.report.visualizations import _build_dimer_matrix
 
         primers = [
             PrimerMetrics(
@@ -165,8 +167,8 @@ class TestDimerThermodynamics:
 
     def test_build_dimer_matrix_respects_max_primers(self):
         """_build_dimer_matrix should limit primers to max_primers."""
-        from neoswga.core.report.visualizations import _build_dimer_matrix
         from neoswga.core.report.metrics import PrimerMetrics
+        from neoswga.core.report.visualizations import _build_dimer_matrix
 
         primers = [
             PrimerMetrics(
@@ -398,8 +400,8 @@ class TestVisualizationsWithPlotly:
 
     def test_render_primer_heatmap_needs_multiple_primers(self):
         """render_primer_heatmap needs at least 2 primers."""
-        from neoswga.core.report.visualizations import render_primer_heatmap
         from neoswga.core.report.metrics import PrimerMetrics
+        from neoswga.core.report.visualizations import render_primer_heatmap
 
         single_primer = [
             PrimerMetrics(

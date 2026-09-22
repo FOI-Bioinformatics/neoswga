@@ -5,17 +5,18 @@ Tests validation of results directories and metrics completeness.
 """
 
 import json
+
 import pytest
 
-from neoswga.core.report.validation import (
-    validate_results_directory,
-    validate_metrics,
-    ValidationLevel,
-)
 from neoswga.core.report.metrics import (
-    PipelineMetrics,
     CoverageMetrics,
+    PipelineMetrics,
     PrimerMetrics,
+)
+from neoswga.core.report.validation import (
+    ValidationLevel,
+    validate_metrics,
+    validate_results_directory,
 )
 
 

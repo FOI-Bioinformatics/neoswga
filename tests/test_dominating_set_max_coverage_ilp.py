@@ -14,9 +14,10 @@ These tests pin the max-coverage formulation instead:
 with `w_b` the bases the bin spans.
 """
 
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
-from unittest.mock import Mock
 
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 
@@ -210,8 +211,8 @@ def test_zero_coverage_fixed_primer_still_consumes_budget():
 
 def test_independent_benchmark_matches_constrained_library():
     import importlib.util
-    from pathlib import Path
     import sys
+    from pathlib import Path
 
     path = Path(__file__).resolve().parents[1] / "scripts/benchmarking/max_coverage_bound.py"
     spec = importlib.util.spec_from_file_location("coverage_benchmark_test", path)

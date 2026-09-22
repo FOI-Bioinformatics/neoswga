@@ -1,10 +1,11 @@
 """Tests for safe_pickle module -- verifies no unsafe fallbacks exist."""
 
+import os
 import pickle
 import tempfile
-import os
-import pytest
 from unittest.mock import patch
+
+import pytest
 
 
 def test_safe_load_raises_on_disallowed_class():
@@ -37,6 +38,7 @@ def test_no_unsafe_load_with_warning_function():
 def test_background_bloom_filter_load_no_fallback():
     """BackgroundBloomFilter.load must not fall back to raw pickle.load."""
     import inspect
+
     from neoswga.core.background_filter import BackgroundBloomFilter
 
     source = inspect.getsource(BackgroundBloomFilter.load)
@@ -48,6 +50,7 @@ def test_background_bloom_filter_load_no_fallback():
 def test_sampled_genome_index_load_no_fallback():
     """SampledGenomeIndex.load must not fall back to raw pickle.load."""
     import inspect
+
     from neoswga.core.background_filter import SampledGenomeIndex
 
     source = inspect.getsource(SampledGenomeIndex.load)
@@ -59,6 +62,7 @@ def test_sampled_genome_index_load_no_fallback():
 def test_rf_preprocessing_load_no_fallback():
     """load_model_safely must not fall back to raw pickle.load."""
     import inspect
+
     from neoswga.core.rf_preprocessing import load_model_safely
 
     source = inspect.getsource(load_model_safely)

@@ -131,7 +131,10 @@ def test_the_flag_is_recomputed_after_the_appends():
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if node.func.attr in {"append", "extend"} and "validation" in ast.dump(node.func):
                 appends.append(node.lineno)
-        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "panel_validation_is_ok":
+        if (
+            isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "panel_validation_is_ok"
+        ):
             recompute.append(node.lineno)
 
     assert appends, "no issue is appended after validate(); this test is stale"

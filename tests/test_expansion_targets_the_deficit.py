@@ -100,9 +100,7 @@ class TestRecoveryIsMeasuredInBases:
         weights = self._weights()
 
         one = recovered_deficit([500], weights, extension=50, length=1000, circular=False)
-        both = recovered_deficit(
-            [495, 505], weights, extension=50, length=1000, circular=False
-        )
+        both = recovered_deficit([495, 505], weights, extension=50, length=1000, circular=False)
 
         assert both < 2 * one
 
@@ -178,9 +176,7 @@ class TestWindowsRespectRecordBoundaries:
         weights = np.zeros(2000)
         weights[1000:1200] = 1.0
 
-        recovered = recovered_deficit(
-            [980], weights, extension=500, length=2000, circular=False
-        )
+        recovered = recovered_deficit([980], weights, extension=500, length=2000, circular=False)
 
         assert recovered > 0.0
 

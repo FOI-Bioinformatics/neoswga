@@ -29,14 +29,13 @@ VIRTUAL_METHODS = {"ensemble", "auto", "all"}
 
 def _registered_methods():
     """Canonical names + aliases, from the registry the factory actually uses."""
-    from neoswga.core.optimizer_factory import OptimizerRegistry
-
     # Importing the optimizer modules is what triggers their register decorators.
     import neoswga.core.background_aware_optimizer  # noqa: F401
     import neoswga.core.clique_optimizer  # noqa: F401
     import neoswga.core.dominating_set_adapter  # noqa: F401
     import neoswga.core.hybrid_optimizer  # noqa: F401
     import neoswga.core.network_optimizer  # noqa: F401
+    from neoswga.core.optimizer_factory import OptimizerRegistry
 
     canonical = set(OptimizerRegistry._registry)
     aliases = set(OptimizerRegistry._aliases)

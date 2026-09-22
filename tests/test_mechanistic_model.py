@@ -8,9 +8,11 @@ Tests all four pathways:
 4. Binding kinetics
 """
 
-import pytest
 import math
-from neoswga.core.mechanistic_model import MechanisticModel, MechanisticEffects
+
+import pytest
+
+from neoswga.core.mechanistic_model import MechanisticEffects, MechanisticModel
 from neoswga.core.reaction_conditions import ReactionConditions
 
 

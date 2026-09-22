@@ -10,6 +10,7 @@ import random
 import numpy as np
 import pytest
 
+from neoswga.core.reaction_conditions import ReactionConditions, get_standard_conditions
 from neoswga.core.replication_simulator import (
     DisplacedStrand,
     ForkState,
@@ -18,7 +19,6 @@ from neoswga.core.replication_simulator import (
     SimulationConfig,
     SimulationResult,
 )
-from neoswga.core.reaction_conditions import ReactionConditions, get_standard_conditions
 
 # ---------------------------------------------------------------------------
 # ForkState enum

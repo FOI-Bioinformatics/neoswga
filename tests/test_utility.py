@@ -10,28 +10,29 @@ Tests:
 - Multiprocessing utilities (create_pool)
 """
 
-import pytest
-import numpy as np
 import tempfile
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from neoswga.core.utility import (
-    flatten,
-    mergeArrays,
-    softmax,
-    sigmoid,
-    longest_char_repeat,
     complement,
+    create_pool,
+    flatten,
     get_num_mismatches,
+    get_positional_gap_lengths,
+    get_seq_length,
+    gini_exact,
+    intersection,
+    longest_char_repeat,
     longest_common_substring,
+    mergeArrays,
+    most_frequent,
     reverse,
     reverse_complement,
-    intersection,
-    gini_exact,
-    most_frequent,
-    get_positional_gap_lengths,
-    create_pool,
-    get_seq_length,
+    sigmoid,
+    softmax,
 )
 
 # =============================================================================

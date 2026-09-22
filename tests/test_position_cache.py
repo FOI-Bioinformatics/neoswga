@@ -9,12 +9,13 @@ Tests:
 - Gini coefficient calculation
 """
 
-import pytest
-import numpy as np
-import tempfile
 import os
+import tempfile
 from pathlib import Path
+
 import h5py
+import numpy as np
+import pytest
 
 from neoswga.core.position_cache import (
     BindingSite,

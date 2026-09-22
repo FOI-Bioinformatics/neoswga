@@ -77,8 +77,11 @@ def test_the_evenness_site_threshold_matches_the_default(text):
     from neoswga.core.primer_attributes import DEFAULT_MIN_GINI_SITES
 
     assert DEFAULT_MIN_GINI_SITES == 3, DEFAULT_MIN_GINI_SITES
-    assert "default\n3)" in text or "(default\n3)" in text or "default 3" in text or (
-        "`min_gini_sites` (default" in text and "3" in text
+    assert (
+        "default\n3)" in text
+        or "(default\n3)" in text
+        or "default 3" in text
+        or ("`min_gini_sites` (default" in text and "3" in text)
     )
 
 
@@ -104,9 +107,7 @@ def test_the_document_names_the_stage_the_cli_actually_has(text):
     from neoswga.cli_unified import create_parser
 
     parser = create_parser()
-    subparsers = next(
-        a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction"
-    )
+    subparsers = next(a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction")
 
     assert "prepare-candidates" in subparsers.choices
     assert "score" not in subparsers.choices, (

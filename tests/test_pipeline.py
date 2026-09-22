@@ -6,22 +6,23 @@ Tests:
 - improved_pipeline.py: ImprovedPipeline class, PipelineConfig
 """
 
-import pytest
-import tempfile
 import os
+import tempfile
 from pathlib import Path
 
+import pytest
+
+from neoswga.core.improved_pipeline import (
+    ImprovedPipeline,
+    PipelineConfig,
+)
 from neoswga.core.pipeline import (
-    StepValidationResult,
     StepPrerequisiteError,
+    StepValidationResult,
     validate_step1_prerequisites,
     validate_step2_prerequisites,
     validate_step3_prerequisites,
     validate_step4_prerequisites,
-)
-from neoswga.core.improved_pipeline import (
-    PipelineConfig,
-    ImprovedPipeline,
 )
 
 # =============================================================================

@@ -9,14 +9,15 @@ Tests:
 - Round-trip consistency
 """
 
-import pytest
 from dataclasses import fields
+
+import pytest
 
 from neoswga.core.parameter import (
     PipelineParameters,
     get_current_config,
-    set_from_config,
     reset_to_defaults,
+    set_from_config,
 )
 
 

@@ -182,9 +182,7 @@ class TestGapsOnAMultiRecordReference:
             [(0, 0, 20), (1, 180, 20)],  # start of chrA, end of chrB
         )
 
-        gaps = bam_gaps(
-            bam, ["g"], [total], min_depth=1, min_gap_size=20, fg_genomes=[fasta]
-        )
+        gaps = bam_gaps(bam, ["g"], [total], min_depth=1, min_gap_size=20, fg_genomes=[fasta])
 
         for gap in gaps:
             assert not (gap.start < 200 < gap.end), (
@@ -198,9 +196,7 @@ class TestGapsOnAMultiRecordReference:
         fasta, total = two_records
         bam = _bam(tmp_path, "d.bam", [("chrA", 200)], [(0, 0, 20)])
 
-        gaps = bam_gaps(
-            bam, ["g"], [total], min_depth=1, min_gap_size=20, fg_genomes=[fasta]
-        )
+        gaps = bam_gaps(bam, ["g"], [total], min_depth=1, min_gap_size=20, fg_genomes=[fasta])
 
         for gap in gaps:
             assert gap.start < 200, (
@@ -215,9 +211,7 @@ class TestTheSingleRecordCaseIsUnchanged:
         fasta = _fasta(tmp_path, "one.fna", [("chr1", "A" * 400)])
         bam = _bam(tmp_path, "d.bam", [("chr1", 400)], [(0, 0, 50), (0, 350, 50)])
 
-        gaps = bam_gaps(
-            bam, ["one"], [400], min_depth=1, min_gap_size=50, fg_genomes=[fasta]
-        )
+        gaps = bam_gaps(bam, ["one"], [400], min_depth=1, min_gap_size=50, fg_genomes=[fasta])
 
         assert len(gaps) == 1
         assert 40 <= gaps[0].start <= 60

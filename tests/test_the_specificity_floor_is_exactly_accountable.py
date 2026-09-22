@@ -25,10 +25,10 @@ two ever disagree, the budget is steering the search by a rule the design is not
 accepted on, which is the two-rule split this whole area keeps producing.
 """
 
-import pytest
-
 import importlib.util
 import pathlib as _pathlib
+
+import pytest
 
 from neoswga.core.pool_objective import PoolConstraints
 

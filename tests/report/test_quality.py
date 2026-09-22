@@ -6,29 +6,29 @@ Tests quality grading, rating functions, and recommendations.
 
 import pytest
 
-from neoswga.core.report.quality import (
-    QualityGrade,
-    GradeComponent,
-    QualityAssessment,
-    _safe_divide,
-    _rate_value,
-    _score_to_grade,
-    _generate_recommendation,
-    calculate_quality_grade,
-    format_grade_display,
-    COVERAGE_THRESHOLDS,
-    ENRICHMENT_THRESHOLDS,
-    UNIFORMITY_THRESHOLDS,
-    TM_RANGE_THRESHOLDS,
-    DIMER_THRESHOLDS,
-)
 from neoswga.core.report.metrics import (
-    PipelineMetrics,
     CoverageMetrics,
+    PipelineMetrics,
+    PrimerMetrics,
     SpecificityMetrics,
     ThermodynamicMetrics,
     UniformityMetrics,
-    PrimerMetrics,
+)
+from neoswga.core.report.quality import (
+    COVERAGE_THRESHOLDS,
+    DIMER_THRESHOLDS,
+    ENRICHMENT_THRESHOLDS,
+    TM_RANGE_THRESHOLDS,
+    UNIFORMITY_THRESHOLDS,
+    GradeComponent,
+    QualityAssessment,
+    QualityGrade,
+    _generate_recommendation,
+    _rate_value,
+    _safe_divide,
+    _score_to_grade,
+    calculate_quality_grade,
+    format_grade_display,
 )
 
 

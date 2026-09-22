@@ -9,18 +9,19 @@ Tests:
 - Validation functions
 """
 
-import pytest
 import gzip
-import zipfile
 import tempfile
+import zipfile
 from pathlib import Path
 
+import pytest
+
 from neoswga.core.genome_io import (
-    GenomeStats,
-    GenomeLoader,
     GenomeCache,
-    load_genome,
+    GenomeLoader,
+    GenomeStats,
     get_genome_stats,
+    load_genome,
     validate_genome_file,
 )
 

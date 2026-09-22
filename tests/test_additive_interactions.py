@@ -1,14 +1,15 @@
 """Tests for the additive interaction framework."""
 
 import pytest
+
 from neoswga.core.additive_interactions import (
     AdditiveInteraction,
     AdditiveInteractionRegistry,
-    Pathway,
     EffectType,
+    Pathway,
+    calculate_interaction_modifiers,
     get_default_registry,
     reset_default_registry,
-    calculate_interaction_modifiers,
 )
 from neoswga.core.reaction_conditions import ReactionConditions
 

@@ -6,18 +6,19 @@ Tests safe type conversion, PrimerMetrics parsing, and metrics collection.
 
 import json
 import math
-import pytest
 from pathlib import Path
 
+import pytest
+
 from neoswga.core.report.metrics import (
-    _safe_float,
-    _safe_int,
-    _load_csv,
-    _load_optimizer_summary,
-    PrimerMetrics,
-    PipelineMetrics,
     CoverageMetrics,
     FilteringStats,
+    PipelineMetrics,
+    PrimerMetrics,
+    _load_csv,
+    _load_optimizer_summary,
+    _safe_float,
+    _safe_int,
     collect_pipeline_metrics,
 )
 

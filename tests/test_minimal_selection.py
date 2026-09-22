@@ -5,9 +5,10 @@ Verifies that the --minimize-primers option properly reduces primer count
 while maintaining target coverage.
 """
 
-import pytest
-import numpy as np
 from unittest.mock import Mock
+
+import numpy as np
+import pytest
 
 
 class TestMinimalPrimerSelector:
@@ -167,6 +168,7 @@ class TestPipelineIntegrationMinimal:
     def test_optimize_step4_accepts_minimize_params(self):
         """optimize_step4 should accept minimize_primers and target_coverage."""
         import inspect
+
         from neoswga.core.unified_optimizer import optimize_step4
 
         sig = inspect.signature(optimize_step4)

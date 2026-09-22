@@ -224,8 +224,7 @@ def test_every_pipeline_step_routes_through_that_handler():
     calls = [
         node
         for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and getattr(node.func, "id", None) == "exit_on_step_failure"
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "exit_on_step_failure"
     ]
 
     assert len(calls) >= 3, f"found {len(calls)} step(s) using the shared handler"

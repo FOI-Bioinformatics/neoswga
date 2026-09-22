@@ -8,14 +8,15 @@ Tests:
 - Greedy set cover algorithm
 """
 
-import pytest
-import numpy as np
-from unittest.mock import Mock, MagicMock, patch
 from typing import Dict, Set
+from unittest.mock import MagicMock, Mock, patch
+
+import numpy as np
+import pytest
 
 from neoswga.core.dominating_set_optimizer import (
-    CoverageRegion,
     BipartiteGraph,
+    CoverageRegion,
     DominatingSetOptimizer,
 )
 

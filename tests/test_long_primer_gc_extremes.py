@@ -6,9 +6,10 @@ for clinical pathogen detection across AT-rich (~25% GC), GC-neutral (~50%),
 and GC-rich (~65-75% GC) targets.
 """
 
-import pytest
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import numpy as np
-from unittest.mock import patch, MagicMock, PropertyMock
+import pytest
 
 # ============================================================================
 # Fix 7: AttributeError - parameter.max_self_dimer_bp
@@ -317,8 +318,8 @@ class TestFix5GCAdaptiveGuard:
 
     def test_user_kmer_range_preserved(self):
         """When user sets min_k/max_k in JSON, adaptive strategy should not override."""
-        from neoswga.core import pipeline as core_pipeline
         import neoswga.core.parameter as parameter
+        from neoswga.core import pipeline as core_pipeline
 
         # Mock _json_data to contain user-specified k-mer range
         original_json_data = parameter._json_data.copy()
@@ -459,7 +460,7 @@ class TestIntegrationGCExtremes:
     )
     def test_15bp_primers_pass_filters(self, genome_gc, gc_label):
         """At least some 15bp primers should pass all filters for each GC regime."""
-        from neoswga.core.filter import filter_extra, _scale_freq_threshold
+        from neoswga.core.filter import _scale_freq_threshold, filter_extra
 
         # Generate candidate 15bp primers appropriate for the genome GC
         primers = _generate_primers_for_gc(genome_gc, length=15, count=100)

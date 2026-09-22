@@ -6,7 +6,7 @@ and no neighbouring bins via amplicon extension. The reported coverage is then
 much smaller than the actual amplification reach.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from neoswga.core.primer_expansion import PrimerExpander
 

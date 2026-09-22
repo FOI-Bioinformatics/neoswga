@@ -51,8 +51,8 @@ def test_typical_amplicon_strictly_shorter_than_processivity():
     """Sanity: per-primer reach < single-event processivity for every
     polymerase."""
     from neoswga.core.reaction_conditions import (
-        get_typical_amplicon_length,
         get_polymerase_processivity,
+        get_typical_amplicon_length,
     )
     from neoswga.core.registry import get_polymerase
 

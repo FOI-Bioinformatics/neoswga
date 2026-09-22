@@ -5,9 +5,10 @@ Verifies that the stochastic simulation (Gillespie algorithm) is properly
 integrated for validating network-based predictions.
 """
 
-import pytest
-import numpy as np
 from unittest.mock import Mock, patch
+
+import numpy as np
+import pytest
 
 
 class TestGillespieSimulator:

@@ -18,6 +18,11 @@ import numpy as np
 import pytest
 
 from neoswga.core import thermodynamics as thermo
+from neoswga.core.reaction_conditions import (
+    ReactionConditions,
+    get_enhanced_conditions,
+    get_standard_conditions,
+)
 from neoswga.core.thermodynamics import (
     ENTHALPY_NN,
     ENTROPY_NN,
@@ -36,11 +41,6 @@ from neoswga.core.thermodynamics import (
     normalize_sequence,
     reverse_complement,
     wallace_tm,
-)
-from neoswga.core.reaction_conditions import (
-    ReactionConditions,
-    get_enhanced_conditions,
-    get_standard_conditions,
 )
 
 # =============================================================================

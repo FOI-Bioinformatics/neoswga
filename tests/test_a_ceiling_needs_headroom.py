@@ -24,7 +24,7 @@ import pathlib
 
 import pytest
 
-from tests.test_module_size_ratchet import _BUDGETS, DEFAULT_BUDGET, _PKG_ROOT
+from tests.test_module_size_ratchet import _BUDGETS, _PKG_ROOT, DEFAULT_BUDGET
 
 #: How many lines a module must be able to gain without breaking its budget.
 #: Three, because three is what it took: the smallest useful edits here are a
