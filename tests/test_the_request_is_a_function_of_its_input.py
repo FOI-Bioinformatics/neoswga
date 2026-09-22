@@ -216,3 +216,48 @@ def test_two_requests_with_different_chemistry_still_differ():
     with_betaine = resolve_design_request({**MAPPING, "betaine_m": 1.0})
 
     assert plain.request_hash != with_betaine.request_hash
+
+
+# ---------------------------------------------------------------------------
+# The identity must cover what changes the answer
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("bg_circular", True),
+        ("iterations", 3),
+        ("refinement_method", "swap"),
+        ("stage1_objective_width", 64),
+        ("swap_max_evaluations", 250),
+        ("swap_max_seconds", 2.5),
+    ],
+)
+def test_a_setting_that_changes_the_search_changes_the_hash(key, value):
+    """These six alter what the search does and left the identity untouched.
+
+    They are declared in the schema and consumed elsewhere, so
+    `resolve_design_request` accepted them without storing them: the acceptance
+    check runs against the schema, not against the fields the request keeps.
+    A run therefore recorded a hash that several settings could not move, which
+    defeats the one thing the hash is for.
+
+    `bg_circular` is the plainest case, since `fg_circular` was already a field
+    and its background twin was not.
+    """
+    baseline = resolve_design_request(dict(MAPPING)).request_hash
+
+    assert resolve_design_request({**MAPPING, key: value}).request_hash != baseline, (
+        f"{key}={value} changes the search and not the recorded request"
+    )
+
+
+def test_an_unrelated_comment_key_does_not_change_the_hash():
+    """Guard the guard: a hash that moves for everything identifies nothing.
+
+    A leading underscore marks a comment and is accepted by the resolver.
+    """
+    baseline = resolve_design_request(dict(MAPPING)).request_hash
+
+    assert resolve_design_request({**MAPPING, "_note": "for the lab book"}).request_hash == baseline

@@ -166,6 +166,22 @@ class DesignRequest:
     #: Where each resolved setting came from: "request", or a named default.
     default_sources: Mapping[str, str] = field(default_factory=dict)
 
+    # Settings that change what the search does and were outside the identity
+    # until 2026-09-22. Each is declared in the schema and consumed elsewhere,
+    # so the resolver accepted them and stored nothing: acceptance is checked
+    # against the schema, not against the fields kept. A run therefore recorded
+    # a hash that several of its own settings could not move, which defeats the
+    # one thing the hash is for. `bg_circular` is the plainest case, since
+    # `fg_circular` was already a field and its background twin was not.
+    #
+    # Defaulted so a hand-constructed request keeps working.
+    bg_circular: bool = False
+    iterations: Optional[int] = None
+    refinement_method: Optional[str] = None
+    stage1_objective_width: Optional[int] = None
+    swap_max_evaluations: Optional[int] = None
+    swap_max_seconds: Optional[float] = None
+
     # ---------------------------------------------------------------- hashing
 
     def to_dict(self) -> Dict[str, Any]:
@@ -573,6 +589,13 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         concentration_policy=policy,
         model_versions=_model_versions(),
         default_sources=dict(sorted(sources.items())),
+        # Recorded so the hash moves when they do. See the field comment.
+        bg_circular=bool(params.get("bg_circular", False)),
+        iterations=params.get("iterations"),
+        refinement_method=params.get("refinement_method"),
+        stage1_objective_width=params.get("stage1_objective_width"),
+        swap_max_evaluations=params.get("swap_max_evaluations"),
+        swap_max_seconds=params.get("swap_max_seconds"),
     )
 
     # Last, because it reads the resolved request rather than the mapping. A
