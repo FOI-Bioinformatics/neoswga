@@ -4,6 +4,7 @@ Documentation for NeoSWGA, a tool for designing primer sets for selective whole-
 
 ## Quick Links
 
+- **[Limitations](LIMITATIONS.md)** - what a design run does NOT establish; read before trusting a number
 - **[Quick Start](guides/QUICK_START.md)** - Get started in minutes
 - **[Why the pipeline has four steps](guides/why-four-steps.md)** - what each step is for, what it decides for you, and what this tool does not model
 - **[User Guide](guides/user-guide.md)** - Comprehensive usage documentation

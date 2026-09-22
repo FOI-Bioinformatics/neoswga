@@ -4,6 +4,11 @@ NeoSWGA is a command-line tool for designing primer sets for selective whole-gen
 
 **Primary use case**: Designing primers for Phi29/EquiPhi29 polymerase-based whole genome amplification, commonly used for pathogen detection from mixed samples.
 
+> **Before trusting a number from a design, read [what NeoSWGA does not establish](docs/LIMITATIONS.md).**
+> Coverage is a modelled geometric proxy, not predicted sequencing
+> breadth, and no design from this tool has been tested in a
+> laboratory as part of its development.
+
 ## Key Features
 
 - **Adaptive GC filtering**: Support for extreme GC genomes (32-68% GC)
