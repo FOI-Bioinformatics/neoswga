@@ -155,11 +155,12 @@ def _panel_violations(request, primers) -> list:
     """Hard properties of a delivered panel, independent of configured limits.
 
     Both were enforced already and neither reached this record. Requested size
-    lives in `optimization_service`'s `assess` closure and again in
-    `base_optimizer.validate`; the delivered-panel dimer screen runs during the
-    search in `optimization_service.panel_violations` and again afterwards at
-    warning level only, so `validation["ok"]` stayed true for a pool that broke
-    the user's own threshold.
+    is asked three different ways elsewhere and they are NOT interchangeable:
+    `result_validation.validate_result` compares `!=`, so it reports a panel
+    larger than requested too; `optimization_service`'s `assess` closure
+    compares `>=` on the search's own stopping rule, where changing it moves
+    delivered panels. This one asks only whether the delivered panel is short.
+    The dimer half is the shared rule rather than a third reading of it.
 
     Candidate composition and QC are deliberately absent. In this codebase
     those are ADMISSION rules applied during `filter`, not properties of a
@@ -171,18 +172,20 @@ def _panel_violations(request, primers) -> list:
     if requested and len(primers) < requested:
         found.append(f"panel size {len(primers)} is below the requested {requested}")
 
-    limit = getattr(request, "max_dimer_bp", None)
-    if limit and len(primers) > 1:
-        from neoswga.core.dimer import max_complementary_run
+    # The delivered-heterodimer rule is `dimer.dimer_validation_issue`, asked
+    # for rather than rewritten. This measured complementary runs itself and
+    # agreed with it on every panel a resolved request can produce, which made
+    # the second implementation invisible until the two drifted --
+    # `string_search`'s two scanners are what that costs.
+    # `optimization_service.panel_violations` is the SEARCH-time screen and a
+    # wider rule: self-dimers against `max_self_dimer_bp` and the optional
+    # `max_dimer_dg` floor, reported as an unattributed "dimer constraint".
+    # Adopting it here would fault a delivered pool on an admission threshold.
+    from neoswga.core.dimer import dimer_validation_issue
 
-        for index, first in enumerate(primers):
-            for second in primers[index + 1 :]:
-                run = max_complementary_run(first, second)
-                if run > limit:
-                    found.append(
-                        f"delivered pair {first}/{second} shares a {run} bp "
-                        f"complementary run against max_dimer_bp {limit}"
-                    )
+    issue = dimer_validation_issue(list(primers), getattr(request, "max_dimer_bp", None))
+    if issue is not None:
+        found.append(issue["detail"])
     return found
 
 
