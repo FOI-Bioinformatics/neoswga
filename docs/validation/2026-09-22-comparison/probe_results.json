@@ -1,0 +1,35 @@
+{
+  "commit": "1c4f20cbd2d7a396fb2b61667c7c60b08bd2d6d9",
+  "conditions_mutation_accepted": true,
+  "mutation_changes_request_hash": true,
+  "same_hash_after_setting_change": {
+    "bg_circular": true,
+    "stage1_objective_width": true,
+    "swap_max_evaluations": true
+  },
+  "concentration": {
+    "declared_two_oligo_allocation_molar": [
+      6e-06,
+      6e-06
+    ],
+    "reaction_primer_conc_molar": 5e-07
+  },
+  "request_with_cli_overrides": {
+    "requested_temperature": 42.0,
+    "resolved_temperature": 30.0,
+    "requested_seed": 17,
+    "resolved_seed": null
+  },
+  "assessment_without_objective": {
+    "qualified": true,
+    "requested_size": 12,
+    "assessed_size": 1,
+    "has_effective_coverage": false
+  },
+  "explicit_zero_target_resolves_to": 12,
+  "named_production_calls": {
+    "evaluate_panel": [],
+    "concentrations_molar": [],
+    "require_disjoint_experiments": []
+  }
+}

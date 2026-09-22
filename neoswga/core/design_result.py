@@ -146,3 +146,52 @@ def describe_failure(
     else:
         record["traceback"] = None
     return record
+
+
+#: Validator codes that make a delivered pool unfit to recommend.
+#:
+#: Only findings that are defects IN THE POOL belong here. A pool breaking the
+#: dimer threshold the user configured is one.
+#: `coverage_saturated_on_small_genome` deliberately is NOT: it says a metric
+#: cannot be trusted on a small target, which is inherent to designing against a
+#: plasmid and not something the user can fix, so blocking on it would refuse
+#: every such design and teach people to ignore the line.
+#:
+#: This set lived as a bare literal in BOTH `cli/report.py` and
+#: `core/results_interpreter.py`, the two commands that tell a user a pool is
+#: ready. A new code had to be added twice or they would disagree about the same
+#: pool. It lives here because whether a result may be recommended is this
+#: module's subject.
+BLOCKING_VALIDATOR_CODES = frozenset({"delivered_pool_exceeds_max_dimer_bp"})
+
+#: What step 4 writes about the pool it just delivered.
+VALIDATION_FILENAME = "step4_improved_df_validation.json"
+
+
+def blocking_validator_findings(results_dir) -> list:
+    """Details of any recorded finding that makes this pool unfit to order.
+
+    Returns an empty list when the file is absent or unreadable. That is
+    deliberate and is the one place this module fails OPEN: directories written
+    before the validator existed are explicitly supported, and refusing them
+    would be a refusal on the absence of evidence rather than on evidence.
+    A corrupt *failure* record is the opposite case and blocks, because there
+    the evidence exists and cannot be read.
+    """
+    import json
+    import os
+
+    path = os.path.join(str(results_dir), VALIDATION_FILENAME)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return []
+
+    return [
+        str(issue.get("detail") or issue.get("code"))
+        for issue in payload.get("issues", []) or []
+        if issue.get("code") in BLOCKING_VALIDATOR_CODES
+    ]

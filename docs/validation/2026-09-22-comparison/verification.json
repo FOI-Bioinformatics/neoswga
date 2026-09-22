@@ -1,0 +1,33 @@
+{
+  "review_date": "2026-09-22",
+  "neoswga_commit": "1c4f20cbd2d7a396fb2b61667c7c60b08bd2d6d9",
+  "python": "3.11.14",
+  "platform": "darwin",
+  "scope": "Targeted verification and static comparison; no cross-tool runtime benchmark or new wet-lab experiment",
+  "competitor_revisions": {
+    "eclarke/swga": "b36cefaeb50d595e34068a86f466c3c9fde5aab7",
+    "songlab-cal/swga2": "c25667ef87a856a923bde5bea353fe2608c59492",
+    "bailey-lab/coatswga": "e2e0ff4dae1957f24908bdebafa2d32763f3b996"
+  },
+  "runs": [
+    {
+      "command": "python -m pytest tests/test_design_failure_contract.py tests/test_resolved_design_request.py tests/test_authoritative_panel_evaluation.py tests/test_model_evidence_contract.py tests/test_search_budget_contract.py tests/test_sequencing_feedback_contract.py tests/test_shared_optimization_contract.py tests/test_function_length_ratchet.py tests/test_module_size_ratchet.py -q --tb=short",
+      "passed": 325,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "python -m pytest tests/integration/test_strict_design_pipeline.py -q --tb=short",
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "command": "python -m pytest tests/validation -q --tb=short",
+      "passed": 101,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "read_only_probe": "python docs/validation/2026-09-22-comparison/probe_contracts.py"
+}

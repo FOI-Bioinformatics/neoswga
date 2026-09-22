@@ -254,44 +254,17 @@ def _load_primer_positions(results_dir, primers):
     return positions
 
 
-#: Validator codes that make "ready for ordering" the wrong thing to print.
-#: Kept in step with `results_interpreter.ResultsInterpreter._blocks_synthesis`.
-#:
-#: Only findings that are defects IN THE POOL belong here. A pool breaking the
-#: dimer threshold the user configured is one. `coverage_saturated_on_small_genome`
-#: deliberately is NOT: it says a metric cannot be trusted on a small target,
-#: which is inherent to designing against a plasmid and not something the user
-#: can fix, so blocking on it would refuse every plasmid design and teach people
-#: to ignore the line. It is surfaced as a warning instead.
-_BLOCKING_VALIDATOR_CODES = {
-    "delivered_pool_exceeds_max_dimer_bp",
-}
-
-
 def _blocking_validator_findings(results_dir):
-    """Details of any recorded finding that should stop an order-readiness line.
+    """Details of any recorded finding that makes this pool unfit to order.
 
-    Reads `step4_improved_df_validation.json`, which the optimizer writes and
-    which `neoswga report` already renders. Returns an empty list when the file
-    is absent or unreadable, so a missing validator never blocks an export.
+    Delegates to `core.design_result`, which owns the code set. It lived here
+    as a bare literal and again in `results_interpreter`, so a new blocking code
+    had to be added twice or the two commands would disagree about one pool.
+    Kept as a name because several tests and `run_export` call it.
     """
-    import json as _json
-    from pathlib import Path as _Path
+    from neoswga.core.design_result import blocking_validator_findings
 
-    path = _Path(results_dir) / "step4_improved_df_validation.json"
-    if not path.exists():
-        return []
-    try:
-        with open(path) as handle:
-            payload = _json.load(handle)
-    except (OSError, ValueError):
-        return []
-
-    return [
-        str(issue.get("detail") or issue.get("code"))
-        for issue in payload.get("issues", []) or []
-        if issue.get("code") in _BLOCKING_VALIDATOR_CODES
-    ]
+    return blocking_validator_findings(results_dir)
 
 
 def _get_genome_length(results_dir):
@@ -336,6 +309,12 @@ def run_export(args):
         from neoswga.core.export import export_is_blocked
 
         blocked_run = export_is_blocked(args.dir)
+        if blocked_run and getattr(args, "allow_unqualified", False):
+            # The same shape as --allow-dimer-relaxation: the constraint is
+            # traded deliberately, by name, and the run says so loudly.
+            logger.warning("Exporting anyway because --allow-unqualified was given.")
+            logger.warning("  %s", blocked_run)
+            blocked_run = None
         if blocked_run:
             logger.error(blocked_run)
             sys.exit(1)
@@ -401,14 +380,12 @@ def run_export(args):
                 )
                 print(f"Exported: {bg_path}")
 
-        # "Ready for ordering" is a claim about the pool, so it has to be
-        # checked against what the optimizer recorded about that pool. It used
-        # to print unconditionally, including for a set whose worst pair shared
-        # a 10 bp duplex against a configured max_dimer_bp of 3.
-        _blocking = _blocking_validator_findings(args.dir)
-        if _blocking:
-            print("\nNOT ready for ordering. The optimizer recorded:")
-            for detail in _blocking:
+        # The pool was checked before any of this was written, by
+        # `export_is_blocked`. Reaching here means it passed, or that the user
+        # traded the constraint explicitly.
+        if getattr(args, "allow_unqualified", False) and _blocking_validator_findings(args.dir):
+            print("\nExported, but NOT ready for ordering. The optimizer recorded:")
+            for detail in _blocking_validator_findings(args.dir):
                 print(f"  - {detail}")
             print("\nRun `neoswga interpret -d %s` for the full assessment." % args.dir)
         else:
@@ -496,6 +473,14 @@ Examples:
     )
     export_parser.add_argument(
         "-o", "--output", default="./export", help="Output directory (default: ./export)"
+    )
+    export_parser.add_argument(
+        "--allow-unqualified",
+        action="store_true",
+        help="Export even when the optimizer recorded a defect in the pool, "
+        "such as a delivered pair above max_dimer_bp. The findings are printed "
+        "and the files are written anyway. Without this the export refuses and "
+        "writes nothing.",
     )
     export_parser.add_argument(
         "--set",

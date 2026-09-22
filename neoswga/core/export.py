@@ -1035,11 +1035,35 @@ def export_is_blocked(results_dir):
     A record that cannot be parsed blocks rather than passes. Unknown is not
     success, and defaulting the other way would make a corrupted artifact the
     most permissive state available.
+
+    **It also refuses a pool the validator recorded a defect in**, as of
+    2026-09-22. That check existed and ran in `cli/report.py` AFTER every order
+    file had been written, where it changed the printed message and not the exit
+    code: a pool breaking the user's configured `max_dimer_bp` produced a
+    complete FASTA and a line saying it was not ready for ordering. Moving it
+    here puts it ahead of the writes, because this function is already called
+    before them.
+
+    The two sources answer different questions and both belong. The failure
+    record says the last RUN did not finish; the validator findings say the
+    POOL it finished with is unfit. A finished run leaves no failure record at
+    all, so without the second source this gate could never refuse anything a
+    completed run produced.
     """
     import json
     import os
 
-    from neoswga.core.design_result import recommendation_allowed
+    from neoswga.core.design_result import blocking_validator_findings, recommendation_allowed
+
+    findings = blocking_validator_findings(results_dir)
+    if findings:
+        joined = "; ".join(findings)
+        return (
+            f"The optimizer recorded a defect in this pool: {joined}. It is not "
+            f"fit to order. Run `neoswga interpret -d {results_dir}` for the full "
+            f"assessment, or re-run the design. Pass --allow-unqualified to "
+            f"export it anyway."
+        )
 
     path = os.path.join(str(results_dir), DESIGN_FAILURE_FILENAME)
     if not os.path.exists(path):
