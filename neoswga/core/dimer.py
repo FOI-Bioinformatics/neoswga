@@ -434,7 +434,11 @@ def dimer_validation_issue(primers, max_dimer_bp):
 
     a, b = pair
     return {
-        "level": "warning",
+        # Error, not warning: `BLOCKING_VALIDATOR_CODES` holds this code, so
+        # `export` and `interpret` already refuse the pool. Recording it at
+        # warning level let the report render the same file as having no
+        # errors, which is two commands disagreeing about one panel.
+        "level": "error",
         "code": "delivered_pool_exceeds_max_dimer_bp",
         "detail": (
             f"worst heterodimer is {length} bp against a configured "

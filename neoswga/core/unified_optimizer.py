@@ -31,6 +31,7 @@ import pandas as pd
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .candidate_source import order_candidates_by_background
+from .design_result import panel_validation_is_ok
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .ensemble_comparison import _ensemble_error_row, _select_ensemble_winner
 from .exceptions import DesignError, ModelEvaluationError, ReferenceDataError
@@ -1223,6 +1224,10 @@ def run_optimization(
         )
 
     if validation is not None:
+        # `result.validate` folded `ok` out of the issues it had built, and
+        # the saturation warnings and the dimer finding are appended above.
+        # Recompute from the final list or a blocking finding cannot move it.
+        validation["ok"] = panel_validation_is_ok(validation.get("issues") or [])
         _write_validation_report(validation)
 
     if verbose:

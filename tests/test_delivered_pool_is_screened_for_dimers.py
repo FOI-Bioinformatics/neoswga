@@ -83,7 +83,12 @@ def test_a_pool_over_the_threshold_raises_a_validation_issue():
 
     assert issue is not None, "a 10 bp duplex against a threshold of 3 raised nothing"
     assert issue["code"] == "delivered_pool_exceeds_max_dimer_bp"
-    assert issue["level"] == "warning"
+    # Error, not warning. `BLOCKING_VALIDATOR_CODES` holds this code, so
+    # `export` and `interpret` already refuse the pool; recording it at warning
+    # level let `validation["ok"]` stay true and the report render the same
+    # file as error-free. `tests/test_the_ok_flag_sees_every_finding.py` holds
+    # the rule that keeps the level and the code set together.
+    assert issue["level"] == "error"
     # The detail has to name the pair, because "your pool has a dimer" is not
     # actionable and "break this pair" is.
     for primer in DIMERISING:
