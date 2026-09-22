@@ -1132,7 +1132,7 @@ class HybridOptimizer(ThermoScreenMixin):
         graph = BipartiteGraph(bin_size=bin_size)
 
         for primer in primers:
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 fw = self.position_cache.get_positions(prefix, primer, "forward")
                 rv = self.position_cache.get_positions(prefix, primer, "reverse")
                 positions = np.concatenate([fw, rv])
@@ -1212,7 +1212,7 @@ class HybridOptimizer(ThermoScreenMixin):
         graph = BipartiteGraph(bin_size=bin_size)
 
         for primer in primers:
-            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+            for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                 # Use 'forward'/'reverse' (not '+'/'-') for PositionCache API
                 positions_fwd = self.position_cache.get_positions(prefix, primer, "forward")
                 positions_rev = self.position_cache.get_positions(prefix, primer, "reverse")

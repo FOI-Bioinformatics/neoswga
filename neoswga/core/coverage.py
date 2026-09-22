@@ -73,7 +73,7 @@ def compute_per_prefix_coverage(
     total_cov = 0
     total_len = 0
 
-    for prefix, length in zip(prefixes, seq_lengths):
+    for prefix, length in zip(prefixes, seq_lengths, strict=True):
         if length <= 0:
             per_prefix[prefix] = 0.0
             continue
@@ -155,7 +155,7 @@ def marginal_coverage_curve(
     if not prefixes or not seq_lengths or cache is None or not primers:
         return []
 
-    usable = [(p, int(n)) for p, n in zip(prefixes, seq_lengths) if int(n) > 0]
+    usable = [(p, int(n)) for p, n in zip(prefixes, seq_lengths, strict=True) if int(n) > 0]
     if not usable:
         return []
 

@@ -118,7 +118,7 @@ def match_contigs(
     length_by_ref: Dict[str, int] = {str(r): int(ln) for r, ln in zip(bam_refs, bam_ref_lengths)}
 
     mapping: Dict[str, str] = {}
-    for prefix, length in zip(fg_prefixes, fg_seq_lengths):
+    for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
         base = os.path.basename(prefix)
 
         matched = None
@@ -366,7 +366,7 @@ def _bam_gaps_by_record(
     first and last records of a multi-record file would join two molecules.
     """
     all_gaps: List[CoverageGap] = []
-    for prefix, length, genome in zip(fg_prefixes, fg_seq_lengths, fg_genomes):
+    for prefix, length, genome in zip(fg_prefixes, fg_seq_lengths, fg_genomes, strict=True):
         profile = bam_depth_profile(
             bam_path,
             prefix=prefix,
@@ -465,7 +465,7 @@ def bam_gaps(
         return []
 
     all_gaps: List[CoverageGap] = []
-    length_by_prefix = dict(zip(fg_prefixes, fg_seq_lengths))
+    length_by_prefix = dict(zip(fg_prefixes, fg_seq_lengths, strict=True))
     for prefix, contig in mapping.items():
         length = length_by_prefix[prefix]
         depth = compute_bam_depth(bam_path, contig, length)

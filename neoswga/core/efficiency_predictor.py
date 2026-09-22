@@ -478,7 +478,7 @@ class EfficiencyPredictor:
             graph = BipartiteGraph(bin_size=bin_size)
 
             for primer in primers:
-                for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths):
+                for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True):
                     positions = self.cache.get_positions(prefix, primer, "both")
                     if len(positions) > 0:
                         graph.add_primer_coverage(primer, positions, prefix, length)

@@ -84,7 +84,7 @@ def collect_strand_stats(
         return {}
 
     collected: Dict[str, Dict[str, float]] = {}
-    for prefix, length in zip(prefixes, seq_lengths):
+    for prefix, length in zip(prefixes, seq_lengths, strict=True):
         try:
             stats = cache.compute_strand_alternation_stats(prefix, list(primers), length)
         except Exception as exc:
