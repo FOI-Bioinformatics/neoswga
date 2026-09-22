@@ -643,7 +643,7 @@ PRIMER SEQUENCES ({len(primers)} primers)
 {'='*80}
 """
 
-        for i, (primer, score) in enumerate(zip(primers, scores), 1):
+        for i, (primer, score) in enumerate(zip(primers, scores, strict=True), 1):
             protocol += f"\nPrimer {i:2d}: {primer}\n"
             protocol += f"  Target frequency:     {score.target_frequency:.2e}\n"
             protocol += f"  Background frequency: {score.background_frequency:.2e}\n"

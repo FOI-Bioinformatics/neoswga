@@ -427,7 +427,9 @@ class ResultsInterpreter:
             bg_freqs = [float(p.get("bg_freq", 0)) for p in primers]
 
             # Filter out zero/near-zero background values to avoid division by zero
-            valid_pairs = [(fg, bg) for fg, bg in zip(fg_freqs, bg_freqs) if bg > 1e-10]
+            valid_pairs = [
+                (fg, bg) for fg, bg in zip(fg_freqs, bg_freqs, strict=True) if bg > 1e-10
+            ]
 
             if valid_pairs:
                 ratios = [fg / bg for fg, bg in valid_pairs]

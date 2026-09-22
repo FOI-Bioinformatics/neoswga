@@ -173,7 +173,7 @@ def render_component_radar(
     # Create hover text with ratings
     hover_text = [
         f"{name}<br>Score: {score:.2f}<br>Rating: {rating}"
-        for name, score, rating in zip(names, scores, ratings)
+        for name, score, rating in zip(names, scores, ratings, strict=True)
     ]
     hover_text_closed = hover_text + [hover_text[0]]
 
@@ -296,7 +296,8 @@ def render_tm_gc_distribution(
 
     # Tm vs GC scatter
     hover_text = [
-        f"Seq: {seq}<br>Tm: {tm:.1f}C<br>GC: {gc:.0f}%" for seq, tm, gc in zip(sequences, tms, gcs)
+        f"Seq: {seq}<br>Tm: {tm:.1f}C<br>GC: {gc:.0f}%"
+        for seq, tm, gc in zip(sequences, tms, gcs, strict=True)
     ]
 
     fig.add_trace(
@@ -398,7 +399,7 @@ def render_coverage_specificity_scatter(
         f"Seq: {seq}<br>"
         f"FG Sites: {p.fg_sites}<br>"
         f"Specificity: {p.specificity:.0f}x" + (f"<br>{quality_line}" if quality_line else "")
-        for seq, p, quality_line in zip(sequences, primers, hover_quality)
+        for seq, p, quality_line in zip(sequences, primers, hover_quality, strict=True)
     ]
 
     fig = go.Figure()
@@ -429,7 +430,9 @@ def render_coverage_specificity_scatter(
     )
 
     # Calculate and add Pareto frontier
-    pareto_points = _calculate_pareto_frontier(list(zip(coverage_values, specificity_values)))
+    pareto_points = _calculate_pareto_frontier(
+        list(zip(coverage_values, specificity_values, strict=True))
+    )
     if len(pareto_points) > 1:
         pareto_x = [p[0] for p in pareto_points]
         pareto_y = [p[1] for p in pareto_points]

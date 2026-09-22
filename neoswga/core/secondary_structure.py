@@ -316,7 +316,13 @@ class StructurePrediction:
         term2 = thermo.reverse_complement(seq2[-terminal_len:])
 
         # Count complementary bases
-        matches = sum(1 for a, b in zip(term1, term2) if self.is_complementary(a, b))
+        # strict=False DELIBERATELY: both slices ask for `terminal_len`
+        # bases, and a primer shorter than that yields fewer. Comparing the
+        # overlap is the right answer for a terminal complementarity count --
+        # a 4-mer has no fifth base to disagree about -- and short oligos are
+        # exactly what this tool designs. The length-matched case one method
+        # down is guarded by an explicit equality check and is strict.
+        matches = sum(1 for a, b in zip(term1, term2, strict=False) if self.is_complementary(a, b))
 
         # Check consecutive matches at very end (most critical)
         consecutive_3prime = 0
@@ -436,7 +442,7 @@ class StructurePrediction:
             return False
 
         seq3_rc = thermo.reverse_complement(seq3)
-        matches = sum(1 for a, b in zip(seq5, seq3_rc) if a == b)
+        matches = sum(1 for a, b in zip(seq5, seq3_rc, strict=True) if a == b)
 
         return matches / len(seq5) >= 0.7
 

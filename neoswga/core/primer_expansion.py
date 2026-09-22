@@ -1044,7 +1044,13 @@ def expand_primers(
                 (fg_prefixes, params.get("fg_genomes") or []),
                 (bg_prefixes, params.get("bg_genomes") or []),
             )
-            for prefix, genome in zip(list(prefixes), list(genomes))
+            # strict=False DELIBERATELY, the same decision as
+            # `DesignRequest.reference_manifest` and `pipeline.py`: a prefix
+            # with no genome is ABSENT from the manifest rather than paired
+            # with a guess, so the identity check does not run for it. Pairing
+            # it with whatever was left in a mutable global is what made a
+            # design refuse its own index under `pytest -n 8`.
+            for prefix, genome in zip(list(prefixes), list(genomes), strict=False)
             if genome
         },
     )

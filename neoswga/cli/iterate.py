@@ -418,7 +418,7 @@ def run_swap_primer(args):
             )
             forbidden_primers = {
                 p
-                for p, f in zip(candidates, bl_freqs)
+                for p, f in zip(candidates, bl_freqs, strict=True)
                 if f > (getattr(parameter, "max_bl_freq", 0.0) or 0.0)
             }
             if forbidden_primers:

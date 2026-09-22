@@ -1145,7 +1145,7 @@ class BaseOptimizer(ABC):
         mode = getattr(self, "background_aggregate", "worst-case")
         loads = [
             expected_site_load(primers, prof, length, conditions, max_mismatches)
-            for prof, length in zip(profiles, lengths)
+            for prof, length in zip(profiles, lengths, strict=True)
         ]
         return fg_load, aggregate_loads(loads, mode), "modelled"
 
@@ -1224,7 +1224,7 @@ class BaseOptimizer(ABC):
                 sum(
                     self._compute_effective_coverage(fg_positions_by_primer[prefix], length)
                     * length
-                    for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=False)
+                    for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True)
                     if length > 0
                 )
                 / self.fg_total_length
@@ -1465,6 +1465,9 @@ class BaseOptimizer(ABC):
         if not positions:
             return [float(total_length)]
         positions = sorted(set(positions))
+        # strict=False DELIBERATELY: pairing each site with its successor
+        # makes `positions[1:]` one shorter by construction, so strict=True
+        # would raise on every call. Unlike the prefix/length pairings above.
         gaps = [right - left for left, right in zip(positions, positions[1:], strict=False)]
         if self.config.fg_circular:
             gaps.append(total_length - positions[-1] + positions[0])

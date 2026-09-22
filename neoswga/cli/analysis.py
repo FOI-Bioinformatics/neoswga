@@ -414,7 +414,7 @@ def run_analyze_stability(args):
 
         # Write report
         with open(args.output, "w") as f:
-            for primer, stability in zip(args.primers, results):
+            for primer, stability in zip(args.primers, results, strict=True):
                 f.write(f"{primer}\t{stability}\n")
 
         logger.info(f"Stability analysis complete! Report saved to: {args.output}")

@@ -44,11 +44,18 @@ jobs:
         # The case for this step is not hypothetical: the `zip()`-without-
         # `strict` family surfaced a real one on 2026-09-22, where coverage
         # analysis silently dropped a target when two params.json lists
-        # disagreed. B905 is NOT yet in this set -- 64 sites need a judgement
-        # each -- which is the next increment.
+        # disagreed.
+        #
+        # B905 joined the set once all 64 sites carried a judgement. It is the
+        # one rule here that needed a decision per site rather than a fix: 61
+        # pair sequences that are equal by construction, where `strict=True`
+        # asserts the invariant, and 4 truncate on purpose and had to write
+        # down why. `tests/test_every_zip_states_its_pairing.py` holds the
+        # second half, which ruff cannot check -- that a `strict=False` states
+        # its reason rather than being the quiet way to silence this rule.
         run: >
           ruff check neoswga
-          --select E711,E712,E713,E714,F632,F702,B006,B008,B017,S102,S307
+          --select E711,E712,E713,E714,F632,F702,B006,B008,B017,S102,S307,B905
 
       - name: Lint with ruff (non-blocking informational baseline)
         continue-on-error: true
