@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional
+from typing import Dict, Mapping, Optional, Tuple
 
 from .exceptions import ReferenceDataError, UnsupportedModelError
 
@@ -72,6 +72,15 @@ class EvidenceRecord:
     uncertainty: str
     notes: str
 
+    #: The temperature span the coefficient is recorded for, in Celsius, or
+    #: None. Optional because exactly one of the 23 records states a range:
+    #: ten give a single reference point and twelve give no number. A record
+    #: without one is NOT refused -- absence of a domain is not a domain of
+    #: zero, and refusing on it would turn a gap in the evidence into a gap in
+    #: the tool.
+    temperature_range_c: Optional[Tuple[float, float]] = None
+    temperature_range_note: str = ""
+
     @property
     def is_supported(self) -> bool:
         """Whether a computation may rest on this at all.
@@ -81,6 +90,20 @@ class EvidenceRecord:
         estimate would refuse most of the chemistry in this field.
         """
         return self.status != "absent"
+
+
+def _span(value) -> Optional[Tuple[float, float]]:
+    """A recorded [low, high] temperature span, or None.
+
+    Anything malformed is None rather than an error: a registry that refused
+    to load over a bad optional field would take the whole package down for a
+    quantity nothing may be consulting.
+    """
+    try:
+        low, high = value  # type: ignore[misc]
+        return (float(low), float(high))
+    except (TypeError, ValueError):
+        return None
 
 
 def load_evidence() -> Dict[str, EvidenceRecord]:
@@ -129,6 +152,8 @@ def load_evidence() -> Dict[str, EvidenceRecord]:
                 temperature_domain=str(entry.get("temperature_domain", "")),
                 uncertainty=str(entry.get("uncertainty", "")),
                 notes=str(entry.get("notes", "")),
+                temperature_range_c=_span(entry.get("temperature_range_c")),
+                temperature_range_note=str(entry.get("temperature_range_note", "")),
             )
         except KeyError as exc:
             raise ReferenceDataError(
@@ -188,6 +213,7 @@ def require_model_support(request) -> None:
     _require_polymerase_support(request)
     _require_length_support(request)
     _require_additive_support(request, evidence)
+    _require_additive_temperature_support(request, evidence)
 
 
 def _require_polymerase_support(request) -> None:
@@ -259,3 +285,44 @@ def _require_additive_support(request, evidence: Mapping[str, EvidenceRecord]) -
                 value,
                 "no additive with a recorded duplex model",
             )
+
+
+def _require_additive_temperature_support(request, evidence: Mapping[str, EvidenceRecord]) -> None:
+    """An additive used outside the temperature its coefficient covers.
+
+    A Bst design at 63 C with DMSO returned an effective Tm of 58.72 C,
+    computed from a coefficient this registry records as a 37 C reference
+    extrapolated to 30-45 C. Forty-five degrees above the reference, eighteen
+    above the top of the range, and nothing said so.
+
+    Only records carrying `temperature_range_c` are checked, and exactly one
+    does. Of the 23 records, one states a range, ten state a single reference
+    point and twelve state no number, so there is nothing else here to check
+    without re-reading the primary literature -- which the registry says
+    plainly was not done when it was compiled.
+
+    A record with no range therefore passes. Absence of a domain is not a
+    domain of zero, and refusing on it would turn a gap in the evidence into a
+    gap in the tool.
+    """
+    temp = getattr(request.conditions, "temp", None)
+    if temp is None:
+        return
+
+    for field, quantity in _ADDITIVE_EVIDENCE.items():
+        value = getattr(request.conditions, field, 0.0) or 0.0
+        if not value:
+            continue
+        record = evidence.get(quantity)
+        span = getattr(record, "temperature_range_c", None) if record else None
+        if not span:
+            continue
+        low, high = float(span[0]), float(span[1])
+        if low <= float(temp) <= high:
+            continue
+        raise UnsupportedModelError(
+            f"melting-temperature effect of {field} at {temp} C",
+            value,
+            f"the recorded coefficient covers {low:g}-{high:g} C; "
+            f"run at a temperature inside it, or remove the additive",
+        )
