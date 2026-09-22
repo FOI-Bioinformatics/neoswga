@@ -59,12 +59,28 @@ def cache(tmp_path, genome_sequence):
 
 @pytest.fixture
 def evaluator(genome_sequence, cache):
+    return _evaluator(genome_sequence, cache, seed=7)
+
+
+def _evaluator(genome_sequence, cache, seed, n_replicates=2):
+    """Seeded, because unseeded this evaluator is close to a coin toss.
+
+    A set binding nine planted sites simulates to ZERO coverage in 48.5% of
+    single replicates (200 trials; the non-zero outcomes average 0.67). At two
+    replicates that put `test_comparing_sets_can_distinguish_them` red on about
+    one run in four, on main, in isolation -- measured at 3 of 12.
+
+    `SimulationConfig.seed` was always honoured by `Phi29Simulator.run`, and
+    `SimulationBasedEvaluator` was the only site constructing that config and
+    never passed one, so no caller could reach it.
+    """
     return SimulationBasedEvaluator(
         genome_sequence=genome_sequence,
         genome_length=len(genome_sequence),
         position_cache=cache,
-        n_replicates=2,
+        n_replicates=n_replicates,
         simulation_duration=3600.0,
+        seed=seed,
     )
 
 
@@ -186,12 +202,87 @@ def test_a_set_that_binds_nowhere_scores_zero_and_says_so(evaluator, caplog):
     assert "No primer positions" in caplog.text or "No binding sites" in caplog.text
 
 
-def test_comparing_sets_can_distinguish_them(evaluator):
-    """The stated use case. With everything scoring zero it could not."""
-    results = evaluator.compare_sets(
-        [("binds", PRIMERS), ("does-not-bind", ["CGCGCGCGCG"])], verbose=False
+def test_comparing_sets_can_distinguish_them(genome_sequence, cache):
+    """The stated use case. With everything scoring zero it could not.
+
+    Across ten seeds rather than on one. A single seed here would pin a
+    coincidence: the binding set's own simulation returns zero coverage often
+    enough that some seed will rank the two sets level, and asserting on the
+    seed that happened to pass would hide exactly the property being claimed.
+    The claim is that the comparison distinguishes them USUALLY, and the
+    shortfall is a fact about the simulation, not about the primers.
+    """
+    wins, level = 0, []
+    for seed in range(10):
+        results = _evaluator(genome_sequence, cache, seed=seed).compare_sets(
+            [("binds", PRIMERS), ("does-not-bind", ["CGCGCGCGCG"])], verbose=False
+        )
+        scores = dict(results)
+        if scores["binds"].fitness_score > scores["does-not-bind"].fitness_score:
+            wins += 1
+            assert results[0][0] == "binds", "the binding set outscored and did not rank first"
+        else:
+            level.append((seed, float(scores["binds"].fitness_score)))
+
+    assert wins >= 7, f"binding set won only {wins}/10; level on {level}"
+    assert all(score == 0.0 for _, score in level), (
+        "a binding set scored between zero and the non-binding set: that is "
+        f"neither of the two outcomes this simulation produces -- {level}"
     )
 
-    ranked = [name for name, _ in results]
-    assert ranked[0] == "binds", "the binding set did not rank first"
-    assert results[0][1].fitness_score > results[1][1].fitness_score
+
+# ----------------------------------------------------------------------
+# The seed that existed and could not be reached
+# ----------------------------------------------------------------------
+
+
+def test_the_same_seed_gives_the_same_answer(genome_sequence, cache):
+    """Without this the evaluator cannot support the comparison it is for."""
+    first = _evaluator(genome_sequence, cache, seed=7).evaluate(PRIMERS, verbose=False)
+    second = _evaluator(genome_sequence, cache, seed=7).evaluate(PRIMERS, verbose=False)
+
+    assert first.fitness_score == second.fitness_score
+    assert first.mean_coverage == second.mean_coverage
+
+
+def test_different_seeds_are_allowed_to_differ(genome_sequence, cache):
+    """Guard the guard: an evaluator ignoring its seed would pass the test
+    above by returning one constant, which is the failure it replaced."""
+    scores = {
+        seed: float(
+            _evaluator(genome_sequence, cache, seed=seed)
+            .evaluate(PRIMERS, verbose=False)
+            .fitness_score
+        )
+        for seed in range(6)
+    }
+
+    assert len(set(scores.values())) > 1, scores
+
+
+def test_the_replicates_are_not_copies_of_each_other(genome_sequence, cache):
+    """One seed shared by every replicate would collapse their spread, and
+    that spread is the whole of what `std_coverage` reports."""
+    spreads = [
+        float(
+            _evaluator(genome_sequence, cache, seed=seed, n_replicates=4)
+            .evaluate(PRIMERS, verbose=False)
+            .std_coverage
+        )
+        for seed in range(6)
+    ]
+
+    assert any(spread > 0.0 for spread in spreads), spreads
+
+
+def test_an_unseeded_evaluator_is_still_the_default(genome_sequence, cache):
+    """Adding the parameter must not change what existing callers get. Four
+    production sites construct this evaluator and none passes a seed."""
+    evaluator = SimulationBasedEvaluator(
+        genome_sequence=genome_sequence,
+        genome_length=len(genome_sequence),
+        position_cache=cache,
+        n_replicates=1,
+    )
+
+    assert evaluator.seed is None
