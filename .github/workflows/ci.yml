@@ -22,7 +22,7 @@ jobs:
         # between releases, so an unpinned range makes `--check` nondeterministic
         # (a newer black on the runner can demand reformatting the repo cannot
         # reproduce locally). Bump deliberately, reformatting in the same commit.
-        run: pip install "black==26.5.1" "isort==8.0.1" "ruff>=0.5.0" "mypy>=1.0"
+        run: pip install "black==26.5.1" "isort==8.0.1" "ruff>=0.5.0" "mypy==1.19.1"
 
       - name: Check formatting with black
         run: black --check neoswga/
@@ -61,7 +61,43 @@ jobs:
         continue-on-error: true
         run: ruff check neoswga tests
 
-      - name: Static type check with mypy (non-blocking informational baseline)
+      - name: Type-error ratchet (BLOCKING)
+        # The gate. A file may improve freely, may not get worse, and a file
+        # not in `tests/type_error_baseline.json` -- a new module, or a renamed
+        # one -- must be clean.
+        #
+        # It runs HERE and nowhere else because the counts depend on which
+        # optional dependencies are importable: mypy sees more when it can
+        # resolve an import. Measured 2026-09-22, the same commit and the same
+        # mypy version gave 200 errors in 53 files on a developer machine and
+        # 164 in 46 in this job, which installs the linters and nothing else.
+        # Running it in the six-cell test matrix compared one environment's
+        # measurement against another's baseline and failed for a reason that
+        # was not a defect.
+        #
+        # That is also why mypy is pinned exactly above, as black and isort
+        # already are: an upgrade moves the counts with nothing in this
+        # repository changing. Adding pytest to an otherwise mypy-only venv
+        # moved the totals by itself, so this step must install nothing.
+        #
+        # It is a script rather than a test because `tests/conftest.py` imports
+        # numpy, which this job does not have. `tests/test_the_type_errors_can
+        # _only_shrink.py` tests the rule it applies, against synthetic counts.
+        run: python scripts/check_type_ratchet.py
+
+      - name: Static type check with mypy (informational; the ratchet above is the gate)
+        # Printed for a human to read. The check that can FAIL a build is
+        # `tests/test_the_type_errors_can_only_shrink.py`, which compares this
+        # same invocation against a recorded per-file baseline.
+        #
+        # Repository-wide blocking is not affordable: 200 errors across 53
+        # files, most in modules nobody is editing. Turning it on would mean a
+        # large mechanical diff or a permanently red check, and a permanently
+        # red check teaches people to merge past a failing gate -- which is
+        # what the doubly-suppressed dependency audit was teaching.
+        #
+        # The ratchet gives the half that matters instead: a file may improve
+        # freely, may not get worse, and a NEW module must be clean.
         continue-on-error: true
         run: mypy neoswga --ignore-missing-imports --no-strict-optional
 
