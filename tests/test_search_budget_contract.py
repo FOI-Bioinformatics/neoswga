@@ -21,6 +21,9 @@ no total bound at all. This file pins both halves so the distinction stays
 visible.
 """
 
+import ast
+import pathlib
+
 import pytest
 
 from neoswga.core.search_control import (
@@ -312,16 +315,65 @@ UNCOUNTED_SEARCH_LOOPS = {
 }
 
 
+#: Calls that measure a whole candidate panel. A loop over any of these is
+#: search work by another route, whatever the caller names the variable.
+#:
+#: `optimize` is deliberately NOT here. The ensemble loop and
+#: `collect_alternative_sets` both call it in a loop, and both run the inner
+#: search against the SHARED ledger -- which is why `collect_alternative_sets`
+#: has a `SearchBudgetExhausted` clause to catch. Listing it would report two
+#: accounted loops as unaccounted, and an allowlist entry for work the ledger
+#: already sees teaches the wrong thing about what this file is for.
+PANEL_EVALUATING_CALLS = frozenset({"compute_metrics", "compute_pool_metrics", "evaluate_panel"})
+
+#: Every construct that runs its body more than once. A comprehension is a loop
+#: and was missing: only `ast.For` and `ast.While` were walked, so
+#: `[compute_metrics(p) for p in panels]` -- the natural way to write a scan --
+#: was invisible to this check. Nothing in the package does that today, which
+#: is the point: the gap was in the detector, not in the code it guards.
+LOOP_NODES = (ast.For, ast.While, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _called_name(call):
+    """The name a call site uses, whether attribute or bare.
+
+    `getattr(call.func, "attr", None)` alone saw `self.compute_metrics(...)`
+    and missed `compute_metrics(...)`, which is the same work reached through
+    an import rather than through an object.
+    """
+    return getattr(call.func, "attr", None) or getattr(call.func, "id", None)
+
+
+def panel_evaluations_inside_loops(tree, label):
+    """Every panel evaluation in `tree` that a loop encloses, by function."""
+    found = {}
+    for function in ast.walk(tree):
+        if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        enclosed = {
+            node.lineno
+            for loop in ast.walk(function)
+            if isinstance(loop, LOOP_NODES)
+            for node in ast.walk(loop)
+            if hasattr(node, "lineno")
+        }
+        for call in ast.walk(function):
+            if not isinstance(call, ast.Call):
+                continue
+            if _called_name(call) not in PANEL_EVALUATING_CALLS:
+                continue
+            if call.lineno in enclosed:
+                found[f"{label}::{function.name}"] = call.lineno
+    return found
+
+
 def _compute_metrics_calls_inside_loops():
-    """Every `compute_metrics` call that a `for` or `while` encloses.
+    """Every panel evaluation the package makes inside a loop.
 
     A call made once per stage, after the panel is decided, is final
     assessment and deliberately uncharged. One made inside a loop is search
     work, and search work the ledger cannot see is the thing this checks for.
     """
-    import ast
-    import pathlib
-
     package = pathlib.Path(__file__).resolve().parent.parent / "neoswga"
     found = {}
     for path in sorted(package.rglob("*.py")):
@@ -329,24 +381,7 @@ def _compute_metrics_calls_inside_loops():
             tree = ast.parse(path.read_text())
         except SyntaxError:  # pragma: no cover - would fail elsewhere
             continue
-        for function in ast.walk(tree):
-            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            enclosed = {
-                node.lineno
-                for loop in ast.walk(function)
-                if isinstance(loop, (ast.For, ast.While))
-                for node in ast.walk(loop)
-                if hasattr(node, "lineno")
-            }
-            for call in ast.walk(function):
-                if not isinstance(call, ast.Call):
-                    continue
-                if getattr(call.func, "attr", None) != "compute_metrics":
-                    continue
-                if call.lineno in enclosed:
-                    key = f"{path.relative_to(package).as_posix()}::{function.name}"
-                    found[key] = call.lineno
+        found.update(panel_evaluations_inside_loops(tree, path.relative_to(package).as_posix()))
     return found
 
 
@@ -382,3 +417,67 @@ def test_the_ledger_says_what_it_does_not_bound():
 
     assert "proposal_generation" in described["uncounted_scopes"]
     assert "final_assessment" in described["uncounted_scopes"]
+
+
+# ---------------------------------------------------------------------------
+# The detector itself, against source it is handed
+# ---------------------------------------------------------------------------
+#
+# Driving the detector on synthetic source rather than mutating the package.
+# A ratchet that has never been shown to fire is a ratchet nobody can trust,
+# and the two gaps closed here were both in the detector rather than in the
+# code it guards -- so measuring the package would have shown nothing either
+# way, before or after.
+
+
+def _detect(source):
+    return sorted(panel_evaluations_inside_loops(ast.parse(source), "probe"))
+
+
+def test_a_comprehension_counts_as_a_loop():
+    """The gap. `ast.For` and `ast.While` were the only constructs walked, so
+    the natural way to write a scan was invisible."""
+    assert _detect(
+        "def scan(panels):\n" "    return [self.compute_metrics(p) for p in panels]\n"
+    ) == ["probe::scan"]
+
+
+def test_a_generator_expression_counts_too():
+    assert _detect(
+        "def scan(panels):\n" "    return max(self.compute_metrics(p) for p in panels)\n"
+    ) == ["probe::scan"]
+
+
+def test_a_bare_call_counts_as_well_as_an_attribute():
+    """Reached through an import rather than through an object; same work."""
+    assert _detect(
+        "def scan(panels):\n" "    for p in panels:\n" "        compute_metrics(p)\n"
+    ) == ["probe::scan"]
+
+
+def test_the_other_panel_evaluators_count():
+    for name in sorted(PANEL_EVALUATING_CALLS):
+        assert _detect(f"def scan(ps):\n    return [{name}(p) for p in ps]\n") == [
+            "probe::scan"
+        ], f"{name} is listed as a panel evaluation but is not detected"
+
+
+def test_a_single_call_outside_a_loop_is_not_flagged():
+    """Guard the guard. Final assessment runs once per stage and is
+    deliberately uncharged; a detector flagging it would be unusable."""
+    assert _detect("def assess(panel):\n    return self.compute_metrics(panel)\n") == []
+
+
+def test_an_unrelated_call_in_a_loop_is_not_flagged():
+    assert _detect("def scan(ps):\n    return [len(p) for p in ps]\n") == []
+
+
+def test_optimize_in_a_loop_is_not_flagged():
+    """Deliberate, and the reason is in `PANEL_EVALUATING_CALLS`.
+
+    The ensemble loop and `collect_alternative_sets` both call `optimize` in a
+    loop, and both charge the inner search to the shared ledger -- which is why
+    the latter has a `SearchBudgetExhausted` clause to catch. Flagging them
+    would put two accounted loops on an allowlist for work the ledger sees.
+    """
+    assert _detect("def run(os_):\n    return [o.optimize(c, n) for o in os_]\n") == []

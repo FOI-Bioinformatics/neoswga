@@ -41,6 +41,7 @@ def save_results(
     application: Optional[str] = None,
     primer_sets=None,
     regime=None,
+    candidate_reach=None,
 ) -> None:
     """
     Save optimization results to CSV.
@@ -56,6 +57,10 @@ def save_results(
             and which ones had no reference. `None` when it could not be
             assessed, and then nothing is written rather than a fabricated
             limit.
+        candidate_reach: What the search could have examined against what it
+            did, from `candidate_source.describe_reach`. `None` when the pool
+            was a plain list and the question has no answer, which is absence
+            rather than a reach of zero.
     """
     if not result.primers:
         logger.warning("No primers to save")
@@ -135,6 +140,18 @@ def save_results(
                 summary["panel_regime"] = criteria_for_summary(regime)
             except Exception as exc:
                 logger.debug(f"Could not record the panel regime: {exc}")
+
+        # How much of the available pool this run could reach. A search that
+        # qualifies on its opening frontier stops there, so a design over a
+        # 2,000-candidate shortlist may never look at the other 363,073 the
+        # inventory holds. Both numbers were known when the pool was opened and
+        # neither reached any artifact, so a reader could not tell a search
+        # over everything from a search over half a per cent of it.
+        #
+        # Written only when it is known. A plain candidate list gives no
+        # answer, and a zero would read as "reached nothing".
+        if candidate_reach:
+            summary["candidate_reach"] = dict(candidate_reach)
 
         # The worst pair in the pool being delivered, recorded unconditionally
         # so a reader can see it without re-deriving it. Whether it is a problem
