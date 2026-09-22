@@ -35,6 +35,7 @@ from .design_result import panel_validation_is_ok
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .ensemble_comparison import _ensemble_error_row, _select_ensemble_winner
 from .exceptions import DesignError, ModelEvaluationError, ReferenceDataError
+from .optimization_reporting import log_optimization_outcome
 from .optimizer_factory import OptimizerFactory, OptimizerRegistry
 from .panel_acceptance import (
     apply_configured_limits,
@@ -835,6 +836,7 @@ def run_optimization(
     bg_seq_lengths: Optional[List[int]] = None,
     target_size: int = 6,
     verbose: bool = True,
+    design_request=None,
     **kwargs,
 ) -> OptimizationResult:
     """
@@ -853,6 +855,11 @@ def run_optimization(
         bg_seq_lengths: Background genome lengths (optional)
         target_size: Desired primer set size
         verbose: Print progress information
+        design_request: The resolved `DesignRequest`, or None when a caller
+            drives the optimizer programmatically without one. It carries
+            `request_hash` and is what `panel_evaluation.evaluate_panel` takes.
+            `tests/test_the_request_reaches_the_optimizer.py` says why it was
+            resolved before the search and did not arrive here.
         **kwargs: Additional optimizer-specific parameters
 
     Returns:
@@ -1261,34 +1268,7 @@ def run_optimization(
         _write_validation_report(validation)
 
     if verbose:
-        if result.is_success:
-            logger.info(f"Selected {result.num_primers} primers")
-            logger.info(f"Coverage: {result.metrics.fg_coverage:.1%} (measured)")
-            logger.info(f"Score: {result.score:.4f}")
-        elif result.status == OptimizationStatus.PARTIAL:
-            if result.num_primers < target_size:
-                logger.warning(
-                    f"PARTIAL result: found {result.num_primers} primers "
-                    f"but target was {target_size}"
-                )
-            else:
-                logger.warning(
-                    f"PARTIAL result: found {result.num_primers} primers "
-                    f"but genome coverage is below threshold"
-                )
-            logger.warning("Suggestions to improve results:")
-            logger.warning("  - Relax filtering thresholds (increase max_bg_freq or max_gini)")
-            logger.warning("  - Widen the k-mer range (decrease min_k or increase max_k)")
-            logger.warning("  - Increase the candidate pool (raise max_primer in filter step)")
-            logger.warning(f"  - Try a different optimizer (current: {method})")
-        else:
-            logger.warning(f"Optimization failed: {result.message}")
-
-        if validation is not None and validation.get("issues"):
-            for issue in validation["issues"]:
-                lvl = issue.get("level", "warning")
-                msg = f"Post-opt {lvl}: {issue.get('code')} — {issue.get('detail')}"
-                (logger.error if lvl == "error" else logger.warning)(msg)
+        log_optimization_outcome(result, target_size, method, validation)
 
     return result
 
@@ -1439,6 +1419,7 @@ def optimize_step4(
     uniformity_weight: Optional[float] = None,
     minimize_primers: bool = False,
     target_coverage: float = 0.70,
+    design_request=None,
     **kwargs,
 ) -> Tuple[List[List[str]], List[float], Any]:
     """
@@ -1495,6 +1476,7 @@ def optimize_step4(
         # to be forwarded explicitly. Being absent here is why the flag stayed
         # inert even once `run_optimization` knew what to do with it.
         use_cache=use_cache,
+        design_request=design_request,
         **kwargs,
     )
 

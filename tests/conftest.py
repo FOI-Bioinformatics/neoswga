@@ -9,6 +9,9 @@ import json
 import logging
 import os
 import pathlib
+import shutil
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -215,6 +218,37 @@ def _prime_plasmid_example():
         )
     finally:
         _release_priming_lock()
+
+
+@pytest.fixture
+def plasmid_run(tmp_path):
+    """A completed `optimize` over a private copy of the plasmid example.
+
+    Steps 1 to 3 are already done: `_prime_plasmid_example` builds them once per
+    session in the shared example directory. This copies that primed directory
+    and runs step 4 in the copy, so the artifacts a test inspects belong to it
+    alone and nothing is written back into `examples/`.
+
+    A subprocess rather than an in-process call. The steps assign module globals
+    in `neoswga.core.pipeline` and `neoswga.core.parameter`, and `_run_priming`
+    above exists largely to reset them; a fixture that left them set would
+    change what a later test in the same worker resolves.
+
+    `params.json` names its genomes and `data_dir` relatively, so the command
+    runs with `cwd` set to the copy and needs no path rewriting.
+    """
+    workdir = tmp_path / "plasmid"
+    shutil.copytree(_EXAMPLE_DIR, workdir)
+
+    completed = subprocess.run(
+        [sys.executable, "-m", "neoswga.cli_unified", "optimize", "-j", "params.json"],
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        pytest.fail(f"optimize failed in the copied example:\n{completed.stderr[-2000:]}")
+    return workdir
 
 
 # ---------------------------------------------------------------------------
