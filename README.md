@@ -5,6 +5,7 @@ NeoSWGA is a command-line tool for designing primer sets for selective whole-gen
 **Primary use case**: Designing primers for Phi29/EquiPhi29 polymerase-based whole genome amplification, commonly used for pathogen detection from mixed samples.
 
 > **Before trusting a number from a design, read [what NeoSWGA does not establish](docs/LIMITATIONS.md).**
+> Per capability, [what the evidence actually is](docs/EVIDENCE.md) says whether it is implemented, connected, oracle-tested or retrospectively evaluated. Nothing here is prospectively validated.
 > Coverage is a modelled geometric proxy, not predicted sequencing
 > breadth, and no design from this tool has been tested in a
 > laboratory as part of its development.
