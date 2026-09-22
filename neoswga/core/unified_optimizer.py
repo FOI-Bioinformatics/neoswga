@@ -30,7 +30,7 @@ import pandas as pd
 
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
-from .candidate_source import order_candidates_by_background
+from .candidate_source import describe_reach, order_candidates_by_background
 from .design_result import panel_validation_is_ok
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .ensemble_comparison import _ensemble_error_row, _select_ensemble_winner
@@ -64,6 +64,13 @@ _LAST_RESULT: Optional["OptimizationResult"] = None
 # Alternative primer sets from the most recent run, best first. Populated
 # when `max_sets` asks for more than one; always at least the primary set.
 _LAST_PRIMER_SETS: List[Tuple[str, ...]] = []
+
+#: How much of the available candidate pool the last run could reach.
+#: Stashed rather than returned because `optimize_step4` writes the summary
+#: and `run_optimization` is where the frontier is in scope -- the same
+#: reason `_LAST_PRIMER_SETS` exists. None when the caller passed a plain
+#: list, which is absence rather than a reach of zero.
+_LAST_CANDIDATE_REACH: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -798,6 +805,27 @@ def _pool_for_this_run(fg_prefixes, conditions):
     return CandidateFrontier(source)
 
 
+def _report_candidate_reach(candidates, verbose: bool) -> Optional[Dict[str, Any]]:
+    """What the search could have examined, against what it did.
+
+    A run that qualifies on its opening frontier never widens, so this is
+    routinely a small fraction of the inventory and nothing said so. Both
+    numbers were known when the pool was opened.
+
+    Returns None for a plain candidate list, where the question has no answer.
+    """
+    reach = describe_reach(candidates)
+    if verbose and reach and not reach["complete"]:
+        logger.info(
+            f"Searched {reach['examined']:,} of {reach['universe']:,} available "
+            f"candidates ({reach['fraction']:.1%}). The search stops at the "
+            f"first qualifying frontier; looking further was measured to cost "
+            f"specificity -- see docs/validation/"
+            f"looking_further_costs_specificity_2026-09-22.md"
+        )
+    return reach
+
+
 def run_optimization(
     method: str = "hybrid",
     candidates: Optional[List[str]] = None,
@@ -1070,8 +1098,10 @@ def run_optimization(
     # Alternative sets, when `max_sets` asks for more than one. Done here, on
     # the finished primary result, so an alternative is a genuinely different
     # set of oligos rather than a reordering.
-    global _LAST_PRIMER_SETS
+    global _LAST_PRIMER_SETS, _LAST_CANDIDATE_REACH
     _LAST_PRIMER_SETS = [tuple(result.primers)] if result.primers else []
+
+    _LAST_CANDIDATE_REACH = _report_candidate_reach(candidates, verbose)
     _max_sets = int(kwargs.get("max_sets") or getattr(parameter, "max_sets", 1) or 1)
     if _max_sets > 1 and result.primers and optimizer is not None:
         _LAST_PRIMER_SETS = collect_alternative_sets(
@@ -1532,6 +1562,7 @@ def optimize_step4(
             application=kwargs.get("application"),
             primer_sets=_LAST_PRIMER_SETS or None,
             regime=regime,
+            candidate_reach=_LAST_CANDIDATE_REACH,
         )
 
         # Return cache placeholder (for compatibility)

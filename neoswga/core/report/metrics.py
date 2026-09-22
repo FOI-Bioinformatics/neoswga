@@ -366,6 +366,12 @@ class PipelineMetrics:
     # run; pareto_metrics: set-level Pareto solutions from MOEA / frontier.
     ensemble_comparison: List[Dict] = field(default_factory=list)
     pareto_metrics: List[Dict] = field(default_factory=list)
+    # How much of the available candidate pool the search could reach, from
+    # `candidate_source.describe_reach`. None when the summary does not carry
+    # it, which covers both a run over a plain candidate list and every
+    # directory written before the field existed -- neither of which is a
+    # reach of zero, so the renderer must skip rather than show 0%.
+    candidate_reach: Optional[Dict[str, Any]] = None
     # Coverage gaps from the analyze-coverage command (coverage_gaps.json /
     # merged_gaps.bed), when present in the results dir. None = not run.
     coverage_gaps: Optional[Dict] = None
@@ -1053,6 +1059,8 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
             metrics.ensemble_comparison = optimizer_summary["ensemble_comparison"]
         if isinstance(optimizer_summary.get("pareto_metrics"), list):
             metrics.pareto_metrics = optimizer_summary["pareto_metrics"]
+        if isinstance(optimizer_summary.get("candidate_reach"), dict):
+            metrics.candidate_reach = optimizer_summary["candidate_reach"]
 
     # Coverage gaps from the analyze-coverage command, if present.
     metrics.coverage_gaps = _load_coverage_gaps(results_path)

@@ -123,6 +123,10 @@ class TechnicalReportData:
 
     # Filtering funnel
     filtering_stages: List[tuple] = field(default_factory=list)
+    # What the search could have examined against what it did. None when the
+    # run did not record it, and then nothing is rendered: a missing figure
+    # must not read as "reached none of it".
+    candidate_reach: Optional[Dict] = None
 
     # Coverage analysis
     coverage_by_region: Dict[str, float] = field(default_factory=dict)
@@ -342,6 +346,11 @@ def collect_technical_report_data(results_dir: str) -> TechnicalReportData:
     else:
         data.filtering_stages = []
 
+    # The funnel ends at the shortlist. How much of that shortlist's own
+    # universe the search then looked at is a separate question, and until
+    # 2026-09-22 nothing answered it.
+    data.candidate_reach = getattr(metrics, "candidate_reach", None)
+
     # Create primer profiles
     amp_available = amp_pred_is_available(metrics.primers)
     data.primer_profiles = [
@@ -496,6 +505,38 @@ def _render_parameters(params: Dict) -> str:
         </div>
         """
     return html
+
+
+def _render_candidate_reach(reach: Optional[Dict]) -> str:
+    """How much of the available pool the search examined.
+
+    Rendered beneath the funnel because it answers the question the funnel
+    stops one step short of. The funnel ends at "shortlisted by max_primer";
+    this says how many of the candidates behind that shortlist the search
+    then looked at.
+
+    Nothing is rendered when the figure is absent. A run over a named
+    candidate list has no universe behind it, and a directory written before
+    this field existed has no record either -- and 0% would say the search
+    reached none of the pool, which is the favourable-default failure this
+    project keeps meeting from the other direction.
+    """
+    if not reach or not reach.get("universe"):
+        return ""
+
+    examined, universe = int(reach["examined"]), int(reach["universe"])
+    if reach.get("complete"):
+        return f"<p><em>The search examined all {universe:,} available candidates." f"</em></p>"
+
+    return (
+        f"<p><em>The search examined <strong>{examined:,} of {universe:,}</strong> "
+        f"available candidates ({examined / universe:.1%}). It stops at the first "
+        f"frontier that satisfies the configured limits; widening it further was "
+        f"measured to raise coverage slightly and cost more specificity, so this "
+        f"is a deliberate default rather than an incomplete run. See "
+        f"<code>docs/validation/looking_further_costs_specificity_2026-09-22.md"
+        f"</code>.</em></p>"
+    )
 
 
 def _render_funnel(stages: List[tuple]) -> str:
@@ -1156,7 +1197,8 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         ),
         coverage_gaps_html=_render_coverage_gaps(metrics.coverage_gaps),
         strand_balance_html=_render_strand_balance(metrics.uniformity),
-        funnel_html=_render_funnel(data.filtering_stages),
+        funnel_html=_render_funnel(data.filtering_stages)
+        + _render_candidate_reach(data.candidate_reach),
         # Coverage
         coverage_pct=coverage_pct,
         coverage_class=coverage_class,

@@ -34,7 +34,7 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from neoswga.core.candidate_inventory import STAGE2_INVENTORY_NAME
 from neoswga.core.exceptions import ReferenceDataError
@@ -63,6 +63,42 @@ class CandidateFrontier(list):
     def __init__(self, source):
         super().__init__(source.initial())
         self.source = source
+
+
+def describe_reach(candidates) -> Optional[Dict[str, Any]]:
+    """How much of the available pool a run could reach, or None if unknown.
+
+    A search that qualifies on its opening frontier stops there, so a design
+    over a 2,000-candidate shortlist may never look at the other 363,073 the
+    inventory holds. Both numbers are known at the moment the pool is opened
+    and neither reached any artifact, so a reader had no way to tell a search
+    over everything from a search over half a per cent of it.
+
+    `examined` is what the run actually looked at, `universe` is what it could
+    have. `complete` is the honest headline: it is true when they agree, which
+    is also the ordinary case for a `--candidates` list, where the user named
+    the pool and there is nothing behind it.
+
+    Returns None rather than a guess when the caller passed a plain list. That
+    is absence, not a reach of zero, and the two must not render alike.
+    """
+    source = getattr(candidates, "source", None)
+    if source is None:
+        return None
+    try:
+        described = source.describe()
+    except Exception:  # pragma: no cover - a description must not fail a run
+        return None
+
+    universe = int(described.get("universe") or 0)
+    examined = int(described.get("examined") or described.get("frontier") or 0)
+    return {
+        "kind": described.get("kind") or getattr(source, "kind", "unknown"),
+        "universe": universe,
+        "examined": examined,
+        "complete": bool(universe and examined >= universe),
+        "fraction": round(examined / universe, 6) if universe else None,
+    }
 
 
 class ListCandidateSource:
