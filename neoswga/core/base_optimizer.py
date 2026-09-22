@@ -668,11 +668,14 @@ class OptimizationResult:
                     }
                 )
 
-        has_error = any(i["level"] == "error" for i in issues)
+        # Callers append to `issues` after this returns and must recompute
+        # `ok` from the final list; `panel_validation_is_ok` says why.
+        from .design_result import panel_validation_is_ok
+
         return {
             "optimizer": self.optimizer_name,
             "num_primers": n,
-            "ok": not has_error,
+            "ok": panel_validation_is_ok(issues),
             "issues": issues,
         }
 

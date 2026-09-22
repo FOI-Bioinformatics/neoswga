@@ -195,3 +195,37 @@ def blocking_validator_findings(results_dir) -> list:
         for issue in payload.get("issues", []) or []
         if issue.get("code") in BLOCKING_VALIDATOR_CODES
     ]
+
+
+def panel_validation_is_ok(issues) -> bool:
+    """Whether a validator issue list leaves the pool fit to recommend.
+
+    Two ways `ok` came apart from the findings beside it, both of which made a
+    saved file say the pool was fine while `export` refused to order it.
+
+    **`ok` was computed before the issues were complete.**
+    `base_optimizer.validate` folded `level == "error"` into `ok` and returned,
+    and `unified_optimizer` then appended the saturation warnings and the
+    delivered-panel dimer finding to the SAME dict. A finding appended after
+    the fold could not move the flag whatever its level, so the dimer breach
+    was invisible to `ok` by construction rather than by policy.
+
+    **A blocking code could be emitted at warning level.** It was:
+    `dimer_validation_issue` recorded `level="warning"` while
+    `BLOCKING_VALIDATOR_CODES` held its code, so `export` and `interpret`
+    refused a pool the report rendered as having no errors.
+
+    Checking both conditions means the two cannot drift apart again: a code
+    that blocks makes `ok` false whatever level it carries, and a level that
+    says error makes `ok` false whatever its code. Callers must apply this to
+    the FINAL issue list, which is what `unified_optimizer` now does.
+
+    Saturation warnings still leave `ok` true, deliberately. They say a metric
+    cannot be trusted on a small target, which is inherent to designing against
+    a plasmid rather than something the user can repair.
+    """
+    return not any(
+        issue.get("level") == "error" or issue.get("code") in BLOCKING_VALIDATOR_CODES
+        for issue in issues or []
+        if isinstance(issue, dict)
+    )
