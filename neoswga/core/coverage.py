@@ -258,12 +258,52 @@ def _mark_window(
     is not one circle -- joining its last record to its first would be the same
     error in another direction. A single-record circular genome still wraps,
     since its one record spans the whole sequence.
-    """
-    start = pos - extension
-    end = pos + extension
 
-    if record_starts:
-        index = bisect.bisect_right(record_starts, pos) - 1
+    This is the symmetric caller of :func:`mark_span`, which holds the marking
+    itself. The two are pinned equal by
+    `tests/test_one_span_marking_primitive.py`.
+    """
+    mark_span(
+        occupied,
+        pos - extension,
+        pos + extension,
+        length,
+        circular,
+        record_starts=record_starts,
+        anchor=pos,
+    )
+
+
+def mark_span(
+    occupied: "np.ndarray",
+    start: int,
+    end: int,
+    length: int,
+    circular: bool,
+    record_starts: Optional[Sequence[int]] = None,
+    anchor: Optional[int] = None,
+) -> None:
+    """Mark the half-open span ``[start, end)`` as True.
+
+    Extracted from :func:`_mark_window` on 2026-09-23, which had a symmetric
+    window baked into its signature while its body was span arithmetic
+    throughout. The site position was used for exactly one thing -- deciding
+    which record the span belongs to -- and a directional span, reaching one
+    way from its site, had nowhere to go.
+
+    ``anchor`` is that site, and it is separate from the span on purpose. A
+    leftward span from a site near the start of a record has a ``start`` inside
+    the PREVIOUS record, so confining by the span's own start would place the
+    polymerase in the wrong contig. Passing no anchor means no record is
+    claimed and the span is not confined, which is absence rather than a record
+    of zero: a caller with no site to name, such as a gap interval, gets the
+    unconfined span rather than being silently placed in the first record.
+
+    Wrapping is suppressed when records are known, for the reason
+    :func:`_mark_window` gives.
+    """
+    if record_starts and anchor is not None:
+        index = bisect.bisect_right(record_starts, anchor) - 1
         lo = record_starts[index] if index >= 0 else 0
         hi = record_starts[index + 1] if index + 1 < len(record_starts) else length
         single_record = len(record_starts) == 1 and lo == 0 and hi == length
