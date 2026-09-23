@@ -118,30 +118,65 @@ def _selectivity_density_from_loads(
     return fg_density / bg_density
 
 
-def _union_coverage(positions, total_length: int, reach: int, circular: bool) -> float:
-    """Fraction of a sequence within `reach` of any binding site.
+def _union_coverage(
+    positions,
+    total_length: int,
+    reach: int,
+    circular: bool,
+    *,
+    reverse=(),
+    geometry: str = "symmetric",
+) -> float:
+    """Fraction of a sequence a panel's binding sites reach.
 
     Module-level and free of instance state because three call sites want it --
     the selection reach, each reporting reach, and the circular-wrap tests that
     duck-type an optimizer with only a `config`. Three implementations of one
     quantity is how this codebase has produced disagreeing coverage numbers
     before; one audit found three different semantics for "coverage" at once.
+    That is why the second geometry lives here rather than in a sibling.
+
+    `positions` are the sites the oligo occurs at and `reverse` the sites its
+    reverse complement occurs at. Under `symmetric`, the default and the
+    convention every recorded figure was produced under, the two are unioned
+    and deduplicated and each site is credited `[pos - reach, pos + reach)`;
+    a caller that already pooled them passes the pooled list and nothing else,
+    and gets the same answer it always got. Under `directional` each site
+    reaches one way only, which is what the polymerase does and half the width.
+
+    `docs/validation/2026-09-23-reach-refit-directional.md` refits the reach
+    under the second geometry -- 4.4-6.7 kb against 2.9-4.6 -- so the two are
+    not interchangeable at one value and neither is chosen here.
     """
     import numpy as np
 
-    from .coverage import _mark_window
+    from .coverage import mark_span, site_spans
 
-    if not positions or total_length == 0:
+    forward = list(positions or ())
+    backward = list(reverse or ())
+    if not forward and not backward:
+        return 0.0
+    if total_length == 0:
         return 0.0
 
-    # On a circular target a single site whose window spans the whole sequence
-    # covers everything, and the marking loop cannot represent that.
-    if circular and 2 * reach >= total_length:
+    # On a circular target a single site whose span covers the whole sequence
+    # covers everything, and the marking loop cannot represent that. The width
+    # is geometry-dependent: `2 * reach` symmetric, `reach` directional. Left
+    # at the symmetric test this would report 1.0 for a directional model
+    # covering half the sequence, and small circular targets -- every plasmid
+    # design -- are exactly where it fires.
+    width = 2 * reach if geometry == "symmetric" else reach
+    if circular and width >= total_length:
         return 1.0
 
     occupied = np.zeros(total_length, dtype=bool)
-    for pos in positions:
-        _mark_window(occupied, int(pos), reach, total_length, circular)
+    for low, high in site_spans(forward, backward, reach, geometry):
+        # No `record_starts` and so no anchor, deliberately and unchanged:
+        # `coverage.merged_window_intervals` records that neither this nor
+        # `_compute_effective_coverage` confines windows to record boundaries,
+        # and making that true here alone would leave two coverage paths
+        # disagreeing about a contig edge instead of one.
+        mark_span(occupied, low, high, total_length, circular)
     return float(occupied.sum()) / total_length
 
 
