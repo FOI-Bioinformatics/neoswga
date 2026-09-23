@@ -203,3 +203,63 @@ def test_configured_limits_still_come_from_the_objective():
 
     assert not assessment.qualified
     assert "selectivity density below minimum" in assessment.violations
+
+
+# ---------------------------------------------------------------------------
+# Delivered-panel composition
+# ---------------------------------------------------------------------------
+#
+# Both are properties of a delivered panel under a request, not admission rules
+# applied during `filter`, so they belong here on this record's own stated
+# terms. `result_validation.validate_result` checked both and this record
+# checked neither, so the two disagreed about the same panel -- and the
+# measurement in docs/validation/2026-09-23-assessment-vs-validator.md could not
+# see it, because the plasmid fixture produces neither.
+
+
+def test_a_duplicated_oligo_does_not_qualify():
+    """A panel of three holding one oligo twice is two oligos and a bug.
+
+    `validate_result` calls this `duplicate_primers` at error level, so it
+    already blocks. The assessment reported the panel as three oligos and said
+    nothing.
+    """
+    assessment = evaluate_panel(request_for(3), [CLEAN[0], CLEAN[0], CLEAN[1]], Metrics())
+
+    assert not assessment.qualified
+    assert any("duplicate" in v.lower() for v in assessment.violations), assessment.violations
+
+
+def test_the_duplicate_violation_names_the_oligo():
+    assessment = evaluate_panel(request_for(3), [CLEAN[0], CLEAN[0], CLEAN[1]], Metrics())
+
+    joined = " ".join(assessment.violations)
+    assert CLEAN[0] in joined, joined
+
+
+def test_an_excluded_oligo_does_not_qualify():
+    """The request names what must not be selected; the record must check it.
+
+    This is the blacklist re-injection guard, which catches a non-filtered
+    candidate pool reaching the optimizer through expand-primers or swap-primer
+    -- the case `validate_result`'s `forbidden_primers` argument exists for.
+    """
+    request = request_for(3, excluded_oligos=[CLEAN[1]])
+    assessment = evaluate_panel(request, CLEAN, Metrics())
+
+    assert not assessment.qualified
+    assert any(CLEAN[1] in v for v in assessment.violations), assessment.violations
+
+
+def test_an_excluded_oligo_absent_from_the_panel_is_not_a_violation():
+    """Guard the guard. Excluding something the panel does not hold is the
+    normal case and must not fault it."""
+    request = request_for(3, excluded_oligos=["TTTTTTTTTTTT"])
+
+    assert evaluate_panel(request, CLEAN, Metrics()).qualified
+
+
+def test_a_clean_panel_still_qualifies():
+    """A record that refuses everything is no better than one that refuses
+    nothing, and three checks were added here at once."""
+    assert evaluate_panel(request_for(3), CLEAN, Metrics()).qualified
