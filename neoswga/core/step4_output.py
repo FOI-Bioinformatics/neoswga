@@ -186,7 +186,16 @@ def _write_validation_report(validation):
     appeared. `.gitignore` had a root-anchored entry for it rather than a fix.
 
     An unset `data_dir` is not a location. Skipping the write says so; writing
-    "here" invents one.
+    "here" invents one. That case stays a quiet skip: there is no directory
+    afterwards for a later command to misread.
+
+    A write that FAILS is different and now raises. Every consumer treats an
+    absent record as a clean one -- deliberately, so that directories written
+    before the validator existed still work -- so a run that produced a panel
+    and could not record its verdict left a directory `export` reads as ready
+    to order. That is the end state `run_optimization` already converts a
+    validator EXCEPTION into `ModelEvaluationError` to prevent; swallowing the
+    write reached it by a second route.
     """
     import json as _json
 
@@ -194,8 +203,5 @@ def _write_validation_report(validation):
     if not data_dir:
         logger.debug("No data_dir configured; skipping the validation report")
         return
-    try:
-        with open(os.path.join(data_dir, "step4_improved_df_validation.json"), "w") as fh:
-            _json.dump(validation, fh, indent=2)
-    except OSError as e:
-        logger.debug(f"Could not write validation report ({e}); continuing")
+    with open(os.path.join(data_dir, "step4_improved_df_validation.json"), "w") as fh:
+        _json.dump(validation, fh, indent=2)
