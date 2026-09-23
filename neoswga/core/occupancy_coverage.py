@@ -35,6 +35,8 @@ def occupancy_weighted_coverage(
     extension_reach: int,
     circular: bool,
     conditions,
+    reverse_by_primer: Optional[Mapping[str, Sequence[int]]] = None,
+    geometry: str = "symmetric",
 ) -> Optional[float]:
     """Coverage weighted by how much of the time each site is occupied.
 
@@ -101,8 +103,15 @@ def occupancy_weighted_coverage(
     log_weight_at: Dict[int, float] = defaultdict(float)
     saturated_at: Dict[int, int] = defaultdict(int)
 
+    # `reverse_by_primer` is absent under the default geometry, where the
+    # caller's `positions_by_primer` is already the pooled union and the
+    # orientation would not be used. Under `directional` the two are needed
+    # apart, and a primer with sites in only one of them is ordinary.
+    reverse_sites = reverse_by_primer or {}
+
     for primer, positions in positions_by_primer.items():
-        if not positions:
+        backward = list(reverse_sites.get(primer, ()))
+        if not positions and not backward:
             continue
         tm = conditions.calculate_effective_tm(primer)
         dh, _ = calculate_enthalpy_entropy(primer)
@@ -115,7 +124,14 @@ def occupancy_weighted_coverage(
         # overlapping window of the SAME primer, which understates coverage
         # where a primer binds densely -- the windows overlap, the primer
         # does not stack with itself.
-        spans = merged_window_intervals(positions, extension_reach, total_length, circular)
+        spans = merged_window_intervals(
+            positions,
+            extension_reach,
+            total_length,
+            circular,
+            reverse=backward,
+            geometry=geometry,
+        )
         if not spans:
             continue
 

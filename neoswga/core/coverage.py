@@ -404,6 +404,9 @@ def merged_window_intervals(
     extension: int,
     length: int,
     circular: bool,
+    *,
+    reverse: Sequence[int] = (),
+    geometry: str = "symmetric",
 ) -> List[Tuple[int, int]]:
     """The union of one primer's binding windows, as disjoint half-open spans.
 
@@ -425,15 +428,19 @@ def merged_window_intervals(
     ``_union_coverage`` nor ``_compute_effective_coverage`` passes record starts
     to ``_mark_window`` today, so accepting them here would let a caller
     silently change what those two report.
+
+    ``geometry`` selects where each site reaches, through :func:`site_spans`,
+    and ``reverse`` supplies the sites the reverse complement occurs at.
+    ``symmetric`` is the default and a caller that passes only ``positions``
+    gets exactly what it always got. The clipping, wrapping and merging below
+    are the same either way: they are properties of the intervals and of the
+    reference, not of the geometry.
     """
     if length <= 0 or extension < 0:
         return []
 
     spans: List[Tuple[int, int]] = []
-    for raw in positions:
-        pos = int(raw)
-        start = pos - extension
-        end = pos + extension
+    for start, end in site_spans(positions, reverse, extension, geometry):
         if circular:
             if start < 0 and end > length:
                 # The window laps the whole molecule; nothing else can add to it.
