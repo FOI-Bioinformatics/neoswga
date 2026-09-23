@@ -157,12 +157,21 @@ def describe_failure(
 #: plasmid and not something the user can fix, so blocking on it would refuse
 #: every such design and teach people to ignore the line.
 #:
+#: `panel_limit_not_met` is the second member, added 2026-09-23. A limit the
+#: user configured is a defect in the pool by the user's own definition, which
+#: is the test this comment already states for membership -- and unlike the
+#: saturation code it is something they can act on, by relaxing the limit,
+#: widening the pool or passing `--allow-unqualified`. It is raised only when
+#: the bounded repair was attempted and did not resolve the violation. Setting
+#: no limit cannot produce it: `constraints_from_parameter` returns None and no
+#: objective is built.
+#:
 #: This set lived as a bare literal in BOTH `cli/report.py` and
 #: `core/results_interpreter.py`, the two commands that tell a user a pool is
 #: ready. A new code had to be added twice or they would disagree about the same
 #: pool. It lives here because whether a result may be recommended is this
 #: module's subject.
-BLOCKING_VALIDATOR_CODES = frozenset({"delivered_pool_exceeds_max_dimer_bp"})
+BLOCKING_VALIDATOR_CODES = frozenset({"delivered_pool_exceeds_max_dimer_bp", "panel_limit_not_met"})
 
 #: What step 4 writes about the pool it just delivered.
 VALIDATION_FILENAME = "step4_improved_df_validation.json"
