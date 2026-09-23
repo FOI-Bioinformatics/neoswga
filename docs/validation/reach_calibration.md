@@ -180,6 +180,16 @@ the fix; `num_primers` in params.json is the way to ask for more meanwhile.
   site is one-sided and strand-determined; measured on Prevotella, symmetric
   overstates coverage by 4-14% (growing with set size, shrinking with reach).
   Correcting it would move the fitted reach up slightly.
+  *Reproduced 2026-09-23, with one half confirmed and one not. The figure
+  describes the WIDTH-PRESERVING correction -- a one-sided window of `2r`,
+  crediting the same total per site -- which measures 0-10% and does grow with
+  set size. A one-sided window of `r` measures 20-43% and shrinks with set
+  size, matching neither. The "shrinking with reach" half does not reproduce.
+  See [2026-09-23-directional-coverage.md](2026-09-23-directional-coverage.md),
+  which also records that the directional model is already implemented and
+  that every method's Stage-1 selection uses it while everything that scores is
+  symmetric. The script this entry lacked is
+  `scripts/benchmarking/directional_coverage.py`.*
 - **A BAM narrows this, but does not settle it.** `calibrate-reach --bam` fits
   the reach from sequencing depth directly, without the breadth-at-depth proxy
   or the single-outcome dependence. What it returns is still a model parameter
