@@ -68,9 +68,9 @@ def oriented_sites(genome, primers):
     return sorted(set(forward)), sorted(set(reverse))
 
 
-def coverage(forward, reverse, oligo_length, genome_len, reach, geometry):
+def coverage(forward, reverse, genome_len, reach, geometry):
     occupied = np.zeros(genome_len, dtype=bool)
-    for low, high in site_spans(forward, reverse, oligo_length, reach, geometry):
+    for low, high in site_spans(forward, reverse, reach, geometry):
         occupied[max(0, low) : min(genome_len, high)] = True
     return float(occupied.sum()) / genome_len
 
@@ -110,8 +110,7 @@ def main():
         for name, entry in sets.items():
             primers = entry["primers"]
             fwd, rev = oriented_sites(genome, primers)
-            k = len(primers[0])
-            curve = [(r, coverage(fwd, rev, k, n, r, geometry)) for r in REACHES]
+            curve = [(r, coverage(fwd, rev, n, r, geometry)) for r in REACHES]
             rows[name] = curve
             cells = "".join(f"{c:>9.2f}" for _, c in curve)
             print(f"{name:<28}{cells}")

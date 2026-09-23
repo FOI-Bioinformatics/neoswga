@@ -299,7 +299,7 @@ def _mark_window(
 COVERAGE_GEOMETRIES = ("symmetric", "directional")
 
 
-def site_spans(forward, reverse, oligo_length, reach, geometry="symmetric"):
+def site_spans(forward, reverse, reach, geometry="symmetric"):
     """Where the sites of one oligo reach, as half-open spans.
 
     `forward` are positions where the oligo itself occurs and `reverse` are
@@ -317,9 +317,20 @@ def site_spans(forward, reverse, oligo_length, reach, geometry="symmetric"):
     and extension runs toward increasing coordinates: `[i, i + reach)`. An
     occurrence of the reverse complement at `j` is the mirror -- the primer
     anneals to the PLUS strand and extension runs toward decreasing
-    coordinates: `[j + oligo_length - reach, j + oligo_length)`. One direction
-    per occurrence, so a forward and a reverse site at the same coordinate give
-    two spans reaching opposite ways and are NOT deduplicated.
+    coordinates: `[j - reach, j)`. One direction per occurrence, so a forward
+    and a reverse site at the same coordinate give two spans reaching opposite
+    ways and are NOT deduplicated.
+
+    The oligo's own footprint is neglected in both directions. The product from
+    a forward site really covers `[i, i + oligo_length + reach)` and from a
+    reverse site `[j - reach, j + oligo_length)`, so each span is short by an
+    oligo length -- about 12 bp against a reach of 3,000 to 6,700, and against
+    a fitted reach band 2.3 kb wide. It is neglected because
+    `dominating_set_optimizer.add_primer_coverage:205-224` already neglects it
+    the same way, and because `_union_coverage` pools sites across primers, so
+    in a mixed-length panel there is no single oligo length to apply. One
+    approximation shared beats two models differing by less than either one's
+    uncertainty.
 
     `reach` means the same thing in both modes -- the distance from the site --
     so the directional mode credits half the bases per site that the symmetric
@@ -344,7 +355,7 @@ def site_spans(forward, reverse, oligo_length, reach, geometry="symmetric"):
         return [(pos - reach, pos + reach) for pos in sorted(sites)]
 
     spans = [(int(i), int(i) + reach) for i in forward]
-    spans += [(int(j) + oligo_length - reach, int(j) + oligo_length) for j in reverse]
+    spans += [(int(j) - reach, int(j)) for j in reverse]
     return spans
 
 

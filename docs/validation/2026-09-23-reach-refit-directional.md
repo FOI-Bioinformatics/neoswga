@@ -48,7 +48,7 @@ record rather than to a re-derivation of it.
 | geometry | enters the 60-75% band | leaves it |
 |---|---|---|
 | symmetric | 2,866 bp | 4,551 bp |
-| **directional** | **4,355 bp** | **6,711 bp** |
+| **directional** | **4,354 bp** | **6,710 bp** |
 
 **Calibrated directional range: 4.4-6.7 kb**, against 2.9-4.6 kb symmetric.
 
@@ -66,10 +66,16 @@ over a set, and it does not.
 This matters for what the correction IS. At 2x, directional-at-the-refit and
 symmetric-at-today's-value would have been the same total width per site, and
 the change would have been pure placement. At 1.52x they are not: the
-directional fit credits **4,355 bp per site against the symmetric fit's 5,732**,
+directional fit credits **4,354 bp per site against the symmetric fit's 5,732**,
 about 24% less total width. The directional model reaches the same measured
 breadth with less width because it stops covering, from one side, ground
 already covered from the other.
+
+The oligo's own footprint is neglected in both geometries, matching what
+`dominating_set_optimizer.add_primer_coverage:205-224` already does. Including
+it moves the fitted edges by 1 bp -- 4,355 against 4,354 -- which is why one
+shared approximation was preferred to two models differing by less than either
+one's uncertainty.
 
 ## What it does to a design at the shipped default
 

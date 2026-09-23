@@ -27,12 +27,12 @@ import pytest
 from neoswga.core.coverage import COVERAGE_GEOMETRIES, site_spans
 
 
-def oracle(forward, reverse, oligo_length, reach, geometry):
+def oracle(forward, reverse, reach, geometry):
     """The mechanism, written out. Deliberately slow and deliberately naive."""
     if geometry == "symmetric":
         return sorted((pos - reach, pos + reach) for pos in set(list(forward) + list(reverse)))
     spans = [(i, i + reach) for i in forward]
-    spans += [(j + oligo_length - reach, j + oligo_length) for j in reverse]
+    spans += [(j - reach, j) for j in reverse]
     return sorted(spans)
 
 
@@ -43,22 +43,23 @@ def oracle(forward, reverse, oligo_length, reach, geometry):
 
 def test_a_forward_site_reaches_only_forward():
     """P occurs literally, so it primes the minus strand and copies toward
-    increasing coordinates."""
-    assert site_spans([1000], [], 12, 100, "directional") == [(1000, 1100)]
+    increasing coordinates. The oligo's own footprint is neglected; the
+    docstring says why."""
+    assert site_spans([1000], [], 100, "directional") == [(1000, 1100)]
 
 
 def test_a_reverse_site_reaches_only_backward():
     """`rc(P)` occurs, so P primes the plus strand and copies toward decreasing
-    coordinates. The span ends at the far end of the oligo, not at its start."""
-    assert site_spans([], [1000], 12, 100, "directional") == [(912, 1012)]
+    coordinates, ending at the site."""
+    assert site_spans([], [1000], 100, "directional") == [(900, 1000)]
 
 
 def test_the_two_directions_do_not_overlap_at_the_same_coordinate():
     """The headline. A site at one coordinate reaches one way, not both, and a
     forward and a reverse site at the SAME coordinate reach opposite ways."""
-    spans = site_spans([1000], [1000], 12, 100, "directional")
+    spans = site_spans([1000], [1000], 100, "directional")
 
-    assert sorted(spans) == [(912, 1012), (1000, 1100)]
+    assert sorted(spans) == [(900, 1000), (1000, 1100)]
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +68,7 @@ def test_the_two_directions_do_not_overlap_at_the_same_coordinate():
 
 
 def test_the_symmetric_mode_is_unchanged():
-    assert site_spans([1000], [], 12, 100, "symmetric") == [(900, 1100)]
+    assert site_spans([1000], [], 100, "symmetric") == [(900, 1100)]
 
 
 def test_a_palindrome_gains_no_span_in_symmetric_mode():
@@ -75,14 +76,14 @@ def test_a_palindrome_gains_no_span_in_symmetric_mode():
     self-reverse-complementary oligo has one site there. The symmetric mode has
     to dedup or it credits that site twice and inflates coverage for exactly
     the oligos a dimer screen is already suspicious of."""
-    assert site_spans([500], [500], 12, 100, "symmetric") == [(400, 600)]
+    assert site_spans([500], [500], 100, "symmetric") == [(400, 600)]
 
 
 def test_the_directional_mode_does_not_dedup():
     """The mirror of the test above, and not an oversight. A forward and a
     reverse occurrence at one coordinate are two different priming events
     reaching opposite ways, so collapsing them would delete a real span."""
-    assert len(site_spans([500], [500], 12, 100, "directional")) == 2
+    assert len(site_spans([500], [500], 100, "directional")) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +105,8 @@ def test_the_directional_mode_does_not_dedup():
     ids=["empty", "one-forward", "one-reverse", "scattered", "repeated", "past-int32"],
 )
 def test_the_spans_match_an_oracle_written_from_the_mechanism(forward, reverse, geometry):
-    assert sorted(site_spans(forward, reverse, 12, 3000, geometry)) == oracle(
-        forward, reverse, 12, 3000, geometry
+    assert sorted(site_spans(forward, reverse, 3000, geometry)) == oracle(
+        forward, reverse, 3000, geometry
     )
 
 
@@ -113,8 +114,8 @@ def test_spans_may_fall_outside_the_genome_and_the_caller_clips():
     """`_mark_window` and `merged_window_intervals` already clip, and doing it
     twice would mean two places deciding what a genome edge is. A circular
     reference wraps rather than clipping, which only the caller knows."""
-    assert site_spans([10], [], 12, 100, "directional") == [(10, 110)]
-    assert site_spans([], [10], 12, 100, "directional") == [(-78, 22)]
+    assert site_spans([10], [], 100, "directional") == [(10, 110)]
+    assert site_spans([], [10], 100, "directional") == [(-90, 10)]
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +128,7 @@ def test_an_unknown_geometry_is_refused():
     authoritative figure in every saved summary, and a default here would be a
     silent answer to the question this function exists to make explicit."""
     with pytest.raises(ValueError) as caught:
-        site_spans([1], [], 12, 100, "radial")
+        site_spans([1], [], 100, "radial")
 
     assert "radial" in str(caught.value)
     assert "symmetric" in str(caught.value)
