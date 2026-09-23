@@ -166,12 +166,39 @@ def describe_failure(
 #: no limit cannot produce it: `constraints_from_parameter` returns None and no
 #: objective is built.
 #:
+#: `duplicate_primers` and `blacklist_primer_in_set` joined on 2026-09-23. Both
+#: were already recorded at `level="error"` and neither blocked, so a panel
+#: holding the same oligo twice, or holding an oligo the user blacklisted,
+#: printed "Primers ready for ordering!". `ok` was False in both cases, which is
+#: why it survived: that flag says what a reader expects and no command consults
+#: it. Both are defects in the pool and both are actionable -- a panel of twelve
+#: holding one oligo twice is eleven distinct sequences in twelve tubes, and a
+#: blacklisted oligo is the user's own instruction violated.
+#:
+#: They differ in reach, and the difference is recorded rather than smoothed
+#: over. `blacklist_primer_in_set` fires on the real path, through
+#: `_collect_forbidden_primers`, whenever `bl_prefixes` is configured.
+#: `duplicate_primers` is not reachable from any path checked -- every point
+#: that assembles a panel from two sources deduplicates first -- so it is
+#: insurance, at the cost of one string here.
+#:
+#: `set_size_mismatch` stays OUT. A panel shorter than requested is a documented
+#: normal outcome, and blocking on it would refuse three of four runs on the
+#: shipped plasmid example.
+#:
 #: This set lived as a bare literal in BOTH `cli/report.py` and
 #: `core/results_interpreter.py`, the two commands that tell a user a pool is
 #: ready. A new code had to be added twice or they would disagree about the same
 #: pool. It lives here because whether a result may be recommended is this
 #: module's subject.
-BLOCKING_VALIDATOR_CODES = frozenset({"delivered_pool_exceeds_max_dimer_bp", "panel_limit_not_met"})
+BLOCKING_VALIDATOR_CODES = frozenset(
+    {
+        "delivered_pool_exceeds_max_dimer_bp",
+        "panel_limit_not_met",
+        "duplicate_primers",
+        "blacklist_primer_in_set",
+    }
+)
 
 #: What step 4 writes about the pool it just delivered.
 VALIDATION_FILENAME = "step4_improved_df_validation.json"
