@@ -1,7 +1,9 @@
 """Test that reaction conditions cache is properly invalidated."""
 
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from neoswga.core import parameter
 
 

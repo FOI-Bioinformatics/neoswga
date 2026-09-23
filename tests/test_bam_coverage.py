@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 
 from neoswga.core.bam_coverage import (
+    bam_gaps,
     find_low_depth_gaps,
     match_contigs,
-    bam_gaps,
 )
 from neoswga.core.primer_expansion import (
     CoverageGap,
-    merge_gap_intervals,
     PrimerExpander,
+    merge_gap_intervals,
 )
 
 # ---------------------------------------------------------------------------
@@ -203,6 +203,7 @@ def test_identify_gaps_merges_extra_gaps():
 
 def test_require_pysam_friendly_error(monkeypatch):
     import builtins
+
     import neoswga.core.bam_coverage as bc
 
     real_import = builtins.__import__

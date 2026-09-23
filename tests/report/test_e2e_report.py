@@ -6,11 +6,11 @@ realistic example results directory. The sequences in that fixture are
 hand-written placeholders, not derived from any genome.
 """
 
-import pytest
-from pathlib import Path
-
 # Use the same import trick as conftest.py
 import sys
+from pathlib import Path
+
+import pytest
 
 project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
@@ -21,21 +21,21 @@ sys.modules.setdefault("neoswga.core", type(sys)("neoswga.core"))
 sys.modules["neoswga"].__path__ = [str(project_root / "neoswga")]
 sys.modules["neoswga.core"].__path__ = [str(project_root / "neoswga" / "core")]
 
-from neoswga.core.report.metrics import collect_pipeline_metrics, CoverageMetrics
-from neoswga.core.report.quality import calculate_quality_grade, QualityGrade
 from neoswga.core.report.executive_summary import (
-    generate_executive_summary,
     create_executive_summary,
+    generate_executive_summary,
     render_executive_summary,
 )
-from neoswga.core.report.validation import (
-    validate_results_directory,
-    validate_metrics,
-    ValidationLevel,
-)
+from neoswga.core.report.metrics import CoverageMetrics, collect_pipeline_metrics
+from neoswga.core.report.quality import QualityGrade, calculate_quality_grade
 from neoswga.core.report.technical_report import (
     collect_technical_report_data,
     render_technical_report,
+)
+from neoswga.core.report.validation import (
+    ValidationLevel,
+    validate_metrics,
+    validate_results_directory,
 )
 
 

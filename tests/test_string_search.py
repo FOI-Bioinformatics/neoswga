@@ -6,18 +6,19 @@ edge cases, circular genome handling, Aho-Corasick multi-k search,
 per-k fallback search, and the genome caching layer.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 import neoswga.core.string_search as string_search_mod
 from neoswga.core.string_search import (
-    get_all_positions_per_k,
-    get_all_positions_multi_k,
-    get_cached_genome_sequence,
+    AHOCORASICK_AVAILABLE,
     clear_genome_cache,
+    get_all_positions_multi_k,
+    get_all_positions_per_k,
+    get_cached_genome_sequence,
     get_genome_cache_stats,
     write_to_h5py,
-    AHOCORASICK_AVAILABLE,
 )
 from neoswga.core.thermodynamics import reverse_complement
 

@@ -1,6 +1,7 @@
 """Smoke tests for _simulation_rescore in unified_optimizer."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 from neoswga.core.base_optimizer import (

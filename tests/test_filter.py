@@ -9,8 +9,9 @@ Tests:
 - GC clamp rules
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from neoswga.core.filter import filter_extra
 

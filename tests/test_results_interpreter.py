@@ -2,19 +2,20 @@
 
 import csv
 import json
+
 import pytest
 
 from neoswga.core.results_interpreter import (
-    QualityRating,
-    MetricAssessment,
-    ResultsReport,
-    ResultsInterpreter,
-    rate_metric,
-    interpret_results,
     COVERAGE_THRESHOLDS,
+    DIMER_SCORE_THRESHOLDS,
     ENRICHMENT_THRESHOLDS,
     UNIFORMITY_THRESHOLDS,
-    DIMER_SCORE_THRESHOLDS,
+    MetricAssessment,
+    QualityRating,
+    ResultsInterpreter,
+    ResultsReport,
+    interpret_results,
+    rate_metric,
 )
 
 # ---------------------------------------------------------------------------

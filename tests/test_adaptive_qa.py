@@ -12,31 +12,28 @@ Author: NeoSWGA Development Team
 Date: November 2025
 """
 
-import unittest
-import tempfile
 import os
+import tempfile
+import unittest
 from pathlib import Path
-
-from neoswga.core.three_prime_stability import (
-    calculate_gc_deviation,
-    calculate_adaptive_terminal_tm,
-    create_three_prime_analyzer_adaptive,
-)
-
-from neoswga.core.thermodynamic_filter import (
-    calculate_adaptive_gc_range,
-    calculate_adaptive_dimer_threshold,
-    create_thermodynamic_filter_adaptive,
-)
 
 from neoswga.core.genome_analysis import (
     calculate_genome_gc,
+    calculate_genome_stats,
     get_gc_class,
     recommend_adaptive_qa,
-    calculate_genome_stats,
 )
-
 from neoswga.core.integrated_quality_scorer import create_quality_scorer
+from neoswga.core.thermodynamic_filter import (
+    calculate_adaptive_dimer_threshold,
+    calculate_adaptive_gc_range,
+    create_thermodynamic_filter_adaptive,
+)
+from neoswga.core.three_prime_stability import (
+    calculate_adaptive_terminal_tm,
+    calculate_gc_deviation,
+    create_three_prime_analyzer_adaptive,
+)
 
 
 class TestGCDeviation(unittest.TestCase):

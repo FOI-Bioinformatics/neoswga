@@ -150,8 +150,8 @@ class TestTheWeakestPrimerIsReported:
 
 class TestTheHelper:
     def test_it_returns_a_reading_per_primer(self):
-        from neoswga.core.strand_metrics import panel_occupancy
         from neoswga.core.reaction_conditions import ReactionConditions
+        from neoswga.core.strand_metrics import panel_occupancy
 
         primers = ["ACGTACGTACGT", "GGGGCCCCGGGG"]
         result = panel_occupancy(primers, ReactionConditions(temp=30.0))
@@ -165,15 +165,15 @@ class TestTheHelper:
         assert panel_occupancy(["ACGTACGTACGT"], None) == {}
 
     def test_no_primers_yields_nothing(self):
-        from neoswga.core.strand_metrics import panel_occupancy
         from neoswga.core.reaction_conditions import ReactionConditions
+        from neoswga.core.strand_metrics import panel_occupancy
 
         assert panel_occupancy([], ReactionConditions(temp=30.0)) == {}
 
     def test_a_gc_rich_primer_is_more_occupied_at_a_cold_reaction(self):
         """Sanity, so the helper is not returning a constant."""
-        from neoswga.core.strand_metrics import panel_occupancy
         from neoswga.core.reaction_conditions import ReactionConditions
+        from neoswga.core.strand_metrics import panel_occupancy
 
         result = panel_occupancy(["ATATATATATAT", "GCGCGCGCGCGC"], ReactionConditions(temp=30.0))
 

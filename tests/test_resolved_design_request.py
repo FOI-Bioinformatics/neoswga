@@ -25,8 +25,8 @@ import json
 import pytest
 
 from neoswga.core.design_request import (
-    DesignRequest,
     ConcentrationPolicy,
+    DesignRequest,
     resolve_design_request,
 )
 from neoswga.core.exceptions import InvalidDesignRequest, UnsupportedModelError
@@ -278,9 +278,7 @@ def test_a_fixed_total_request_is_refused():
 
 
 def test_fixed_per_oligo_keeps_each_concentration_while_the_total_moves():
-    request = resolve_design_request(
-        base_params(concentration_mode="per_oligo", primer_conc=2e-6)
-    )
+    request = resolve_design_request(base_params(concentration_mode="per_oligo", primer_conc=2e-6))
 
     two = request.concentrations_molar(("AAAACCCCGGGG", "TTTTGGGGCCCC"))
     four = request.concentrations_molar(

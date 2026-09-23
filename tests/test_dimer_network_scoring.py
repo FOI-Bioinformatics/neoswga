@@ -23,8 +23,8 @@ def test_calculate_dimer_matrix_returns_nonzero_for_known_dimer():
     """The canary test. Before the Phase 12E fix, every primer pair
     reported severity=0.0, so the whole dimer network analyzer was a
     no-op."""
-    from neoswga.core.secondary_structure import calculate_dimer_matrix
     from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.secondary_structure import calculate_dimer_matrix
 
     cond = ReactionConditions(temp=30.0, polymerase="phi29")
     primers = ["ATCGATCGAT", "ATCGATCGAT"]  # palindromic self-dimer-prone
@@ -40,8 +40,8 @@ def test_calculate_dimer_matrix_returns_nonzero_for_known_dimer():
 
 def test_calculate_dimer_matrix_returns_zero_for_clean_pair():
     """A pair that cannot form a stable dimer should still score 0."""
-    from neoswga.core.secondary_structure import calculate_dimer_matrix
     from neoswga.core.reaction_conditions import ReactionConditions
+    from neoswga.core.secondary_structure import calculate_dimer_matrix
 
     cond = ReactionConditions(temp=30.0, polymerase="phi29")
     # Two primers chosen so neither's reverse complement appears in the

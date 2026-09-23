@@ -33,7 +33,6 @@ import pytest
 from neoswga.core.hybrid_optimizer import HybridOptimizer
 from neoswga.core.position_cache import PositionCache
 from neoswga.core.reaction_conditions import ReactionConditions
-
 from tests.conftest import plasmid_example_ready
 
 pytestmark = pytest.mark.skipif(

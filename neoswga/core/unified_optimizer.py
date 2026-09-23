@@ -1209,7 +1209,6 @@ def run_optimization(
 
         validation = result.validate(
             target_size=target_size,
-            min_coverage=0.0,  # soft by default; caller can tighten
             min_per_target_coverage=per_target_floor(kwargs, parameter) or 0.0,
             forbidden_primers=forbidden or None,
         )

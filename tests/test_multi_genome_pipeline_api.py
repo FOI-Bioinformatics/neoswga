@@ -40,8 +40,8 @@ def test_pipeline_constructs_counter_with_real_kwargs():
 
 
 def test_pipeline_uses_attributes_that_exist_on_the_counter():
-    from neoswga.core.kmer_counter import MultiGenomeKmerCounter
     import neoswga.core.multi_genome_pipeline as mgp
+    from neoswga.core.kmer_counter import MultiGenomeKmerCounter
 
     counter = MultiGenomeKmerCounter.__init__
     src_counter = inspect.getsource(counter)
@@ -55,9 +55,10 @@ def test_pipeline_uses_attributes_that_exist_on_the_counter():
 
 
 def test_pipeline_only_calls_methods_the_counter_defines():
-    from neoswga.core.kmer_counter import MultiGenomeKmerCounter
-    import neoswga.core.multi_genome_pipeline as mgp
     import re
+
+    import neoswga.core.multi_genome_pipeline as mgp
+    from neoswga.core.kmer_counter import MultiGenomeKmerCounter
 
     # Class-level members (methods, properties) ...
     available = {name for name, _ in inspect.getmembers(MultiGenomeKmerCounter)}

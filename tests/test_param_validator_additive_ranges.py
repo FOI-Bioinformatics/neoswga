@@ -5,7 +5,7 @@ hit ParamValidator errors rather than a deep ValueError from the pipeline.
 
 import pytest
 
-from neoswga.core.param_validator import ParamValidator, ValidationLevel, PARAM_RANGES
+from neoswga.core.param_validator import PARAM_RANGES, ParamValidator, ValidationLevel
 
 REQUIRED = {
     "fg_genomes": ["foo.fna"],

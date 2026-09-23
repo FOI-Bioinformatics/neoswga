@@ -11,9 +11,9 @@ chain is exercised for every registered optimizer.
 
 import pytest
 
+from neoswga.core import unified_optimizer as _uo
 from neoswga.core.optimizer_factory import OptimizerFactory, OptimizerRegistry
 from neoswga.core.reaction_conditions import ReactionConditions
-from neoswga.core import unified_optimizer as _uo
 
 
 class _DummyCache:

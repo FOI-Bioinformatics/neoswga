@@ -9,10 +9,11 @@ Run after executing the pipeline with:
     neoswga optimize -j params.json
 """
 
-import pytest
-import pandas as pd
 import os
 from pathlib import Path
+
+import pandas as pd
+import pytest
 
 # Test directory relative to repo root
 TEST_DIR = Path(__file__).parent / "integration" / "wolbachia_e2e" / "12bp"

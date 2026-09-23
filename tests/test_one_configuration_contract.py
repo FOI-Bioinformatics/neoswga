@@ -168,9 +168,7 @@ class TestWithoutAContextNothingChanges:
         caller may too."""
         from neoswga.core.primer_expansion import PrimerExpander
 
-        expander = PrimerExpander(
-            position_cache=None, fg_prefixes=["fg"], fg_seq_lengths=[1000]
-        )
+        expander = PrimerExpander(position_cache=None, fg_prefixes=["fg"], fg_seq_lengths=[1000])
 
         assert expander.coverage_reach == 3000
         assert expander.conditions is None

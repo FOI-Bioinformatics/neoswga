@@ -198,7 +198,5 @@ def test_the_fasta_holds_only_the_delivered_set(tmp_path):
     out = tmp_path / "panel.fasta"
     PrimerExporter.from_results_dir(str(tmp_path)).export_fasta(str(out))
 
-    sequences = [
-        line.strip() for line in out.read_text().splitlines() if not line.startswith(">")
-    ]
+    sequences = [line.strip() for line in out.read_text().splitlines() if not line.startswith(">")]
     assert sequences == ["ACCGCATC", "TCAGCGA"]

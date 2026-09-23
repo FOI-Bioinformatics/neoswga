@@ -12,13 +12,14 @@ Tests all functionality including:
 
 import unittest
 from typing import List
+
 import numpy as np
 
 from neoswga.core.dimer_network_analyzer import (
     DimerInteraction,
-    PrimerDimerProfile,
-    DimerNetworkMetrics,
     DimerNetworkAnalyzer,
+    DimerNetworkMetrics,
+    PrimerDimerProfile,
     create_dimer_network_analyzer,
     filter_primer_set_by_dimer_network,
 )

@@ -25,6 +25,7 @@ def test_schema_ships_as_valid_json():
 def test_schema_passes_plasmid_example_params():
     """The real plasmid_example/params.json must pass the schema."""
     import os
+
     from neoswga.core.schema import load_schema
 
     try:

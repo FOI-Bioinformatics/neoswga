@@ -115,6 +115,7 @@ def test_nn_tables_have_identical_keys():
 def test_owczarzy_entropy_salt_coefficient():
     """Owczarzy 2004 coefficient 0.368 must match Biochemistry 43:3537."""
     import inspect
+
     from neoswga.core import thermodynamics as td
 
     source = inspect.getsource(td)

@@ -578,16 +578,13 @@ class OptimizationResult:
     def validate(
         self,
         target_size: Optional[int] = None,
-        min_coverage: float = 0.0,
         min_per_target_coverage: float = 0.0,
         forbidden_primers: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Post-optimization sanity validation; see `core/result_validation.py`."""
         from .result_validation import validate_result
 
-        return validate_result(
-            self, target_size, min_coverage, min_per_target_coverage, forbidden_primers
-        )
+        return validate_result(self, target_size, min_per_target_coverage, forbidden_primers)
 
     @classmethod
     def failure(cls, optimizer_name: str, message: str) -> "OptimizationResult":

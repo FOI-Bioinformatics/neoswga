@@ -2,9 +2,10 @@
 
 import os
 import tempfile
-import pytest
-import pandas as pd
 from unittest.mock import patch
+
+import pandas as pd
+import pytest
 
 
 class TestFilterBlacklistPenalty:
@@ -109,7 +110,7 @@ class TestBlacklistParameterFields:
 
     def test_set_from_config_roundtrip(self):
         """set_from_config preserves bl_ fields."""
-        from neoswga.core.parameter import PipelineParameters, set_from_config, get_current_config
+        from neoswga.core.parameter import PipelineParameters, get_current_config, set_from_config
 
         config = PipelineParameters(
             bl_genomes=["/tmp/test.fna"],

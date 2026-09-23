@@ -9,23 +9,23 @@ Tests the set_size_optimizer module's ability to:
   and reaction conditions (backward compatibility)
 """
 
-import pytest
-import pandas as pd
 import numpy as np
+import pandas as pd
+import pytest
 
-from neoswga.core.set_size_optimizer import (
-    SetSizeMetrics,
-    FrontierResult,
-    filter_pareto_optimal,
-    ParetoFrontierGenerator,
-    select_from_frontier,
-    estimate_optimal_set_size,
-    recommend_set_size,
-    quick_size_estimate,
-    create_baseline_effects,
-    get_size_recommendation_summary,
-)
 from neoswga.core.mechanistic_model import MechanisticEffects
+from neoswga.core.set_size_optimizer import (
+    FrontierResult,
+    ParetoFrontierGenerator,
+    SetSizeMetrics,
+    create_baseline_effects,
+    estimate_optimal_set_size,
+    filter_pareto_optimal,
+    get_size_recommendation_summary,
+    quick_size_estimate,
+    recommend_set_size,
+    select_from_frontier,
+)
 
 # =============================================================================
 # Fixtures

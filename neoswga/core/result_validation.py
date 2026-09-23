@@ -28,17 +28,19 @@ __all__ = ["validate_result"]
 def validate_result(
     result,
     target_size: Optional[int] = None,
-    min_coverage: float = 0.0,
     min_per_target_coverage: float = 0.0,
     forbidden_primers: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Post-optimization sanity validation.
 
     Catches the broad class of silent failures an optimizer can produce
-    without explicit assertions: duplicates, unexpected set size, zero
-    coverage, blacklist re-injection. Returns a report dict that
-    `unified_optimizer.run_optimization` stores on the result and writes
-    alongside ``step4_improved_df.csv``.
+    without explicit assertions: duplicates, unexpected set size, a starved
+    target, blacklist re-injection. Returns a report dict that
+    `unified_optimizer.run_optimization` writes alongside
+    ``step4_improved_df.csv``.
+
+    It does NOT check foreground coverage; the comment below says why, and
+    "zero coverage" stood in this list for a check that could not fire.
 
     This never mutates the result. It emits warnings (``level='warning'``)
     for degenerate-but-acceptable outcomes (e.g., target_size underfilled
@@ -73,18 +75,16 @@ def validate_result(
             }
         )
 
-    # Non-empty foreground coverage. ERROR status already carries 0.0
-    # coverage implicitly, so skip that case.
-    if result.status.value != "error":
-        fg_cov = getattr(result.metrics, "fg_coverage", 0.0)
-        if fg_cov < min_coverage:
-            issues.append(
-                {
-                    "level": ("warning" if result.status.value == "partial" else "error"),
-                    "code": "coverage_below_threshold",
-                    "detail": (f"fg_coverage={fg_cov:.3f} < min_coverage={min_coverage:.3f}"),
-                }
-            )
+    # A foreground-coverage floor used to live here and was retired on
+    # 2026-09-22. It could not fire: the one production call site passed
+    # `min_coverage=0.0` and no caller tightened it, and a coverage is never
+    # below zero. The deeper reason it is not simply wired is that this
+    # function records optimizer MISBEHAVIOUR -- duplicates, drift from the
+    # requested size, blacklist re-injection -- and low coverage is a design
+    # outcome rather than a bug in the search. Acceptance criteria belong to
+    # `panel_acceptance.LIMIT_KEYS`, and none of those six is a minimum
+    # coverage. `tests/test_the_coverage_floor_had_no_reachable_setting.py`
+    # holds the decision and the evidence bar for filling that gap.
 
     # Per-target coverage (multi-genome mode). Optimizers that populate
     # `metrics.per_target_coverage` (Phase 11D) have their minimum

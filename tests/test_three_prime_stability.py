@@ -14,13 +14,13 @@ import unittest
 import warnings
 from typing import List
 
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.three_prime_stability import (
     ThreePrimeStability,
     ThreePrimeStabilityAnalyzer,
     create_three_prime_analyzer,
     filter_primers_by_three_prime_stability,
 )
-from neoswga.core.reaction_conditions import ReactionConditions
 
 
 class TestThreePrimeStability(unittest.TestCase):

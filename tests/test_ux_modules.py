@@ -7,23 +7,24 @@ Tests:
 - results_interpreter.py
 """
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
 
-from neoswga.core.param_validator import ParamValidator, ValidationLevel, validate_params_file
+import pytest
+
 from neoswga.core.condition_suggester import (
     ConditionSuggester,
-    suggest_conditions,
     classify_gc,
     classify_primer_length,
+    suggest_conditions,
 )
+from neoswga.core.param_validator import ParamValidator, ValidationLevel, validate_params_file
 from neoswga.core.results_interpreter import (
+    COVERAGE_THRESHOLDS,
+    QualityRating,
     ResultsInterpreter,
     rate_metric,
-    QualityRating,
-    COVERAGE_THRESHOLDS,
 )
 
 

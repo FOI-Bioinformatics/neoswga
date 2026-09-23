@@ -16,7 +16,8 @@ import json
 
 import pytest
 
-from neoswga.core import parameter, primer_attributes as pa
+from neoswga.core import parameter
+from neoswga.core import primer_attributes as pa
 
 
 def test_the_default_is_three():

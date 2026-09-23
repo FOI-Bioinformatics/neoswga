@@ -5,9 +5,10 @@ Verifies that _apply_gc_adaptive_defaults correctly reads
 betaine_concentration and dmso_concentration from GCAdaptiveParameters.
 """
 
-import pytest
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveParameters, GenomeClass
 

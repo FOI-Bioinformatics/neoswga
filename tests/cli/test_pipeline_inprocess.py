@@ -368,7 +368,10 @@ def test_enable_qa_does_not_stick_to_the_next_run(counted):
 def test_score_with_enable_qa_combines_rf_and_qa_scores(filtered_qa):
     import pandas as pd
 
-    _run(["prepare-candidates", "-j", str(filtered_qa["params_file"]), "--enable-qa"], filtered_qa["root"])
+    _run(
+        ["prepare-candidates", "-j", str(filtered_qa["params_file"]), "--enable-qa"],
+        filtered_qa["root"],
+    )
 
     step3 = pd.read_csv(filtered_qa["root"] / "results" / "step3_df.csv")
     assert "qa_score" in step3.columns, step3.columns.tolist()
@@ -381,7 +384,9 @@ def test_score_with_enable_qa_works_without_a_qa_filtered_step2(filtered):
     """`score --enable-qa` after a plain `filter` must score, not crash."""
     import pandas as pd
 
-    _run(["prepare-candidates", "-j", str(filtered["params_file"]), "--enable-qa"], filtered["root"])
+    _run(
+        ["prepare-candidates", "-j", str(filtered["params_file"]), "--enable-qa"], filtered["root"]
+    )
 
     step3 = pd.read_csv(filtered["root"] / "results" / "step3_df.csv")
     assert "composite_score" in step3.columns, step3.columns.tolist()

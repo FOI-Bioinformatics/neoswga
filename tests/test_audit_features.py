@@ -51,7 +51,7 @@ class TestEnrichmentEstimate:
 
     def test_results_report_has_enrichment_field(self):
         """ResultsReport dataclass includes enrichment_estimate field."""
-        from neoswga.core.results_interpreter import ResultsReport, QualityRating
+        from neoswga.core.results_interpreter import QualityRating, ResultsReport
 
         report = ResultsReport(
             primer_count=6,
@@ -417,8 +417,8 @@ class TestSimulationRescore:
 
     def test_rescore_with_failed_result(self):
         """Simulation re-score returns None for failed optimization."""
-        from neoswga.core.unified_optimizer import _simulation_rescore
         from neoswga.core.base_optimizer import OptimizationResult
+        from neoswga.core.unified_optimizer import _simulation_rescore
 
         result = OptimizationResult.failure("test", "test failure")
         score = _simulation_rescore(result, ["prefix"], [1000])

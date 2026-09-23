@@ -81,8 +81,8 @@ def test_doctor_aware_flag_uses_class_attribute_not_source_grep():
     """Phase 15D — the flag must be set on the optimizer class itself so it
     survives refactors that rename self.conditions references. After the
     optimizer-zoo trim only four methods remain registered."""
-    from neoswga.core.optimizer_factory import OptimizerRegistry
     from neoswga.core import unified_optimizer as _uo
+    from neoswga.core.optimizer_factory import OptimizerRegistry
 
     _uo._ensure_optimizers_registered()
 

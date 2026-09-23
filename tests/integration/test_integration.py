@@ -25,8 +25,9 @@ method it names.
 """
 
 import json
-import pytest
 from pathlib import Path
+
+import pytest
 
 # Integration test scenarios
 SCENARIOS = [

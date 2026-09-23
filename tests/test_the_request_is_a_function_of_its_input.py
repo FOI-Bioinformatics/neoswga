@@ -204,9 +204,9 @@ def test_mutating_the_conditions_does_not_move_the_hash():
 
     resolved.conditions.temp = 45.0
 
-    assert resolved.request_hash == before, (
-        "mutating the conditions changed the identity of a frozen request"
-    )
+    assert (
+        resolved.request_hash == before
+    ), "mutating the conditions changed the identity of a frozen request"
 
 
 def test_two_requests_with_different_chemistry_still_differ():
@@ -248,9 +248,9 @@ def test_a_setting_that_changes_the_search_changes_the_hash(key, value):
     """
     baseline = resolve_design_request(dict(MAPPING)).request_hash
 
-    assert resolve_design_request({**MAPPING, key: value}).request_hash != baseline, (
-        f"{key}={value} changes the search and not the recorded request"
-    )
+    assert (
+        resolve_design_request({**MAPPING, key: value}).request_hash != baseline
+    ), f"{key}={value} changes the search and not the recorded request"
 
 
 def test_an_unrelated_comment_key_does_not_change_the_hash():

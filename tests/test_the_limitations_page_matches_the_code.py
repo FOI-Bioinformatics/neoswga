@@ -75,9 +75,9 @@ def test_the_page_does_not_overstate_its_evidence(text):
 
     stated = int(re.search(r"keeps (\d+) measurement records", text).group(1))
 
-    assert stated <= len(records), (
-        f"the page claims {stated} validation records; there are {len(records)}"
-    )
+    assert stated <= len(
+        records
+    ), f"the page claims {stated} validation records; there are {len(records)}"
     assert stated >= 30, "the claim has drifted so low it no longer says anything"
 
 

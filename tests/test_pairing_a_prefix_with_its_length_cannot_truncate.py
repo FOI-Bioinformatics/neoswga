@@ -102,9 +102,7 @@ def test_coverage_refuses_a_mismatch_rather_than_covering_fewer_targets():
             return []
 
     with pytest.raises(ValueError):
-        compute_per_prefix_coverage(
-            Cache(), ["ACGTACGTACGT"], ["a", "b", "c"], [1000, 2000], 3000
-        )
+        compute_per_prefix_coverage(Cache(), ["ACGTACGTACGT"], ["a", "b", "c"], [1000, 2000], 3000)
 
 
 def test_coverage_still_works_when_the_lists_agree():
@@ -115,8 +113,6 @@ def test_coverage_still_works_when_the_lists_agree():
         def get_positions(self, prefix, primer, strand):
             return []
 
-    result = compute_per_prefix_coverage(
-        Cache(), ["ACGTACGTACGT"], ["a", "b"], [1000, 2000], 3000
-    )
+    result = compute_per_prefix_coverage(Cache(), ["ACGTACGTACGT"], ["a", "b"], [1000, 2000], 3000)
 
     assert result is not None

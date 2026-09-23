@@ -32,7 +32,7 @@ def _make_result(primers, status=OptimizationStatus.SUCCESS, **metric_overrides)
 
 def test_validate_clean_result_reports_no_issues():
     r = _make_result(["ATCG", "GCTA", "TACG"], fg_coverage=0.9)
-    report = r.validate(target_size=3, min_coverage=0.5)
+    report = r.validate(target_size=3)
     assert report["ok"] is True
     assert report["issues"] == []
     assert report["num_primers"] == 3
@@ -64,25 +64,11 @@ def test_validate_downgrades_size_mismatch_to_warning_on_partial():
     assert issues and issues[0]["level"] == "warning"
 
 
-def test_validate_flags_coverage_below_threshold():
-    r = _make_result(["ATCG", "GCTA", "TACG"], fg_coverage=0.05)
-    report = r.validate(target_size=3, min_coverage=0.3)
-    codes = [i["code"] for i in report["issues"]]
-    assert "coverage_below_threshold" in codes
-
-
 def test_validate_flags_blacklist_reinjection():
     r = _make_result(["ATCG", "BLKL", "TACG"], fg_coverage=0.9)
     report = r.validate(target_size=3, forbidden_primers=["BLKL", "EVIL"])
     issues = [i for i in report["issues"] if i["code"] == "blacklist_primer_in_set"]
     assert issues and issues[0]["level"] == "error"
-
-
-def test_validate_skips_coverage_check_on_error_status():
-    r = _make_result([], status=OptimizationStatus.ERROR)
-    report = r.validate(target_size=3, min_coverage=0.5)
-    codes = [i["code"] for i in report["issues"]]
-    assert "coverage_below_threshold" not in codes
 
 
 def test_per_target_coverage_below_threshold_warning(monkeypatch):
@@ -91,7 +77,6 @@ def test_per_target_coverage_below_threshold_warning(monkeypatch):
     object.__setattr__(r.metrics, "per_target_coverage", {"target_a": 0.95, "target_b": 0.35})
     report = r.validate(
         target_size=2,
-        min_coverage=0.5,
         min_per_target_coverage=0.50,
     )
     codes = [i["code"] for i in report["issues"]]

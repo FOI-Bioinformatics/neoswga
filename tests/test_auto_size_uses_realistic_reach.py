@@ -11,7 +11,7 @@ helper out for a fixed 70 kb default is caught.
 """
 
 from neoswga.core.coverage import polymerase_extension_reach
-from neoswga.core.set_size_optimizer import recommend_set_size, create_baseline_effects
+from neoswga.core.set_size_optimizer import create_baseline_effects, recommend_set_size
 
 
 def test_realistic_reach_values_match_phase16_design():

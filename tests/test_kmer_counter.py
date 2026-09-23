@@ -7,22 +7,23 @@ Tests:
 - Pure Python k-mer counting fallback
 """
 
-import pytest
 import os
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from neoswga.core.kmer_counter import (
-    check_jellyfish_available,
-    require_jellyfish,
-    get_jellyfish_version,
     MultiGenomeKmerCounter,
+    check_jellyfish_available,
     count_kmers_in_sequence,
-    run_jellyfish,
+    get_jellyfish_version,
     get_kmer_to_count_dict,
     get_primer_list_from_kmers,
+    require_jellyfish,
+    run_jellyfish,
 )
 
 # =============================================================================
