@@ -162,15 +162,41 @@ def _panel_violations(request, primers) -> list:
     delivered panels. This one asks only whether the delivered panel is short.
     The dimer half is the shared rule rather than a third reading of it.
 
-    Candidate composition and QC are deliberately absent. In this codebase
-    those are ADMISSION rules applied during `filter`, not properties of a
-    delivered panel, and no panel-level path re-checks them.
+    Candidate QC is deliberately absent -- GC window, homopolymer run, Gini.
+    In this codebase those are ADMISSION rules applied during `filter`, not
+    properties of a delivered panel, and no panel-level path re-checks them.
+
+    Composition is not QC and is checked: a duplicated oligo and an oligo the
+    request excluded are both facts about the panel that came back, whatever
+    admitted it. An earlier version of this docstring lumped the two together
+    and the distinction is the reason only one of them belongs here.
     """
     found = []
 
     requested = getattr(request, "target_size", None)
     if requested and len(primers) < requested:
         found.append(f"panel size {len(primers)} is below the requested {requested}")
+
+    # Composition. Both are properties of the DELIVERED panel under the request
+    # rather than admission rules applied during `filter`, which is what
+    # separates them from the QC gates deliberately absent below.
+    # `validate_result` checked both and this record checked neither, so two
+    # records described the same panel differently.
+    counts: Dict[str, int] = {}
+    for oligo in primers:
+        counts[oligo] = counts.get(oligo, 0) + 1
+    repeated = sorted(oligo for oligo, count in counts.items() if count > 1)
+    if repeated:
+        found.append(f"duplicate oligo in the delivered panel: {', '.join(repeated)}")
+
+    # The request names what must not be selected. A candidate pool that was
+    # never filtered against it can reach the optimizer through expand-primers
+    # or swap-primer, which is the case `validate_result`'s `forbidden_primers`
+    # argument exists for.
+    excluded = set(getattr(request, "excluded_oligos", ()) or ())
+    reinjected = sorted(set(primers) & excluded)
+    if reinjected:
+        found.append(f"excluded oligo in the delivered panel: {', '.join(reinjected)}")
 
     # The delivered-heterodimer rule is `dimer.dimer_validation_issue`, asked
     # for rather than rewritten. This measured complementary runs itself and

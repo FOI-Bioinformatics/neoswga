@@ -118,3 +118,32 @@ the 144 Mb host is the reason this was not done here.
 **The disagreement is measured on the verdicts, not on delivered panels.** No
 panel moved in producing this table; both records describe the same search
 output.
+
+## Re-measured after the composition checks were added
+
+The assessment gained two checks it lacked -- a duplicated oligo, and an oligo
+the request excluded -- both of which `result_validation.validate_result`
+already had. The plan for that increment predicted the disagreement count would
+fall, on the reasoning that two checks which made the records differ were now on
+both sides.
+
+**It did not fall. The table above is unchanged: five runs, three
+disagreements, all size.**
+
+The prediction was written before this measurement existed and does not survive
+it. The two records never disagreed about duplicates or excluded oligos on this
+fixture, because the plasmid example produces neither: the optimizer does not
+return a duplicate, and the shipped params exclude nothing. Adding a check for a
+condition that does not arise cannot change a count.
+
+Worth stating because it is the shape of a mistake this project has made before.
+The checks were added for a good reason -- one record faulted a panel the other
+passed, and only one of them was looking -- but the justification is "these two
+records should agree about the same panel", not "this will reduce the measured
+disagreements". Quoting the second would have been reporting a prediction as a
+result.
+
+What would exercise them is a design that actually produces one: a blacklisted
+candidate reaching the optimizer through `expand-primers` or `swap-primer`,
+which is the case `validate_result`'s `forbidden_primers` argument exists for.
+That is not reachable from the plasmid fixture and was not constructed here.
