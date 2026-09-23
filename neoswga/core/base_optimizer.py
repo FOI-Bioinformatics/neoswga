@@ -937,7 +937,7 @@ class BaseOptimizer(ABC):
 
         return valid
 
-    def _gather_sites(self, primers, fg_positions_by_primer):
+    def _gather_sites(self, primers, fg_positions_by_primer, fg_rev_by_primer=None):
         """Every binding site for a panel, per prefix, with orientation.
 
         Orientations are recorded only when something will use them. The
@@ -961,35 +961,46 @@ class BaseOptimizer(ABC):
         }
         for primer in primers:
             for prefix in self.fg_prefixes:
-                sites = self._oriented_positions(
+                pooled, forward, reverse = self._oriented_positions(
                     primer, prefix, directional, out["fg_forward"], out["fg_reverse"]
                 )
-                out["fg"][prefix].update(sites)
-                fg_positions_by_primer[prefix][primer] = sites
+                out["fg"][prefix].update(pooled)
+                # The occupancy path takes the two apart, so the per-primer
+                # record keeps them apart under the directional geometry and
+                # stays the pooled list under the default, which is what that
+                # path has always been handed.
+                fg_positions_by_primer[prefix][primer] = forward if directional else pooled
+                if directional:
+                    fg_rev_by_primer[prefix][primer] = reverse
             for prefix in self.bg_prefixes:
-                sites = self._oriented_positions(
+                pooled, _forward, _reverse = self._oriented_positions(
                     primer, prefix, directional, out["bg_forward"], out["bg_reverse"]
                 )
-                out["bg"][prefix].update(sites)
+                out["bg"][prefix].update(pooled)
         return directional, {key: {p: sorted(v) for p, v in d.items()} for key, d in out.items()}
 
     def _oriented_positions(self, primer, prefix, directional, forward_by, reverse_by):
-        """Sites for one primer and prefix, recording orientation when asked.
+        """Sites for one primer and prefix, as `(pooled, forward, reverse)`.
 
-        Returns the pooled list either way, because the site COUNTS and the
-        occupancy path both want it and neither is geometry-dependent. Under
-        the directional geometry the pooled list is derived from the two
-        orientations rather than fetched again -- `get_positions(..., "both")`
-        is `np.unique(concatenate(forward, reverse))`, so deriving it is the
-        same answer and one lookup cheaper.
+        The pooled list is what the site COUNTS want and it is not
+        geometry-dependent, so it is always returned. The two orientations are
+        fetched only when something will use them: `get_positions` is the
+        hottest method in the package, and a run that does not ask for the
+        second geometry still makes ONE lookup per primer and prefix.
+
+        Under the split the pooled list is DERIVED rather than fetched again.
+        `get_positions(..., "both")` is `np.unique(concatenate(forward,
+        reverse))`, so deriving it is the same answer and one lookup cheaper --
+        and fetching it a third time to recover `forward` would undo the point.
         """
         if not directional:
-            return self.get_primer_positions(primer, prefix, "both").tolist()
+            pooled = self.get_primer_positions(primer, prefix, "both").tolist()
+            return pooled, pooled, []
         forward = self.get_primer_positions(primer, prefix, "forward").tolist()
         reverse = self.get_primer_positions(primer, prefix, "reverse").tolist()
         forward_by[prefix].update(forward)
         reverse_by[prefix].update(reverse)
-        return sorted(set(forward) | set(reverse))
+        return sorted(set(forward) | set(reverse)), forward, reverse
 
     def get_primer_positions(self, primer: str, prefix: str, strand: str = "both") -> np.ndarray:
         """
@@ -1146,8 +1157,11 @@ class BaseOptimizer(ABC):
         fg_by_prefix = {prefix: set() for prefix in self.fg_prefixes}
         bg_by_prefix = {prefix: set() for prefix in self.bg_prefixes}
         fg_positions_by_primer = {prefix: {} for prefix in self.fg_prefixes}
+        fg_rev_by_primer = {prefix: {} for prefix in self.fg_prefixes}
 
-        directional, gathered = self._gather_sites(primers, fg_positions_by_primer)
+        directional, gathered = self._gather_sites(
+            primers, fg_positions_by_primer, fg_rev_by_primer
+        )
         fg_by_prefix, bg_by_prefix = gathered["fg"], gathered["bg"]
         fg_fwd, fg_rev = gathered["fg_forward"], gathered["fg_reverse"]
         bg_fwd, bg_rev = gathered["bg_forward"], gathered["bg_reverse"]
@@ -1168,7 +1182,11 @@ class BaseOptimizer(ABC):
         if self.conditions is not None:
             effective_fg_coverage = (
                 sum(
-                    self._compute_effective_coverage(fg_positions_by_primer[prefix], length)
+                    self._compute_effective_coverage(
+                        fg_positions_by_primer[prefix],
+                        length,
+                        reverse_by_primer=fg_rev_by_primer.get(prefix) if directional else None,
+                    )
                     * length
                     for prefix, length in zip(self.fg_prefixes, self.fg_seq_lengths, strict=True)
                     if length > 0
@@ -1402,7 +1420,9 @@ class BaseOptimizer(ABC):
             geometry=getattr(self.config, "coverage_geometry", "symmetric"),
         )
 
-    def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float | None:
+    def _compute_effective_coverage(
+        self, positions_by_primer, total_length: int, reverse_by_primer=None
+    ) -> float | None:
         """Occupancy-weighted coverage for one prefix.
 
         The computation lives in `occupancy_coverage`, which was extracted when
@@ -1419,6 +1439,8 @@ class BaseOptimizer(ABC):
             extension_reach=self.config.extension_reach,
             circular=getattr(self.config, "fg_circular", False),
             conditions=self.conditions,
+            reverse_by_primer=reverse_by_primer,
+            geometry=getattr(self.config, "coverage_geometry", "symmetric"),
         )
 
     def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
