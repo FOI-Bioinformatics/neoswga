@@ -293,6 +293,61 @@ def _mark_window(
             occupied[clipped_start:clipped_end] = True
 
 
+#: The two coverage geometries a caller may ask for. `symmetric` is what every
+#: figure recorded in this repository was produced under and is the default
+#: wherever this is offered.
+COVERAGE_GEOMETRIES = ("symmetric", "directional")
+
+
+def site_spans(forward, reverse, oligo_length, reach, geometry="symmetric"):
+    """Where the sites of one oligo reach, as half-open spans.
+
+    `forward` are positions where the oligo itself occurs and `reverse` are
+    positions where its reverse complement occurs, both plus-strand offsets --
+    which is exactly what `PositionCache` stores under those two keys.
+
+    **`symmetric`** is the convention this package has always used:
+    `[pos - reach, pos + reach)` around every distinct site, so a site is
+    credited `2 * reach` bases. Positions are deduplicated, because
+    `get_positions(..., "both")` returns `np.unique(...)` and a
+    self-reverse-complementary oligo must not be credited twice.
+
+    **`directional`** follows the mechanism. A primer occurring literally at
+    `i` anneals to the MINUS strand there, the nascent strand is plus-sense,
+    and extension runs toward increasing coordinates: `[i, i + reach)`. An
+    occurrence of the reverse complement at `j` is the mirror -- the primer
+    anneals to the PLUS strand and extension runs toward decreasing
+    coordinates: `[j + oligo_length - reach, j + oligo_length)`. One direction
+    per occurrence, so a forward and a reverse site at the same coordinate give
+    two spans reaching opposite ways and are NOT deduplicated.
+
+    `reach` means the same thing in both modes -- the distance from the site --
+    so the directional mode credits half the bases per site that the symmetric
+    one does. That is deliberate and unresolved: `docs/validation/
+    2026-09-23-directional-coverage.md` records that Stage-1 set cover already
+    selects directionally at this width while everything that scores a panel is
+    symmetric at twice it, and that the reach value was fitted alongside the
+    symmetric convention. Refitting it is what decides the width; this function
+    exists so that refit can be measured rather than assumed.
+
+    Spans may fall outside `[0, length)`. The caller clips or wraps, as
+    `_mark_window` and `merged_window_intervals` already do, because only the
+    caller knows whether the reference is circular.
+    """
+    if geometry not in COVERAGE_GEOMETRIES:
+        raise ValueError(
+            f"Unknown coverage geometry {geometry!r}; expected one of "
+            f"{list(COVERAGE_GEOMETRIES)}"
+        )
+    if geometry == "symmetric":
+        sites = {int(p) for p in forward} | {int(p) for p in reverse}
+        return [(pos - reach, pos + reach) for pos in sorted(sites)]
+
+    spans = [(int(i), int(i) + reach) for i in forward]
+    spans += [(int(j) + oligo_length - reach, int(j) + oligo_length) for j in reverse]
+    return spans
+
+
 def merged_window_intervals(
     positions: Sequence[int],
     extension: int,
