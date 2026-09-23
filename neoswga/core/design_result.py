@@ -180,12 +180,18 @@ VALIDATION_FILENAME = "step4_improved_df_validation.json"
 def blocking_validator_findings(results_dir) -> list:
     """Details of any recorded finding that makes this pool unfit to order.
 
-    Returns an empty list when the file is absent or unreadable. That is
-    deliberate and is the one place this module fails OPEN: directories written
-    before the validator existed are explicitly supported, and refusing them
-    would be a refusal on the absence of evidence rather than on evidence.
-    A corrupt *failure* record is the opposite case and blocks, because there
-    the evidence exists and cannot be read.
+    Returns an empty list when the file is ABSENT. That is deliberate and is
+    the one place this module fails open: directories written before the
+    validator existed are explicitly supported, and refusing them would be a
+    refusal on the absence of evidence rather than on evidence.
+
+    A file that exists and cannot be READ blocks, which is the same rule
+    `export_is_blocked` applies to a corrupt failure record: there the evidence
+    exists and cannot be read, and the reason nobody can tell whether it named
+    a blocking finding is exactly why it must not be assumed it did not. This
+    docstring stated that rule and the code applied it to the other artifact
+    only, so a record truncated by a full disk or a killed process read as a
+    clean pool.
     """
     import json
     import os
@@ -196,8 +202,17 @@ def blocking_validator_findings(results_dir) -> list:
     try:
         with open(path) as handle:
             payload = json.load(handle)
-    except (OSError, ValueError):
-        return []
+    except (OSError, ValueError) as exc:
+        return [
+            f"the recorded verdict at {path} exists and could not be read ({exc}). "
+            "Whether it named a blocking finding is unknown, so this pool is not "
+            "vouched for. Re-run `neoswga optimize` to rewrite it."
+        ]
+    if not isinstance(payload, dict):
+        return [
+            f"the recorded verdict at {path} is not a validation record. "
+            "Re-run `neoswga optimize` to rewrite it."
+        ]
 
     return [
         str(issue.get("detail") or issue.get("code"))

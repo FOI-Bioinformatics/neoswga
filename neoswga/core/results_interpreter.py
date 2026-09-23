@@ -235,7 +235,14 @@ class ResultsInterpreter:
             with open(self.validation_file) as handle:
                 payload = json.load(handle)
         except (OSError, ValueError):
-            return False
+            # A record that exists and cannot be read blocks, matching
+            # `design_result.blocking_validator_findings`. `interpret` and
+            # `export` are the two commands that tell a user a pool is ready,
+            # and they must not disagree about the same directory. Absent is
+            # the other case and is handled above.
+            return True
+        if not isinstance(payload, dict):
+            return True
 
         from neoswga.core.design_result import BLOCKING_VALIDATOR_CODES
 
