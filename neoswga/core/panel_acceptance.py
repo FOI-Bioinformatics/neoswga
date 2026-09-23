@@ -206,12 +206,18 @@ def apply_configured_limits(
     verbose: bool = False,
     background_available: bool = False,
     budget: Any = None,
-) -> Optional[Any]:
+) -> Tuple[Optional[Any], "AcceptanceReport"]:
     """Hold one delivered result to its limits, repairing once if it misses.
 
-    Returns a replacement `OptimizationResult` when the repair produced a
-    different panel, and `None` when nothing changed, so the caller keeps the
-    object it had rather than rebuilding an identical one.
+    Returns `(replacement, report)`. The replacement is a new
+    `OptimizationResult` when the repair produced a different panel, and `None`
+    when nothing changed, so the caller keeps the object it had rather than
+    rebuilding an identical one.
+
+    The report is always returned, and it is the half that says whether the
+    delivered panel meets the limits. The replacement cannot: an unchanged
+    result means either that nothing needed repairing or that the repair
+    failed, and this function used to return the same `None` for both.
 
     Lives here rather than in `unified_optimizer` because it is acceptance
     logic, and because that module is at its size budget.
@@ -240,18 +246,28 @@ def apply_configured_limits(
 
     with budgeted_objective(objective, budget) if budget is not None else _nothing():
         updated, details = repair_result(result, optimizer, list(candidates or result.primers))
+
+    # Built on every run, not only a verbose one. This was constructed as an
+    # argument to `report_acceptance` inside `if verbose:`, so on a programmatic
+    # run the violations were never computed at all and there was nothing to
+    # record even in principle. Printing stays verbose-only.
+    report = AcceptanceReport(
+        list(updated.primers),
+        objective.violations(updated.primers),
+        objective.shortfall(updated.primers),
+        _configured_values(constraints, objective.metrics(updated.primers)),
+        bool(details.get("succeeded")),
+    )
     if verbose:
-        report_acceptance(
-            AcceptanceReport(
-                list(updated.primers),
-                objective.violations(updated.primers),
-                objective.shortfall(updated.primers),
-                _configured_values(constraints, objective.metrics(updated.primers)),
-                bool(details.get("succeeded")),
-            )
-        )
+        report_acceptance(report)
     if updated is result:
-        return None
+        # NOT "nothing was wrong". The docstring above states the rule that
+        # makes these two the same return: a repair that does not resolve the
+        # violation returns its input. So an unchanged result arrives here both
+        # when the panel met every limit and when it failed one the repair
+        # could not fix, and returning a bare None for both is how a panel
+        # missing the user's own limit reached the order form.
+        return None, report
     from dataclasses import replace
 
     stage = dict(
@@ -264,7 +280,7 @@ def apply_configured_limits(
         failed_constraints=list(objective.violations(updated.primers)),
         changed=True,
     )
-    return replace(updated, stage_history=(*updated.stage_history, stage))
+    return replace(updated, stage_history=(*updated.stage_history, stage)), report
 
 
 @dataclass(frozen=True)
