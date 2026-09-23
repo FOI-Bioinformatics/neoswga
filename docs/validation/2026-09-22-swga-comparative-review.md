@@ -263,3 +263,164 @@ small-pool tradeoffs and sequencing-informed iteration. Superiority in recovery
 or speed remains a hypothesis until a pinned, fair comparison supports it.
 The [implementation and evaluation roadmap](../design/2026-09-22-swga-leadership-plan.md)
 sets the work and acceptance gates needed to test that hypothesis.
+
+---
+
+# Addendum, 23 September 2026: COATswga re-examined, and one defect it exposes here
+
+The review above inspected COATswga statically and says so
+(**Scope and evidence**: competitor programs "were not installed or benchmarked").
+This addendum re-examines the same revision, `e2e0ff4`, and reports the first
+execution of COATswga code recorded in this repository. It is still narrow: two
+calls into its dimer model, no pipeline run, no amplification experiment.
+
+Three of the observations below were already recorded elsewhere here and are
+re-verified rather than new. They are marked as such, because a finding that
+restates the repository's own notes is worth less than one that does not, and
+conflating the two is how a review inflates its own contribution.
+
+## What is new
+
+### COATswga does not screen self-dimers, and says it does
+
+Its README ("without forming primer-primer dimers or self-dimers"), the
+docstring of its dimer routine, and the preprint ("checking for potential self-
+or primer-primer dimers") all claim the screen. The shipped code screens pairs
+only.
+
+Measured by calling its own code: a perfectly self-complementary 12-mer scores
+**-24.29** against itself, against its -2.79 threshold, and its `is_dimer`
+returns `False`. Searching the 40 COATswga references across this repository
+found no prior mention of this, so it appears to be new here.
+
+NeoSWGA screens self-dimers in three places, against a separate threshold
+`max_self_dimer_bp` (default 4, distinct from `max_dimer_bp` default 3):
+`filter.py:560-563` inside `filter_extra`, whose own docstring lists five rules
+and omits this one; `optimization_service.py:404-406`, where a screen that
+empties a non-empty pool raises `NoCandidatesError` naming the threshold; and
+`clique_optimizer.py:117-118`.
+
+### Its variable-length support is row pooling, not length-aware design
+
+COATswga's stated distinction is being "the only currently available pipeline
+that supports the generation of variable-length primer sets". The capability is
+real and the selection is not informed by it.
+
+After `make_df` the frame carries `primer, fg_count, bg_count, ratio`
+(`filter.py:206-208`), later `cov_len` and `sort_val`. **Length is not a
+column.** The search reads `primer`, `fg_count` and `bg_count`
+(`sets.py:109-110`, `:173-174`) and calls `len()` at exactly two sites
+(`sets.py:103`, `:189`), both to compute an interval endpoint. Nothing
+recomputes Tm, weights by duplex stability, or treats a 10-mer differently from
+a 14-mer. A 6-mer and a 22-mer compete on `cov_len / ratio**2` alone.
+
+This compounds with a Tm floor that does nothing. The ceiling is applied per k
+before pooling (`filter.py:96`); `min_tm` is in the defaults, exposed as a flag
+and documented, and read nowhere. (That last point is NOT new: it is recorded at
+`pool_selection_audit_2026-09-18.md:362`.) So a design declaring EquiPhi29 at
+42 C admits short oligos at any stability and ranks them against long ones on a
+criterion blind to the difference. This repository's own measurement says what
+that admits: at equiphi29 42 C, median occupancy is 0.001 at k=7, 0.205 at k=10
+and 0.917 at k=12 (`variable_oligo_length_2026-09-21.md:78-81`). COATswga's
+default k range starts at 8 and its shipped `params.json` starts at 6.
+
+NeoSWGA's contrast is `length_occupancy.occupancy_by_length`, reported from
+`filter` and from `optimize` and enforced nowhere. It reports and does not gate,
+which is the resolution Known Issue 17 reached for the same quantity -- but it
+is the measurement COATswga cannot make.
+
+### Ranking on the mean of the two strand coverages hides a starved strand
+
+COATswga runs two greedy passes, forward and reverse (`sets.py:112`, `:171`).
+Reaching `target_coverage` on both is a **stopping heuristic, not a
+requirement**: each loop breaks when the novelty ladder bottoms out
+(`sets.py:164-165`, `:218-219`) whether or not the target was met; the two are
+not symmetric, the reverse loop carrying an extra `coverage_change >= 0.01`
+guard that stops it a rung early; and the padding loop to `min_set_size`
+(`sets.py:222-228`) appends primers with a dimer check and no coverage check at
+all.
+
+Ranking is then on the **mean** of the two (`sets.py:262`, `:273`), so a set at
+0.99 forward and 0.30 reverse scores 0.645 and beats a balanced 0.60/0.60 at
+0.60. That is the failure `min_per_target_coverage` exists to name in NeoSWGA,
+applied across strands instead of across targets. Two numbers are printed
+(`sets.py:233-234`) and nothing flags the imbalance.
+
+NeoSWGA has the data to make the equivalent check and does not make it either:
+`strand_metrics` collects all five strand figures per genome onto
+`PrimerSetMetrics.strand_stats`, and Known Issue 18 records that the two
+headline strand scalars are deliberately not constrainable, because a zero there
+cannot be told from an unmeasured one. That reason does not extend to a
+balance REPORT, which is a gap on this side worth closing.
+
+## What COATswga does better, and the defect it exposes here
+
+**Its coverage model is directional, and that is mechanistically correct.**
+A forward site covers `[pos, min(chr_len, pos + frag)]` (`sets.py:93`); a
+reverse-complement site covers `[max(0, pos + len - frag), pos + len]`
+(`sets.py:103`). The derivation is short. If oligo P occurs literally at `i`,
+P anneals to the minus strand there, the nascent strand is plus-sense, and
+extension runs toward increasing coordinates. If `rc(P)` occurs at `j`, P
+anneals to the plus strand and extension runs toward decreasing coordinates.
+One direction per occurrence, never both.
+
+**NeoSWGA credits both.** Verified in source: both coverage entry points default
+to `strand="both"` (`coverage.py:28`, `:117`), so the position list holds
+occurrences of the oligo and of its reverse complement together; and
+`_mark_window` marks `occupied[pos-extension : pos+extension]`
+(`coverage.py:242`), a symmetric window `2r` wide centred on the site. So every
+occurrence earns coverage in the direction it cannot extend in.
+
+Put at its sharpest: `polymerase_extension_reach` returns an EXTENSION distance
+and the code spends it as a RADIUS.
+
+**The magnitude is not measured, and this entry does not claim one.** The
+argument is structural: it predicts inflation, not how much. Where forward and
+reverse-complement sites interleave, the wrong-direction half is often covered
+anyway from the neighbouring opposite-orientation site -- which is the same
+effect behind the record-geometry measurement reading exactly zero on
+two-chromosome Prevotella while reading +4.788% on *Drosophila*
+(`record_geometry_on_drosophila_2026-09-21.md`). The expectation is therefore a
+small error on dense panels and a larger one on sparse panels, and sparse is
+where SWGA designs live. Nothing here establishes that.
+
+Anyone acting on this should note what it touches: `fg_coverage` is the
+authoritative figure in every `step4_improved_df_summary.json` and in the
+validation documents throughout this directory. Measure before changing.
+
+**COATswga's own model collapses in one place.** In the reverse loop,
+`sets.py:189` builds the candidate's reverse intervals from the FORWARD
+occurrence list extended leftward, where `sets.py:103` correctly uses the
+reverse-complement list for the same job; `sets.py:206` then builds forward
+intervals from that identical list extended rightward. One occurrence earns both
+sides there. Every other interval construction in the tool is one-sided
+(`sets.py:93`, `:103`, `:134`, `:153`, `:206`, `filter.py:296`).
+
+**Its record handling avoids this repository's record-join class by
+construction, for a representation reason rather than a modelling insight.**
+Intervals are `(chr, start, end)` triples keyed by chromosome
+(`filter.py:256-260`), merged within chromosome, and totalled per record
+(`sets.py:60-63`); both endpoints clamp to the record. A window spanning a join
+is not expressible. NeoSWGA concatenates records into one coordinate space and
+must then re-impose the boundaries, which `compute_per_prefix_coverage` does and
+`merged_window_intervals` does not -- the disagreement recorded under **The two
+production coverage paths** in CLAUDE.md. The same representation also removes
+the scanner-fabrication class: `filter.py:142-150` scans each record separately,
+so a k-mer spanning a join is never formed.
+
+## What this addendum does NOT establish
+
+- No COATswga pipeline was run. Its reported experimental results are neither
+  reproduced nor disputed here, and the scope disclaimer above still governs.
+- The directional over-credit in NeoSWGA is argued from source, not measured.
+- Two calls into COATswga's dimer model are the whole of the execution evidence.
+- The chemistry comparison rests on reading both codebases, not on any reaction.
+  NeoSWGA has a reaction model where COATswga has none, and that model is
+  largely extrapolated: of 23 constants in `registry/model_evidence.json`, 7 are
+  `measured`, both coverage reaches are `assumed`, `mismatch_penalty` is
+  `assumed` and uniform, and the betaine, trehalose and urea coefficients each
+  carry an in-code retraction in `mechanistic_params.py`.
+  `additive_specificity.md:24-30` states the same caveat for its own contents:
+  "none of this is validated against a measured wet-lab outcome." Having a model
+  and having evidence for it are different claims, and only the first is
+  established.
