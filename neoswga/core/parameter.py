@@ -742,6 +742,10 @@ genome_gc = None
 # `unified_optimizer.run_optimization` reads this global, so get_params must
 # assign it or a params.json setting silently does nothing.
 coverage_reach = None
+#: Which geometry a coverage figure is computed under. See
+#: `coverage.COVERAGE_GEOMETRIES`; the default is what every recorded figure
+#: was produced under and the reach was fitted alongside it.
+coverage_geometry = "symmetric"
 
 # Panel-level limits; all unset by default and they must stay that way.
 # Reasoning in `panel_acceptance`'s docstring.
@@ -942,6 +946,7 @@ def _apply_params_only_keys(data: dict) -> None:
     global swap_max_seconds
     global allow_dimer_relaxation
     global coverage_reach
+    global coverage_geometry
     global occupancy_ranking
     global occupancy_shortlist
     global max_mismatches
@@ -977,6 +982,7 @@ def _apply_params_only_keys(data: dict) -> None:
     swap_max_seconds = _search["swap_max_seconds"]
     stage1_objective_width = _search["stage1_objective_width"]
     coverage_reach = _search["coverage_reach"]
+    coverage_geometry = data.get("coverage_geometry", "symmetric")
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
     occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")
     max_mismatches = data["max_mismatches"] = data.get("max_mismatches")
