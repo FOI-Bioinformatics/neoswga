@@ -80,6 +80,16 @@ against -- a measured sequencing breadth for a design from this pool -- and
 `calibrate-reach --bam` exists for exactly that and has never been run, there
 being no BAM in this repository.
 
+## The other way of aligning the two stages
+
+Stage 1 already selects directionally while the scoring is symmetric, so the
+mismatch can also be closed by moving Stage 1 rather than the scoring. That was
+implemented, measured and reverted on the same day:
+[2026-09-23-stage-one-alignment.md](2026-09-23-stage-one-alignment.md). It
+improves coverage at a fixed panel size and shrinks a coverage-target-driven
+panel from five primers to three, by adopting the wider window. Neither
+direction of alignment is taken.
+
 ## What this does not establish
 
 - **One target, one background, one candidate pool.** Four panel sizes on
