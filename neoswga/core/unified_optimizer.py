@@ -1216,8 +1216,8 @@ def run_optimization(
         raise
     except Exception as exc:
         # Skipping the validator disarms every post-optimization guard at once
-        # -- duplicates, size drift, zero coverage, blacklist re-injection and
-        # the delivered-panel dimer check -- and writes no validation file, so
+        # -- duplicates, size drift, a starved target, blacklist re-injection
+        # and the delivered-panel dimer check -- and writes no validation file, so
         # `neoswga export` finds nothing to block on and prints "ready for
         # ordering".
         raise ModelEvaluationError("post-optimization validation", method, str(exc)) from exc
