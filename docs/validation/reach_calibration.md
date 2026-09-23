@@ -189,7 +189,13 @@ the fix; `num_primers` in params.json is the way to ask for more meanwhile.
   which also records that the directional model is already implemented and
   that every method's Stage-1 selection uses it while everything that scores is
   symmetric. The script this entry lacked is
-  `scripts/benchmarking/directional_coverage.py`.*
+  `scripts/benchmarking/directional_coverage.py`.
+  **Refitted 2026-09-23**: under directional windows the band is **4.4-6.7 kb**
+  against 2.9-4.6 kb symmetric, a ratio of 1.52x rather than the 2x a per-site
+  argument predicts -- coverage is concave in reach, so restoring it costs less
+  than doubling. The symmetric rebuild matches the table above to 0.005, which
+  is what makes the two comparable. See
+  [2026-09-23-reach-refit-directional.md](2026-09-23-reach-refit-directional.md).*
 - **A BAM narrows this, but does not settle it.** `calibrate-reach --bam` fits
   the reach from sequencing depth directly, without the breadth-at-depth proxy
   or the single-outcome dependence. What it returns is still a model parameter
