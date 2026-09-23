@@ -19,6 +19,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+# Re-exported: it moved to `coverage`, which owns `site_spans` and `mark_span`
+# that it calls, and `base_optimizer` was at its size ceiling. Importers keep
+# working and there is still one implementation.
+from .coverage import union_coverage as _union_coverage  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 # Selectivity ratio that scores a full 1.0 on the normalised scale. Not a
@@ -116,68 +121,6 @@ def _selectivity_density_from_loads(
         # Same convention as the count ratio: unbounded, not merely large.
         return MAX_SELECTIVITY if fg_density > 0 else 0.0
     return fg_density / bg_density
-
-
-def _union_coverage(
-    positions,
-    total_length: int,
-    reach: int,
-    circular: bool,
-    *,
-    reverse=(),
-    geometry: str = "symmetric",
-) -> float:
-    """Fraction of a sequence a panel's binding sites reach.
-
-    Module-level and free of instance state because three call sites want it --
-    the selection reach, each reporting reach, and the circular-wrap tests that
-    duck-type an optimizer with only a `config`. Three implementations of one
-    quantity is how this codebase has produced disagreeing coverage numbers
-    before; one audit found three different semantics for "coverage" at once.
-    That is why the second geometry lives here rather than in a sibling.
-
-    `positions` are the sites the oligo occurs at and `reverse` the sites its
-    reverse complement occurs at. Under `symmetric`, the default and the
-    convention every recorded figure was produced under, the two are unioned
-    and deduplicated and each site is credited `[pos - reach, pos + reach)`;
-    a caller that already pooled them passes the pooled list and nothing else,
-    and gets the same answer it always got. Under `directional` each site
-    reaches one way only, which is what the polymerase does and half the width.
-
-    `docs/validation/2026-09-23-reach-refit-directional.md` refits the reach
-    under the second geometry -- 4.4-6.7 kb against 2.9-4.6 -- so the two are
-    not interchangeable at one value and neither is chosen here.
-    """
-    import numpy as np
-
-    from .coverage import mark_span, site_spans
-
-    forward = list(positions or ())
-    backward = list(reverse or ())
-    if not forward and not backward:
-        return 0.0
-    if total_length == 0:
-        return 0.0
-
-    # On a circular target a single site whose span covers the whole sequence
-    # covers everything, and the marking loop cannot represent that. The width
-    # is geometry-dependent: `2 * reach` symmetric, `reach` directional. Left
-    # at the symmetric test this would report 1.0 for a directional model
-    # covering half the sequence, and small circular targets -- every plasmid
-    # design -- are exactly where it fires.
-    width = 2 * reach if geometry == "symmetric" else reach
-    if circular and width >= total_length:
-        return 1.0
-
-    occupied = np.zeros(total_length, dtype=bool)
-    for low, high in site_spans(forward, backward, reach, geometry):
-        # No `record_starts` and so no anchor, deliberately and unchanged:
-        # `coverage.merged_window_intervals` records that neither this nor
-        # `_compute_effective_coverage` confines windows to record boundaries,
-        # and making that true here alone would leave two coverage paths
-        # disagreeing about a contig edge instead of one.
-        mark_span(occupied, low, high, total_length, circular)
-    return float(occupied.sum()) / total_length
 
 
 @dataclass(frozen=True)
@@ -720,6 +663,18 @@ class OptimizerConfig:
     # Populated from params.json `fg_circular` via unified_optimizer.
     fg_circular: bool = False
 
+    # Which geometry a coverage figure is computed under. `symmetric` credits
+    # every site `[pos - reach, pos + reach)`; `directional` credits each site
+    # the one way it can extend. Beside `extension_reach` and `fg_circular`
+    # because the three together are what a coverage figure MEANS, and none of
+    # them is comparable across values.
+    #
+    # `symmetric` is the default and every recorded figure was produced under
+    # it. The reach was fitted alongside it too -- 2.9-4.6 kb symmetric against
+    # 4.4-6.7 directional -- so changing this without the reach recalibrates
+    # silently. See docs/validation/2026-09-23-reach-refit-directional.md.
+    coverage_geometry: str = "symmetric"
+
     # Convergence criteria
     convergence_threshold: float = 0.001
     patience: int = 10  # Iterations without improvement before stopping
@@ -982,6 +937,60 @@ class BaseOptimizer(ABC):
 
         return valid
 
+    def _gather_sites(self, primers, fg_positions_by_primer):
+        """Every binding site for a panel, per prefix, with orientation.
+
+        Orientations are recorded only when something will use them. The
+        default path still makes ONE cache lookup per primer and prefix:
+        `get_positions` is the hottest method in the package, and a run that
+        does not ask for the second geometry should not pay for it.
+
+        Returns `(directional, dict)` where the dict always carries the pooled
+        `fg` and `bg` lists -- the site COUNTS and the occupancy path both want
+        those, and neither is geometry-dependent -- and carries the split lists
+        only when the geometry asked for them.
+        """
+        directional = getattr(self.config, "coverage_geometry", "symmetric") == "directional"
+        out = {
+            "fg": {prefix: set() for prefix in self.fg_prefixes},
+            "bg": {prefix: set() for prefix in self.bg_prefixes},
+            "fg_forward": {prefix: set() for prefix in self.fg_prefixes},
+            "fg_reverse": {prefix: set() for prefix in self.fg_prefixes},
+            "bg_forward": {prefix: set() for prefix in self.bg_prefixes},
+            "bg_reverse": {prefix: set() for prefix in self.bg_prefixes},
+        }
+        for primer in primers:
+            for prefix in self.fg_prefixes:
+                sites = self._oriented_positions(
+                    primer, prefix, directional, out["fg_forward"], out["fg_reverse"]
+                )
+                out["fg"][prefix].update(sites)
+                fg_positions_by_primer[prefix][primer] = sites
+            for prefix in self.bg_prefixes:
+                sites = self._oriented_positions(
+                    primer, prefix, directional, out["bg_forward"], out["bg_reverse"]
+                )
+                out["bg"][prefix].update(sites)
+        return directional, {key: {p: sorted(v) for p, v in d.items()} for key, d in out.items()}
+
+    def _oriented_positions(self, primer, prefix, directional, forward_by, reverse_by):
+        """Sites for one primer and prefix, recording orientation when asked.
+
+        Returns the pooled list either way, because the site COUNTS and the
+        occupancy path both want it and neither is geometry-dependent. Under
+        the directional geometry the pooled list is derived from the two
+        orientations rather than fetched again -- `get_positions(..., "both")`
+        is `np.unique(concatenate(forward, reverse))`, so deriving it is the
+        same answer and one lookup cheaper.
+        """
+        if not directional:
+            return self.get_primer_positions(primer, prefix, "both").tolist()
+        forward = self.get_primer_positions(primer, prefix, "forward").tolist()
+        reverse = self.get_primer_positions(primer, prefix, "reverse").tolist()
+        forward_by[prefix].update(forward)
+        reverse_by[prefix].update(reverse)
+        return sorted(set(forward) | set(reverse))
+
     def get_primer_positions(self, primer: str, prefix: str, strand: str = "both") -> np.ndarray:
         """
         Get binding positions for a primer in a genome.
@@ -1138,18 +1147,10 @@ class BaseOptimizer(ABC):
         bg_by_prefix = {prefix: set() for prefix in self.bg_prefixes}
         fg_positions_by_primer = {prefix: {} for prefix in self.fg_prefixes}
 
-        for primer in primers:
-            for prefix in self.fg_prefixes:
-                positions = self.get_primer_positions(primer, prefix, "both")
-                fg_by_prefix[prefix].update(positions.tolist())
-                fg_positions_by_primer[prefix][primer] = positions.tolist()
-
-            for prefix in self.bg_prefixes:
-                positions = self.get_primer_positions(primer, prefix, "both")
-                bg_by_prefix[prefix].update(positions.tolist())
-
-        fg_by_prefix = {p: sorted(v) for p, v in fg_by_prefix.items()}
-        bg_by_prefix = {p: sorted(v) for p, v in bg_by_prefix.items()}
+        directional, gathered = self._gather_sites(primers, fg_positions_by_primer)
+        fg_by_prefix, bg_by_prefix = gathered["fg"], gathered["bg"]
+        fg_fwd, fg_rev = gathered["fg_forward"], gathered["fg_reverse"]
+        bg_fwd, bg_rev = gathered["bg_forward"], gathered["bg_reverse"]
 
         # Flat lists remain for the site COUNTS, where summing across sequences
         # is exactly right and de-duplication across them would be wrong.
@@ -1158,7 +1159,10 @@ class BaseOptimizer(ABC):
 
         # Coverage
         fg_coverage = self._coverage_over_prefixes(
-            fg_by_prefix, self.fg_prefixes, self.fg_seq_lengths
+            fg_fwd if directional else fg_by_prefix,
+            self.fg_prefixes,
+            self.fg_seq_lengths,
+            reverse_by_prefix=fg_rev if directional else None,
         )
         effective_fg_coverage = None
         if self.conditions is not None:
@@ -1181,7 +1185,12 @@ class BaseOptimizer(ABC):
             fg_by_prefix, self.fg_prefixes, self.fg_seq_lengths, reach=headline_reach
         )
         bg_coverage = (
-            self._coverage_over_prefixes(bg_by_prefix, self.bg_prefixes, self.bg_seq_lengths)
+            self._coverage_over_prefixes(
+                bg_fwd if directional else bg_by_prefix,
+                self.bg_prefixes,
+                self.bg_seq_lengths,
+                reverse_by_prefix=bg_rev if directional else None,
+            )
             if self.bg_total_length > 0
             else 0.0
         )
@@ -1283,7 +1292,9 @@ class BaseOptimizer(ABC):
             extension_reach=self.config.extension_reach,
         )
 
-    def _coverage_over_prefixes(self, positions_by_prefix, prefixes, seq_lengths, reach=None):
+    def _coverage_over_prefixes(
+        self, positions_by_prefix, prefixes, seq_lengths, reach=None, reverse_by_prefix=None
+    ):
         """Coverage across several sequences, weighted by their lengths.
 
         Each sequence is measured in its own coordinate space and the covered
@@ -1301,10 +1312,11 @@ class BaseOptimizer(ABC):
             if length <= 0:
                 continue
             positions = positions_by_prefix.get(prefix, [])
+            reverse = (reverse_by_prefix or {}).get(prefix, ())
             fraction = (
-                self._compute_coverage(positions, length)
+                self._compute_coverage(positions, length, reverse=reverse)
                 if reach is None
-                else self._compute_coverage_at(positions, length, reach)
+                else self._compute_coverage_at(positions, length, reach, reverse=reverse)
             )
             covered += fraction * length
         return covered / total
@@ -1323,7 +1335,7 @@ class BaseOptimizer(ABC):
             for reach in sorted(reaches)
         }
 
-    def _compute_coverage(self, positions: List[int], total_length: int) -> float:
+    def _compute_coverage(self, positions: List[int], total_length: int, reverse=()) -> float:
         """Compute coverage fraction from positions.
 
         Uses ``config.extension_reach`` (per-primer reach in bp) to
@@ -1341,6 +1353,8 @@ class BaseOptimizer(ABC):
             total_length,
             self.config.extension_reach,
             getattr(self.config, "fg_circular", False),
+            reverse=reverse,
+            geometry=getattr(self.config, "coverage_geometry", "symmetric"),
         )
 
     def _compute_coverage_by_reach(self, positions, total_length: int) -> Dict[int, float]:
@@ -1377,10 +1391,15 @@ class BaseOptimizer(ABC):
         polymerase = getattr(self.conditions, "polymerase", None) if self.conditions else None
         return product_reach(polymerase or "phi29")
 
-    def _compute_coverage_at(self, positions, total_length: int, reach: int) -> float:
+    def _compute_coverage_at(self, positions, total_length: int, reach: int, reverse=()) -> float:
         """Raw union coverage at an explicit reach."""
         return _union_coverage(
-            positions, total_length, reach, getattr(self.config, "fg_circular", False)
+            positions,
+            total_length,
+            reach,
+            getattr(self.config, "fg_circular", False),
+            reverse=reverse,
+            geometry=getattr(self.config, "coverage_geometry", "symmetric"),
         )
 
     def _compute_effective_coverage(self, positions_by_primer, total_length: int) -> float | None:
