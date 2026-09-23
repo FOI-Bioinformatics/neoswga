@@ -130,8 +130,16 @@ evenness metric.
   numbers above are fitted to a breadth proxy.
 - **Nothing about delivered panels.** This fits a reach; it does not say
   whether a design run under directional windows selects a different set of
-  oligos. That is the next measurement and it decides whether this is a
-  reporting change or a design change.
+  oligos. *Measured on 2026-09-23 in
+  [2026-09-23-does-the-panel-move.md](2026-09-23-does-the-panel-move.md): it
+  does, at two panel sizes of four at equal reach and three of four at the
+  refitted one, so the geometry is a design change on that pool.*
+- **The 1.52x factor does not transfer to another target.** On Wolbachia the
+  refitted pairing is nearly coverage-neutral, 0.619 against 0.609 for the
+  anchor set. Applying the same factor on Prevotella leaves coverage 18-25%
+  lower. Coverage is concave in reach and the concavity depends on site
+  density, so a ratio of band edges fitted here is a fact about this target.
+  Measured in the same document.
 - **The binned Stage-1 model is untouched.** It already selects directionally,
   at one-sided `r`, while this fit concerns the base-resolution scoring path.
   Aligning them is a separate increment.

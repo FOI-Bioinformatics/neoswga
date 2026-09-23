@@ -526,6 +526,12 @@ def _build_optimizer_config(
         verbose=verbose,
         extension_reach=extension_reach,
         fg_circular=fg_circular,
+        # The three settings that together decide what a coverage figure MEANS.
+        # `symmetric` is what every recorded figure was produced under, and the
+        # reach was fitted alongside it, so moving one without the other
+        # recalibrates silently -- see
+        # docs/validation/2026-09-23-reach-refit-directional.md.
+        coverage_geometry=pick("coverage_geometry", "symmetric"),
         max_dimer_bp=pick("max_dimer_bp", 4),
         max_dimer_dg=pick("max_dimer_dg", None),
         allow_dimer_relaxation=pick("allow_dimer_relaxation", False),
