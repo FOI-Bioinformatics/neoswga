@@ -588,12 +588,26 @@ def get_all_rates(
 
     primer_to_fg_count = get_rates_for_one_species(primer_list, fg_prefixes)
 
-    # Check if Bloom filter should be used for background filtering
-    # Auto-enable if bg_bloom is specified in params (common user config)
-    bloom_path = getattr(parameter, "bloom_filter_path", None) or getattr(
-        parameter, "bg_bloom", None
-    )
-    use_bloom = getattr(parameter, "use_bloom_filter", bloom_path is not None)
+    # Both keys are required, and that is not obvious: a user who builds a
+    # filter and sets only the path gets exact counting and no explanation,
+    # having paid the build cost -- hours on hg38.
+    #
+    # The comment here used to say "auto-enable if bg_bloom is specified", and
+    # neither half was true. `use_bloom_filter` is a module global that always
+    # exists and defaults to False, so the `getattr` fallback that would have
+    # enabled it could never be reached; and `bg_bloom` is not a schema key,
+    # is assigned nowhere, so that arm of the `or` was permanently dead.
+    # Whether a path alone should enable the filter is a behaviour decision
+    # and is deliberately not taken here; saying so is not.
+    bloom_path = getattr(parameter, "bloom_filter_path", None)
+    use_bloom = getattr(parameter, "use_bloom_filter", False)
+    if bloom_path and not use_bloom:
+        logger.warning(
+            'bloom_filter_path is set to %s but "use_bloom_filter" is false, '
+            "so the Bloom filter is NOT being used and background k-mers are "
+            "counted exactly. Set use_bloom_filter to true to use it.",
+            bloom_path,
+        )
 
     if use_bloom and bloom_path:
         primer_to_bg_count = get_bg_rates_via_bloom(primer_list, bloom_path)

@@ -91,6 +91,31 @@ def _open_expansion_source(parameter, args, candidates):
     return context, source, source.initial()
 
 
+def _alias_keys(fg_prefixes):
+    """The names `--contig-alias` must be keyed on, for this path.
+
+    `ReferenceLayout.bind` keys on FASTA RECORD names, and
+    `_record_keyed_aliases` translates a prefix only when the reference holds
+    exactly one record. So the useful thing to print is the record names, and
+    the prefix only where that is what a prefix means here.
+    """
+    from neoswga.core.reference_layout import read_layout
+
+    keys = []
+    # The truncation is deliberate: these are parallel in a well-formed config,
+    # but this runs while explaining a failure and the config may be what is
+    # wrong, so pair as far as both go rather than raising over the message.
+    genomes = getattr(parameter, "fg_genomes", None) or []
+    for prefix, genome in zip(fg_prefixes, genomes, strict=False):
+        try:
+            layout = read_layout(genome, prefix=prefix)
+        except Exception:
+            keys.append(os.path.basename(prefix))
+            continue
+        keys.extend(layout.names if len(layout.records) > 1 else [os.path.basename(prefix)])
+    return keys or [os.path.basename(p) for p in fg_prefixes]
+
+
 def _bam_gaps_for_expansion(args, fg_prefixes, fg_seq_lengths, quiet):
     """Low-depth regions from a mapped BAM, or None when no BAM was given.
 
@@ -143,15 +168,25 @@ def _bam_gaps_for_expansion(args, fg_prefixes, fg_seq_lengths, quiet):
         logger.info(f"BAM low-depth gaps: {len(gaps)}")
     if not gaps:
         # The commonest real BAM failure: header contig names (say 'chr1') not
-        # matching the foreground prefixes. Reading the header needs no index.
+        # matching the reference. Reading the header needs no index.
+        #
+        # This lists the names the BINDING uses, which are FASTA record names
+        # here, not prefixes. `fg_genomes` is passed above, so this is the
+        # record-keyed path through `ReferenceLayout.bind`, and a prefix alias
+        # is translated only for a single-record reference. Printing prefixes
+        # and saying "map them" handed the user a key that binds nothing --
+        # they would re-run, get zero gaps again, and expansion would proceed
+        # on in-silico gaps having ignored the BAM.
         with open_alignment(args.bam, require_index=False, reference=reference) as bam:
             contigs = list(bam.references)
         logger.warning(
             "No BAM gaps produced. If this is unexpected, the BAM "
-            "contig names may not match the foreground prefixes.\n"
+            "contig names may not match the reference.\n"
             f"  BAM contigs: {contigs[:10]}\n"
-            f"  fg prefixes: {[os.path.basename(p) for p in fg_prefixes]}\n"
-            "  Map them with --contig-alias FG=BAMCONTIG (repeatable)."
+            f"  reference names to map: {_alias_keys(fg_prefixes)[:10]}\n"
+            "  Map them with --contig-alias NAME=BAMCONTIG (repeatable). The "
+            "key is a FASTA record name, or the prefix when the reference "
+            "holds one record."
         )
     return gaps
 

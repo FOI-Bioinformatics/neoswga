@@ -297,7 +297,9 @@ class SetupWizard:
         elif length > 10_000_000:
             self.warnings.append(
                 f"Large genome ({format_bp(length)}) - pipeline may take longer. "
-                "Consider using --cpus to parallelize."
+                'Set "cpus" in params.json to parallelize. It is a config '
+                "key rather than a command-line option, and every command "
+                "rejects one spelled as a flag."
             )
 
         if n_contigs > 100:

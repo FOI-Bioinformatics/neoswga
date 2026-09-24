@@ -217,3 +217,36 @@ def exit_on_step_failure(step_name, error, logger, data_dir=None):
         # copies had accumulated, and the reason they are now one.
         logger.error("Run with --verbose for full traceback")
     sys.exit(1)
+
+
+def report_import_failure(error):
+    """Say which import failed before advising a reinstall.
+
+    This handler wraps a whole pipeline step, so it catches an `ImportError`
+    raised anywhere inside it -- not only a failure to import the pipeline
+    module. The common case is an OPTIONAL dependency: networkx for the clique
+    optimizer, pysam for the [bam] extra, pybloom_live, matplotlib. Each of
+    those raises with a message naming exactly what to install, and this then
+    added "This may indicate a corrupted installation. Try: pip install -e .
+    --force-reinstall" underneath it -- correct advice followed by wrong
+    advice, with the wrong one last.
+
+    Reinstalling the package does not add an optional extra, so following it
+    costs a reinstall and leaves the failure in place.
+
+    `ImportError.name` is the module that could not be imported, so a
+    third-party one is reported as what it is and the original message, which
+    already names the remedy, is left to stand.
+    """
+    module = getattr(error, "name", None) or ""
+    logger.error("Import failed: %s", error)
+    if module and not module.startswith("neoswga"):
+        logger.error(
+            "%r is an optional dependency rather than part of neoswga. "
+            "Install it, or the extra that provides it; reinstalling the "
+            "package will not add it.",
+            module.split(".")[0],
+        )
+        return
+    logger.error("This may indicate a corrupted installation.")
+    logger.error("Try: pip install -e . --force-reinstall")

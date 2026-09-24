@@ -542,9 +542,13 @@ def _initialize():
     if bg_total > _BLOOM_THRESHOLD:
         bg_mb = bg_total / 1_000_000
         logger.warning(
-            f"Background genome is large ({bg_mb:.0f} Mbp). Consider pre-building "
-            "a Bloom filter for faster filtering:\n"
-            "  neoswga build-filter <background.fna> <data_dir>"
+            f"Background genome is large ({bg_mb:.0f} Mbp). A Bloom filter "
+            "can speed up filtering, and BUILDING ONE IS NOT ENOUGH -- "
+            "`filter` does not look for it, so both params.json keys are "
+            "needed or the build is wasted:\n"
+            "  neoswga build-filter <background.fna> <dir>\n"
+            '  then set "bloom_filter_path": "<dir>/bg_bloom.pkl" and '
+            '"use_bloom_filter": true in params.json'
         )
 
     # Apply GC-adaptive strategy if genome_gc is available

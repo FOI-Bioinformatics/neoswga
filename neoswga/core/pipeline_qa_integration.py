@@ -630,10 +630,20 @@ def apply_qa_to_step2_output(
     )
 
     if result.primers_out == 0:
+        # "Relax the QA stringency" used to lead this message and could not be
+        # done. All ten `QAFilterConfig` fields are neither a schema key nor a
+        # `parameter` global nor a flag, and the only production caller --
+        # `cli/pipeline.py` -> `apply_qa_to_step2_output` -- passes no config,
+        # so every run uses the "moderate" defaults. The library does have the
+        # lever (`create_three_prime_analyzer(stringency="lenient")`) and
+        # nothing can ask for it. Naming the one thing a user can actually do
+        # beats naming two when only one works.
         raise ValueError(
             f"QA filtering rejected all {result.primers_in} candidate primers "
-            f"({result.filter_reasons}). Relax the QA stringency or drop "
-            f"--enable-qa; {step2_path} is unchanged."
+            f"({result.filter_reasons}). Drop --enable-qa to keep the "
+            f"unfiltered pool; {step2_path} is unchanged. The QA stringency "
+            f"itself is fixed at 'moderate' and is not configurable, so the "
+            f"rejection reasons above are what to act on."
         )
 
     filtered = result.filtered_df.drop(columns=["qa_pass", "filter_reason"], errors="ignore")

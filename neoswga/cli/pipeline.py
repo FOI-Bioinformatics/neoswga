@@ -21,7 +21,7 @@ from neoswga.cli._common import (
     validate_params_json_file,
     warn_on_condition_drift,
 )
-from neoswga.cli._failure import exit_on_step_failure
+from neoswga.cli._failure import exit_on_step_failure, report_import_failure
 from neoswga.cli._optimize_parser import _add_optimize_option_groups
 from neoswga.cli._params_preread import (
     apply_polymerase_choice,
@@ -367,9 +367,7 @@ def run_step2(args):
             print("\nNext: neoswga prepare-candidates -j params.json")
 
     except ImportError as e:
-        logger.error(f"Failed to import pipeline module: {e}")
-        logger.error("This may indicate a corrupted installation.")
-        logger.error("Try: pip install -e . --force-reinstall")
+        report_import_failure(e)
         sys.exit(1)
     except StepPrerequisiteError as e:
         # Detailed error with remediation is in the exception message
@@ -464,9 +462,7 @@ def run_step3(args):
             print("\nNext: neoswga optimize -j params.json")
 
     except ImportError as e:
-        logger.error(f"Failed to import pipeline module: {e}")
-        logger.error("This may indicate a corrupted installation.")
-        logger.error("Try: pip install -e . --force-reinstall")
+        report_import_failure(e)
         sys.exit(1)
     except StepPrerequisiteError as e:
         # Detailed error with remediation is in the exception message
