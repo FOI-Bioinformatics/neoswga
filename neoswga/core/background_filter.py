@@ -281,23 +281,43 @@ class BackgroundBloomFilter:
                     )
 
                 batch = []
+                skipped = 0
                 for line in iterator:
-                    parts = line.strip().split()
-                    if len(parts) >= 1:
-                        kmer = parts[0]
-                        batch.append(kmer)
+                    parts = line.split()
+                    if not parts:
+                        continue
+                    kmer = parts[0].upper()
+                    # `add_genome` skips a k-mer holding a base outside ACGT,
+                    # and this route applied no check at all, so the two
+                    # disagreed about what the filter contains and kmer_count
+                    # counted tokens that are not k-mers. The length check is
+                    # the same claim: an entry in the k-mer table for length k
+                    # that is not k bases long did not come from that table's
+                    # counting run.
+                    if len(kmer) != k or not self._is_valid_kmer(kmer):
+                        skipped += 1
+                        continue
+                    batch.append(kmer)
 
-                        if len(batch) >= 50000:
-                            for km in batch:
-                                self.bloom.add(km)
-                            self.kmer_count += len(batch)
-                            batch = []
+                    if len(batch) >= 50000:
+                        for km in batch:
+                            self.bloom.add(km)
+                        self.kmer_count += len(batch)
+                        batch = []
 
                 # Add remaining batch
                 if batch:
                     for km in batch:
                         self.bloom.add(km)
                     self.kmer_count += len(batch)
+
+                if skipped:
+                    logger.warning(
+                        "  %s: skipped %d entries that are not %d-mers over ACGT",
+                        fpath,
+                        skipped,
+                        k,
+                    )
 
         logger.info(f"Bloom filter built from k-mer files: {self.kmer_count:,} unique k-mers")
 
