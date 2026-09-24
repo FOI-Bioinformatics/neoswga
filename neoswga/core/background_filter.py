@@ -31,15 +31,51 @@ def _reverse_complement(seq: str) -> str:
     return seq.translate(_COMPLEMENT)[::-1]
 
 
+def distinct_kmer_capacity(
+    genome_size: int, min_k: int = 6, max_k: int = 12, margin: float = 1.1
+) -> int:
+    """Upper bound on the DISTINCT k-mers a genome holds, over min_k..max_k.
+
+    pybloom allocates its bit array upfront from `capacity`, and its `add`
+    increments the count only for an item the filter did not already hold. So
+    this is the quantity capacity must bound.
+
+    The previous heuristic, ten times the genome's base count, bounded
+    INSERTIONS instead: every position contributes one k-mer per length, and
+    the multiplier was chosen for those seven lengths. On hg38 that asked for
+    33e9 capacity, about 39.6 GB of bits, where the distinct count is 22.4
+    million and about 27 MB. It could not be allocated on the one background
+    this module exists for, while every small-genome test passed.
+
+    Each term saturates at 4**k, which is why a 144 Mb and a 3.3 Gb genome
+    return the same bound: above the k-mer space a longer genome cannot hold
+    more distinct k-mers. The margin covers pybloom raising AT capacity rather
+    than above it, and the floor keeps the result usable, since a capacity of
+    zero is rejected.
+    """
+    total = 0
+    for k in range(min_k, max_k + 1):
+        positions = max(0, genome_size - k + 1)
+        total += min(4**k, positions)
+    return max(1, int(total * margin))
+
+
 @dataclass
 class BackgroundFilterConfig:
     """Configuration for background filtering"""
 
     max_exact_matches: int = 10  # Max perfect matches in background
-    max_1mm_matches: int = 100  # Max 1-mismatch matches
+    # Bounded by 1 + 3k neighbours REPORTED PRESENT, not by a site count: 37
+    # for a 12-mer. See BackgroundBloomFilter.count_present_neighbours.
+    max_1mm_matches: int = 100
     bloom_fp_rate: float = 0.01  # Bloom filter false positive rate
     sample_rate: int = 100  # For sampled suffix array
     use_repeat_filter: bool = True
+    # The oligo lengths the filter must answer for. A design using a length
+    # outside this range reads as absent from the background and clears the
+    # gate unscreened, so these must cover the design's own min_k..max_k.
+    min_k: int = 6
+    max_k: int = 12
 
 
 class BackgroundBloomFilter:
@@ -491,27 +527,33 @@ class BackgroundFilter:
         """
         genome_size = self._estimate_genome_size(fasta_path)
 
-        # Capacity must count INSERTIONS, not bases. Every position contributes
-        # one k-mer per length in min_k..max_k (seven by default), so sizing the
-        # filter to the base count overflows it by about an order of magnitude
-        # and pybloom raises "BloomFilter is at capacity" partway through --
-        # on any genome, not just large ones.
+        # Capacity bounds DISTINCT k-mers, which is what pybloom counts and
+        # allocates for. Sizing it to the base count -- once to the count
+        # itself, then to ten times it -- overflowed on small genomes and
+        # asked for 39.6 GB on hg38. See `distinct_kmer_capacity`.
         #
         # Mismatch variants are not indexed here for the same reason the CLI
         # path and build_background_filter skip them: each adds a further 3*k
-        # entries, which is another ~30x on top. `estimate_match_count` still
-        # generates them at query time, so the capability is not lost, only the
-        # cost of pre-computing it.
-        capacity = max(1, genome_size * 10)
+        # entries. `count_present_neighbours` still generates them at query
+        # time, so the capability is not lost, only the cost of pre-computing
+        # it.
+        capacity = distinct_kmer_capacity(genome_size, self.config.min_k, self.config.max_k)
 
         logger.info("Building Bloom filter (capacity=%s)...", f"{capacity:,}")
         self.bloom = BackgroundBloomFilter(capacity=capacity, error_rate=self.config.bloom_fp_rate)
-        self.bloom.add_genome(fasta_path, include_mismatches=False)
+        self.bloom.add_genome(
+            fasta_path,
+            include_mismatches=False,
+            min_k=self.config.min_k,
+            max_k=self.config.max_k,
+        )
 
         # Build sampled index
         logger.info("Building sampled index...")
         self.sampled_index = SampledGenomeIndex(sample_rate=self.config.sample_rate)
-        self.sampled_index.add_genome(fasta_path)
+        self.sampled_index.add_genome(
+            fasta_path, min_k=self.config.min_k, max_k=self.config.max_k
+        )
 
     def filter_primers(self, candidates: List[str]) -> List[str]:
         """
@@ -622,6 +664,8 @@ def build_background_filter(
     capacity: int = None,
     error_rate: float = 0.01,
     verbose: bool = True,
+    min_k: int = 6,
+    max_k: int = 12,
 ):
     """
     Build and save background genome filter (CLI entry point).
@@ -635,6 +679,8 @@ def build_background_filter(
         capacity: Bloom filter capacity (auto-detected from genome if None)
         error_rate: Bloom filter false positive rate (default: 0.01 = 1%)
         verbose: Print progress messages
+        min_k: Shortest oligo length to index (default: 6)
+        max_k: Longest oligo length to index (default: 12)
 
     Returns:
         Tuple of (bloom_path, sampled_path) for the created filter files
@@ -651,25 +697,25 @@ def build_background_filter(
         total_size = 0
         for record in SeqIO.parse(genome_fasta, "fasta"):
             total_size += len(record.seq)
-        # Multiply by number of k-mer lengths (6-12 = 7 lengths) plus safety margin
-        # Each position contributes k-mers for each length
-        capacity = total_size * 10  # Conservative estimate: 10x genome size
+        # Bound the DISTINCT k-mers, which is what pybloom allocates for.
+        capacity = distinct_kmer_capacity(total_size, min_k, max_k)
         if verbose:
             logger.info(f"Auto-detected genome size: {total_size:,} bp")
-            logger.info(f"Using capacity: {capacity:,} (10x genome size for k-mer coverage)")
+            logger.info(f"Using capacity: {capacity:,} (distinct k-mers over k={min_k}-{max_k})")
 
     # Build Bloom filter
     if verbose:
         logger.info(f"Building Bloom filter (capacity={capacity:,}, error_rate={error_rate})")
 
     bloom = BackgroundBloomFilter(capacity=capacity, error_rate=error_rate)
-    bloom.add_genome(genome_fasta, include_mismatches=False)  # Faster without mismatch variants
+    # Faster without mismatch variants; they are generated at query time.
+    bloom.add_genome(genome_fasta, include_mismatches=False, min_k=min_k, max_k=max_k)
 
     # Build sampled index for count estimation
     if verbose:
         logger.info("Building sampled index for count estimation...")
     sampled_index = SampledGenomeIndex(sample_rate=100)
-    sampled_index.add_genome(genome_fasta)
+    sampled_index.add_genome(genome_fasta, min_k=min_k, max_k=max_k)
 
     # Save filter files
     bloom_path = os.path.join(output_dir, "bg_bloom.pkl")

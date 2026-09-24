@@ -1231,7 +1231,11 @@ def run_build_filter(args):
     """Build background Bloom filter"""
     import pickle
 
-    from neoswga.core.background_filter import BackgroundBloomFilter, SampledGenomeIndex
+    from neoswga.core.background_filter import (
+        BackgroundBloomFilter,
+        SampledGenomeIndex,
+        distinct_kmer_capacity,
+    )
 
     logger.info("Building background filter")
     logger.info(f"Input: {args.genome}")
@@ -1264,7 +1268,11 @@ def run_build_filter(args):
                     if os.path.exists(fpath):
                         with open(fpath) as f:
                             total_kmers += sum(1 for _ in f)
-                capacity = max(total_kmers * 2, 10000000)  # 2x k-mers or min 10M
+                # The line count IS the distinct k-mer count, which is the
+                # quantity pybloom allocates for, so no floor is needed: the
+                # former `max(..., 10_000_000)` spent 12 MB of bits on a small
+                # table. The margin covers pybloom raising AT capacity.
+                capacity = max(1, int(total_kmers * 1.1))
                 logger.info(f"Auto-detected capacity: {capacity:,} (from {total_kmers:,} k-mers)")
 
             # Build Bloom filter from k-mer files
@@ -1300,9 +1308,12 @@ def run_build_filter(args):
                 total_size = 0
                 for record in SeqIO.parse(args.genome, "fasta"):
                     total_size += len(record.seq)
-                capacity = total_size * 10  # 10x genome size
+                capacity = distinct_kmer_capacity(total_size, min_k, max_k)
                 logger.info(f"Auto-detected genome size: {total_size:,} bp")
-                logger.info(f"Using capacity: {capacity:,}")
+                logger.info(
+                    f"Using capacity: {capacity:,} "
+                    f"(distinct k-mers over k={min_k}-{max_k})"
+                )
 
             bloom = BackgroundBloomFilter(capacity=capacity, error_rate=args.error_rate)
             bloom.add_genome(args.genome, include_mismatches=False, min_k=min_k, max_k=max_k)
