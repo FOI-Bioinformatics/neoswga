@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from neoswga.core import dimer, parameter, primer_attributes
+from neoswga.core.exceptions import InvalidDesignRequest, ReferenceDataError
 from neoswga.core.parameter import (
     EXTREME_AT_GENOME_GC,
     EXTREME_GC_GENOME_GC,
@@ -221,6 +222,14 @@ def _warn_if_sample_too_sparse(sampled_index) -> None:
     than this heuristic. Exact k-mer counting is the answer at these sizes, and
     it is affordable precisely because the genome is small.
     """
+    if getattr(sampled_index, "source", None) == "kmer_counts":
+        # Exact counts read off a jellyfish table. Nothing was sampled, so
+        # there is no sparsity to assess: `sample_rate` is 1 and the
+        # extrapolation in `estimate_count` is the identity. Without this the
+        # check was skipped only because that route leaves `genome_size` at 0,
+        # which is an accident rather than a rule.
+        return
+
     genome_size = getattr(sampled_index, "genome_size", 0) or 0
     sample_rate = getattr(sampled_index, "sample_rate", 1) or 1
     if genome_size <= 0:
@@ -303,6 +312,57 @@ def _load_sampled_index(bloom_path: str):
     )
 
 
+def _reject_lengths_the_filter_cannot_answer(bloom, primer_list, bloom_path) -> None:
+    """A length the filter never indexed reads as absent, not as unmeasured.
+
+    `contains` answers False for a k-mer of a length that was never inserted.
+    The background count is then zero, and zero clears any frequency gate, so
+    a filter built over k 6-12 screens a 13-mer design by passing all of it.
+    The filter is not at fault: absence is the honest answer to a question
+    outside the domain it was built over. What was missing was any record of
+    that domain and any check against it.
+
+    This is the silent-zero family again: not a scan that found nothing, an
+    integer that saturated, a cache asked for what it does not hold or a
+    dictionary default that flatters, but a query outside a model's domain
+    answered as though it were inside.
+
+    A filter carrying no recorded range predates the record. That is UNKNOWN
+    rather than wrong, so it warns and proceeds -- the rule `digest_algorithm`
+    established for a k-mer table written before its provenance sidecar.
+    """
+    if bloom.covers_length(0) is None:
+        logger.warning(
+            "Bloom filter %s records no k-mer range, so the primer lengths it "
+            "covers cannot be checked. A length it does not hold reads as "
+            "absent from the background and clears the gate unscreened. "
+            "Rebuild with 'neoswga build-filter' to record the range.",
+            bloom_path,
+        )
+        return
+
+    lengths = sorted({len(p) for p in primer_list})
+    outside = [k for k in lengths if not bloom.covers_length(k)]
+    if not outside:
+        return
+
+    raise ReferenceDataError(
+        artifact=bloom_path,
+        reason=(
+            f"the filter indexes k-mers of length {bloom.min_k}-{bloom.max_k}, "
+            f"but this design uses {', '.join(str(k) for k in outside)}. A "
+            f"length the filter does not hold reads as absent from the "
+            f"background, so every such primer would clear the background gate "
+            f"unscreened"
+        ),
+        remediation=(
+            f"rebuild it over the design's range with 'neoswga build-filter "
+            f"--genome <background> -o <dir> --min-k {min(lengths)} "
+            f"--max-k {max(lengths)}'"
+        ),
+    )
+
+
 def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str, int]:
     """
     Get background rates using a pre-built Bloom filter.
@@ -328,6 +388,7 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
 
     # Load bloom filter
     bloom = BackgroundBloomFilter.load(bloom_path)
+    _reject_lengths_the_filter_cannot_answer(bloom, primer_list, bloom_path)
     sampled_index = _load_sampled_index(bloom_path)
     _warn_if_sample_too_sparse(sampled_index)
 

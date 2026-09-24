@@ -102,6 +102,26 @@ class BackgroundBloomFilter:
         self.bloom = BloomFilter(capacity=int(capacity), error_rate=error_rate)
         self.kmer_count = 0
         self.genome_size = 0
+        # The oligo lengths this filter was built over. None means the range
+        # was never recorded, which is what an artifact written before this
+        # field looks like -- unknown, not empty.
+        self.min_k: Optional[int] = None
+        self.max_k: Optional[int] = None
+
+    def _record_range(self, min_k: int, max_k: int) -> None:
+        """Widen the recorded range; two builds on one filter give the union."""
+        self.min_k = min_k if self.min_k is None else min(self.min_k, min_k)
+        self.max_k = max_k if self.max_k is None else max(self.max_k, max_k)
+
+    def covers_length(self, k: int) -> Optional[bool]:
+        """Whether this filter can answer for a k-mer of length k.
+
+        None when the range was never recorded, which a caller must treat as
+        unknown rather than as either answer.
+        """
+        if self.min_k is None or self.max_k is None:
+            return None
+        return self.min_k <= k <= self.max_k
 
     def add(self, kmer: str):
         """
@@ -140,6 +160,7 @@ class BackgroundBloomFilter:
         """
         logger.info(f"Adding genome to Bloom filter: {fasta_path}")
         logger.info(f"  K-mer range: {min_k}-{max_k}bp")
+        self._record_range(min_k, max_k)
 
         from Bio import SeqIO
 
@@ -233,6 +254,7 @@ class BackgroundBloomFilter:
         """
         logger.info(f"Building Bloom filter from k-mer files: {kmer_prefix}")
         logger.info(f"  K-mer range: {min_k}-{max_k}bp")
+        self._record_range(min_k, max_k)
 
         try:
             from tqdm import tqdm
@@ -349,6 +371,8 @@ class BackgroundBloomFilter:
                     "bloom": self.bloom,
                     "kmer_count": self.kmer_count,
                     "genome_size": self.genome_size,
+                    "min_k": self.min_k,
+                    "max_k": self.max_k,
                 },
                 f,
             )
@@ -365,6 +389,10 @@ class BackgroundBloomFilter:
         instance.bloom = data["bloom"]
         instance.kmer_count = data["kmer_count"]
         instance.genome_size = data["genome_size"]
+        # `.get` rather than `[...]`: a filter written before the range was
+        # recorded must load and report the range as unknown, not raise.
+        instance.min_k = data.get("min_k")
+        instance.max_k = data.get("max_k")
 
         return instance
 
@@ -398,6 +426,20 @@ class SampledGenomeIndex:
         self.sample_rate = sample_rate
         self.kmers: Dict[str, int] = defaultdict(int)
         self.genome_size = 0
+        self.min_k: Optional[int] = None
+        self.max_k: Optional[int] = None
+        # Which quantity the counts are. "sampled_positions" means every
+        # sample_rate-th position was stored and `estimate_count` extrapolates;
+        # "kmer_counts" means exact jellyfish counts at sample_rate 1, where
+        # that extrapolation is the identity and there is no sparsity to
+        # assess. Both are written to `bg_sampled.pkl`, so without this a
+        # reader cannot tell which one they hold. None means unrecorded.
+        self.source: Optional[str] = None
+
+    def _record_range(self, min_k: int, max_k: int) -> None:
+        """Widen the recorded range; two builds on one index give the union."""
+        self.min_k = min_k if self.min_k is None else min(self.min_k, min_k)
+        self.max_k = max_k if self.max_k is None else max(self.max_k, max_k)
 
     def add_genome(self, fasta_path: str, min_k: int = 6, max_k: int = 12):
         """
@@ -411,6 +453,8 @@ class SampledGenomeIndex:
             max_k: Maximum k-mer length (default 12)
         """
         logger.info(f"Building sampled index (rate=1/{self.sample_rate}): {fasta_path}")
+        self._record_range(min_k, max_k)
+        self.source = "sampled_positions"
 
         from Bio import SeqIO
 
@@ -451,6 +495,54 @@ class SampledGenomeIndex:
 
         logger.info(f"Sampled index built: {len(self.kmers):,} unique k-mers")
 
+    def add_from_kmer_files(self, kmer_prefix: str, min_k: int = 6, max_k: int = 12) -> None:
+        """Load exact counts from jellyfish tables, rather than sampling.
+
+        This index then holds a different quantity from the sampled one: exact
+        counts at `sample_rate` 1, where the extrapolation in `estimate_count`
+        is the identity. Both are written to `bg_sampled.pkl`, so `source`
+        records which a reader holds; without it the only thing separating them
+        was that this route happened to leave `genome_size` at 0.
+
+        jellyfish counts canonical k-mers, so one of a k-mer and its reverse
+        complement carries the combined double-stranded count and the other is
+        absent. That is what `estimate_count` adding both is correct for.
+        """
+        if self.sample_rate != 1:
+            raise ValueError(
+                f"exact k-mer counts must be stored at sample_rate 1, not "
+                f"{self.sample_rate}: estimate_count multiplies by the rate, "
+                f"so any other value would scale counts that need no scaling"
+            )
+        self._record_range(min_k, max_k)
+        self.source = "kmer_counts"
+
+        for k in range(min_k, max_k + 1):
+            fpath = f"{kmer_prefix}_{k}mer_all.txt"
+            if not os.path.exists(fpath):
+                logger.warning(f"  K-mer file not found: {fpath}")
+                continue
+            skipped = 0
+            with open(fpath) as fh:
+                for line in fh:
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    kmer = parts[0].upper()
+                    if len(kmer) != k or not self._is_valid_kmer(kmer):
+                        skipped += 1
+                        continue
+                    self.kmers[kmer] = int(parts[1])
+            if skipped:
+                logger.warning(
+                    "  %s: skipped %d entries that are not %d-mers over ACGT",
+                    fpath,
+                    skipped,
+                    k,
+                )
+
+        logger.info(f"Sampled index built from k-mer files: {len(self.kmers):,} k-mers")
+
     def estimate_count(self, kmer: str) -> int:
         """
         Estimate count (extrapolate from sample).
@@ -477,6 +569,9 @@ class SampledGenomeIndex:
                     "kmers": dict(self.kmers),
                     "sample_rate": self.sample_rate,
                     "genome_size": self.genome_size,
+                    "min_k": self.min_k,
+                    "max_k": self.max_k,
+                    "source": self.source,
                 },
                 f,
             )
@@ -491,6 +586,11 @@ class SampledGenomeIndex:
         instance = cls(sample_rate=data["sample_rate"])
         instance.kmers = defaultdict(int, data["kmers"])
         instance.genome_size = data["genome_size"]
+        # `.get` for the same reason as the Bloom filter's: an index written
+        # before these fields existed is unknown, not malformed.
+        instance.min_k = data.get("min_k")
+        instance.max_k = data.get("max_k")
+        instance.source = data.get("source")
         return instance
 
 

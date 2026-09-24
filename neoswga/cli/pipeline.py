@@ -1279,22 +1279,13 @@ def run_build_filter(args):
             bloom = BackgroundBloomFilter(capacity=capacity, error_rate=args.error_rate)
             bloom.add_from_kmer_files(args.genome, min_k=min_k, max_k=max_k)
 
-            # Build sampled index from k-mer files (simpler - just use the counts)
+            # Exact counts, so sample_rate 1: estimate_count multiplies by the
+            # rate and these need no scaling. The index records that it holds
+            # counts rather than samples, which is what keeps the two build
+            # routes distinguishable in the file they share.
             logger.info("Building sampled index from k-mer files...")
-            sampled = SampledGenomeIndex(
-                sample_rate=1
-            )  # rate=1 since k-mer files are already unique
-            for k in range(min_k, max_k + 1):
-                fpath = f"{args.genome}_{k}mer_all.txt"
-                if os.path.exists(fpath):
-                    with open(fpath) as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) >= 2:
-                                kmer, count = parts[0], int(parts[1])
-                                sampled.kmers[kmer] = count
-
-            logger.info(f"Sampled index built: {len(sampled.kmers):,} k-mers with counts")
+            sampled = SampledGenomeIndex(sample_rate=1)
+            sampled.add_from_kmer_files(args.genome, min_k=min_k, max_k=max_k)
 
         else:
             # Build from genome FASTA (slower but comprehensive)
