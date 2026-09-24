@@ -415,3 +415,66 @@ def test_open_alignment_is_the_only_door_into_an_alignment_file():
         "open an alignment file through bam_coverage.open_alignment, which "
         f"names the file and the remedy and honours --reference: {offenders}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Depth is never reported for bases the BAM cannot answer for
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fully_covered(bam):
+    """A BAM covering its whole 1,000 bp contig, so any zero in a depth array
+    longer than the contig is fabricated rather than measured."""
+    return bam([record(name=f"r{i}", pos=i) for i in range(0, LENGTH - 20, 10)])
+
+
+def test_a_length_past_the_contig_end_is_refused_not_padded(fully_covered):
+    """`count_coverage` CLAMPS its `stop` to the contig length, and the caller
+    wrote the shorter result into a `length`-sized array of zeros. A zero
+    there is not "no reads" -- it is no sequence to have reads on.
+
+    Measured on a fully covered 2 kb contig asked for 5,000 bases, `bam_gaps`
+    reported a gap of (1950, 5000): 3,050 bp, of which 3,000 bp is invented.
+    `expand-primers` designs oligos AT gaps, so they would target a region the
+    BAM says nothing whatever about, and `calibrate-reach` would fit a reach
+    against the same invented zeros.
+    """
+    with pytest.raises(Exception) as caught:
+        compute_bam_depth(fully_covered, "chr1", LENGTH * 5)
+
+    message = str(caught.value)
+    assert "chr1" in message
+    assert str(LENGTH) in message.replace(",", ""), "the real contig length must be named"
+    assert "--contig-alias" in message, "the remedy must be named"
+
+
+def test_a_length_within_the_contig_is_measured_silently(fully_covered):
+    """A contig LONGER than the configured length reads a prefix of it, and
+    every base reported was observed. Refusing that would break the ordinary
+    case to fix the fabricating one."""
+    assert int((compute_bam_depth(fully_covered, "chr1", LENGTH // 2) > 0).sum()) == LENGTH // 2
+    assert len(compute_bam_depth(fully_covered, "chr1", LENGTH)) == LENGTH
+
+
+def test_the_record_path_was_already_immune(tmp_path, bam):
+    """`ReferenceLayout.bind` refuses a length mismatch outright, so every path
+    carrying `fg_genomes` could not reach this. Pinned so that a future
+    loosening there does not quietly reopen the fabrication."""
+    from neoswga.core.bam_coverage import bam_gaps
+
+    fasta = tmp_path / "g.fasta"
+    fasta.write_text(">chr1\n" + "ACGT" * (LENGTH * 5 // 4) + "\n")
+    path = bam([record(name=f"r{i}", pos=i) for i in range(0, LENGTH - 20, 10)])
+
+    gaps = bam_gaps(
+        path,
+        ["g"],
+        [LENGTH * 5],
+        min_depth=1,
+        min_gap_size=100,
+        fg_genomes=[str(fasta)],
+        contig_aliases={"chr1": "chr1"},
+    )
+
+    assert gaps == [], "an unbound record contributes no gap, rather than a whole-record hole"

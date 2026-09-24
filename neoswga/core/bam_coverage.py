@@ -236,6 +236,46 @@ def match_contigs(
     return mapping
 
 
+def _require_contig_covers(bam, bam_path, contig, length):
+    """Refuse to report depth for bases the BAM cannot answer for.
+
+    `count_coverage` CLAMPS its `stop` to the contig's length, and the caller
+    then wrote the shorter result into a `length`-sized array of zeros. So
+    asking for 5,000 bases of a 2,000 bp contig returned 3,000 fabricated
+    zeros -- and a zero here is not "no reads", it is no sequence to have
+    reads on. Measured on a fully covered 2 kb contig, `bam_gaps` reported a
+    gap of (1950, 5000): 3,050 bp, of which 3,000 bp is invented.
+    `expand-primers` designs oligos AT gaps, so those oligos would target a
+    region the BAM says nothing whatever about, and `calibrate-reach` would
+    fit a polymerase reach against the same invented zeros.
+
+    Reachable only through `match_contigs`, which binds on a NAME and warns
+    rather than refusing when the lengths disagree. That is deliberate -- a
+    name is an assertion this code should not overrule -- and it stays.
+    Binding on the name and inventing the depth are separate decisions, and
+    only the second is wrong. `ReferenceLayout.bind` refuses a length mismatch
+    outright, so every path carrying `fg_genomes` was already immune.
+
+    A contig LONGER than the configured length is fine and stays silent: that
+    reads a prefix of it, and every base reported was observed.
+    """
+    lengths = dict(zip(bam.references, bam.lengths, strict=True))
+    contig_length = lengths.get(contig)
+    if contig_length is None:
+        return  # pysam raises its own error next, and it names the contig
+    if length <= int(contig_length):
+        return
+    raise ReferenceDataError(
+        f"contig {contig} in {os.path.basename(str(bam_path))}",
+        f"depth was requested for {length:,} bases but the contig is only "
+        f"{int(contig_length):,} bp, so the remaining "
+        f"{length - int(contig_length):,} would be reported as zero depth "
+        f"rather than as unobserved",
+        "align against the same assembly this design uses, or map the right "
+        "contig with --contig-alias",
+    )
+
+
 def compute_bam_depth(
     bam_path: str,
     contig: str,
@@ -257,6 +297,7 @@ def compute_bam_depth(
     policy = policy or DepthPolicy()
     depth = np.zeros(length, dtype=np.int32)
     with open_alignment(bam_path, reference=reference) as bam:
+        _require_contig_covers(bam, bam_path, contig, length)
         # count_coverage returns 4 arrays (A,C,G,T) of length (stop-start).
         try:
             cov = bam.count_coverage(
