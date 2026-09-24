@@ -15,13 +15,19 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+logger = logging.getLogger(__name__)
+
 try:
     from pybloom_live import BloomFilter
 except ImportError:
-    print("WARNING: pybloom_live not installed. Install with: pip install pybloom-live")
+    # A library module must not write to stdout on import. Every other optional
+    # dependency in this package reports through the logger, and a print here
+    # reached anyone importing neoswga for an unrelated reason.
+    logger.warning(
+        "pybloom_live not installed, so the Bloom background path is "
+        "unavailable. Install with: pip install pybloom-live"
+    )
     BloomFilter = None
-
-logger = logging.getLogger(__name__)
 
 
 _COMPLEMENT = str.maketrans("ACGT", "TGCA")
@@ -168,12 +174,19 @@ class BackgroundBloomFilter:
     Query time: O(1) per primer (vs. O(genome_size) for exact search)
     """
 
-    def __init__(self, capacity: int = 3e9, error_rate: float = 0.01):
+    def __init__(self, capacity: int, error_rate: float = 0.01):
         """
         Initialize Bloom filter.
 
         Args:
-            capacity: Expected number of k-mers (e.g., 3e9 for human)
+            capacity: Expected number of DISTINCT k-mers. pybloom allocates its
+                bit array from this upfront, at about 9.59 bits per item at a
+                1% error rate, and raises IndexError once it is exceeded, so it
+                is a real allocation and a real ceiling rather than a hint. Use
+                `distinct_kmer_capacity` to derive it from a genome length and
+                a k range. It has no default: the former 3e9 was a 3.6 GB
+                allocation nobody chose, and the one caller that took it needed
+                a different number in both directions.
             error_rate: False positive rate (default 1%)
         """
         if BloomFilter is None:
@@ -866,16 +879,16 @@ def build_human_genome_filter(human_fasta: str, output_dir: str):
     """
     os.makedirs(output_dir, exist_ok=True)
 
-    filter = BackgroundFilter()
-    filter.build_from_genome(human_fasta)
+    bg_filter = BackgroundFilter()
+    bg_filter.build_from_genome(human_fasta)
 
     bloom_path = os.path.join(output_dir, "human_bloom.pkl")
     index_path = os.path.join(output_dir, "human_sampled.pkl")
 
-    filter.save(bloom_path, index_path)
+    bg_filter.save(bloom_path, index_path)
 
-    logger.info(f"Human genome filter saved:")
-    logger.info(f"  Bloom filter: {bloom_path} ({filter.bloom.memory_usage_mb():.1f} MB)")
+    logger.info("Human genome filter saved:")
+    logger.info(f"  Bloom filter: {bloom_path} ({bg_filter.bloom.memory_usage_mb():.1f} MB)")
     logger.info(f"  Sampled index: {index_path}")
 
 
