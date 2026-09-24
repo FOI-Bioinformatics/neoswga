@@ -65,9 +65,15 @@ class BackgroundFilterConfig:
     """Configuration for background filtering"""
 
     max_exact_matches: int = 10  # Max perfect matches in background
-    # Bounded by 1 + 3k neighbours REPORTED PRESENT, not by a site count: 37
-    # for a 12-mer. See BackgroundBloomFilter.count_present_neighbours.
-    max_1mm_matches: int = 100
+    # A ceiling on how many of a primer's 1 + 3k mismatch neighbours the
+    # background holds, NOT on a site count: 37 for a 12-mer, 91 at k=30. See
+    # BackgroundBloomFilter.count_present_neighbours.
+    #
+    # Unset by default. The old default of 100 sat above the largest value the
+    # quantity can take, so the gate could not fire at any oligo length, and no
+    # measurement here supports a particular ceiling. Shipping it unset says
+    # that, where a smaller number would assert a threshold nothing validates.
+    max_1mm_matches: Optional[int] = None
     bloom_fp_rate: float = 0.01  # Bloom filter false positive rate
     sample_rate: int = 100  # For sampled suffix array
     use_repeat_filter: bool = True
@@ -347,25 +353,32 @@ class BackgroundBloomFilter:
             return True
         return _reverse_complement(kmer) in self.bloom
 
-    def estimate_match_count(self, primer: str, max_mismatches: int = 1) -> int:
+    def count_present_neighbours(self, primer: str, max_mismatches: int = 1) -> int:
+        """How many of the primer and its 1-mismatch neighbours the filter holds.
+
+        This is NOT a match count. Each neighbour contributes at most 1
+        regardless of how often it occurs in the background, so the value is
+        bounded by 1 + 3k -- 37 for a 12-mer, 91 at the longest oligo this tool
+        supports.
+
+        The former name, `estimate_match_count`, described it as a lower bound
+        on the match count. True, but weak enough to mislead: it was compared
+        against `BackgroundFilterConfig.max_1mm_matches`, whose default of 100
+        no oligo length could reach, so that gate never fired whatever the
+        background held.
+
+        A Bloom filter holds presence. A count would have to come from the
+        sampled index beside it, and manufacturing one is the mistake the
+        sentinel removed from `get_bg_rates_via_bloom` made.
         """
-        Estimate number of matches (approximate).
+        present = 1 if self.contains(primer) else 0
 
-        Returns lower bound on match count.
-        """
-        matches = 0
-
-        # Exact matches
-        if self.contains(primer):
-            matches += 1
-
-        # Mismatch variants
         if max_mismatches >= 1:
             for variant in self._generate_1mm_variants(primer):
                 if self.contains(variant):
-                    matches += 1
+                    present += 1
 
-        return matches
+        return present
 
     def _is_valid_kmer(self, kmer: str) -> bool:
         """Check if k-mer contains only ATCG"""
@@ -708,8 +721,8 @@ class BackgroundFilter:
                     stats["bloom_rejected"] += 1
                     continue
 
-            # Check 1-mismatch matches
-            if self.config.max_1mm_matches > 0:
+            # Check 1-mismatch neighbours, when a ceiling is configured.
+            if self.config.max_1mm_matches:
                 mm_matches = self._count_mismatch_matches(primer)
                 if mm_matches > self.config.max_1mm_matches:
                     stats["count_rejected"] += 1
@@ -728,11 +741,12 @@ class BackgroundFilter:
         return passed
 
     def _count_mismatch_matches(self, primer: str, max_mismatches: int = 1) -> int:
-        """Count approximate mismatch matches"""
+        """How many 1-mismatch neighbours the background holds; see
+        BackgroundBloomFilter.count_present_neighbours for what it is not."""
         if not self.bloom:
             return 0
 
-        return self.bloom.estimate_match_count(primer, max_mismatches)
+        return self.bloom.count_present_neighbours(primer, max_mismatches)
 
     def _estimate_genome_size(self, fasta_path: str) -> int:
         """Quick estimate of genome size"""
