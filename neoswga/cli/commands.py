@@ -697,7 +697,7 @@ def _add_calibrate_reach_parser(subparsers):
         action="append",
         default=None,
         metavar="FG=BAMCONTIG",
-        help="Map a foreground prefix/basename to a BAM contig. Repeatable.",
+        help="Map a foreground reference to a BAM contig when their names differ. The key is a FASTA RECORD name, or the prefix/basename when the reference holds one record. Repeatable.",
     )
     parser.add_argument("--output", "-o", help="Write the fit as JSON to this path.")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
@@ -917,7 +917,7 @@ def add_parsers(subparsers):
         action="append",
         default=None,
         metavar="FG=BAMCONTIG",
-        help="Map a foreground prefix/basename to a BAM contig. " "Repeatable.",
+        help="Map a foreground reference to a BAM contig when their names differ. The key is a FASTA RECORD name, or the prefix/basename when the reference holds one record. Repeatable.",
     )
     cov_parser.add_argument(
         "--output", "-o", required=True, help="Output directory for gap BED/JSON."

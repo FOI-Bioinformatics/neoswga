@@ -311,6 +311,57 @@ class DepthProfile:
         return int(self.evaluable.size)
 
 
+def _record_keyed_aliases(layout, aliases):
+    """Translate a PREFIX-keyed `--contig-alias` into a RECORD-keyed one.
+
+    The two binding rules key their aliases differently and the CLI documents
+    only one of them. `match_contigs`, which `calibrate-reach` uses, keys on
+    the foreground PREFIX or its basename -- which is what
+    `--contig-alias FG=BAMCONTIG` says. `ReferenceLayout.bind`, which every
+    path carrying `fg_genomes` uses and which is therefore the production
+    default, keys on the FASTA RECORD name.
+
+    So the documented form was the one that failed on the commoner path.
+    Measured on a single-record `mygenome.fasta` whose record is `contig_A`
+    against a BAM contig `BAMNAME`: `mygenome=BAMNAME` produced 0 gaps and
+    `contig_A=BAMNAME` produced 1. The run still succeeded, having quietly
+    ignored the sequencing data `--bam` exists to use.
+
+    A prefix alias is unambiguous only when the reference holds ONE record,
+    since then there is exactly one thing it can mean. On a multi-record
+    reference a prefix names a file and a BAM contig names a molecule, so
+    there is no sound translation; that is warned about rather than guessed,
+    because guessing here binds a whole file's depth to one contig.
+
+    An alias already keyed on a record name always wins: it is the more
+    specific claim and the one `bind` documents.
+    """
+    if not aliases:
+        return aliases
+
+    record_names = set(layout.names)
+    prefix_keys = {layout.prefix, os.path.basename(layout.prefix)}
+    translated = dict(aliases)
+
+    for key, value in aliases.items():
+        if key in record_names or key not in prefix_keys:
+            continue
+        if len(layout.records) == 1:
+            only = layout.records[0].name
+            translated.setdefault(only, value)
+        else:
+            logger.warning(
+                "--contig-alias %r names the foreground prefix, but %s holds %d "
+                "records and a prefix is a FILE rather than a contig. Alias the "
+                "record instead, by its FASTA header name: %s.",
+                key,
+                os.path.basename(layout.path),
+                len(layout.records),
+                ", ".join(layout.names[:5]),
+            )
+    return translated
+
+
 def bam_depth_profile(
     bam_path: str,
     prefix: str,
@@ -341,7 +392,7 @@ def bam_depth_profile(
             name: int(length) for name, length in zip(bam.references, bam.lengths, strict=True)
         }
 
-    bound = layout.bind(bam_lengths, aliases=aliases)
+    bound = layout.bind(bam_lengths, aliases=_record_keyed_aliases(layout, aliases))
     depth = np.zeros(layout.total_length, dtype=np.int32)
     evaluable = np.zeros(layout.total_length, dtype=bool)
 

@@ -884,8 +884,7 @@ def add_parsers(subparsers):
         action="append",
         default=None,
         metavar="FG=BAMCONTIG",
-        help="Map a foreground prefix/basename to a BAM contig "
-        "name when they differ. Repeatable.",
+        help="Map a foreground reference to a BAM contig when their names differ. The key is a FASTA RECORD name, or the prefix/basename when the reference holds one record. Repeatable.",
     )
     expand_parser.add_argument(
         "--output", "-o", required=True, help="Output directory for expanded primer set"
