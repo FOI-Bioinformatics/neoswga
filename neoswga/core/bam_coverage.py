@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 
 from neoswga.core.depth_policy import DepthPolicy
+from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.primer_expansion import CoverageGap
 from neoswga.core.reference_layout import BoundRecords, read_layout, verify_layout
 
@@ -39,6 +40,56 @@ def _require_pysam():
             "    pip install 'neoswga[bam]'\n"
             "(or `pip install pysam`)."
         ) from e
+
+
+def open_alignment(bam_path, require_index: bool = True):
+    """Open a BAM or CRAM, or refuse in a way that names the remedy.
+
+    pysam's own answers to the three things a user hits first are a pysam
+    internal's answers. A file that is not an alignment gives "file has no
+    sequences defined (mode='rb') ... Consider opening with check_sq=False",
+    which is advice for a different problem and names neither the file nor what
+    is wrong with it. A BAM without an index gives "fetch called on bamfile
+    without index", which names neither the file nor `samtools index`.
+
+    The mode stays "rb" and that is not a bug: htslib detects the format from
+    the file's magic bytes, so a CRAM opens through it. Verified by reading one
+    back.
+
+    `require_index` is a parameter because reading the HEADER -- contig names
+    and lengths, which is all `bind_bam_depth` and `bam_low_depth_gaps` want --
+    needs no index, and demanding one there would refuse a file this code can
+    read perfectly well.
+    """
+    pysam = _require_pysam()
+    name = os.path.basename(str(bam_path))
+
+    if not os.path.exists(bam_path):
+        raise ReferenceDataError(
+            f"alignment file {name}",
+            f"{bam_path} does not exist",
+            "check the path passed to --bam",
+        )
+    try:
+        handle = pysam.AlignmentFile(bam_path, "rb")
+    except ValueError as exc:
+        raise ReferenceDataError(
+            f"alignment file {name}",
+            f"{bam_path} is not readable as BAM or CRAM",
+            "check that it is an aligner's output and not a FASTQ, SAM or "
+            "truncated file; `samtools quickcheck` reports the same thing",
+        ) from exc  # pysam's own text is kept on __cause__ rather than inlined:
+        # it ends "Consider opening with check_sq=False", which is advice for a
+        # headerless SAM and would read here as a remedy for the wrong problem.
+
+    if require_index and not handle.has_index():
+        handle.close()
+        raise ReferenceDataError(
+            f"alignment index for {name}",
+            f"{bam_path} has no .bai, .csi or .crai beside it, and depth is " f"read by region",
+            f"samtools index {bam_path}",
+        )
+    return handle
 
 
 def _strip_chr(name: str) -> str:
@@ -190,9 +241,8 @@ def compute_bam_depth(
     counts one chimeric molecule in several places. See `core/depth_policy.py`.
     """
     policy = policy or DepthPolicy()
-    pysam = _require_pysam()
     depth = np.zeros(length, dtype=np.int32)
-    with pysam.AlignmentFile(bam_path, "rb") as bam:
+    with open_alignment(bam_path) as bam:
         # count_coverage returns 4 arrays (A,C,G,T) of length (stop-start).
         cov = bam.count_coverage(
             contig,
@@ -253,11 +303,11 @@ def bam_depth_profile(
     depth -- and zero depth is what BAM-guided expansion targets.
     """
     policy = policy or DepthPolicy()
-    pysam = _require_pysam()
     layout = read_layout(fasta_path, prefix=prefix)
     verify_layout(layout, record_starts or [], configured_length)
 
-    with pysam.AlignmentFile(bam_path, "rb") as bam:
+    # Header only, so no index is needed to answer it.
+    with open_alignment(bam_path, require_index=False) as bam:
         bam_lengths = {
             name: int(length) for name, length in zip(bam.references, bam.lengths, strict=True)
         }
@@ -452,9 +502,7 @@ def bam_gaps(
             record_starts_by_prefix or {},
         )
 
-    pysam = _require_pysam()
-
-    with pysam.AlignmentFile(bam_path, "rb") as bam:
+    with open_alignment(bam_path, require_index=False) as bam:
         bam_refs = list(bam.references)
         bam_ref_lengths = list(bam.lengths)
 
