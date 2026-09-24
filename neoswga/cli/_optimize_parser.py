@@ -16,7 +16,8 @@ def _add_optimize_option_groups(parser):
         default=False,
         help="Not implemented: optimize builds no Bloom filter. The "
         "background screening it does perform is controlled by "
-        "--no-bg-prefilter",
+        "--no-bg-prefilter. To screen against a pre-built filter, run "
+        "'neoswga filter --use-bloom-filter --bloom-filter-path <file>' first",
     )
     opt_bg_group.add_argument(
         "--no-bg-prefilter",
@@ -29,13 +30,17 @@ def _add_optimize_option_groups(parser):
         "--background-bloom-path",
         type=str,
         help="Path to a pre-built Bloom filter. Not implemented: optimize "
-        "reads no pre-built background index",
+        "reads no pre-built background index. A Bloom filter screens "
+        "candidates, so pass it to 'neoswga filter --use-bloom-filter "
+        "--bloom-filter-path <file>' instead",
     )
     opt_bg_group.add_argument(
         "--background-sampled-path",
         type=str,
         help="Path to a pre-built sampled index. Not implemented: optimize "
-        "reads no pre-built background index",
+        "reads no pre-built background index. It is found beside the Bloom "
+        "filter it was built with; pass that to 'neoswga filter "
+        "--use-bloom-filter --bloom-filter-path <file>'",
     )
     opt_bg_group.add_argument(
         "--no-background",
