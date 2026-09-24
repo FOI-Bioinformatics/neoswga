@@ -259,9 +259,12 @@ def _require_contig_covers(bam, bam_path, contig, length):
     A contig LONGER than the configured length is fine and stays silent: that
     reads a prefix of it, and every base reported was observed.
     """
-    lengths = dict(zip(bam.references, bam.lengths, strict=True))
-    contig_length = lengths.get(contig)
-    if contig_length is None:
+    # `get_reference_length` rather than a dict over every contig: this runs
+    # once per BOUND RECORD, so on the 1,870-record Drosophila reference the
+    # dict form rebuilt 1,870 entries 1,870 times to read one of them.
+    try:
+        contig_length = bam.get_reference_length(contig)
+    except (KeyError, ValueError):
         return  # pysam raises its own error next, and it names the contig
     if length <= int(contig_length):
         return
