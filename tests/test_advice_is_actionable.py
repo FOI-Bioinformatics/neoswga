@@ -128,3 +128,17 @@ def test_an_optional_dependency_is_not_called_a_corrupted_installation():
 
     our_own = messages("neoswga.core.not_a_real_module")
     assert "force-reinstall" in our_own, "a genuinely broken install must still say so"
+
+
+def test_the_workflow_guide_says_which_name_the_alias_takes():
+    """`neoswga start`'s BAM workflow said only "use --contig-alias". The flag
+    is right for both commands it prints, but the KEY is what catches people:
+    both bind per FASTA RECORD, so a prefix works only for a single-record
+    reference. Under-specified rather than wrong, and the same trap as the
+    `expand-primers` hint."""
+    source = (REPO / "neoswga/core/workflow_selector.py").read_text()
+    index = source.index("If BAM contig names differ")
+    window = source[index : index + 500]
+
+    assert "RECORD" in window, "it must say the key is a record name"
+    assert "single record" in window, "and when a prefix is acceptable instead"
