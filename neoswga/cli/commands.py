@@ -177,6 +177,64 @@ def run_suggest(args):
 # =========================================================================
 
 
+def _no_contig_matched_advice(fg_prefixes):
+    """What to tell a user whose prefixes matched no BAM contig.
+
+    The old text said only "Map one explicitly with --contig-alias
+    FG=BAMCONTIG", and for a MULTI-RECORD reference following that advice
+    walked the user into a worse place than the one they were in. A prefix is
+    a FASTA file and `fg_seq_lengths` is the concatenated total across all its
+    records, so an alias binding the file to one contig then asked for depth
+    over the whole concatenation. On the shipped
+    `tests/validation/genomes/params.json` -- Prevotella, two chromosomes,
+    3,168,282 bp total -- `--contig-alias prevotella=NC_014370.1` bound
+    (a length disagreement only warns) and produced 1,796,408 real values
+    followed by 1,371,874 fabricated zeros, 43.3% of the array.
+
+    `_require_contig_covers` now refuses that, so the advice leads to a
+    refusal rather than a wrong answer. This makes it lead to neither:
+    `calibrate-reach` matches a prefix to ONE contig and cannot describe a
+    multi-record reference at all, so say that instead of suggesting a flag
+    that cannot help.
+
+    Record counting reads header lines only.
+    """
+    from neoswga.core import parameter
+    from neoswga.core.reference_layout import read_layout
+
+    multi = []
+    # The truncation is deliberate. These are parallel in a well-formed
+    # config, but this runs while REPORTING a failure and the config may be
+    # the thing that is wrong; `fg_genomes` can also be absent, which the
+    # `or []` turns into a shorter sequence. Pairing as far as both go and
+    # saying nothing about the rest is right here, because raising would
+    # replace a useful message with a traceback about the message.
+    genomes = getattr(parameter, "fg_genomes", None) or []
+    for prefix, genome in zip(fg_prefixes, genomes, strict=False):
+        try:
+            layout = read_layout(genome, prefix=prefix)
+        except Exception:  # unreadable here is reported by the steps that need it
+            continue
+        if len(layout.records) > 1:
+            multi.append(f"{os.path.basename(genome)} ({len(layout.records)} records)")
+
+    if multi:
+        return (
+            "No BAM contig could be matched to a foreground prefix, and these "
+            "references hold more than one record: " + ", ".join(multi) + ".\n"
+            "calibrate-reach matches a prefix -- a FASTA FILE -- to a single "
+            "BAM contig, so it cannot describe a multi-record reference: the "
+            "configured length is the concatenation of every record, while a "
+            "contig is one of them. --contig-alias will not help here and is "
+            "refused rather than padding the difference with zero depth.\n"
+            "Fit the reach against a single-record reference instead."
+        )
+    return (
+        "No BAM contig could be matched to a foreground prefix. "
+        "Map one explicitly with --contig-alias FG=BAMCONTIG."
+    )
+
+
 def run_calibrate_reach(args):
     """Estimate the per-primer coverage reach from real sequencing depth.
 
@@ -231,10 +289,7 @@ def run_calibrate_reach(args):
             aliases=aliases or None,
         )
     if not contig_map:
-        raise SystemExit(
-            f"No BAM contig could be matched to a foreground prefix. "
-            f"Map one explicitly with --contig-alias FG=BAMCONTIG."
-        )
+        raise SystemExit(_no_contig_matched_advice(fg_prefixes))
 
     # Fit on the longest matched contig: the estimate is a length-scale, and a
     # short contig cannot distinguish reaches comparable to its own size.
@@ -328,6 +383,11 @@ def run_analyze_coverage(args):
         from neoswga.core.bam_coverage import bam_gaps
         from neoswga.core.depth_policy import DepthPolicy
 
+        # One object, passed to the measurement and then recorded. Built
+        # fresh at the record site it asserted what ran rather than reporting
+        # it, which is true only while nothing can configure a policy.
+        depth_policy = DepthPolicy()
+
         aliases = {}
         for item in getattr(args, "contig_alias", None) or []:
             if "=" in item:
@@ -344,6 +404,7 @@ def run_analyze_coverage(args):
                 circular=fg_circular,
                 contig_aliases=aliases or None,
                 reference=getattr(args, "reference", None),
+                policy=depth_policy,
                 # Finding F8: a prefix is a FASTA file, not a contig, so
                 # without the layout a multi-record reference matches nothing.
                 fg_genomes=getattr(parameter, "fg_genomes", None),
@@ -373,7 +434,7 @@ def run_analyze_coverage(args):
                 # A breadth figure means nothing without the rule that
                 # produced it, and two runs under different rules are not
                 # comparable. See `core/depth_policy.py`.
-                "depth_policy": (DepthPolicy().to_dict() if getattr(args, "bam", None) else None),
+                "depth_policy": (depth_policy.to_dict() if getattr(args, "bam", None) else None),
                 "gaps": [
                     {"chromosome": g.chromosome, "start": g.start, "end": g.end, "size": g.size}
                     for g in gaps

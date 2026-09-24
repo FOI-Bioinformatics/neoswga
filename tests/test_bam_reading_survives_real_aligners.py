@@ -478,3 +478,31 @@ def test_the_record_path_was_already_immune(tmp_path, bam):
     )
 
     assert gaps == [], "an unbound record contributes no gap, rather than a whole-record hole"
+
+
+def test_a_bwa_mem_repeat_is_credited_to_one_copy_only(bam):
+    """bwa mem reports a multi-mapping read at ONE locus and names the others
+    in an `XA` tag on that same primary record. Nothing in this package reads
+    that tag, so the other copies get no depth.
+
+    This is the failure `core/depth_policy.py` declines a mapping-quality
+    floor to prevent -- "an unmappable repeat does not become a coverage gap"
+    -- reached by a route the floor cannot block. Those reads are MAPQ 0 and
+    ARE counted; counting them once does not cover the other copies.
+
+    Pinned rather than fixed: reading `XA` would credit depth to a placement
+    the aligner declined to make, which is a decision and not a repair.
+    """
+    copies = [100, 300, 500, 700]
+    reads = []
+    for n in range(20):
+        read = record(name=f"rep{n}", pos=copies[0], seq="A" * 50, mapq=0)
+        read.set_tag("XA", "".join(f"chr1,+{p},50M,0;" for p in copies[1:]))
+        reads.append(read)
+    path = bam(reads)
+
+    depth = compute_bam_depth(path, "chr1", LENGTH)
+
+    assert int(depth[copies[0] + 25]) == 20, "the primary placement is counted"
+    for other in copies[1:]:
+        assert int(depth[other + 25]) == 0, f"copy at {other} got no depth from XA"

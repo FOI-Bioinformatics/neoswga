@@ -274,8 +274,11 @@ def _require_contig_covers(bam, bam_path, contig, length):
         f"{int(contig_length):,} bp, so the remaining "
         f"{length - int(contig_length):,} would be reported as zero depth "
         f"rather than as unobserved",
-        "align against the same assembly this design uses, or map the right "
-        "contig with --contig-alias",
+        "if the reference holds several records, this path cannot describe "
+        "it -- the configured length is the concatenation of them all while "
+        "a contig is one of them, so pass fg_genomes to bind record by "
+        "record. Otherwise the BAM was aligned against a shorter version of "
+        "this sequence: realign, or name the right contig with --contig-alias",
     )
 
 
@@ -538,6 +541,7 @@ def _bam_gaps_by_record(
     contig_aliases,
     record_starts_by_prefix,
     reference,
+    policy,
 ):
     """Gaps found per RECORD, so none can span a join between two molecules.
 
@@ -558,6 +562,7 @@ def _bam_gaps_by_record(
             record_starts=record_starts_by_prefix.get(prefix),
             aliases=contig_aliases,
             reference=reference,
+            policy=policy,
         )
         layout_records = {r.name: r for r in read_layout(genome, prefix=prefix).records}
         single = len(layout_records) == 1
@@ -606,6 +611,7 @@ def bam_gaps(
     fg_genomes: Optional[Sequence[str]] = None,
     record_starts_by_prefix: Optional[Dict[str, Sequence[int]]] = None,
     reference: Optional[str] = None,
+    policy: Optional[DepthPolicy] = None,
 ) -> List[CoverageGap]:
     """Compute low-depth coverage gaps across all foreground prefixes.
 
@@ -620,6 +626,9 @@ def bam_gaps(
     multi-record one is named rather than returned as an empty list.
     """
     require_matching_targets(fg_prefixes, fg_seq_lengths)
+    # Defaulted HERE so one object serves the whole call and a caller can
+    # record the policy that actually ran rather than assert a fresh default.
+    policy = policy or DepthPolicy()
     if fg_genomes:
         return _bam_gaps_by_record(
             bam_path,
@@ -632,6 +641,7 @@ def bam_gaps(
             contig_aliases,
             record_starts_by_prefix or {},
             reference,
+            policy,
         )
 
     with open_alignment(bam_path, require_index=False, reference=reference) as bam:
@@ -652,7 +662,7 @@ def bam_gaps(
     length_by_prefix = dict(zip(fg_prefixes, fg_seq_lengths, strict=True))
     for prefix, contig in mapping.items():
         length = length_by_prefix[prefix]
-        depth = compute_bam_depth(bam_path, contig, length, reference=reference)
+        depth = compute_bam_depth(bam_path, contig, length, policy=policy, reference=reference)
         gaps = find_low_depth_gaps(depth, prefix, min_depth, min_gap_size, circular=circular)
         logger.info(
             "BAM contig '%s' -> %d low-depth gap(s) (min_depth=%d, min_gap_size=%d)",

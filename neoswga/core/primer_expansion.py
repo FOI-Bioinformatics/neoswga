@@ -1079,6 +1079,9 @@ def expand_primers(
         from neoswga.core.bam_coverage import bam_gaps
         from neoswga.core.depth_policy import DepthPolicy
 
+        # One object, passed to the measurement and then recorded. Built fresh
+        # at the record site it asserted what ran rather than reporting it.
+        depth_policy = DepthPolicy()
         bam_derived_gaps = bam_gaps(
             bam_path,
             fg_prefixes,
@@ -1091,11 +1094,12 @@ def expand_primers(
             # BAM contig, so a multi-record reference matches nothing and the
             # gap list is silently empty.
             fg_genomes=params.get("fg_genomes"),
+            policy=depth_policy,
         )
-        bam_depth_policy = DepthPolicy().to_dict()
+        bam_depth_policy = depth_policy.to_dict()
         if verbose:
             logger.info(f"BAM low-depth gaps: {len(bam_derived_gaps)}")
-            logger.info(DepthPolicy().describe())
+            logger.info(depth_policy.describe())
 
     target_gaps = expander.identify_gaps(
         fixed_primers,
