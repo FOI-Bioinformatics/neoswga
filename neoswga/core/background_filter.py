@@ -86,9 +86,7 @@ SAMPLED_INDEX_BYTES_PER_ENTRY = 125
 _LARGE_SAMPLED_INDEX_BYTES = 1e9
 
 
-def projected_sampled_entries(
-    genome_size: int, min_k: int, max_k: int, sample_rate: int
-) -> int:
+def projected_sampled_entries(genome_size: int, min_k: int, max_k: int, sample_rate: int) -> int:
     """How many entries a sampled index over this genome will hold.
 
     Each term saturates at 4**k, so above the k-mer space a longer genome adds
@@ -784,9 +782,7 @@ class BackgroundFilter:
         # Build sampled index
         logger.info("Building sampled index...")
         self.sampled_index = SampledGenomeIndex(sample_rate=self.config.sample_rate)
-        self.sampled_index.add_genome(
-            fasta_path, min_k=self.config.min_k, max_k=self.config.max_k
-        )
+        self.sampled_index.add_genome(fasta_path, min_k=self.config.min_k, max_k=self.config.max_k)
 
     def filter_primers(self, candidates: List[str]) -> List[str]:
         """

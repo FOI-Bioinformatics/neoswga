@@ -1306,8 +1306,7 @@ def run_build_filter(args):
             if capacity is None:
                 capacity = distinct_kmer_capacity(total_size, min_k, max_k)
                 logger.info(
-                    f"Using capacity: {capacity:,} "
-                    f"(distinct k-mers over k={min_k}-{max_k})"
+                    f"Using capacity: {capacity:,} " f"(distinct k-mers over k={min_k}-{max_k})"
                 )
 
             bloom = BackgroundBloomFilter(capacity=capacity, error_rate=args.error_rate)
