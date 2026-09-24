@@ -230,8 +230,15 @@ step, so it cannot carry over to a later step in the same process.
 
 **Renamed from `score` on 2026-09-21, with no alias.** The old name described
 work the stage stopped doing on 2026-09-05, and an alias would have left it
-reachable and in every example someone copies. `neoswga score` now fails with a
-message naming the new command. `--fast-score` went with it: it selected the
+reachable and in every example someone copies. `neoswga score` now fails, but
+NOT with a message naming the new command: argparse rejects it as an invalid
+choice and prints all 39 subcommands, among which `prepare-candidates` has no
+special standing. This entry claimed otherwise until 2026-09-24. Nothing was
+left reachable, which was the point of removing it, but a user whose script
+breaks is not told what to use instead -- and the repository's own Nightly E2E
+workflow was one of those scripts, running red for three nights on this exact
+line. `tests/test_workflows_invoke_real_commands.py` is the check that would
+have caught it the day the rename landed. `--fast-score` went with it: it selected the
 behaviour that had been the default since the model left the default path, so it
 was a published flag that did nothing.
 

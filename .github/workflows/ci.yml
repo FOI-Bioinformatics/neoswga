@@ -163,11 +163,40 @@ jobs:
       - name: Install package with dev dependencies
         run: pip install -e ".[dev]"
 
-      - name: Run tests with coverage
-        run: pytest tests/ -q --tb=short --cov=neoswga --cov-report=term-missing --cov-fail-under=50
+      - name: Run tests
+        # `-m "not scale"` because the scale marker declares itself "opt-in;
+        # nightly workflow only" and this job was running those tests in all six
+        # cells while the nightly workflow excluded them. One of the four is a
+        # memory measurement, which is the kind least suited to six
+        # heterogeneous runners. They now run in nightly.yml, where the marker
+        # always said they would.
+        #
+        # Coverage is measured in ONE cell. It is a property of the code, not of
+        # the platform, so the other five measurements were computed and thrown
+        # away while slowing the cell that produced them. ubuntu-latest/3.11 is
+        # this repository's reference environment: the lint job and the type
+        # ratchet both run there, so a coverage figure from it is comparable
+        # with the other numbers anyone quotes.
+        #
+        # The gate travels with the measurement. `--cov-fail-under=50` applies
+        # wherever coverage is computed, so moving it does not weaken it, and a
+        # cell that does not measure coverage cannot fail on it.
+        run: |
+          COVERAGE=""
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python-version }}" = "3.11" ]; then
+            COVERAGE="--cov=neoswga --cov-report=term-missing --cov-fail-under=50"
+          fi
+          pytest tests/ -m "not scale" -q --tb=short $COVERAGE
 
   build:
-    needs: test
+    # `needs: lint`, not `needs: test`. This job checks PACKAGING and publishes
+    # nothing, so it does not depend on the suite passing. Behind the six test
+    # cells a packaging omission surfaced about twenty minutes after the push
+    # instead of about one -- and that class is not hypothetical here: a built
+    # wheel once shipped without `neoswga.core.registry`, which the import-smoke
+    # step below exists to catch. It still gates on lint, so a branch that
+    # cannot be formatted or typed does not spend a runner on a build.
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -17,8 +17,18 @@ _WORKFLOWS = sorted((_ROOT / ".github" / "workflows").glob("*.yml"))
 
 
 def _pytest_path_args(text):
-    """Yield path-like tokens passed to `pytest` invocations in a workflow."""
+    """Yield path-like tokens passed to `pytest` invocations in a workflow.
+
+    Comment lines are skipped. They are not executed in either context a
+    workflow has -- `#` starts a YAML comment at the top level and a shell
+    comment inside a `run:` block -- and prose about the suite legitimately
+    mentions commands. A comment reading "a subset of the `pytest tests/` that
+    every pull request runs" otherwise yielded the token "tests/`", backtick
+    included, and reported it as a missing path.
+    """
     for line in text.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
         if "pytest " not in line:
             continue
         # Tokens after 'pytest' up to a flag/pipe; keep ones that look like paths
@@ -53,9 +63,42 @@ def test_workflow_pytest_paths_exist(wf):
 
 
 def test_guard_actually_inspects_a_pytest_line():
-    """Sanity: the parser finds the integration path in the nightly workflow."""
+    """Sanity: the parser extracts a real path from a real workflow.
+
+    This used to assert that the nightly workflow referenced `tests/integration`
+    specifically, which pinned that workflow's CONTENT rather than the parser's
+    behaviour. When nightly stopped re-running the integration suite that every
+    pull request already covers, the guard failed for a change that was correct.
+    A sanity check must break when the parser breaks, not when the thing it
+    parses changes legitimately.
+    """
     nightly = _ROOT / ".github" / "workflows" / "nightly.yml"
     if not nightly.exists():
         pytest.skip("no nightly workflow")
     toks = list(_pytest_path_args(nightly.read_text()))
-    assert any("tests/integration" in t for t in toks), toks
+    assert toks, "the parser found no pytest path at all in the nightly workflow"
+    assert all((_ROOT / tok).exists() for tok in toks), toks
+
+
+def test_the_parser_ignores_prose_about_pytest():
+    """A comment is not an invocation.
+
+    Verified against the exact shape that broke it: a backticked command inside
+    a YAML comment.
+    """
+    text = "# files -- is a subset of the `pytest tests/` that every PR runs\n"
+    assert list(_pytest_path_args(text)) == []
+
+
+def test_the_parser_still_reads_a_real_invocation():
+    """The complement of the test above: skipping comments must not skip code."""
+    text = '      - name: x\n        run: pytest tests/integration/ -m "not scale" -q\n'
+    assert list(_pytest_path_args(text)) == ["tests/integration/"]
+
+
+def test_a_missing_path_is_still_caught():
+    """The guard's whole purpose, pinned against a synthetic workflow."""
+    text = "        run: pytest tests/test_does_not_exist.py -q\n"
+    toks = list(_pytest_path_args(text))
+    assert toks == ["tests/test_does_not_exist.py"]
+    assert not (_ROOT / toks[0]).exists()
