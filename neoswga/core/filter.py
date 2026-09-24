@@ -626,6 +626,60 @@ def filter_extra(primer: str) -> bool:
     return True
 
 
+def _resolve_background_source() -> Tuple[bool, Optional[str]]:
+    """Which background source this run screens against, or refuse.
+
+    Resolved before any counting: this is a configuration error, and
+    reading the foreground k-mer tables first only delays it behind file
+    I/O that the run is about to discard.
+
+    Returns (use_bloom, bloom_path).
+    """
+    # Both keys are required, and that is not obvious: a user who builds a
+    # filter and sets only the path gets exact counting and no explanation,
+    # having paid the build cost -- hours on a host genome.
+    #
+    # The comment here used to say "auto-enable if bg_bloom is specified", and
+    # neither half was true. `use_bloom_filter` is a module global that always
+    # exists and defaults to False, so the `getattr` fallback that would have
+    # enabled it could never be reached; and `bg_bloom` is not a schema key and
+    # is assigned nowhere, so that arm of the `or` was permanently dead.
+    bloom_path = getattr(parameter, "bloom_filter_path", None)
+    use_bloom = getattr(parameter, "use_bloom_filter", False)
+
+    if use_bloom and not bloom_path:
+        # The damaging pairing, and it was silent. This flag is documented to
+        # leave `bg_prefixes` empty -- parameter.py sets `bg_seq_lengths = []`
+        # for exactly that case -- so the exact-counting fallback below has no
+        # k-mer files to read. Every background count then comes back absent,
+        # and an absent count PASSES the gate. That rule is deliberate, since a
+        # k-mer missing from a jellyfish table may still have sites the string
+        # search finds, but here it is not one k-mer missing: it is the whole
+        # background gate off, on a run the user asked to screen a host with.
+        raise InvalidDesignRequest(
+            field="bloom_filter_path",
+            reason=(
+                "use_bloom_filter is true but no Bloom filter path is set. The "
+                "flag also leaves bg_prefixes empty, so the exact-counting "
+                "fallback has no k-mer files to read: every background count "
+                "would be absent, and an absent count passes the gate, which "
+                "would screen nothing at all. Set bloom_filter_path to a filter "
+                "built with 'neoswga build-filter', or set use_bloom_filter to "
+                "false to count background k-mers exactly"
+            ),
+        )
+
+    if bloom_path and not use_bloom:
+        logger.warning(
+            'bloom_filter_path is set to %s but "use_bloom_filter" is false, '
+            "so the Bloom filter is NOT being used and background k-mers are "
+            "counted exactly. Set use_bloom_filter to true to use it.",
+            bloom_path,
+        )
+
+    return use_bloom, bloom_path
+
+
 def get_all_rates(
     primer_list: List[str],
     fg_prefixes: List[str],
@@ -647,16 +701,10 @@ def get_all_rates(
         df: A pandas dataframe with the sequence, unnormalized counts, and  columns fg_bool and bg_bool which indicate if the sequence passes the respective filters.
     """
 
+    use_bloom, bloom_path = _resolve_background_source()
     primer_to_fg_count = get_rates_for_one_species(primer_list, fg_prefixes)
 
-    # Check if Bloom filter should be used for background filtering
-    # Auto-enable if bg_bloom is specified in params (common user config)
-    bloom_path = getattr(parameter, "bloom_filter_path", None) or getattr(
-        parameter, "bg_bloom", None
-    )
-    use_bloom = getattr(parameter, "use_bloom_filter", bloom_path is not None)
-
-    if use_bloom and bloom_path:
+    if use_bloom:
         primer_to_bg_count = get_bg_rates_via_bloom(primer_list, bloom_path)
     else:
         primer_to_bg_count = get_rates_for_one_species(primer_list, bg_prefixes)
