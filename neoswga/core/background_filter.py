@@ -8,6 +8,7 @@ Use Bloom filters and sampling for fast negative selection.
 import logging
 import os
 import pickle
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Tuple
@@ -24,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 
 _COMPLEMENT = str.maketrans("ACGT", "TGCA")
+
+# Maximal runs of unambiguous bases. A k-mer straddling anything else was
+# skipped by the position-wise validity check this replaces, so scanning inside
+# runs reproduces exactly the set that check kept.
+_ACGT_RUN = re.compile(r"[ACGT]+")
 
 
 def _reverse_complement(seq: str) -> str:
@@ -184,11 +190,7 @@ class BackgroundBloomFilter:
 
         logger.info(f"  Total genome length: {total_length:,} bp")
 
-        # Precompile the valid bases set for faster lookup
-        valid_bases = set("ATCG")
-
         # Second pass: add k-mers
-        processed = 0
         for record in SeqIO.parse(fasta_path, "fasta"):
             seq = str(record.seq).upper()
             seq_len = len(seq)
@@ -196,40 +198,48 @@ class BackgroundBloomFilter:
 
             logger.info(f"  Processing {record.id}: {seq_len:,} bp")
 
+            # Locate the unambiguous stretches once per record, as spans rather
+            # than substrings so nothing is copied. Every k-mer the old loop
+            # kept lies wholly inside one of these, and every k-mer it skipped
+            # straddles or sits outside them, so the set is unchanged.
+            spans = [match.span() for match in _ACGT_RUN.finditer(seq)]
+
             # Process each k-mer length separately (more cache-friendly)
             for k in range(min_k, max_k + 1):
                 n_positions = seq_len - k + 1
                 if n_positions <= 0:
                     continue
 
-                # Use tqdm for progress on this k value
-                desc = f"    {k}bp k-mers"
-                iterator = range(n_positions)
+                # The old loop re-checked all k bases at every position, an
+                # O(k) test per position per k value, and collected k-mers into
+                # a list only to loop over that list calling add() one at a
+                # time -- pybloom has no bulk insert, so the batching bought
+                # nothing. Sliding inside a known-good span makes the validity
+                # test free.
+                add = self.bloom.add
+                added = 0
+                progress = None
                 if use_tqdm:
-                    iterator = tqdm(
-                        iterator, desc=desc, unit=" pos", mininterval=1.0, disable=False
+                    progress = tqdm(
+                        total=n_positions,
+                        desc=f"    {k}bp k-mers",
+                        unit=" pos",
+                        mininterval=1.0,
                     )
 
-                batch_kmers = []
-                for i in iterator:
-                    kmer = seq[i : i + k]
+                for start, end in spans:
+                    in_run = end - k + 1
+                    if in_run <= start:
+                        continue
+                    for i in range(start, in_run):
+                        add(seq[i : i + k])
+                    added += in_run - start
+                    if progress is not None:
+                        progress.update(in_run - start)
 
-                    # Fast validity check using set membership
-                    if all(b in valid_bases for b in kmer):
-                        batch_kmers.append(kmer)
-
-                        # Batch add to reduce per-item overhead
-                        if len(batch_kmers) >= 10000:
-                            for km in batch_kmers:
-                                self.bloom.add(km)
-                            self.kmer_count += len(batch_kmers)
-                            batch_kmers = []
-
-                # Add remaining batch
-                if batch_kmers:
-                    for km in batch_kmers:
-                        self.bloom.add(km)
-                    self.kmer_count += len(batch_kmers)
+                if progress is not None:
+                    progress.close()
+                self.kmer_count += added
 
                 # Optional: add 1-mismatch variants (very slow, typically skip)
                 if include_mismatches:
@@ -237,7 +247,7 @@ class BackgroundBloomFilter:
                     # Only process a sample for mismatches
                     for i in range(0, n_positions, 100):  # Every 100th position
                         kmer = seq[i : i + k]
-                        if all(b in valid_bases for b in kmer):
+                        if self._is_valid_kmer(kmer):
                             for variant in self._generate_1mm_variants(kmer):
                                 self.bloom.add(variant)
 
