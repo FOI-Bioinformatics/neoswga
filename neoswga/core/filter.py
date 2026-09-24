@@ -331,7 +331,7 @@ def _reject_lengths_the_filter_cannot_answer(bloom, primer_list, bloom_path) -> 
     rather than wrong, so it warns and proceeds -- the rule `digest_algorithm`
     established for a k-mer table written before its provenance sidecar.
     """
-    if bloom.covers_length(0) is None:
+    if bloom.min_k is None or bloom.max_k is None:
         logger.warning(
             "Bloom filter %s records no k-mer range, so the primer lengths it "
             "covers cannot be checked. A length it does not hold reads as "
