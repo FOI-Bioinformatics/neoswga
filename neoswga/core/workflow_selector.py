@@ -130,6 +130,38 @@ def get_choice(max_option: int) -> Optional[int]:
             print("Please enter a valid number or 'q' to quit")
 
 
+def _print_bam_iteration_workflow():
+    """The two-step BAM feedback recipe, printed by the advanced menu.
+
+    Extracted when saying which NAME `--contig-alias` takes pushed
+    `run_workflow_selector` one line past its budget. It is a self-contained
+    block of text, which is the cheapest thing in that function to lift out.
+
+    The keying sentence is the point: both commands below bind per FASTA
+    RECORD, and "use --contig-alias" alone sent people to a prefix key that
+    binds nothing on a multi-record reference.
+    """
+    print("\nIterative design: add oligos after sequencing")
+    print()
+    print("Round 1 produced a primer set; you synthesized it and")
+    print("sequenced. Map the reads to the target, then:")
+    print()
+    print("  # 1. Inspect coverage gaps (in-silico + real BAM depth)")
+    print("  neoswga analyze-coverage -j params.json \\")
+    print("    --primers SEQ1 SEQ2 --bam reads.bam --min-depth 5 -o cov/")
+    print()
+    print("  # 2. Add primers that fill those gaps")
+    print("  neoswga expand-primers -j params.json \\")
+    print("    --fixed-primers SEQ1 SEQ2 --bam reads.bam \\")
+    print("    --num-new 6 -o expanded/")
+    print()
+    print("Needs the [bam] extra: pip install 'neoswga[bam]'")
+    print("If BAM contig names differ from the target, map them with")
+    print("--contig-alias NAME=BAMCONTIG. Both commands above bind per")
+    print("FASTA RECORD, so NAME is a record name from the reference --")
+    print("the file's prefix only when it holds a single record.")
+
+
 def run_workflow_selector():
     """
     Run the interactive workflow selector.
@@ -370,22 +402,7 @@ def run_workflow_selector():
                     print("Creates network visualization of primer-dimer interactions")
 
                 elif adv_choice == 6:  # Add oligos from sequencing (BAM)
-                    print("\nIterative design: add oligos after sequencing")
-                    print()
-                    print("Round 1 produced a primer set; you synthesized it and")
-                    print("sequenced. Map the reads to the target, then:")
-                    print()
-                    print("  # 1. Inspect coverage gaps (in-silico + real BAM depth)")
-                    print("  neoswga analyze-coverage -j params.json \\")
-                    print("    --primers SEQ1 SEQ2 --bam reads.bam --min-depth 5 -o cov/")
-                    print()
-                    print("  # 2. Add primers that fill those gaps")
-                    print("  neoswga expand-primers -j params.json \\")
-                    print("    --fixed-primers SEQ1 SEQ2 --bam reads.bam \\")
-                    print("    --num-new 6 -o expanded/")
-                    print()
-                    print("Needs the [bam] extra: pip install 'neoswga[bam]'")
-                    print("If BAM contig names differ from the target, use --contig-alias.")
+                    _print_bam_iteration_workflow()
 
                 input("\nPress Enter to continue...")
 

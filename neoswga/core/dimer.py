@@ -57,7 +57,7 @@ def compatible(dimer_mat, selected_primers, primer, primer_to_index_dict):
 
 def is_dimer(seq_1, seq_2, max_dimer_bp=3):
     """
-    Checks if two primers may form a heterodimer, according to if the length of the longest common substring is greater than max_dimer_bp. Adjust max_dimer_bp using options -t or --max_dimer_bp or the optional function argument.
+    Checks if two primers may form a heterodimer, according to if the length of the longest common substring is greater than max_dimer_bp. Adjust max_dimer_bp with --max-dimer-bp, the params.json key of that name, or the optional function argument.
 
     Args:
         seq_1: One of the primers, written in the 5' to 3' direction.
@@ -237,7 +237,7 @@ def _check_dimer_pair(args):
 
 
 def heterodimer_matrix(primer_list, max_dimer_bp=3):
-    """Computes a 2D binary, symmetric array where a 1 in row i and column j indicates primer i and primer j may form a heterodimer. Adjust max_dimer_bp using options -t or --max_dimer_bp or the optional function argument.
+    """Computes a 2D binary, symmetric array where a 1 in row i and column j indicates primer i and primer j may form a heterodimer. Adjust max_dimer_bp with --max-dimer-bp, the params.json key of that name, or the optional function argument.
 
     Args:
         primer_list: The list of primers to evaluate.
@@ -356,7 +356,7 @@ def heterodimer_matrix_fast(primer_list, max_dimer_bp=3):
 
 def is_compatible_set(primer_set, max_dimer_bp=3):
     """
-    Checks if primer_set has a risk of forming heterodimers. Adjust max_dimer_bp using options -t or --max_dimer_bp or the optional function argument.
+    Checks if primer_set has a risk of forming heterodimers. Adjust max_dimer_bp with --max-dimer-bp, the params.json key of that name, or the optional function argument.
 
     Args:
         primer_set: The list of primers to be evaluated, written in the 5' to 3' direction.

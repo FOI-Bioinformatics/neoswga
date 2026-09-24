@@ -145,7 +145,7 @@ def cost_from_modifications(
     """Cost using an existing `export.PrimerModifications`.
 
     Keeps the ordering profile and the price of that profile in one place, so a
-    design exported with `--modification-profile low-input` is costed with the
+    design exported with `--modifications low-input` is costed with the
     C18 spacer it will actually be ordered with.
     """
     return set_cost(

@@ -50,7 +50,7 @@ _BUDGETS = {
     # warning about the weights that object is handed. That is the ratchet
     # working: the entry went away by extraction, not by a raised budget.
     "core/report/technical_report.py::render_technical_report": 325,
-    "core/workflow_selector.py::run_workflow_selector": 260,
+    "core/workflow_selector.py::run_workflow_selector": 243,
     "cli/pipeline.py::run_step2": 215,
     "core/additive_interactions.py::load_defaults": 215,
     # core/pipeline.py::step2 dropped off this list when the position scans moved

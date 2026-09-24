@@ -644,6 +644,11 @@ def _resolve_background_source() -> Tuple[bool, Optional[str]]:
     # exists and defaults to False, so the `getattr` fallback that would have
     # enabled it could never be reached; and `bg_bloom` is not a schema key and
     # is assigned nowhere, so that arm of the `or` was permanently dead.
+    #
+    # Whether a path ALONE should enable the filter is a behaviour decision and
+    # is deliberately not taken here; saying so is not. The opposite pairing,
+    # the flag with no path, is not a decision of that kind: it screens
+    # nothing, so it is refused rather than reported.
     bloom_path = getattr(parameter, "bloom_filter_path", None)
     use_bloom = getattr(parameter, "use_bloom_filter", False)
 
