@@ -439,19 +439,26 @@ UNIMPLEMENTED_OPTIONS = {
     "use_background_filter": (
         "--use-background-filter",
         "optimize builds no Bloom filter; candidates are screened against the "
-        "background by the separate pre-filter that --no-bg-prefilter disables",
+        "background by the separate pre-filter that --no-bg-prefilter disables. "
+        "To screen against a pre-built Bloom filter, run "
+        "'neoswga filter --use-bloom-filter --bloom-filter-path <file>' before "
+        "optimizing",
     ),
     "background_bloom_path": (
         "--background-bloom-path",
         "a pre-built Bloom filter is read only by improved_pipeline, which the "
         "optimize command does not use; see --no-bg-prefilter for the screening "
-        "optimize does perform",
+        "optimize does perform. A Bloom filter screens CANDIDATES, so it is "
+        "consumed earlier: run 'neoswga filter --use-bloom-filter "
+        "--bloom-filter-path <file>'",
     ),
     "background_sampled_path": (
         "--background-sampled-path",
         "a pre-built sampled index is read only by improved_pipeline, which the "
         "optimize command does not use; see --no-bg-prefilter for the screening "
-        "optimize does perform",
+        "optimize does perform. The index is found beside the filter it was "
+        "built with, so run 'neoswga filter --use-bloom-filter "
+        "--bloom-filter-path <file>'",
     ),
     "max_optimization_time": (
         "--max-optimization-time",

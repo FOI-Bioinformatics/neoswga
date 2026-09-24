@@ -195,16 +195,44 @@ class GenomeLibrary:
         # Optional Bloom filter
         bloom_path: Optional[str] = None
         should_bloom = build_bloom == "yes" or (build_bloom == "auto" and genome_size > 50_000_000)
+        if should_bloom and not computed_ranges:
+            logger.warning(
+                "Skipping Bloom filter for %s: no k-mer range was counted, so "
+                "there is no range for the filter to cover.",
+                name,
+            )
+            should_bloom = False
         if should_bloom:
             bloom_path = os.path.join(entry_dir, "bloom.pkl")
             logger.info(f"Building Bloom filter for {name}...")
             try:
                 from neoswga.core.background_filter import (
                     BackgroundBloomFilter,
+                    distinct_kmer_capacity,
                 )
 
-                bloom = BackgroundBloomFilter()
-                bloom.add_genome(fasta_path)
+                # Cover the lengths jellyfish actually counted, and size the
+                # filter to the distinct k-mers they hold. The default capacity
+                # this used to take was 3e9, a 3.6 GB allocation that is both
+                # far more than a k 6-12 filter needs and far less than a
+                # k 6-18 filter holds -- and this path's default ranges are
+                # exactly 6-12 and 12-18. pybloom raises at capacity, and the
+                # `except` below turned that into "Bloom filter build failed"
+                # with no filter registered.
+                bloom_min_k = min(lo for lo, _ in computed_ranges)
+                bloom_max_k = max(hi for _, hi in computed_ranges)
+                capacity = distinct_kmer_capacity(genome_size, bloom_min_k, bloom_max_k)
+                logger.info(
+                    "Bloom filter for %s: k=%d-%d, capacity %s, about %.1f MB",
+                    name,
+                    bloom_min_k,
+                    bloom_max_k,
+                    f"{capacity:,}",
+                    capacity * 9.59 / 8 / 1e6,
+                )
+
+                bloom = BackgroundBloomFilter(capacity=capacity)
+                bloom.add_genome(fasta_path, min_k=bloom_min_k, max_k=bloom_max_k)
                 bloom.save(bloom_path)
             except Exception as e:
                 logger.warning(f"Bloom filter build failed: {e}")
