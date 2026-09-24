@@ -417,10 +417,16 @@ class BackgroundBloomFilter:
         return instance
 
     def memory_usage_mb(self) -> float:
-        """Estimate memory usage in MB"""
-        import sys
+        """Size of the filter's bit array, in MB.
 
-        return sys.getsizeof(pickle.dumps(self.bloom)) / 1e6
+        This used to pickle the whole filter and take `sys.getsizeof` of the
+        resulting bytes: a second copy of a structure sized in tens of MB for
+        a host background, allocated to produce one log line, and measuring
+        the SERIALISED form rather than the live allocation. `num_bits` is the
+        allocation, and it is fixed at construction, so the figure does not
+        move with how many k-mers have been added.
+        """
+        return self.bloom.num_bits / 8 / 1e6
 
 
 class SampledGenomeIndex:
