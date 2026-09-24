@@ -66,6 +66,74 @@ def distinct_kmer_capacity(
     return max(1, int(total * margin))
 
 
+# Measured with ru_maxrss, one size per process, on a dict of 12-mer string
+# keys (scripts/benchmarking/sampled_index_rss.py): 124.8 B/entry at 1 million
+# entries and 125.5 at 4 million. 200,000 entries reads 137.8 because fixed
+# process overhead is a larger share of a small delta, the caveat
+# count_coverage_rss.py records for the same method.
+SAMPLED_INDEX_BYTES_PER_ENTRY = 125
+
+# Above this the index is worth a warning. It is a resource threshold, not a
+# scientific one: the point is that the structure the Bloom filter was chosen
+# to avoid has reappeared beside it, at roughly a hundred times the filter's
+# own size.
+_LARGE_SAMPLED_INDEX_BYTES = 1e9
+
+
+def projected_sampled_entries(
+    genome_size: int, min_k: int, max_k: int, sample_rate: int
+) -> int:
+    """How many entries a sampled index over this genome will hold.
+
+    Each term saturates at 4**k, so above the k-mer space a longer genome adds
+    nothing: the count is the same for a 144 Mb and a 3.3 Gb background at
+    k 6-12.
+    """
+    total = 0
+    for k in range(min_k, max_k + 1):
+        sampled_positions = max(0, genome_size - k + 1) // max(1, sample_rate)
+        total += min(4**k, sampled_positions)
+    return total
+
+
+def warn_if_sampled_index_is_large(
+    genome_size: int, min_k: int, max_k: int, sample_rate: int
+) -> None:
+    """Say so when the companion index dwarfs the filter it accompanies.
+
+    The Bloom filter exists so a host-sized background need not be held as an
+    exact index. The sampled index beside it is a plain dict of k-mer strings,
+    and at host scale it is by far the larger of the two: hg38 at sample rate
+    100 over k 6-12 projects to 22.4 million entries and about 2.8 GB, against
+    26.8 MB for the filter. A user who reached for Bloom to save memory should
+    be told where the memory went.
+
+    Extrapolated from a measured per-entry constant, not from a host-scale
+    build: no Bloom filter has ever been built against a host genome here.
+    """
+    entries = projected_sampled_entries(genome_size, min_k, max_k, sample_rate)
+    projected = entries * SAMPLED_INDEX_BYTES_PER_ENTRY
+    if projected < _LARGE_SAMPLED_INDEX_BYTES:
+        return
+
+    logger.warning(
+        "Sampled index over %s bp at k=%d-%d, sample rate %d, projects to "
+        "%s entries and about %.1f GB, which is far larger than the Bloom "
+        "filter it accompanies. Building it from pre-counted k-mer tables "
+        "instead stores unique k-mers with exact counts rather than sampled "
+        "positions: 'neoswga build-filter --genome <kmer_prefix> -o <dir> "
+        "--from-kmers'. Figure extrapolated from %d bytes per entry measured "
+        "on this structure, not from a build at this scale.",
+        f"{genome_size:,}",
+        min_k,
+        max_k,
+        sample_rate,
+        f"{entries:,}",
+        projected / 1e9,
+        SAMPLED_INDEX_BYTES_PER_ENTRY,
+    )
+
+
 @dataclass
 class BackgroundFilterConfig:
     """Configuration for background filtering"""
@@ -687,6 +755,9 @@ class BackgroundFilter:
         # time, so the capability is not lost, only the cost of pre-computing
         # it.
         capacity = distinct_kmer_capacity(genome_size, self.config.min_k, self.config.max_k)
+        warn_if_sampled_index_is_large(
+            genome_size, self.config.min_k, self.config.max_k, self.config.sample_rate
+        )
 
         logger.info("Building Bloom filter (capacity=%s)...", f"{capacity:,}")
         self.bloom = BackgroundBloomFilter(capacity=capacity, error_rate=self.config.bloom_fp_rate)
@@ -860,6 +931,7 @@ def build_background_filter(
     bloom = BackgroundBloomFilter(capacity=capacity, error_rate=error_rate)
     # Faster without mismatch variants; they are generated at query time.
     bloom.add_genome(genome_fasta, include_mismatches=False, min_k=min_k, max_k=max_k)
+    warn_if_sampled_index_is_large(bloom.genome_size, min_k, max_k, 100)
 
     # Build sampled index for count estimation
     if verbose:

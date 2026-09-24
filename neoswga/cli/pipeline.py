@@ -1235,6 +1235,7 @@ def run_build_filter(args):
         BackgroundBloomFilter,
         SampledGenomeIndex,
         distinct_kmer_capacity,
+        warn_if_sampled_index_is_large,
     )
 
     logger.info("Building background filter")
@@ -1291,16 +1292,19 @@ def run_build_filter(args):
             # Build from genome FASTA (slower but comprehensive)
             logger.info(f"Building from genome FASTA: {args.genome}")
 
-            # Auto-detect capacity from genome size
+            # The genome length is needed for the sampled-index projection
+            # whether or not capacity was supplied, so it is measured once here
+            # rather than only on the auto-detect branch.
+            from Bio import SeqIO
+
+            total_size = 0
+            for record in SeqIO.parse(args.genome, "fasta"):
+                total_size += len(record.seq)
+            logger.info(f"Genome size: {total_size:,} bp")
+
             capacity = args.capacity
             if capacity is None:
-                from Bio import SeqIO
-
-                total_size = 0
-                for record in SeqIO.parse(args.genome, "fasta"):
-                    total_size += len(record.seq)
                 capacity = distinct_kmer_capacity(total_size, min_k, max_k)
-                logger.info(f"Auto-detected genome size: {total_size:,} bp")
                 logger.info(
                     f"Using capacity: {capacity:,} "
                     f"(distinct k-mers over k={min_k}-{max_k})"
@@ -1309,6 +1313,7 @@ def run_build_filter(args):
             bloom = BackgroundBloomFilter(capacity=capacity, error_rate=args.error_rate)
             bloom.add_genome(args.genome, include_mismatches=False, min_k=min_k, max_k=max_k)
 
+            warn_if_sampled_index_is_large(total_size, min_k, max_k, 100)
             sampled = SampledGenomeIndex(sample_rate=100)
             sampled.add_genome(args.genome, min_k=min_k, max_k=max_k)
 
