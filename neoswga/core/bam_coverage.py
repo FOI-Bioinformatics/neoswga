@@ -21,6 +21,7 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 
 from neoswga.core.depth_policy import DepthPolicy
+from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.primer_expansion import CoverageGap
 from neoswga.core.reference_layout import BoundRecords, read_layout, verify_layout
 
@@ -39,6 +40,69 @@ def _require_pysam():
             "    pip install 'neoswga[bam]'\n"
             "(or `pip install pysam`)."
         ) from e
+
+
+def open_alignment(bam_path, require_index: bool = True, reference: Optional[str] = None):
+    """Open a BAM or CRAM, or refuse in a way that names the remedy.
+
+    pysam's own answers to the three things a user hits first are a pysam
+    internal's answers. A file that is not an alignment gives "file has no
+    sequences defined (mode='rb') ... Consider opening with check_sq=False",
+    which is advice for a different problem and names neither the file nor what
+    is wrong with it. A BAM without an index gives "fetch called on bamfile
+    without index", which names neither the file nor `samtools index`.
+
+    The mode stays "rb" and that is not a bug: htslib detects the format from
+    the file's magic bytes, so a CRAM opens through it. Verified by reading one
+    back.
+
+    `require_index` is a parameter because reading the HEADER -- contig names
+    and lengths, which is all `bind_bam_depth` and `bam_low_depth_gaps` want --
+    needs no index, and demanding one there would refuse a file this code can
+    read perfectly well.
+
+    `reference` is the FASTA a CRAM was compressed against. CRAM stores
+    differences from a reference rather than sequence, so without it the
+    records cannot be decoded at all. htslib will look in the `UR` header
+    field, then `REF_PATH` and `REF_CACHE`, then the EBI -- so a CRAM may read
+    on one machine and not on another with no change to the file, and passing
+    the path explicitly is the only way to make it deterministic.
+    """
+    pysam = _require_pysam()
+    name = os.path.basename(str(bam_path))
+
+    if not os.path.exists(bam_path):
+        raise ReferenceDataError(
+            f"alignment file {name}",
+            f"{bam_path} does not exist",
+            "check the path passed to --bam",
+        )
+    if reference is not None and not os.path.exists(reference):
+        raise ReferenceDataError(
+            f"reference FASTA {os.path.basename(str(reference))}",
+            f"{reference} does not exist",
+            "check the path passed to --reference",
+        )
+    try:
+        handle = pysam.AlignmentFile(bam_path, "rb", reference_filename=reference)
+    except ValueError as exc:
+        raise ReferenceDataError(
+            f"alignment file {name}",
+            f"{bam_path} is not readable as BAM or CRAM",
+            "check that it is an aligner's output and not a FASTQ, SAM or "
+            "truncated file; `samtools quickcheck` reports the same thing",
+        ) from exc  # pysam's own text is kept on __cause__ rather than inlined:
+        # it ends "Consider opening with check_sq=False", which is advice for a
+        # headerless SAM and would read here as a remedy for the wrong problem.
+
+    if require_index and not handle.has_index():
+        handle.close()
+        raise ReferenceDataError(
+            f"alignment index for {name}",
+            f"{bam_path} has no .bai, .csi or .crai beside it, and depth is " f"read by region",
+            f"samtools index {bam_path}",
+        )
+    return handle
 
 
 def _strip_chr(name: str) -> str:
@@ -172,11 +236,58 @@ def match_contigs(
     return mapping
 
 
+def _require_contig_covers(bam, bam_path, contig, length):
+    """Refuse to report depth for bases the BAM cannot answer for.
+
+    `count_coverage` CLAMPS its `stop` to the contig's length, and the caller
+    then wrote the shorter result into a `length`-sized array of zeros. So
+    asking for 5,000 bases of a 2,000 bp contig returned 3,000 fabricated
+    zeros -- and a zero here is not "no reads", it is no sequence to have
+    reads on. Measured on a fully covered 2 kb contig, `bam_gaps` reported a
+    gap of (1950, 5000): 3,050 bp, of which 3,000 bp is invented.
+    `expand-primers` designs oligos AT gaps, so those oligos would target a
+    region the BAM says nothing whatever about, and `calibrate-reach` would
+    fit a polymerase reach against the same invented zeros.
+
+    Reachable only through `match_contigs`, which binds on a NAME and warns
+    rather than refusing when the lengths disagree. That is deliberate -- a
+    name is an assertion this code should not overrule -- and it stays.
+    Binding on the name and inventing the depth are separate decisions, and
+    only the second is wrong. `ReferenceLayout.bind` refuses a length mismatch
+    outright, so every path carrying `fg_genomes` was already immune.
+
+    A contig LONGER than the configured length is fine and stays silent: that
+    reads a prefix of it, and every base reported was observed.
+    """
+    # `get_reference_length` rather than a dict over every contig: this runs
+    # once per BOUND RECORD, so on the 1,870-record Drosophila reference the
+    # dict form rebuilt 1,870 entries 1,870 times to read one of them.
+    try:
+        contig_length = bam.get_reference_length(contig)
+    except (KeyError, ValueError):
+        return  # pysam raises its own error next, and it names the contig
+    if length <= int(contig_length):
+        return
+    raise ReferenceDataError(
+        f"contig {contig} in {os.path.basename(str(bam_path))}",
+        f"depth was requested for {length:,} bases but the contig is only "
+        f"{int(contig_length):,} bp, so the remaining "
+        f"{length - int(contig_length):,} would be reported as zero depth "
+        f"rather than as unobserved",
+        "if the reference holds several records, this path cannot describe "
+        "it -- the configured length is the concatenation of them all while "
+        "a contig is one of them, so pass fg_genomes to bind record by "
+        "record. Otherwise the BAM was aligned against a shorter version of "
+        "this sequence: realign, or name the right contig with --contig-alias",
+    )
+
+
 def compute_bam_depth(
     bam_path: str,
     contig: str,
     length: int,
     policy: Optional[DepthPolicy] = None,
+    reference: Optional[str] = None,
 ) -> np.ndarray:
     """Return a per-base depth array (int32, len ``length``) for ``contig``.
 
@@ -190,17 +301,31 @@ def compute_bam_depth(
     counts one chimeric molecule in several places. See `core/depth_policy.py`.
     """
     policy = policy or DepthPolicy()
-    pysam = _require_pysam()
     depth = np.zeros(length, dtype=np.int32)
-    with pysam.AlignmentFile(bam_path, "rb") as bam:
+    with open_alignment(bam_path, reference=reference) as bam:
+        _require_contig_covers(bam, bam_path, contig, length)
         # count_coverage returns 4 arrays (A,C,G,T) of length (stop-start).
-        cov = bam.count_coverage(
-            contig,
-            start=0,
-            stop=length,
-            quality_threshold=policy.min_base_quality,
-            read_callback=policy.accepts,
-        )
+        try:
+            cov = bam.count_coverage(
+                contig,
+                start=0,
+                stop=length,
+                quality_threshold=policy.min_base_quality,
+                read_callback=policy.accepts,
+            )
+        except OSError as exc:
+            # htslib says "truncated file" when a CRAM's reference cannot be
+            # resolved, which is a claim about the CRAM and is wrong: the file
+            # is intact and the FASTA is what is missing. A BAM carries its own
+            # sequence, so it cannot reach here for this reason.
+            if not bam.is_cram:
+                raise
+            raise ReferenceDataError(
+                f"reference for CRAM {os.path.basename(str(bam_path))}",
+                "its records could not be decoded, which for a CRAM means the "
+                "reference FASTA it was compressed against was not found",
+                "pass --reference with the FASTA the reads were aligned to",
+            ) from exc
         per_base = np.asarray(cov, dtype=np.int64).sum(axis=0)
         n = min(len(per_base), length)
         depth[:n] = per_base[:n].astype(np.int32)
@@ -233,6 +358,57 @@ class DepthProfile:
         return int(self.evaluable.size)
 
 
+def _record_keyed_aliases(layout, aliases):
+    """Translate a PREFIX-keyed `--contig-alias` into a RECORD-keyed one.
+
+    The two binding rules key their aliases differently and the CLI documents
+    only one of them. `match_contigs`, which `calibrate-reach` uses, keys on
+    the foreground PREFIX or its basename -- which is what
+    `--contig-alias FG=BAMCONTIG` says. `ReferenceLayout.bind`, which every
+    path carrying `fg_genomes` uses and which is therefore the production
+    default, keys on the FASTA RECORD name.
+
+    So the documented form was the one that failed on the commoner path.
+    Measured on a single-record `mygenome.fasta` whose record is `contig_A`
+    against a BAM contig `BAMNAME`: `mygenome=BAMNAME` produced 0 gaps and
+    `contig_A=BAMNAME` produced 1. The run still succeeded, having quietly
+    ignored the sequencing data `--bam` exists to use.
+
+    A prefix alias is unambiguous only when the reference holds ONE record,
+    since then there is exactly one thing it can mean. On a multi-record
+    reference a prefix names a file and a BAM contig names a molecule, so
+    there is no sound translation; that is warned about rather than guessed,
+    because guessing here binds a whole file's depth to one contig.
+
+    An alias already keyed on a record name always wins: it is the more
+    specific claim and the one `bind` documents.
+    """
+    if not aliases:
+        return aliases
+
+    record_names = set(layout.names)
+    prefix_keys = {layout.prefix, os.path.basename(layout.prefix)}
+    translated = dict(aliases)
+
+    for key, value in aliases.items():
+        if key in record_names or key not in prefix_keys:
+            continue
+        if len(layout.records) == 1:
+            only = layout.records[0].name
+            translated.setdefault(only, value)
+        else:
+            logger.warning(
+                "--contig-alias %r names the foreground prefix, but %s holds %d "
+                "records and a prefix is a FILE rather than a contig. Alias the "
+                "record instead, by its FASTA header name: %s.",
+                key,
+                os.path.basename(layout.path),
+                len(layout.records),
+                ", ".join(layout.names[:5]),
+            )
+    return translated
+
+
 def bam_depth_profile(
     bam_path: str,
     prefix: str,
@@ -241,6 +417,7 @@ def bam_depth_profile(
     record_starts: Optional[Sequence[int]] = None,
     aliases: Optional[Dict[str, str]] = None,
     policy: Optional[DepthPolicy] = None,
+    reference: Optional[str] = None,
 ) -> DepthProfile:
     """Depth in the prefix's concatenated space, with a non-evaluable mask.
 
@@ -253,23 +430,27 @@ def bam_depth_profile(
     depth -- and zero depth is what BAM-guided expansion targets.
     """
     policy = policy or DepthPolicy()
-    pysam = _require_pysam()
     layout = read_layout(fasta_path, prefix=prefix)
     verify_layout(layout, record_starts or [], configured_length)
 
-    with pysam.AlignmentFile(bam_path, "rb") as bam:
+    # Header only, so no index is needed to answer it.
+    with open_alignment(bam_path, require_index=False, reference=reference) as bam:
         bam_lengths = {
             name: int(length) for name, length in zip(bam.references, bam.lengths, strict=True)
         }
 
-    bound = layout.bind(bam_lengths, aliases=aliases)
+    bound = layout.bind(bam_lengths, aliases=_record_keyed_aliases(layout, aliases))
     depth = np.zeros(layout.total_length, dtype=np.int32)
     evaluable = np.zeros(layout.total_length, dtype=bool)
 
     for name in bound.matched:
         record = layout.record(name)
         record_depth = compute_bam_depth(
-            bam_path, bound.bam_name_for[name], record.length, policy=policy
+            bam_path,
+            bound.bam_name_for[name],
+            record.length,
+            policy=policy,
+            reference=reference,
         )
         depth[record.start : record.end] = record_depth
         evaluable[record.start : record.end] = True
@@ -359,6 +540,8 @@ def _bam_gaps_by_record(
     circular,
     contig_aliases,
     record_starts_by_prefix,
+    reference,
+    policy,
 ):
     """Gaps found per RECORD, so none can span a join between two molecules.
 
@@ -378,6 +561,8 @@ def _bam_gaps_by_record(
             configured_length=length,
             record_starts=record_starts_by_prefix.get(prefix),
             aliases=contig_aliases,
+            reference=reference,
+            policy=policy,
         )
         layout_records = {r.name: r for r in read_layout(genome, prefix=prefix).records}
         single = len(layout_records) == 1
@@ -425,6 +610,8 @@ def bam_gaps(
     contig_aliases: Optional[Dict[str, str]] = None,
     fg_genomes: Optional[Sequence[str]] = None,
     record_starts_by_prefix: Optional[Dict[str, Sequence[int]]] = None,
+    reference: Optional[str] = None,
+    policy: Optional[DepthPolicy] = None,
 ) -> List[CoverageGap]:
     """Compute low-depth coverage gaps across all foreground prefixes.
 
@@ -439,6 +626,9 @@ def bam_gaps(
     multi-record one is named rather than returned as an empty list.
     """
     require_matching_targets(fg_prefixes, fg_seq_lengths)
+    # Defaulted HERE so one object serves the whole call and a caller can
+    # record the policy that actually ran rather than assert a fresh default.
+    policy = policy or DepthPolicy()
     if fg_genomes:
         return _bam_gaps_by_record(
             bam_path,
@@ -450,11 +640,11 @@ def bam_gaps(
             circular,
             contig_aliases,
             record_starts_by_prefix or {},
+            reference,
+            policy,
         )
 
-    pysam = _require_pysam()
-
-    with pysam.AlignmentFile(bam_path, "rb") as bam:
+    with open_alignment(bam_path, require_index=False, reference=reference) as bam:
         bam_refs = list(bam.references)
         bam_ref_lengths = list(bam.lengths)
 
@@ -472,7 +662,7 @@ def bam_gaps(
     length_by_prefix = dict(zip(fg_prefixes, fg_seq_lengths, strict=True))
     for prefix, contig in mapping.items():
         length = length_by_prefix[prefix]
-        depth = compute_bam_depth(bam_path, contig, length)
+        depth = compute_bam_depth(bam_path, contig, length, policy=policy, reference=reference)
         gaps = find_low_depth_gaps(depth, prefix, min_depth, min_gap_size, circular=circular)
         logger.info(
             "BAM contig '%s' -> %d low-depth gap(s) (min_depth=%d, min_gap_size=%d)",

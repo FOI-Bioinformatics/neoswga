@@ -177,6 +177,64 @@ def run_suggest(args):
 # =========================================================================
 
 
+def _no_contig_matched_advice(fg_prefixes):
+    """What to tell a user whose prefixes matched no BAM contig.
+
+    The old text said only "Map one explicitly with --contig-alias
+    FG=BAMCONTIG", and for a MULTI-RECORD reference following that advice
+    walked the user into a worse place than the one they were in. A prefix is
+    a FASTA file and `fg_seq_lengths` is the concatenated total across all its
+    records, so an alias binding the file to one contig then asked for depth
+    over the whole concatenation. On the shipped
+    `tests/validation/genomes/params.json` -- Prevotella, two chromosomes,
+    3,168,282 bp total -- `--contig-alias prevotella=NC_014370.1` bound
+    (a length disagreement only warns) and produced 1,796,408 real values
+    followed by 1,371,874 fabricated zeros, 43.3% of the array.
+
+    `_require_contig_covers` now refuses that, so the advice leads to a
+    refusal rather than a wrong answer. This makes it lead to neither:
+    `calibrate-reach` matches a prefix to ONE contig and cannot describe a
+    multi-record reference at all, so say that instead of suggesting a flag
+    that cannot help.
+
+    Record counting reads header lines only.
+    """
+    from neoswga.core import parameter
+    from neoswga.core.reference_layout import read_layout
+
+    multi = []
+    # The truncation is deliberate. These are parallel in a well-formed
+    # config, but this runs while REPORTING a failure and the config may be
+    # the thing that is wrong; `fg_genomes` can also be absent, which the
+    # `or []` turns into a shorter sequence. Pairing as far as both go and
+    # saying nothing about the rest is right here, because raising would
+    # replace a useful message with a traceback about the message.
+    genomes = getattr(parameter, "fg_genomes", None) or []
+    for prefix, genome in zip(fg_prefixes, genomes, strict=False):
+        try:
+            layout = read_layout(genome, prefix=prefix)
+        except Exception:  # unreadable here is reported by the steps that need it
+            continue
+        if len(layout.records) > 1:
+            multi.append(f"{os.path.basename(genome)} ({len(layout.records)} records)")
+
+    if multi:
+        return (
+            "No BAM contig could be matched to a foreground prefix, and these "
+            "references hold more than one record: " + ", ".join(multi) + ".\n"
+            "calibrate-reach matches a prefix -- a FASTA FILE -- to a single "
+            "BAM contig, so it cannot describe a multi-record reference: the "
+            "configured length is the concatenation of every record, while a "
+            "contig is one of them. --contig-alias will not help here and is "
+            "refused rather than padding the difference with zero depth.\n"
+            "Fit the reach against a single-record reference instead."
+        )
+    return (
+        "No BAM contig could be matched to a foreground prefix. "
+        "Map one explicitly with --contig-alias FG=BAMCONTIG."
+    )
+
+
 def run_calibrate_reach(args):
     """Estimate the per-primer coverage reach from real sequencing depth.
 
@@ -196,7 +254,7 @@ def run_calibrate_reach(args):
 
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
-    from neoswga.core.bam_coverage import compute_bam_depth, match_contigs
+    from neoswga.core.bam_coverage import compute_bam_depth, match_contigs, open_alignment
     from neoswga.core.position_cache import PositionCache
     from neoswga.core.reach_calibration import fit_reach, format_reach_table
 
@@ -219,9 +277,10 @@ def run_calibrate_reach(args):
             key, value = item.split("=", 1)
             aliases[key] = value
 
-    import pysam  # noqa: F401  (surfaces the [bam] extra's absence early)
-
-    with pysam.AlignmentFile(args.bam, "rb") as bam:
+    # Through `open_alignment` like every other read, so a missing file, a
+    # FASTQ handed to --bam or an unresolvable CRAM reference all say the same
+    # actionable thing here as they do elsewhere. Header only, so no index.
+    with open_alignment(args.bam, require_index=False, reference=args.reference) as bam:
         contig_map = match_contigs(
             list(bam.references),
             list(bam.lengths),
@@ -230,10 +289,7 @@ def run_calibrate_reach(args):
             aliases=aliases or None,
         )
     if not contig_map:
-        raise SystemExit(
-            f"No BAM contig could be matched to a foreground prefix. "
-            f"Map one explicitly with --contig-alias FG=BAMCONTIG."
-        )
+        raise SystemExit(_no_contig_matched_advice(fg_prefixes))
 
     # Fit on the longest matched contig: the estimate is a length-scale, and a
     # short contig cannot distinguish reaches comparable to its own size.
@@ -252,7 +308,7 @@ def run_calibrate_reach(args):
         )
 
     logger.info(f"Fitting reach on {prefix} ({contig}, {length:,} bp, {len(positions)} sites)")
-    depth = compute_bam_depth(args.bam, contig, length)
+    depth = compute_bam_depth(args.bam, contig, length, reference=args.reference)
     # A prefix is one FASTA file, so its coordinate space may concatenate
     # several records. Bins must not straddle a join, and the kernel may only
     # wrap when there is exactly one molecule for it to wrap around.
@@ -327,6 +383,11 @@ def run_analyze_coverage(args):
         from neoswga.core.bam_coverage import bam_gaps
         from neoswga.core.depth_policy import DepthPolicy
 
+        # One object, passed to the measurement and then recorded. Built
+        # fresh at the record site it asserted what ran rather than reporting
+        # it, which is true only while nothing can configure a policy.
+        depth_policy = DepthPolicy()
+
         aliases = {}
         for item in getattr(args, "contig_alias", None) or []:
             if "=" in item:
@@ -342,6 +403,8 @@ def run_analyze_coverage(args):
                 min_gap_size=args.min_gap_size,
                 circular=fg_circular,
                 contig_aliases=aliases or None,
+                reference=getattr(args, "reference", None),
+                policy=depth_policy,
                 # Finding F8: a prefix is a FASTA file, not a contig, so
                 # without the layout a multi-record reference matches nothing.
                 fg_genomes=getattr(parameter, "fg_genomes", None),
@@ -371,7 +434,7 @@ def run_analyze_coverage(args):
                 # A breadth figure means nothing without the rule that
                 # produced it, and two runs under different rules are not
                 # comparable. See `core/depth_policy.py`.
-                "depth_policy": (DepthPolicy().to_dict() if getattr(args, "bam", None) else None),
+                "depth_policy": (depth_policy.to_dict() if getattr(args, "bam", None) else None),
                 "gaps": [
                     {"chromosome": g.chromosome, "start": g.start, "end": g.end, "size": g.size}
                     for g in gaps
@@ -688,11 +751,15 @@ def _add_calibrate_reach_parser(subparsers):
         "target genome. Requires the [bam] extra.",
     )
     parser.add_argument(
+        "--reference",
+        help="FASTA the reads were aligned to. Required only for a CRAM, which stores differences from a reference rather than sequence and cannot be decoded without it.",
+    )
+    parser.add_argument(
         "--contig-alias",
         action="append",
         default=None,
         metavar="FG=BAMCONTIG",
-        help="Map a foreground prefix/basename to a BAM contig. Repeatable.",
+        help="Map a foreground reference to a BAM contig when their names differ. The key is a FASTA RECORD name, or the prefix/basename when the reference holds one record. Repeatable.",
     )
     parser.add_argument("--output", "-o", help="Write the fit as JSON to this path.")
     parser.add_argument("--quiet", "-q", action="store_true", help="Suppress progress output")
@@ -892,6 +959,10 @@ def add_parsers(subparsers):
         "--bam", help="Mapped BAM of real reads vs the target genome. " "Requires the [bam] extra."
     )
     cov_parser.add_argument(
+        "--reference",
+        help="FASTA the reads were aligned to. Required only for a CRAM, which stores differences from a reference rather than sequence and cannot be decoded without it.",
+    )
+    cov_parser.add_argument(
         "--min-depth",
         type=int,
         default=5,
@@ -908,7 +979,7 @@ def add_parsers(subparsers):
         action="append",
         default=None,
         metavar="FG=BAMCONTIG",
-        help="Map a foreground prefix/basename to a BAM contig. " "Repeatable.",
+        help="Map a foreground reference to a BAM contig when their names differ. The key is a FASTA RECORD name, or the prefix/basename when the reference holds one record. Repeatable.",
     )
     cov_parser.add_argument(
         "--output", "-o", required=True, help="Output directory for gap BED/JSON."

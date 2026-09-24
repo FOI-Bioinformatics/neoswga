@@ -43,6 +43,59 @@ defect this project keeps closing:
 - **Deletions.** `count_coverage` tallies A/C/G/T from the read sequence, so a
   base deleted relative to the reference contributes nothing whatever a policy
   said. That is a property of the counter, not a choice.
+
+The same sentence has two further consequences, measured rather than assumed
+(`tests/test_bam_reading_survives_real_aligners.py` pins both):
+
+- **An `N` in a read contributes no depth.** A read `ACGT` + ten `N` + `ACGT`
+  covers 8 of the 18 bases it spans, and the ten in the middle read as a
+  coverage hole. That is the one place this module's reasoning does not carry
+  through: it declines a mapping-quality floor precisely because a gap is what
+  expansion then designs primers for, and an ambiguous BASE call is the same
+  situation as an ambiguous mapping -- the region did amplify. Closing it needs
+  the pileup API, so it is named here rather than fixed. Small in practice,
+  since current basecallers emit few `N`s.
+
+**What each aligner does that this policy cannot see.** Every entry below was
+measured through `compute_bam_depth` on a constructed BAM, and none is fixed
+here; they are recorded so a coverage hole is not mistaken for a design
+problem.
+
+- **bwa mem lists alternative placements in the `XA` tag, and nothing reads
+  it.** bwa reports a multi-mapping read at ONE locus and names the others in
+  a tag on that same primary record, so a read placing at five copies of a
+  repeat contributes depth at one of them. Measured on five identical 100 bp
+  copies with 40 reads carrying `XA`: copy 1 reads depth 80 and copies 2 to 5
+  read 0, producing four 75 bp gaps at `min_depth` 5.
+
+  This is the failure the no-mapping-quality-floor rule above exists to
+  prevent, reached by a route that rule cannot block. The floor reasoning
+  holds -- those reads are MAPQ 0 and ARE counted -- but counting them at one
+  locus does not cover the other four, so a repeat-rich target still turns
+  into expansion targets. Reading `XA` would mean crediting depth to a
+  placement the aligner declined to make, which is a decision rather than a
+  repair.
+
+- **bowtie2 overlapping mates are counted twice**, as the note above says.
+  The consequence is worth stating in the direction it bites: depth is
+  INFLATED where mates overlap, so FEWER gaps are reported than exist, and
+  the inflation tracks insert size along the genome rather than being a
+  uniform factor that would cancel out of a threshold.
+
+- **minimap2 supplementary exclusion can manufacture gaps.** A locus carried
+  only by supplementary segments reads zero. The reason given above for
+  excluding them -- branched-product chimeras -- is a short-read argument; for
+  long reads a split alignment is the ordinary representation of a read
+  crossing a structural difference, so the same rule removes real evidence.
+  Deletions pockmark depth for the same reason `count_coverage` ignores them,
+  and noisy long reads carry many.
+
+- **`count_secondary` cannot do what it says for bwa mem.** That aligner writes
+  secondary records with `SEQ` set to `*`, so there are no bases to tally and
+  such a record contributes zero whether the knob is on or off -- measured
+  identical at 20 covered bases either way. The knob is honest for an aligner
+  that repeats the sequence and inert for one that does not, and no production
+  path constructs a policy with it set.
 """
 
 from __future__ import annotations

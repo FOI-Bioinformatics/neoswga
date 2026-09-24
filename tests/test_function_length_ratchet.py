@@ -51,7 +51,6 @@ _BUDGETS = {
     # working: the entry went away by extraction, not by a raised budget.
     "core/report/technical_report.py::render_technical_report": 325,
     "core/workflow_selector.py::run_workflow_selector": 260,
-    "cli/iterate.py::run_expand_primers": 245,
     "cli/pipeline.py::run_step2": 215,
     "core/additive_interactions.py::load_defaults": 215,
     # core/pipeline.py::step2 dropped off this list when the position scans moved

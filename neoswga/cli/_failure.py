@@ -60,7 +60,7 @@ def _failure_artifact_path(args):
     instead would litter, and writing none is not a silent success because the
     exit code is nonzero either way.
     """
-    directory = getattr(args, "data_dir", None) or getattr(args, "output", None)
+    directory = getattr(args, "data_dir", None)
     if not directory:
         # The pipeline commands resolve their output directory into the
         # `parameter` module during `get_params`, and several of them carry no
@@ -83,6 +83,17 @@ def _failure_artifact_path(args):
         # The same ordering trap as `warn_on_condition_drift`, reached from
         # the other side.
         directory = _data_dir_from_params_file(getattr(args, "json_file", None))
+    if not directory:
+        # `--output` last, and only when it is ALREADY a directory. Its meaning
+        # varies by command: for `analyze-coverage` it names a directory, for
+        # `calibrate-reach`, `predict` and `report` it names a FILE. Creating a
+        # directory at a file path is destructive twice over -- the next
+        # successful run then cannot write its own output there, and the record
+        # lands where `export.export_is_blocked` never looks, so it blocks
+        # nothing. Measured: `_failure_artifact_path(Namespace(output="fit.json"))`
+        # left a DIRECTORY called `fit.json` behind.
+        candidate = getattr(args, "output", None)
+        directory = candidate if candidate and os.path.isdir(candidate) else None
     if not directory:
         return None
     try:

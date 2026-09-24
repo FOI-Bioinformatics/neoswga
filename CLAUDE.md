@@ -1128,6 +1128,155 @@ nothing overlapping, and an out-of-sample result computed on no samples is an
 unsupported claim rather than a weaker one. A repeated identifier within one
 set is untidy rather than leakage and is allowed.
 
+## Reading an alignment file (2026-09-24)
+
+`core/bam_coverage.open_alignment` is the only door. Everything else in the
+package is forbidden a raw `pysam.AlignmentFile` by
+`tests/test_bam_reading_survives_real_aligners.py`, a source check rather than
+a behavioural one because a new raw open is invisible to every behavioural
+test until someone hits the failure it mishandles. Two such sites existed, and
+both were reached only AFTER a successful open elsewhere, which is why neither
+showed up in a failing run.
+
+**A CRAM needs a reference and `--reference` supplies it.** CRAM stores
+differences from a reference rather than sequence. htslib reports a missing
+one as `OSError: truncated file`, which is a claim about the CRAM and is
+wrong; `except RuntimeError` caught neither. htslib also resolves a reference
+through the `UR` header field, then `REF_PATH`, `REF_CACHE`, then the EBI, so
+the same CRAM reads on one machine and not another with nothing about the file
+changed. `--reference` is on all three commands taking `--bam` and is threaded
+to `compute_bam_depth` through `bam_depth_profile` and `bam_gaps`.
+
+**`--contig-alias` used to mean two things.** There are two binding rules:
+`match_contigs` keys on the foreground PREFIX or its basename, and
+`ReferenceLayout.bind` keys on the FASTA RECORD name. The CLI documented only
+the first, while the second is what every path carrying `fg_genomes` uses --
+`expand-primers`, `analyze-coverage`, `iterate` -- so the documented form
+failed on the commoner path, by binding nothing. Measured on a single-record
+`mygenome.fasta` holding `contig_A` against a BAM contig `BAMNAME`:
+prefix-keyed gave 0 gaps, record-keyed gave 1, and the run SUCCEEDED either
+way, having ignored the sequencing data `--bam` exists to use.
+`_record_keyed_aliases` translates the prefix form on a single-record
+reference, where it can only mean one thing, and warns on a multi-record one
+where a prefix names a FILE and a contig names a molecule.
+
+**Two limits of `count_coverage`, measured and named rather than fixed**, in
+`core/depth_policy.py` beside the two knobs already declared absent there:
+
+- An `N` in a read contributes no depth -- `ACGT` + ten `N` + `ACGT` covers 8
+  of the 18 bases it spans. This is the one place that module's reasoning does
+  not carry through: it declines a mapping-quality floor precisely because a
+  gap is what expansion then designs primers for, and an ambiguous BASE call
+  is the same situation. Closing it needs the pileup API.
+- `count_secondary` cannot count a bwa mem secondary record, which carries
+  `SEQ` set to `*`: measured identical at 20 covered bases with the knob on
+  and off. No production path sets it.
+
+**`DepthPolicy` was unit-tested against a stub and that could not pin the
+path.** The policy is handed to `count_coverage` as a `read_callback`, and
+whether pysam honours it -- for which record kinds, under which of its own
+default filters -- is a fact about pysam. Both ends existed and nothing walked
+between them. The file now builds real BAMs covering all seven CIGAR shapes,
+secondary/supplementary/QC-fail exclusion, duplicates counted, MAPQ floors on
+both the bowtie2 (0-42) and bwa (0-60) scales, and records with no base
+qualities as minimap2 writes from FASTA input. Everything in it passes today:
+it is a ratchet, since a pysam upgrade changing `count_coverage`'s filtering
+would move every depth figure here with no test to notice.
+
+**Depth is never reported for bases the BAM cannot answer for.**
+`count_coverage` CLAMPS its `stop` to the contig's length, and
+`compute_bam_depth` wrote the shorter result into a `length`-sized array of
+zeros. A zero there is not "no reads"; it is no sequence to have reads on. On
+a fully covered 2 kb contig asked for 5,000 bases, `bam_gaps` reported a gap
+of (1950, 5000) -- 3,050 bp, of which 3,000 is invented. `expand-primers`
+designs oligos AT gaps, so they would target a region the BAM says nothing
+about, and `calibrate-reach` would fit a reach against the same zeros. Only
+`match_contigs` could reach it, since that binds on a NAME and warns rather
+than refusing when lengths disagree -- which stays, because binding on the
+name and inventing the depth are separate decisions and only the second is
+wrong. A contig LONGER than the configured length stays silent: that reads a
+prefix of it, and every base reported was observed.
+
+**A shipped config reached it, and the tool's own advice was the way in.**
+`tests/validation/genomes/params.json` names `prevotella.fna`, two
+chromosomes, `fg_seq_lengths: [3168282]` -- the CONCATENATED total, since
+`utility.get_seq_length` sums characters across every record. `match_contigs`
+compares the prefix `prevotella` against `NC_014370.1` and `NC_014371.1`,
+matches nothing, and `calibrate-reach` then said "Map one explicitly with
+--contig-alias FG=BAMCONTIG". Following that produced 1,796,408 real values
+and 1,371,874 fabricated zeros, **43.3% of the array**. The alias fix could
+not have prevented it: `calibrate-reach` is the one command where the
+prefix-keyed alias works exactly as documented.
+
+So the message now checks whether the references are multi-record and says
+this command cannot describe one, rather than offering a flag that cannot
+help. `calibrate-reach` also builds no `DepthProfile`, so the evaluable mask
+that keeps "measured zero" apart from "not observed" is absent on the one
+path that could fabricate zeros; the refusal is what stands in for it.
+
+**What the fabrication cost the fit**, measured through the production
+`fit_reach` on that geometry with synthetic depth at a true reach of 5,000,
+honest array against clamped, four seeds
+(`scripts/benchmarking/clamped_tail_fit.py`):
+
+| seed | honest rho | clamped rho | clamped plausible reaches |
+|---|---|---|---|
+| 7 | 0.993 | 0.272 | 2 |
+| 11 | 0.992 | 0.328 | 3 |
+| 23 | 0.992 | 0.318 | 2 |
+| 41 | 0.991 | 0.283 | 3 |
+
+`best_reach` recovered 5,000 in all eight runs, so the headline number
+survived. What did not is the confidence: rho falls about 3.5x and the
+plausible range widens from one reach to two or three, so `format_reach_table`
+reported "the range this data cannot separate" and told the user to repeat the
+design at both ends, for data that did separate them. And 0.27-0.33 sits ABOVE
+`MIN_INFORMATIVE_CORRELATION` (0.15), so the guard never fired; a sparser real
+profile with the same reduction lands below it and the run exits blaming the
+BAM, which was fine.
+
+Four seeds, one geometry, synthetic depth: a direction, not a calibrated
+magnitude for a real profile. The figures first arrived from a separate audit
+of this code as an inline measurement with no script -- the shape recorded as
+unrecoverable under **The smallest pool** above -- and were then written out
+and re-run here, reproducing digit for digit. That is why the script is in the
+repository rather than the numbers alone.
+
+**Depth costs about 72 bytes per base at peak, and that is the figure that
+fails rather than slows.** `count_coverage` allocates four `array('L')` of
+contig length, the caller copies them to int64 and sums, and only a 4 B/base
+int32 array survives -- an 18x transient. Measured with `ru_maxrss`, one size
+per process because it is a high-water mark that never falls
+(`scripts/benchmarking/count_coverage_rss.py`): 72.1 B/base at 5 Mb, 72.0 at
+10 Mb, 72.0 at 20 Mb. 2.5 Mb reads high (80.1) because fixed process overhead
+is a larger share of a small delta, and 40 Mb reads LOW (63.3) for a reason
+nobody has established -- macOS memory compression is the guess and was not
+verified. So a figure for a 250 Mb chromosome is an UPPER BOUND of about
+18 GB extrapolated from a range topping out at 40 Mb, not a prediction, and
+the only point above 20 Mb undershoots the trend. A foreground is rarely a
+chromosome, which is why this has not bitten.
+
+**Each bound record reopens the file**, since `bam_depth_profile` calls
+`compute_bam_depth` inside its loop. Measured at the *Drosophila* record count
+(`scripts/benchmarking/reopen_overhead.py`): about 1.2 ms per open, so about
+2.3 s for 1,870 records. Quote the seconds and not the ratio -- the fixture's
+records are 1,000 bp, so counting is trivial and the ratio is inflated by
+construction; on real records the ratio collapses while the toll stays. It is
+2.3 s against a run that already reads a 144 Mb reference.
+
+**Every fixture is synthesised.** There is still no BAM or CRAM in this
+repository, so `calibrate-reach` has never been run against measured
+sequencing depth and every reach figure remains fitted to a breadth proxy.
+
+**A failure record no longer creates a directory where a file was asked for.**
+`_failure_artifact_path` read `args.data_dir or args.output` and `makedirs`'d
+it, but `--output` names a directory for `analyze-coverage` and a FILE for
+`calibrate-reach`, `predict` and `report`. So a failure left a DIRECTORY at
+the path the user wanted a file, the next successful run could not write
+there, and the record landed where `export.export_is_blocked` never looks --
+so the record whose whole purpose is to block a stale export blocked nothing.
+`--output` is now consulted last and only when it is already a directory.
+
 ## Refusals, end to end
 
 `tests/integration/test_strict_design_pipeline.py` runs the four steps over the
