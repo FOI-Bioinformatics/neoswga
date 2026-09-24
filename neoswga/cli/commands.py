@@ -196,7 +196,7 @@ def run_calibrate_reach(args):
 
     from neoswga.core import parameter
     from neoswga.core import pipeline as core_pipeline
-    from neoswga.core.bam_coverage import compute_bam_depth, match_contigs
+    from neoswga.core.bam_coverage import compute_bam_depth, match_contigs, open_alignment
     from neoswga.core.position_cache import PositionCache
     from neoswga.core.reach_calibration import fit_reach, format_reach_table
 
@@ -219,9 +219,10 @@ def run_calibrate_reach(args):
             key, value = item.split("=", 1)
             aliases[key] = value
 
-    import pysam  # noqa: F401  (surfaces the [bam] extra's absence early)
-
-    with pysam.AlignmentFile(args.bam, "rb") as bam:
+    # Through `open_alignment` like every other read, so a missing file, a
+    # FASTQ handed to --bam or an unresolvable CRAM reference all say the same
+    # actionable thing here as they do elsewhere. Header only, so no index.
+    with open_alignment(args.bam, require_index=False, reference=args.reference) as bam:
         contig_map = match_contigs(
             list(bam.references),
             list(bam.lengths),

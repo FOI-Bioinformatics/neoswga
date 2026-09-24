@@ -382,3 +382,36 @@ def test_every_command_taking_a_bam_also_takes_a_reference():
 
     missing = sorted(name for name in takes_bam if "--reference" not in actions[name])
     assert not missing, f"these take --bam but cannot be told where the reference is: {missing}"
+
+
+def test_open_alignment_is_the_only_door_into_an_alignment_file():
+    """Every actionable message above comes from `open_alignment`. A second
+    `pysam.AlignmentFile(...)` anywhere in the package gets none of them: a
+    missing file, a FASTQ handed to `--bam` and an unresolvable CRAM reference
+    all revert to pysam's own wording, and `--reference` is ignored.
+
+    Two such sites existed when this audit started -- `calibrate-reach`'s
+    header read and `expand-primers`' contig-name hint -- and both were reached
+    only after a successful open elsewhere, which is why neither was visible in
+    any failing run.
+
+    This is a source check rather than a behaviour one on purpose: a new raw
+    open is invisible to every behavioural test until someone hits the failure
+    it mishandles.
+    """
+    import pathlib
+
+    package = pathlib.Path(__file__).resolve().parent.parent / "neoswga"
+    owner = package / "core" / "bam_coverage.py"
+
+    offenders = []
+    for path in package.rglob("*.py"):
+        if path == owner:
+            continue
+        if "AlignmentFile" in path.read_text():
+            offenders.append(str(path.relative_to(package.parent)))
+
+    assert not offenders, (
+        "open an alignment file through bam_coverage.open_alignment, which "
+        f"names the file and the remedy and honours --reference: {offenders}"
+    )
