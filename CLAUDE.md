@@ -1128,6 +1128,74 @@ nothing overlapping, and an out-of-sample result computed on no samples is an
 unsupported claim rather than a weaker one. A repeated identifier within one
 set is untidy rather than leakage and is allowed.
 
+## Reading an alignment file (2026-09-24)
+
+`core/bam_coverage.open_alignment` is the only door. Everything else in the
+package is forbidden a raw `pysam.AlignmentFile` by
+`tests/test_bam_reading_survives_real_aligners.py`, a source check rather than
+a behavioural one because a new raw open is invisible to every behavioural
+test until someone hits the failure it mishandles. Two such sites existed, and
+both were reached only AFTER a successful open elsewhere, which is why neither
+showed up in a failing run.
+
+**A CRAM needs a reference and `--reference` supplies it.** CRAM stores
+differences from a reference rather than sequence. htslib reports a missing
+one as `OSError: truncated file`, which is a claim about the CRAM and is
+wrong; `except RuntimeError` caught neither. htslib also resolves a reference
+through the `UR` header field, then `REF_PATH`, `REF_CACHE`, then the EBI, so
+the same CRAM reads on one machine and not another with nothing about the file
+changed. `--reference` is on all three commands taking `--bam` and is threaded
+to `compute_bam_depth` through `bam_depth_profile` and `bam_gaps`.
+
+**`--contig-alias` used to mean two things.** There are two binding rules:
+`match_contigs` keys on the foreground PREFIX or its basename, and
+`ReferenceLayout.bind` keys on the FASTA RECORD name. The CLI documented only
+the first, while the second is what every path carrying `fg_genomes` uses --
+`expand-primers`, `analyze-coverage`, `iterate` -- so the documented form
+failed on the commoner path, by binding nothing. Measured on a single-record
+`mygenome.fasta` holding `contig_A` against a BAM contig `BAMNAME`:
+prefix-keyed gave 0 gaps, record-keyed gave 1, and the run SUCCEEDED either
+way, having ignored the sequencing data `--bam` exists to use.
+`_record_keyed_aliases` translates the prefix form on a single-record
+reference, where it can only mean one thing, and warns on a multi-record one
+where a prefix names a FILE and a contig names a molecule.
+
+**Two limits of `count_coverage`, measured and named rather than fixed**, in
+`core/depth_policy.py` beside the two knobs already declared absent there:
+
+- An `N` in a read contributes no depth -- `ACGT` + ten `N` + `ACGT` covers 8
+  of the 18 bases it spans. This is the one place that module's reasoning does
+  not carry through: it declines a mapping-quality floor precisely because a
+  gap is what expansion then designs primers for, and an ambiguous BASE call
+  is the same situation. Closing it needs the pileup API.
+- `count_secondary` cannot count a bwa mem secondary record, which carries
+  `SEQ` set to `*`: measured identical at 20 covered bases with the knob on
+  and off. No production path sets it.
+
+**`DepthPolicy` was unit-tested against a stub and that could not pin the
+path.** The policy is handed to `count_coverage` as a `read_callback`, and
+whether pysam honours it -- for which record kinds, under which of its own
+default filters -- is a fact about pysam. Both ends existed and nothing walked
+between them. The file now builds real BAMs covering all seven CIGAR shapes,
+secondary/supplementary/QC-fail exclusion, duplicates counted, MAPQ floors on
+both the bowtie2 (0-42) and bwa (0-60) scales, and records with no base
+qualities as minimap2 writes from FASTA input. Everything in it passes today:
+it is a ratchet, since a pysam upgrade changing `count_coverage`'s filtering
+would move every depth figure here with no test to notice.
+
+**Every fixture is synthesised.** There is still no BAM or CRAM in this
+repository, so `calibrate-reach` has never been run against measured
+sequencing depth and every reach figure remains fitted to a breadth proxy.
+
+**A failure record no longer creates a directory where a file was asked for.**
+`_failure_artifact_path` read `args.data_dir or args.output` and `makedirs`'d
+it, but `--output` names a directory for `analyze-coverage` and a FILE for
+`calibrate-reach`, `predict` and `report`. So a failure left a DIRECTORY at
+the path the user wanted a file, the next successful run could not write
+there, and the record landed where `export.export_is_blocked` never looks --
+so the record whose whole purpose is to block a stale export blocked nothing.
+`--output` is now consulted last and only when it is already a directory.
+
 ## Refusals, end to end
 
 `tests/integration/test_strict_design_pipeline.py` runs the four steps over the
