@@ -61,7 +61,26 @@ _ALLOWED_CLASSES = {
         # `bitarray` is the bit storage type, and `_bitarray_reconstructor` is
         # bitarray's own unpickling helper. None can execute caller-supplied
         # code, which is the property this allowlist exists to enforce.
+        # pybloom picks the hash from the filter's GEOMETRY, not from a fixed
+        # choice: `make_hashfuncs` selects on num_slices and num_bits, so the
+        # constructor stored in the pickle moves with capacity and error rate.
+        # At the shipped error rate of 0.01 (7 slices) the boundaries are
+        # capacity below about 3,400 -> xxh3_128, up to about 224 million ->
+        # sha256, above that -> sha512; other error rates reach sha384 and
+        # sha1. Only sha256 was listed, so a filter over a small background
+        # could not be reloaded, and neither could one for a long-oligo design
+        # against a host genome, which needs more than 224 million k-mers of
+        # capacity. save() succeeded in both cases and load() always raised --
+        # the same asymmetry the three entries below were added for.
+        #
+        # All five are hash constructors returning a hash object, and cannot
+        # execute caller-supplied code, which is the property this allowlist
+        # enforces.
+        ("_hashlib", "openssl_sha512"),
+        ("_hashlib", "openssl_sha384"),
         ("_hashlib", "openssl_sha256"),
+        ("_hashlib", "openssl_sha1"),
+        ("xxhash", "xxh3_128"),
         ("bitarray", "bitarray"),
         ("bitarray._bitarray", "_bitarray_reconstructor"),
     },

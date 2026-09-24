@@ -1231,7 +1231,12 @@ def run_build_filter(args):
     """Build background Bloom filter"""
     import pickle
 
-    from neoswga.core.background_filter import BackgroundBloomFilter, SampledGenomeIndex
+    from neoswga.core.background_filter import (
+        BackgroundBloomFilter,
+        SampledGenomeIndex,
+        distinct_kmer_capacity,
+        warn_if_sampled_index_is_large,
+    )
 
     logger.info("Building background filter")
     logger.info(f"Input: {args.genome}")
@@ -1264,49 +1269,50 @@ def run_build_filter(args):
                     if os.path.exists(fpath):
                         with open(fpath) as f:
                             total_kmers += sum(1 for _ in f)
-                capacity = max(total_kmers * 2, 10000000)  # 2x k-mers or min 10M
+                # The line count IS the distinct k-mer count, which is the
+                # quantity pybloom allocates for, so no floor is needed: the
+                # former `max(..., 10_000_000)` spent 12 MB of bits on a small
+                # table. The margin covers pybloom raising AT capacity.
+                capacity = max(1, int(total_kmers * 1.1))
                 logger.info(f"Auto-detected capacity: {capacity:,} (from {total_kmers:,} k-mers)")
 
             # Build Bloom filter from k-mer files
             bloom = BackgroundBloomFilter(capacity=capacity, error_rate=args.error_rate)
             bloom.add_from_kmer_files(args.genome, min_k=min_k, max_k=max_k)
 
-            # Build sampled index from k-mer files (simpler - just use the counts)
+            # Exact counts, so sample_rate 1: estimate_count multiplies by the
+            # rate and these need no scaling. The index records that it holds
+            # counts rather than samples, which is what keeps the two build
+            # routes distinguishable in the file they share.
             logger.info("Building sampled index from k-mer files...")
-            sampled = SampledGenomeIndex(
-                sample_rate=1
-            )  # rate=1 since k-mer files are already unique
-            for k in range(min_k, max_k + 1):
-                fpath = f"{args.genome}_{k}mer_all.txt"
-                if os.path.exists(fpath):
-                    with open(fpath) as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) >= 2:
-                                kmer, count = parts[0], int(parts[1])
-                                sampled.kmers[kmer] = count
-
-            logger.info(f"Sampled index built: {len(sampled.kmers):,} k-mers with counts")
+            sampled = SampledGenomeIndex(sample_rate=1)
+            sampled.add_from_kmer_files(args.genome, min_k=min_k, max_k=max_k)
 
         else:
             # Build from genome FASTA (slower but comprehensive)
             logger.info(f"Building from genome FASTA: {args.genome}")
 
-            # Auto-detect capacity from genome size
+            # The genome length is needed for the sampled-index projection
+            # whether or not capacity was supplied, so it is measured once here
+            # rather than only on the auto-detect branch.
+            from Bio import SeqIO
+
+            total_size = 0
+            for record in SeqIO.parse(args.genome, "fasta"):
+                total_size += len(record.seq)
+            logger.info(f"Genome size: {total_size:,} bp")
+
             capacity = args.capacity
             if capacity is None:
-                from Bio import SeqIO
-
-                total_size = 0
-                for record in SeqIO.parse(args.genome, "fasta"):
-                    total_size += len(record.seq)
-                capacity = total_size * 10  # 10x genome size
-                logger.info(f"Auto-detected genome size: {total_size:,} bp")
-                logger.info(f"Using capacity: {capacity:,}")
+                capacity = distinct_kmer_capacity(total_size, min_k, max_k)
+                logger.info(
+                    f"Using capacity: {capacity:,} " f"(distinct k-mers over k={min_k}-{max_k})"
+                )
 
             bloom = BackgroundBloomFilter(capacity=capacity, error_rate=args.error_rate)
             bloom.add_genome(args.genome, include_mismatches=False, min_k=min_k, max_k=max_k)
 
+            warn_if_sampled_index_is_large(total_size, min_k, max_k, 100)
             sampled = SampledGenomeIndex(sample_rate=100)
             sampled.add_genome(args.genome, min_k=min_k, max_k=max_k)
 

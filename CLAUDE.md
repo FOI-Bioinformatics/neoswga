@@ -2242,3 +2242,91 @@ package, because nothing in the search uses it.
     finding is a claim about someone's machine, so name the mechanism that
     generalises rather than the command that happened to be involved, and say
     "not determined" only when better evidence would in fact settle it.
+
+22. **The Bloom path could not be built at the scale it exists for** -- FIXED
+    2026-09-24. Seven defects, and the shape they share is the one this file
+    records throughout: every one of them passed every small-genome test.
+
+    **Capacity bounded the wrong quantity.** pybloom allocates its bit array
+    upfront from `capacity` and its `add` counts only items the filter did not
+    already hold, so capacity bounds DISTINCT k-mers. `genome_size * 10`
+    bounded INSERTIONS -- the multiplier was chosen for the seven k-mer lengths
+    each position contributes. Measured at 9.59 bits per item:
+
+    | genome | asked for | allocation | distinct k-mers |
+    |---|---|---|---|
+    | plasmid 5.4 kb | 53,860 | 0.06 MB | 36,361 |
+    | E. coli 4.64 Mb | 46,416,520 | 55.6 MB | 10,232,681 |
+    | Drosophila 144 Mb | 1,440,000,000 | 1.73 GB | 22,368,256 |
+    | hg38 3.3 Gb | 33,000,000,000 | **39.56 GB** | 22,368,256 |
+
+    The last two agree because each term saturates at `4**k`. hg38 is the
+    documented reason the module exists and it is the row that cannot be
+    allocated. `distinct_kmer_capacity` holds the bound and all four call sites
+    ask it.
+
+    **A saved filter reloaded only at one geometry.** `make_hashfuncs` selects
+    the hash from `num_slices` and `num_bits`, so the constructor in the pickle
+    moves with capacity and error rate. At error rate 0.01 the bands are
+    capacity below about 3,400 (xxh3_128), up to about 224 million (sha256),
+    above that (sha512); other error rates reach sha384 and sha1. The
+    safe-pickle allowlist named sha256 alone, which is what one observed filter
+    carried. `save()` succeeded and `load()` raised for a small background, and
+    for any long-oligo host design. The ratchet asserts the RULE -- every
+    constructor `make_hashfuncs` can select must be listed -- because reaching
+    the sha512 arm behaviourally costs a 268 MB allocation.
+
+    **A length the filter never indexed read as absent.** `contains` answers
+    False for a k-mer of a length nobody inserted, the count is then zero, and
+    zero clears any frequency gate, so a design at k 13-18 screened against a
+    phi29-range filter passed its whole pool. Both artifacts now record
+    `min_k`/`max_k` and `get_bg_rates_via_bloom` refuses outside them. A filter
+    with no recorded range predates the field and warns rather than refusing,
+    the rule `digest_algorithm` established. `BackgroundFilter.build_from_genome`
+    could not have built a correct filter anyway: it took `add_genome`'s 6-12
+    defaults regardless of configuration.
+
+    **`use_bloom_filter` without a path screened nothing.** It took neither
+    branch and fell through to exact counting over `bg_prefixes`, which that
+    same flag leaves empty, so every background count was absent and an absent
+    count passes. Now `InvalidDesignRequest`, raised before any counting.
+
+    **One filename, two quantities.** `bg_sampled.pkl` holds sampled positions
+    at rate 100 from the FASTA route and exact jellyfish counts at rate 1 from
+    `--from-kmers`. `_warn_if_sample_too_sparse` reasons about sampling and was
+    skipped on the second only because that route left `genome_size` at 0.
+    `source` now records which quantity an index holds.
+
+    **The library's auto-built filter was wrong in both directions.**
+    `genome_library.add_genome` took the 3e9 default capacity -- 3.6 GB, far
+    more than a k 6-12 filter needs and far less than the 14.6 billion distinct
+    k-mers a k 6-18 filter holds, which is the range that path computes. The
+    `except Exception` turned pybloom's IndexError into "Bloom filter build
+    failed" with no filter registered. Capacity is now required, which is what
+    stops a third such call site appearing.
+
+    **The companion index undoes the memory argument.** Measured at 125 bytes
+    per entry (`scripts/benchmarking/sampled_index_rss.py`, ru_maxrss, one size
+    per process): hg38 at rate 100 over k 6-12 projects to 22.4 million entries
+    and about 2.8 GB, against 26.8 MB for the filter beside it. So the
+    structure the filter was chosen to avoid reappears at about a hundred times
+    its size. `warn_if_sampled_index_is_large` says so and names `--from-kmers`.
+
+    **What the FASTA route costs, and why `--from-kmers` is the answer.** The
+    scan now slides inside maximal ACGT runs instead of revalidating every
+    position; measured 1.21x to 1.33x on E. coli at k 6, 12, 18 and on
+    Drosophila at k 12, because the dominant cost is pybloom's insert, which
+    neither version changes. At 1.65 us per position, hg38 over k 6-12 is 23.1
+    billion inserts, about 10.6 hours EXTRAPOLATED, against about 37 seconds
+    for the 22.4 million unique k-mers `--from-kmers` reads. That route is
+    therefore the one to use for a host background, and it is now validated:
+    it previously indexed the first whitespace-delimited field of every line
+    with no base or length check, while `add_genome` skipped ambiguous k-mers,
+    so the two artifacts one command writes already disagreed.
+
+    **Still not measured.** No Bloom filter has ever been built against a host
+    genome in this repository, so every hg38 figure above is arithmetic from a
+    measured per-item or per-entry constant, not a build. The `--from-kmers`
+    route is also the only one whose artifacts `filter` can use, since
+    `genome_library` writes a filter with no sampled index beside it and
+    `get_bg_rates_via_bloom` requires one.
