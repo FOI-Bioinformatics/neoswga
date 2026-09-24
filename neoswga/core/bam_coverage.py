@@ -42,7 +42,7 @@ def _require_pysam():
         ) from e
 
 
-def open_alignment(bam_path, require_index: bool = True):
+def open_alignment(bam_path, require_index: bool = True, reference: Optional[str] = None):
     """Open a BAM or CRAM, or refuse in a way that names the remedy.
 
     pysam's own answers to the three things a user hits first are a pysam
@@ -60,6 +60,13 @@ def open_alignment(bam_path, require_index: bool = True):
     and lengths, which is all `bind_bam_depth` and `bam_low_depth_gaps` want --
     needs no index, and demanding one there would refuse a file this code can
     read perfectly well.
+
+    `reference` is the FASTA a CRAM was compressed against. CRAM stores
+    differences from a reference rather than sequence, so without it the
+    records cannot be decoded at all. htslib will look in the `UR` header
+    field, then `REF_PATH` and `REF_CACHE`, then the EBI -- so a CRAM may read
+    on one machine and not on another with no change to the file, and passing
+    the path explicitly is the only way to make it deterministic.
     """
     pysam = _require_pysam()
     name = os.path.basename(str(bam_path))
@@ -70,8 +77,14 @@ def open_alignment(bam_path, require_index: bool = True):
             f"{bam_path} does not exist",
             "check the path passed to --bam",
         )
+    if reference is not None and not os.path.exists(reference):
+        raise ReferenceDataError(
+            f"reference FASTA {os.path.basename(str(reference))}",
+            f"{reference} does not exist",
+            "check the path passed to --reference",
+        )
     try:
-        handle = pysam.AlignmentFile(bam_path, "rb")
+        handle = pysam.AlignmentFile(bam_path, "rb", reference_filename=reference)
     except ValueError as exc:
         raise ReferenceDataError(
             f"alignment file {name}",
@@ -228,6 +241,7 @@ def compute_bam_depth(
     contig: str,
     length: int,
     policy: Optional[DepthPolicy] = None,
+    reference: Optional[str] = None,
 ) -> np.ndarray:
     """Return a per-base depth array (int32, len ``length``) for ``contig``.
 
@@ -242,15 +256,29 @@ def compute_bam_depth(
     """
     policy = policy or DepthPolicy()
     depth = np.zeros(length, dtype=np.int32)
-    with open_alignment(bam_path) as bam:
+    with open_alignment(bam_path, reference=reference) as bam:
         # count_coverage returns 4 arrays (A,C,G,T) of length (stop-start).
-        cov = bam.count_coverage(
-            contig,
-            start=0,
-            stop=length,
-            quality_threshold=policy.min_base_quality,
-            read_callback=policy.accepts,
-        )
+        try:
+            cov = bam.count_coverage(
+                contig,
+                start=0,
+                stop=length,
+                quality_threshold=policy.min_base_quality,
+                read_callback=policy.accepts,
+            )
+        except OSError as exc:
+            # htslib says "truncated file" when a CRAM's reference cannot be
+            # resolved, which is a claim about the CRAM and is wrong: the file
+            # is intact and the FASTA is what is missing. A BAM carries its own
+            # sequence, so it cannot reach here for this reason.
+            if not bam.is_cram:
+                raise
+            raise ReferenceDataError(
+                f"reference for CRAM {os.path.basename(str(bam_path))}",
+                "its records could not be decoded, which for a CRAM means the "
+                "reference FASTA it was compressed against was not found",
+                "pass --reference with the FASTA the reads were aligned to",
+            ) from exc
         per_base = np.asarray(cov, dtype=np.int64).sum(axis=0)
         n = min(len(per_base), length)
         depth[:n] = per_base[:n].astype(np.int32)
@@ -291,6 +319,7 @@ def bam_depth_profile(
     record_starts: Optional[Sequence[int]] = None,
     aliases: Optional[Dict[str, str]] = None,
     policy: Optional[DepthPolicy] = None,
+    reference: Optional[str] = None,
 ) -> DepthProfile:
     """Depth in the prefix's concatenated space, with a non-evaluable mask.
 
@@ -307,7 +336,7 @@ def bam_depth_profile(
     verify_layout(layout, record_starts or [], configured_length)
 
     # Header only, so no index is needed to answer it.
-    with open_alignment(bam_path, require_index=False) as bam:
+    with open_alignment(bam_path, require_index=False, reference=reference) as bam:
         bam_lengths = {
             name: int(length) for name, length in zip(bam.references, bam.lengths, strict=True)
         }
@@ -319,7 +348,11 @@ def bam_depth_profile(
     for name in bound.matched:
         record = layout.record(name)
         record_depth = compute_bam_depth(
-            bam_path, bound.bam_name_for[name], record.length, policy=policy
+            bam_path,
+            bound.bam_name_for[name],
+            record.length,
+            policy=policy,
+            reference=reference,
         )
         depth[record.start : record.end] = record_depth
         evaluable[record.start : record.end] = True
@@ -409,6 +442,7 @@ def _bam_gaps_by_record(
     circular,
     contig_aliases,
     record_starts_by_prefix,
+    reference,
 ):
     """Gaps found per RECORD, so none can span a join between two molecules.
 
@@ -428,6 +462,7 @@ def _bam_gaps_by_record(
             configured_length=length,
             record_starts=record_starts_by_prefix.get(prefix),
             aliases=contig_aliases,
+            reference=reference,
         )
         layout_records = {r.name: r for r in read_layout(genome, prefix=prefix).records}
         single = len(layout_records) == 1
@@ -475,6 +510,7 @@ def bam_gaps(
     contig_aliases: Optional[Dict[str, str]] = None,
     fg_genomes: Optional[Sequence[str]] = None,
     record_starts_by_prefix: Optional[Dict[str, Sequence[int]]] = None,
+    reference: Optional[str] = None,
 ) -> List[CoverageGap]:
     """Compute low-depth coverage gaps across all foreground prefixes.
 
@@ -500,9 +536,10 @@ def bam_gaps(
             circular,
             contig_aliases,
             record_starts_by_prefix or {},
+            reference,
         )
 
-    with open_alignment(bam_path, require_index=False) as bam:
+    with open_alignment(bam_path, require_index=False, reference=reference) as bam:
         bam_refs = list(bam.references)
         bam_ref_lengths = list(bam.lengths)
 
@@ -520,7 +557,7 @@ def bam_gaps(
     length_by_prefix = dict(zip(fg_prefixes, fg_seq_lengths, strict=True))
     for prefix, contig in mapping.items():
         length = length_by_prefix[prefix]
-        depth = compute_bam_depth(bam_path, contig, length)
+        depth = compute_bam_depth(bam_path, contig, length, reference=reference)
         gaps = find_low_depth_gaps(depth, prefix, min_depth, min_gap_size, circular=circular)
         logger.info(
             "BAM contig '%s' -> %d low-depth gap(s) (min_depth=%d, min_gap_size=%d)",

@@ -252,7 +252,7 @@ def run_calibrate_reach(args):
         )
 
     logger.info(f"Fitting reach on {prefix} ({contig}, {length:,} bp, {len(positions)} sites)")
-    depth = compute_bam_depth(args.bam, contig, length)
+    depth = compute_bam_depth(args.bam, contig, length, reference=args.reference)
     # A prefix is one FASTA file, so its coordinate space may concatenate
     # several records. Bins must not straddle a join, and the kernel may only
     # wrap when there is exactly one molecule for it to wrap around.
@@ -342,6 +342,7 @@ def run_analyze_coverage(args):
                 min_gap_size=args.min_gap_size,
                 circular=fg_circular,
                 contig_aliases=aliases or None,
+                reference=getattr(args, "reference", None),
                 # Finding F8: a prefix is a FASTA file, not a contig, so
                 # without the layout a multi-record reference matches nothing.
                 fg_genomes=getattr(parameter, "fg_genomes", None),
@@ -688,6 +689,10 @@ def _add_calibrate_reach_parser(subparsers):
         "target genome. Requires the [bam] extra.",
     )
     parser.add_argument(
+        "--reference",
+        help="FASTA the reads were aligned to. Required only for a CRAM, which stores differences from a reference rather than sequence and cannot be decoded without it.",
+    )
+    parser.add_argument(
         "--contig-alias",
         action="append",
         default=None,
@@ -890,6 +895,10 @@ def add_parsers(subparsers):
     cov_parser.add_argument("--primers-file", help="File with current primers (one per line).")
     cov_parser.add_argument(
         "--bam", help="Mapped BAM of real reads vs the target genome. " "Requires the [bam] extra."
+    )
+    cov_parser.add_argument(
+        "--reference",
+        help="FASTA the reads were aligned to. Required only for a CRAM, which stores differences from a reference rather than sequence and cannot be decoded without it.",
     )
     cov_parser.add_argument(
         "--min-depth",

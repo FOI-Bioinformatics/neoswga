@@ -243,3 +243,142 @@ def test_depth_is_counted_not_merely_flagged(bam):
     depth = compute_bam_depth(path, "chr1", LENGTH)
     assert int(depth.max()) == 2
     assert depth.dtype == np.int32
+
+
+# ---------------------------------------------------------------------------
+# CRAM, which cannot be read without the reference it was compressed against
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cram(tmp_path):
+    """A CRAM and the FASTA it was written against, as separate paths."""
+    reference = tmp_path / "ref.fa"
+    reference.write_text(">chr1\n" + "ACGT" * (LENGTH // 4) + "\n")
+    pysam.faidx(str(reference))
+    path = str(tmp_path / "aln.cram")
+    with pysam.AlignmentFile(path, "wc", header=HEADER, reference_filename=str(reference)) as out:
+        out.write(record())
+    pysam.index(path)
+    return path, reference
+
+
+def test_a_cram_reads_when_its_reference_is_where_it_says(cram):
+    """The mode stays "rb" and htslib detects the format from the magic bytes,
+    so this works without a CRAM-specific branch."""
+    path, _reference = cram
+
+    assert int((compute_bam_depth(path, "chr1", LENGTH) > 0).sum()) == 20
+
+
+def test_a_cram_whose_reference_moved_says_so_rather_than_truncated(cram, tmp_path, monkeypatch):
+    """CRAM stores no sequence, only differences from a reference, so reading
+    one without that reference is not possible. htslib says `truncated file`,
+    which is a claim about the CRAM and is wrong -- the file is intact and the
+    FASTA is what is missing.
+
+    `REF_PATH` and `REF_CACHE` are cleared because htslib will otherwise fetch
+    the reference by MD5 from a cache or the EBI, so on some machines this
+    would pass for a reason that has nothing to do with the code.
+    """
+    path, reference = cram
+    monkeypatch.setenv("REF_PATH", "/nonexistent")
+    monkeypatch.setenv("REF_CACHE", str(tmp_path / "no-cache"))
+    reference.rename(tmp_path / "moved.fa")
+
+    with pytest.raises(Exception) as caught:
+        compute_bam_depth(path, "chr1", LENGTH)
+
+    message = str(caught.value)
+    assert "reference" in message.lower(), message
+    assert "--reference" in message, message
+    assert "truncated" not in message.lower(), "htslib's wrong diagnosis leaked through"
+
+
+def test_a_cram_reads_when_the_reference_is_supplied_explicitly(cram, tmp_path, monkeypatch):
+    """The remedy the message names has to exist."""
+    path, reference = cram
+    monkeypatch.setenv("REF_PATH", "/nonexistent")
+    monkeypatch.setenv("REF_CACHE", str(tmp_path / "no-cache"))
+    moved = tmp_path / "moved.fa"
+    reference.rename(moved)
+    pysam.faidx(str(moved))
+
+    depth = compute_bam_depth(path, "chr1", LENGTH, reference=str(moved))
+
+    assert int((depth > 0).sum()) == 20
+
+
+def test_a_reference_that_does_not_exist_is_refused_before_the_read(tmp_path, bam):
+    """A path nobody can open is a configuration mistake, and saying so at the
+    point it was given beats an htslib decode failure later."""
+    path = bam([record()])
+
+    with pytest.raises(Exception) as caught:
+        compute_bam_depth(path, "chr1", LENGTH, reference=str(tmp_path / "absent.fa"))
+
+    assert "absent.fa" in str(caught.value)
+
+
+# ---------------------------------------------------------------------------
+# What `count_coverage` cannot do, measured so nobody re-derives it
+# ---------------------------------------------------------------------------
+
+
+def test_an_n_in_a_read_contributes_no_depth(bam):
+    """`count_coverage` tallies A/C/G/T, so an ambiguous base is a coverage
+    hole rather than a covered base.
+
+    This is the one place `core/depth_policy.py`'s reasoning does not carry
+    through. It declines a mapping-quality floor because a gap is what
+    expansion then designs primers for, and an ambiguous BASE call is the same
+    situation -- the region did amplify. Closing it needs the pileup API, so it
+    is pinned here rather than fixed.
+    """
+    path = bam([record(seq="ACGT" + "N" * 10 + "ACGT")])
+
+    assert covered(path) == 8, "18 reference bases spanned, 10 of them N"
+
+
+def test_count_secondary_cannot_count_a_record_with_no_sequence(bam):
+    """bwa mem writes secondary alignments with `SEQ` set to `*`. There are no
+    bases to tally, so the knob is honest for an aligner that repeats the
+    sequence and inert for one that does not.
+
+    No production path sets it -- every `DepthPolicy` built in `neoswga/` takes
+    the defaults -- so this is a limit on a library knob, not on a run.
+    """
+    secondary = record(name="s", pos=500, flag=0x100, qualities=False)
+    secondary.query_sequence = None
+    secondary.cigartuples = [(MATCH, 20)]
+    path = bam([record(pos=100), secondary])
+
+    assert covered(path) == 20
+    assert covered(path, DepthPolicy(count_secondary=True)) == 20, "no bases to count"
+
+
+# ---------------------------------------------------------------------------
+# The remedy the CRAM message names has to be reachable
+# ---------------------------------------------------------------------------
+
+
+def test_every_command_taking_a_bam_also_takes_a_reference():
+    """The CRAM failure says "pass --reference". A message naming a flag that
+    does not exist is this repository's Known Issue 8 class pointed the other
+    way: not an option nobody reads, but advice nobody can follow.
+
+    `tests/test_every_cli_option_has_an_effect.py` checks the other half, that
+    the flag is read once declared.
+    """
+    from neoswga.cli_unified import create_parser
+
+    actions = {}
+    for group in create_parser()._subparsers._group_actions:
+        for name, sub in (group.choices or {}).items():
+            actions[name] = {opt for act in sub._actions for opt in act.option_strings}
+
+    takes_bam = {name for name, flags in actions.items() if "--bam" in flags}
+    assert takes_bam, "no command declares --bam; this test has gone stale"
+
+    missing = sorted(name for name in takes_bam if "--reference" not in actions[name])
+    assert not missing, f"these take --bam but cannot be told where the reference is: {missing}"

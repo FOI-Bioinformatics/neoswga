@@ -91,6 +91,71 @@ def _open_expansion_source(parameter, args, candidates):
     return context, source, source.initial()
 
 
+def _bam_gaps_for_expansion(args, fg_prefixes, fg_seq_lengths, quiet):
+    """Low-depth regions from a mapped BAM, or None when no BAM was given.
+
+    Extracted from `run_expand_primers` when threading `--reference` through
+    pushed that function one line past its budget. It is a self-contained unit:
+    parse the aliases, ask `bam_gaps`, and explain an empty result.
+
+    A `DesignError` is deliberately NOT caught. `except RuntimeError` here is
+    for a missing pysam; a `ReferenceDataError` -- an unreadable BAM, an
+    unindexed one, a CRAM whose reference cannot be resolved -- must reach the
+    command boundary, which is what writes the failure record and stops a later
+    `export` treating a stale directory as current.
+    """
+    if not getattr(args, "bam", None):
+        return None
+
+    try:
+        from neoswga.core.bam_coverage import bam_gaps, open_alignment
+    except Exception as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    aliases = {}
+    for item in getattr(args, "contig_alias", None) or []:
+        if "=" in item:
+            k, v = item.split("=", 1)
+            aliases[k] = v
+    reference = getattr(args, "reference", None)
+
+    try:
+        gaps = bam_gaps(
+            args.bam,
+            fg_prefixes,
+            fg_seq_lengths,
+            min_depth=args.min_depth,
+            min_gap_size=args.min_gap_size,
+            circular=bool(getattr(parameter, "fg_circular", False)),
+            contig_aliases=aliases or None,
+            reference=reference,
+            # Finding F8: a prefix is a FASTA file, not a contig, so without
+            # the layout a multi-record reference matches nothing and the gap
+            # list is silently empty.
+            fg_genomes=getattr(parameter, "fg_genomes", None),
+        )
+    except RuntimeError as e:  # pysam missing
+        logger.error(str(e))
+        sys.exit(1)
+
+    if not quiet:
+        logger.info(f"BAM low-depth gaps: {len(gaps)}")
+    if not gaps:
+        # The commonest real BAM failure: header contig names (say 'chr1') not
+        # matching the foreground prefixes. Reading the header needs no index.
+        with open_alignment(args.bam, require_index=False, reference=reference) as bam:
+            contigs = list(bam.references)
+        logger.warning(
+            "No BAM gaps produced. If this is unexpected, the BAM "
+            "contig names may not match the foreground prefixes.\n"
+            f"  BAM contigs: {contigs[:10]}\n"
+            f"  fg prefixes: {[os.path.basename(p) for p in fg_prefixes]}\n"
+            "  Map them with --contig-alias FG=BAMCONTIG (repeatable)."
+        )
+    return gaps
+
+
 def run_expand_primers(args):
     """
     Expand existing primer set with additional primers.
@@ -196,55 +261,7 @@ def run_expand_primers(args):
 
         # Build target gaps: in-silico gaps from the fixed set, optionally
         # merged with low sequencing-depth regions from a mapped BAM.
-        bam_gaps_list = None
-        if getattr(args, "bam", None):
-            try:
-                from neoswga.core.bam_coverage import bam_gaps
-            except Exception as e:
-                logger.error(str(e))
-                sys.exit(1)
-            aliases = {}
-            for item in getattr(args, "contig_alias", None) or []:
-                if "=" in item:
-                    k, v = item.split("=", 1)
-                    aliases[k] = v
-            fg_circular = bool(getattr(parameter, "fg_circular", False))
-            try:
-                bam_gaps_list = bam_gaps(
-                    args.bam,
-                    fg_prefixes,
-                    fg_seq_lengths,
-                    min_depth=args.min_depth,
-                    min_gap_size=args.min_gap_size,
-                    circular=fg_circular,
-                    contig_aliases=aliases or None,
-                    # Finding F8: a prefix is a FASTA file, not a contig, so
-                    # without the layout a multi-record reference matches
-                    # nothing and the gap list is silently empty.
-                    fg_genomes=getattr(parameter, "fg_genomes", None),
-                )
-            except RuntimeError as e:  # pysam missing
-                logger.error(str(e))
-                sys.exit(1)
-            if not quiet:
-                logger.info(f"BAM low-depth gaps: {len(bam_gaps_list)}")
-            # Actionable hint for the most common BAM failure: contig names in
-            # the BAM header (e.g. 'chr1') not matching the fg prefixes.
-            if not bam_gaps_list:
-                try:
-                    import pysam
-
-                    with pysam.AlignmentFile(args.bam, "rb") as _bam:
-                        _bam_contigs = list(_bam.references)
-                    logger.warning(
-                        "No BAM gaps produced. If this is unexpected, the BAM "
-                        "contig names may not match the foreground prefixes.\n"
-                        f"  BAM contigs: {_bam_contigs[:10]}\n"
-                        f"  fg prefixes: {[os.path.basename(p) for p in fg_prefixes]}\n"
-                        "  Map them with --contig-alias FG=BAMCONTIG (repeatable)."
-                    )
-                except Exception:
-                    pass
+        bam_gaps_list = _bam_gaps_for_expansion(args, fg_prefixes, fg_seq_lengths, quiet)
 
         target_gaps = expander.identify_gaps(
             fixed_primers,
@@ -845,6 +862,10 @@ def add_parsers(subparsers):
         "in-silico coverage gaps and the candidate pool is "
         "focused on primers that bind inside the gaps. "
         "Requires the [bam] extra (pip install 'neoswga[bam]').",
+    )
+    expand_parser.add_argument(
+        "--reference",
+        help="FASTA the reads were aligned to. Required only for a CRAM, which stores differences from a reference rather than sequence and cannot be decoded without it.",
     )
     expand_parser.add_argument(
         "--min-depth",

@@ -43,6 +43,25 @@ defect this project keeps closing:
 - **Deletions.** `count_coverage` tallies A/C/G/T from the read sequence, so a
   base deleted relative to the reference contributes nothing whatever a policy
   said. That is a property of the counter, not a choice.
+
+The same sentence has two further consequences, measured rather than assumed
+(`tests/test_bam_reading_survives_real_aligners.py` pins both):
+
+- **An `N` in a read contributes no depth.** A read `ACGT` + ten `N` + `ACGT`
+  covers 8 of the 18 bases it spans, and the ten in the middle read as a
+  coverage hole. That is the one place this module's reasoning does not carry
+  through: it declines a mapping-quality floor precisely because a gap is what
+  expansion then designs primers for, and an ambiguous BASE call is the same
+  situation as an ambiguous mapping -- the region did amplify. Closing it needs
+  the pileup API, so it is named here rather than fixed. Small in practice,
+  since current basecallers emit few `N`s.
+
+- **`count_secondary` cannot do what it says for bwa mem.** That aligner writes
+  secondary records with `SEQ` set to `*`, so there are no bases to tally and
+  such a record contributes zero whether the knob is on or off -- measured
+  identical at 20 covered bases either way. The knob is honest for an aligner
+  that repeats the sequence and inert for one that does not, and no production
+  path constructs a policy with it set.
 """
 
 from __future__ import annotations
