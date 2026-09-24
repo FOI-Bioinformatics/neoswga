@@ -1,8 +1,20 @@
 name: Nightly E2E
 
-# Runs the smallest end-to-end pipeline scenarios against the plasmid example
-# every night to catch silent regressions. Fires on cron and on manual dispatch.
-# Larger scenarios gated behind @pytest.mark.scale run separately.
+# Runs what the pull-request suite deliberately does not: the @pytest.mark.scale
+# tests, and the plasmid example driven through the real command line. Fires on
+# cron and on manual dispatch.
+#
+# The split is the point. CI runs `-m "not scale"` on every pull request; this
+# workflow runs `-m scale` and nothing else. Until 2026-09-24 it was the other
+# way round -- the marker documented itself as "opt-in; nightly workflow only"
+# while CI ran those tests in all six cells and this workflow excluded them with
+# `-m "not scale"`. One of the four is a memory measurement, which is the kind
+# least suited to six heterogeneous runners and best suited to a nightly.
+#
+# The rest of what this workflow used to run -- tests/integration/ and two named
+# files -- is a subset of the `pytest tests/` that every pull request already
+# runs, so it is not repeated here. What remains genuinely unique is the `improved`
+# extra, which CI does not install, and the command-line walk below.
 
 on:
   schedule:
@@ -37,8 +49,10 @@ jobs:
       - name: Install neoswga with dev extras
         run: pip install -e ".[dev,improved]"
 
-      - name: Run integration tests (excluding scale-marked)
-        run: pytest tests/integration/ tests/test_plasmid_e2e.py tests/test_extension_reach_e2e_to_report.py -m "not scale" -q --timeout=600
+      - name: Run the scale-marked tests
+        # These are the opt-in tests, and this is the workflow their marker
+        # names. Everything else in tests/ runs on every pull request.
+        run: pytest tests/ -m scale -q --timeout=600
 
       - name: Run plasmid example end-to-end
         run: |
@@ -46,7 +60,7 @@ jobs:
           neoswga validate --quick
           neoswga count-kmers -j params.json
           neoswga filter -j params.json
-          neoswga score -j params.json
+          neoswga prepare-candidates -j params.json
           neoswga optimize -j params.json
           neoswga report -d .
 
