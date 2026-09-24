@@ -1183,6 +1183,20 @@ qualities as minimap2 writes from FASTA input. Everything in it passes today:
 it is a ratchet, since a pysam upgrade changing `count_coverage`'s filtering
 would move every depth figure here with no test to notice.
 
+**Depth is never reported for bases the BAM cannot answer for.**
+`count_coverage` CLAMPS its `stop` to the contig's length, and
+`compute_bam_depth` wrote the shorter result into a `length`-sized array of
+zeros. A zero there is not "no reads"; it is no sequence to have reads on. On
+a fully covered 2 kb contig asked for 5,000 bases, `bam_gaps` reported a gap
+of (1950, 5000) -- 3,050 bp, of which 3,000 is invented. `expand-primers`
+designs oligos AT gaps, so they would target a region the BAM says nothing
+about, and `calibrate-reach` would fit a reach against the same zeros. Only
+`match_contigs` could reach it, since that binds on a NAME and warns rather
+than refusing when lengths disagree -- which stays, because binding on the
+name and inventing the depth are separate decisions and only the second is
+wrong. A contig LONGER than the configured length stays silent: that reads a
+prefix of it, and every base reported was observed.
+
 **Every fixture is synthesised.** There is still no BAM or CRAM in this
 repository, so `calibrate-reach` has never been run against measured
 sequencing depth and every reach figure remains fitted to a breadth proxy.
