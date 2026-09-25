@@ -101,6 +101,8 @@ def _alias_keys(fg_prefixes):
     """
     from neoswga.core.reference_layout import read_layout
 
+    from neoswga.core import parameter
+
     keys = []
     # The truncation is deliberate: these are parallel in a well-formed config,
     # but this runs while explaining a failure and the config may be what is
@@ -131,6 +133,8 @@ def _bam_gaps_for_expansion(args, fg_prefixes, fg_seq_lengths, quiet):
     """
     if not getattr(args, "bam", None):
         return None
+
+    from neoswga.core import parameter
 
     try:
         from neoswga.core.bam_coverage import bam_gaps, open_alignment

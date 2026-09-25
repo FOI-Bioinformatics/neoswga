@@ -36,7 +36,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 # fcntl is Unix-only; provide fallback for Windows
 try:
@@ -45,6 +45,13 @@ try:
     HAS_FCNTL = True
 except ImportError:
     HAS_FCNTL = False
+
+if TYPE_CHECKING:  # pragma: no cover - annotation only
+    # `record_prediction` annotates this as a string forward
+    # reference and nothing imported it, so the annotation could not
+    # be resolved by any tool that tried. It is not a runtime error
+    # only because the annotation is never evaluated.
+    from neoswga.core.efficiency_predictor import EfficiencyPrediction
 
 logger = logging.getLogger(__name__)
 
