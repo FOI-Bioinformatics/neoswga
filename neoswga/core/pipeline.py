@@ -21,6 +21,20 @@ from neoswga.core.step3_ordering import _candidate_carry_columns, order_step3_ro
 
 logger = logging.getLogger(__name__)
 
+# The primer sequence is the last sort key so that ties are broken by the
+# candidate itself, not by the order the k-mer counter emitted it. Jellyfish
+# dumps in hash order and KMC in sorted order, so without this the counter
+# choice decided the order of tied candidates -- which leads step 3 into an
+# order-sensitive optimizer, and, through `[:max_primer]`, which tied
+# candidates survive the shortlist at all. `kind="stable"` is stated rather
+# than relied on.
+_RANK_BY_RATIO = dict(
+    by=["ratio", "fg_count", "primer"], ascending=[True, False, True], kind="stable"
+)
+_RANK_BY_OCCUPANCY = dict(
+    by=["occupancy_ratio", "fg_count", "primer"], ascending=[True, False, True], kind="stable"
+)
+
 
 def _filter_exclusion_genome(
     primers: list[str], excl_prefixes: list[str], threshold: int = 0
@@ -935,7 +949,7 @@ def _rank_and_cut_candidates(gini_df, max_primer):
     ranked = _rank_by_occupancy(gini_df, max_primer)
     if ranked is not None:
         return ranked
-    return gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[:max_primer]
+    return gini_df.sort_values(**_RANK_BY_RATIO)[:max_primer]
 
 
 # How many survivors to re-rank by occupancy. Ranking costs ~0.14 ms per primer
@@ -985,9 +999,7 @@ def _rank_by_occupancy(gini_df, max_primer):
     # small backgrounds, short primers -- it is a real signal and leads; the
     # occupancy pass then orders what it leaves tied.
     shortlist_size = _configured_positive_int("occupancy_shortlist", DEFAULT_OCCUPANCY_SHORTLIST)
-    shortlist = gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[
-        : max(shortlist_size, max_primer)
-    ].copy()
+    shortlist = gini_df.sort_values(**_RANK_BY_RATIO)[: max(shortlist_size, max_primer)].copy()
 
     fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
     if not fg_prefixes:
@@ -1014,9 +1026,7 @@ def _rank_by_occupancy(gini_df, max_primer):
         f"load (median {shortlist['occupancy_ratio'].median():.3g}, "
         f"best {shortlist['occupancy_ratio'].min():.3g})"
     )
-    return shortlist.sort_values(by=["occupancy_ratio", "fg_count"], ascending=[True, False])[
-        :max_primer
-    ]
+    return shortlist.sort_values(**_RANK_BY_OCCUPANCY)[:max_primer]
 
 
 def _occupancy_ranking_inputs():
@@ -1184,6 +1194,19 @@ def _apply_exclusion_and_blacklist(filtered_rate_df):
     return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
 
 
+def _write_step2_table(filtered_gini_df, data_dir: str) -> None:
+    """Write step2_df.csv with a positional index that records RANK.
+
+    The index is reset rather than written as it stands. As it stood it held
+    the position each row had before sorting, which is the order the k-mer
+    counter emitted the candidates in, so two runs agreeing on every value
+    produced different files depending on which counter was installed. The
+    shape -- an unnamed positional index -- is unchanged, because
+    `pipeline_qa_integration` reads it back to write the same shape.
+    """
+    filtered_gini_df.reset_index(drop=True).to_csv(os.path.join(data_dir, "step2_df.csv"))
+
+
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -1340,7 +1363,7 @@ def step2(all_primers=None, validate_prerequisites=True):
         enumerated=_funnel["total_kmers"],
     )
 
-    filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
+    _write_step2_table(filtered_gini_df, parameter.data_dir)
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
 
     report_pool_diagnostics(list(filtered_gini_df["primer"].astype(str)), parameter)
