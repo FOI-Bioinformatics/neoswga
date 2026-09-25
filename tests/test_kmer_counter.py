@@ -7,6 +7,7 @@ Tests:
 - Pure Python k-mer counting fallback
 """
 
+import contextlib
 import os
 import shutil
 import tempfile
@@ -15,6 +16,8 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from neoswga.core import kmer_tables
+from neoswga.core.kmer_backend import JellyfishBackend, KmcBackend, KmerBackend
 from neoswga.core.kmer_counter import (
     MultiGenomeKmerCounter,
     check_jellyfish_available,
@@ -25,6 +28,34 @@ from neoswga.core.kmer_counter import (
     require_jellyfish,
     run_jellyfish,
 )
+
+
+def a_counter_is_available() -> bool:
+    """Whether counting can run at all, under EITHER counter.
+
+    These tests used to skip on jellyfish alone, so a machine with only KMC
+    installed skipped every one of them while the code under test worked
+    there. The question each of them asks is whether counting works, not which
+    tool did it.
+    """
+    return JellyfishBackend().available() or KmcBackend().available()
+
+
+@contextlib.contextmanager
+def no_counter_installed():
+    """Neither counter resolvable, by either route they are looked up through.
+
+    `KmerBackend.binary` is what a backend asks, while `require_jellyfish`
+    calls `check_jellyfish_available` directly, so patching one alone leaves
+    the other answering truthfully and the test measures the machine it runs
+    on.
+    """
+    with (
+        patch.object(KmerBackend, "binary", return_value=None),
+        patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=False),
+    ):
+        yield
+
 
 # =============================================================================
 # Test Fixtures
@@ -189,13 +220,28 @@ class TestGetKmerToCountDict:
 class TestMultiGenomeKmerCounter:
     """Tests for MultiGenomeKmerCounter class."""
 
-    def test_initialization_checks_jellyfish(self):
-        """Test that initialization checks for jellyfish."""
-        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=False):
-            with pytest.raises(RuntimeError, match="Jellyfish is required"):
+    def test_initialization_refuses_when_no_counter_is_installed(self):
+        """With neither counter installed there is nothing to count with.
+
+        This used to patch jellyfish alone and expect "Jellyfish is required",
+        which stopped being true when KMC became preferred: jellyfish being
+        absent is not an error on a machine that has KMC. The test passed only
+        because CI installed no KMC, so the fallback it asserted was the only
+        path that ever ran.
+        """
+        with no_counter_installed():
+            with pytest.raises(RuntimeError, match="not installed|not found in PATH"):
                 MultiGenomeKmerCounter()
 
-    @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
+    def test_initialization_proceeds_on_kmc_with_no_jellyfish(self):
+        """The case the old test made unreachable."""
+        if not KmcBackend().available():
+            pytest.skip("KMC is not installed")
+        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=False):
+            counter = MultiGenomeKmerCounter()
+        assert counter.backend.name == "kmc"
+
+    @pytest.mark.skipif(not a_counter_is_available(), reason="no k-mer counter installed")
     def test_add_genome(self, sample_fasta):
         """Test adding a genome."""
         counter = MultiGenomeKmerCounter()
@@ -205,7 +251,7 @@ class TestMultiGenomeKmerCounter:
         assert counter.genome_fastas["test"] == sample_fasta
         assert counter.genome_lengths["test"] > 0
 
-    @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
+    @pytest.mark.skipif(not a_counter_is_available(), reason="no k-mer counter installed")
     def test_add_genome_file_not_found(self):
         """Test adding a non-existent genome file."""
         counter = MultiGenomeKmerCounter()
@@ -213,7 +259,7 @@ class TestMultiGenomeKmerCounter:
         with pytest.raises(FileNotFoundError):
             counter.add_genome("test", "/nonexistent/path.fa")
 
-    @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
+    @pytest.mark.skipif(not a_counter_is_available(), reason="no k-mer counter installed")
     def test_cleanup(self, sample_fasta):
         """Test cleanup removes temp files."""
         counter = MultiGenomeKmerCounter()
@@ -241,27 +287,32 @@ class TestRunJellyfish:
         with pytest.raises(FileNotFoundError, match="Genome file not found"):
             run_jellyfish("/nonexistent/genome.fa", os.path.join(temp_dir, "output"))
 
-    def test_checks_jellyfish_available(self):
-        """Test that jellyfish availability is checked."""
-        with patch("neoswga.core.kmer_counter.check_jellyfish_available", return_value=False):
-            with pytest.raises(RuntimeError, match="Jellyfish is required"):
+    def test_refuses_when_no_counter_is_installed(self):
+        """Neither counter installed: refuse, naming what to install."""
+        with no_counter_installed():
+            with pytest.raises(RuntimeError, match="not installed|not found in PATH"):
                 run_jellyfish("/some/genome.fa", "/some/output")
 
-    @pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
+    def test_a_configured_counter_that_is_absent_names_itself(self):
+        """An explicit choice is strict, and the message names the one chosen."""
+        with patch("neoswga.core.parameter.kmer_counter", "jellyfish"), no_counter_installed():
+            with pytest.raises(RuntimeError, match="[Jj]ellyfish"):
+                run_jellyfish("/some/genome.fa", "/some/output")
+
+    @pytest.mark.skipif(not a_counter_is_available(), reason="no k-mer counter installed")
     def test_creates_output_files(self, sample_fasta, temp_dir):
         """Test that output files are created."""
         output_prefix = os.path.join(temp_dir, "output")
 
         run_jellyfish(sample_fasta, output_prefix, min_k=6, max_k=6, cpus=1)
 
-        # Check output file exists
-        expected_file = f"{output_prefix}_6mer_all.txt"
-        assert os.path.exists(expected_file)
-
-        # Check file has content
-        with open(expected_file) as f:
-            content = f.read()
-            assert len(content) > 0
+        # Asked through `table_exists`, not by the text table's name: KMC
+        # writes a binary database and no text file, so the old assertion
+        # tested which counter ran rather than whether counting worked.
+        assert kmer_tables.table_exists(output_prefix, 6)
+        counts = dict(kmer_tables.iter_table(output_prefix, 6))
+        assert counts, "the table was written but holds no k-mer"
+        assert all(count > 0 for count in counts.values())
 
 
 # =============================================================================
@@ -397,7 +448,7 @@ class TestKmerTmFilteringExceptions:
 # =============================================================================
 
 
-@pytest.mark.skipif(not check_jellyfish_available(), reason="Jellyfish not available")
+@pytest.mark.skipif(not a_counter_is_available(), reason="no k-mer counter installed")
 class TestKmerCounterIntegration:
     """Integration tests requiring jellyfish."""
 

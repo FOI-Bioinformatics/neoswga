@@ -110,8 +110,18 @@ def counted(workspace):
 
 
 def test_count_kmers_writes_the_count_table(counted):
-    files = os.listdir(counted["root"])
-    assert any(f.endswith("mer_all.txt") for f in files), files
+    """A table, in whichever form the counter that ran writes.
+
+    This asserted a `*mer_all.txt` file, which is jellyfish's artifact. KMC
+    writes a binary database and no text at all, so the assertion tested which
+    counter was installed rather than whether counting happened. It passed
+    only because CI installs no KMC.
+    """
+    from neoswga.core import kmer_tables
+
+    prefix = str(counted["root"] / "target")
+    counted_k = [k for k in range(6, 31) if kmer_tables.table_exists(prefix, k)]
+    assert counted_k, os.listdir(counted["root"])
 
 
 def test_position_index_appears_at_filter_not_count_kmers(counted):
