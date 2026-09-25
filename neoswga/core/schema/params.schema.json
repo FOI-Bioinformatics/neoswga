@@ -445,6 +445,12 @@
       "minimum": 0.001,
       "maximum": 1.0
     },
+    "kmer_counter": {
+      "type": "string",
+      "enum": ["kmc", "jellyfish"],
+      "default": "kmc",
+      "description": "Which k-mer counter to run. KMC3 is the default; jellyfish remains selectable. Both are driven with flags that make them count the same quantity, which their own defaults do not."
+    },
     "min_sample_count": {
       "type": "integer",
       "minimum": 1
