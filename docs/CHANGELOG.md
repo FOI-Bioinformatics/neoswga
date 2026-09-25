@@ -28,6 +28,15 @@ All notable changes to NeoSWGA are documented in this file.
   KMC became preferred. They now assert the property rather than the counter.
 - Tests that skipped on Jellyfish alone now skip only when NO counter is
   installed, so a KMC-only machine no longer skips most of the counting tests.
+- **The blacklist frequency gate asks for every primer at once.** It called
+  the count lookup once per primer, and a lookup against a KMC database builds
+  a database of the query set, intersects and dumps it -- three processes per
+  primer. A four-prefix design spent minutes there. Moved to
+  `core/blacklist_penalty.py`; `pipeline` re-exports the name, so importers
+  are unaffected.
+- Three fixtures asked for a k-mer table by Jellyfish's filename. With KMC
+  installed they found nothing, so the plasmid example read as unprepared and
+  48 tests skipped as unavailable while the directory was in fact ready.
 
 ### Position indexes are stored as sorted blocks
 

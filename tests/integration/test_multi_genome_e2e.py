@@ -35,6 +35,22 @@ def _reset_pipeline_state(params_file):
     parameter.json_file = params_file
 
 
+def _copy_table(directory, src_name, dst_name, k):
+    """Copy one prefix's k-mer table to another name, in whichever form it has.
+
+    A KMC table is TWO files and a jellyfish one is a `.jf` or a text dump, so
+    the set of files to copy is a question `kmer_tables` already answers.
+    """
+    from neoswga.core import kmer_tables
+
+    src_prefix = str(directory / src_name)
+    dst_prefix = str(directory / dst_name)
+    for source in kmer_tables.table_files(src_prefix, k):
+        destination = source.replace(src_prefix, dst_prefix, 1)
+        if source != destination and not os.path.exists(destination):
+            shutil.copy2(source, destination)
+
+
 @pytest.fixture
 def multi_genome_workdir():
     """Lay out a tmpdir with two foreground targets (pcDNA copies) plus
@@ -51,13 +67,16 @@ def multi_genome_workdir():
         if src.is_file():
             shutil.copy2(src, tmpdir / fname)
 
-    # Duplicate pcDNA as target_b so we have two foregrounds.
-    # Symlink the k-mer files and positions.h5 rather than rerunning jellyfish.
+    # Duplicate pcDNA as target_b so we have two foregrounds, copying the
+    # k-mer tables rather than rerunning the counter.
+    #
+    # Through `table_files`, which names every file a table is made of in
+    # whichever form it was counted. This copied `*_all.txt` by name, so once
+    # KMC was installed -- it writes a binary database in two files and no
+    # text -- nothing was copied and step 2 refused with "K-mer count files not
+    # found" for a target the fixture believed it had prepared.
     for k in range(6, 13):
-        src_kmer = tmpdir / f"pcDNA_{k}mer_all.txt"
-        dst_kmer = tmpdir / f"target_b_{k}mer_all.txt"
-        if src_kmer.is_file() and not dst_kmer.exists():
-            shutil.copy2(src_kmer, dst_kmer)
+        _copy_table(tmpdir, "pcDNA", "target_b", k)
 
     # Copy positions.h5 if present
     for k in range(6, 13):
@@ -68,12 +87,9 @@ def multi_genome_workdir():
 
     shutil.copy2(tmpdir / "pcDNA.fasta", tmpdir / "target_b.fasta")
 
-    # Also set up pLTR as a blacklist (bl_pLTR) with k-mer files
+    # Also set up pLTR as a blacklist (bl_pLTR) with k-mer tables
     for k in range(6, 13):
-        src = tmpdir / f"pLTR_{k}mer_all.txt"
-        dst = tmpdir / f"bl_pLTR_{k}mer_all.txt"
-        if src.is_file() and not dst.exists():
-            shutil.copy2(src, dst)
+        _copy_table(tmpdir, "pLTR", "bl_pLTR", k)
 
     params_path = tmpdir / "params.json"
     with open(params_path) as fh:

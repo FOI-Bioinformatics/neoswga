@@ -2531,7 +2531,28 @@ package, because nothing in the search uses it.
     and two asserted an absent jellyfish is fatal, which stopped being true
     when KMC became preferred. All four passed only because no runner had KMC.
     Five more skipped on jellyfish alone, so a KMC-only machine skipped most
-    of the counting tests. KMC comes from the upstream release tarball pinned
+    of the counting tests. **Installing it found three more fixtures asking
+    for a table by jellyfish's filename**, which is the same defect one layer
+    down: with KMC installed they found nothing, so `plasmid_example_ready()`
+    reported the example unprepared and 48 tests skipped as unavailable while
+    the directory was ready. Ask `kmer_tables.table_exists` or
+    `discover_prefixes`, never a glob -- and note a KMC database is
+    `{prefix}_{k}mer.kmc_pre`, so cutting at the last underscore cuts inside
+    `kmc_pre`, which is how the first attempt at that guard silently answered
+    "not prepared" for a prepared directory.
+
+    Unskipping those 48 exposed a real defect they had been hiding.
+    `_filter_blacklist_penalty` called `counts_for` once per PRIMER, and a
+    lookup against a KMC database builds a database of the query set,
+    intersects and dumps it -- three processes per call. A four-prefix design
+    spent minutes in that gate; batched by k it is seconds. A count lookup has
+    a fixed cost per CALL, so ask once per group, which is why
+    `get_rates_for_one_species` groups by k before asking. It now lives in
+    `core/blacklist_penalty.py`, extracted because `pipeline.py` had reached
+    its size budget; `pipeline` re-exports the name so its five importers are
+    unaffected.
+
+    KMC comes from the upstream release tarball pinned
     to 3.2.4, not from a package manager: it is in neither apt nor the default
     brew taps, and the conda route would put a second Python on PATH.
 
