@@ -80,6 +80,34 @@ supported.
 
    Do **not** add `kmer-jellyfish` to that conda command. See the next entry.
 
+### The KMC k-mer counter is not installed
+
+**Symptom:**
+
+```
+The kmc k-mer counter is not installed, and it is the configured counter.
+Install it with: conda install -c bioconda kmc
+```
+
+**Cause:** params.json sets `"kmer_counter": "kmc"`, which requires KMC. When
+the key is unset, a machine without KMC uses jellyfish instead and this error
+does not occur.
+
+**Solution:** install KMC, or remove the key or set it to "jellyfish".
+
+```bash
+conda install -c bioconda kmc
+```
+
+```json
+{ "kmer_counter": "jellyfish" }
+```
+
+Both are fully supported. KMC is faster at long k on large references, about
+3.6x at k=18 on a 139 Mb genome. It is NOT the lighter option: it peaks at
+about twice jellyfish's memory and refuses to run with less than 2 GB. At the
+default k of 12 the difference is a few seconds either way.
+
 ### Jellyfish 1.x installed instead of 2.x on Python 3.13
 
 **Symptom:**

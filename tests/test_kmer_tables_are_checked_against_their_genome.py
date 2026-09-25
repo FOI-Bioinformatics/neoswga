@@ -57,7 +57,14 @@ def test_matching_provenance_skips_the_count(tmp_path, fake_genome, monkeypatch)
     called = []
     monkeypatch.setattr(kmer_counter.subprocess, "run", lambda *a, **k: called.append(a) or None)
 
-    kmer_counter._run_jellyfish_for_k(prefix, fake_genome, 12, cpus=1, hash_size=1000)
+    # Asked with each counter: whichever is selected, a current table is kept.
+    # `subprocess.run` is patched module-wide, so it catches both.
+    from neoswga.core.kmer_backend import select_backend
+
+    for name in ("jellyfish", "kmc"):
+        kmer_counter._count_one_k(
+            prefix, fake_genome, 12, cpus=1, hash_size=1000, backend=select_backend(name)
+        )
     assert called == [], "an up-to-date table must not be recounted"
 
 

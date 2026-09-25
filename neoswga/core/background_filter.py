@@ -342,7 +342,8 @@ class BackgroundBloomFilter:
 
         Args:
             kmer_prefix: Path prefix for k-mer files (e.g., 'data/human_chr1')
-                        Will look for {prefix}_{k}mer_all.txt files
+                        Resolved through `kmer_tables`, so either a
+                        binary database or a text table answers
             min_k: Minimum k-mer length (default 6)
             max_k: Maximum k-mer length (default 12)
         """
@@ -357,61 +358,59 @@ class BackgroundBloomFilter:
         except ImportError:
             use_tqdm = False
 
+        from neoswga.core import kmer_tables
+
         for k in range(min_k, max_k + 1):
-            fpath = f"{kmer_prefix}_{k}mer_all.txt"
-            if not os.path.exists(fpath):
-                logger.warning(f"  K-mer file not found: {fpath}")
+            if not kmer_tables.table_exists(kmer_prefix, k):
+                logger.warning(f"  No {k}-mer table for {kmer_prefix}")
                 continue
 
-            # Count lines for progress bar
-            n_lines = sum(1 for _ in open(fpath))
-            logger.info(f"  Loading {k}bp k-mers: {n_lines:,} entries")
+            logger.info(f"  Loading {k}bp k-mers")
 
-            with open(fpath) as f:
-                iterator = f
-                if use_tqdm:
-                    iterator = tqdm(
-                        f, total=n_lines, desc=f"    {k}bp", unit=" kmers", mininterval=1.0
-                    )
+            # No total for the progress bar, and that is the point: the old
+            # code read the whole file once with `sum(1 for _ in open(fpath))`
+            # just to size it, then read it again to use it. A stream has no
+            # length to ask for, and the second pass is the cost being removed.
+            pairs = kmer_tables.iter_table(kmer_prefix, k)
+            if use_tqdm:
+                pairs = tqdm(pairs, desc=f"    {k}bp", unit=" kmers", mininterval=1.0)
 
-                batch = []
-                skipped = 0
-                for line in iterator:
-                    parts = line.split()
-                    if not parts:
-                        continue
-                    kmer = parts[0].upper()
-                    # `add_genome` skips a k-mer holding a base outside ACGT,
-                    # and this route applied no check at all, so the two
-                    # disagreed about what the filter contains and kmer_count
-                    # counted tokens that are not k-mers. The length check is
-                    # the same claim: an entry in the k-mer table for length k
-                    # that is not k bases long did not come from that table's
-                    # counting run.
-                    if len(kmer) != k or not self._is_valid_kmer(kmer):
-                        skipped += 1
-                        continue
-                    batch.append(kmer)
+            batch = []
+            skipped = 0
+            for raw, _count in pairs:
+                kmer = raw.upper()
+                # `add_genome` skips a k-mer holding a base outside ACGT,
+                # and this route applied no check at all, so the two
+                # disagreed about what the filter contains and kmer_count
+                # counted tokens that are not k-mers. The length check is
+                # the same claim: an entry in the k-mer table for length k
+                # that is not k bases long did not come from that table's
+                # counting run.
+                if len(kmer) != k or not self._is_valid_kmer(kmer):
+                    skipped += 1
+                    continue
+                batch.append(kmer)
 
-                    if len(batch) >= 50000:
-                        for km in batch:
-                            self.bloom.add(km)
-                        self.kmer_count += len(batch)
-                        batch = []
-
-                # Add remaining batch
-                if batch:
+                if len(batch) >= 50000:
                     for km in batch:
                         self.bloom.add(km)
                     self.kmer_count += len(batch)
+                    batch = []
 
-                if skipped:
-                    logger.warning(
-                        "  %s: skipped %d entries that are not %d-mers over ACGT",
-                        fpath,
-                        skipped,
-                        k,
-                    )
+            # Add remaining batch
+            if batch:
+                for km in batch:
+                    self.bloom.add(km)
+                self.kmer_count += len(batch)
+
+            if skipped:
+                logger.warning(
+                    "  %s at k=%d: skipped %d entries that are not %d-mers over ACGT",
+                    kmer_prefix,
+                    k,
+                    skipped,
+                    k,
+                )
 
         logger.info(f"Bloom filter built from k-mer files: {self.kmer_count:,} unique k-mers")
 
@@ -644,26 +643,24 @@ class SampledGenomeIndex:
         self._record_range(min_k, max_k)
         self.source = "kmer_counts"
 
+        from neoswga.core import kmer_tables
+
         for k in range(min_k, max_k + 1):
-            fpath = f"{kmer_prefix}_{k}mer_all.txt"
-            if not os.path.exists(fpath):
-                logger.warning(f"  K-mer file not found: {fpath}")
+            if not kmer_tables.table_exists(kmer_prefix, k):
+                logger.warning(f"  No {k}-mer table for {kmer_prefix}")
                 continue
             skipped = 0
-            with open(fpath) as fh:
-                for line in fh:
-                    parts = line.split()
-                    if len(parts) < 2:
-                        continue
-                    kmer = parts[0].upper()
-                    if len(kmer) != k or not self._is_valid_kmer(kmer):
-                        skipped += 1
-                        continue
-                    self.kmers[kmer] = int(parts[1])
+            for raw, count in kmer_tables.iter_table(kmer_prefix, k):
+                kmer = raw.upper()
+                if len(kmer) != k or not self._is_valid_kmer(kmer):
+                    skipped += 1
+                    continue
+                self.kmers[kmer] = count
             if skipped:
                 logger.warning(
-                    "  %s: skipped %d entries that are not %d-mers over ACGT",
-                    fpath,
+                    "  %s at k=%d: skipped %d entries that are not %d-mers over ACGT",
+                    kmer_prefix,
+                    k,
                     skipped,
                     k,
                 )

@@ -4,6 +4,51 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### KMC3 is the default k-mer counter
+
+#### BREAKING
+
+- **KMC3 is preferred over jellyfish.** When `kmer_counter` is unset, KMC3
+  is used if installed and jellyfish otherwise, and the two give identical
+  results. Setting `"kmer_counter"` to "kmc" or "jellyfish" requires that
+  counter, and its absence is an error naming the install command.
+- **Tied candidates are now ordered by sequence.** Step 2 broke ties by the
+  order the counter emitted k-mers, so the installed tool could change the
+  shortlist and the panel. An existing design with ties at the `max_primer`
+  boundary may see a different shortlist.
+- The `improved` extra is unrelated to this; no Python dependency changed.
+
+#### CHANGED
+
+- **Count lookups are answered from the binary database.** `filter` asks for
+  the counts of a known candidate list, which is a set operation. It now goes
+  through `kmc_tools simple ... intersect` rather than streaming the text
+  table into Python. Measured on Drosophila at k=18 with 2,000 candidates:
+  2.5 s against 17.9 s, and no 2.3 GB intermediate.
+- Table scans stream from the counter instead of reading a materialised text
+  file. One consumer was reading the file twice, once only to size a progress
+  bar.
+- A reference counted into a binary database now counts as counted. Nine
+  checks tested for `{prefix}_{k}mer_all.txt` specifically.
+
+#### COMPATIBILITY
+
+- **Existing data directories are unchanged.** They hold text tables and no
+  database, and every path still reads them.
+
+#### KNOWN LIMITS
+
+- KMC is not the memory-friendly option: it peaks at 1,201 MB where jellyfish
+  peaks at 631 MB on the same job, and refuses to run under 2 GB. Its
+  advantage is speed at long k on large references.
+- `py_kmc_api` cannot be used on Python 3.13; the shipped build targets 3.10.
+
+#### FIXED
+
+- Three runtime `NameError`s in the `--bam` expansion helpers, which read
+  `parameter` without importing it. Nothing had exercised those paths.
+- An unresolvable type annotation in `experimental_tracker`.
+
 ### Python 3.13 only
 
 `requires-python` is now `>=3.13`. Earlier interpreters are not supported and

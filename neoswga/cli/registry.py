@@ -82,14 +82,13 @@ def run_background_add(args):
 
     if args.kmer_prefix:
         # Check if at least one k-mer file exists
-        found = False
-        for k in range(args.min_k, args.max_k + 1):
-            kmer_file = f"{args.kmer_prefix}_{k}mer_all.txt"
-            if os.path.exists(kmer_file):
-                found = True
-                break
+        from neoswga.core import kmer_tables
+
+        found = any(
+            kmer_tables.table_exists(args.kmer_prefix, k) for k in range(args.min_k, args.max_k + 1)
+        )
         if not found:
-            logger.warning(f"No k-mer files found at {args.kmer_prefix}_*mer_all.txt")
+            logger.warning(f"No k-mer tables found for prefix {args.kmer_prefix}")
 
     # Add to registry
     entry = registry.add(

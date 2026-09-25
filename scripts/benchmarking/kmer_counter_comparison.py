@@ -74,6 +74,16 @@ def _run(cmd, **kw):
     return elapsed, max(after, before)
 
 
+def _run_callable(fn):
+    """Same measurement as `_run`, for work driven through the package."""
+    before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss * _RSS_SCALE
+    start = time.perf_counter()
+    fn()
+    elapsed = time.perf_counter() - start
+    after = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss * _RSS_SCALE
+    return elapsed, max(after, before)
+
+
 def _distinct(path):
     with open(path, "rb") as fh:
         return sum(1 for _ in fh)
@@ -100,16 +110,24 @@ def run_jellyfish(genome, k, threads, workdir):
 
 
 def run_kmc(genome, k, threads, workdir):
-    tmp = os.path.join(workdir, "kmctmp")
-    os.makedirs(tmp, exist_ok=True)
-    db = os.path.join(workdir, "kmcdb")
+    """Counted through the SHIPPING backend, not a command written here.
+
+    This used to build its own command line with `-m4`. KMC uses roughly the
+    memory you allow it -- measured on hg38 at k=12, 3.36 GB at `-m4` against
+    1.97 GB at the `-m2` the backend passes -- so the benchmark was reporting
+    a memory figure no production run would produce. A benchmark that drifts
+    from the code it measures is worse than none.
+    """
+    sys.path.insert(0, os.getcwd())
+    from neoswga.core.kmer_backend import KmcBackend
+
+    backend = KmcBackend()
+    prefix = os.path.join(workdir, "kmcrun")
+    db = backend.database(prefix, k)
     txt = os.path.join(workdir, "k.txt")
-    t_count, rss = _run(
-        [KMC, f"-k{k}", "-ci1", "-cs1000000", "-fm", f"-t{threads}", "-m4",
-         genome, db, tmp]
-    )
+    t_count, rss = _run_callable(lambda: backend.count(genome, k, prefix, threads=threads))
     start = time.perf_counter()
-    subprocess.run([KMC_DUMP, db, txt], check=True, capture_output=True)
+    subprocess.run([backend.binary("kmc_dump"), db, txt], check=True, capture_output=True)
     t_dump = time.perf_counter() - start
     db_bytes = sum(
         os.path.getsize(db + suffix) for suffix in (".kmc_pre", ".kmc_suf")

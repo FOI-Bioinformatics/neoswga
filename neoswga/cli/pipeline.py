@@ -1260,11 +1260,14 @@ def run_build_filter(args):
             capacity = args.capacity
             if capacity is None:
                 total_kmers = 0
+                from neoswga.core import kmer_tables
+
+                # Counted through the table layer: sizing by text lines alone
+                # read a KMC-counted directory as empty, set capacity to 1,
+                # and overflowed the filter on its first insert.
                 for k in range(min_k, max_k + 1):
-                    fpath = f"{args.genome}_{k}mer_all.txt"
-                    if os.path.exists(fpath):
-                        with open(fpath) as f:
-                            total_kmers += sum(1 for _ in f)
+                    if kmer_tables.table_exists(args.genome, k):
+                        total_kmers += sum(1 for _ in kmer_tables.iter_table(args.genome, k))
                 # The line count IS the distinct k-mer count, which is the
                 # quantity pybloom allocates for, so no floor is needed: the
                 # former `max(..., 10_000_000)` spent 12 MB of bits on a small

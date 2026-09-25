@@ -220,7 +220,12 @@ class TestUpgradingDoesNotRefuseAWorkingDirectory:
 
         stale = _tables_counted_from_another_genome([prefix], [two], 12, 12)
 
-        assert len(stale) == 1 and stale[0].endswith("_12mer_all.txt"), stale
+        # The report names the ARTIFACT, not a filename. A table may now be a
+        # KMC database rather than a text dump, and `missing_files` is only
+        # ever displayed, never opened, so naming a file that need not exist
+        # was the misleading part.
+        assert len(stale) == 1, stale
+        assert "12-mer table" in stale[0] and prefix in stale[0], stale
 
     def test_comparability_is_its_own_question(self):
         from neoswga.core.kmer_counter import table_provenance_is_comparable

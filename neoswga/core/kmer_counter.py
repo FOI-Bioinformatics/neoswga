@@ -6,6 +6,7 @@ Jellyfish is a required dependency - the module will raise an error if not avail
 """
 
 import concurrent.futures
+import contextlib
 import hashlib
 import json
 import logging
@@ -17,6 +18,7 @@ import tempfile
 from collections import defaultdict
 from pathlib import Path
 
+from neoswga.core.kmer_backend import select_backend
 from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
@@ -115,9 +117,9 @@ class MultiGenomeKmerCounter:
             output_dir: Directory for k-mer count files (temp if None)
 
         Raises:
-            RuntimeError: If Jellyfish is not available
+            RuntimeError: If the selected k-mer counter is not available
         """
-        require_jellyfish()
+        self.backend = _require_counter()
 
         self.cpus = cpus
         self.output_dir = output_dir
@@ -182,50 +184,22 @@ class MultiGenomeKmerCounter:
 
         fasta_path = self.genome_fastas[genome_name]
         work_dir = self._get_work_dir()
-
-        # Run jellyfish count
         output_prefix = os.path.join(work_dir, genome_name)
-        jf_file = os.path.join(work_dir, f"{genome_name}_{k}mer.jf")
-        txt_file = os.path.join(work_dir, f"{genome_name}_{k}mer_all.txt")
 
-        if not _table_is_current(output_prefix, fasta_path, k):
-            # Run jellyfish count
-            count_cmd = [
-                "jellyfish",
-                "count",
-                "-m",
-                str(k),
-                "-s",
-                str(_adaptive_hash_size(fasta_path)),
-                "-t",
-                str(self.cpus),
-                "-C",  # Canonical k-mers (both strands)
-                fasta_path,
-                "-o",
-                jf_file,
-            ]
-            subprocess.run(count_cmd, check=True, capture_output=True)
+        # The same per-k routine `run_jellyfish` uses. This method had its own
+        # jellyfish command line, so it ignored the configured counter too.
+        _count_one_k(
+            output_prefix,
+            fasta_path,
+            k,
+            self.cpus,
+            _adaptive_hash_size(fasta_path),
+            self.backend,
+        )
 
-            # Dump to text
-            dump_cmd = ["jellyfish", "dump", "-c", jf_file]
-            with open(txt_file, "w") as f:
-                subprocess.run(dump_cmd, check=True, stdout=f)
+        from neoswga.core import kmer_tables
 
-            _write_table_provenance(output_prefix, fasta_path, k)
-
-            # Clean up .jf file
-            if os.path.exists(jf_file):
-                os.remove(jf_file)
-
-        # Parse results
-        counts = {}
-        with open(txt_file) as f:
-            for line in f:
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    kmer = parts[0]
-                    count = int(parts[1])
-                    counts[kmer] = count
+        counts = dict(kmer_tables.iter_table(output_prefix, k))
 
         # Cache and return
         self.kmer_counts[cache_key] = counts
@@ -397,9 +371,14 @@ def _table_is_current(output_prefix: str, genome_fname: str, k: int) -> bool:
     assembly while leaving `fg_prefixes` alone therefore reused the previous
     organism's counts through the whole design, silently.
     """
-    txt_file = f"{output_prefix}_{k}mer_all.txt"
-    if not os.path.exists(txt_file):
+    from neoswga.core import kmer_tables
+
+    # A table in any form: text dump, KMC database or jellyfish database.
+    # Testing for the text file alone made every KMC-counted table read as
+    # absent and be recounted on every run.
+    if not kmer_tables.table_exists(output_prefix, k):
         return False
+    txt_file = f"the {k}-mer table for {output_prefix}"
 
     record_path = table_provenance_path(output_prefix, k)
     if not os.path.exists(record_path):
@@ -439,29 +418,33 @@ def _table_is_current(output_prefix: str, genome_fname: str, k: int) -> bool:
     return True
 
 
-def _write_table_provenance(output_prefix: str, genome_fname: str, k: int) -> None:
-    """Record what this table was counted from, for the next run's check."""
+def _write_table_provenance(
+    output_prefix: str, genome_fname: str, k: int, counter: str | None = None
+) -> None:
+    """Record what this table was counted from, for the next run's check.
+
+    `counter` is informational. The reuse decision does not depend on it,
+    because both counters produce the same table, and depending on it would
+    recount every existing directory the day the default changed.
+    """
     record = {
         "genome": os.path.abspath(genome_fname),
         "fingerprint": genome_fingerprint(genome_fname),
         "digest_algorithm": DIGEST_ALGORITHM,
         "k": k,
+        "counter": counter,
     }
     with open(table_provenance_path(output_prefix, k), "w") as fh:
         json.dump(record, fh, indent=2)
 
 
-def _run_jellyfish_for_k(
+def _count_one_k_with_jellyfish(
     output_prefix: str, genome_fname: str, k: int, cpus: int, hash_size: int
 ) -> None:
-    """Run Jellyfish count + dump for a single k-value.
+    """Count one k with jellyfish and dump it to the text table.
 
-    Args:
-        output_prefix: Output path prefix for result files.
-        genome_fname: Path to FASTA file.
-        k: K-mer length.
-        cpus: Number of threads for Jellyfish.
-        hash_size: Jellyfish hash table size (``-s`` flag).
+    Deciding WHETHER to count, and recording provenance, are the caller's
+    business (`_count_one_k`); this only does the counting.
 
     Raises:
         RuntimeError: If jellyfish count or dump fails.
@@ -470,66 +453,105 @@ def _run_jellyfish_for_k(
     jf_file = f"{output_prefix}_{k}mer_all.jf"
     txt_file = f"{output_prefix}_{k}mer_all.txt"
 
-    if not _table_is_current(output_prefix, genome_fname, k):
-        count_cmd = [
-            "jellyfish",
-            "count",
-            "-m",
-            str(k),
-            "-s",
-            str(hash_size),
-            "-t",
-            str(cpus),
-            "-C",  # Canonical k-mers (count both strands together)
-            genome_fname,
-            "-o",
-            jf_file,
-        ]
-        logger.debug(f"Running: {' '.join(count_cmd)}")
-        try:
-            result = subprocess.run(
-                count_cmd,
+    count_cmd = [
+        "jellyfish",
+        "count",
+        "-m",
+        str(k),
+        "-s",
+        str(hash_size),
+        "-t",
+        str(cpus),
+        "-C",  # Canonical k-mers (count both strands together)
+        genome_fname,
+        "-o",
+        jf_file,
+    ]
+    logger.debug(f"Running: {' '.join(count_cmd)}")
+    try:
+        result = subprocess.run(
+            count_cmd,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=_JELLYFISH_TIMEOUT,
+        )
+        if result.stderr:
+            logger.debug(f"jellyfish count stderr: {result.stderr.strip()}")
+    except subprocess.CalledProcessError as e:
+        stderr_msg = (e.stderr or "").strip()
+        raise RuntimeError(
+            f"jellyfish count failed for k={k}: {stderr_msg}\n" f"Command: {' '.join(count_cmd)}"
+        ) from e
+    except subprocess.TimeoutExpired:
+        if os.path.exists(jf_file):
+            os.remove(jf_file)
+        raise
+
+    dump_cmd = ["jellyfish", "dump", "-c", jf_file]
+    logger.debug(f"Running: {' '.join(dump_cmd)}")
+    try:
+        with open(txt_file, "w") as f_out:
+            subprocess.run(
+                dump_cmd,
                 check=True,
-                capture_output=True,
+                stdout=f_out,
+                stderr=subprocess.PIPE,
                 text=True,
                 timeout=_JELLYFISH_TIMEOUT,
             )
-            if result.stderr:
-                logger.debug(f"jellyfish count stderr: {result.stderr.strip()}")
-        except subprocess.CalledProcessError as e:
-            stderr_msg = (e.stderr or "").strip()
-            raise RuntimeError(
-                f"jellyfish count failed for k={k}: {stderr_msg}\n"
-                f"Command: {' '.join(count_cmd)}"
-            ) from e
-        except subprocess.TimeoutExpired:
-            # Clean up partial output
-            if os.path.exists(jf_file):
-                os.remove(jf_file)
-            raise
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        if os.path.exists(txt_file):
+            os.remove(txt_file)
+        raise
+    finally:
+        if os.path.exists(jf_file):
+            os.remove(jf_file)
 
-        dump_cmd = ["jellyfish", "dump", "-c", jf_file]
-        logger.debug(f"Running: {' '.join(dump_cmd)}")
-        try:
-            with open(txt_file, "w") as f_out:
-                subprocess.run(
-                    dump_cmd,
-                    check=True,
-                    stdout=f_out,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=_JELLYFISH_TIMEOUT,
-                )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-            # Clean up partial txt file
-            if os.path.exists(txt_file):
-                os.remove(txt_file)
-            raise
 
-        _write_table_provenance(output_prefix, genome_fname, k)
+def _count_one_k(
+    output_prefix: str, genome_fname: str, k: int, cpus: int, hash_size: int, backend
+) -> None:
+    """Count one k with the selected counter, unless a current table exists.
 
-    if os.path.exists(jf_file):
-        os.remove(jf_file)
+    Before recounting, every existing form of this table is removed. Readers
+    prefer a KMC database over a text dump, so a recount with jellyfish that
+    left a stale database beside the new text would be read as the stale one
+    -- the previous genome's counts, silently, which is the defect the
+    provenance record exists to prevent.
+    """
+    from neoswga.core import kmer_tables
+
+    if _table_is_current(output_prefix, genome_fname, k):
+        return
+
+    for stale in kmer_tables.table_files(output_prefix, k):
+        # Already gone is success. `table_files` checks existence and this
+        # deletes, so something else removing the file in between is not an
+        # error worth failing a count over.
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(stale)
+
+    if backend.name == "jellyfish":
+        _count_one_k_with_jellyfish(output_prefix, genome_fname, k, cpus, hash_size)
+    else:
+        backend.count(genome_fname, k, output_prefix, threads=cpus)
+
+    _write_table_provenance(output_prefix, genome_fname, k, counter=backend.name)
+
+
+def _require_counter():
+    """The selected counter, verified to be installed.
+
+    Jellyfish keeps its own check, which also refuses 1.x, whose command line
+    this project cannot drive.
+    """
+    backend = select_backend()
+    if backend.name == "jellyfish":
+        require_jellyfish()
+    else:
+        backend.require_available()
+    return backend
 
 
 def run_jellyfish(
@@ -552,7 +574,7 @@ def run_jellyfish(
         FileNotFoundError: If genome_fname does not exist
         RuntimeError: If Jellyfish is not available
     """
-    require_jellyfish()
+    backend = _require_counter()
 
     if not os.path.exists(genome_fname):
         raise FileNotFoundError(f"Genome file not found: {genome_fname}")
@@ -565,11 +587,16 @@ def run_jellyfish(
     hash_size = _adaptive_hash_size(genome_fname)
     num_k = max_k - min_k + 1
     max_workers = min(num_k, max(1, (os.cpu_count() or 1) // max(cpus, 1)))
+    if backend.name == "kmc":
+        # One k at a time. KMC is itself multithreaded and needs at least
+        # 2 GB per run, so running the k values concurrently as jellyfish does
+        # would multiply that by the number of k: 14 GB for 6-12.
+        max_workers = 1
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                _run_jellyfish_for_k, output_prefix, genome_fname, k, cpus, hash_size
+                _count_one_k, output_prefix, genome_fname, k, cpus, hash_size, backend
             ): k
             for k in range(min_k, max_k + 1)
         }
@@ -579,7 +606,7 @@ def run_jellyfish(
             try:
                 future.result()
             except Exception as e:
-                logger.error(f"Jellyfish failed for k={k}: {e}")
+                logger.error(f"{backend.name} failed for k={k}: {e}")
                 errors.append((k, e))
                 continue
             _print_k_progress(k, min_k, max_k)
@@ -587,21 +614,25 @@ def run_jellyfish(
     if errors:
         failed_ks = ", ".join(str(k) for k, _ in errors)
         raise RuntimeError(
-            f"Jellyfish failed for k-mer lengths: {failed_ks}. " f"First error: {errors[0][1]}"
+            f"{backend.name} failed for k-mer lengths: {failed_ks}. First error: {errors[0][1]}"
         )
 
-    # Validate output files
+    # Validate output. A table in any form counts: a correct KMC run writes a
+    # database and no text, and demanding text here rejected it.
+    from neoswga.core import kmer_tables
+
     missing = []
     empty = []
     for k in range(min_k, max_k + 1):
-        txt_file = f"{output_prefix}_{k}mer_all.txt"
-        if not os.path.exists(txt_file):
-            missing.append(txt_file)
-        elif os.path.getsize(txt_file) == 0:
+        if not kmer_tables.table_exists(output_prefix, k):
+            missing.append(f"{k}-mer table for {output_prefix}")
+            continue
+        txt_file = kmer_tables.text_table_path(output_prefix, k)
+        if os.path.exists(txt_file) and os.path.getsize(txt_file) == 0:
             empty.append(txt_file)
 
     if missing:
-        raise RuntimeError(f"Jellyfish output files missing after counting: {missing}")
+        raise RuntimeError(f"{backend.name} produced no table after counting: {missing}")
     if empty:
         logger.warning(
             f"Empty k-mer files (genome may be shorter than k): "
@@ -704,41 +735,40 @@ def get_primer_list_from_kmers(
     if kmer_lengths is None:
         kmer_lengths = range(6, 13)
 
+    from neoswga.core import kmer_tables
+
     wide_min = min_tm - wide_tm_margin
     wide_max = max_tm + wide_tm_margin
 
     for prefix in prefixes:
         for k in kmer_lengths:
-            fpath = f"{prefix}_{k}mer_all.txt"
-            if not os.path.exists(fpath):
-                logger.warning(f"K-mer file not found: {fpath}")
+            if not kmer_tables.table_exists(prefix, k):
+                logger.warning(f"No {k}-mer table for {prefix}")
                 continue
 
-            with open(fpath) as f_in:
-                for line in f_in:
-                    parts = line.strip().split()
-                    if not parts:
-                        continue
-                    curr_kmer = parts[0]
-                    # Fast GC pre-filter (avoids the Tm calculation)
-                    gc = _gc_content(curr_kmer)
-                    if gc < gc_min or gc > gc_max:
-                        gc_rejected += 1
-                        continue
-                    # `calculate_effective_tm` warns and substitutes penalty
-                    # values for an unknown base rather than raising, so an
-                    # ambiguous k-mer would otherwise be admitted with a
-                    # meaningless number.
-                    if not set(curr_kmer.upper()) <= _UNAMBIGUOUS_BASES:
-                        ambiguous_rejected += 1
-                        continue
-                    try:
-                        tm = conditions.calculate_effective_tm(curr_kmer)
-                    except (ValueError, TypeError, KeyError) as e:
-                        logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
-                        continue
-                    if wide_min < tm < wide_max:
-                        primer_list.append(curr_kmer)
+            # Streamed from whichever form the table has. On a binary database
+            # nothing is materialised; on an existing directory this reads the
+            # text table exactly as before.
+            for curr_kmer, _count in kmer_tables.iter_table(prefix, k):
+                # Fast GC pre-filter (avoids the Tm calculation)
+                gc = _gc_content(curr_kmer)
+                if gc < gc_min or gc > gc_max:
+                    gc_rejected += 1
+                    continue
+                # `calculate_effective_tm` warns and substitutes penalty
+                # values for an unknown base rather than raising, so an
+                # ambiguous k-mer would otherwise be admitted with a
+                # meaningless number.
+                if not set(curr_kmer.upper()) <= _UNAMBIGUOUS_BASES:
+                    ambiguous_rejected += 1
+                    continue
+                try:
+                    tm = conditions.calculate_effective_tm(curr_kmer)
+                except (ValueError, TypeError, KeyError) as e:
+                    logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
+                    continue
+                if wide_min < tm < wide_max:
+                    primer_list.append(curr_kmer)
 
     if gc_rejected > 0:
         logger.info(

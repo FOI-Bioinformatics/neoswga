@@ -445,6 +445,11 @@
       "minimum": 0.001,
       "maximum": 1.0
     },
+    "kmer_counter": {
+      "type": "string",
+      "enum": ["kmc", "jellyfish"],
+      "description": "Which k-mer counter to run. Unset: KMC3 when installed, otherwise jellyfish, which produce identical tables. Set explicitly, the named counter is required and its absence is an error."
+    },
     "min_sample_count": {
       "type": "integer",
       "minimum": 1

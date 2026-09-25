@@ -5,7 +5,7 @@ import os
 
 import h5py
 
-from neoswga.core import parameter
+from neoswga.core import kmer_tables, parameter
 from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
@@ -445,24 +445,21 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
             pass
         return primer_list
 
-    # Load all k-mers present in genome
-    all_present_kmers_in_genome = set()
-    txt_path = fname_prefix + "_" + str(k) + "mer_all.txt"
-    with open(txt_path) as txt_f:
-        for line in txt_f:
-            curr_kmer = line.split(" ")[0]
-            all_present_kmers_in_genome.add(curr_kmer)
-
     # Get existing keys from HDF5 file using context manager
     with h5py.File(h5_path, "r") as f:
         keys = set(f.keys())
 
-    filtered_primer_list = []
-    for primer in primer_list:
-        if primer not in keys:
-            if primer in all_present_kmers_in_genome:
-                filtered_primer_list.append(primer)
-    return filtered_primer_list
+    # Which of the not-yet-indexed primers occur in this genome at all. This
+    # used to read EVERY k-mer in the genome into a Python set to answer a
+    # question about a known, much smaller list -- 8.4 million entries for
+    # hg38 at k=12, and billions at k=16 or above, where a host genome cannot
+    # hold a text table in the first place. `counts_for` asks only about the
+    # primers, which is a bounded query whatever the genome's size.
+    unindexed = [primer for primer in primer_list if primer not in keys]
+    if not unindexed:
+        return []
+    present = kmer_tables.counts_for(fname_prefix, k, unindexed)
+    return [primer for primer in unindexed if present.get(primer, 0) > 0]
 
 
 # Genome fingerprints already computed in this process, keyed by path, size and

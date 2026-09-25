@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from neoswga.core import filter as filter_module
-from neoswga.core import parameter, rf_preprocessing, string_search, utility
+from neoswga.core import kmer_tables, parameter, rf_preprocessing, string_search, utility
 from neoswga.core.filter import check_gini_stage_kept_something
 from neoswga.core.kmer_counter import get_primer_list_from_kmers, run_jellyfish
 from neoswga.core.pool_diagnostics import report_pool_diagnostics
@@ -20,6 +20,20 @@ from neoswga.core.stage2_recording import _index_and_record
 from neoswga.core.step3_ordering import _candidate_carry_columns, order_step3_rows
 
 logger = logging.getLogger(__name__)
+
+# The primer sequence is the last sort key so that ties are broken by the
+# candidate itself, not by the order the k-mer counter emitted it. Jellyfish
+# dumps in hash order and KMC in sorted order, so without this the counter
+# choice decided the order of tied candidates -- which leads step 3 into an
+# order-sensitive optimizer, and, through `[:max_primer]`, which tied
+# candidates survive the shortlist at all. `kind="stable"` is stated rather
+# than relied on.
+_RANK_BY_RATIO = dict(
+    by=["ratio", "fg_count", "primer"], ascending=[True, False, True], kind="stable"
+)
+_RANK_BY_OCCUPANCY = dict(
+    by=["occupancy_ratio", "fg_count", "primer"], ascending=[True, False, True], kind="stable"
+)
 
 
 def _filter_exclusion_genome(
@@ -54,24 +68,26 @@ def _filter_exclusion_genome(
         wanted = {primer, reverse_complement(primer)}
         total_hits = 0
         for prefix in excl_prefixes:
-            kmer_file = f"{prefix}_{k}mer_all.txt"
-            if not os.path.exists(kmer_file):
+            if not kmer_tables.table_exists(prefix, k):
                 # Not a measurement of zero. The caller asked for this genome to
                 # be excluded; without its table nothing can be excluded, and
                 # passing every primer is indistinguishable from an exclusion
                 # genome that binds none of them.
                 raise FileNotFoundError(
-                    f"No {k}-mer table for exclusion genome prefix {prefix!r} "
-                    f"(expected {kmer_file}). Run count-kmers at this length, or "
+                    f"No {k}-mer table for exclusion genome prefix {prefix!r}. "
+                    f"Run count-kmers at this length, or "
                     f"remove the exclusion genome from the configuration; every "
                     f"primer would otherwise pass as if it bound nothing."
                 )
-            with open(kmer_file) as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) >= 2 and parts[0] in wanted:
-                        total_hits += int(parts[1])
-                        break
+            for kmer, count in kmer_tables.iter_table(prefix, k):
+                if kmer in wanted:
+                    total_hits += count
+                    # Stops at the first match, as this has always done. A
+                    # canonical table holds one form of a k-mer, so `wanted`
+                    # can match at most once in practice; the break is kept
+                    # rather than widened because changing what an exclusion
+                    # genome counts is not this change's business.
+                    break
         mask.append(total_hits <= threshold)
     return mask
 
@@ -107,17 +123,11 @@ def _filter_blacklist_penalty(
         total_count = 0
         total_length = 0
         for i, prefix in enumerate(bl_prefixes):
-            kmer_file = f"{prefix}_{k}mer_all.txt"
             seq_len = bl_seq_lengths[i]
             total_length += seq_len
-            if os.path.exists(kmer_file):
+            if kmer_tables.table_exists(prefix, k):
                 try:
-                    with open(kmer_file) as f:
-                        for line in f:
-                            parts = line.strip().split()
-                            if len(parts) >= 2 and parts[0] == primer:
-                                total_count += int(parts[1])
-                                break
+                    total_count += kmer_tables.counts_for(prefix, k, [primer])[primer]
                 except Exception as e:
                     logger.debug(f"Ignored error reading kmer file for blacklist penalty: {e}")
         freq = total_count / total_length if total_length > 0 else 0.0
@@ -233,7 +243,7 @@ def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> list
                 # and writes a comparable record.
                 continue
             if not _table_is_current(prefix, genome, k):
-                stale.append(f"{prefix}_{k}mer_all.txt")
+                stale.append(f"{k}-mer table for {prefix}")
     return stale
 
 
@@ -259,9 +269,8 @@ def validate_step2_prerequisites(
     # Check k-mer files for each prefix and k value
     for prefix in fg_prefixes + bg_prefixes:
         for k in range(min_k, max_k + 1):
-            kmer_file = f"{prefix}_{k}mer_all.txt"
-            if not os.path.exists(kmer_file):
-                missing.append(kmer_file)
+            if not kmer_tables.table_exists(prefix, k):
+                missing.append(f"{k}-mer table for {prefix}")
 
     if missing:
         return StepValidationResult(
@@ -279,7 +288,7 @@ def validate_step2_prerequisites(
             valid=False,
             missing_files=stale,
             error_message=(
-                f"{len(stale)} k-mer count file(s) were counted from a different "
+                f"{len(stale)} k-mer table(s) were counted from a different "
                 f"genome than the one now configured. Step 2 would build the "
                 f"whole design from the other organism's counts."
             ),
@@ -858,10 +867,7 @@ def step1():
                 lib_prefix = lib_entry.kmer_prefix
                 # Symlink library k-mer files to expected location
                 for k in range(min_k, max_k + 1):
-                    src = f"{lib_prefix}_{k}mer_all.txt"
-                    dst = f"{fg_prefix}_{k}mer_all.txt"
-                    if os.path.exists(src) and not os.path.exists(dst):
-                        os.symlink(src, dst)
+                    kmer_tables.link_table(lib_prefix, fg_prefix, k)
                 continue
         with progress_context(f"  Foreground {i+1}/{len(fg_prefixes)}: {genome_name}"):
             run_jellyfish(fg_genomes[i], fg_prefix, min_k, max_k, cpus=jellyfish_cpus)
@@ -879,10 +885,7 @@ def step1():
                     )
                     lib_prefix = lib_entry.kmer_prefix
                     for k in range(min_k, max_k + 1):
-                        src = f"{lib_prefix}_{k}mer_all.txt"
-                        dst = f"{bg_prefix}_{k}mer_all.txt"
-                        if os.path.exists(src) and not os.path.exists(dst):
-                            os.symlink(src, dst)
+                        kmer_tables.link_table(lib_prefix, bg_prefix, k)
                     continue
             with progress_context(f"  Background {i+1}/{len(bg_prefixes)}: {genome_name}"):
                 run_jellyfish(bg_genomes[i], bg_prefix, min_k, max_k, cpus=jellyfish_cpus)
@@ -946,7 +949,7 @@ def _rank_and_cut_candidates(gini_df, max_primer):
     ranked = _rank_by_occupancy(gini_df, max_primer)
     if ranked is not None:
         return ranked
-    return gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[:max_primer]
+    return gini_df.sort_values(**_RANK_BY_RATIO)[:max_primer]
 
 
 # How many survivors to re-rank by occupancy. Ranking costs ~0.14 ms per primer
@@ -996,9 +999,7 @@ def _rank_by_occupancy(gini_df, max_primer):
     # small backgrounds, short primers -- it is a real signal and leads; the
     # occupancy pass then orders what it leaves tied.
     shortlist_size = _configured_positive_int("occupancy_shortlist", DEFAULT_OCCUPANCY_SHORTLIST)
-    shortlist = gini_df.sort_values(by=["ratio", "fg_count"], ascending=[True, False])[
-        : max(shortlist_size, max_primer)
-    ].copy()
+    shortlist = gini_df.sort_values(**_RANK_BY_RATIO)[: max(shortlist_size, max_primer)].copy()
 
     fg_prefixes = list(getattr(parameter, "fg_prefixes", []) or [])
     if not fg_prefixes:
@@ -1025,9 +1026,7 @@ def _rank_by_occupancy(gini_df, max_primer):
         f"load (median {shortlist['occupancy_ratio'].median():.3g}, "
         f"best {shortlist['occupancy_ratio'].min():.3g})"
     )
-    return shortlist.sort_values(by=["occupancy_ratio", "fg_count"], ascending=[True, False])[
-        :max_primer
-    ]
+    return shortlist.sort_values(**_RANK_BY_OCCUPANCY)[:max_primer]
 
 
 def _occupancy_ranking_inputs():
@@ -1195,6 +1194,19 @@ def _apply_exclusion_and_blacklist(filtered_rate_df):
     return filtered_rate_df, bool(excl_prefixes_val or bl_prefixes_val)
 
 
+def _write_step2_table(filtered_gini_df, data_dir: str) -> None:
+    """Write step2_df.csv with a positional index that records RANK.
+
+    The index is reset rather than written as it stands. As it stood it held
+    the position each row had before sorting, which is the order the k-mer
+    counter emitted the candidates in, so two runs agreeing on every value
+    produced different files depending on which counter was installed. The
+    shape -- an unnamed positional index -- is unchanged, because
+    `pipeline_qa_integration` reads it back to write the same shape.
+    """
+    filtered_gini_df.reset_index(drop=True).to_csv(os.path.join(data_dir, "step2_df.csv"))
+
+
 def step2(all_primers=None, validate_prerequisites=True):
     """
     Filters all candidate primers according to primer design principles (http://www.premierbiosoft.com/tech_notes/PCR_Primer_Design.html)
@@ -1351,7 +1363,7 @@ def step2(all_primers=None, validate_prerequisites=True):
         enumerated=_funnel["total_kmers"],
     )
 
-    filtered_gini_df.to_csv(os.path.join(parameter.data_dir, "step2_df.csv"))
+    _write_step2_table(filtered_gini_df, parameter.data_dir)
     logger.info(f"Number of remaining primers: {len(filtered_gini_df['primer'])}")
 
     report_pool_diagnostics(list(filtered_gini_df["primer"].astype(str)), parameter)

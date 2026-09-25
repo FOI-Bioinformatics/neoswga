@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NeoSWGA is a command-line tool for selecting primer sets for selective whole-genome amplification (SWGA). See [README.md](README.md) for user-facing documentation and quick start.
 
-**External dependency**: Jellyfish k-mer counter must be in PATH.
+**External dependency**: a k-mer counter in PATH. KMC3 is used when installed and jellyfish otherwise; setting `"kmer_counter"` in params.json requires the named one. See Known Issue 24 for why, and what it does NOT buy.
 
 ## Architecture
 
@@ -2401,3 +2401,118 @@ package, because nothing in the search uses it.
     Measured after all of it: 6,424 passed and 27 skipped on BOTH 3.13 and
     3.11, with identical collection of 6,444 tests on each, so nothing is
     quietly missing from either.
+
+24. **KMC3 is preferred, and tables are read as databases** -- 2026-09-25.
+    `kmer_counter` in params.json takes "kmc" or "jellyfish" and, when set,
+    REQUIRES that counter. Unset, KMC3 is used when installed and jellyfish
+    otherwise. `core/kmer_backend.py` owns the invocation;
+    `core/kmer_tables.py` is the one place anything asks about a table, and
+    callers name a prefix and a k rather than a file.
+
+    **Unset falls back rather than failing**, which departs from a strict
+    "KMC is the default". A hard requirement would have broken CI, which
+    installs only jellyfish, and every jellyfish-only installation. The
+    fallback is acceptable to do unasked only because the choice does not
+    change any result -- and that was FALSE until a fix described below.
+
+    **The first version of this change was inert.** `kmer_counter` was
+    declared, validated, defaulted and documented, and `count-kmers` still ran
+    jellyfish at every call site: Known Issue 8's class, on the branch that
+    introduced the key. Tests covered the backend by calling it directly, so
+    none could see it. `tests/test_count_kmers_uses_the_configured_counter.py`
+    now walks from the two counting entry points, `run_jellyfish` and
+    `MultiGenomeKmerCounter`, and five of its tests fail against the old
+    behaviour.
+
+    **The counter choice used to change results.** Step 2 sorted by `ratio`
+    then `fg_count`, and ties kept their INPUT order -- the order the counter
+    emitted k-mers in, hash order for jellyfish and sorted order for KMC. That
+    order leads step 3 into an order-sensitive optimizer, and through
+    `[:max_primer]` it decided which tied candidates survived the shortlist.
+    The primer sequence is now the final sort key, and step 2's written index
+    is reset so it records rank rather than emission order. Verified by running
+    the plasmid example end to end under each counter from clean copies:
+    `step2_df.csv`, `step3_df.csv` and `step4_improved_df.csv` are
+    byte-identical, and the KMC run writes no text table. Found by comparing
+    files after the claim "changes speed, never a result" had already been
+    written into the code, which is why the comparison is worth keeping as a
+    habit. Tie order now differs from the old jellyfish-only order, so an
+    existing design with ties at a boundary can see a different shortlist; no
+    test-pinned output moved.
+
+    **What this buys is the QUERY path, not the counter.** `filter` asks one
+    question of a table: the counts of a known candidate list. It answered by
+    streaming every line into Python and testing set membership, which is a
+    scan answering a set question. Measured on *Drosophila* at k=18 with 2,000
+    candidates:
+
+    | approach | time | intermediate |
+    |---|---|---|
+    | dump to text, then Python scan | 17.9 s | 2.3 GB |
+    | stream the dump, then Python scan | 15.6 s | none |
+    | `kmc_tools simple ... intersect` | **2.5 s** | 2,000 lines |
+
+    **`-ocleft` is load-bearing and silent when wrong.** It keeps the counters
+    of the FIRST database. Without it the output carries the candidate
+    database's counters, which are all 1, so every background count reads 1 --
+    a wrong answer that looks entirely plausible. Verified by removing it,
+    which fails the test asserting the database and text paths agree.
+
+    **What it does NOT buy is memory, and on hg38 the gap is 18.6x.** Measured
+    on the 3.1 GB human genome at k=12 through the shipping backend: KMC
+    counts in 12.2 s against jellyfish's 89.7 s, and peaks at 1,950 MB against
+    105 MB. So KMC is 7.2x faster and uses 18.6x the memory, which is the
+    trade in one line. `kmc -m1` also refuses outright; the floor is 2 GB,
+    where jellyfish counted wMel in 18 MB.
+
+    The lookup on that hg38 database beats scanning its 8.4 million line text
+    table by 4.8x at 2,000 candidates and 2.1x at 500,000, the advantage
+    narrowing because building the candidate database is itself work. Every
+    absolute figure there is under two seconds, so at k=12 the win is real and
+    the stakes are modest; k=18 on *Drosophila* is where the 7x lives
+    ([measurement](docs/validation/kmer_counter_comparison_2026-09-25.md)).
+
+    **Above k=12 a host genome cannot have a text table at all.** The distinct
+    count stops being bounded by the k-mer space and becomes bounded by the
+    genome, so hg38 at k=16 or k=18 would dump about 78 to 84 GB of text. That
+    is the sharpest argument for reading databases rather than dumps, and it
+    is also why those k could not be benchmarked here.
+
+    **Two figures this file recorded did not reproduce.** It says hg38 at k=12
+    costs "about 7 minutes and a 138 MB table (8,368,418 canonical 12-mers)".
+    The table size matches at 138.4 MB, which is what confirms it is the same
+    quantity; the time was 91 s here, which one machine against another
+    explains; and the distinct count was 8,368,476, which does not have an
+    explanation. Both counters agree with each other on that number, so it is
+    not a tool artifact. A different hg38 assembly is the likeliest cause and
+    is unestablished.
+
+    **KMC's defaults compute a different quantity and both differences are
+    failures this file already carries.** `-ci2` excludes k-mers occurring
+    once, which at k=18 is 96.9% of wMel's and 95.6% of *Drosophila*'s: a
+    background counted that way reports a host as almost k-mer-free and every
+    candidate as specific, which is Known Issues 5, 6, 13 and 15's shape.
+    `-cs255` saturates the counter at 255, which is Known Issue 7 exactly. The
+    backend passes `-ci1` and `-cs1000000`, and a test asserts neither default
+    returns.
+
+    **`py_kmc_api` is not usable here.** It exists, and the bioconda package
+    even ships `py_kmc_api.so`, but that build is compiled for Python 3.10: it
+    fails on 3.11 with an explicit version mismatch and on 3.13+ because
+    `__PyThreadState_UncheckedGet` was removed from CPython. Upstream's README
+    also warns the wrapper is "much slower than native C++ API". So Python
+    does not read `.kmc_suf` directly; everything goes through the C++ tools.
+
+    **A table is any of three forms**, and `table_exists` is the one predicate
+    that says so. Half a KMC database is not a table: it writes two files, and
+    one alone is an interrupted run. Two things a find-and-replace would have
+    broken: the genome library symlinked the text table by name, so a database
+    source linked nothing and the pipeline recounted a genome it already had;
+    and auto-discovery globbed `*_6mer_all.txt`, so a directory of databases
+    looked empty.
+
+    **Every existing data directory still works.** They hold text tables and
+    no database, and that path is preserved. It is also the only path CI
+    exercises, since CI installs no KMC -- which is why the text-fallback
+    tests are written to run without a counter rather than skipping with the
+    rest.

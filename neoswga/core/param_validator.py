@@ -22,6 +22,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from neoswga.core import kmer_tables
+
 # The registry is stdlib-only on purpose, so importing it here does not drag the
 # numpy/scipy stack into `neoswga validate-params`.
 from neoswga.core.registry import polymerase_names as _polymerase_names
@@ -469,8 +471,7 @@ class ParamValidator:
         for prefix in fg_prefixes:
             has_any = False
             for k in range(min_k, max_k + 1):
-                kmer_file = f"{prefix}_{k}mer_all.txt"
-                if Path(kmer_file).exists():
+                if kmer_tables.table_exists(prefix, k):
                     has_any = True
                     break
             if not has_any:
@@ -479,8 +480,7 @@ class ParamValidator:
         for prefix in bg_prefixes:
             has_any = False
             for k in range(min_k, max_k + 1):
-                kmer_file = f"{prefix}_{k}mer_all.txt"
-                if Path(kmer_file).exists():
+                if kmer_tables.table_exists(prefix, k):
                     has_any = True
                     break
             if not has_any:

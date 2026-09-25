@@ -99,6 +99,7 @@ def _alias_keys(fg_prefixes):
     exactly one record. So the useful thing to print is the record names, and
     the prefix only where that is what a prefix means here.
     """
+    from neoswga.core import parameter
     from neoswga.core.reference_layout import read_layout
 
     keys = []
@@ -131,6 +132,8 @@ def _bam_gaps_for_expansion(args, fg_prefixes, fg_seq_lengths, quiet):
     """
     if not getattr(args, "bam", None):
         return None
+
+    from neoswga.core import parameter
 
     try:
         from neoswga.core.bam_coverage import bam_gaps, open_alignment

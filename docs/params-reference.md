@@ -57,6 +57,7 @@ neoswga schema --dump > params.schema.json
 | `glycerol_percent` | number | min: 0.0; max: 15.0 | `0.0` | - |
 | `iterations` | integer | min: 1; max: 100 | `8` | - |
 | `k_conc` | number | min: 0.0; max: 1000.0 | `0.0` | K+ concentration (mM). Sums with na_conc and nh4_conc into ionic strength. |
+| `kmer_counter` | string | one of: kmc, jellyfish | - | Which k-mer counter to run. Unset: KMC3 when installed, otherwise jellyfish, which produce identical tables. Set explicitly, the named counter is required and its absence is an error. |
 | `long_primer_mode` | boolean | - | `False` | - |
 | `max_background_sites` | integer | min: 0 | - | Maximum total background binding sites the delivered panel may carry. Unset by default. Needs a background genome and index. |
 | `max_bg_freq` | number | min: 0.0; max: 1.0 | - | Maximum background k-mer frequency a candidate may have. A dimensionless frequency in 0-1, not a site count; default 5e-6. Rescaled per primer length by 4^(10-k) like the foreground floor, which the ceiling's argument does not support in the same way, so `filter` reports the effective threshold per length and warns when it has fallen below one site and no value in range can loosen it. |
