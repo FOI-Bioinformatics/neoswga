@@ -14,6 +14,8 @@ These tests pin the max-coverage formulation instead:
 with `w_b` the bases the bin spans.
 """
 
+import subprocess
+import sys
 from unittest.mock import Mock
 
 import numpy as np
@@ -22,6 +24,63 @@ import pytest
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 
 pytest.importorskip("mip", reason="python-mip ships in the 'improved' extra")
+
+
+def _solver_builds_a_model():
+    """Whether the SELECTED solver can build a model, decided OUT OF PROCESS.
+
+    `import mip` succeeding does not mean the solver works. On Python 3.13
+    (macOS arm64, mip 2.0.0, cbcbox) `mip.Model(solver_name=CBC)` terminates
+    the interpreter with SIGKILL: no exception, no traceback, no stderr. The
+    same versions on 3.11 build the model and solve these cases in 0.34 s.
+
+    A process cannot catch its own SIGKILL, so an in-process try/except cannot
+    protect the suite -- the whole pytest run dies, taking every later test
+    with it, which is how this first appeared. The probe therefore runs in a
+    child process and reads its exit status.
+
+    It asks about the solver `neoswga.core.ilp_solver.select_solver_name`
+    actually returns, not about CBC. Hardcoding CBC here would skip the whole
+    module on a machine where the library runs fine on HiGHS, which is the
+    configuration this repository now ships for Python 3.13.
+
+    Absence and failure are kept apart on purpose. `importorskip` above covers
+    "the extra is not installed". This covers "the extra is installed and its
+    solver cannot run here", which is a different fact and gets its own
+    message. Neither is allowed to look like a pass.
+    """
+    probe = (
+        "import mip;"
+        "from neoswga.core.ilp_solver import select_solver_name;"
+        "m = mip.Model(sense=mip.MAXIMIZE, solver_name=select_solver_name());"
+        "m.add_var(var_type=mip.BINARY);"
+        "print('ok')"
+    )
+    try:
+        done = subprocess.run(
+            [sys.executable, "-c", probe],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "the CBC probe did not finish within 60 s"
+    if done.returncode == 0 and done.stdout.strip().endswith("ok"):
+        return True, ""
+    detail = (done.stderr or "").strip().splitlines()
+    return False, (
+        f"mip is installed but its selected solver cannot build a model here "
+        f"(probe exit {done.returncode}"
+        + (f", stderr: {detail[-1]}" if detail else ", no stderr")
+        + "). A SIGKILL here means the native solver died, which cannot be "
+        "caught in process. On Python 3.13 install the HiGHS runtime: "
+        "pip install 'neoswga[improved]'."
+    )
+
+
+_SOLVER_OK, _SOLVER_REASON = _solver_builds_a_model()
+
+pytestmark = pytest.mark.skipif(not _SOLVER_OK, reason=_SOLVER_REASON)
 
 
 def _optimizer(bin_size=10000, extension_reach=0, genome_length=100000):

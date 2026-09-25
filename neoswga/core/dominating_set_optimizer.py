@@ -1186,7 +1186,11 @@ class DominatingSetOptimizer:
             )
 
         vtype = CONTINUOUS if relax else BINARY
-        model = Model(sense=MAXIMIZE)
+        # Prefer HiGHS. mip's default, CBC, terminates the interpreter with
+        # SIGKILL on Python 3.13; see neoswga.core.ilp_solver.
+        from .ilp_solver import select_solver_name
+
+        model = Model(sense=MAXIMIZE, solver_name=select_solver_name())
         model.verbose = 0
 
         x = {p: model.add_var(var_type=vtype, lb=0.0, ub=1.0) for p in primer_to_bins}
