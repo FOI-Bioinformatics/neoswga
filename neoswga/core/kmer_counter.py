@@ -704,41 +704,40 @@ def get_primer_list_from_kmers(
     if kmer_lengths is None:
         kmer_lengths = range(6, 13)
 
+    from neoswga.core import kmer_tables
+
     wide_min = min_tm - wide_tm_margin
     wide_max = max_tm + wide_tm_margin
 
     for prefix in prefixes:
         for k in kmer_lengths:
-            fpath = f"{prefix}_{k}mer_all.txt"
-            if not os.path.exists(fpath):
-                logger.warning(f"K-mer file not found: {fpath}")
+            if not kmer_tables.table_exists(prefix, k):
+                logger.warning(f"No {k}-mer table for {prefix}")
                 continue
 
-            with open(fpath) as f_in:
-                for line in f_in:
-                    parts = line.strip().split()
-                    if not parts:
-                        continue
-                    curr_kmer = parts[0]
-                    # Fast GC pre-filter (avoids the Tm calculation)
-                    gc = _gc_content(curr_kmer)
-                    if gc < gc_min or gc > gc_max:
-                        gc_rejected += 1
-                        continue
-                    # `calculate_effective_tm` warns and substitutes penalty
-                    # values for an unknown base rather than raising, so an
-                    # ambiguous k-mer would otherwise be admitted with a
-                    # meaningless number.
-                    if not set(curr_kmer.upper()) <= _UNAMBIGUOUS_BASES:
-                        ambiguous_rejected += 1
-                        continue
-                    try:
-                        tm = conditions.calculate_effective_tm(curr_kmer)
-                    except (ValueError, TypeError, KeyError) as e:
-                        logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
-                        continue
-                    if wide_min < tm < wide_max:
-                        primer_list.append(curr_kmer)
+            # Streamed from whichever form the table has. On a binary database
+            # nothing is materialised; on an existing directory this reads the
+            # text table exactly as before.
+            for curr_kmer, _count in kmer_tables.iter_table(prefix, k):
+                # Fast GC pre-filter (avoids the Tm calculation)
+                gc = _gc_content(curr_kmer)
+                if gc < gc_min or gc > gc_max:
+                    gc_rejected += 1
+                    continue
+                # `calculate_effective_tm` warns and substitutes penalty
+                # values for an unknown base rather than raising, so an
+                # ambiguous k-mer would otherwise be admitted with a
+                # meaningless number.
+                if not set(curr_kmer.upper()) <= _UNAMBIGUOUS_BASES:
+                    ambiguous_rejected += 1
+                    continue
+                try:
+                    tm = conditions.calculate_effective_tm(curr_kmer)
+                except (ValueError, TypeError, KeyError) as e:
+                    logger.debug(f"Skipping k-mer {curr_kmer}: Tm calculation failed ({e})")
+                    continue
+                if wide_min < tm < wide_max:
+                    primer_list.append(curr_kmer)
 
     if gc_rejected > 0:
         logger.info(
