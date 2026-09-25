@@ -17,7 +17,6 @@ import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 
-import h5py
 import networkx as nx
 import numpy as np
 
@@ -106,11 +105,13 @@ class AmpliconNetwork:
             hdf5_file = f"{hdf5_prefix}_{k}mer_positions.h5"
 
             try:
-                with h5py.File(hdf5_file, "r") as f:
+                from neoswga.core.position_index import open_index
+
+                with open_index(hdf5_file) as f:
                     forward, reverse = [], []
 
-                    if primer in f:
-                        positions = f[primer][:]
+                    positions = f.get(primer)
+                    if positions is not None:
                         # Sign-encoded layout: negative positions mean reverse.
                         # Kept for any file that genuinely uses it, but the
                         # pipeline does not write one -- see below.
@@ -131,8 +132,9 @@ class AmpliconNetwork:
                     # statistics, critical primers) was computed on an edgeless
                     # graph.
                     rc_primer = reverse_complement(primer)
-                    if not reverse and rc_primer in f:
-                        reverse = list(f[rc_primer][:])
+                    reverse_entry = f.get(rc_primer)
+                    if not reverse and reverse_entry is not None:
+                        reverse = list(reverse_entry)
 
                     self.positions_forward[primer] = sorted(forward)
                     self.positions_reverse[primer] = sorted(reverse)

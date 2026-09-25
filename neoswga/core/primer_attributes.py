@@ -2,9 +2,9 @@ import logging
 import multiprocessing
 import os
 
-import h5py
 import numpy as np
 
+from neoswga.core import position_index
 from neoswga.core import string_search as _string_search
 from neoswga.core import utility as _utility
 from neoswga.core.melting_temp import temp as _melting_temp
@@ -54,14 +54,13 @@ def get_gini(primer, fname_prefixes):
     for i, fname_prefix in enumerate(fname_prefixes):
         h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
         if os.path.exists(h5_path):
-            with h5py.File(h5_path, "r") as db:
-                if primer in db:
-                    position_diffs_forward = _utility.get_positional_gap_lengths(db[primer])
-                    positions_diffs.extend(position_diffs_forward)
-                rc_primer = reverse_complement(primer)
-                if rc_primer in db:
-                    position_diffs_reverse = _utility.get_positional_gap_lengths(db[rc_primer])
-                    positions_diffs.extend(position_diffs_reverse)
+            with position_index.open_index(h5_path) as db:
+                forward = db.get(primer)
+                if forward is not None:
+                    positions_diffs.extend(_utility.get_positional_gap_lengths(forward))
+                reverse = db.get(reverse_complement(primer))
+                if reverse is not None:
+                    positions_diffs.extend(_utility.get_positional_gap_lengths(reverse))
         else:
             logger.warning(f"Cannot find HDF5 file for prefix: {fname_prefix}")
 
@@ -96,12 +95,10 @@ def _load_positions_from_h5(primer_list, fname_prefix):
     h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
     try:
         kmer_dict = {}
-        with h5py.File(h5_path, "r") as f:
-            for primer in primer_list:
-                if primer in f:
-                    kmer_dict[primer] = list(f[primer][:])
-                else:
-                    kmer_dict[primer] = []
+        with position_index.open_index(h5_path) as index:
+            found = index.get_many(primer_list)
+        for primer in primer_list:
+            kmer_dict[primer] = list(found[primer]) if primer in found else []
         return kmer_dict
     except (FileNotFoundError, OSError):
         return None
@@ -384,12 +381,11 @@ def get_rate_from_h5py(primer, fname_prefixes):
     for i, fname_prefix in enumerate(fname_prefixes):
         h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
         if os.path.exists(h5_path):
-            with h5py.File(h5_path, "r") as db:
-                if primer in db:
-                    count += len(db[primer])
-                rc_primer = reverse_complement(primer)
-                if rc_primer in db:
-                    count += len(db[rc_primer])
+            with position_index.open_index(h5_path) as db:
+                for key in (primer, reverse_complement(primer)):
+                    found = db.get(key)
+                    if found is not None:
+                        count += len(found)
         else:
             logger.warning(f"Cannot find HDF5 file for prefix: {fname_prefix}")
     return count

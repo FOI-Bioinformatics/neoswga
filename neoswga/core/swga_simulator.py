@@ -223,10 +223,17 @@ class SwgaSimulator:
                     }
                 return positions
 
+            # Flat, in either on-disk layout. Reading the sorted-blocks layout
+            # by dataset name would find no primer at all and report zeros.
+            from neoswga.core.position_index import PositionIndex
+
+            index = PositionIndex(h5_path, handle=f)
             for primer in primers:
                 rc = reverse_complement(primer)
-                fwd = np.array(f[primer]) if primer in f else empty
-                rev = np.array(f[rc]) if rc in f else empty
+                found = index.get(primer)
+                fwd = empty if found is None else found
+                found = index.get(rc)
+                rev = empty if found is None else found
                 positions[primer] = {
                     "+": fwd,
                     "-": rev,
