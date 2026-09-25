@@ -145,7 +145,28 @@ count-kmers            filter                 prepare-candidates     optimize
   index could not place. Those cover nothing and so are invisible to
   selection; the pipeline path refuses rather than reporting a coverage
   figure that describes only the rest of the pool.
-- `*_positions.h5`: HDF5 files with primer binding positions
+- `*_positions.h5`: HDF5 files with primer binding positions, one per prefix
+  and k. Since 2026-09-25 they are written as **sorted blocks**: the k-mers
+  sorted as bytes, an offsets array and every position concatenated, with
+  entry i at `positions[offsets[i]:offsets[i+1]]`. The earlier layout used one
+  HDF5 dataset per k-mer, and on the wMel index 376 MB of its 381 MB was HDF5
+  bookkeeping. Sorted blocks bring that index to 24.7 MB and a full load
+  from 37 s to 5.4 s, entry for entry identical
+  ([measurement](docs/validation/position_index_layout_2026-09-25.md)).
+
+  `core/position_index.py` reads both layouts and writes only the new one.
+  An old index is converted on its next write and read in place until then.
+  Keys stay as written, never canonicalised, because the reverse strand is
+  read from the reverse complement's entry. An empty entry (scanned, occurs
+  nowhere) and an absent one (never scanned) stay distinct: `get` returns an
+  empty array for the first and None for the second.
+  `index_format_version` stays 2, because it records whether the sites are
+  join-safe and a layout change alters no site; `index_layout` names the
+  layout. A write rewrites the whole file beside the old one and renames it
+  into place, holding the old file open read-write so two runs sharing a
+  directory still collide loudly (Known Issue 21). An older release reading
+  a converted index refuses at step 4. A file an older `filter` wrote into is
+  refused as `MixedLayoutError` and rebuilt by the scan.
 - `*_{k}mer_all.provenance.json`: A sidecar recording the genome each k-mer
   table was counted from (absolute path, content fingerprint, digest
   algorithm, k). The fingerprint is a **full SHA-256** as of 2026-09-19. It
@@ -1400,12 +1421,14 @@ with create_pool(cpus) as pool:
     results = pool.map(process_func, items)
 ```
 
-**Position data** (HDF5 format):
+**Position data** (HDF5, read through `core/position_index.py` only):
 ```python
-import h5py
-with h5py.File('positions.h5', 'r') as f:
-    positions = f[primer_sequence][:]
+from neoswga.core.position_index import open_index
+with open_index('g_12mer_positions.h5') as index:
+    positions = index.get(primer_sequence)  # None: never scanned; empty: binds nowhere
 ```
+A raw `h5py` lookup by primer name finds nothing in the sorted-blocks layout.
+`tests/test_position_index_has_one_door.py` refuses a new one.
 
 ## Known Issues
 

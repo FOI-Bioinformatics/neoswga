@@ -4,6 +4,32 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### Position indexes are stored as sorted blocks
+
+#### CHANGED
+
+- **`*_positions.h5` holds three datasets instead of one per k-mer.** These
+  are the sorted k-mers, their offsets and the concatenated positions. On the
+  wMel index this is 24.7 MB instead of 381.3 MB. Loading every entry through
+  the position cache takes 5.4 s instead of 37.0 s. Every entry, attribute
+  and record start is identical
+  (docs/validation/position_index_layout_2026-09-25.md).
+- Existing indexes are read as they are and converted the next time `filter`
+  writes to them. Nothing needs to be regenerated.
+- Every reader goes through `neoswga.core.position_index`. A raw h5py lookup
+  by primer name finds nothing in the new layout. Code outside this package
+  that reads the files that way must switch to `open_index`.
+- A write now builds the new index in a separate file and renames it into
+  place. An interrupted write leaves the previous index intact, and repeated
+  writes no longer grow the file.
+
+#### COMPATIBILITY
+
+- An older NeoSWGA release cannot read the new layout. Its `optimize` stops
+  with a step 4 prerequisite error rather than reporting a result. An index
+  that an older `filter` has written into is refused by this release and
+  rebuilt by the next scan.
+
 ### KMC3 is the default k-mer counter
 
 #### BREAKING

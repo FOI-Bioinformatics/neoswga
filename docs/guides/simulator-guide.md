@@ -346,14 +346,20 @@ Consider replacing: ATAAGCCAGATA, TCGCTCAGGCAA, GGGTATGGCTGT
 
 **Cause**: Genome name extraction failed.
 
-**Solution**: Check HDF5 structure:
+**Solution**: Check which layout the file holds. The pipeline writes one
+flat index per prefix and k, `{prefix}_{k}mer_positions.h5`, with forward
+sites under each primer and reverse sites under its reverse complement. The
+nested genome/primer/strand layout below is accepted by the simulator but
+nothing in NeoSWGA writes it.
+
 ```python
-import h5py
-with h5py.File('positions.h5', 'r') as f:
-    print("Available genomes:", list(f.keys()))
+from neoswga.core.position_index import open_index
+with open_index('target_12mer_positions.h5') as index:
+    print(index.layout, len(index), "entries")
+    print(index.keys()[:10])
 ```
 
-Expected structure:
+Legacy nested structure:
 ```
 positions.h5
 ├── synechocystis/
@@ -376,10 +382,10 @@ positions.h5
 
 **Debug**:
 ```python
-# Check primers in HDF5
-with h5py.File('positions.h5', 'r') as f:
-    genome = f['synechocystis']
-    print("Primers in HDF5:", list(genome.keys())[:10])
+# Check primers in the index
+from neoswga.core.position_index import open_index
+with open_index('target_12mer_positions.h5') as index:
+    print("Primers in index:", index.keys()[:10])
 
 # Check your primer file
 with open('primers.txt') as f:
