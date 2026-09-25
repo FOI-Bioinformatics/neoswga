@@ -4,6 +4,31 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### A host with no k-mer table is scanned rather than refused
+
+#### ADDED
+
+- **`neoswga.core.query_scan` counts a known k-mer set directly in a
+  reference**, with no table built and nothing written to disk. `filter`
+  reaches it only where a background prefix has no table, which previously
+  stopped the run. A counted prefix takes the table path unchanged, so no
+  working run is affected.
+- The case it serves is a host at large k, where the table is the problem:
+  Drosophila at k=18 counts to an 818 MB table, and hg38 at k=18 is tens of
+  gigabytes. Counting is otherwise faster and stays the default
+  (docs/validation/query_scan_2026-09-25.md).
+
+#### FIXED
+
+- **CI installs KMC3 as well as Jellyfish.** Which counter is present decides
+  which code path runs, and the runners had only Jellyfish, so the preferred
+  path was never exercised. Four tests had encoded that gap: two asserted
+  Jellyfish's `*mer_all.txt` artifact, which KMC does not write, and two
+  asserted that an absent Jellyfish is fatal, which stopped being true when
+  KMC became preferred. They now assert the property rather than the counter.
+- Tests that skipped on Jellyfish alone now skip only when NO counter is
+  installed, so a KMC-only machine no longer skips most of the counting tests.
+
 ### Position indexes are stored as sorted blocks
 
 #### CHANGED

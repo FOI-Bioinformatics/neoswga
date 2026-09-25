@@ -1258,6 +1258,8 @@ def step2(all_primers=None, validate_prerequisites=True):
         "bg_prefixes": bg_prefixes,
         "fg_total_length": sum(fg_seq_lengths),
         "bg_total_length": sum(bg_seq_lengths),
+        "fg_genomes": list(fg_genomes or []),
+        "bg_genomes": list(bg_genomes or []),
     }
     if all_primers is None:
         # Use stored min_k and max_k values from parameter module (with safe defaults)
