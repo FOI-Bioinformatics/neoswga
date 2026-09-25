@@ -82,6 +82,70 @@ def _stream_pairs(cmd: list[str]) -> Iterator[tuple[str, int]]:
         proc.wait()
 
 
+def discover_prefixes(directory: str, k: int) -> list[str]:
+    """Prefixes in this directory that have a table at this k, in any form.
+
+    Auto-discovery used to glob `*_{k}mer_all.txt` alone, so a directory
+    counted into KMC databases looked empty and every reference in it went
+    unregistered.
+    """
+    import glob as _glob
+
+    patterns = {
+        f"*_{k}mer_all.txt": f"_{k}mer_all.txt",
+        f"*_{k}mer.kmc_pre": f"_{k}mer.kmc_pre",
+        f"*_{k}mer.jf": f"_{k}mer.jf",
+    }
+    prefixes: list[str] = []
+    for pattern, suffix in patterns.items():
+        for path in _glob.glob(os.path.join(directory, pattern)):
+            prefix = path[: -len(suffix)]
+            if prefix not in prefixes and table_exists(prefix, k):
+                prefixes.append(prefix)
+    return sorted(prefixes)
+
+
+def table_files(prefix: str, k: int) -> list[str]:
+    """Every file making up this prefix's table at this k, in any form.
+
+    A KMC table is TWO files. Linking or copying only one leaves a half a
+    database, which `table_exists` correctly rejects but which would look like
+    a corrupted count rather than an incomplete copy.
+    """
+    found = []
+    stem = KmcBackend().database(prefix, k)
+    if os.path.exists(stem + ".kmc_pre") and os.path.exists(stem + ".kmc_suf"):
+        found.extend([stem + ".kmc_pre", stem + ".kmc_suf"])
+    jf = JellyfishBackend().database(prefix, k)
+    if os.path.exists(jf):
+        found.append(jf)
+    text = text_table_path(prefix, k)
+    if os.path.exists(text):
+        found.append(text)
+    return found
+
+
+def link_table(src_prefix: str, dst_prefix: str, k: int) -> bool:
+    """Symlink a counted table from one prefix to another.
+
+    Used when the genome library already holds a count. It links whatever form
+    the source has, rather than a text file by name: linking
+    `{src}_{k}mer_all.txt` when the source is a KMC database links nothing and
+    the caller then recounts a genome it already has.
+
+    Returns whether anything was linked. An existing destination is left
+    alone.
+    """
+    linked = False
+    for source in table_files(src_prefix, k):
+        destination = source.replace(src_prefix, dst_prefix, 1)
+        if source == destination or os.path.exists(destination):
+            continue
+        os.symlink(source, destination)
+        linked = True
+    return linked
+
+
 def _counts_from_stream(prefix: str, k: int) -> Iterator[tuple[str, int]]:
     """Every (k-mer, count) pair, from whichever form is present."""
     database = _kmc_database(prefix, k)

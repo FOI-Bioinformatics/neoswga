@@ -30,6 +30,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from neoswga.core import kmer_tables
+
 logger = logging.getLogger(__name__)
 
 
@@ -325,8 +327,7 @@ class GenomeLibrary:
             return False
         # Verify actual files exist for every k in range
         for k in range(min_k, max_k + 1):
-            kmer_file = f"{entry.kmer_prefix}_{k}mer_all.txt"
-            if not os.path.exists(kmer_file):
+            if not kmer_tables.table_exists(entry.kmer_prefix, k):
                 return False
         return True
 

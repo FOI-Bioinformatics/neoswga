@@ -35,6 +35,8 @@ from datetime import datetime
 from glob import glob
 from pathlib import Path
 
+from neoswga.core import kmer_tables
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,8 +85,7 @@ class BackgroundEntry:
             return False
         # Check if at least one k-mer file exists
         for k in range(self.k_range[0], self.k_range[1] + 1):
-            kmer_file = f"{self.kmer_prefix}_{k}mer_all.txt"
-            if os.path.exists(kmer_file):
+            if kmer_tables.table_exists(self.kmer_prefix, k):
                 return True
         return False
 
@@ -303,7 +304,7 @@ class BackgroundRegistry:
 
         Searches for:
         - Bloom filter files (*_bloom.pkl, *_bloom_filter.pkl)
-        - K-mer file sets (*_Xmer_all.txt)
+        - K-mer table sets, as text dumps or binary databases
 
         Args:
             directories: Directories to search (default: DEFAULT_DIRS)
@@ -343,10 +344,8 @@ class BackgroundRegistry:
                     if verbose:
                         logger.info(f"  Found: {name}")
 
-            # Look for k-mer file sets
-            kmer_files = glob(os.path.join(dir_path, "*_6mer_all.txt"))
-            for kmer_file in kmer_files:
-                prefix = kmer_file.replace("_6mer_all.txt", "")
+            # Look for k-mer table sets, in whichever form they were counted
+            for prefix in kmer_tables.discover_prefixes(dir_path, 6):
                 name = self._infer_name_from_prefix(prefix)
                 if name and name not in self.entries:
                     # Determine k-mer range
@@ -390,8 +389,7 @@ class BackgroundRegistry:
         k_max = 1
 
         for k in range(4, 31):
-            kmer_file = f"{prefix}_{k}mer_all.txt"
-            if os.path.exists(kmer_file):
+            if kmer_tables.table_exists(prefix, k):
                 k_min = min(k_min, k)
                 k_max = max(k_max, k)
 
