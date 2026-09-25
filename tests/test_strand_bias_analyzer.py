@@ -9,7 +9,6 @@ Tests all functionality including:
 """
 
 import unittest
-from typing import List
 
 from neoswga.core.strand_bias_analyzer import (
     PrimerStrandBias,

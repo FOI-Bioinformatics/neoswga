@@ -11,7 +11,6 @@ Tests all functionality including:
 """
 
 import unittest
-from typing import Dict, List
 
 from neoswga.core.integrated_quality_scorer import (
     IntegratedQualityScorer,

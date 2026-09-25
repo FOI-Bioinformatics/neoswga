@@ -169,7 +169,7 @@ def test_enumeration_respects_the_cap_inside_a_single_large_clique():
     A complete graph is the worst case and the right test: there is exactly one
     maximal clique, so nothing but the inner check can stop the expansion.
     """
-    G = nx.complete_graph(["P%02d" % i for i in range(40)])
+    G = nx.complete_graph([f"P{i:02d}" for i in range(40)])
 
     sets = enumerate_dimer_free_sets(G, target_size=6, max_cliques=25)
 
@@ -181,7 +181,7 @@ def test_enumeration_reports_when_it_was_not_exhaustive(caplog):
     whose selling point is exhaustiveness is the wrong thing to imply."""
     import logging
 
-    G = nx.complete_graph(["P%02d" % i for i in range(20)])
+    G = nx.complete_graph([f"P{i:02d}" for i in range(20)])
 
     with caplog.at_level(logging.INFO):
         enumerate_dimer_free_sets(G, target_size=4, max_cliques=10)
