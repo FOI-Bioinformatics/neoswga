@@ -2337,3 +2337,67 @@ package, because nothing in the search uses it.
     route is also the only one whose artifacts `filter` can use, since
     `genome_library` writes a filter with no sampled index beside it and
     `get_bg_rates_via_bloom` requires one.
+
+23. **Python 3.13 only, and the code modernised to match** -- 2026-09-25.
+    `requires-python` is `>=3.13`; black, ruff and mypy all target it and both
+    workflow matrices are one interpreter on two operating systems. There were
+    no `sys.version_info` guards anywhere in the package, so nothing had to be
+    unwound.
+
+    2,294 modernisation sites were rewritten across the package and tests,
+    almost all `typing.List` to `list` and `Optional[X]` to `X | None`. Ruff
+    fixed 1,993; the orphaned `typing` imports took two passes and the last
+    five were done by hand. **Ruff reports zero UP findings now**, so those
+    rules could be made blocking if anyone wants them to be.
+
+    The import removal is the part worth knowing about. A blanket unused-import
+    fix would have deleted deliberate re-exports, so it was scoped to `typing`
+    names only. The first pass then kept `List` imported wherever the word
+    appeared anywhere in the file, including docstring prose like
+    "candidates: List of candidate primers"; the second asks whether the name
+    is used as CODE via the syntax tree, while still keeping forward references
+    inside string annotations.
+
+    **One test broke, and it was asserting a spelling rather than a property.**
+    `test_multi_genome_result_allows_none_metrics` required the literal string
+    "Optional" in a dataclass field's annotation, so it failed on `float | None`
+    while its subject had not changed. It now checks that NoneType is in
+    `typing.get_args`, which holds under either spelling and still fails if a
+    field is made non-optional.
+
+    **`mip`'s default solver kills Python 3.13.** Constructing a CBC model
+    terminates the interpreter with SIGKILL -- no exception, no traceback, no
+    stderr -- measured on macOS arm64 with mip 2.0.0 and cbcbox 2.935. The same
+    versions on 3.11 solve the same models in 0.34 s. `core/ilp_solver.py`
+    prefers HiGHS, which works on both, and falls back to CBC with a warning.
+    The fallback is deliberately unprobed: a probe would construct a CBC model,
+    which is the operation that kills the process, so nothing in process can
+    tell a working CBC from a fatal one.
+
+    Two construction sites needed it, and the second is easy to miss:
+    `dominating_set_optimizer.py` and
+    `scripts/benchmarking/max_coverage_bound.py`, which a test loads and
+    executes. Wiring only the library left 16 of 17 tests passing and the
+    seventeenth still killing the run.
+
+    **Those 17 tests have never run in CI**, before or after. `mip` lives only
+    in the `improved` and `all` extras and CI installs `.[dev]`, so they skip
+    there. Nightly installs `improved` but now runs only the scale-marked
+    tests. So the ILP path is covered locally and nowhere automated, and the
+    3.13 crash would not have been caught.
+
+    **bioconda has no Python 3.13 build of `kmer-jellyfish`.** 2.3.1 exists for
+    3.9 to 3.12 only, so `conda create ... python=3.13 kmer-jellyfish` silently
+    resolves to 1.1.12, whose CLI this project refuses. CI is unaffected
+    because it installs Jellyfish through apt and brew rather than conda.
+    Recorded in docs/guides/TROUBLESHOOTING.md, since it costs an hour to
+    diagnose from the symptom.
+
+    **PyYAML was reaching CI only as a transitive dependency of pre-commit**,
+    while `tests/test_workflows_invoke_real_commands.py` `importorskip`s it.
+    A ratchet that can silently vanish is the defect class that ratchet exists
+    to catch, so it is now declared in the `dev` extra.
+
+    Measured after all of it: 6,424 passed and 27 skipped on BOTH 3.13 and
+    3.11, with identical collection of 6,444 tests on each, so nothing is
+    quietly missing from either.
