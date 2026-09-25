@@ -13,7 +13,6 @@ Tests all functionality including:
 import logging
 import unittest
 import warnings
-from typing import List
 
 from neoswga.core.thermodynamic_filter import (
     PrimerThermodynamics,

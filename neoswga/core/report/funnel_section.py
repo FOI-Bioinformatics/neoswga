@@ -15,12 +15,11 @@ no headroom fails on the merge rather than on the change;
 from __future__ import annotations
 
 from html import escape as html_escape
-from typing import Dict, List, Optional
 
 __all__ = ["render_candidate_reach", "render_funnel"]
 
 
-def render_candidate_reach(reach: Optional[Dict]) -> str:
+def render_candidate_reach(reach: dict | None) -> str:
     """How much of the available pool the search examined.
 
     Rendered beneath the funnel because it answers the question the funnel
@@ -52,7 +51,7 @@ def render_candidate_reach(reach: Optional[Dict]) -> str:
     )
 
 
-def render_funnel(stages: List[tuple]) -> str:
+def render_funnel(stages: list[tuple]) -> str:
     """Render filtering funnel visualization."""
     if not stages:
         return (

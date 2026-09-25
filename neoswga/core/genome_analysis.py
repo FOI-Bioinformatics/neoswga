@@ -11,14 +11,13 @@ Version: 3.5 - Genome-Adaptive QA System
 
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Union
 
 from Bio import SeqIO
 
 logger = logging.getLogger(__name__)
 
 
-def calculate_genome_gc(genome_path: Union[str, Path]) -> float:
+def calculate_genome_gc(genome_path: str | Path) -> float:
     """
     Calculate GC content from genome FASTA file.
 
@@ -70,7 +69,7 @@ def calculate_genome_gc(genome_path: Union[str, Path]) -> float:
         raise
 
 
-def calculate_genome_stats(genome_path: Union[str, Path]) -> Dict[str, float]:
+def calculate_genome_stats(genome_path: str | Path) -> dict[str, float]:
     """
     Calculate comprehensive genome composition statistics.
 
@@ -184,7 +183,7 @@ def get_gc_class(gc_content: float) -> str:
         return "extreme_gc"
 
 
-def recommend_adaptive_qa(genome_gc: float) -> Dict[str, Union[bool, str]]:
+def recommend_adaptive_qa(genome_gc: float) -> dict[str, bool | str]:
     """
     Recommend whether to use genome-adaptive QA based on GC content.
 
@@ -252,7 +251,7 @@ def recommend_adaptive_qa(genome_gc: float) -> Dict[str, Union[bool, str]]:
         }
 
 
-def analyze_genome_for_qa(genome_path: Union[str, Path]) -> Dict:
+def analyze_genome_for_qa(genome_path: str | Path) -> dict:
     """
     Comprehensive genome analysis for QA parameter selection.
 
@@ -313,10 +312,10 @@ def analyze_genome_for_qa(genome_path: Union[str, Path]) -> Dict:
 
 
 def analyze_genome(
-    genome_path: Union[str, Path],
+    genome_path: str | Path,
     window_size: int = 1000,
-    output_dir: Optional[Union[str, Path]] = None,
-) -> Dict:
+    output_dir: str | Path | None = None,
+) -> dict:
     """
     Comprehensive genome suitability analysis for SWGA.
 
@@ -521,7 +520,7 @@ def _gc_class_description(gc_class: str) -> str:
     return descriptions.get(gc_class, gc_class)
 
 
-def _calculate_suitability_score(results: Dict) -> float:
+def _calculate_suitability_score(results: dict) -> float:
     """Calculate SWGA suitability score (0-100)."""
     score = 100.0
 
@@ -571,7 +570,7 @@ def _score_to_rating(score: float) -> str:
         return "DIFFICULT"
 
 
-def _get_suitability_factors(results: Dict) -> list:
+def _get_suitability_factors(results: dict) -> list:
     """Get list of factors affecting suitability."""
     factors = []
     gc = results["gc_analysis"]["overall_gc"]
@@ -611,7 +610,7 @@ def _get_suitability_factors(results: Dict) -> list:
     return factors
 
 
-def _recommend_primer_length(gc_class: str) -> Dict:
+def _recommend_primer_length(gc_class: str) -> dict:
     """Recommend primer length range based on GC class."""
     if gc_class in ("extreme_at", "at_rich"):
         return {"min": 8, "max": 12, "optimal": 10}
@@ -621,7 +620,7 @@ def _recommend_primer_length(gc_class: str) -> Dict:
         return {"min": 12, "max": 16, "optimal": 14}
 
 
-def _recommend_additives(gc_class: str) -> Dict:
+def _recommend_additives(gc_class: str) -> dict:
     """Recommend additive concentrations based on GC class."""
     if gc_class == "extreme_at":
         return {"betaine_m": 0.5, "dmso_percent": 0.0, "mg_conc": 2.5}
@@ -635,7 +634,7 @@ def _recommend_additives(gc_class: str) -> Dict:
         return {"betaine_m": 2.0, "dmso_percent": 5.0, "mg_conc": 0.5}
 
 
-def _write_text_summary(results: Dict, output_path: Path) -> None:
+def _write_text_summary(results: dict, output_path: Path) -> None:
     """Write text summary report."""
     with open(output_path, "w") as f:
         f.write("=" * 70 + "\n")

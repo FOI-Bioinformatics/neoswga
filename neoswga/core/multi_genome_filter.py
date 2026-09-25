@@ -31,7 +31,6 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -93,8 +92,8 @@ class GenomeEntry:
     fasta_path: Path
     role: GenomeRole
     penalty_weight: float = 1.0
-    gc_content: Optional[float] = None
-    size: Optional[int] = None
+    gc_content: float | None = None
+    size: int | None = None
 
     def __post_init__(self):
         """Validate and set defaults"""
@@ -123,16 +122,16 @@ class GenomeSet:
     Manages target, background, and blacklist genomes with validation.
     """
 
-    targets: List[GenomeEntry] = field(default_factory=list)
-    backgrounds: List[GenomeEntry] = field(default_factory=list)
-    blacklists: List[GenomeEntry] = field(default_factory=list)
+    targets: list[GenomeEntry] = field(default_factory=list)
+    backgrounds: list[GenomeEntry] = field(default_factory=list)
+    blacklists: list[GenomeEntry] = field(default_factory=list)
 
     def add_genome(
         self,
         name: str,
         fasta_path: str,
         role: "str | GenomeRole",
-        penalty_weight: Optional[float] = None,
+        penalty_weight: float | None = None,
     ):
         """
         Add a genome to the set.
@@ -172,11 +171,11 @@ class GenomeSet:
         else:  # BLACKLIST
             self.blacklists.append(entry)
 
-    def get_all_genomes(self) -> List[GenomeEntry]:
+    def get_all_genomes(self) -> list[GenomeEntry]:
         """Get all genomes in a single list"""
         return self.targets + self.backgrounds + self.blacklists
 
-    def get_non_targets(self) -> List[GenomeEntry]:
+    def get_non_targets(self) -> list[GenomeEntry]:
         """Get all background and blacklist genomes"""
         return self.backgrounds + self.blacklists
 
@@ -257,7 +256,7 @@ class MultiGenomeScore:
     enrichment_score: float
     penalty_score: float
     passes: bool
-    details: Dict[str, float] = field(default_factory=dict)
+    details: dict[str, float] = field(default_factory=dict)
 
     def __str__(self):
         return f"""Primer: {self.primer}
@@ -319,8 +318,8 @@ class MultiGenomeFilter:
         self.max_gini = max_gini
 
         # Cache for k-mer counts and positions
-        self.kmer_counts: Dict[str, Dict[str, int]] = {}  # {genome_name: {kmer: count}}
-        self.genome_sizes: Dict[str, int] = {}
+        self.kmer_counts: dict[str, dict[str, int]] = {}  # {genome_name: {kmer: count}}
+        self.genome_sizes: dict[str, int] = {}
 
         logger.info("Initialized multi-genome filter")
         logger.info(f"  Targets: {len(genome_set.targets)}")
@@ -331,7 +330,7 @@ class MultiGenomeFilter:
         logger.info(f"  Max blacklist freq: {max_blacklist_freq:.2e}")
         logger.info(f"  Min enrichment: {min_enrichment}x")
 
-    def load_genome_counts(self, genome_name: str, kmer_counts: Dict[str, int], genome_size: int):
+    def load_genome_counts(self, genome_name: str, kmer_counts: dict[str, int], genome_size: int):
         """
         Load pre-computed k-mer counts for a genome.
 
@@ -457,8 +456,8 @@ class MultiGenomeFilter:
         )
 
     def filter_primers(
-        self, candidates: List[str], verbose: bool = False
-    ) -> Tuple[List[str], List[MultiGenomeScore]]:
+        self, candidates: list[str], verbose: bool = False
+    ) -> tuple[list[str], list[MultiGenomeScore]]:
         """
         Filter primer candidates across all genomes.
 
@@ -514,8 +513,8 @@ class MultiGenomeFilter:
         return passing, scores
 
     def rank_primers(
-        self, primers: List[str], top_n: Optional[int] = None
-    ) -> List[Tuple[str, MultiGenomeScore]]:
+        self, primers: list[str], top_n: int | None = None
+    ) -> list[tuple[str, MultiGenomeScore]]:
         """
         Rank primers by composite score.
 
@@ -549,7 +548,7 @@ class MultiGenomeFilter:
 
         return [(p, s) for p, s, c in scored]
 
-    def generate_report(self, primers: List[str], output_file: Optional[str] = None) -> str:
+    def generate_report(self, primers: list[str], output_file: str | None = None) -> str:
         """
         Generate detailed multi-genome report.
 

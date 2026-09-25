@@ -9,7 +9,6 @@ import logging
 import os
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -243,7 +242,7 @@ class GCClampFilter:
         self,
         min_gc_in_last5: int = 1,
         max_gc_in_last5: int = 3,
-        genome_gc: Optional[float] = None,
+        genome_gc: float | None = None,
     ):
         """
         Initialize GC clamp filter.
@@ -339,7 +338,7 @@ class AdaptiveFilterPipeline:
             "clamp": self.clamp_filter,
         }
 
-    def filter_primers(self, candidates: List[str], verbose: bool = False) -> List[str]:
+    def filter_primers(self, candidates: list[str], verbose: bool = False) -> list[str]:
         """
         Apply all filters.
 
@@ -403,7 +402,7 @@ class AdaptiveFilterPipeline:
         return gc / len(seq) if len(seq) > 0 else 0.5
 
 
-def compare_filters(primers: List[str], genome_seq: str):
+def compare_filters(primers: list[str], genome_seq: str):
     """
     Compare old (fixed) vs. new (adaptive) filters.
 
@@ -499,7 +498,7 @@ def run_step2_with_adaptive_gc(gc_tolerance: float = 0.15):
     if not os.path.exists(json_file):
         raise ValueError(f"JSON parameter file not found: {json_file}")
 
-    with open(json_file, "r") as f:
+    with open(json_file) as f:
         params_data = json.load(f)
 
     # Get genome path

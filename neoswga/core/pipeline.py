@@ -6,7 +6,6 @@ import os
 import pickle
 import sys
 import warnings
-from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -24,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 
 def _filter_exclusion_genome(
-    primers: List[str], excl_prefixes: List[str], threshold: int = 0
-) -> List[bool]:
+    primers: list[str], excl_prefixes: list[str], threshold: int = 0
+) -> list[bool]:
     """Filter primers that bind to exclusion genome(s).
 
     Scans k-mer count files for the exclusion genome and rejects any primer
@@ -67,7 +66,7 @@ def _filter_exclusion_genome(
                     f"remove the exclusion genome from the configuration; every "
                     f"primer would otherwise pass as if it bound nothing."
                 )
-            with open(kmer_file, "r") as f:
+            with open(kmer_file) as f:
                 for line in f:
                     parts = line.strip().split()
                     if len(parts) >= 2 and parts[0] in wanted:
@@ -78,8 +77,8 @@ def _filter_exclusion_genome(
 
 
 def _filter_blacklist_penalty(
-    primers: List[str], bl_prefixes: List[str], bl_seq_lengths: List[int], max_bl_freq: float = 0.0
-) -> Tuple[List[bool], List[float]]:
+    primers: list[str], bl_prefixes: list[str], bl_seq_lengths: list[int], max_bl_freq: float = 0.0
+) -> tuple[list[bool], list[float]]:
     """Filter primers by blacklist genome frequency.
 
     Reads k-mer count files for blacklist genomes and calculates per-primer
@@ -113,7 +112,7 @@ def _filter_blacklist_penalty(
             total_length += seq_len
             if os.path.exists(kmer_file):
                 try:
-                    with open(kmer_file, "r") as f:
+                    with open(kmer_file) as f:
                         for line in f:
                             parts = line.strip().split()
                             if len(parts) >= 2 and parts[0] == primer:
@@ -144,7 +143,7 @@ from neoswga.core.exceptions import (  # noqa: F401,E402
 
 
 def validate_step1_prerequisites(
-    data_dir: str, fg_genomes: List[str], bg_genomes: List[str]
+    data_dir: str, fg_genomes: list[str], bg_genomes: list[str]
 ) -> StepValidationResult:
     """
     Validate prerequisites for Step 1 (k-mer counting).
@@ -189,7 +188,7 @@ def validate_step1_prerequisites(
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
 
 
-def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> List[str]:
+def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> list[str]:
     """K-mer tables whose provenance record names a genome other than this one.
 
     Step 1 records what each table was counted from and refuses to reuse a
@@ -240,12 +239,12 @@ def _tables_counted_from_another_genome(prefixes, genomes, min_k, max_k) -> List
 
 def validate_step2_prerequisites(
     data_dir: str,
-    fg_prefixes: List[str],
-    bg_prefixes: List[str],
+    fg_prefixes: list[str],
+    bg_prefixes: list[str],
     min_k: int = 6,
     max_k: int = 12,
-    fg_genomes: Optional[List[str]] = None,
-    bg_genomes: Optional[List[str]] = None,
+    fg_genomes: list[str] | None = None,
+    bg_genomes: list[str] | None = None,
 ) -> StepValidationResult:
     """
     Validate prerequisites for Step 2 (filtering).
@@ -331,7 +330,7 @@ def validate_step3_prerequisites(data_dir: str) -> StepValidationResult:
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
 
 
-def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepValidationResult:
+def validate_step4_prerequisites(data_dir: str, fg_prefixes: list[str]) -> StepValidationResult:
     """
     Validate prerequisites for Step 4 (optimization).
 
@@ -405,7 +404,7 @@ def validate_step4_prerequisites(data_dir: str, fg_prefixes: List[str]) -> StepV
     return StepValidationResult(valid=True, missing_files=[], error_message="", remediation="")
 
 
-def unindexed_candidates(cache, fg_prefixes: List[str]) -> List[str]:
+def unindexed_candidates(cache, fg_prefixes: list[str]) -> list[str]:
     """Candidates the position index cannot place anywhere in the foreground.
 
     `PositionCache` records these in `missing_primers` as (prefix, primer)

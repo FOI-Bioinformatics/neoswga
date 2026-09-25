@@ -23,7 +23,7 @@ After:
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
+from typing import Any
 
 import numpy as np
 from sortedcontainers import SortedSet
@@ -40,8 +40,8 @@ class GenomeInfo:
         circular: Whether genome is circular
     """
 
-    prefixes: Tuple[str, ...]
-    seq_lengths: Tuple[int, ...]
+    prefixes: tuple[str, ...]
+    seq_lengths: tuple[int, ...]
     circular: bool = True
 
     def __post_init__(self):
@@ -63,7 +63,7 @@ class GenomeInfo:
 
     @classmethod
     def from_lists(
-        cls, prefixes: List[str], seq_lengths: List[int], circular: bool = True
+        cls, prefixes: list[str], seq_lengths: list[int], circular: bool = True
     ) -> "GenomeInfo":
         """Create from lists (converts to tuples)."""
         return cls(prefixes=tuple(prefixes), seq_lengths=tuple(seq_lengths), circular=circular)
@@ -79,7 +79,7 @@ class PositionData:
     """
 
     # List of (forward_positions, reverse_positions) per genome sequence
-    positions: List[Tuple[SortedSet, SortedSet]]
+    positions: list[tuple[SortedSet, SortedSet]]
 
     @classmethod
     def empty(cls, num_sequences: int) -> "PositionData":
@@ -87,7 +87,7 @@ class PositionData:
         return cls(positions=[(SortedSet([]), SortedSet([])) for _ in range(num_sequences)])
 
     @classmethod
-    def from_numpy(cls, position_arrays: List[Tuple[np.ndarray, np.ndarray]]) -> "PositionData":
+    def from_numpy(cls, position_arrays: list[tuple[np.ndarray, np.ndarray]]) -> "PositionData":
         """Create from numpy arrays."""
         return cls(
             positions=[
@@ -131,7 +131,7 @@ class DimerConstraints:
     """
 
     matrix: np.ndarray
-    primer_to_index: Dict[str, int]
+    primer_to_index: dict[str, int]
     max_dimer_bp: int = 4
 
     def __post_init__(self):
@@ -139,7 +139,7 @@ class DimerConstraints:
         if self.matrix is not None and hasattr(self.matrix, "flags"):
             self.matrix.flags.writeable = False
 
-    def are_compatible(self, primers: List[str], new_primer: str) -> bool:
+    def are_compatible(self, primers: list[str], new_primer: str) -> bool:
         """
         Check if new_primer is compatible with all primers in list.
 
@@ -167,7 +167,7 @@ class SearchState:
     Represents one of the "top sets" being tracked during search.
     """
 
-    primers: List[str]
+    primers: list[str]
     score: float
     fg_positions: PositionData
     bg_positions: PositionData
@@ -184,8 +184,8 @@ class SearchState:
     def add_primer(
         self,
         primer: str,
-        fg_new_positions: List[Tuple[np.ndarray, np.ndarray]],
-        bg_new_positions: List[Tuple[np.ndarray, np.ndarray]],
+        fg_new_positions: list[tuple[np.ndarray, np.ndarray]],
+        bg_new_positions: list[tuple[np.ndarray, np.ndarray]],
         new_score: float,
     ) -> "SearchState":
         """Create new state with additional primer."""
@@ -218,7 +218,7 @@ class BFSConfig:
     max_sets: int = 10
     iterations: int = 10
     selection_method: str = "deterministic"
-    drop_indices: Tuple[int, ...] = (4,)
+    drop_indices: tuple[int, ...] = (4,)
     normalize_metric: str = "deterministic"
     verbose: bool = True
 
@@ -252,20 +252,20 @@ class BFSSearchContext:
     """
 
     # Required parameters
-    primer_pool: List[str]
+    primer_pool: list[str]
     fg_genome: GenomeInfo
     dimer_constraints: DimerConstraints
     config: BFSConfig
 
     # Optional background genome
-    bg_genome: Optional[GenomeInfo] = None
+    bg_genome: GenomeInfo | None = None
 
     # State tracking
-    banned_primers: Set[str] = field(default_factory=set)
-    score_cache: Dict[str, float] = field(default_factory=dict)
+    banned_primers: set[str] = field(default_factory=set)
+    score_cache: dict[str, float] = field(default_factory=dict)
 
     # Current search state (mutable during search)
-    top_states: List[SearchState] = field(default_factory=list)
+    top_states: list[SearchState] = field(default_factory=list)
 
     def __post_init__(self):
         # Validate primer pool
@@ -286,7 +286,7 @@ class BFSSearchContext:
         """Whether background genome is configured."""
         return self.bg_genome is not None
 
-    def get_available_primers(self, current_set: List[str]) -> List[str]:
+    def get_available_primers(self, current_set: list[str]) -> list[str]:
         """Get primers that can be added to current set."""
         current_set_frozen = frozenset(current_set)
         return [
@@ -297,17 +297,17 @@ class BFSSearchContext:
             and self.dimer_constraints.are_compatible(current_set, p)
         ]
 
-    def get_cached_score(self, primers: List[str]) -> Optional[float]:
+    def get_cached_score(self, primers: list[str]) -> float | None:
         """Get cached score for primer set if available."""
         key = ",".join(sorted(primers))
         return self.score_cache.get(key)
 
-    def cache_score(self, primers: List[str], score: float) -> None:
+    def cache_score(self, primers: list[str], score: float) -> None:
         """Cache score for primer set."""
         key = ",".join(sorted(primers))
         self.score_cache[key] = score
 
-    def initialize_states(self, initial_sets: Optional[List[List[str]]] = None) -> None:
+    def initialize_states(self, initial_sets: list[list[str]] | None = None) -> None:
         """
         Initialize search states.
 
@@ -349,26 +349,26 @@ class SearchResult:
     Result from a single search iteration or complete search.
     """
 
-    states: List[SearchState]
+    states: list[SearchState]
     best_score: float
     iterations_completed: int
     converged: bool = False
     message: str = ""
 
     @property
-    def best_state(self) -> Optional[SearchState]:
+    def best_state(self) -> SearchState | None:
         """Get the highest-scoring state."""
         if not self.states:
             return None
         return max(self.states, key=lambda s: s.score)
 
     @property
-    def best_primers(self) -> List[str]:
+    def best_primers(self) -> list[str]:
         """Get primers from the best state."""
         best = self.best_state
         return best.primers if best else []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "best_primers": self.best_primers,
@@ -389,10 +389,10 @@ class EvaluationContext:
     """
 
     fg_genome: GenomeInfo
-    bg_genome: Optional[GenomeInfo] = None
+    bg_genome: GenomeInfo | None = None
 
     # Model path for ridge regression
-    model_path: Optional[str] = None
+    model_path: str | None = None
 
     def has_background(self) -> bool:
         """Whether background genome is available."""

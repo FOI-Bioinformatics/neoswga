@@ -20,7 +20,7 @@ This guide provides comprehensive documentation for using NeoSWGA, including ins
 
 ### System Requirements
 
-- Python >= 3.11
+- Python >= 3.13
 - Jellyfish k-mer counter (v2.0+)
 - 8+ GB RAM (16+ GB recommended for large genomes)
 - Optional: CUDA-capable GPU for acceleration

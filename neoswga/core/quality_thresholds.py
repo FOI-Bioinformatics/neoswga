@@ -38,8 +38,6 @@ their benchmark context rather than compressing them into one verdict -- is the
 one to trust; see docs/validation/published_primer_sets.md.
 """
 
-from typing import Dict
-
 # ---------------------------------------------------------------------------
 # Coverage: fraction of the target within reach of a selected binding site.
 #
@@ -118,7 +116,7 @@ DIMER_RISK = {
 RATING_ORDER = ("excellent", "good", "acceptable", "poor")
 
 
-def as_uniformity_score(thresholds: Dict[str, float]) -> Dict[str, float]:
+def as_uniformity_score(thresholds: dict[str, float]) -> dict[str, float]:
     """Gini thresholds expressed as a `1 - Gini` score, higher-is-better.
 
     `report/quality.py` reports uniformity that way round. Deriving it here

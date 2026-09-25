@@ -46,7 +46,7 @@ which is the lesson Known Issue 14 records.
 from __future__ import annotations
 
 import logging
-from typing import List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -58,7 +58,7 @@ logger = logging.getLogger(__name__)
 def deficit_weights(
     depth: Sequence[float],
     desired_depth: float,
-    evaluable: Optional[Sequence[bool]] = None,
+    evaluable: Sequence[bool] | None = None,
 ) -> np.ndarray:
     """Per-base deficit in [0, 1]: 1 where nothing was seen, 0 where enough was.
 
@@ -84,7 +84,7 @@ def covered_mask(
     extension: int,
     length: int,
     circular: bool,
-    record_starts: Optional[Sequence[int]] = None,
+    record_starts: Sequence[int] | None = None,
 ) -> np.ndarray:
     """The union of these binding windows, as a boolean array.
 
@@ -110,7 +110,7 @@ def recovered_deficit(
     extension: int,
     length: int,
     circular: bool,
-    record_starts: Optional[Sequence[int]] = None,
+    record_starts: Sequence[int] | None = None,
 ) -> float:
     """Deficit bases lying under the union of these windows."""
     occupied = covered_mask(positions, extension, length, circular, record_starts)
@@ -124,7 +124,7 @@ def deficit_gain(
     extension: int,
     length: int,
     circular: bool,
-    record_starts: Optional[Sequence[int]] = None,
+    record_starts: Sequence[int] | None = None,
 ) -> float:
     """What these windows add over what the pool already reaches.
 
@@ -138,10 +138,10 @@ def deficit_gain(
 
 
 def dilate_intervals(
-    intervals: Sequence[Tuple[int, int]],
+    intervals: Sequence[tuple[int, int]],
     reach: int,
     length: int,
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     """Gap intervals widened by one reach, merged, clamped to the sequence.
 
     The prescreen the gap filter becomes. A candidate binding within one reach
@@ -161,7 +161,7 @@ def dilate_intervals(
         for start, end in intervals
     )
 
-    merged: List[Tuple[int, int]] = []
+    merged: list[tuple[int, int]] = []
     for start, end in widened:
         if merged and start <= merged[-1][1]:
             merged[-1] = (merged[-1][0], max(merged[-1][1], end))

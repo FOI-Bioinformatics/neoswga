@@ -117,7 +117,14 @@ def _solve(
             bin_to_primers[b].append(primer)
 
     vtype = CONTINUOUS if relax else BINARY
-    model = Model(sense=MAXIMIZE)
+    # Same backend choice as the library: CBC kills the interpreter on 3.13.
+    # This script is loaded and executed by
+    # tests/test_dominating_set_max_coverage_ilp.py, so it is not enough to fix
+    # the library alone -- doing that left 16 of 17 tests passing and the
+    # seventeenth still killing the run.
+    from neoswga.core.ilp_solver import select_solver_name
+
+    model = Model(sense=MAXIMIZE, solver_name=select_solver_name())
     model.verbose = 0
 
     x = {p: model.add_var(var_type=vtype, lb=0.0, ub=1.0) for p in primer_to_bins}

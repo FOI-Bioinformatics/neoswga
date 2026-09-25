@@ -16,7 +16,6 @@ Two questions are answered over that graph:
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -30,13 +29,13 @@ class CoverageRegion:
     chromosome: str
     start: int
     end: int
-    covered_by: Set[str]  # Primers that cover this region
+    covered_by: set[str]  # Primers that cover this region
 
     def __hash__(self):
         return hash((self.chromosome, self.start, self.end))
 
 
-def _deterministic_scan_order(fixed_primers, candidates, graph_primers) -> List[str]:
+def _deterministic_scan_order(fixed_primers, candidates, graph_primers) -> list[str]:
     """The order the greedy loop considers primers in.
 
     `graph.primers` is a set, and greedy selection keeps the first primer seen
@@ -154,15 +153,15 @@ class BipartiteGraph:
         self.bin_size = bin_size
 
         # Node sets
-        self.primers: Set[str] = set()
-        self.regions: Set[CoverageRegion] = set()
+        self.primers: set[str] = set()
+        self.regions: set[CoverageRegion] = set()
 
         # Coverage map
-        self.primer_to_regions: Dict[str, Set[CoverageRegion]] = {}
-        self.region_to_primers: Dict[CoverageRegion, Set[str]] = {}
+        self.primer_to_regions: dict[str, set[CoverageRegion]] = {}
+        self.region_to_primers: dict[CoverageRegion, set[str]] = {}
 
         # Fast lookup for existing regions: (chromosome, start, end) -> CoverageRegion
-        self._region_lookup: Dict[Tuple[str, int, int], CoverageRegion] = {}
+        self._region_lookup: dict[tuple[str, int, int], CoverageRegion] = {}
 
     def add_primer_coverage(
         self,
@@ -263,7 +262,7 @@ class BipartiteGraph:
             self.primer_to_regions[primer].add(region)
             self.region_to_primers[region].add(primer)
 
-    def get_uncovered_regions(self, selected_primers: Set[str]) -> Set[CoverageRegion]:
+    def get_uncovered_regions(self, selected_primers: set[str]) -> set[CoverageRegion]:
         """Get regions not covered by selected primers"""
         uncovered = set()
 
@@ -273,7 +272,7 @@ class BipartiteGraph:
 
         return uncovered
 
-    def get_coverage_score(self, selected_primers: Set[str]) -> float:
+    def get_coverage_score(self, selected_primers: set[str]) -> float:
         """Calculate fraction of regions covered"""
         if not self.regions:
             return 0.0
@@ -380,15 +379,15 @@ class DominatingSetOptimizer:
     def __init__(
         self,
         cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
         bin_size: int = 10000,
         extension_reach: int = 0,
-        max_dimer_bp: Optional[int] = None,
+        max_dimer_bp: int | None = None,
         max_dimer_dg=None,
         dimer_temp: float = 37.0,
         allow_dimer_relaxation: bool = False,
-        stage1_objective_width: Optional[int] = None,
+        stage1_objective_width: int | None = None,
     ):
         """
         Initialize optimizer.
@@ -430,7 +429,7 @@ class DominatingSetOptimizer:
         self.stage1_objective_width = stage1_objective_width
 
     @staticmethod
-    def _resolve_max_dimer_bp(max_dimer_bp: Optional[int]) -> int:
+    def _resolve_max_dimer_bp(max_dimer_bp: int | None) -> int:
         """Resolve the dimer limit: constructor argument, then params.json, then 3.
 
         `isinstance(..., int) and not isinstance(..., bool)` rather than a
@@ -863,7 +862,7 @@ class DominatingSetOptimizer:
         total = self._total_bins()
         return len(covered_regions) / total if total else 0.0
 
-    def _warn_if_empty_graph(self, graph: BipartiteGraph, candidates: List[str]) -> None:
+    def _warn_if_empty_graph(self, graph: BipartiteGraph, candidates: list[str]) -> None:
         """Warn if coverage graph has no regions.
 
         An empty graph means no candidates have cached binding positions.
@@ -884,14 +883,14 @@ class DominatingSetOptimizer:
 
     def optimize_greedy(
         self,
-        candidates: List[str],
+        candidates: list[str],
         max_primers: int = 20,
-        fixed_primers: Optional[List[str]] = None,
-        min_coverage: Optional[float] = None,
+        fixed_primers: list[str] | None = None,
+        min_coverage: float | None = None,
         verbose: bool = True,
         redundancy_threshold: float = DEFAULT_REDUNDANCY_THRESHOLD,
         objective=None,
-    ) -> Dict:
+    ) -> dict:
         """
         Greedy set cover algorithm.
 
@@ -1074,7 +1073,7 @@ class DominatingSetOptimizer:
 
         return result
 
-    def _bin_coverage(self, candidates: List[str]):
+    def _bin_coverage(self, candidates: list[str]):
         """Bins each candidate covers, and the bases each bin stands for.
 
         Built through `BipartiteGraph` at this optimizer's own
@@ -1109,7 +1108,7 @@ class DominatingSetOptimizer:
         # Weight each bin by the bases it spans. The last bin of a prefix is
         # short, and counting bins treats it as full -- 5.3% on the shipped
         # plasmid with no primer changed.
-        bin_weight: Dict[CoverageRegion, int] = {}
+        bin_weight: dict[CoverageRegion, int] = {}
         for bins in primer_to_bins.values():
             for region in bins:
                 bin_weight.setdefault(region, region.end - region.start)
@@ -1118,14 +1117,14 @@ class DominatingSetOptimizer:
 
     def _solve_max_coverage(
         self,
-        candidates: List[str],
+        candidates: list[str],
         max_primers: int,
         relax: bool,
         max_seconds: int,
         verbose: bool,
         enforce_dimers: bool = True,
         fixed_primers=None,
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """Solve (or relax) the fixed-budget max-coverage program.
 
         maximise    sum_b w_b * y_b
@@ -1175,7 +1174,7 @@ class DominatingSetOptimizer:
 
         # CoverageRegion is hashable but not orderable, so keep insertion order.
         bins = list(bin_weight)
-        bin_to_primers: Dict[CoverageRegion, List[str]] = {b: [] for b in bins}
+        bin_to_primers: dict[CoverageRegion, list[str]] = {b: [] for b in bins}
         for primer, covered in primer_to_bins.items():
             for region in covered:
                 bin_to_primers[region].append(primer)
@@ -1187,7 +1186,11 @@ class DominatingSetOptimizer:
             )
 
         vtype = CONTINUOUS if relax else BINARY
-        model = Model(sense=MAXIMIZE)
+        # Prefer HiGHS. mip's default, CBC, terminates the interpreter with
+        # SIGKILL on Python 3.13; see neoswga.core.ilp_solver.
+        from .ilp_solver import select_solver_name
+
+        model = Model(sense=MAXIMIZE, solver_name=select_solver_name())
         model.verbose = 0
 
         x = {p: model.add_var(var_type=vtype, lb=0.0, ub=1.0) for p in primer_to_bins}
@@ -1269,13 +1272,13 @@ class DominatingSetOptimizer:
 
     def optimize_ilp(
         self,
-        candidates: List[str],
+        candidates: list[str],
         max_primers: int = 20,
         verbose: bool = True,
         max_seconds: int = 300,
         enforce_dimers: bool = True,
         fixed_primers=None,
-    ) -> Optional[Dict]:
+    ) -> dict | None:
         """
         Exact maximum coverage within a fixed primer budget.
 
@@ -1321,13 +1324,13 @@ class DominatingSetOptimizer:
 
     def coverage_upper_bound(
         self,
-        candidates: List[str],
+        candidates: list[str],
         max_primers: int = 20,
         verbose: bool = False,
         max_seconds: int = 300,
         enforce_dimers: bool = True,
         fixed_primers=None,
-    ) -> Optional[float]:
+    ) -> float | None:
         """
         LP relaxation of `optimize_ilp` -- an upper bound on achievable coverage.
 
@@ -1350,7 +1353,7 @@ class DominatingSetOptimizer:
         return None if result is None else result["coverage_upper_bound"]
 
 
-def optimize(verbose: bool = True, max_time: int = 300) -> Tuple[List[List[str]], List[float]]:
+def optimize(verbose: bool = True, max_time: int = 300) -> tuple[list[list[str]], list[float]]:
     """
     Standalone optimize function for CLI integration.
 

@@ -28,7 +28,6 @@ indistinguishable from a measurement.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 
 @dataclass(frozen=True)
@@ -36,13 +35,13 @@ class PoolMetrics:
     """What the pool objective and the plan row read, and nothing more."""
 
     fg_coverage: float
-    effective_fg_coverage: Optional[float]
+    effective_fg_coverage: float | None
     selectivity_density: float
     total_bg_sites: int
     max_gap: float
 
 
-def compute_pool_metrics(optimizer, primers: List[str]) -> PoolMetrics:
+def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     """The five design quantities for one panel.
 
     Positions are kept PER PREFIX because each prefix is a separate sequence

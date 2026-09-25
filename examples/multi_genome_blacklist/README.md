@@ -41,7 +41,7 @@ For Gb-scale host backgrounds (e.g. human genome), pre-build a Bloom
 filter once and reuse it:
 
 ```bash
-neoswga build-filter GRCh38.fna ./bloom
+neoswga build-filter --genome GRCh38.fna -o ./bloom
 ```
 
 Then set `use_bloom_filter: true` and `bloom_filter_path: ./bloom/background.pkl`

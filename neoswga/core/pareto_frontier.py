@@ -17,7 +17,7 @@ Usage:
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from neoswga.core.set_size_optimizer import FrontierResult, SetSizeMetrics
@@ -64,7 +64,7 @@ def plot_frontier(
     show_zones: bool = True,
     show_all_points: bool = True,
     figsize: tuple = (10, 8),
-    title: Optional[str] = None,
+    title: str | None = None,
 ) -> Any:
     """
     Create a matplotlib plot of the Pareto frontier.
@@ -344,7 +344,7 @@ def generate_frontier_report(
 def generate_frontier_json(
     frontier_result: "FrontierResult",
     application: str = "enrichment",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Generate JSON-serializable representation of frontier analysis.
 

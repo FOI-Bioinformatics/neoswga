@@ -24,10 +24,10 @@ Version: 3.0 - Genome I/O Enhancement
 import gzip
 import logging
 import zipfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from io import TextIOWrapper
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Tuple, Union
 
 from Bio import SeqIO
 
@@ -45,7 +45,7 @@ class GenomeStats:
     gc_content: float
     n_count: int
     n_fraction: float
-    sequence_lengths: List[int]
+    sequence_lengths: list[int]
     mean_length: float
     max_length: int
     min_length: int
@@ -78,7 +78,7 @@ class GenomeLoader:
 
     def __init__(self):
         """Initialize genome loader"""
-        self.last_stats: Optional[GenomeStats] = None
+        self.last_stats: GenomeStats | None = None
 
     def detect_format(self, file_path: Path) -> str:
         """
@@ -119,7 +119,7 @@ class GenomeLoader:
 
     def _open_plain(self, file_path: Path) -> TextIOWrapper:
         """Open plain text file"""
-        return open(file_path, "r")
+        return open(file_path)
 
     def _open_gzip(self, file_path: Path) -> TextIOWrapper:
         """Open gzip compressed file"""
@@ -151,7 +151,7 @@ class GenomeLoader:
         # Return text wrapper for the FASTA file
         return TextIOWrapper(self._zip_file.open(fasta_files[0], "r"), encoding="utf-8")
 
-    def load_genome(self, file_path: Union[str, Path], return_stats: bool = True) -> str:
+    def load_genome(self, file_path: str | Path, return_stats: bool = True) -> str:
         """
         Load genome sequence from file (auto-detects compression).
 
@@ -230,7 +230,7 @@ class GenomeLoader:
 
         return full_sequence
 
-    def get_stats(self) -> Optional[GenomeStats]:
+    def get_stats(self) -> GenomeStats | None:
         """
         Get statistics from last loaded genome.
 
@@ -239,7 +239,7 @@ class GenomeLoader:
         """
         return self.last_stats
 
-    def load_genome_streaming(self, file_path: Union[str, Path]) -> Iterator[str]:
+    def load_genome_streaming(self, file_path: str | Path) -> Iterator[str]:
         """
         Load genome sequence by sequence (memory-efficient for large files).
 
@@ -269,8 +269,8 @@ class GenomeLoader:
                 self._zip_file = None
 
     def validate_genome(
-        self, file_path: Union[str, Path], max_n_fraction: float = 0.10, min_length: int = 100000
-    ) -> Tuple[bool, List[str]]:
+        self, file_path: str | Path, max_n_fraction: float = 0.10, min_length: int = 100000
+    ) -> tuple[bool, list[str]]:
         """
         Validate genome file quality.
 
@@ -316,7 +316,7 @@ class GenomeLoader:
         return is_valid, issues
 
 
-def load_genome(file_path: Union[str, Path]) -> str:
+def load_genome(file_path: str | Path) -> str:
     """
     Convenience function to load a genome file (auto-detects compression).
 
@@ -330,7 +330,7 @@ def load_genome(file_path: Union[str, Path]) -> str:
     return loader.load_genome(file_path)
 
 
-def get_genome_stats(file_path: Union[str, Path]) -> GenomeStats:
+def get_genome_stats(file_path: str | Path) -> GenomeStats:
     """
     Convenience function to get genome statistics.
 
@@ -345,7 +345,7 @@ def get_genome_stats(file_path: Union[str, Path]) -> GenomeStats:
     return loader.get_stats()
 
 
-def validate_genome_file(file_path: Union[str, Path]) -> bool:
+def validate_genome_file(file_path: str | Path) -> bool:
     """
     Convenience function to validate genome file.
 
@@ -378,12 +378,12 @@ class GenomeCache:
         Args:
             max_cache_size: Maximum number of genomes to cache
         """
-        self.cache: Dict[str, Tuple[str, GenomeStats]] = {}
+        self.cache: dict[str, tuple[str, GenomeStats]] = {}
         self.max_cache_size = max_cache_size
-        self.access_order: List[str] = []
+        self.access_order: list[str] = []
         self.loader = GenomeLoader()
 
-    def get(self, file_path: Union[str, Path]) -> Tuple[str, GenomeStats]:
+    def get(self, file_path: str | Path) -> tuple[str, GenomeStats]:
         """
         Get genome from cache or load if not cached.
 

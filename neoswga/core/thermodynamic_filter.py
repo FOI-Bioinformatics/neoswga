@@ -22,7 +22,6 @@ import itertools
 import logging
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -127,7 +126,7 @@ class PrimerThermodynamics:
     homodimer_dg: float  # Self-dimer free energy (kcal/mol)
     hairpin_dg: float  # Hairpin free energy (kcal/mol)
     passes_filters: bool  # Overall pass/fail
-    failure_reasons: List[str]  # Reasons for failure
+    failure_reasons: list[str]  # Reasons for failure
 
 
 class ThermodynamicFilter:
@@ -145,7 +144,7 @@ class ThermodynamicFilter:
     the two. (Tech debt: the two should eventually be merged.)
     """
 
-    def __init__(self, criteria: Optional[ThermodynamicCriteria] = None, conditions=None):
+    def __init__(self, criteria: ThermodynamicCriteria | None = None, conditions=None):
         """
         Initialize thermodynamic filter.
 
@@ -285,11 +284,11 @@ class ThermodynamicFilter:
 
     def filter_candidates(
         self,
-        candidates: List[str],
+        candidates: list[str],
         check_heterodimers: bool = True,
         max_heterodimer_fraction: float = 0.3,
-        max_dimer_bp: Optional[int] = None,
-    ) -> Tuple[List[str], Dict]:
+        max_dimer_bp: int | None = None,
+    ) -> tuple[list[str], dict]:
         """
         Filter list of primer candidates.
 
@@ -398,8 +397,8 @@ class ThermodynamicFilter:
         return passing_seqs, stats
 
     def _select_heterodimer_candidate_pairs(
-        self, sequences: List[str], max_dimer_bp: Optional[int]
-    ) -> List[Tuple[int, int]]:
+        self, sequences: list[str], max_dimer_bp: int | None
+    ) -> list[tuple[int, int]]:
         """Which pairs are worth a thermodynamic calculation.
 
         The exact substring relation costs a single matrix product over the
@@ -456,11 +455,11 @@ class ThermodynamicFilter:
 
     def _screen_candidate_pairs_for_dimers(
         self,
-        sequences: List[str],
-        candidate_pairs: List[Tuple[int, int]],
+        sequences: list[str],
+        candidate_pairs: list[tuple[int, int]],
         conditions,
         conditions_dict: dict,
-    ) -> Tuple[set, int]:
+    ) -> tuple[set, int]:
         """Run the thermodynamic heterodimer check over `candidate_pairs`.
 
         Returns (problematic_pairs, heterodimer_issues). Both branches below
@@ -592,7 +591,7 @@ class ThermodynamicFilter:
         logger.info(f"  Max homodimer ΔG: {self.criteria.max_homodimer_dg:.1f} kcal/mol")
 
 
-def calculate_adaptive_gc_range(genome_gc: float, tolerance: float = 0.15) -> Tuple[float, float]:
+def calculate_adaptive_gc_range(genome_gc: float, tolerance: float = 0.15) -> tuple[float, float]:
     """
     Calculate genome-adaptive GC range centered on target genome composition.
 

@@ -12,7 +12,7 @@ verdict, not only by the filter step.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 # Gates that decide ADMISSION. `max_primer` is deliberately absent: it is a cut
 # through a ranking rather than a requirement, so a run that changes it has not
@@ -41,7 +41,7 @@ ADMISSION_THRESHOLDS = (
 )
 
 
-def resolved_qc_policy(parameter=None) -> Dict[str, Any]:
+def resolved_qc_policy(parameter=None) -> dict[str, Any]:
     """The hard-QC thresholds in force, read after `get_params` has populated them.
 
     What was ACTUALLY enforced rather than what the file asked for: the

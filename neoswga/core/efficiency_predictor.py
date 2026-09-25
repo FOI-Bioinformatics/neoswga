@@ -30,7 +30,6 @@ Usage:
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -66,17 +65,17 @@ class EfficiencyPrediction:
     recommendation: Recommendation
     ml_score: float
     network_score: float
-    simulation_score: Optional[float]
+    simulation_score: float | None
     predicted_enrichment: float
     predicted_coverage: float
-    limiting_factors: List[str]
-    improvement_suggestions: List[str]
+    limiting_factors: list[str]
+    improvement_suggestions: list[str]
 
     # Confidence interval for enrichment
     enrichment_ci_low: float = 0.0
     enrichment_ci_high: float = 0.0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
 
         def _safe_float(value):
@@ -163,10 +162,10 @@ class EfficiencyPredictor:
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
         max_extension: int = 70000,
     ):
         """
@@ -191,9 +190,9 @@ class EfficiencyPredictor:
 
     def predict(
         self,
-        primers: List[str],
+        primers: list[str],
         run_simulation: bool = False,
-        genome_sequence: Optional[str] = None,
+        genome_sequence: str | None = None,
         simulation_replicates: int = 3,
         verbose: bool = True,
     ) -> EfficiencyPrediction:
@@ -356,7 +355,7 @@ class EfficiencyPredictor:
             improvement_suggestions=[],
         )
 
-    def _calculate_ml_score(self, primers: List[str], verbose: bool) -> Tuple[float, float]:
+    def _calculate_ml_score(self, primers: list[str], verbose: bool) -> tuple[float, float]:
         """
         Calculate ML-based score using random forest model.
 
@@ -420,7 +419,7 @@ class EfficiencyPredictor:
                 logger.warning(f"ML scoring failed: {e}")
             return 0.5, 30.0  # Default
 
-    def _calculate_network_score(self, primers: List[str], verbose: bool) -> Tuple[float, Dict]:
+    def _calculate_network_score(self, primers: list[str], verbose: bool) -> tuple[float, dict]:
         """
         Calculate network connectivity score.
 
@@ -464,7 +463,7 @@ class EfficiencyPredictor:
                 logger.warning(f"Network analysis failed: {e}")
             return 0.5, {}
 
-    def _calculate_coverage(self, primers: List[str], verbose: bool) -> Tuple[float, Dict]:
+    def _calculate_coverage(self, primers: list[str], verbose: bool) -> tuple[float, dict]:
         """
         Calculate genome coverage.
 
@@ -506,7 +505,7 @@ class EfficiencyPredictor:
     # Maximum primers to analyze for O(n^2) operations
     MAX_DIMER_ANALYSIS_PRIMERS = 50
 
-    def _calculate_dimer_risk(self, primers: List[str], verbose: bool) -> Tuple[float, List[str]]:
+    def _calculate_dimer_risk(self, primers: list[str], verbose: bool) -> tuple[float, list[str]]:
         """
         Calculate primer-dimer risk.
 
@@ -573,11 +572,11 @@ class EfficiencyPredictor:
 
     def _run_simulation(
         self,
-        primers: List[str],
+        primers: list[str],
         genome_sequence: str,
         replicates: int,
         verbose: bool,
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """
         Run simulation to validate primer set.
 
@@ -615,9 +614,9 @@ class EfficiencyPredictor:
 
 def predict_efficiency(
     params_path: str,
-    primers: List[str],
+    primers: list[str],
     run_simulation: bool = False,
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     verbose: bool = True,
 ) -> EfficiencyPrediction:
     """

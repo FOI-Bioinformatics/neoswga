@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -42,7 +42,7 @@ def _require_pysam():
         ) from e
 
 
-def open_alignment(bam_path, require_index: bool = True, reference: Optional[str] = None):
+def open_alignment(bam_path, require_index: bool = True, reference: str | None = None):
     """Open a BAM or CRAM, or refuse in a way that names the remedy.
 
     pysam's own answers to the three things a user hits first are a pysam
@@ -137,8 +137,8 @@ def match_contigs(
     bam_ref_lengths: Sequence[int],
     fg_prefixes: Sequence[str],
     fg_seq_lengths: Sequence[int],
-    aliases: Optional[Dict[str, str]] = None,
-) -> Dict[str, str]:
+    aliases: dict[str, str] | None = None,
+) -> dict[str, str]:
     """Map foreground prefixes to BAM reference (contig) names.
 
     Strategy, in order: explicit alias, exact match, basename match, then
@@ -179,11 +179,11 @@ def match_contigs(
     ref_set = set(bam_refs)
     ref_by_stripped = {_strip_chr(r): r for r in bam_refs}
     # Kept to report a disagreement on a NAME match, not to make one.
-    length_by_ref: Dict[str, int] = {
+    length_by_ref: dict[str, int] = {
         str(r): int(ln) for r, ln in zip(bam_refs, bam_ref_lengths, strict=True)
     }
 
-    mapping: Dict[str, str] = {}
+    mapping: dict[str, str] = {}
     for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
         base = os.path.basename(prefix)
 
@@ -286,8 +286,8 @@ def compute_bam_depth(
     bam_path: str,
     contig: str,
     length: int,
-    policy: Optional[DepthPolicy] = None,
-    reference: Optional[str] = None,
+    policy: DepthPolicy | None = None,
+    reference: str | None = None,
 ) -> np.ndarray:
     """Return a per-base depth array (int32, len ``length``) for ``contig``.
 
@@ -346,7 +346,7 @@ class DepthProfile:
     prefix: str
     depth: np.ndarray
     evaluable: np.ndarray
-    bound: "BoundRecords"
+    bound: BoundRecords
     policy: DepthPolicy
 
     @property
@@ -413,11 +413,11 @@ def bam_depth_profile(
     bam_path: str,
     prefix: str,
     fasta_path: str,
-    configured_length: Optional[int] = None,
-    record_starts: Optional[Sequence[int]] = None,
-    aliases: Optional[Dict[str, str]] = None,
-    policy: Optional[DepthPolicy] = None,
-    reference: Optional[str] = None,
+    configured_length: int | None = None,
+    record_starts: Sequence[int] | None = None,
+    aliases: dict[str, str] | None = None,
+    policy: DepthPolicy | None = None,
+    reference: str | None = None,
 ) -> DepthProfile:
     """Depth in the prefix's concatenated space, with a non-evaluable mask.
 
@@ -474,7 +474,7 @@ def find_low_depth_gaps(
     min_depth: int,
     min_gap_size: int,
     circular: bool = False,
-) -> List[CoverageGap]:
+) -> list[CoverageGap]:
     """Find runs of low sequencing depth and return them as CoverageGaps.
 
     A position is "covered" when ``depth >= min_depth``. Contiguous runs of
@@ -552,7 +552,7 @@ def _bam_gaps_by_record(
     `circular` applies only to a genuinely single-record prefix. Wrapping the
     first and last records of a multi-record file would join two molecules.
     """
-    all_gaps: List[CoverageGap] = []
+    all_gaps: list[CoverageGap] = []
     for prefix, length, genome in zip(fg_prefixes, fg_seq_lengths, fg_genomes, strict=True):
         profile = bam_depth_profile(
             bam_path,
@@ -607,12 +607,12 @@ def bam_gaps(
     min_depth: int = 5,
     min_gap_size: int = 10000,
     circular: bool = False,
-    contig_aliases: Optional[Dict[str, str]] = None,
-    fg_genomes: Optional[Sequence[str]] = None,
-    record_starts_by_prefix: Optional[Dict[str, Sequence[int]]] = None,
-    reference: Optional[str] = None,
-    policy: Optional[DepthPolicy] = None,
-) -> List[CoverageGap]:
+    contig_aliases: dict[str, str] | None = None,
+    fg_genomes: Sequence[str] | None = None,
+    record_starts_by_prefix: dict[str, Sequence[int]] | None = None,
+    reference: str | None = None,
+    policy: DepthPolicy | None = None,
+) -> list[CoverageGap]:
     """Compute low-depth coverage gaps across all foreground prefixes.
 
     Returns ``CoverageGap`` objects keyed by ``fg_prefix`` (the same
@@ -658,7 +658,7 @@ def bam_gaps(
         )
         return []
 
-    all_gaps: List[CoverageGap] = []
+    all_gaps: list[CoverageGap] = []
     length_by_prefix = dict(zip(fg_prefixes, fg_seq_lengths, strict=True))
     for prefix, contig in mapping.items():
         length = length_by_prefix[prefix]

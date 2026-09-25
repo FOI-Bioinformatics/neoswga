@@ -8,7 +8,6 @@ Tests:
 - Greedy set cover algorithm
 """
 
-from typing import Dict, Set
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np

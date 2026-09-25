@@ -41,8 +41,9 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any
 
 # Comparison sense of a reference.
 AT_LEAST = "at_least"
@@ -63,10 +64,10 @@ class Criterion:
     """
 
     name: str
-    value: Optional[float]
-    reference: Optional[float]
-    direction: Optional[str]
-    slack: Optional[float]
+    value: float | None
+    reference: float | None
+    direction: str | None
+    slack: float | None
     units: str
     note: str
 
@@ -75,13 +76,13 @@ class Criterion:
 class PanelRegime:
     """What limits this panel, and what was never constrained."""
 
-    criteria: Tuple[Criterion, ...]
-    limiting: Optional[str]
-    failing: Tuple[str, ...]
-    unreferenced: Tuple[str, ...]
+    criteria: tuple[Criterion, ...]
+    limiting: str | None
+    failing: tuple[str, ...]
+    unreferenced: tuple[str, ...]
 
 
-def _slack(value: Optional[float], reference: float, direction: str) -> Optional[float]:
+def _slack(value: float | None, reference: float, direction: str) -> float | None:
     """Relative distance from a reference. Negative means unmet.
 
     Scaled by the reference itself, and guarded for a zero reference, so that
@@ -98,7 +99,7 @@ def _slack(value: Optional[float], reference: float, direction: str) -> Optional
 
 def _referenced(
     name: str,
-    value: Optional[float],
+    value: float | None,
     reference: float,
     direction: str,
     units: str,
@@ -115,7 +116,7 @@ def _referenced(
     )
 
 
-def _reported(name: str, value: Optional[float], units: str, note: str) -> Criterion:
+def _reported(name: str, value: float | None, units: str, note: str) -> Criterion:
     """A criterion with no reference: reported, never ranked."""
     return Criterion(
         name=name,
@@ -136,7 +137,7 @@ def _reported(name: str, value: Optional[float], units: str, note: str) -> Crite
 _AMBIGUOUS_AT_ZERO = "; a zero here may mean not computed rather than measured"
 
 
-def _maybe_ambiguous(value: Optional[float], note: str) -> str:
+def _maybe_ambiguous(value: float | None, note: str) -> str:
     if value is not None and value == 0.0:
         return note + _AMBIGUOUS_AT_ZERO
     return note
@@ -170,7 +171,7 @@ def _coverage_criterion(metrics: Any, target: float) -> Criterion:
     )
 
 
-def _hole_note(max_gap: Optional[float], reach: int, genome_length: Optional[int]) -> str:
+def _hole_note(max_gap: float | None, reach: int, genome_length: int | None) -> str:
     """The worst hole in units a reader can act on.
 
     A bare base count says nothing without the chemistry and the genome, and
@@ -187,7 +188,7 @@ def _hole_note(max_gap: Optional[float], reach: int, genome_length: Optional[int
     return ", ".join(parts)
 
 
-def _occupancy_criterion(metrics: Any) -> List[Criterion]:
+def _occupancy_criterion(metrics: Any) -> list[Criterion]:
     """How weakly the weakest primer in the panel is bound.
 
     Reported, never ranked: no floor on occupancy can be validated against the
@@ -221,7 +222,7 @@ def _convergent_criteria(
     metrics: Any,
     fg_prefixes: Sequence[str],
     bg_prefixes: Sequence[str],
-) -> List[Criterion]:
+) -> list[Criterion]:
     """The widest gap between opposite-strand sites, per genome set.
 
     Exponential amplification needs two sites in convergent orientation within
@@ -236,7 +237,7 @@ def _convergent_criteria(
     from .strand_metrics import worst_convergent_gap
 
     stats = getattr(metrics, "strand_stats", None) or {}
-    out: List[Criterion] = []
+    out: list[Criterion] = []
     for name, prefixes, note in (
         (
             "convergent_gap",
@@ -257,7 +258,7 @@ def _convergent_criteria(
     return out
 
 
-def _spacing_criteria(metrics: Any, reach: int, genome_length: Optional[int]) -> List[Criterion]:
+def _spacing_criteria(metrics: Any, reach: int, genome_length: int | None) -> list[Criterion]:
     """The properties with no line to compare against.
 
     These are the ones the two benchmarks disagree about, and the ones a future
@@ -313,7 +314,7 @@ def _spacing_criteria(metrics: Any, reach: int, genome_length: Optional[int]) ->
     ]
 
 
-def _as_float(value: Any) -> Optional[float]:
+def _as_float(value: Any) -> float | None:
     return None if value is None else float(value)
 
 
@@ -325,9 +326,9 @@ def assess_panel(
     requested_size: int,
     delivered_size: int,
     coverage_reach: int,
-    genome_length: Optional[int] = None,
-    min_selectivity_density: Optional[float] = None,
-    max_background_sites: Optional[int] = None,
+    genome_length: int | None = None,
+    min_selectivity_density: float | None = None,
+    max_background_sites: int | None = None,
     fg_prefixes: Sequence[str] = (),
     bg_prefixes: Sequence[str] = (),
 ) -> PanelRegime:
@@ -348,7 +349,7 @@ def assess_panel(
     would read as specificity where there is only an absent constraint, which is
     the shape of Known Issues 5, 6 and 13.
     """
-    criteria: List[Criterion] = [
+    criteria: list[Criterion] = [
         _coverage_criterion(metrics, coverage_target),
         _referenced(
             "fg_bg_ratio",
@@ -418,7 +419,7 @@ def _value_text(criterion: Criterion) -> str:
     return f"{criterion.value:.3f}".rstrip("0").rstrip(".")
 
 
-def format_regime(regime: PanelRegime) -> List[str]:
+def format_regime(regime: PanelRegime) -> list[str]:
     """Lines for the CLI. One criterion per line, no composite figure."""
     if not regime.criteria:
         return []
@@ -522,8 +523,8 @@ def assess_from_parameter(
     parameter: Any,
     *,
     delivered_size: int,
-    application: Optional[str] = None,
-) -> Optional[PanelRegime]:
+    application: str | None = None,
+) -> PanelRegime | None:
     """Assess a panel using the references a pipeline run already resolved.
 
     Returns `None` rather than a fabricated assessment when the reach or the
@@ -565,7 +566,7 @@ def assess_from_parameter(
     )
 
 
-def log_regime(regime: Optional[PanelRegime]) -> None:
+def log_regime(regime: PanelRegime | None) -> None:
     """Print the assessment, or nothing at all.
 
     `None` means a reference could not be resolved, and a report of nothing has

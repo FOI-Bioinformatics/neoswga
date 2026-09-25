@@ -54,7 +54,6 @@ import sys
 import warnings
 from bisect import bisect_right
 from functools import partial
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -72,7 +71,7 @@ from neoswga.core.melting_temp import temp as _melting_temp
 # Known SHA-256 hashes of trusted model files.
 # Maintained in neoswga/core/models/checksums.json so retraining or adding
 # per-polymerase models does not require touching this file.
-def _load_trusted_model_hashes() -> Dict[str, str]:
+def _load_trusted_model_hashes() -> dict[str, str]:
     import json
 
     path = os.path.join(os.path.dirname(__file__), "models", "checksums.json")
@@ -228,15 +227,15 @@ def load_model_safely(model_path: str, verify_hash: bool = None) -> object:
 
 # Module-level k-mer cache for performance
 # Structure: {(fname_prefix, k): {kmer: count}}
-_kmer_cache: Dict[Tuple[str, int], Dict[str, int]] = {}
+_kmer_cache: dict[tuple[str, int], dict[str, int]] = {}
 
 # Worker-shared data (populated by initializer, shared via fork)
-_worker_fnames: List[str] = []
+_worker_fnames: list[str] = []
 _worker_k: int = 0
 
 
 def _init_kmer_worker(
-    fnames: List[str],
+    fnames: list[str],
     k: int,
     sampling_enabled: bool = False,
     sample_rate: float = 0.1,
@@ -575,7 +574,7 @@ def get_all_predicted_delta_G_for_all_files_transformed(
     return df
 
 
-def get_cached_kmer_dict(fname_prefix: str, k: int) -> Dict[str, int]:
+def get_cached_kmer_dict(fname_prefix: str, k: int) -> dict[str, int]:
     """
     Get k-mer count dictionary with caching.
 
@@ -599,7 +598,7 @@ def get_cached_kmer_dict(fname_prefix: str, k: int) -> Dict[str, int]:
     return _kmer_cache[cache_key]
 
 
-def preload_kmer_files(fnames: List[str], k_values: List[int]) -> None:
+def preload_kmer_files(fnames: list[str], k_values: list[int]) -> None:
     """
     Preload k-mer files into cache for a set of k values.
 

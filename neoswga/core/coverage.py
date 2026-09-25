@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from typing import Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -27,7 +27,7 @@ def compute_per_prefix_coverage(
     extension: int = 3000,
     strand: str = "both",
     circular: bool = False,
-) -> Tuple[float, Dict[str, float]]:
+) -> tuple[float, dict[str, float]]:
     """Compute union-of-extension-windows coverage across prefixes.
 
     For each (primer, prefix) pair, fetch positions from the PositionCache
@@ -69,7 +69,7 @@ def compute_per_prefix_coverage(
     if not prefixes or not seq_lengths or cache is None or not primers:
         return 0.0, {}
 
-    per_prefix: Dict[str, float] = {}
+    per_prefix: dict[str, float] = {}
     total_cov = 0
     total_len = 0
 
@@ -78,7 +78,7 @@ def compute_per_prefix_coverage(
             per_prefix[prefix] = 0.0
             continue
         occupied = np.zeros(length, dtype=bool)
-        found: List[int] = []
+        found: list[int] = []
         for primer in primers:
             try:
                 positions = cache.get_positions(prefix, primer, strand)
@@ -116,7 +116,7 @@ def marginal_coverage_curve(
     extension: int = 3000,
     strand: str = "both",
     circular: bool = False,
-) -> List[Dict[str, float]]:
+) -> list[dict[str, float]]:
     """Cumulative coverage as the delivered primers are added, one at a time.
 
     Set size is the most consequential choice a user makes and nothing showed
@@ -162,7 +162,7 @@ def marginal_coverage_curve(
     occupied = {prefix: np.zeros(length, dtype=bool) for prefix, length in usable}
     total_len = sum(length for _, length in usable)
 
-    curve: List[Dict[str, float]] = []
+    curve: list[dict[str, float]] = []
     previous = 0.0
     for index, primer in enumerate(primers, start=1):
         for prefix, length in usable:
@@ -232,12 +232,12 @@ def _record_starts_for(cache, prefix):
 
 
 def _mark_window(
-    occupied: "np.ndarray",
+    occupied: np.ndarray,
     pos: int,
     extension: int,
     length: int,
     circular: bool,
-    record_starts: Optional[Sequence[int]] = None,
+    record_starts: Sequence[int] | None = None,
 ) -> None:
     """Mark ``occupied[pos-extension:pos+extension]`` as True.
 
@@ -275,13 +275,13 @@ def _mark_window(
 
 
 def mark_span(
-    occupied: "np.ndarray",
+    occupied: np.ndarray,
     start: int,
     end: int,
     length: int,
     circular: bool,
-    record_starts: Optional[Sequence[int]] = None,
-    anchor: Optional[int] = None,
+    record_starts: Sequence[int] | None = None,
+    anchor: int | None = None,
 ) -> None:
     """Mark the half-open span ``[start, end)`` as True.
 
@@ -407,7 +407,7 @@ def merged_window_intervals(
     *,
     reverse: Sequence[int] = (),
     geometry: str = "symmetric",
-) -> List[Tuple[int, int]]:
+) -> list[tuple[int, int]]:
     """The union of one primer's binding windows, as disjoint half-open spans.
 
     The same geometry :func:`_mark_window` marks into a boolean array, returned
@@ -439,7 +439,7 @@ def merged_window_intervals(
     if length <= 0 or extension < 0:
         return []
 
-    spans: List[Tuple[int, int]] = []
+    spans: list[tuple[int, int]] = []
     for start, end in site_spans(positions, reverse, extension, geometry):
         if circular:
             if start < 0 and end > length:

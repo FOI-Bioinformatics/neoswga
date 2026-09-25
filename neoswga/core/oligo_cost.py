@@ -23,8 +23,8 @@ model is for is comparing designs -- is 32 primers twice the price of 16, or
 five times? -- and that comparison is robust to the absolute level being wrong.
 """
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
-from typing import Dict, Iterable, List, Optional, Sequence
 
 # Order-of-magnitude list prices, USD, 25 nmol desalted synthesis.
 #
@@ -79,7 +79,7 @@ class SetCost:
     modifications: float
     per_primer_mean: float
     pto_bonds: int
-    five_prime_block: Optional[str]
+    five_prime_block: str | None
 
     @property
     def modification_fraction(self) -> float:
@@ -90,7 +90,7 @@ class SetCost:
         """
         return self.modifications / self.total if self.total else 0.0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "total_usd": round(self.total, 2),
             "n_primers": self.n_primers,
@@ -107,9 +107,9 @@ class SetCost:
 
 def set_cost(
     primers: Sequence[str],
-    model: Optional[OligoCostModel] = None,
+    model: OligoCostModel | None = None,
     pto_bonds: int = 2,
-    five_prime_block: Optional[str] = None,
+    five_prime_block: str | None = None,
 ) -> SetCost:
     """Cost of synthesising a primer set, itemised."""
     model = model or OligoCostModel()
@@ -140,7 +140,7 @@ def set_cost(
 
 
 def cost_from_modifications(
-    primers: Sequence[str], modifications, model: Optional[OligoCostModel] = None
+    primers: Sequence[str], modifications, model: OligoCostModel | None = None
 ) -> SetCost:
     """Cost using an existing `export.PrimerModifications`.
 

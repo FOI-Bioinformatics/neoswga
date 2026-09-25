@@ -16,7 +16,6 @@ This matters where small circular targets are the subject: plasmids, and the
 bundled 5.4 kb plasmid example at the 3 kb default reach.
 """
 
-from typing import Dict, List
 
 import numpy as np
 import pytest
@@ -31,7 +30,7 @@ REACH = 1_000
 class _Cache:
     """PositionCache-shaped, with per-primer positions."""
 
-    def __init__(self, positions: Dict[str, List[int]]):
+    def __init__(self, positions: dict[str, list[int]]):
         self._positions = positions
 
     def get_positions(self, prefix, primer, strand):  # noqa: ARG002

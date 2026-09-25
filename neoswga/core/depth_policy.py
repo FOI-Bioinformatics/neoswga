@@ -101,7 +101,7 @@ problem.
 from __future__ import annotations
 
 from dataclasses import dataclass, fields
-from typing import Any, Dict
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -143,7 +143,7 @@ class DepthPolicy:
                 return False
         return True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Plain data for `coverage_gaps.json`, the reach output and the manifest."""
         return {field.name: getattr(self, field.name) for field in fields(self)}
 

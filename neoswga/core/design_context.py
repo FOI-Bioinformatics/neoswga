@@ -24,9 +24,10 @@ pass anywhere.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Mapping, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class DesignContext:
     max_tm: float
     fg_circular: bool
     polymerase: str
-    max_dimer_dg: Optional[float] = None
+    max_dimer_dg: float | None = None
     constraints: Any = None
     optimizer_settings: tuple[tuple[str, Any], ...] = ()
 
@@ -73,7 +74,7 @@ class DesignContext:
 
 def design_context_from_params(
     params: Mapping[str, Any],
-    coverage_reach_override: Optional[int] = None,
+    coverage_reach_override: int | None = None,
 ) -> DesignContext:
     """Resolve a params mapping into the settings every design command needs.
 

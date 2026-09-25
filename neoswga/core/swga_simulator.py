@@ -30,7 +30,6 @@ import logging
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -52,7 +51,7 @@ class SimulationResult:
     target_coverage: float  # Fraction of genome covered
     target_uniformity: float  # 1 - Gini coefficient
     target_amplification: float  # Predicted fold amplification
-    target_gaps: List[Dict]  # Under-covered regions
+    target_gaps: list[dict]  # Under-covered regions
 
     # Background genome results
     background_coverage: float
@@ -68,12 +67,12 @@ class SimulationResult:
     confidence: float  # Confidence in prediction (0-1)
 
     # Primer analysis
-    primer_contributions: Dict  # Contribution of each primer
+    primer_contributions: dict  # Contribution of each primer
 
     # Detailed results (mode-dependent)
-    details: Dict  # Additional mode-specific data
+    details: dict  # Additional mode-specific data
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary"""
         return asdict(self)
 
@@ -88,12 +87,12 @@ class SwgaSimulator:
 
     def __init__(
         self,
-        primers: List[str],
+        primers: list[str],
         fg_genome: str,
         bg_genome: str,
         fg_positions_h5: str,
         bg_positions_h5: str,
-        reaction_conditions: Optional[Dict] = None,
+        reaction_conditions: dict | None = None,
         bin_size: int = 10000,
         max_extension: int = 70000,
     ):
@@ -165,7 +164,7 @@ class SwgaSimulator:
 
         return name
 
-    def _load_genome(self, fasta_path: str) -> Tuple[str, int, float]:
+    def _load_genome(self, fasta_path: str) -> tuple[str, int, float]:
         """Load genome sequence and calculate stats"""
         records = list(SeqIO.parse(fasta_path, "fasta"))
         sequence = "".join(str(rec.seq).upper() for rec in records)
@@ -176,7 +175,7 @@ class SwgaSimulator:
 
         return sequence, length, gc_content
 
-    def _load_positions(self, h5_path: Path, primers: List[str], genome_name: str = None) -> Dict:
+    def _load_positions(self, h5_path: Path, primers: list[str], genome_name: str = None) -> dict:
         """
         Load primer positions from HDF5.
 
@@ -237,7 +236,7 @@ class SwgaSimulator:
 
         return positions
 
-    def analyze(self, result: Optional[SimulationResult] = None):
+    def analyze(self, result: SimulationResult | None = None):
         """Run the comprehensive simulation analysis for this primer set.
 
         Builds a :class:`~neoswga.core.simulation_analysis.SimulationAnalyzer`
@@ -467,8 +466,8 @@ class SwgaSimulator:
         return result
 
     def _calculate_bin_coverage(
-        self, positions_dict: Dict, genome_length: int
-    ) -> Tuple[float, set]:
+        self, positions_dict: dict, genome_length: int
+    ) -> tuple[float, set]:
         """
         Calculate bin coverage for a genome.
 
@@ -517,7 +516,7 @@ class SwgaSimulator:
         uniformity = 1.0 - gini
         return np.clip(uniformity, 0.0, 1.0)
 
-    def _identify_coverage_gaps(self, covered_bins: set, genome_length: int) -> List[Dict]:
+    def _identify_coverage_gaps(self, covered_bins: set, genome_length: int) -> list[dict]:
         """Identify under-covered regions as gaps between covered bins"""
         if len(covered_bins) == 0:
             return []
@@ -568,7 +567,7 @@ class SwgaSimulator:
 
     def _identify_gaps(
         self, coverage_array: np.ndarray, genome_length: int, threshold_percentile: float = 25
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """Identify under-covered regions"""
         if len(coverage_array) == 0:
             return []
@@ -611,7 +610,7 @@ class SwgaSimulator:
 
     def _calculate_composite_score(
         self, target_coverage: float, target_uniformity: float, enrichment: float, mode: str
-    ) -> Dict:
+    ) -> dict:
         """
         Calculate composite quality score.
 
@@ -660,7 +659,7 @@ class SwgaSimulator:
             "recommendation": recommendation,
         }
 
-    def generate_report(self, result: SimulationResult, output_path: Optional[str] = None):
+    def generate_report(self, result: SimulationResult, output_path: str | None = None):
         """
         Generate human-readable report.
 

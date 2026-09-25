@@ -394,7 +394,7 @@ def _load_primer_list(cli_primers, primers_file, name="primer"):
     """Collect primers from --primers or --primers-file."""
     primers = list(cli_primers or [])
     if primers_file:
-        with open(primers_file, "r") as fh:
+        with open(primers_file) as fh:
             for line in fh:
                 p = line.strip().split()[0] if line.strip() else ""
                 if p and not p.startswith("#"):
@@ -412,7 +412,7 @@ def _load_candidate_pool(candidates_file, data_dir):
 
     candidates = []
     if candidates_file and os.path.exists(candidates_file):
-        with open(candidates_file, "r") as fh:
+        with open(candidates_file) as fh:
             for line in fh:
                 p = line.strip().split()[0] if line.strip() else ""
                 if p and not p.startswith("#"):

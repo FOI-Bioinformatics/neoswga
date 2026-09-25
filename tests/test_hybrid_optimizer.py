@@ -10,7 +10,6 @@ Tests:
 - Background pruning option
 """
 
-from typing import List
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np

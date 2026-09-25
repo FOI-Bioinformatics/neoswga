@@ -20,7 +20,6 @@ dimer avoidance, while result grading prioritizes coverage and specificity.
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 from neoswga.core import quality_thresholds as _thresholds
 from neoswga.core.report.metrics import PipelineMetrics
@@ -56,10 +55,10 @@ class QualityAssessment:
 
     grade: QualityGrade
     composite_score: float  # 0-1 scale
-    components: List[GradeComponent]
+    components: list[GradeComponent]
     recommendation: str
     recommendation_details: str
-    considerations: List[str]
+    considerations: list[str]
 
 
 # Thresholds for each metric (values that achieve each rating level).
@@ -91,8 +90,8 @@ def _safe_divide(numerator: float, denominator: float, default: float = 0.0) -> 
 
 
 def _rate_value(
-    value: float, thresholds: Dict[str, float], lower_is_better: bool = False
-) -> Tuple[str, float]:
+    value: float, thresholds: dict[str, float], lower_is_better: bool = False
+) -> tuple[str, float]:
     """
     Rate a value against thresholds.
 
@@ -157,8 +156,8 @@ def _score_to_grade(score: float) -> QualityGrade:
 
 def _generate_recommendation(
     grade: QualityGrade,
-    components: List[GradeComponent],
-) -> Tuple[str, str, List[str]]:
+    components: list[GradeComponent],
+) -> tuple[str, str, list[str]]:
     """
     Generate recommendation based on grade and components.
 

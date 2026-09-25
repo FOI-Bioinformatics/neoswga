@@ -23,9 +23,10 @@ among tradeable terms is how it came to be traded.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any
 
 from .pool_objective import PoolConstraints
 
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 # the params.json keys. One tuple so a key cannot be declared in the schema and
 # read here under another name, which is the transposition
 # `test_every_key_reaches_the_field_of_the_same_name` exists to catch.
-LIMIT_KEYS: Tuple[str, ...] = (
+LIMIT_KEYS: tuple[str, ...] = (
     "min_selectivity_density",
     "max_background_sites",
     "max_worst_hole",
@@ -48,7 +49,7 @@ LIMIT_KEYS: Tuple[str, ...] = (
 # no fallback. `max_dimer_dg` is not a panel limit -- it is a term in the dimer
 # screen, which stays outside the objective -- so it rides here for the
 # configuration plumbing only and never reaches `PoolConstraints`.
-CONFIGURED_LIMIT_KEYS: Tuple[str, ...] = LIMIT_KEYS + (
+CONFIGURED_LIMIT_KEYS: tuple[str, ...] = LIMIT_KEYS + (
     "max_dimer_dg",
     "min_per_target_coverage",
 )
@@ -58,13 +59,13 @@ CONFIGURED_LIMIT_KEYS: Tuple[str, ...] = LIMIT_KEYS + (
 class AcceptanceReport:
     """What the limits said about the delivered panel."""
 
-    primers: List[str]
-    violations: Tuple[str, ...]
+    primers: list[str]
+    violations: tuple[str, ...]
     shortfall: float
-    values: Tuple[Tuple[str, Optional[float], float], ...]
+    values: tuple[tuple[str, float | None, float], ...]
     repaired: bool
 
-    def lines(self) -> List[str]:
+    def lines(self) -> list[str]:
         """Lines for the CLI, naming each limit, its value and the panel's."""
         if not self.values:
             return []
@@ -99,7 +100,7 @@ class AcceptanceReport:
         return {by_message[v] for v in self.violations if v in by_message}
 
 
-def constraints_from_parameter(source: Any) -> Optional[PoolConstraints]:
+def constraints_from_parameter(source: Any) -> PoolConstraints | None:
     """The limits this run configured, or `None` when it configured none.
 
     `None` rather than an empty `PoolConstraints`, because the caller uses it to
@@ -118,7 +119,7 @@ def constraints_from_parameter(source: Any) -> Optional[PoolConstraints]:
 
 def _configured_values(
     constraints: PoolConstraints, metrics: Any
-) -> Tuple[Tuple[str, Optional[float], float], ...]:
+) -> tuple[tuple[str, float | None, float], ...]:
     """Each configured limit beside the panel's own value for it."""
     from .pool_objective import _LIMITS
 
@@ -181,7 +182,7 @@ def enforce_constraints(
     )
 
 
-def report_acceptance(report: Optional[AcceptanceReport]) -> None:
+def report_acceptance(report: AcceptanceReport | None) -> None:
     """Print the limits and whether they were met, or nothing at all."""
     if report is None:
         return
@@ -206,7 +207,7 @@ def apply_configured_limits(
     verbose: bool = False,
     background_available: bool = False,
     budget: Any = None,
-) -> Tuple[Optional[Any], "AcceptanceReport"]:
+) -> tuple[Any | None, AcceptanceReport]:
     """Hold one delivered result to its limits, repairing once if it misses.
 
     Returns `(replacement, report)`. The replacement is a new
@@ -288,22 +289,22 @@ class PerTargetReport:
     """Whether every target cleared the floor, and which did not."""
 
     floor: float
-    coverage: Tuple[Tuple[str, float], ...]
-    below: Tuple[str, ...]
+    coverage: tuple[tuple[str, float], ...]
+    below: tuple[str, ...]
 
     @property
     def met(self) -> bool:
         return not self.below
 
     @property
-    def worst_target(self) -> Optional[str]:
+    def worst_target(self) -> str | None:
         return self.coverage[-1][0] if self.coverage else None
 
     @property
-    def worst_coverage(self) -> Optional[float]:
+    def worst_coverage(self) -> float | None:
         return self.coverage[-1][1] if self.coverage else None
 
-    def lines(self) -> List[str]:
+    def lines(self) -> list[str]:
         out = [
             "",
             "=" * 72,
@@ -331,7 +332,7 @@ class PerTargetReport:
         return out
 
 
-def check_per_target_coverage(metrics: Any, floor: Optional[float]) -> Optional[PerTargetReport]:
+def check_per_target_coverage(metrics: Any, floor: float | None) -> PerTargetReport | None:
     """Whether every target cleared `floor`. `None` when there is nothing to say.
 
     `None` rather than a passing report when no floor is set, when the floor is
@@ -349,7 +350,7 @@ def check_per_target_coverage(metrics: Any, floor: Optional[float]) -> Optional[
     return PerTargetReport(floor=float(floor), coverage=ordered, below=below)
 
 
-def per_target_floor(args: Any, params: Any) -> Optional[float]:
+def per_target_floor(args: Any, params: Any) -> float | None:
     """The per-target floor in force: the flag if given, else the config.
 
     `args` may be an argparse namespace or the kwargs dict `run_optimization`
@@ -370,7 +371,7 @@ def per_target_floor(args: Any, params: Any) -> Optional[float]:
     return None if configured is None else float(configured)
 
 
-def report_per_target(report: Optional[PerTargetReport]) -> None:
+def report_per_target(report: PerTargetReport | None) -> None:
     """Print the per-target table, or nothing at all."""
     if report is None:
         return

@@ -31,7 +31,6 @@ import itertools
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 from neoswga.core.mechanistic_model import MechanisticEffects, MechanisticModel
 from neoswga.core.mechanistic_params import get_polymerase_params
@@ -89,7 +88,7 @@ class AdditiveRecommendation:
     # Metadata
     heuristic_score_band: str = "medium"
     optimization_score: float = 0.0
-    warnings: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     rationale: str = ""
 
     # Input parameters (for reference)
@@ -98,7 +97,7 @@ class AdditiveRecommendation:
     polymerase: str = "phi29"
     optimize_for: str = "amplification"
 
-    def to_conditions(self, temp: Optional[float] = None) -> ReactionConditions:
+    def to_conditions(self, temp: float | None = None) -> ReactionConditions:
         """
         Convert recommendation to ReactionConditions.
 
@@ -270,7 +269,7 @@ class AdditiveOptimizer:
         primer_length: int,
         template_gc: float,
         optimize_for: str = "amplification",
-        primer_gc: Optional[float] = None,
+        primer_gc: float | None = None,
         quick: bool = False,
         include_ssb: bool = True,
         include_formamide: bool = False,
@@ -354,8 +353,8 @@ class AdditiveOptimizer:
         return recommendation
 
     def _filter_ranges_by_constraints(
-        self, ranges: Dict[str, List[float]]
-    ) -> Dict[str, List[float]]:
+        self, ranges: dict[str, list[float]]
+    ) -> dict[str, list[float]]:
         """Filter additive ranges by polymerase constraints."""
         filtered = {}
 
@@ -373,10 +372,10 @@ class AdditiveOptimizer:
 
     def _generate_combinations(
         self,
-        ranges: Dict[str, List[float]],
+        ranges: dict[str, list[float]],
         include_formamide: bool = False,
         include_glycerol: bool = False,
-    ) -> List[Dict[str, float]]:
+    ) -> list[dict[str, float]]:
         """Generate all additive combinations."""
         # Base additives
         keys = ["dmso_percent", "betaine_m", "trehalose_m", "mg_conc"]
@@ -400,12 +399,12 @@ class AdditiveOptimizer:
 
     def _evaluate_combination(
         self,
-        combo: Dict[str, float],
+        combo: dict[str, float],
         primer_length: int,
         template_gc: float,
         primer_gc: float,
         optimize_for: str,
-    ) -> Tuple[float, MechanisticEffects, List[str]]:
+    ) -> tuple[float, MechanisticEffects, list[str]]:
         """
         Evaluate an additive combination using mechanistic model.
 
@@ -488,10 +487,10 @@ class AdditiveOptimizer:
 
     def _build_recommendation(
         self,
-        combo: Dict[str, float],
+        combo: dict[str, float],
         effects: MechanisticEffects,
         score: float,
-        warnings: List[str],
+        warnings: list[str],
         primer_length: int,
         template_gc: float,
         optimize_for: str,
@@ -569,7 +568,7 @@ class AdditiveOptimizer:
         self,
         application: str,
         template_gc: float,
-        primer_length: Optional[int] = None,
+        primer_length: int | None = None,
     ) -> AdditiveRecommendation:
         """
         Get additive recommendations for standard application profiles.

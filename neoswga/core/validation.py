@@ -18,7 +18,6 @@ import os
 import sys
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -32,8 +31,8 @@ class ValidationResult:
     test_name: str
     passed: bool
     runtime: float
-    details: Dict
-    error: Optional[str] = None
+    details: dict
+    error: str | None = None
 
 
 class ValidationSuite:
@@ -41,7 +40,7 @@ class ValidationSuite:
 
     def __init__(self, verbose: bool = True):
         self.verbose = verbose
-        self.results: List[ValidationResult] = []
+        self.results: list[ValidationResult] = []
 
     def run_all_tests(self) -> bool:
         """
@@ -114,7 +113,7 @@ class ValidationSuite:
 
         return all(r.passed for r in self.results)
 
-    def test_position_cache(self) -> Tuple[bool, Dict]:
+    def test_position_cache(self) -> tuple[bool, dict]:
         """Test position cache correctness and speedup"""
         from .position_cache import PositionCache
 
@@ -172,7 +171,7 @@ class ValidationSuite:
             details["error"] = str(e)
             return False, details
 
-    def test_adaptive_gc_filter(self) -> Tuple[bool, Dict]:
+    def test_adaptive_gc_filter(self) -> tuple[bool, dict]:
         """Test adaptive GC filtering"""
         from .adaptive_filters import AdaptiveGCFilter
 
@@ -254,7 +253,7 @@ class ValidationSuite:
             details["error"] = str(e)
             return False, details
 
-    def test_bloom_filter(self) -> Tuple[bool, Dict]:
+    def test_bloom_filter(self) -> tuple[bool, dict]:
         """Test background Bloom filter"""
         try:
             from .background_filter import BackgroundBloomFilter
@@ -336,7 +335,7 @@ class ValidationSuite:
             details["error"] = str(e)
             return False, details
 
-    def test_network_optimization(self) -> Tuple[bool, Dict]:
+    def test_network_optimization(self) -> tuple[bool, dict]:
         """Test network-based optimization"""
         from .network_optimizer import AmplificationNetwork
 
@@ -400,7 +399,7 @@ class ValidationSuite:
             details["error"] = str(e)
             return False, details
 
-    def test_milp_optimizer(self) -> Tuple[bool, Dict]:
+    def test_milp_optimizer(self) -> tuple[bool, dict]:
         """Test the MILP optimizer, which is no longer part of this package.
 
         `milp` was retired along with greedy/genetic/moea and is not in
@@ -436,7 +435,7 @@ class ValidationSuite:
             details["error"] = str(e)
             return False, details
 
-    def test_end_to_end(self) -> Tuple[bool, Dict]:
+    def test_end_to_end(self) -> tuple[bool, dict]:
         """Test complete pipeline end-to-end"""
         from .improved_pipeline import ImprovedPipeline, PipelineConfig
 
@@ -714,7 +713,7 @@ def _run_smoke_pipeline(workdir, smoke_params, verbose):
     return True
 
 
-def smoke_validation(params_path: Optional[str] = None, verbose: bool = True) -> bool:
+def smoke_validation(params_path: str | None = None, verbose: bool = True) -> bool:
     """Run all four pipeline steps against a packaged 6 kB target.
 
     `quick_validation` runs three synthetic tests and opens no genome, no

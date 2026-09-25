@@ -18,7 +18,7 @@ than folded in here.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .design_result import panel_validation_is_ok
 
@@ -27,10 +27,10 @@ __all__ = ["validate_result"]
 
 def validate_result(
     result,
-    target_size: Optional[int] = None,
+    target_size: int | None = None,
     min_per_target_coverage: float = 0.0,
-    forbidden_primers: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+    forbidden_primers: list[str] | None = None,
+) -> dict[str, Any]:
     """Post-optimization sanity validation.
 
     Catches the broad class of silent failures an optimizer can produce
@@ -47,7 +47,7 @@ def validate_result(
     when status is already PARTIAL) and errors (``level='error'``) for
     genuine correctness bugs (e.g., duplicate primers).
     """
-    issues: List[Dict[str, Any]] = []
+    issues: list[dict[str, Any]] = []
 
     primer_set = list(result.primers)
     n = len(primer_set)

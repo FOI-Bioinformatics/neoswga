@@ -30,13 +30,14 @@ and 13.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # The five figures `compute_strand_alternation_stats` returns, named here so a
 # consumer can iterate them and a dropped one is visible.
-STRAND_KEYS: Tuple[str, ...] = (
+STRAND_KEYS: tuple[str, ...] = (
     "strand_alternation_gap_mean",
     "strand_alternation_gap_max",
     "strand_alternation_score",
@@ -50,7 +51,7 @@ def collect_strand_stats(
     prefixes: Sequence[str],
     seq_lengths: Sequence[int],
     primers: Sequence[str],
-) -> Dict[str, Dict[str, float]]:
+) -> dict[str, dict[str, float]]:
     """The five strand figures for every genome the cache can answer for.
 
     Args:
@@ -83,7 +84,7 @@ def collect_strand_stats(
     if not hasattr(cache, "compute_strand_alternation_stats"):
         return {}
 
-    collected: Dict[str, Dict[str, float]] = {}
+    collected: dict[str, dict[str, float]] = {}
     for prefix, length in zip(prefixes, seq_lengths, strict=True):
         try:
             stats = cache.compute_strand_alternation_stats(prefix, list(primers), length)
@@ -97,9 +98,9 @@ def collect_strand_stats(
 
 
 def headline_strand_scalars(
-    stats: Dict[str, Dict[str, float]],
+    stats: dict[str, dict[str, float]],
     fg_prefixes: Sequence[str],
-) -> Tuple[Optional[float], Optional[float]]:
+) -> tuple[float | None, float | None]:
     """The two scalars `PrimerSetMetrics` has always carried.
 
     They describe the FIRST foreground genome, which is what the previous call
@@ -118,8 +119,8 @@ def headline_strand_scalars(
 
 
 def worst_convergent_gap(
-    stats: Dict[str, Dict[str, float]], prefixes: Sequence[str]
-) -> Optional[float]:
+    stats: dict[str, dict[str, float]], prefixes: Sequence[str]
+) -> float | None:
     """The widest gap between opposite-strand sites across these genomes.
 
     On the foreground this is the largest stretch a panel cannot amplify
@@ -128,7 +129,7 @@ def worst_convergent_gap(
     to face each other, which is the structure `bg_coverage` also sees and
     `total_bg_sites` cannot.
     """
-    values: List[float] = [
+    values: list[float] = [
         stats[prefix]["strand_alternation_gap_max"]
         for prefix in prefixes
         if prefix in stats and "strand_alternation_gap_max" in stats[prefix]
@@ -136,7 +137,7 @@ def worst_convergent_gap(
     return max(values) if values else None
 
 
-def panel_occupancy(primers: Sequence[str], conditions: Any) -> Dict[str, float]:
+def panel_occupancy(primers: Sequence[str], conditions: Any) -> dict[str, float]:
     """Fraction of the time each primer in the panel is bound, per primer.
 
     The ingredient item 6 of
@@ -166,7 +167,7 @@ def panel_occupancy(primers: Sequence[str], conditions: Any) -> Dict[str, float]
     if temp is None:
         return {}
 
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     for primer in primers:
         sequence = str(primer).upper()
         if sequence in out:

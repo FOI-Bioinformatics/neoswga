@@ -9,7 +9,7 @@ import hashlib
 import json
 import logging
 import os
-from typing import List, Optional
+from datetime import UTC
 
 from . import parameter
 from .base_optimizer import OptimizationResult
@@ -79,7 +79,7 @@ def write_audit_trail(output_path: str, result: OptimizationResult) -> None:
 
         audit = {
             "neoswga_version": version,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "params_hash": params_hash,
             "optimizer": result.optimizer_name,
             "num_primers": result.num_primers,

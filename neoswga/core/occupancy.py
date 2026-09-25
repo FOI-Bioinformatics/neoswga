@@ -36,7 +36,6 @@ phi29 at 30 C when specificity is the binding constraint.
 
 import math
 from dataclasses import dataclass
-from typing import Optional
 
 from neoswga.core.thermodynamics import R
 
@@ -75,7 +74,7 @@ def default_mismatch_penalty() -> float:
     return float(value)
 
 
-def mismatch_tm(tm: float, n_mismatches: int, penalty: Optional[float] = None) -> float:
+def mismatch_tm(tm: float, n_mismatches: int, penalty: float | None = None) -> float:
     """Melting temperature of a duplex carrying ``n_mismatches``.
 
     A linear penalty is a simplification: real destabilisation depends on which

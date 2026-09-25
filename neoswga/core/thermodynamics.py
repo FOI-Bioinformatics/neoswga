@@ -25,7 +25,7 @@ References:
 import logging
 import warnings
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -219,8 +219,8 @@ def is_watson_crick(base1: str, base2: str) -> bool:
 
 @lru_cache(maxsize=THERMO_CACHE_MAXSIZE)
 def calculate_enthalpy_entropy_cached(
-    seq: str, complementary: Optional[str] = None
-) -> Tuple[float, float]:
+    seq: str, complementary: str | None = None
+) -> tuple[float, float]:
     """
     Cached version of enthalpy/entropy calculation.
     Sized by `THERMO_CACHE_MAXSIZE`; see the comment there for the workload it
@@ -229,9 +229,7 @@ def calculate_enthalpy_entropy_cached(
     return _calculate_enthalpy_entropy_impl(seq, complementary)
 
 
-def calculate_enthalpy_entropy(
-    seq: str, complementary: Optional[str] = None
-) -> Tuple[float, float]:
+def calculate_enthalpy_entropy(seq: str, complementary: str | None = None) -> tuple[float, float]:
     """
     Calculate total enthalpy and entropy for DNA duplex using nearest-neighbor model.
 
@@ -249,8 +247,8 @@ def calculate_enthalpy_entropy(
 
 
 def _calculate_enthalpy_entropy_impl(
-    seq: str, complementary: Optional[str] = None
-) -> Tuple[float, float]:
+    seq: str, complementary: str | None = None
+) -> tuple[float, float]:
     """
     Implementation of enthalpy/entropy calculation (uncached).
 
@@ -661,7 +659,7 @@ def energy_to_tm(
 
 def calculate_tm_range(
     seq: str, na_conc: float = 50, mg_conc: float = 0, primer_conc: float = 0.5e-6
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Calculate Tm range accounting for uncertainty.
 
@@ -946,7 +944,7 @@ def clear_thermodynamic_caches() -> None:
     compute_free_energy_for_two_strings_cached.cache_clear()
 
 
-def get_cache_stats() -> Dict[str, Any]:
+def get_cache_stats() -> dict[str, Any]:
     """Return cache statistics for performance monitoring."""
     return {
         "enthalpy_entropy": calculate_enthalpy_entropy_cached.cache_info(),
@@ -1014,7 +1012,7 @@ def _require_evaluable_sequence(sequence) -> str:
 
 
 def calculate_tm_batch(
-    sequences: List[str], na_conc: float = 50.0, mg_conc: float = 0.0, primer_conc: float = 0.5e-6
+    sequences: list[str], na_conc: float = 50.0, mg_conc: float = 0.0, primer_conc: float = 0.5e-6
 ) -> np.ndarray:
     """
     Calculate Tm for a batch of sequences using vectorized operations.
@@ -1054,7 +1052,7 @@ def calculate_tm_batch(
 
 
 def calculate_tm_batch_with_additives(
-    sequences: List[str],
+    sequences: list[str],
     na_conc: float = 50.0,
     mg_conc: float = 0.0,
     primer_conc: float = 0.5e-6,
@@ -1134,7 +1132,7 @@ def calculate_tm_batch_with_additives(
     return tm_values
 
 
-def calculate_gc_batch(sequences: List[str]) -> np.ndarray:
+def calculate_gc_batch(sequences: list[str]) -> np.ndarray:
     """
     Calculate GC content for a batch of sequences.
 
@@ -1154,7 +1152,7 @@ def calculate_gc_batch(sequences: List[str]) -> np.ndarray:
     return gc_values
 
 
-def calculate_wallace_tm_batch(sequences: List[str]) -> np.ndarray:
+def calculate_wallace_tm_batch(sequences: list[str]) -> np.ndarray:
     """
     Calculate Wallace Tm for a batch of sequences (fast approximation).
 

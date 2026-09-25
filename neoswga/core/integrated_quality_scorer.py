@@ -29,7 +29,6 @@ Version: 3.3 - Integration Layer
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -82,10 +81,10 @@ class PrimerQualityScore:
     passes_all: bool
 
     # Failure reasons (if any)
-    failure_reasons: List[str] = field(default_factory=list)
+    failure_reasons: list[str] = field(default_factory=list)
 
     # Rank among all primers (1 = best)
-    rank: Optional[int] = None
+    rank: int | None = None
 
     # Which weighted components the overall score was actually computed from.
     # `score_primer` called without binding sites cannot measure strand bias,
@@ -93,7 +92,7 @@ class PrimerQualityScore:
     # in later by `analyze_primer_set`. Recording the subset lets the composite
     # renormalize over it instead of carrying 55% of the declared weight as a
     # constant 1.0. Audit finding D1d.
-    measured_components: Tuple[str, ...] = ()
+    measured_components: tuple[str, ...] = ()
 
     def __str__(self):
         status = "PASS" if self.passes_all else "FAIL"
@@ -110,7 +109,7 @@ class PrimerQualityScore:
 class SetQualityScore:
     """Comprehensive quality score for a primer set."""
 
-    primers: List[str]
+    primers: list[str]
 
     # Set-level scores (0-1)
     mean_overall_score: float
@@ -120,7 +119,7 @@ class SetQualityScore:
 
     # Pass/fail
     passes: bool
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
 
     # Number of primers failing each dimension
     num_failing_strand: int = 0
@@ -167,10 +166,10 @@ class IntegratedQualityScorer:
 
     def __init__(
         self,
-        conditions: Optional[ReactionConditions] = None,
+        conditions: ReactionConditions | None = None,
         stringency: str = "moderate",
-        weights: Optional[Dict[str, float]] = None,
-        genome_gc: Optional[float] = None,
+        weights: dict[str, float] | None = None,
+        genome_gc: float | None = None,
     ):
         """
         Initialize integrated quality scorer.
@@ -256,7 +255,7 @@ class IntegratedQualityScorer:
         return sum(self.weights[name] * scores[name] for name in names) / total_weight
 
     def score_primer(
-        self, primer: str, binding_sites: Optional[List[StrandBindingSite]] = None
+        self, primer: str, binding_sites: list[StrandBindingSite] | None = None
     ) -> PrimerQualityScore:
         """
         Calculate comprehensive quality score for a single primer.
@@ -335,10 +334,10 @@ class IntegratedQualityScorer:
 
     def analyze_primer_set(
         self,
-        primers: List[str],
-        binding_sites_dict: Optional[Dict[str, List[StrandBindingSite]]] = None,
+        primers: list[str],
+        binding_sites_dict: dict[str, list[StrandBindingSite]] | None = None,
         verbose: bool = False,
-    ) -> Tuple[List[PrimerQualityScore], SetQualityScore]:
+    ) -> tuple[list[PrimerQualityScore], SetQualityScore]:
         """
         Comprehensive quality analysis of primer set.
 
@@ -564,8 +563,8 @@ class IntegratedQualityScorer:
             return 2 * at_count + 4 * gc_count
 
     def get_recommendations(
-        self, primer_scores: List[PrimerQualityScore], set_score: SetQualityScore
-    ) -> List[str]:
+        self, primer_scores: list[PrimerQualityScore], set_score: SetQualityScore
+    ) -> list[str]:
         """
         Generate actionable recommendations for improving primer set.
 
@@ -623,9 +622,9 @@ class IntegratedQualityScorer:
 
 def create_quality_scorer(
     stringency: str = "moderate",
-    conditions: Optional[ReactionConditions] = None,
-    weights: Optional[Dict[str, float]] = None,
-    genome_gc: Optional[float] = None,
+    conditions: ReactionConditions | None = None,
+    weights: dict[str, float] | None = None,
+    genome_gc: float | None = None,
 ) -> IntegratedQualityScorer:
     """
     Factory function to create IntegratedQualityScorer with preset stringency.
@@ -655,12 +654,12 @@ def create_quality_scorer(
 
 
 def quick_score_primers(
-    primers: List[str],
-    binding_sites_dict: Optional[Dict[str, List[StrandBindingSite]]] = None,
+    primers: list[str],
+    binding_sites_dict: dict[str, list[StrandBindingSite]] | None = None,
     stringency: str = "moderate",
-    conditions: Optional[ReactionConditions] = None,
-    genome_gc: Optional[float] = None,
-) -> Tuple[List[PrimerQualityScore], SetQualityScore]:
+    conditions: ReactionConditions | None = None,
+    genome_gc: float | None = None,
+) -> tuple[list[PrimerQualityScore], SetQualityScore]:
     """
     Quick utility for integrated quality scoring.
 

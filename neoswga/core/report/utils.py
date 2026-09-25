@@ -5,7 +5,7 @@ Provides common functions for HTML rendering, CSS classes, and format string saf
 """
 
 from html import escape as html_escape
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from neoswga.core.report.quality import QualityGrade
 
@@ -14,7 +14,7 @@ from neoswga.core.report.quality import QualityGrade
 # extensions in unified_optimizer.run_optimization. Keep this dict in
 # sync with the codes produced there — a missing entry falls back to
 # the underscore-split code so the banner still renders.
-VALIDATION_CODE_LABELS: Dict[str, str] = {
+VALIDATION_CODE_LABELS: dict[str, str] = {
     "duplicate_primers": "Duplicate primers in set",
     "set_size_mismatch": "Primer set size differs from requested target",
     "coverage_below_threshold": "Aggregate foreground coverage below threshold",
@@ -73,7 +73,7 @@ VALIDATION_BANNER_CSS = """
 """
 
 
-def render_validation_banner(issues: List[dict]) -> str:
+def render_validation_banner(issues: list[dict]) -> str:
     """Render validator warnings/errors as a visible HTML banner.
 
     Used by both executive_summary and technical_report to surface
@@ -93,7 +93,7 @@ def render_validation_banner(issues: List[dict]) -> str:
     heading = (
         "Validation errors — review before ordering primers" if has_error else "Validation warnings"
     )
-    items: List[str] = []
+    items: list[str] = []
     for it in issues:
         code = str(it.get("code", "unknown"))
         detail = str(it.get("detail", ""))
@@ -174,7 +174,7 @@ def escape_format_braces(text: str) -> str:
     return text.replace("{", "{{").replace("}", "}}")
 
 
-def get_grade_colors(grade: QualityGrade) -> Dict[str, str]:
+def get_grade_colors(grade: QualityGrade) -> dict[str, str]:
     """
     Get color scheme for a quality grade.
 

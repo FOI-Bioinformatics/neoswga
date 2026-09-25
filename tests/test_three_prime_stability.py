@@ -12,7 +12,6 @@ Tests all functionality including:
 
 import unittest
 import warnings
-from typing import List
 
 from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.three_prime_stability import (

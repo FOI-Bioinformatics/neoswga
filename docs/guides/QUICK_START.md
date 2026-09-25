@@ -4,7 +4,7 @@ Get started with NeoSWGA primer design in minutes.
 
 ## Prerequisites
 
-- Python 3.11 or later
+- Python 3.13 or later
 - Jellyfish k-mer counter (v2.0+)
 - 8+ GB RAM
 
@@ -196,8 +196,13 @@ Try relaxing constraints:
 Use Bloom filter for large backgrounds:
 ```bash
 neoswga build-filter --genome human_genome.fasta -o ./filters/
-# Then add to params.json:
-# "background_bloom_path": "./filters/background_bloom.pkl"
+# Then add BOTH keys to params.json. The path alone does nothing, and the
+# flag alone is refused, because it empties bg_prefixes and would screen
+# nothing:
+#   "use_bloom_filter": true,
+#   "bloom_filter_path": "./filters/bg_bloom.pkl"
+# build-filter also writes bg_sampled.pkl beside it, which is required and is
+# found automatically.
 ```
 
 ## Next Steps

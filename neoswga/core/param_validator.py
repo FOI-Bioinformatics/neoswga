@@ -20,7 +20,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # The registry is stdlib-only on purpose, so importing it here does not drag the
 # numpy/scipy stack into `neoswga validate-params`.
@@ -45,7 +45,7 @@ class ValidationMessage:
     level: ValidationLevel
     parameter: str
     message: str
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
 
     def __str__(self):
         result = f"{self.level.value}: [{self.parameter}] {self.message}"
@@ -162,9 +162,9 @@ class ParamValidator:
     """
 
     def __init__(self):
-        self.messages: List[ValidationMessage] = []
+        self.messages: list[ValidationMessage] = []
 
-    def validate_file(self, params_path: str) -> List[ValidationMessage]:
+    def validate_file(self, params_path: str) -> list[ValidationMessage]:
         """
         Validate a params.json file.
 
@@ -202,7 +202,7 @@ class ParamValidator:
 
         return self.validate_params(params)
 
-    def validate_params(self, params: Dict[str, Any]) -> List[ValidationMessage]:
+    def validate_params(self, params: dict[str, Any]) -> list[ValidationMessage]:
         """
         Validate a parameters dictionary.
 
@@ -245,7 +245,7 @@ class ParamValidator:
 
         return self.messages
 
-    def _check_background_source(self, params: Dict) -> None:
+    def _check_background_source(self, params: dict) -> None:
         """Inform when no background source is configured.
 
         With no bg_genomes, bg_prefixes, or bloom_filter_path, the
@@ -274,7 +274,7 @@ class ParamValidator:
                 )
             )
 
-    def _check_required(self, params: Dict) -> None:
+    def _check_required(self, params: dict) -> None:
         """Check required parameters exist."""
         for param in REQUIRED_PARAMS:
             if param not in params:
@@ -301,7 +301,7 @@ class ParamValidator:
         }
     }
 
-    def _check_retired_values(self, params: Dict) -> None:
+    def _check_retired_values(self, params: dict) -> None:
         """Name what replaced a value that used to be accepted."""
         for key, retired in self._RETIRED_VALUES.items():
             explanation = retired.get(params.get(key))
@@ -314,7 +314,7 @@ class ParamValidator:
                     )
                 )
 
-    def _check_schema(self, params: Dict) -> None:
+    def _check_schema(self, params: dict) -> None:
         """Validate params against the shipped JSON Schema.
 
         If jsonschema is not installed this silently no-ops so users don't need
@@ -344,7 +344,7 @@ class ParamValidator:
                 )
             )
 
-    def _check_unknown_keys(self, params: Dict) -> None:
+    def _check_unknown_keys(self, params: dict) -> None:
         """Warn about keys the schema does not declare.
 
         `additionalProperties: true` means jsonschema accepts anything, so a
@@ -367,7 +367,7 @@ class ParamValidator:
                 )
             )
 
-    def _check_ranges(self, params: Dict) -> None:
+    def _check_ranges(self, params: dict) -> None:
         """Check parameter values are within valid ranges."""
         for param, (min_val, max_val) in PARAM_RANGES.items():
             if param in params:
@@ -415,7 +415,7 @@ class ParamValidator:
                     )
                 )
 
-    def _check_files(self, params: Dict) -> None:
+    def _check_files(self, params: dict) -> None:
         """Check that genome files exist."""
         for param in ["fg_genomes", "bg_genomes"]:
             if param in params:
@@ -447,7 +447,7 @@ class ParamValidator:
         # Check k-mer files (INFO level - they're created by step1)
         self._check_kmer_files(params)
 
-    def _check_kmer_files(self, params: Dict) -> None:
+    def _check_kmer_files(self, params: dict) -> None:
         """
         Check if k-mer files from step1 exist.
 
@@ -507,7 +507,7 @@ class ParamValidator:
                 )
             )
 
-    def _check_interdependencies(self, params: Dict) -> None:
+    def _check_interdependencies(self, params: dict) -> None:
         """Check parameter interdependencies and compatibility."""
         polymerase = params.get("polymerase", "phi29")
         temp = params.get("reaction_temp")
@@ -610,7 +610,7 @@ class ParamValidator:
                 )
             )
 
-    def _check_optimization(self, params: Dict) -> None:
+    def _check_optimization(self, params: dict) -> None:
         """Check for optimization opportunities."""
         polymerase = params.get("polymerase", "phi29")
         genome_gc = params.get("genome_gc")
@@ -651,7 +651,7 @@ class ParamValidator:
                 )
 
 
-def unknown_param_keys(params: Dict[str, Any]) -> List[Tuple[str, Optional[str]]]:
+def unknown_param_keys(params: dict[str, Any]) -> list[tuple[str, str | None]]:
     """Keys in `params` that the shipped schema does not declare.
 
     The schema sets `additionalProperties: true` and nothing checked the other
@@ -672,7 +672,7 @@ def unknown_param_keys(params: Dict[str, Any]) -> List[Tuple[str, Optional[str]]
     if not declared:
         return []
 
-    found: List[Tuple[str, Optional[str]]] = []
+    found: list[tuple[str, str | None]] = []
     for key in params:
         if key in declared:
             continue
@@ -689,7 +689,7 @@ def unknown_param_keys(params: Dict[str, Any]) -> List[Tuple[str, Optional[str]]
 
 def validate_params_file(
     params_path: str, verbose: bool = True
-) -> Tuple[bool, List[ValidationMessage]]:
+) -> tuple[bool, list[ValidationMessage]]:
     """
     Validate a params.json file.
 

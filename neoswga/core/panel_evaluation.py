@@ -40,8 +40,9 @@ eventually report a metric alongside a verdict computed from something else.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any
 
 from .exceptions import ModelEvaluationError
 
@@ -67,7 +68,7 @@ class Measurement:
     """
 
     name: str
-    value: Optional[float]
+    value: float | None
     units: str
     basis: str = ""
     unavailable: str = ""
@@ -78,7 +79,7 @@ class Measurement:
         if self.value is not None and self.unavailable:
             raise ValueError(f"{self.name} has both a value and a reason for not having one")
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "value": self.value,
             "units": self.units,
@@ -91,24 +92,24 @@ class Measurement:
 class PanelAssessment:
     """What a panel is, and whether it is acceptable. One record, one answer."""
 
-    primers: Tuple[str, ...]
+    primers: tuple[str, ...]
     request_hash: str
     metrics: Mapping[str, Measurement]
     per_target: Mapping[str, Measurement]
-    violations: Tuple[str, ...]
+    violations: tuple[str, ...]
     qualified: bool
-    model_versions: Tuple[Tuple[str, str], ...] = ()
-    notes: Tuple[str, ...] = ()
+    model_versions: tuple[tuple[str, str], ...] = ()
+    notes: tuple[str, ...] = ()
     #: Present only when the background genome carries no sites at all. The
     #: selectivity ratio is then undefined rather than infinite.
     zero_background: bool = False
     evidence: Mapping[str, str] = field(default_factory=dict)
 
-    def value(self, name: str) -> Optional[float]:
+    def value(self, name: str) -> float | None:
         measurement = self.metrics.get(name)
         return measurement.value if measurement else None
 
-    def as_dict(self) -> Dict[str, Any]:
+    def as_dict(self) -> dict[str, Any]:
         """A JSON-serializable form. No infinities, no NaN.
 
         The report and the saved result both read this, so that a rendered
@@ -128,7 +129,7 @@ class PanelAssessment:
         }
 
 
-def _finite_or_fail(name: str, value, subject) -> Optional[float]:
+def _finite_or_fail(name: str, value, subject) -> float | None:
     """Refuse a non-finite required quantity rather than reporting it.
 
     NaN compares False against every threshold, so a panel carrying one passes
@@ -182,7 +183,7 @@ def _panel_violations(request, primers) -> list:
     # separates them from the QC gates deliberately absent below.
     # `validate_result` checked both and this record checked neither, so two
     # records described the same panel differently.
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for oligo in primers:
         counts[oligo] = counts.get(oligo, 0) + 1
     repeated = sorted(oligo for oligo, count in counts.items() if count > 1)
@@ -233,7 +234,7 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
     reach = getattr(request, "coverage_reach", None)
     basis = f"reach {reach} bp" if reach else "reach not recorded"
 
-    named: Dict[str, Measurement] = {}
+    named: dict[str, Measurement] = {}
     named["fg_coverage"] = _measure(
         "fg_coverage",
         getattr(metrics, "fg_coverage", None),
@@ -290,7 +291,7 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
             subject,
         )
 
-    per_target: Dict[str, Measurement] = {}
+    per_target: dict[str, Measurement] = {}
     for prefix, value in (getattr(metrics, "per_target_coverage", None) or {}).items():
         per_target[str(prefix)] = _measure(
             f"coverage[{prefix}]", value, "fraction of target bases", basis, subject

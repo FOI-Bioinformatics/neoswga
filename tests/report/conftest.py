@@ -9,7 +9,6 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List
 
 import pytest
 
@@ -255,7 +254,7 @@ def edge_case_primer_row():
     }
 
 
-def create_csv_file(path: Path, rows: List[Dict]) -> Path:
+def create_csv_file(path: Path, rows: list[dict]) -> Path:
     """Helper to create a CSV file from a list of dictionaries."""
     if not rows:
         path.write_text("")

@@ -19,7 +19,6 @@ Usage:
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -32,8 +31,8 @@ class CoverageAnalysis:
 
     overall_coverage: float
     uniformity: float
-    gaps: List[Dict]
-    largest_gap: Optional[Dict]
+    gaps: list[dict]
+    largest_gap: dict | None
     mean_inter_site_distance: float
     max_inter_site_distance: int
     bins_covered: int
@@ -71,10 +70,10 @@ class ComprehensiveAnalysis:
 
     coverage: CoverageAnalysis
     specificity: SpecificityAnalysis
-    primer_contributions: List[PrimerContribution]
+    primer_contributions: list[PrimerContribution]
     quality_score: float
-    recommendations: List[str]
-    issues: List[str]
+    recommendations: list[str]
+    issues: list[str]
 
 
 class SimulationAnalyzer:
@@ -85,8 +84,8 @@ class SimulationAnalyzer:
     def __init__(
         self,
         result,
-        fg_positions: Dict,
-        bg_positions: Dict,
+        fg_positions: dict,
+        bg_positions: dict,
         fg_length: int,
         bg_length: int,
         bin_size: int = 10000,
@@ -211,7 +210,7 @@ class SimulationAnalyzer:
             background_density=bg_density,
         )
 
-    def _analyze_primer_contributions(self) -> List[PrimerContribution]:
+    def _analyze_primer_contributions(self) -> list[PrimerContribution]:
         """Analyze individual primer contributions"""
         contributions = []
 
@@ -292,7 +291,7 @@ class SimulationAnalyzer:
 
         return contributions
 
-    def _identify_detailed_gaps(self, covered_bins: set, n_bins: int) -> List[Dict]:
+    def _identify_detailed_gaps(self, covered_bins: set, n_bins: int) -> list[dict]:
         """Identify gaps with detailed characterization"""
         if len(covered_bins) == 0:
             return []
@@ -361,8 +360,8 @@ class SimulationAnalyzer:
         self,
         coverage: CoverageAnalysis,
         specificity: SpecificityAnalysis,
-        primers: List[PrimerContribution],
-    ) -> List[str]:
+        primers: list[PrimerContribution],
+    ) -> list[str]:
         """Generate actionable recommendations"""
         recommendations = []
 
@@ -419,8 +418,8 @@ class SimulationAnalyzer:
         self,
         coverage: CoverageAnalysis,
         specificity: SpecificityAnalysis,
-        primers: List[PrimerContribution],
-    ) -> List[str]:
+        primers: list[PrimerContribution],
+    ) -> list[str]:
         """Identify specific issues with primer set"""
         issues = []
 

@@ -53,8 +53,8 @@ before 2026-09-21, so no existing run acquires new output.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -83,13 +83,13 @@ class LengthOccupancy:
 
     length: int
     n: int
-    median: Optional[float]
-    lowest: Optional[float]
-    highest: Optional[float]
+    median: float | None
+    lowest: float | None
+    highest: float | None
     unmeasured: int
 
 
-def occupancy_by_length(primers: Sequence[str], conditions) -> Tuple[LengthOccupancy, ...]:
+def occupancy_by_length(primers: Sequence[str], conditions) -> tuple[LengthOccupancy, ...]:
     """Per-length occupancy for `primers` under `conditions`, shortest first.
 
     Returns an empty tuple when there is no temperature to evaluate at. An
@@ -106,8 +106,8 @@ def occupancy_by_length(primers: Sequence[str], conditions) -> Tuple[LengthOccup
     from neoswga.core.occupancy import site_occupancy
     from neoswga.core.thermodynamics import calculate_enthalpy_entropy
 
-    grouped: Dict[int, List[float]] = {}
-    unmeasured: Dict[int, int] = {}
+    grouped: dict[int, list[float]] = {}
+    unmeasured: dict[int, int] = {}
     for primer in primers:
         sequence = str(primer)
         length = len(sequence)
@@ -203,7 +203,7 @@ def log_occupancy_spread(primers: Sequence[str], conditions, label: str = "pool"
         )
 
 
-def _median(values: List[float]) -> Optional[float]:
+def _median(values: list[float]) -> float | None:
     if not values:
         return None
     middle = len(values) // 2

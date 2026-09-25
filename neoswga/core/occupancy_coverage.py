@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from typing import Dict, Mapping, Optional, Sequence
+from collections.abc import Mapping, Sequence
 
 from .coverage import merged_window_intervals
 from .occupancy import site_occupancy
@@ -35,9 +35,9 @@ def occupancy_weighted_coverage(
     extension_reach: int,
     circular: bool,
     conditions,
-    reverse_by_primer: Optional[Mapping[str, Sequence[int]]] = None,
+    reverse_by_primer: Mapping[str, Sequence[int]] | None = None,
     geometry: str = "symmetric",
-) -> Optional[float]:
+) -> float | None:
     """Coverage weighted by how much of the time each site is occupied.
 
     `base_optimizer._compute_coverage` unions binding windows as booleans: a site either
@@ -100,8 +100,8 @@ def occupancy_weighted_coverage(
     # log(1 - theta) at one edge and removes it at another. The answer is
     # then a walk over the edges, which number twice the merged windows
     # rather than once the genome.
-    log_weight_at: Dict[int, float] = defaultdict(float)
-    saturated_at: Dict[int, int] = defaultdict(int)
+    log_weight_at: dict[int, float] = defaultdict(float)
+    saturated_at: dict[int, int] = defaultdict(int)
 
     # `reverse_by_primer` is absent under the default geometry, where the
     # caller's `positions_by_primer` is already the pooled union and the

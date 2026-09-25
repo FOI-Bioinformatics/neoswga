@@ -13,7 +13,7 @@ This is the fundamental difference from the ratio-based approach.
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Optional
 
 import networkx as nx
 import numpy as np
@@ -183,11 +183,11 @@ class AmplificationNetwork:
         """
         self.graph = nx.Graph()
         self.max_extension = max_extension
-        self.binding_sites: List[BindingSite] = []
+        self.binding_sites: list[BindingSite] = []
 
         # Spatial index: sorted positions and corresponding sites for binary search
-        self._sorted_positions: List[int] = []
-        self._sorted_sites: List[BindingSite] = []
+        self._sorted_positions: list[int] = []
+        self._sorted_sites: list[BindingSite] = []
         self._index_dirty: bool = True
 
     def _rebuild_spatial_index(self):
@@ -201,7 +201,7 @@ class AmplificationNetwork:
         self._sorted_sites = [s for _, s in sorted_pairs]
         self._index_dirty = False
 
-    def _find_sites_in_range(self, pos: int, max_dist: int) -> List[BindingSite]:
+    def _find_sites_in_range(self, pos: int, max_dist: int) -> list[BindingSite]:
         """
         Find all sites within max_dist of position using binary search.
 
@@ -224,7 +224,7 @@ class AmplificationNetwork:
 
     def add_primer_sites(
         self, primer: str, positions: np.ndarray, strand: str, affinity: float = 1.0
-    ) -> List[BindingSite]:
+    ) -> list[BindingSite]:
         """
         Add all binding sites for a primer.
 
@@ -248,7 +248,7 @@ class AmplificationNetwork:
         self._index_dirty = True
         return new_sites
 
-    def add_edges_for_sites(self, new_sites: List[BindingSite]) -> int:
+    def add_edges_for_sites(self, new_sites: list[BindingSite]) -> int:
         """
         Add edges only for newly added sites (incremental edge building).
 
@@ -434,7 +434,7 @@ class AmplificationNetwork:
         return amplification_fold(self.largest_component_size())
 
     def predict_amplification_fold_weighted(
-        self, primer_tms: Dict[str, float], reaction_temp: float
+        self, primer_tms: dict[str, float], reaction_temp: float
     ) -> float:
         """
         Predict amplification accounting for Tm efficiency.
@@ -481,7 +481,7 @@ class AmplificationNetwork:
         exponent = min(weighted_size / 10.0, 20.0)
         return 2**exponent
 
-    def predict_amplification_with_uncertainty(self) -> Tuple[float, float, float]:
+    def predict_amplification_with_uncertainty(self) -> tuple[float, float, float]:
         """
         Return (predicted, lower_bound, upper_bound) for amplification.
 
@@ -561,7 +561,7 @@ class AmplificationNetwork:
 
         return min(1.0, max(0.0, gini))
 
-    def get_statistics(self) -> Dict:
+    def get_statistics(self) -> dict:
         """Get comprehensive network statistics including confidence intervals.
 
         Computes connected components once and reuses across all metrics.
@@ -662,13 +662,13 @@ class NetworkOptimizer:
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        bg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_seq_lengths: List[int],
+        fg_prefixes: list[str],
+        bg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_seq_lengths: list[int],
         max_extension: int = 70000,
         uniformity_weight: float = 0.0,
-        reaction_temp: Optional[float] = None,
+        reaction_temp: float | None = None,
         tm_weight: float = 0.0,
         dimer_penalty: float = 0.0,
         max_dimer_bp: int = 4,
@@ -719,7 +719,7 @@ class NetworkOptimizer:
         self.max_dimer_dg = max_dimer_dg
         self.allow_dimer_relaxation = allow_dimer_relaxation
         # Cache for primer Tm values
-        self._tm_cache: Dict[str, float] = {}
+        self._tm_cache: dict[str, float] = {}
 
         # Mechanistic model integration
         self.conditions = conditions
@@ -789,7 +789,7 @@ class NetworkOptimizer:
         delta = abs(tm - optimal_tm)
         return math.exp(-0.05 * delta**2)  # 50% at ~3.7C difference
 
-    def _calculate_set_dimer_penalty(self, primer: str, current_set: List[str]) -> float:
+    def _calculate_set_dimer_penalty(self, primer: str, current_set: list[str]) -> float:
         """
         Calculate dimer penalty for adding primer to current set.
 
@@ -823,7 +823,7 @@ class NetworkOptimizer:
         effects = self.mech_model.calculate_effects(primer, self.template_gc)
         return effects.predicted_amplification_factor
 
-    def optimize_greedy(self, candidates: List[str], num_primers: int = 10) -> List[str]:
+    def optimize_greedy(self, candidates: list[str], num_primers: int = 10) -> list[str]:
         """
         Greedy network optimization.
 
@@ -983,7 +983,7 @@ class NetworkOptimizer:
     def _evaluate_primer_addition(
         self,
         primer: str,
-        current_set: List[str],
+        current_set: list[str],
         fg_network: AmplificationNetwork,
         bg_network: AmplificationNetwork,
         uniformity_weight: float = 0.0,
@@ -1073,7 +1073,7 @@ class NetworkOptimizer:
         return final_score
 
     def _simulate_add_primer(
-        self, network: AmplificationNetwork, primer: str, prefixes: List[str]
+        self, network: AmplificationNetwork, primer: str, prefixes: list[str]
     ) -> AmplificationNetwork:
         """
         Simulate adding primer to network using in-place add/remove.
@@ -1135,7 +1135,7 @@ class NetworkOptimizer:
         return _SimulatedNetwork(largest, avg, uniformity, has_sites)
 
     def _update_network(
-        self, network: AmplificationNetwork, primer: str, prefixes: List[str], label: str
+        self, network: AmplificationNetwork, primer: str, prefixes: list[str], label: str
     ):
         """
         Update network with new primer using incremental edge building.
@@ -1161,10 +1161,10 @@ class NetworkOptimizer:
 
     def score_primer_set(
         self,
-        primers: List[str],
-        primer_tms: Optional[Dict[str, float]] = None,
-        reaction_temp: Optional[float] = None,
-    ) -> Dict:
+        primers: list[str],
+        primer_tms: dict[str, float] | None = None,
+        reaction_temp: float | None = None,
+    ) -> dict:
         """
         Comprehensive scoring of primer set with improved enrichment calculation.
 
@@ -1328,7 +1328,7 @@ class NetworkOptimizer:
 
         return result
 
-    def _prefix_offsets(self, prefixes: List[str]) -> Dict[str, int]:
+    def _prefix_offsets(self, prefixes: list[str]) -> dict[str, int]:
         """Where each sequence starts in the network's shared coordinate space.
 
         Positions come out of `PositionCache` in each sequence's OWN 0-based
@@ -1375,7 +1375,7 @@ class NetworkOptimizer:
                 added.extend(network.add_primer_sites(primer, shifted, sign))
         return added
 
-    def _build_network(self, primers: List[str], prefixes: List[str]) -> AmplificationNetwork:
+    def _build_network(self, primers: list[str], prefixes: list[str]) -> AmplificationNetwork:
         """Build complete network for primer set"""
         network = AmplificationNetwork(self.max_extension)
         offsets = self._prefix_offsets(prefixes)
@@ -1461,11 +1461,11 @@ class NetworkBaseOptimizer(BaseOptimizer):
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
-        config: Optional[OptimizerConfig] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
+        config: OptimizerConfig | None = None,
         conditions=None,
         **kwargs,
     ):
@@ -1518,7 +1518,7 @@ class NetworkBaseOptimizer(BaseOptimizer):
         return "Network-based optimizer with Tm weighting and dimer penalty"
 
     def optimize(
-        self, candidates: List[str], target_size: Optional[int] = None, **kwargs
+        self, candidates: list[str], target_size: int | None = None, **kwargs
     ) -> OptimizationResult:
         """Run network-based optimization."""
         candidates = self._validate_candidates(candidates)

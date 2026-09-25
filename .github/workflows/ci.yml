@@ -12,10 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
       - name: Install linting tools
         # Pin black/isort to exact versions: their formatting output changes
@@ -142,7 +142,10 @@ jobs:
       # Six matrix cells are cheap; misreading them is not.
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13"]
+        # 3.13 only: `requires-python` is ">=3.13", so an older interpreter
+        # cannot install this package and testing one would measure something
+        # nobody can run.
+        python-version: ["3.13"]
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
@@ -171,19 +174,19 @@ jobs:
         # heterogeneous runners. They now run in nightly.yml, where the marker
         # always said they would.
         #
-        # Coverage is measured in ONE cell. It is a property of the code, not of
-        # the platform, so the other five measurements were computed and thrown
-        # away while slowing the cell that produced them. ubuntu-latest/3.11 is
-        # this repository's reference environment: the lint job and the type
-        # ratchet both run there, so a coverage figure from it is comparable
-        # with the other numbers anyone quotes.
+        # Coverage is measured in ONE cell. It is a property of the code, not
+        # of the platform, so a second measurement is computed and thrown away
+        # while slowing the cell that produced it. ubuntu-latest is this
+        # repository's reference environment: the lint job and the type ratchet
+        # both run there, so a coverage figure from it is comparable with the
+        # other numbers anyone quotes.
         #
         # The gate travels with the measurement. `--cov-fail-under=50` applies
         # wherever coverage is computed, so moving it does not weaken it, and a
         # cell that does not measure coverage cannot fail on it.
         run: |
           COVERAGE=""
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ] && [ "${{ matrix.python-version }}" = "3.11" ]; then
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             COVERAGE="--cov=neoswga --cov-report=term-missing --cov-fail-under=50"
           fi
           pytest tests/ -m "not scale" -q --tb=short $COVERAGE
@@ -201,10 +204,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
       - name: Install build tools
         run: pip install build twine

@@ -12,7 +12,7 @@ the thing it guards is one refactor away from being skipped.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 __all__ = ["require_disjoint_experiments"]
 

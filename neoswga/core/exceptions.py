@@ -6,7 +6,7 @@ enabling proper error handling and informative error messages.
 """
 
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 
 class NeoSWGAError(Exception):
@@ -44,7 +44,7 @@ class PositionFileNotFoundError(FileError):
     Raised when attempting to load primer positions from a non-existent file.
     """
 
-    def __init__(self, filepath: str, primer_length: Optional[int] = None):
+    def __init__(self, filepath: str, primer_length: int | None = None):
         self.filepath = filepath
         self.primer_length = primer_length
         if primer_length:
@@ -192,7 +192,7 @@ class OptimizerConvergenceError(OptimizationError):
         optimizer_name: str,
         iterations: int,
         best_score: float,
-        target_score: Optional[float] = None,
+        target_score: float | None = None,
     ):
         self.optimizer_name = optimizer_name
         self.iterations = iterations
@@ -228,7 +228,7 @@ class OptimizerNotFoundError(OptimizationError):
     Unknown optimizer type requested.
     """
 
-    def __init__(self, optimizer_name: str, available: List[str]):
+    def __init__(self, optimizer_name: str, available: list[str]):
         self.optimizer_name = optimizer_name
         self.available = available
         super().__init__(
@@ -278,7 +278,7 @@ class IncompatibleParametersError(ConfigurationError):
     Incompatible parameter combination.
     """
 
-    def __init__(self, params: List[str], reason: str):
+    def __init__(self, params: list[str], reason: str):
         self.params = params
         self.reason = reason
         super().__init__(f"Incompatible parameters {params}: {reason}")
@@ -432,7 +432,7 @@ class StepValidationResult:
     """Result of step prerequisite validation."""
 
     valid: bool
-    missing_files: List[str]
+    missing_files: list[str]
     error_message: str
     remediation: str
 

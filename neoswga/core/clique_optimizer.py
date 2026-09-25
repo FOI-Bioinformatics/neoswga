@@ -27,7 +27,6 @@ Computational complexity:
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -77,7 +76,7 @@ class CliqueOptimizerConfig(OptimizerConfig):
 
 
 def build_compatibility_graph(
-    primers: List[str],
+    primers: list[str],
     # Matching `OptimizerConfig`'s defaults. These read 3 and 4 while the config
     # defaults are 4 and 5, so a direct caller of this helper got a STRICTER
     # graph than the optimizer built from the same unset configuration -- two
@@ -148,7 +147,7 @@ def enumerate_dimer_free_sets(
     G: "nx.Graph",
     target_size: int,
     max_cliques: int = 10000,
-) -> List[List[str]]:
+) -> list[list[str]]:
     """
     Enumerate all dimer-free primer sets of the target size.
 
@@ -241,11 +240,11 @@ class CliqueOptimizer(BaseOptimizer):
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
-        config: Optional[OptimizerConfig] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
+        config: OptimizerConfig | None = None,
         conditions=None,
         **kwargs,
     ):
@@ -283,9 +282,9 @@ class CliqueOptimizer(BaseOptimizer):
 
     def optimize(
         self,
-        candidates: List[str],
-        target_size: Optional[int] = None,
-        fixed_primers: Optional[List[str]] = None,
+        candidates: list[str],
+        target_size: int | None = None,
+        fixed_primers: list[str] | None = None,
         **kwargs,
     ) -> OptimizationResult:
         """
@@ -449,7 +448,7 @@ class CliqueOptimizer(BaseOptimizer):
             ),
         )
 
-    def _score_set(self, primers: List[str]) -> float:
+    def _score_set(self, primers: list[str]) -> float:
         """
         Score a primer set by foreground/background binding ratio.
 
@@ -472,7 +471,7 @@ class CliqueOptimizer(BaseOptimizer):
 
         return fg_total / (bg_total + 1)
 
-    def _rank_and_truncate(self, candidates: List[str], max_size: int) -> List[str]:
+    def _rank_and_truncate(self, candidates: list[str], max_size: int) -> list[str]:
         """
         Rank candidates by foreground binding and keep top max_size.
 

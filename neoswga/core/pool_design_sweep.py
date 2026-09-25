@@ -25,13 +25,14 @@ otherwise would hide that behind a frontier.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from .candidate_provider import CandidateProvider
 from .pool_objective import PoolConstraints
 
 
-def nondominated(designs: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def nondominated(designs: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """The designs no other design beats on every axis at once.
 
     Three axes, all "smaller or larger is better" in a fixed direction: fewer
@@ -65,8 +66,8 @@ def design_sweep(
     sizes: Sequence[int],
     coverage_targets: Sequence[float],
     constraints: PoolConstraints,
-    run_design: Callable[..., Dict[str, Any]],
-) -> Dict[str, Any]:
+    run_design: Callable[..., dict[str, Any]],
+) -> dict[str, Any]:
     """Design once per condition and length, then compare what came back.
 
     `run_design` receives `condition`, `length`, `sizes`, `coverage_targets`,
@@ -138,7 +139,7 @@ def design_sweep(
     }
 
 
-def load_design_grid(grid: Dict[str, Any], baseline: Dict[str, Any]):
+def load_design_grid(grid: dict[str, Any], baseline: dict[str, Any]):
     """Turn a design grid into lengths and fully resolved reaction conditions.
 
     A grid entry names what CHANGES, not the whole reaction. Each entry is
@@ -172,7 +173,7 @@ def load_design_grid(grid: Dict[str, Any], baseline: Dict[str, Any]):
     return lengths, conditions
 
 
-def frontier(designs: Sequence[Dict[str, Any]], coverage_targets: Sequence[float]):
+def frontier(designs: Sequence[dict[str, Any]], coverage_targets: Sequence[float]):
     """The smallest qualifying pool per coverage target, across designs.
 
     "Qualifying" means eligible: a panel failing a constraint is not a coverage
@@ -187,8 +188,8 @@ def frontier(designs: Sequence[Dict[str, Any]], coverage_targets: Sequence[float
     Designs that never reach a target are named under `unreached` rather than
     omitted silently: "this chemistry did not get there" is a result.
     """
-    by_target: Dict[float, List[Dict[str, Any]]] = {}
-    unreached: Dict[float, List[str]] = {}
+    by_target: dict[float, list[dict[str, Any]]] = {}
+    unreached: dict[float, list[str]] = {}
 
     for target in coverage_targets:
         candidates = []

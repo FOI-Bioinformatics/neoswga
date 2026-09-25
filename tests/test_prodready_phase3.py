@@ -61,14 +61,24 @@ def test_initialize_auto_resets_on_json_change(monkeypatch):
 
 
 def test_multi_genome_result_allows_none_metrics():
-    import dataclasses
+    """The placeholder metrics must admit None, so an uncomputed metric reads
+    as absent rather than as a fabricated zero.
+
+    This asserts the PROPERTY, not the spelling. It used to require the literal
+    string "Optional" in the annotation, so modernising `Optional[float]` to
+    `float | None` broke it while its subject had not changed at all. Both
+    spellings put NoneType in `get_args`, and a field made non-optional still
+    fails, because a bare `float` has no args.
+    """
+    import typing
 
     from neoswga.core.multi_genome_pipeline import MultiGenomePipelineResult
 
-    fields = {f.name: f for f in dataclasses.fields(MultiGenomePipelineResult)}
-    # The placeholder metrics must be Optional now (None allowed).
+    hints = typing.get_type_hints(MultiGenomePipelineResult)
     for name in ("coverage", "connectivity", "predicted_amplification", "stage1_primer_count"):
-        assert "Optional" in str(fields[name].type)
+        assert type(None) in typing.get_args(hints[name]), (
+            f"{name} must admit None so an uncomputed metric is absent, not fabricated"
+        )
 
 
 # `test_bg_aware_connectivity_uses_network` was removed on 2026-09-10 with

@@ -4,6 +4,79 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### Python 3.13 only
+
+`requires-python` is now `>=3.13`. Earlier interpreters are not supported and
+the CI matrix tests one version on two operating systems.
+
+#### BREAKING
+
+- **Python 3.11 and 3.12 are no longer supported.** Install under 3.13 or
+  later.
+- The `improved` extra gains `highsbox`. Installing `mip` alone is no longer
+  enough on 3.13; see the fix below.
+
+#### FIXED
+
+- **The exact ILP solve crashed the interpreter on Python 3.13.** python-mip
+  defaults to CBC, and constructing a CBC model terminates the process with
+  SIGKILL there: no exception, no traceback, exit 137. `core/ilp_solver.py`
+  now prefers HiGHS, which works on 3.13, and warns when falling back.
+  Measured on macOS arm64 with mip 2.0.0 and cbcbox 2.935.
+- **Documented `build-filter` commands did not run.** Nine examples across the
+  guides, the developer docs and two example READMEs used a positional form
+  that argparse rejects. They now use `--genome` and `-o`.
+- **QUICK_START named a params key that does not exist.** It told users to set
+  `background_bloom_path`, which is not a schema key, and named a file
+  `build-filter` does not write. The keys are `use_bloom_filter` and
+  `bloom_filter_path`, and the file is `bg_bloom.pkl`.
+- `pyyaml` is declared in the `dev` extra. It previously reached CI only as a
+  transitive dependency of pre-commit, while a ratchet `importorskip`s it.
+
+#### CHANGED
+
+- The codebase is modernised to current Python idioms: 2,294 sites, almost all
+  `typing.List` to `list` and `Optional[X]` to `X | None`. No behaviour change.
+
+#### KNOWN ISSUE
+
+- bioconda has no Python 3.13 build of `kmer-jellyfish`, so
+  `conda create ... python=3.13 kmer-jellyfish` silently resolves to 1.1.12,
+  whose CLI NeoSWGA refuses. Install Jellyfish through brew or apt instead.
+  See docs/guides/TROUBLESHOOTING.md.
+
+### Bloom background screening works at the scale it exists for
+
+Twelve defects in the Bloom path, all of which passed every small-genome test
+and failed only at or near host scale.
+
+#### FIXED
+
+- **The filter could not be built for a host genome.** Capacity was sized to
+  ten times the base count, but pybloom allocates from capacity and counts
+  only distinct items, so hg38 asked for 39.56 GB where 26.8 MB suffices.
+- **A saved filter reloaded at only one geometry.** pybloom picks its hash from
+  the filter's size, so small filters and very large ones saved successfully
+  and refused to load.
+- **A primer length the filter never indexed read as absent**, which cleared
+  the background gate unscreened. Both artifacts now record the lengths they
+  cover and a design outside them is refused.
+- **`use_bloom_filter` without a path screened nothing, silently.** It now
+  refuses.
+- The k-mer-file route validates bases and length before indexing.
+- `BackgroundBloomFilter` requires an explicit capacity; the former 3 GB
+  default was an allocation nobody chose.
+
+### CI runs what it says it runs
+
+- The `@pytest.mark.scale` tests now run in the nightly workflow their marker
+  names, rather than in every pull-request cell while nightly excluded them.
+- Coverage is measured in one cell instead of six.
+- The `build` job no longer waits on the test matrix, so a packaging failure
+  surfaces in about a minute instead of twenty.
+- Nightly E2E, red since 2026-09-22 on the retired `score` command, is fixed
+  and now runs only what the pull-request suite does not.
+
 ### Occupancy-based specificity model
 
 Selectivity was a count of exact k-mer matches, so for a fixed primer set no

@@ -27,8 +27,8 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Callable, Optional, Sequence, Tuple
 
 from neoswga.core.partial_panel import can_prune
 
@@ -54,11 +54,11 @@ class BeamResult:
     an exhausted budget having already found a qualifying panel.
     """
 
-    primers: Tuple[str, ...]
+    primers: tuple[str, ...]
     status: str
     evaluations: int
     pruned: int
-    violations: Tuple[str, ...]
+    violations: tuple[str, ...]
 
 
 def _bg_sites(objective, panel) -> float:
@@ -93,7 +93,7 @@ def beam_search(
     objective,
     size: int,
     *,
-    dimerises: Optional[Callable[[str, Sequence[str]], bool]] = None,
+    dimerises: Callable[[str, Sequence[str]], bool] | None = None,
     beam_width: int = 4,
     fixed: Sequence[str] = (),
     max_evaluations: int = 10_000,

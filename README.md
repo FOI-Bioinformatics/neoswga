@@ -26,7 +26,7 @@ NeoSWGA is a command-line tool for designing primer sets for selective whole-gen
 
 ## Installation
 
-**Requirements**: Python >= 3.11, [Jellyfish](https://www.cbcb.umd.edu/software/jellyfish/) k-mer counter
+**Requirements**: Python >= 3.13, [Jellyfish](https://www.cbcb.umd.edu/software/jellyfish/) k-mer counter
 
 ```bash
 pip install neoswga

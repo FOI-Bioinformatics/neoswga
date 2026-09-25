@@ -20,7 +20,6 @@ stay a single call each.
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -68,15 +67,15 @@ class QAFilterResult:
     primers_in: int
     primers_out: int
     primers_filtered: int
-    filter_reasons: Dict[str, int]
+    filter_reasons: dict[str, int]
     mean_qa_score: float
     filtered_df: pd.DataFrame
 
 
 def apply_post_step2_qa_filter(
     step2_df: pd.DataFrame,
-    config: Optional[QAFilterConfig] = None,
-    conditions: Optional[ReactionConditions] = None,
+    config: QAFilterConfig | None = None,
+    conditions: ReactionConditions | None = None,
     verbose: bool = True,
 ) -> QAFilterResult:
     """
@@ -286,7 +285,7 @@ def rf_score_column(df: pd.DataFrame) -> str:
 
 def combine_rf_qa_scores(
     step3_df: pd.DataFrame,
-    qa_scores: Dict[str, float],
+    qa_scores: dict[str, float],
     rf_weight: float = 0.7,
     qa_weight: float = 0.3,
     verbose: bool = True,
@@ -375,7 +374,7 @@ def combine_rf_qa_scores(
 
 
 def create_qa_aware_optimizer(
-    config: Optional[QAFilterConfig] = None, conditions: Optional[ReactionConditions] = None
+    config: QAFilterConfig | None = None, conditions: ReactionConditions | None = None
 ):
     """
     Create an optimizer wrapper that uses QA-aware primer selection.
@@ -419,8 +418,8 @@ class QAAwareOptimizer:
         self.dimer_analyzer = create_dimer_network_analyzer(config.dimer_stringency, conditions)
 
     def prefilter_candidates(
-        self, candidates: List[str], verbose: bool = True
-    ) -> Tuple[List[str], Dict]:
+        self, candidates: list[str], verbose: bool = True
+    ) -> tuple[list[str], dict]:
         """
         Pre-filter candidates before optimization.
 
@@ -487,8 +486,8 @@ class QAAwareOptimizer:
         return filtered, metadata
 
     def rank_by_quality(
-        self, candidates: List[str], verbose: bool = True
-    ) -> List[Tuple[str, float]]:
+        self, candidates: list[str], verbose: bool = True
+    ) -> list[tuple[str, float]]:
         """
         Rank candidates by quality score.
 
@@ -565,7 +564,7 @@ def save_qa_report(result: QAFilterResult, output_path: Path, verbose: bool = Tr
         logger.info(f"\nQA report saved to: {output_path}")
 
 
-def _resolve_conditions(conditions: Optional[ReactionConditions]) -> ReactionConditions:
+def _resolve_conditions(conditions: ReactionConditions | None) -> ReactionConditions:
     """Fall back to the reaction the run is configured for, not the defaults.
 
     `ReactionConditions()` would silently score primers at 30 C with no
@@ -580,7 +579,7 @@ def _resolve_conditions(conditions: Optional[ReactionConditions]) -> ReactionCon
     return build_reaction_conditions()
 
 
-def _read_step_csv(path: Path) -> Tuple[pd.DataFrame, bool]:
+def _read_step_csv(path: Path) -> tuple[pd.DataFrame, bool]:
     """Read a pipeline CSV and report whether it carries a written index.
 
     step2_df.csv is written with an unnamed positional index and step3_df.csv
@@ -596,8 +595,8 @@ def _read_step_csv(path: Path) -> Tuple[pd.DataFrame, bool]:
 
 def apply_qa_to_step2_output(
     data_dir: str,
-    config: Optional[QAFilterConfig] = None,
-    conditions: Optional[ReactionConditions] = None,
+    config: QAFilterConfig | None = None,
+    conditions: ReactionConditions | None = None,
     verbose: bool = True,
 ) -> QAFilterResult:
     """Filter `step2_df.csv` in place with the QA metrics, and write a report.
@@ -708,8 +707,8 @@ def order_by_composite_score(df):
 
 def apply_qa_to_step3_output(
     data_dir: str,
-    config: Optional[QAFilterConfig] = None,
-    conditions: Optional[ReactionConditions] = None,
+    config: QAFilterConfig | None = None,
+    conditions: ReactionConditions | None = None,
     verbose: bool = True,
 ) -> pd.DataFrame:
     """Blend QA scores into `step3_df.csv` in place.
@@ -757,7 +756,7 @@ def apply_qa_to_step3_output(
     return combined
 
 
-def _step2_qa_scores(step2_path: Path) -> Dict[str, float]:
+def _step2_qa_scores(step2_path: Path) -> dict[str, float]:
     """QA scores carried over from `filter --enable-qa`, empty if there are none."""
     if not step2_path.is_file():
         return {}
@@ -770,10 +769,10 @@ def _step2_qa_scores(step2_path: Path) -> Dict[str, float]:
 
 def qa_prefiltered_candidates(
     parameter_module,
-    config: Optional[QAFilterConfig] = None,
-    conditions: Optional[ReactionConditions] = None,
+    config: QAFilterConfig | None = None,
+    conditions: ReactionConditions | None = None,
     verbose: bool = True,
-) -> Optional[List[str]]:
+) -> list[str] | None:
     """Step-4 candidate pool with dimer-hub primers removed, or None.
 
     None tells the optimizer to load its own pool: either `--enable-qa` was not

@@ -18,7 +18,7 @@ Technical documentation for developers contributing to or extending NeoSWGA.
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.13+
 - Git
 - Jellyfish k-mer counter
 
@@ -574,7 +574,7 @@ profile = "black"
 line_length = 100
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 warn_return_any = true
 ignore_missing_imports = true
 ```

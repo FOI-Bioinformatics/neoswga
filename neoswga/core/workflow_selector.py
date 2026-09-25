@@ -12,7 +12,6 @@ neoswga features:
 import shlex
 import subprocess
 import sys
-from typing import List, Optional, Tuple
 
 
 def clear_screen():
@@ -20,7 +19,7 @@ def clear_screen():
     print("\033[H\033[J", end="")
 
 
-def execute_command(cmd: List[str]) -> bool:
+def execute_command(cmd: list[str]) -> bool:
     """
     Execute a neoswga command.
 
@@ -50,7 +49,7 @@ def execute_command(cmd: List[str]) -> bool:
         return False
 
 
-def prompt_execute(cmd: List[str], description: str = "") -> bool:
+def prompt_execute(cmd: list[str], description: str = "") -> bool:
     """
     Show a command and ask user if they want to execute it.
 
@@ -80,7 +79,7 @@ def prompt_execute(cmd: List[str], description: str = "") -> bool:
             print("Please enter 'y' or 'n'")
 
 
-def print_menu(title: str, options: List[Tuple[str, str]], show_quit: bool = True):
+def print_menu(title: str, options: list[tuple[str, str]], show_quit: bool = True):
     """
     Print a numbered menu.
 
@@ -105,7 +104,7 @@ def print_menu(title: str, options: List[Tuple[str, str]], show_quit: bool = Tru
         print()
 
 
-def get_choice(max_option: int) -> Optional[int]:
+def get_choice(max_option: int) -> int | None:
     """
     Get user's menu choice.
 

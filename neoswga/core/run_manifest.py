@@ -18,9 +18,9 @@ import logging
 import os
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 try:
     import fcntl
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 MANIFEST_FILENAME = "run_manifest.json"
 
 
-def _sha256(path: str) -> Optional[str]:
+def _sha256(path: str) -> str | None:
     try:
         h = hashlib.sha256()
         with open(path, "rb") as f:
@@ -46,7 +46,7 @@ def _sha256(path: str) -> Optional[str]:
         return None
 
 
-def _git_sha() -> Optional[str]:
+def _git_sha() -> str | None:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -61,7 +61,7 @@ def _git_sha() -> Optional[str]:
         return None
 
 
-def _jellyfish_version() -> Optional[str]:
+def _jellyfish_version() -> str | None:
     try:
         out = subprocess.run(
             ["jellyfish", "--version"],
@@ -86,15 +86,15 @@ def _neoswga_version() -> str:
 
 def write_manifest(
     step: str,
-    data_dir: Optional[str],
-    params_path: Optional[str] = None,
-    resolved_params: Optional[Dict[str, Any]] = None,
-    input_files: Optional[List[str]] = None,
-    output_files: Optional[List[str]] = None,
-    seed: Optional[int] = None,
-    extra: Optional[Dict[str, Any]] = None,
-    effective_conditions: Optional[Dict[str, Any]] = None,
-) -> Optional[str]:
+    data_dir: str | None,
+    params_path: str | None = None,
+    resolved_params: dict[str, Any] | None = None,
+    input_files: list[str] | None = None,
+    output_files: list[str] | None = None,
+    seed: int | None = None,
+    extra: dict[str, Any] | None = None,
+    effective_conditions: dict[str, Any] | None = None,
+) -> str | None:
     """Append a step entry to ``<data_dir>/run_manifest.json``.
 
     Args:
@@ -140,19 +140,19 @@ def write_manifest(
         except (OSError, json.JSONDecodeError) as e:
             logger.debug(f"Could not load params for manifest: {e}")
 
-    input_checksums: Dict[str, Optional[str]] = {}
+    input_checksums: dict[str, str | None] = {}
     for path in input_files or []:
         if path and os.path.exists(path):
             input_checksums[path] = _sha256(path)
 
-    output_checksums: Dict[str, Optional[str]] = {}
+    output_checksums: dict[str, str | None] = {}
     for path in output_files or []:
         if path and os.path.exists(path):
             output_checksums[path] = _sha256(path)
 
-    entry: Dict[str, Any] = {
+    entry: dict[str, Any] = {
         "step": step,
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
         "neoswga_version": _neoswga_version(),
         "git_sha": _git_sha(),
         "jellyfish_version": _jellyfish_version(),
@@ -183,7 +183,7 @@ def write_manifest(
                 # "a+" positions at end of file, so rewind before reading.
                 f.seek(0)
                 raw = f.read()
-                existing: Dict[str, Any] = {"steps": []}
+                existing: dict[str, Any] = {"steps": []}
                 if raw.strip():
                     try:
                         loaded = json.loads(raw)
@@ -210,9 +210,7 @@ def write_manifest(
     return manifest_path
 
 
-def read_effective_conditions(
-    data_dir: str, step: Optional[str] = None
-) -> Optional[Dict[str, Any]]:
+def read_effective_conditions(data_dir: str, step: str | None = None) -> dict[str, Any] | None:
     """The reaction conditions a recorded step ran under, if any.
 
     `export` and `report` otherwise reconstruct conditions from params.json,

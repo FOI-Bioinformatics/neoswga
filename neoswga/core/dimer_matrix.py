@@ -33,8 +33,8 @@ So the relation is a product of two indicator matrices over the `4**t` possible
 """
 
 import logging
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Dict, Iterator, List, Sequence, Tuple
 
 import numpy as np
 
@@ -51,14 +51,14 @@ _COMPLEMENT_CODE = {0: 3, 1: 2, 2: 1, 3: 0}
 MAX_CODES = 4**8
 
 
-def _codes(sequence: str, t: int) -> List[int]:
+def _codes(sequence: str, t: int) -> list[int]:
     """Integer codes of every t-mer in `sequence`, base-4, A=0 C=1 G=2 T=3.
 
     Any t-mer containing a character outside ACGT is skipped. A primer with an
     ambiguity code cannot be said to dimerise at that position, and treating an
     N as a wildcard match would flag pairs that do not form.
     """
-    out: List[int] = []
+    out: list[int] = []
     n = len(sequence)
     for start in range(n - t + 1):
         code = 0
@@ -94,7 +94,7 @@ class DimerMatrix:
     """
 
     pairs: np.ndarray
-    index: Dict[str, int]
+    index: dict[str, int]
     max_dimer_bp: int
     _warned_unindexed: bool = False
 
@@ -124,11 +124,10 @@ class DimerMatrix:
             return False
         return bool(self.pairs[i, cols].any())
 
-    def flagged_pairs(self) -> Iterator[Tuple[int, int]]:
+    def flagged_pairs(self) -> Iterator[tuple[int, int]]:
         """Every dimerising pair, as `i < j` index tuples."""
         rows, cols = np.nonzero(np.triu(self.pairs, k=1))
-        for i, j in zip(rows.tolist(), cols.tolist(), strict=True):
-            yield i, j
+        yield from zip(rows.tolist(), cols.tolist(), strict=True)
 
 
 def build(primers: Sequence[str], max_dimer_bp: int) -> DimerMatrix:

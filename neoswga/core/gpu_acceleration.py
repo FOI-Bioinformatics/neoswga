@@ -15,7 +15,6 @@ Falls back to NumPy if GPU unavailable.
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -43,7 +42,7 @@ def is_gpu_available() -> bool:
     return GPU_AVAILABLE
 
 
-def get_gpu_info() -> Dict:
+def get_gpu_info() -> dict:
     """
     Get information about GPU availability and device.
 
@@ -103,7 +102,7 @@ class GPUThermodynamics:
         self.temp_kelvin = cp.array(conditions.temp + 273.15)
         self.R = cp.array(1.987)  # Gas constant
 
-    def batch_calculate_tm(self, primers: List[str]) -> np.ndarray:
+    def batch_calculate_tm(self, primers: list[str]) -> np.ndarray:
         """
         Calculate Tm for batch of primers.
 
@@ -138,7 +137,7 @@ class GPUThermodynamics:
             # CPU fallback
             return np.array([self.conditions.calculate_effective_tm(p) for p in primers])
 
-    def batch_calculate_dg(self, primers: List[str], temperature: float = None) -> np.ndarray:
+    def batch_calculate_dg(self, primers: list[str], temperature: float = None) -> np.ndarray:
         """
         Calculate free energy for batch of primers (GPU-accelerated).
 
@@ -166,7 +165,7 @@ class GPUThermodynamics:
             return np.array([thermo.calculate_free_energy(p, temperature) for p in primers])
 
     def calculate_pairwise_binding_matrix(
-        self, primers: List[str], targets: List[str]
+        self, primers: list[str], targets: list[str]
     ) -> np.ndarray:
         """
         Calculate pairwise binding free energies (primers × targets).
@@ -215,7 +214,7 @@ class GPUThermodynamics:
             return matrix
 
     def batch_binding_probability(
-        self, primers: List[str], temperature: float = None
+        self, primers: list[str], temperature: float = None
     ) -> np.ndarray:
         """
         Calculate binding probabilities for batch of primers.
@@ -248,7 +247,7 @@ class GPUThermodynamics:
             boltzmann = np.exp(dgs * 1000 / (1.987 * temp_k))
             return 1 / (1 + boltzmann)
 
-    def calculate_gc_content_batch(self, primers: List[str]) -> np.ndarray:
+    def calculate_gc_content_batch(self, primers: list[str]) -> np.ndarray:
         """
         Calculate GC content for batch of primers (GPU-accelerated).
 
@@ -311,7 +310,7 @@ class PositionDatabase:
     - Persistent file handles
     """
 
-    def __init__(self, prefixes: List[str], cache_size: int = 10000):
+    def __init__(self, prefixes: list[str], cache_size: int = 10000):
         """
         Initialize position database.
 
@@ -347,7 +346,7 @@ class PositionDatabase:
         logger.info(f"  Files: {len(self.handles)}")
         logger.info(f"  Cache size: {cache_size}")
 
-    def get_positions(self, primer: str, prefix: str) -> Tuple[np.ndarray, np.ndarray]:
+    def get_positions(self, primer: str, prefix: str) -> tuple[np.ndarray, np.ndarray]:
         """
         Get positions for primer (with caching).
 
@@ -385,8 +384,8 @@ class PositionDatabase:
         return result
 
     def batch_get_positions(
-        self, primers: List[str], prefix: str
-    ) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+        self, primers: list[str], prefix: str
+    ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         """
         Batch load positions for multiple primers.
 
@@ -433,7 +432,7 @@ class PositionDatabase:
 
         return results
 
-    def _add_to_cache(self, key: Tuple, value: Tuple):
+    def _add_to_cache(self, key: tuple, value: tuple):
         """Add item to LRU cache."""
         if len(self.cache) >= self.cache_size:
             # Evict oldest
@@ -443,7 +442,7 @@ class PositionDatabase:
         self.cache[key] = value
         self.cache_order.append(key)
 
-    def preload_primers(self, primers: List[str], prefix: str):
+    def preload_primers(self, primers: list[str], prefix: str):
         """
         Preload positions for primers into cache.
 
@@ -455,7 +454,7 @@ class PositionDatabase:
         self.batch_get_positions(primers, prefix)
         logger.info(f"  Cache now contains {len(self.cache)} entries")
 
-    def get_cache_stats(self) -> Dict:
+    def get_cache_stats(self) -> dict:
         """Get cache statistics."""
         return {
             "size": len(self.cache),
@@ -487,7 +486,7 @@ def create_gpu_calculator(conditions: rc.ReactionConditions) -> GPUThermodynamic
     return GPUThermodynamics(conditions)
 
 
-def create_position_database(prefixes: List[str], cache_size: int = 10000) -> PositionDatabase:
+def create_position_database(prefixes: list[str], cache_size: int = 10000) -> PositionDatabase:
     """
     Create efficient position database.
 
@@ -501,7 +500,7 @@ def create_position_database(prefixes: List[str], cache_size: int = 10000) -> Po
     return PositionDatabase(prefixes, cache_size)
 
 
-def benchmark_gpu_vs_cpu(primers: List[str], conditions: rc.ReactionConditions):
+def benchmark_gpu_vs_cpu(primers: list[str], conditions: rc.ReactionConditions):
     """
     Benchmark GPU vs CPU performance.
 

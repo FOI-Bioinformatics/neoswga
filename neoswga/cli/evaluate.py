@@ -105,7 +105,7 @@ def _gap_statistics(cache, primers, prefixes, lengths, circular):
     arr = _np.array(sorted(gaps), dtype=float)
     n = len(arr)
     gini = (
-        float((2.0 * _np.sum((_np.arange(1, n + 1)) * arr) / (n * arr.sum()) - (n + 1) / n))
+        float(2.0 * _np.sum((_np.arange(1, n + 1)) * arr) / (n * arr.sum()) - (n + 1) / n)
         if arr.sum() > 0
         else 0.0
     )

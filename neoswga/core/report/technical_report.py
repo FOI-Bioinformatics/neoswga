@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape as html_escape
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from neoswga.core.report.metrics import (
     FilteringStats,
@@ -116,30 +115,30 @@ class TechnicalReportData:
     version: str = field(default_factory=_get_version)
 
     # Core data
-    metrics: Optional[PipelineMetrics] = None
-    quality: Optional[QualityAssessment] = None
+    metrics: PipelineMetrics | None = None
+    quality: QualityAssessment | None = None
 
     # Pipeline summary
     total_runtime: float = 0.0
-    step_runtimes: Dict[str, float] = field(default_factory=dict)
+    step_runtimes: dict[str, float] = field(default_factory=dict)
 
     # Filtering funnel
-    filtering_stages: List[tuple] = field(default_factory=list)
+    filtering_stages: list[tuple] = field(default_factory=list)
     # What the search could have examined against what it did. None when the
     # run did not record it, and then nothing is rendered: a missing figure
     # must not read as "reached none of it".
-    candidate_reach: Optional[Dict] = None
+    candidate_reach: dict | None = None
 
     # Coverage analysis
-    coverage_by_region: Dict[str, float] = field(default_factory=dict)
-    gaps: List[GapInfo] = field(default_factory=list)
-    binding_distribution: Dict[str, int] = field(default_factory=dict)
+    coverage_by_region: dict[str, float] = field(default_factory=dict)
+    gaps: list[GapInfo] = field(default_factory=list)
+    binding_distribution: dict[str, int] = field(default_factory=dict)
 
     # Primer profiles
-    primer_profiles: List[PrimerProfile] = field(default_factory=list)
+    primer_profiles: list[PrimerProfile] = field(default_factory=list)
 
     # Interactions
-    interactions: List[InteractionPair] = field(default_factory=list)
+    interactions: list[InteractionPair] = field(default_factory=list)
     max_interaction_dg: float = 0.0
 
 
@@ -234,7 +233,7 @@ def _calculate_primer_profile(
     )
 
 
-def _estimate_interactions(primers: List[PrimerMetrics]) -> List[InteractionPair]:
+def _estimate_interactions(primers: list[PrimerMetrics]) -> list[InteractionPair]:
     """
     Estimate primer-primer interactions.
 
@@ -474,7 +473,7 @@ def _render_components_breakdown(quality: QualityAssessment) -> str:
     return html
 
 
-def _render_parameters(params: Dict) -> str:
+def _render_parameters(params: dict) -> str:
     """Render parameters grid."""
     key_params = [
         ("min_k", "Min K-mer"),
@@ -509,7 +508,7 @@ def _render_parameters(params: Dict) -> str:
     return html
 
 
-def _render_ensemble_comparison(rows: List[Dict]) -> str:
+def _render_ensemble_comparison(rows: list[dict]) -> str:
     """Render the per-method ensemble comparison table (measured)."""
     if not rows:
         return ""
@@ -537,7 +536,7 @@ def _render_ensemble_comparison(rows: List[Dict]) -> str:
     )
 
 
-def _render_coverage_gaps(gaps: Optional[Dict]) -> str:
+def _render_coverage_gaps(gaps: dict | None) -> str:
     """Render coverage gaps from analyze-coverage (in-silico +/- BAM)."""
     if not gaps or not gaps.get("gaps"):
         return ""
@@ -569,7 +568,7 @@ def _render_coverage_gaps(gaps: Optional[Dict]) -> str:
     )
 
 
-def _render_per_target_coverage(per_target: Dict[str, float]) -> str:
+def _render_per_target_coverage(per_target: dict[str, float]) -> str:
     """Render per-target coverage for multi-genome runs (measured)."""
     if not per_target or len(per_target) < 2:
         return ""
@@ -613,7 +612,7 @@ def _render_strand_balance(uniformity) -> str:
     )
 
 
-def _render_reaction_conditions(conditions: Dict) -> str:
+def _render_reaction_conditions(conditions: dict) -> str:
     """Render the reaction conditions / additives used."""
     if not conditions:
         return ""
@@ -651,7 +650,7 @@ def _safe_num(value, default: float = 0.0) -> float:
         return default
 
 
-def _render_specificity_table(primers: List[PrimerMetrics]) -> str:
+def _render_specificity_table(primers: list[PrimerMetrics]) -> str:
     """Render per-primer specificity table."""
     html = ""
     for p in primers[:10]:  # Limit to top 10
@@ -670,7 +669,7 @@ def _render_specificity_table(primers: List[PrimerMetrics]) -> str:
     return html
 
 
-def _render_tm_table(primers: List[PrimerMetrics], reaction_temp: float) -> str:
+def _render_tm_table(primers: list[PrimerMetrics], reaction_temp: float) -> str:
     """Render Tm distribution table."""
     html = ""
     for p in primers:
@@ -689,7 +688,7 @@ def _render_tm_table(primers: List[PrimerMetrics], reaction_temp: float) -> str:
     return html
 
 
-def _render_primer_profiles(profiles: List[PrimerProfile]) -> str:
+def _render_primer_profiles(profiles: list[PrimerProfile]) -> str:
     """Render detailed primer profile cards."""
     html = ""
     for profile in profiles[:10]:  # Limit to top 10
@@ -731,7 +730,7 @@ def _render_primer_profiles(profiles: List[PrimerProfile]) -> str:
     return html
 
 
-def _render_interactions_table(interactions: List[InteractionPair]) -> str:
+def _render_interactions_table(interactions: list[InteractionPair]) -> str:
     """Render interactions table."""
     if not interactions:
         return "<tr><td colspan='4'>No significant interactions detected.</td></tr>"
@@ -809,7 +808,7 @@ def _render_final_recommendation(quality: QualityAssessment) -> str:
     """
 
 
-def _render_considerations(considerations: List[str]) -> str:
+def _render_considerations(considerations: list[str]) -> str:
     """Render considerations list."""
     if not considerations:
         return ""
@@ -824,7 +823,7 @@ def _render_considerations(considerations: List[str]) -> str:
     """
 
 
-def _render_protocol(params: Dict, quality: QualityAssessment) -> str:
+def _render_protocol(params: dict, quality: QualityAssessment) -> str:
     """Render suggested protocol."""
     polymerase = escape_format_braces(html_escape(str(params.get("polymerase", "phi29"))))
     temp = params.get("reaction_temp", 30)
@@ -1198,7 +1197,7 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
 
 def generate_technical_report(
     results_dir: str,
-    output_file: Optional[str] = None,
+    output_file: str | None = None,
     interactive: bool = False,
 ) -> TechnicalReportData:
     """

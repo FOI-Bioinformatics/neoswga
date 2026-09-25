@@ -32,7 +32,6 @@ Version: 3.2 - Tier 1 Improvements (Sprint 2)
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -77,7 +76,7 @@ class PrimerDimerProfile:
     max_severity: float  # Worst interaction severity
     mean_severity: float  # Average severity across all interactions
     total_binding_energy: float  # Sum of all ΔG < -9 kcal/mol
-    problematic_partners: List[str]  # Primers with severity > 0.5
+    problematic_partners: list[str]  # Primers with severity > 0.5
     is_hub: bool  # Whether this is a hub primer (high interaction count)
 
     def __str__(self):
@@ -100,10 +99,10 @@ class DimerNetworkMetrics:
     num_hub_primers: int  # Count of hub primers
     mean_severity: float  # Mean across all pairwise interactions
     max_severity: float  # Worst interaction in the set
-    severity_distribution: Dict[str, int]  # Counts in severity bins
+    severity_distribution: dict[str, int]  # Counts in severity bins
     total_binding_energy: float  # Sum of all dimer binding energies
     passes: bool  # Whether set passes quality thresholds
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
 
     def __str__(self):
         status = "PASS" if self.passes else f"FAIL ({self.failure_reason})"
@@ -141,7 +140,7 @@ class DimerNetworkAnalyzer:
 
     def __init__(
         self,
-        conditions: Optional[ReactionConditions] = None,
+        conditions: ReactionConditions | None = None,
         severity_threshold: float = 0.3,
         hub_threshold: int = 3,
         max_mean_severity: float = 0.2,
@@ -164,8 +163,8 @@ class DimerNetworkAnalyzer:
         self.max_hub_primers = max_hub_primers
 
     def analyze_primer_set(
-        self, primers: List[str], verbose: bool = False
-    ) -> Tuple[DimerNetworkMetrics, Dict[str, PrimerDimerProfile], np.ndarray]:
+        self, primers: list[str], verbose: bool = False
+    ) -> tuple[DimerNetworkMetrics, dict[str, PrimerDimerProfile], np.ndarray]:
         """
         Comprehensive network analysis of primer set.
 
@@ -215,7 +214,7 @@ class DimerNetworkAnalyzer:
         return network_metrics, primer_profiles, dimer_matrix
 
     def _analyze_primer_profile(
-        self, primer: str, primer_idx: int, all_primers: List[str], dimer_matrix: np.ndarray
+        self, primer: str, primer_idx: int, all_primers: list[str], dimer_matrix: np.ndarray
     ) -> PrimerDimerProfile:
         """Analyze dimer interaction profile for a single primer."""
         n = len(all_primers)
@@ -263,9 +262,9 @@ class DimerNetworkAnalyzer:
 
     def _calculate_network_metrics(
         self,
-        primers: List[str],
+        primers: list[str],
         dimer_matrix: np.ndarray,
-        primer_profiles: Dict[str, PrimerDimerProfile],
+        primer_profiles: dict[str, PrimerDimerProfile],
     ) -> DimerNetworkMetrics:
         """Calculate overall network-level metrics."""
         n = len(primers)
@@ -342,8 +341,8 @@ class DimerNetworkAnalyzer:
         )
 
     def identify_primers_to_replace(
-        self, primer_profiles: Dict[str, PrimerDimerProfile], n: int = 3
-    ) -> List[str]:
+        self, primer_profiles: dict[str, PrimerDimerProfile], n: int = 3
+    ) -> list[str]:
         """
         Identify the n primers that should be replaced to improve network.
 
@@ -384,11 +383,11 @@ class DimerNetworkAnalyzer:
 
     def suggest_replacements(
         self,
-        current_set: List[str],
-        candidate_pool: List[str],
-        primers_to_replace: List[str],
+        current_set: list[str],
+        candidate_pool: list[str],
+        primers_to_replace: list[str],
         max_candidates: int = 10,
-    ) -> Dict[str, List[Tuple[str, float]]]:
+    ) -> dict[str, list[tuple[str, float]]]:
         """
         Suggest replacement primers from candidate pool.
 
@@ -447,8 +446,8 @@ class DimerNetworkAnalyzer:
         return suggestions
 
     def optimize_set_greedy(
-        self, primers: List[str], candidate_pool: List[str], max_iterations: int = 5
-    ) -> Tuple[List[str], DimerNetworkMetrics]:
+        self, primers: list[str], candidate_pool: list[str], max_iterations: int = 5
+    ) -> tuple[list[str], DimerNetworkMetrics]:
         """
         Greedy optimization of primer set to minimize dimer burden.
 
@@ -537,7 +536,7 @@ class DimerNetworkAnalyzer:
 
 
 def create_dimer_network_analyzer(
-    stringency: str = "moderate", conditions: Optional[ReactionConditions] = None
+    stringency: str = "moderate", conditions: ReactionConditions | None = None
 ) -> DimerNetworkAnalyzer:
     """
     Create dimer network analyzer with preset stringency levels.
@@ -579,10 +578,10 @@ def create_dimer_network_analyzer(
 
 # Utility function for quick filtering
 def filter_primer_set_by_dimer_network(
-    primers: List[str],
+    primers: list[str],
     stringency: str = "moderate",
-    conditions: Optional[ReactionConditions] = None,
-) -> Tuple[bool, DimerNetworkMetrics]:
+    conditions: ReactionConditions | None = None,
+) -> tuple[bool, DimerNetworkMetrics]:
     """
     Quick utility to check if primer set passes dimer network quality.
 

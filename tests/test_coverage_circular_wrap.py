@@ -15,7 +15,6 @@ the wrap is implemented.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
 
 import numpy as np
 import pytest
@@ -95,7 +94,7 @@ class _StubCache:
     Returns positions for a single primer on a single prefix.
     """
 
-    def __init__(self, positions: List[int]):
+    def __init__(self, positions: list[int]):
         self._positions = np.asarray(positions, dtype=int)
 
     def get_positions(self, prefix, primer, strand):  # noqa: ARG002
@@ -155,7 +154,7 @@ class _BareOptimizer:
         self.config = _FakeConfig(extension_reach=reach, fg_circular=circular)
 
 
-def _compute(circular: bool, positions: List[int], length: int, reach: int = 3000) -> float:
+def _compute(circular: bool, positions: list[int], length: int, reach: int = 3000) -> float:
     from neoswga.core.base_optimizer import BaseOptimizer
 
     opt = _BareOptimizer(circular=circular, reach=reach)

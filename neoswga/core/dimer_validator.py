@@ -24,7 +24,6 @@ Usage:
 """
 
 import logging
-from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -69,7 +68,7 @@ class DimerValidator:
 
         return dimer.is_dimer_fast(primer, primer, self.max_self_dimer_bp)
 
-    def build_matrix(self, primers: List[str]) -> np.ndarray:
+    def build_matrix(self, primers: list[str]) -> np.ndarray:
         """Build an n x n binary dimer matrix.
 
         Entry (i, j) is 1 if primers[i] and primers[j] form a dimer,
@@ -91,7 +90,7 @@ class DimerValidator:
 
         return matrix.astype(bool)
 
-    def is_set_compatible(self, primers: List[str]) -> bool:
+    def is_set_compatible(self, primers: list[str]) -> bool:
         """Return True if no pair in the set forms a dimer."""
         for i in range(len(primers)):
             for j in range(i + 1, len(primers)):
@@ -99,7 +98,7 @@ class DimerValidator:
                     return False
         return True
 
-    def dimer_risk(self, primers: List[str]) -> float:
+    def dimer_risk(self, primers: list[str]) -> float:
         """Fraction of primer pairs that form dimers (0.0 = dimer-free)."""
         n = len(primers)
         if n < 2:
@@ -113,7 +112,7 @@ class DimerValidator:
                     dimers += 1
         return dimers / total
 
-    def incompatible_pairs(self, primers: List[str]) -> List[Tuple[str, str]]:
+    def incompatible_pairs(self, primers: list[str]) -> list[tuple[str, str]]:
         """Return list of primer pairs that form dimers."""
         pairs = []
         for i in range(len(primers)):
@@ -122,7 +121,7 @@ class DimerValidator:
                     pairs.append((primers[i], primers[j]))
         return pairs
 
-    def filter_self_dimers(self, primers: List[str]) -> List[str]:
+    def filter_self_dimers(self, primers: list[str]) -> list[str]:
         """Remove primers that form homodimers."""
         return [p for p in primers if not self.has_self_dimer(p)]
 

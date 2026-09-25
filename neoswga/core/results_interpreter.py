@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from neoswga.core import quality_thresholds as _thresholds
 from neoswga.core.delivered_set import DEFAULT_SET_INDEX, read_delivered_set
@@ -80,12 +80,12 @@ class ResultsReport:
     """Complete results interpretation report."""
 
     primer_count: int
-    assessments: List[MetricAssessment]
+    assessments: list[MetricAssessment]
     overall_rating: QualityRating
     recommendation: str
-    next_steps: List[str]
-    warnings: List[str]
-    enrichment_estimate: Optional[Dict[str, Any]] = None
+    next_steps: list[str]
+    warnings: list[str]
+    enrichment_estimate: dict[str, Any] | None = None
 
 
 def _blurb(thresholds, fmt):
@@ -125,7 +125,7 @@ DIMER_SCORE_THRESHOLDS = _by_rating(_thresholds.DIMER_RISK)  # Lower is better
 
 
 def rate_metric(
-    value: float, thresholds: Dict[QualityRating, float], lower_is_better: bool = False
+    value: float, thresholds: dict[QualityRating, float], lower_is_better: bool = False
 ) -> QualityRating:
     """
     Rate a metric value against thresholds.
@@ -172,7 +172,7 @@ class ResultsInterpreter:
         interpreter.print_report(report)
     """
 
-    def __init__(self, results_dir: str, set_index: Optional[int] = DEFAULT_SET_INDEX):
+    def __init__(self, results_dir: str, set_index: int | None = DEFAULT_SET_INDEX):
         """
         Initialize interpreter with results directory.
 
@@ -193,7 +193,7 @@ class ResultsInterpreter:
         # `neoswga report` reads it and renders the warnings; this did not.
         self.validation_file = self.results_dir / "step4_improved_df_validation.json"
 
-    def _validator_warnings(self) -> List[str]:
+    def _validator_warnings(self) -> list[str]:
         """Human-readable findings the optimizer recorded about this set."""
         if not self.validation_file.exists():
             return []
@@ -384,7 +384,7 @@ class ResultsInterpreter:
             enrichment_estimate=enrichment_estimate,
         )
 
-    def _load_step4_results(self) -> List[Dict]:
+    def _load_step4_results(self) -> list[dict]:
         """The delivered set, not every alternative in the file.
 
         This read every row until 2026-09-21, so a run that found alternatives
@@ -395,7 +395,7 @@ class ResultsInterpreter:
         delivered = read_delivered_set(self.step4_file, self.set_index)
         return list(delivered.rows)
 
-    def _load_step3_results(self) -> List[Dict]:
+    def _load_step3_results(self) -> list[dict]:
         """Load results from step3 output file."""
         primers = []
         with open(self.step3_file) as f:
@@ -404,7 +404,7 @@ class ResultsInterpreter:
                 primers.append(row)
         return primers
 
-    def _calculate_coverage(self, primers: List[Dict]) -> Optional[float]:
+    def _calculate_coverage(self, primers: list[dict]) -> float | None:
         """Calculate genome coverage from primer data."""
         # Look for coverage field
         for key in ["coverage", "genome_coverage", "fg_coverage"]:
@@ -420,7 +420,7 @@ class ResultsInterpreter:
 
         return None
 
-    def _calculate_enrichment(self, primers: List[Dict]) -> Optional[float]:
+    def _calculate_enrichment(self, primers: list[dict]) -> float | None:
         """Calculate enrichment ratio from primer data."""
         # Look for enrichment field
         for key in ["enrichment", "enrichment_ratio", "fg_bg_ratio"]:
@@ -449,7 +449,7 @@ class ResultsInterpreter:
 
         return None
 
-    def _calculate_uniformity(self, primers: List[Dict]) -> Optional[float]:
+    def _calculate_uniformity(self, primers: list[dict]) -> float | None:
         """Calculate binding uniformity (Gini index) from primer data."""
         for key in ["gini", "gini_index", "uniformity"]:
             values = [float(p.get(key, 0)) for p in primers if key in p]
@@ -459,7 +459,7 @@ class ResultsInterpreter:
                 return max(values)
         return None
 
-    def _calculate_dimer_score(self, primers: List[Dict]) -> Optional[float]:
+    def _calculate_dimer_score(self, primers: list[dict]) -> float | None:
         """Calculate dimer risk score from primer data."""
         # `dimer_risk_score` is the column step 4 actually writes, and is pinned
         # as canonical by tests/integration/test_output_column_parity.py. It was
@@ -474,7 +474,7 @@ class ResultsInterpreter:
                 return max(values)  # Worst case dimer risk
         return None
 
-    def _estimate_enrichment_fold(self, primers: List[Dict]) -> Optional[Dict[str, Any]]:
+    def _estimate_enrichment_fold(self, primers: list[dict]) -> dict[str, Any] | None:
         """Estimate enrichment fold-change using mechanistic model.
 
         Uses the four-pathway mechanistic model to predict amplification
@@ -502,7 +502,7 @@ class ResultsInterpreter:
         try:
             with open(params_path) as f:
                 params = json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return None
 
         # Build reaction conditions
@@ -573,8 +573,8 @@ class ResultsInterpreter:
             return None
 
     def _generate_recommendation(
-        self, overall: QualityRating, warnings: List[str]
-    ) -> Tuple[str, List[str]]:
+        self, overall: QualityRating, warnings: list[str]
+    ) -> tuple[str, list[str]]:
         """Generate recommendation and next steps based on assessment."""
         # A finding the optimizer recorded about this very set outranks the
         # composite rating. Telling someone to order oligos that break the
@@ -688,7 +688,7 @@ class ResultsInterpreter:
 
 
 def interpret_results(
-    results_dir: str, verbose: bool = True, set_index: Optional[int] = DEFAULT_SET_INDEX
+    results_dir: str, verbose: bool = True, set_index: int | None = DEFAULT_SET_INDEX
 ) -> ResultsReport:
     """
     Interpret pipeline results.

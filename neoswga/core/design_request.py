@@ -35,9 +35,10 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field, fields
 from types import SimpleNamespace
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any
 
 from .exceptions import InvalidDesignRequest, UnsupportedModelError
 
@@ -53,7 +54,7 @@ __all__ = [
 # Keys the schema no longer accepts, with what to do instead. Refused by name,
 # because a retired key that is merely ignored applies a default the user did
 # not choose and believes they overrode.
-RETIRED_SETTINGS: Dict[str, str] = {
+RETIRED_SETTINGS: dict[str, str] = {
     "candidate_retention:legacy": (
         "candidate_retention='legacy' gave a background index to the shortlisted "
         "candidates only, so everything else scored against an empty background "
@@ -102,7 +103,7 @@ class ConcentrationPolicy:
     mode: str
     molar: float
 
-    def concentrations(self, oligos: Tuple[str, ...]) -> Tuple[float, ...]:
+    def concentrations(self, oligos: tuple[str, ...]) -> tuple[float, ...]:
         count = len(oligos)
         if count == 0:
             return ()
@@ -122,12 +123,12 @@ class DesignRequest:
     """Everything a design run is configured by, and nothing it computes."""
 
     # References
-    fg_prefixes: Tuple[str, ...]
-    fg_seq_lengths: Tuple[int, ...]
-    bg_prefixes: Tuple[str, ...]
-    bg_seq_lengths: Tuple[int, ...]
-    fg_genomes: Tuple[str, ...]
-    bg_genomes: Tuple[str, ...]
+    fg_prefixes: tuple[str, ...]
+    fg_seq_lengths: tuple[int, ...]
+    bg_prefixes: tuple[str, ...]
+    bg_seq_lengths: tuple[int, ...]
+    fg_genomes: tuple[str, ...]
+    bg_genomes: tuple[str, ...]
     fg_circular: bool
 
     # Chemistry
@@ -139,31 +140,31 @@ class DesignRequest:
 
     # Candidate source identity
     data_dir: str
-    primer_lengths: Tuple[int, ...]
+    primer_lengths: tuple[int, ...]
     candidate_retention: str
 
     # Panel composition
-    fixed_oligos: Tuple[str, ...]
-    excluded_oligos: Tuple[str, ...]
+    fixed_oligos: tuple[str, ...]
+    excluded_oligos: tuple[str, ...]
     target_size: int
     max_sets: int
 
     # Hard limits
     max_dimer_bp: int
     max_self_dimer_bp: int
-    max_dimer_dg: Optional[float]
+    max_dimer_dg: float | None
     constraints: Any
 
     # Search
-    total_search_evaluations: Optional[int]
-    total_search_seconds: Optional[float]
+    total_search_evaluations: int | None
+    total_search_seconds: float | None
     max_frontier_refills: int
-    optimization_method: Optional[str]
-    seed: Optional[int]
+    optimization_method: str | None
+    seed: int | None
 
     # Models and chemistry policy
     concentration_policy: ConcentrationPolicy
-    model_versions: Tuple[Tuple[str, str], ...]
+    model_versions: tuple[tuple[str, str], ...]
 
     #: Where each resolved setting came from: "request", or a named default.
     default_sources: Mapping[str, str] = field(default_factory=dict)
@@ -178,15 +179,15 @@ class DesignRequest:
     #
     # Defaulted so a hand-constructed request keeps working.
     bg_circular: bool = False
-    iterations: Optional[int] = None
-    refinement_method: Optional[str] = None
-    stage1_objective_width: Optional[int] = None
-    swap_max_evaluations: Optional[int] = None
-    swap_max_seconds: Optional[float] = None
+    iterations: int | None = None
+    refinement_method: str | None = None
+    stage1_objective_width: int | None = None
+    swap_max_evaluations: int | None = None
+    swap_max_seconds: float | None = None
 
     # ---------------------------------------------------------------- hashing
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """A JSON-serializable form, including the hash it produces."""
         payload = {name: _plain(getattr(self, name)) for name in _HASHED_FIELDS}
         payload["default_sources"] = dict(sorted(self.default_sources.items()))
@@ -226,13 +227,13 @@ class DesignRequest:
         """Total oligo concentration for the panel size this request asks for."""
         return self.concentration_policy.total_molar(self.target_size)
 
-    def concentrations_molar(self, oligos: Tuple[str, ...]) -> Tuple[float, ...]:
+    def concentrations_molar(self, oligos: tuple[str, ...]) -> tuple[float, ...]:
         """Each oligo's concentration under the declared allocation mode."""
         return self.concentration_policy.concentrations(tuple(oligos))
 
     # ----------------------------------------------------------------- helpers
 
-    def reference_manifest(self) -> Dict[str, str]:
+    def reference_manifest(self) -> dict[str, str]:
         """Each prefix paired with the genome its index must have been built from.
 
         Paired positionally, which is how every other part of this codebase
@@ -242,7 +243,7 @@ class DesignRequest:
         it with whatever happened to be in a mutable global is not. That pairing
         is what made a design refuse its own index under `pytest -n 8`.
         """
-        manifest: Dict[str, str] = {}
+        manifest: dict[str, str] = {}
         for prefixes, genomes in (
             (self.fg_prefixes, self.fg_genomes),
             (self.bg_prefixes, self.bg_genomes),
@@ -371,7 +372,7 @@ def _reject_unknown_and_retired(params: Mapping[str, Any]) -> None:
         )
 
 
-def _resolve_reach(params: Mapping[str, Any], polymerase: str, sources: Dict[str, str]) -> int:
+def _resolve_reach(params: Mapping[str, Any], polymerase: str, sources: dict[str, str]) -> int:
     """The selection reach, refusing an explicit zero rather than replacing it.
 
     `design_context_from_params` used `override or params.get(...)`, so an
@@ -395,7 +396,7 @@ def _resolve_reach(params: Mapping[str, Any], polymerase: str, sources: Dict[str
 
 
 def _resolve_concentration(
-    params: Mapping[str, Any], sources: Dict[str, str]
+    params: Mapping[str, Any], sources: dict[str, str]
 ) -> ConcentrationPolicy:
     mode = params.get("concentration_mode")
     if mode is None:
@@ -423,7 +424,7 @@ def _resolve_concentration(
     return ConcentrationPolicy(mode=mode, molar=value)
 
 
-def _resolve_budgets(params: Mapping[str, Any], sources: Dict[str, str]) -> Dict[str, Any]:
+def _resolve_budgets(params: Mapping[str, Any], sources: dict[str, str]) -> dict[str, Any]:
     from .search_control import resolve_search_settings
 
     for key in ("total_search_evaluations", "total_search_seconds", "max_frontier_refills"):
@@ -434,7 +435,7 @@ def _resolve_budgets(params: Mapping[str, Any], sources: Dict[str, str]) -> Dict
     return resolve_search_settings(dict(params))
 
 
-def _resolve_oligos(params: Mapping[str, Any]) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+def _resolve_oligos(params: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     fixed = tuple(str(p).upper() for p in (params.get("fixed_oligos") or ()))
     excluded = tuple(str(p).upper() for p in (params.get("excluded_oligos") or ()))
     both = sorted(set(fixed) & set(excluded))
@@ -530,7 +531,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     _reject_unknown_and_retired(params)
     _require_finite(params)
 
-    sources: Dict[str, str] = {}
+    sources: dict[str, str] = {}
     polymerase = str(params.get("polymerase") or "phi29")
     sources["polymerase"] = "request" if params.get("polymerase") else "default:phi29"
 
@@ -630,7 +631,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     return request
 
 
-def _model_versions() -> Tuple[Tuple[str, str], ...]:
+def _model_versions() -> tuple[tuple[str, str], ...]:
     """Identifiers for the models a design's numbers depend on.
 
     Part of the request so a saved result names the code that produced it.
@@ -647,7 +648,7 @@ def _model_versions() -> Tuple[Tuple[str, str], ...]:
     )
 
 
-def params_from_parameter_module(parameter) -> Dict[str, Any]:
+def params_from_parameter_module(parameter) -> dict[str, Any]:
     """Project the resolved `parameter` module onto the settings a request takes.
 
     The module carries far more than configuration -- loaders, caches, helpers
@@ -675,7 +676,7 @@ def design_request_from_parameter_module(parameter) -> DesignRequest:
     return resolve_design_request(params_from_parameter_module(parameter))
 
 
-def design_request_for_run(args, parameter) -> Optional[DesignRequest]:
+def design_request_for_run(args, parameter) -> DesignRequest | None:
     """The request a command is about to execute, resolved before it starts.
 
     Read from the params FILE rather than from the `parameter` module, because
@@ -697,7 +698,7 @@ def design_request_for_run(args, parameter) -> Optional[DesignRequest]:
     return resolve_design_request(supplied)
 
 
-def effective_design_request(args, target_size=None) -> Optional[DesignRequest]:
+def effective_design_request(args, target_size=None) -> DesignRequest | None:
     """The request the run actually executed, for the record.
 
     `design_request_for_run` reads the params FILE, and is right to: it runs
@@ -731,7 +732,7 @@ def effective_design_request(args, target_size=None) -> Optional[DesignRequest]:
     return resolve_design_request(supplied)
 
 
-def effective_request_for_manifest(args, target_size) -> Optional[DesignRequest]:
+def effective_request_for_manifest(args, target_size) -> DesignRequest | None:
     """The effective request, or the file's if the overlay cannot be built.
 
     A manifest entry must never be the reason a finished run fails, so a

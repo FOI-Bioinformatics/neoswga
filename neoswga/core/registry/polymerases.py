@@ -26,8 +26,8 @@ This module is deliberately stdlib-only: ``param_validator``, the argparse
 have to pull in numpy/scipy just to learn the polymerase names.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Dict, Mapping, Optional, Tuple
 
 __all__ = [
     "PolymeraseSpec",
@@ -57,9 +57,9 @@ class PolymeraseSpec:
     #   temp_hard_range     outside this, ReactionConditions raises (_validate)
     #   temp_warn_range     outside this, param_validator warns
     optimal_temp: float
-    temp_optimal_range: Tuple[float, float]
-    temp_hard_range: Tuple[float, float]
-    temp_warn_range: Tuple[float, float]
+    temp_optimal_range: tuple[float, float]
+    temp_hard_range: tuple[float, float]
+    temp_warn_range: tuple[float, float]
 
     # -- Reach -------------------------------------------------------------
     # Three distinct quantities, ordered smallest to largest. Conflating them
@@ -101,11 +101,11 @@ class PolymeraseSpec:
     #   primer_length_range      design k-mer window (min_k, max_k)
     #   default_primer_length    single scalar default (cli/commands.py)
     #   additive_opt_base_length additive-optimizer base length
-    primer_length_range: Tuple[int, int]
+    primer_length_range: tuple[int, int]
     default_primer_length: int
     additive_opt_base_length: int
-    primer_tm_range: Tuple[float, float]
-    gc_range: Tuple[float, float]
+    primer_tm_range: tuple[float, float]
+    gc_range: tuple[float, float]
 
     # -- Optimizer / preset knobs -----------------------------------------
     # preset_reaction_temp is the operating temperature hybrid_optimizer and
@@ -131,16 +131,16 @@ class PolymeraseSpec:
     additive_limits: Mapping[str, float] = field(default_factory=dict)
     dmso_response: Mapping[str, float] = field(default_factory=dict)
 
-    aliases: Tuple[str, ...] = ()
-    references: Tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+    references: tuple[str, ...] = ()
 
     @property
-    def temp_range(self) -> Tuple[float, float]:
+    def temp_range(self) -> tuple[float, float]:
         """Back-compat alias for the vendor-optimal band."""
         return self.temp_optimal_range
 
 
-POLYMERASES: Dict[str, PolymeraseSpec] = {
+POLYMERASES: dict[str, PolymeraseSpec] = {
     "phi29": PolymeraseSpec(
         key="phi29",
         display_name="Phi29 DNA Polymerase",
@@ -379,7 +379,7 @@ POLYMERASES: Dict[str, PolymeraseSpec] = {
 }
 
 
-_ALIAS_INDEX: Dict[str, str] = {
+_ALIAS_INDEX: dict[str, str] = {
     alias.lower(): spec.key for spec in POLYMERASES.values() for alias in spec.aliases
 }
 
@@ -389,7 +389,7 @@ def polymerase_names() -> list:
     return list(POLYMERASES)
 
 
-def resolve_polymerase_name(name: Optional[str]) -> Optional[str]:
+def resolve_polymerase_name(name: str | None) -> str | None:
     """Map a name or alias to its canonical key, or None if unknown."""
     if not name:
         return None
@@ -399,7 +399,7 @@ def resolve_polymerase_name(name: Optional[str]) -> Optional[str]:
     return _ALIAS_INDEX.get(lowered)
 
 
-def get_polymerase(name: Optional[str], default: Optional[str] = None) -> PolymeraseSpec:
+def get_polymerase(name: str | None, default: str | None = None) -> PolymeraseSpec:
     """Look up a polymerase spec by name or alias.
 
     Args:

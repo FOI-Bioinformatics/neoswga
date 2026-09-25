@@ -10,7 +10,7 @@ trading a small false-positive rate for a ~100x memory reduction.
 1. Build the Bloom filter once from the host FASTA:
 
    ```bash
-   neoswga build-filter path/to/GRCh38.fna ./bloom
+   neoswga build-filter --genome path/to/GRCh38.fna -o ./bloom
    ```
 
    This writes `./bloom/background.pkl` and `./bloom/sampled.pkl`.

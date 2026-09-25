@@ -32,7 +32,6 @@ import logging
 import time
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -92,11 +91,11 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
-        config: Optional[OptimizerConfig] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
+        config: OptimizerConfig | None = None,
         conditions=None,
         **kwargs,
     ):
@@ -186,7 +185,7 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
         return True
 
     def optimize(
-        self, candidates: List[str], target_size: Optional[int] = None, **kwargs
+        self, candidates: list[str], target_size: int | None = None, **kwargs
     ) -> OptimizationResult:
         """Run background-aware optimization via HybridOptimizer."""
         if not self.bg_prefixes:

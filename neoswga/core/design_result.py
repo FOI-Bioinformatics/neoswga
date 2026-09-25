@@ -26,7 +26,7 @@ reason `exceptions.py` does not: the CLI boundary imports it on every command.
 from __future__ import annotations
 
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .exceptions import DesignError
 
@@ -90,9 +90,9 @@ def recommendation_allowed(run_state: str, qualified: bool) -> bool:
 def describe_failure(
     error: BaseException,
     stage: str,
-    request_hash: Optional[str] = None,
+    request_hash: str | None = None,
     include_traceback: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """A JSON-serializable failure record naming stage, input and model.
 
     Written in place of a result so that a stale output directory cannot leave
@@ -104,7 +104,7 @@ def describe_failure(
     retain one. A `DesignError` is expected and self-describing, so its
     traceback is informative rather than required.
     """
-    record: Dict[str, Any] = {
+    record: dict[str, Any] = {
         "run_state": RunState.FAILED,
         "termination": TerminationReason.ERROR,
         "stage": str(stage),

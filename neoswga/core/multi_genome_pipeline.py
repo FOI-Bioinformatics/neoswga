@@ -32,7 +32,6 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from Bio import SeqIO
 
@@ -64,26 +63,26 @@ class MultiGenomePipelineResult:
     """
 
     # Selected primers
-    primers: List[str]
+    primers: list[str]
     primer_count: int
 
     # Target genome characteristics
-    target_genome_names: List[str]
-    target_genome_sizes: List[int]
-    target_gc_contents: List[float]
+    target_genome_names: list[str]
+    target_genome_sizes: list[int]
+    target_gc_contents: list[float]
     mean_target_gc: float
     genome_classification: str
 
     # Non-target genomes
-    background_genome_names: List[str]
-    blacklist_genome_names: List[str]
+    background_genome_names: list[str]
+    blacklist_genome_names: list[str]
 
     # Strategy
     polymerase: str
     reaction_temp: float
     betaine_concentration: float
     dmso_concentration: float
-    kmer_range: Tuple[int, int]
+    kmer_range: tuple[int, int]
 
     # Multi-genome performance metrics
     mean_target_frequency: float
@@ -97,12 +96,12 @@ class MultiGenomePipelineResult:
     # a position cache, so genome coverage / amplification-network connectivity
     # are not available here (run the position-based pipeline + optimize, or
     # validate_with_simulation, for those). They are None rather than fabricated.
-    coverage: Optional[float]
-    connectivity: Optional[float]
-    predicted_amplification: Optional[float]
+    coverage: float | None
+    connectivity: float | None
+    predicted_amplification: float | None
 
     # Optimization details
-    stage1_primer_count: Optional[int]
+    stage1_primer_count: int | None
     stage2_primer_count: int
     optimization_method: str
 
@@ -116,11 +115,11 @@ class MultiGenomePipelineResult:
     protocol: str
 
     # Optional simulation
-    simulation_coverage: Optional[float] = None
-    simulation_fitness: Optional[float] = None
+    simulation_coverage: float | None = None
+    simulation_fitness: float | None = None
 
     # Per-genome details
-    per_genome_frequencies: Optional[Dict[str, List[float]]] = None
+    per_genome_frequencies: dict[str, list[float]] | None = None
 
 
 class MultiGenomePipeline:
@@ -141,8 +140,8 @@ class MultiGenomePipeline:
         self,
         genome_set: GenomeSet,
         output_dir: str = "multi_genome_results",
-        kmer_range: Optional[Tuple[int, int]] = None,
-        preferred_polymerase: Optional[str] = None,
+        kmer_range: tuple[int, int] | None = None,
+        preferred_polymerase: str | None = None,
         primer_count: int = 12,
         validate_with_simulation: bool = False,
         cpus: int = 4,
@@ -187,7 +186,7 @@ class MultiGenomePipeline:
         logger.info(f"  Output directory: {self.output_dir}")
         logger.info(genome_set.summary())
 
-    def _count_candidates_all_genomes(self, candidates: List[str]) -> Dict[str, Dict[str, int]]:
+    def _count_candidates_all_genomes(self, candidates: list[str]) -> dict[str, dict[str, int]]:
         """
         Count every candidate primer in every registered genome.
 
@@ -203,13 +202,13 @@ class MultiGenomePipeline:
         Returns:
             {genome_name: {candidate: count}}, with 0 for absent candidates.
         """
-        by_k: Dict[int, List[str]] = {}
+        by_k: dict[int, list[str]] = {}
         for primer in candidates:
             by_k.setdefault(len(primer), []).append(primer)
 
-        all_counts: Dict[str, Dict[str, int]] = {}
+        all_counts: dict[str, dict[str, int]] = {}
         for genome in self.genome_set.get_all_genomes():
-            counts: Dict[str, int] = {}
+            counts: dict[str, int] = {}
             for k, primers in by_k.items():
                 table = self.kmer_counter.count_kmers(genome.name, k)
                 for primer in primers:
@@ -240,7 +239,7 @@ class MultiGenomePipeline:
         gc_count = sequence.count("G") + sequence.count("C")
         return gc_count / len(sequence) if len(sequence) > 0 else 0.5
 
-    def _generate_kmers(self, sequence: str, k: int) -> Dict[str, int]:
+    def _generate_kmers(self, sequence: str, k: int) -> dict[str, int]:
         """
         Generate k-mer counts from sequence.
 
@@ -290,7 +289,7 @@ class MultiGenomePipeline:
 
         return strategy
 
-    def _generate_candidates(self, sequences: List[str], kmer_range: Tuple[int, int]) -> List[str]:
+    def _generate_candidates(self, sequences: list[str], kmer_range: tuple[int, int]) -> list[str]:
         """
         Generate k-mer candidates from target sequences.
 
@@ -317,7 +316,7 @@ class MultiGenomePipeline:
 
         return candidates
 
-    def _thermodynamic_filter(self, candidates: List[str], params) -> List[str]:
+    def _thermodynamic_filter(self, candidates: list[str], params) -> list[str]:
         """Apply thermodynamic filtering with k-mer-appropriate Tm range"""
         logger.info("Applying thermodynamic filtering...")
 
@@ -377,7 +376,7 @@ class MultiGenomePipeline:
 
         return filtered
 
-    def _multi_genome_filter(self, candidates: List[str]) -> Tuple[List[str], MultiGenomeFilter]:
+    def _multi_genome_filter(self, candidates: list[str]) -> tuple[list[str], MultiGenomeFilter]:
         """
         Apply multi-genome filtering with differential penalties.
 
@@ -426,7 +425,7 @@ class MultiGenomePipeline:
 
         return passing, mg_filter
 
-    def _drop_heterodimer_partners(self, ranked: List[str], params, target_count: int) -> List[str]:
+    def _drop_heterodimer_partners(self, ranked: list[str], params, target_count: int) -> list[str]:
         """Take primers in rank order, skipping any that dimerise with a keeper.
 
         This is the pairwise check that used to run over the entire candidate
@@ -439,7 +438,7 @@ class MultiGenomePipeline:
 
         max_bp = getattr(parameter, "max_dimer_bp", 3) or 3
 
-        selected: List[str] = []
+        selected: list[str] = []
         rejected = 0
         for primer in ranked:
             if len(selected) >= target_count:
@@ -608,7 +607,7 @@ class MultiGenomePipeline:
 
         return result
 
-    def _generate_protocol(self, primers: List[str], params, scores: List[MultiGenomeScore]) -> str:
+    def _generate_protocol(self, primers: list[str], params, scores: list[MultiGenomeScore]) -> str:
         """Generate experimental protocol"""
 
         target_names = ", ".join([g.name for g in self.genome_set.targets])

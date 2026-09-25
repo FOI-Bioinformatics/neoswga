@@ -36,8 +36,6 @@ References:
 - Notomi et al. (2000) Nucleic Acids Res 28:e63 (Bst polymerase)
 """
 
-from typing import Dict, Optional, Tuple
-
 import numpy as np
 
 from neoswga.core import thermodynamics as thermo
@@ -201,7 +199,7 @@ def get_typical_amplicon_length(polymerase: str) -> int:
     )
 
 
-def list_polymerases() -> Dict[str, str]:
+def list_polymerases() -> dict[str, str]:
     """
     List all supported polymerases with descriptions.
 
@@ -255,11 +253,11 @@ class ReactionConditions:
         primer_conc: float = 0.5e-6,
         propanediol_m: float = 0.0,
         na_conc: float = 50.0,
-        mg_conc: Optional[float] = None,
+        mg_conc: float | None = None,
         k_conc: float = 0.0,
         nh4_conc: float = 0.0,
         dntp_conc: float = 0.0,
-        dtt_mm: Optional[float] = None,
+        dtt_mm: float | None = None,
         ssb: bool = False,
         polymerase: str = "phi29",
     ):
@@ -545,7 +543,7 @@ class ReactionConditions:
         digest = hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()[:16]
         return f"{CONDITION_MODEL_VERSION}:{digest}"
 
-    def calculate_effective_tm(self, seq: str, primer_conc: Optional[float] = None) -> float:
+    def calculate_effective_tm(self, seq: str, primer_conc: float | None = None) -> float:
         """
         Calculate effective Tm for sequence under these conditions.
 
@@ -590,7 +588,7 @@ class ReactionConditions:
 
         return tm_effective
 
-    def get_polymerase_range(self) -> Tuple[float, float]:
+    def get_polymerase_range(self) -> tuple[float, float]:
         """
         Get optimal temperature range for the polymerase.
 
@@ -671,7 +669,7 @@ class ReactionConditions:
         min_temp, max_temp = self.get_polymerase_range()
         return min_temp <= self.temp <= max_temp
 
-    def max_primer_length(self, primer_gc: Optional[float] = None) -> int:
+    def max_primer_length(self, primer_gc: float | None = None) -> int:
         """
         Calculate maximum recommended primer length for these conditions.
 
@@ -787,7 +785,7 @@ class ReactionConditions:
         # not propose primers whose behaviour nothing here has characterised.
         return max(6, min(supported_max, 18))
 
-    def max_safe_primer_length(self, primer_gc: Optional[float] = None) -> int:
+    def max_safe_primer_length(self, primer_gc: float | None = None) -> int:
         """
         Alias for max_primer_length with GC-awareness.
 
@@ -818,7 +816,7 @@ class ReactionConditions:
         """
         return 6  # Standard minimum for specificity
 
-    def is_primer_length_safe(self, primer: str) -> Tuple[bool, str]:
+    def is_primer_length_safe(self, primer: str) -> tuple[bool, str]:
         """
         Check if a primer length is safe for these reaction conditions.
 
@@ -872,7 +870,7 @@ class ReactionConditions:
             f"{primer_length}bp primer is within safe range (max {safe_max}bp for {gc:.0%} GC)",
         )
 
-    def gc_content_range(self) -> Tuple[float, float]:
+    def gc_content_range(self) -> tuple[float, float]:
         """
         Calculate recommended GC content range.
 
@@ -987,7 +985,7 @@ class ReactionConditions:
 
         return f"ReactionConditions({', '.join(parts)})"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
             "temp": self.temp,
@@ -1013,7 +1011,7 @@ class ReactionConditions:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "ReactionConditions":
+    def from_dict(cls, data: dict) -> "ReactionConditions":
         """Create from dictionary."""
         return cls(**data)
 
@@ -1104,8 +1102,8 @@ class ReactionConditions:
 def build_reaction_conditions(
     args=None,
     *,
-    polymerase: Optional[str] = None,
-    temp: Optional[float] = None,
+    polymerase: str | None = None,
+    temp: float | None = None,
     from_mapping_only: bool = False,
     **overrides,
 ) -> ReactionConditions:
@@ -1398,7 +1396,7 @@ def get_extreme_gc_conditions() -> ReactionConditions:
 
 
 def optimize_conditions_for_primers(
-    primers: list, target_tm_range: Tuple[float, float] = (30, 45), polymerase: str = "phi29"
+    primers: list, target_tm_range: tuple[float, float] = (30, 45), polymerase: str = "phi29"
 ) -> ReactionConditions:
     """
     Optimize reaction conditions to bring primer Tm into target range.
@@ -1442,7 +1440,7 @@ def optimize_conditions_for_primers(
     return conditions
 
 
-def recommend_conditions(genome_seq: str, target_k: Optional[int] = None) -> Dict:
+def recommend_conditions(genome_seq: str, target_k: int | None = None) -> dict:
     """
     Analyze genome and recommend optimal reaction conditions.
 

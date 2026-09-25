@@ -387,7 +387,7 @@ def run_export(args):
             print("\nExported, but NOT ready for ordering. The optimizer recorded:")
             for detail in _blocking_validator_findings(args.dir):
                 print(f"  - {detail}")
-            print("\nRun `neoswga interpret -d %s` for the full assessment." % args.dir)
+            print(f"\nRun `neoswga interpret -d {args.dir}` for the full assessment.")
         else:
             print("\nPrimers ready for ordering!")
 
