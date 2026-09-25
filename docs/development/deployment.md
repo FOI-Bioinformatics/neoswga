@@ -86,7 +86,7 @@ pip install ".[improved]"
 
 This installs:
 - Core dependencies: numpy, scipy, pandas, networkx, h5py, biopython
-- Improvement dependencies: pybloom-live, mip
+- Improvement dependencies: pybloom-live, mip, highsbox
 
 Users can now run:
 ```bash
@@ -94,7 +94,7 @@ neoswga count-kmers -j params.json
 neoswga filter -j params.json
 neoswga prepare-candidates -j params.json
 neoswga optimize -j params.json
-neoswga build-filter human.fasta ./filters/
+neoswga build-filter --genome human.fasta -o ./filters/
 neoswga validate --quick
 ```
 
@@ -116,6 +116,11 @@ Without pybloom-live:
 
 Without mip:
 - Only greedy optimization available (no MILP)
+
+Without highsbox (but with mip), on Python 3.13:
+- The exact solve falls back to CBC, which terminates the interpreter with
+  SIGKILL on that version. `neoswga.core.ilp_solver` warns when it falls back.
+  Install the `improved` extra rather than mip alone.
 
 ### Option 3: Drop-In Replacement
 
@@ -180,13 +185,13 @@ For organisms with large backgrounds:
 
 ```bash
 # Human genome (30 minutes one-time)
-neoswga build-filter human_genome.fasta ./filters/
+neoswga build-filter --genome human_genome.fasta -o ./filters/
 
 # Tick genome
-neoswga build-filter tick_genome.fasta ./filters/
+neoswga build-filter --genome tick_genome.fasta -o ./filters/
 
 # Mosquito genome
-neoswga build-filter mosquito_genome.fasta ./filters/
+neoswga build-filter --genome mosquito_genome.fasta -o ./filters/
 ```
 
 These filters are reusable forever.

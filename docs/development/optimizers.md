@@ -261,7 +261,7 @@ neoswga optimize -j params.json --optimization-method=milp
 ### Using background-aware optimizer with pre-built filter:
 ```bash
 # First build the filter (one-time)
-neoswga build-filter human_genome.fasta ./filters/
+neoswga build-filter --genome human_genome.fasta -o ./filters/
 
 # Then use in optimization
 neoswga optimize -j params.json \
@@ -313,7 +313,7 @@ Large background genomes (e.g., human 3 Gbp) can be handled efficiently with Blo
 
 ```bash
 # One-time filter building (30 min for human genome)
-neoswga build-filter human_genome.fasta ./filters/
+neoswga build-filter --genome human_genome.fasta -o ./filters/
 
 # Use in subsequent runs (instant)
 neoswga optimize -j params.json \

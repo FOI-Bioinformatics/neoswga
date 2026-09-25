@@ -376,7 +376,7 @@ neoswga validate --quick            # Validate installation
 neoswga validate --smoke -j params.json  # Check a config: schema, unknown keys,
                                     # genome files, then all four steps against a
                                     # packaged 6 kb target under your chemistry
-neoswga build-filter genome.fna ./  # Build Bloom filter for large background
+neoswga build-filter --genome genome.fna -o ./  # Bloom filter for a large background
 neoswga show-presets                # Show reaction condition presets
 ```
 
