@@ -89,10 +89,11 @@ The kmc k-mer counter is not installed, and it is the configured counter.
 Install it with: conda install -c bioconda kmc
 ```
 
-**Cause:** KMC3 became the default counter. A machine set up for an earlier
-release has jellyfish and not KMC.
+**Cause:** params.json sets `"kmer_counter": "kmc"`, which requires KMC. When
+the key is unset, a machine without KMC uses jellyfish instead and this error
+does not occur.
 
-**Solution:** either install KMC, or keep using jellyfish.
+**Solution:** install KMC, or remove the key or set it to "jellyfish".
 
 ```bash
 conda install -c bioconda kmc

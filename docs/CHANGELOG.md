@@ -8,9 +8,14 @@ All notable changes to NeoSWGA are documented in this file.
 
 #### BREAKING
 
-- **KMC3 replaces jellyfish as the default counter.** Install it with
-  `conda install -c bioconda kmc`. Jellyfish remains fully supported: set
-  `"kmer_counter": "jellyfish"` in params.json.
+- **KMC3 is preferred over jellyfish.** When `kmer_counter` is unset, KMC3
+  is used if installed and jellyfish otherwise, and the two give identical
+  results. Setting `"kmer_counter"` to "kmc" or "jellyfish" requires that
+  counter, and its absence is an error naming the install command.
+- **Tied candidates are now ordered by sequence.** Step 2 broke ties by the
+  order the counter emitted k-mers, so the installed tool could change the
+  shortlist and the panel. An existing design with ties at the `max_primer`
+  boundary may see a different shortlist.
 - The `improved` extra is unrelated to this; no Python dependency changed.
 
 #### CHANGED

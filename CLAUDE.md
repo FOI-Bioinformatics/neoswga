@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NeoSWGA is a command-line tool for selecting primer sets for selective whole-genome amplification (SWGA). See [README.md](README.md) for user-facing documentation and quick start.
 
-**External dependency**: a k-mer counter in PATH. KMC3 is the default; jellyfish is selectable with `"kmer_counter": "jellyfish"` in params.json. See Known Issue 24 for why the default changed and what it does NOT buy.
+**External dependency**: a k-mer counter in PATH. KMC3 is used when installed and jellyfish otherwise; setting `"kmer_counter"` in params.json requires the named one. See Known Issue 24 for why, and what it does NOT buy.
 
 ## Architecture
 
@@ -2402,11 +2402,43 @@ package, because nothing in the search uses it.
     3.11, with identical collection of 6,444 tests on each, so nothing is
     quietly missing from either.
 
-24. **KMC3 is the default counter, and tables are read as databases** --
-    2026-09-25. `kmer_counter` in params.json takes "kmc" or "jellyfish".
-    `core/kmer_backend.py` owns the invocation; `core/kmer_tables.py` is the
-    one place anything asks about a table, and callers name a prefix and a k
-    rather than a file.
+24. **KMC3 is preferred, and tables are read as databases** -- 2026-09-25.
+    `kmer_counter` in params.json takes "kmc" or "jellyfish" and, when set,
+    REQUIRES that counter. Unset, KMC3 is used when installed and jellyfish
+    otherwise. `core/kmer_backend.py` owns the invocation;
+    `core/kmer_tables.py` is the one place anything asks about a table, and
+    callers name a prefix and a k rather than a file.
+
+    **Unset falls back rather than failing**, which departs from a strict
+    "KMC is the default". A hard requirement would have broken CI, which
+    installs only jellyfish, and every jellyfish-only installation. The
+    fallback is acceptable to do unasked only because the choice does not
+    change any result -- and that was FALSE until a fix described below.
+
+    **The first version of this change was inert.** `kmer_counter` was
+    declared, validated, defaulted and documented, and `count-kmers` still ran
+    jellyfish at every call site: Known Issue 8's class, on the branch that
+    introduced the key. Tests covered the backend by calling it directly, so
+    none could see it. `tests/test_count_kmers_uses_the_configured_counter.py`
+    now walks from the two counting entry points, `run_jellyfish` and
+    `MultiGenomeKmerCounter`, and five of its tests fail against the old
+    behaviour.
+
+    **The counter choice used to change results.** Step 2 sorted by `ratio`
+    then `fg_count`, and ties kept their INPUT order -- the order the counter
+    emitted k-mers in, hash order for jellyfish and sorted order for KMC. That
+    order leads step 3 into an order-sensitive optimizer, and through
+    `[:max_primer]` it decided which tied candidates survived the shortlist.
+    The primer sequence is now the final sort key, and step 2's written index
+    is reset so it records rank rather than emission order. Verified by running
+    the plasmid example end to end under each counter from clean copies:
+    `step2_df.csv`, `step3_df.csv` and `step4_improved_df.csv` are
+    byte-identical, and the KMC run writes no text table. Found by comparing
+    files after the claim "changes speed, never a result" had already been
+    written into the code, which is why the comparison is worth keeping as a
+    habit. Tie order now differs from the old jellyfish-only order, so an
+    existing design with ties at a boundary can see a different shortlist; no
+    test-pinned output moved.
 
     **What this buys is the QUERY path, not the counter.** `filter` asks one
     question of a table: the counts of a known candidate list. It answered by
