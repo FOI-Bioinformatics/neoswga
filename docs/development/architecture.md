@@ -519,7 +519,7 @@ AGPL-3.0-or-later - See the LICENSE file for details
 - Complete rebrand from swga2 to NeoSWGA
 - Restructured package: `src/` → `neoswga.core/`
 - Single CLI command: `neoswga`
-- Python 3.11+ requirement
+- Python 3.13+ requirement
 
 **Features**:
 - Enhanced thermodynamic modeling

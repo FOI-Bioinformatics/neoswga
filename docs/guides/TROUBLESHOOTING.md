@@ -58,25 +58,80 @@ incompatible command-line interface.
 **Symptom:**
 
 ```
-ERROR: Requires-Python >=3.11
+ERROR: Requires-Python >=3.13
 ```
 
 Or import errors referencing missing standard library features.
 
-**Cause:** NeoSWGA requires Python 3.11 or later. Earlier versions are not
+**Cause:** NeoSWGA requires Python 3.13 or later. Earlier versions are not
 supported.
 
 **Solution:**
 
 1. Check your Python version: `python --version`
-2. If below 3.11, install a newer version via conda, pyenv, or your system
+2. If below 3.13, install a newer version via conda, pyenv, or your system
    package manager.
 3. Create a dedicated environment:
    ```bash
-   conda create -n neoswga python=3.12
+   conda create -n neoswga python=3.13
    conda activate neoswga
    pip install -e .
    ```
+
+   Do **not** add `kmer-jellyfish` to that conda command. See the next entry.
+
+### Jellyfish 1.x installed instead of 2.x on Python 3.13
+
+**Symptom:**
+
+```
+RuntimeError: Jellyfish version 1.1.12 detected. NeoSWGA requires Jellyfish 2.x
+(1.x has an incompatible CLI).
+```
+
+**Cause:** bioconda builds `kmer-jellyfish` 2.3.1 for Python 3.9 through 3.12
+only. There is no 3.13 build, so `conda create ... python=3.13 kmer-jellyfish`
+resolves to 1.1.12, the one build that is compatible, and that version's
+command line is one NeoSWGA refuses. Nothing warns: the solve succeeds and the
+wrong major version is installed.
+
+The package is a C++ binary with Python bindings, so its build is tied to an
+interpreter the binary itself does not care about.
+
+**Solution:** install Jellyfish outside the Python environment, which is what
+CI does.
+
+```bash
+# macOS
+brew install jellyfish
+# Debian/Ubuntu
+sudo apt-get install jellyfish
+# or a conda env on a supported interpreter, used only for the binary
+conda create -n jellyfish -c bioconda python=3.12 kmer-jellyfish
+```
+
+Then confirm `jellyfish --version` reports 2.x before running the pipeline.
+
+### The exact ILP solve crashes the process
+
+**Symptom:** a command using `--exact` or `optimize_ilp` dies with no
+traceback, no error message and exit code 137, or the test suite stops partway
+through with no failure reported.
+
+**Cause:** python-mip's default solver is CBC, and constructing a CBC model
+terminates the interpreter with SIGKILL on Python 3.13 (measured on macOS
+arm64 with mip 2.0.0 and cbcbox 2.935). It is a crash in the native solver, so
+no Python exception is raised and nothing can catch it.
+
+**Solution:** install the HiGHS runtime, which `neoswga.core.ilp_solver`
+prefers automatically when present.
+
+```bash
+pip install 'neoswga[improved]'   # includes highsbox
+```
+
+A run that falls back to CBC logs a warning naming this. If you see that
+warning on Python 3.13, install the extra before trusting the result.
 
 ### scikit-learn model loading fails
 
@@ -542,7 +597,7 @@ indicates that multiple quality components scored poorly.
 ### Supported platforms
 
 NeoSWGA runs on Linux and macOS. Windows is not officially supported but may
-work under WSL2. Python 3.11 or later is required.
+work under WSL2. Python 3.13 or later is required.
 
 ### Resource estimates by genome size
 

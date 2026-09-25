@@ -7,7 +7,7 @@ name = "neoswga"
 version = "3.6.0"
 description = "Enhanced Selective Whole Genome Amplification (SWGA) primer design with advanced thermodynamics and optimization. Requires Jellyfish 2.x (external): conda install -c bioconda jellyfish"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = {text = "AGPL-3.0-or-later"}
 authors = [
     {name = "Andreas Sjodin", email = "andreas.sjodin@foi.se"},
@@ -31,8 +31,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
@@ -59,6 +57,11 @@ viz = [
 improved = [
     "pybloom-live>=3.1.0",
     "mip>=1.13.0",
+    # The HiGHS runtime for python-mip. Not optional in practice on Python
+    # 3.13: mip's default backend, CBC, terminates the interpreter with
+    # SIGKILL there (measured on macOS arm64, mip 2.0.0), and the crash is not
+    # catchable. `neoswga.core.ilp_solver` prefers HiGHS when this is present.
+    "highsbox>=1.11",
 ]
 fast = [
     "pyahocorasick>=2.0.0",
@@ -93,6 +96,13 @@ dev = [
     "mypy>=1.0",
     "isort==8.0.1",
     "pre-commit>=3.0.0",
+    # Explicit, not incidental. `tests/test_workflows_invoke_real_commands.py`
+    # parses the workflow YAML and `importorskip`s this, so without a
+    # declaration the ratchet silently vanishes wherever PyYAML is absent. It
+    # reached CI only as a transitive dependency of pre-commit, which is a
+    # check that exists and might not run -- the defect class that ratchet was
+    # written to catch.
+    "pyyaml>=6.0",
     # The scan path a normal install gets. It is an optional extra for users
     # (`fast`, `all`), but leaving it out of `dev` meant CI ran only the
     # per-k fallback, so tests written against the Aho-Corasick path passed
@@ -107,6 +117,7 @@ dev = [
 all = [
     "pybloom-live>=3.1.0",
     "mip>=1.13.0",
+    "highsbox>=1.11",
     "pyahocorasick>=2.0.0",
     "plotly>=5.0.0",
     "pysam>=0.22",
@@ -148,11 +159,11 @@ neoswga = ["*.md"]
 
 [tool.black]
 line-length = 100
-# Target the minimum supported version. Targeting py313 makes black emit code
-# whose AST it cannot safety-verify when run on Python 3.11 (the CI lint
-# runner), leaving some files unformattable there; py311 output is valid for
-# all supported interpreters (3.11-3.13).
-target-version = ['py311']
+# Target the only supported version. This used to read py311, chosen because
+# the CI lint runner was 3.11 and black cannot safety-verify a newer target's
+# AST on an older interpreter. Both ends are 3.13 now, so that constraint is
+# gone; if the lint runner is ever moved back, this must move with it.
+target-version = ['py313']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -179,7 +190,7 @@ ensure_newline_before_comments = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py313"
 extend-exclude = ["examples", "tests/integration", "validation_tests"]
 
 [tool.ruff.lint]
@@ -193,7 +204,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.13"
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true

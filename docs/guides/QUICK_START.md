@@ -4,7 +4,7 @@ Get started with NeoSWGA primer design in minutes.
 
 ## Prerequisites
 
-- Python 3.11 or later
+- Python 3.13 or later
 - Jellyfish k-mer counter (v2.0+)
 - 8+ GB RAM
 
