@@ -18,7 +18,6 @@ Version: 3.0 - Phase 3.2
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -49,7 +48,7 @@ class GCAdaptiveParameters:
     recommended_polymerase: str  # 'phi29' or 'equiphi29'
 
     # K-mer parameters
-    kmer_range: Tuple[int, int]
+    kmer_range: tuple[int, int]
     optimal_kmer: int
 
     # Temperature parameters
@@ -107,9 +106,7 @@ class GCAdaptiveStrategy:
         print(f"Use {params.recommended_polymerase} at {params.reaction_temp}°C")
     """
 
-    def __init__(
-        self, genome_sequence: Optional[str] = None, genome_gc_content: Optional[float] = None
-    ):
+    def __init__(self, genome_sequence: str | None = None, genome_gc_content: float | None = None):
         """
         Initialize GC-adaptive strategy.
 
@@ -150,7 +147,7 @@ class GCAdaptiveStrategy:
         else:
             return GenomeClass.BALANCED
 
-    def get_parameters(self, preferred_polymerase: Optional[str] = None) -> GCAdaptiveParameters:
+    def get_parameters(self, preferred_polymerase: str | None = None) -> GCAdaptiveParameters:
         """
         Get GC-adaptive parameters for primer selection.
 

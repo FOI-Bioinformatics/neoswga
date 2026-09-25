@@ -7,8 +7,9 @@ Works without external dependencies (no tqdm required).
 
 import sys
 import time
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from typing import Iterable, Iterator, Optional, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -31,7 +32,7 @@ class ProgressBar:
 
     def __init__(
         self,
-        total: Optional[int] = None,
+        total: int | None = None,
         desc: str = "",
         unit: str = "it",
         width: int = 40,
@@ -112,7 +113,7 @@ class ProgressBar:
     def wrap(
         cls,
         iterable: Iterable[T],
-        total: Optional[int] = None,
+        total: int | None = None,
         desc: str = "",
         unit: str = "it",
         disable: bool = False,

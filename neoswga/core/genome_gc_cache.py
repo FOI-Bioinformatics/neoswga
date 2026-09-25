@@ -24,14 +24,13 @@ import hashlib
 import json
 import logging
 import os
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
 CACHE_FILENAME = "genome_gc.json"
 
 
-def cache_key(fg_genomes: List[str]) -> Optional[str]:
+def cache_key(fg_genomes: list[str]) -> str | None:
     """A key over the foreground file list, or None if any file is missing."""
     parts = []
     for path in fg_genomes or []:
@@ -45,7 +44,7 @@ def cache_key(fg_genomes: List[str]) -> Optional[str]:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
-def read_cached_gc(data_dir: Optional[str], fg_genomes: List[str]) -> Optional[float]:
+def read_cached_gc(data_dir: str | None, fg_genomes: list[str]) -> float | None:
     """The cached GC fraction for this exact set of files, or None."""
     if not data_dir:
         return None
@@ -67,7 +66,7 @@ def read_cached_gc(data_dir: Optional[str], fg_genomes: List[str]) -> Optional[f
     return value if isinstance(value, (int, float)) else None
 
 
-def write_cached_gc(data_dir: Optional[str], fg_genomes: List[str], genome_gc: float) -> None:
+def write_cached_gc(data_dir: str | None, fg_genomes: list[str], genome_gc: float) -> None:
     """Record the GC fraction. Best-effort: never fails the caller."""
     if not data_dir:
         return

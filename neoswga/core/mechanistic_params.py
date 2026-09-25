@@ -22,7 +22,7 @@ References:
     - Blanco et al. (1989) JBC 264:8935-8940 (phi29 processivity)
 """
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from neoswga.core.registry import views as _registry_views
 
@@ -45,7 +45,7 @@ from neoswga.core.registry import views as _registry_views
 #   - Cheng et al. (1994) PNAS 91:5695-5699 (ethanol)
 # =============================================================================
 
-ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
+ADDITIVE_TM_PARAMS: dict[str, dict[str, Any]] = {
     "dmso": {
         "ref_coef": -0.55,  # C per % at T_ref (Chester 1993)
         "ref_temp": 310.15,  # K (37C)
@@ -162,7 +162,7 @@ ADDITIVE_TM_PARAMS: Dict[str, Dict[str, Any]] = {
 }
 
 
-MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
+MECHANISTIC_MODEL_PARAMS: dict[str, dict[str, Any]] = {
     # Pathway 1: Tm modification
     # How additives affect primer melting temperature
     # NOTE: Use ADDITIVE_TM_PARAMS for Arrhenius-based corrections
@@ -321,7 +321,7 @@ MECHANISTIC_MODEL_PARAMS: Dict[str, Dict[str, Any]] = {
 #
 # Note: 'min_specificity' is DEPRECATED, use 'default_min_fg_bg_ratio' instead.
 # The fg/bg ratio is a more meaningful metric than abstract "specificity".
-APPLICATION_PROFILES: Dict[str, Dict[str, Any]] = {
+APPLICATION_PROFILES: dict[str, dict[str, Any]] = {
     "discovery": {
         "priority": "coverage",
         "default_target_coverage": 0.90,
@@ -365,7 +365,7 @@ APPLICATION_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def get_polymerase_params(polymerase: str) -> Dict[str, Any]:
+def get_polymerase_params(polymerase: str) -> dict[str, Any]:
     """
     Get parameters for a specific polymerase.
 
@@ -394,7 +394,7 @@ def get_polymerase_params(polymerase: str) -> Dict[str, Any]:
     return enzyme_params[poly]
 
 
-def get_application_profile(application: str) -> Dict[str, Any]:
+def get_application_profile(application: str) -> dict[str, Any]:
     """
     Get application profile for set size optimization.
 
@@ -416,7 +416,7 @@ def get_application_profile(application: str) -> Dict[str, Any]:
     return APPLICATION_PROFILES[application]
 
 
-def list_applications() -> Dict[str, str]:
+def list_applications() -> dict[str, str]:
     """
     List available application profiles with descriptions.
 
@@ -426,7 +426,7 @@ def list_applications() -> Dict[str, str]:
     return {name: profile["description"] for name, profile in APPLICATION_PROFILES.items()}
 
 
-def list_polymerases() -> Dict[str, Tuple[float, int]]:
+def list_polymerases() -> dict[str, tuple[float, int]]:
     """
     List available polymerases with their optimal temp and processivity.
 
@@ -443,7 +443,7 @@ def list_polymerases() -> Dict[str, Tuple[float, int]]:
     return result
 
 
-def get_additive_tm_params(additive: str) -> Dict[str, Any]:
+def get_additive_tm_params(additive: str) -> dict[str, Any]:
     """
     Get Arrhenius-based Tm correction parameters for an additive.
 
@@ -465,7 +465,7 @@ def get_additive_tm_params(additive: str) -> Dict[str, Any]:
     return ADDITIVE_TM_PARAMS[additive_lower]
 
 
-def list_additives() -> Dict[str, str]:
+def list_additives() -> dict[str, str]:
     """
     List available additives with descriptions.
 

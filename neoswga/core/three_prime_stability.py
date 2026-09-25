@@ -34,7 +34,6 @@ Version: 3.2 - Tier 1 Improvements (Sprint 2)
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -62,7 +61,7 @@ class ThreePrimeStability:
     terminal_base: str  # Last base (A, T, G, or C)
     stability_score: float  # Overall score 0-1 (1 = excellent)
     passes: bool
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
 
     @property
     def is_stable(self) -> bool:
@@ -115,7 +114,7 @@ class ThreePrimeStabilityAnalyzer:
 
     def __init__(
         self,
-        conditions: Optional[ReactionConditions] = None,
+        conditions: ReactionConditions | None = None,
         min_terminal_tm: float = 15.0,
         min_gc_clamp: int = 1,
         max_gc_clamp: int = 3,
@@ -341,7 +340,7 @@ class ThreePrimeStabilityAnalyzer:
         # Ensure 0-1 range
         return max(0.0, min(1.0, base_total))
 
-    def filter_primers(self, primers: List[str]) -> List[str]:
+    def filter_primers(self, primers: list[str]) -> list[str]:
         """
         Filter primers to only those with acceptable 3' stability.
 
@@ -367,7 +366,7 @@ class ThreePrimeStabilityAnalyzer:
 
         return passing
 
-    def get_worst_primers(self, primers: List[str], n: int = 5) -> List[ThreePrimeStability]:
+    def get_worst_primers(self, primers: list[str], n: int = 5) -> list[ThreePrimeStability]:
         """
         Get primers with worst 3' stability.
 
@@ -387,7 +386,7 @@ class ThreePrimeStabilityAnalyzer:
 
 def create_three_prime_analyzer(
     stringency: str = "moderate",
-    conditions: Optional[ReactionConditions] = None,
+    conditions: ReactionConditions | None = None,
     swga_mode: bool = True,
 ) -> ThreePrimeStabilityAnalyzer:
     """
@@ -491,10 +490,10 @@ def create_three_prime_analyzer(
 
 # Utility function for quick filtering
 def filter_primers_by_three_prime_stability(
-    primers: List[str],
+    primers: list[str],
     stringency: str = "moderate",
-    conditions: Optional[ReactionConditions] = None,
-) -> List[str]:
+    conditions: ReactionConditions | None = None,
+) -> list[str]:
     """
     Quick utility to filter primers by 3' stability.
 
@@ -621,7 +620,7 @@ def calculate_adaptive_terminal_tm(
 def create_three_prime_analyzer_adaptive(
     genome_gc: float,
     stringency: str = "moderate",
-    conditions: Optional[ReactionConditions] = None,
+    conditions: ReactionConditions | None = None,
     swga_mode: bool = True,
 ) -> ThreePrimeStabilityAnalyzer:
     """

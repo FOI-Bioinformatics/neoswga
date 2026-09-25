@@ -25,7 +25,7 @@ import time
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
@@ -49,8 +49,8 @@ class ReactionState:
     bg_molecules: int = 999000  # Background genome copies
 
     # Bound primers (per binding site)
-    fg_bound: Dict[int, int] = None  # site -> count
-    bg_bound: Dict[int, int] = None
+    fg_bound: dict[int, int] = None  # site -> count
+    bg_bound: dict[int, int] = None
 
     # Extended products
     fg_products: int = 0
@@ -273,13 +273,13 @@ class GillespieSimulator:
 
     def __init__(
         self,
-        primers: List[str],
+        primers: list[str],
         fg_network,
         bg_network,
-        params: Optional[ReactionParameters] = None,
+        params: ReactionParameters | None = None,
         conditions: Optional["ReactionConditions"] = None,
         template_gc: float = 0.5,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ):
         """
         Initialize simulator.
@@ -328,7 +328,7 @@ class GillespieSimulator:
             f"processivity_step={self.params.processivity_step:.5f}"
         )
 
-    def _build_extension_network(self, network) -> Dict[int, List[Tuple[int, int]]]:
+    def _build_extension_network(self, network) -> dict[int, list[tuple[int, int]]]:
         """
         Build extension network: site -> [(target_site, distance), ...]
         """
@@ -352,7 +352,7 @@ class GillespieSimulator:
         max_time: float = 28800.0,
         sample_interval: float = 60.0,
         max_iterations: int = 1_000_000,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Run Gillespie simulation.
 
@@ -447,7 +447,7 @@ class GillespieSimulator:
 
         return history
 
-    def _get_reactions(self, state: ReactionState) -> List[Tuple]:
+    def _get_reactions(self, state: ReactionState) -> list[tuple]:
         """
         Calculate all possible reactions and their propensities.
 
@@ -512,7 +512,7 @@ class GillespieSimulator:
 
         return reactions
 
-    def _execute_reaction(self, state: ReactionState, reaction: Tuple):
+    def _execute_reaction(self, state: ReactionState, reaction: tuple):
         """Execute selected reaction, update state"""
         reaction_type = reaction[0]
 
@@ -559,7 +559,7 @@ class GillespieSimulator:
             site_idx = reaction[1]
             state.bg_bound[site_idx] = max(0, state.bg_bound[site_idx] - 1)
 
-    def _snapshot(self, state: ReactionState) -> Dict:
+    def _snapshot(self, state: ReactionState) -> dict:
         """Create snapshot of current state"""
         total_fg = state.fg_molecules + state.fg_products
         total_bg = state.bg_molecules + state.bg_products
@@ -585,13 +585,13 @@ class GillespieSimulator:
 
 
 def validate_network_predictions(
-    primers: List[str],
+    primers: list[str],
     fg_network,
     bg_network,
     conditions: Optional["ReactionConditions"] = None,
     template_gc: float = 0.5,
-    seed: Optional[int] = None,
-) -> Dict:
+    seed: int | None = None,
+) -> dict:
     """
     Validate network-based predictions with stochastic simulation.
 
@@ -661,7 +661,7 @@ def validate_network_predictions(
     }
 
 
-def plot_simulation_results(history: List[Dict], output_path: Optional[str] = None):
+def plot_simulation_results(history: list[dict], output_path: str | None = None):
     """
     Plot simulation results.
 

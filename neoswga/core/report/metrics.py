@@ -8,10 +8,11 @@ for report generation.
 import csv
 import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any
 
 from neoswga.core.delivered_set import select_delivered_set
 
@@ -149,7 +150,7 @@ class PrimerMetrics:
     quality_rank: int = 0
 
     @classmethod
-    def from_row(cls, row: Dict[str, str]) -> "PrimerMetrics":
+    def from_row(cls, row: dict[str, str]) -> "PrimerMetrics":
         """
         Create PrimerMetrics from a CSV row.
 
@@ -213,7 +214,7 @@ class FilteringStats:
     after_max_primer_cut: int = 0
     final_candidates: int = 0
 
-    def as_funnel(self) -> List[tuple]:
+    def as_funnel(self) -> list[tuple]:
         """Return filtering stages as a funnel list, in actual pipeline order.
 
         Order matches how the filter step applies stages (foreground frequency
@@ -259,24 +260,24 @@ class CoverageMetrics:
     high_gaps: int = 0  # 50-100kb
     medium_gaps: int = 0  # 20-50kb
     low_gaps: int = 0  # <20kb
-    gap_locations: List[Dict] = field(default_factory=list)
+    gap_locations: list[dict] = field(default_factory=list)
     # None means no measurement, which is NOT the same as a measured 0.0 and
     # must not share its representation: zero is the FAVOURABLE value for each
     # of these, so an absent one rendered as the best possible result.
-    mean_gap: Optional[float] = None
-    max_gap: Optional[float] = None
-    gap_gini: Optional[float] = None
-    gap_entropy: Optional[float] = None
+    mean_gap: float | None = None
+    max_gap: float | None = None
+    gap_gini: float | None = None
+    gap_entropy: float | None = None
     from_optimizer: bool = False
     # Per-primer extension reach (bp) used by the optimizer to compute
     # overall_coverage. None when the value comes from the fallback
     # estimate (n_primers * 30 kb) instead of a measured optimizer run.
-    extension_reach: Optional[int] = None
+    extension_reach: int | None = None
     # Per-target coverage (multi-genome runs): maps fg prefix -> coverage.
     # Empty for single-genome runs. Read from the optimizer summary.
-    per_target_coverage: Dict[str, float] = field(default_factory=dict)
+    per_target_coverage: dict[str, float] = field(default_factory=dict)
     # Measured coverage uniformity (Gini of gap sizes) from the optimizer.
-    coverage_uniformity: Optional[float] = None
+    coverage_uniformity: float | None = None
 
 
 @dataclass
@@ -290,8 +291,8 @@ class SpecificityMetrics:
     background_density: float = 0.0
     # Measured values from the optimizer summary (preferred over the
     # density-ratio estimate above when available).
-    selectivity_ratio: Optional[float] = None
-    bg_coverage: Optional[float] = None
+    selectivity_ratio: float | None = None
+    bg_coverage: float | None = None
     from_optimizer: bool = False
 
 
@@ -324,13 +325,13 @@ class UniformityMetrics:
     # Measured strand-interleaving metrics from the optimizer (None = not
     # available). strand_alternation_score: fraction of adjacent binding sites
     # that alternate strands; strand_coverage_ratio: min/max fwd-vs-rev balance.
-    strand_alternation_score: Optional[float] = None
-    strand_coverage_ratio: Optional[float] = None
+    strand_alternation_score: float | None = None
+    strand_coverage_ratio: float | None = None
     # Set-level binding-evenness Gini measured by the optimizer (None = not
     # available). This is the quantity `quality_thresholds.GINI` is calibrated
     # on -- published sets, not individual primers -- so grading prefers it
     # over `max_gini`, which is the worst single primer and always worse.
-    measured_gini: Optional[float] = None
+    measured_gini: float | None = None
     from_optimizer: bool = False
 
 
@@ -344,43 +345,43 @@ class PipelineMetrics:
     pipeline_version: str = field(default_factory=_get_version)
 
     # Genome info
-    target_genome: Optional[GenomeInfo] = None
-    background_genome: Optional[GenomeInfo] = None
+    target_genome: GenomeInfo | None = None
+    background_genome: GenomeInfo | None = None
 
     # Parameters
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
 
     # Primers
-    primers: List[PrimerMetrics] = field(default_factory=list)
+    primers: list[PrimerMetrics] = field(default_factory=list)
     primer_count: int = 0
 
     # Step-by-step metrics
-    filtering: Optional[FilteringStats] = None
-    coverage: Optional[CoverageMetrics] = None
-    specificity: Optional[SpecificityMetrics] = None
-    thermodynamics: Optional[ThermodynamicMetrics] = None
-    uniformity: Optional[UniformityMetrics] = None
+    filtering: FilteringStats | None = None
+    coverage: CoverageMetrics | None = None
+    specificity: SpecificityMetrics | None = None
+    thermodynamics: ThermodynamicMetrics | None = None
+    uniformity: UniformityMetrics | None = None
 
     # Optimizer extras read from step4_improved_df_summary.json (authoritative).
     # ensemble_comparison: per-method rows from an --optimization-method=ensemble
     # run; pareto_metrics: set-level Pareto solutions from MOEA / frontier.
-    ensemble_comparison: List[Dict] = field(default_factory=list)
-    pareto_metrics: List[Dict] = field(default_factory=list)
+    ensemble_comparison: list[dict] = field(default_factory=list)
+    pareto_metrics: list[dict] = field(default_factory=list)
     # How much of the available candidate pool the search could reach, from
     # `candidate_source.describe_reach`. None when the summary does not carry
     # it, which covers both a run over a plain candidate list and every
     # directory written before the field existed -- neither of which is a
     # reach of zero, so the renderer must skip rather than show 0%.
-    candidate_reach: Optional[Dict[str, Any]] = None
+    candidate_reach: dict[str, Any] | None = None
     # Coverage gaps from the analyze-coverage command (coverage_gaps.json /
     # merged_gaps.bed), when present in the results dir. None = not run.
-    coverage_gaps: Optional[Dict] = None
+    coverage_gaps: dict | None = None
     # Reaction conditions / additives used (from params.json), for the report.
-    reaction_conditions: Dict[str, Any] = field(default_factory=dict)
+    reaction_conditions: dict[str, Any] = field(default_factory=dict)
 
     # Runtime
     total_runtime_seconds: float = 0.0
-    step_runtimes: Dict[str, float] = field(default_factory=dict)
+    step_runtimes: dict[str, float] = field(default_factory=dict)
 
     # Post-optimization validator report loaded from
     # step4_improved_df_validation.json when available. Each issue is a
@@ -388,11 +389,11 @@ class PipelineMetrics:
     # The report module surfaces these in the HTML so users do not have to
     # open the JSON to see per_target_coverage_below_threshold,
     # blacklist_primer_in_set, duplicate-primer, etc. warnings.
-    validation_issues: List[Dict[str, str]] = field(default_factory=list)
+    validation_issues: list[dict[str, str]] = field(default_factory=list)
     validation_ok: bool = True
 
 
-def _load_csv(filepath: Path) -> List[Dict[str, str]]:
+def _load_csv(filepath: Path) -> list[dict[str, str]]:
     """
     Load CSV file as list of dictionaries.
 
@@ -414,7 +415,7 @@ def _load_csv(filepath: Path) -> List[Dict[str, str]]:
         return []
 
 
-def _load_params(results_dir: Path) -> Dict[str, Any]:
+def _load_params(results_dir: Path) -> dict[str, Any]:
     """
     Load params.json if present.
 
@@ -442,7 +443,7 @@ def _load_params(results_dir: Path) -> Dict[str, Any]:
         return {}
 
 
-def _load_optimizer_summary(results_path: Path) -> Optional[Dict]:
+def _load_optimizer_summary(results_path: Path) -> dict | None:
     """Load step4 summary JSON if available."""
     summary_file = results_path / "step4_improved_df_summary.json"
     if not summary_file.exists():
@@ -490,7 +491,7 @@ def _load_validation_report(results_path: Path) -> tuple:
     return normalised, ok
 
 
-def _genome_size(params: Dict, prefix: str) -> int:
+def _genome_size(params: dict, prefix: str) -> int:
     """Total length of the `fg`/`bg` genomes, in bp, or 0 if params omit it.
 
     `fg_size` is not a key the pipeline writes; `fg_seq_lengths` is. Reading
@@ -507,7 +508,7 @@ def _genome_size(params: Dict, prefix: str) -> int:
     return 0
 
 
-def _extract_genome_info(params: Dict, prefix: str) -> Optional[GenomeInfo]:
+def _extract_genome_info(params: dict, prefix: str) -> GenomeInfo | None:
     """Extract genome info from params or file metadata.
 
     The plural keys are the ones the pipeline actually writes: params.json
@@ -544,8 +545,8 @@ def _extract_genome_info(params: Dict, prefix: str) -> Optional[GenomeInfo]:
 
 
 def _calculate_coverage_metrics(
-    primers: List[PrimerMetrics],
-    params: Dict,
+    primers: list[PrimerMetrics],
+    params: dict,
 ) -> CoverageMetrics:
     """Calculate coverage metrics from primer data."""
     coverage = CoverageMetrics()
@@ -575,8 +576,8 @@ def _calculate_coverage_metrics(
 
 
 def _calculate_specificity_metrics(
-    primers: List[PrimerMetrics],
-    params: Dict,
+    primers: list[PrimerMetrics],
+    params: dict,
 ) -> SpecificityMetrics:
     """Calculate specificity metrics from primer data."""
     if not primers:
@@ -606,8 +607,8 @@ def _calculate_specificity_metrics(
 
 
 def _calculate_thermodynamic_metrics(
-    primers: List[PrimerMetrics],
-    params: Dict,
+    primers: list[PrimerMetrics],
+    params: dict,
 ) -> ThermodynamicMetrics:
     """Calculate thermodynamic metrics from primer data."""
     if not primers:
@@ -642,7 +643,7 @@ def _calculate_thermodynamic_metrics(
 
 
 def _calculate_uniformity_metrics(
-    primers: List[PrimerMetrics],
+    primers: list[PrimerMetrics],
 ) -> UniformityMetrics:
     """Calculate uniformity metrics from primer data."""
     if not primers:
@@ -679,7 +680,7 @@ def _calculate_uniformity_metrics(
     )
 
 
-def _load_coverage_gaps(results_path: Path) -> Optional[Dict]:
+def _load_coverage_gaps(results_path: Path) -> dict | None:
     """Load coverage gaps written by `neoswga analyze-coverage`, if present.
 
     Reads ``coverage_gaps.json`` (preferred) which records the merged in-silico
@@ -711,7 +712,7 @@ _CONDITION_ADDITIVES = (
 )
 
 
-def _recorded_conditions(results_path: Optional[Path]) -> Optional[Dict[str, Any]]:
+def _recorded_conditions(results_path: Path | None) -> dict[str, Any] | None:
     """Reaction conditions the run manifest recorded, if there is one."""
     if results_path is None:
         return None
@@ -722,7 +723,7 @@ def _recorded_conditions(results_path: Optional[Path]) -> Optional[Dict[str, Any
     return read_effective_conditions(str(results_path))
 
 
-def _conditions_from_params(params: Dict[str, Any], results_path: Optional[Path] = None):
+def _conditions_from_params(params: dict[str, Any], results_path: Path | None = None):
     """The reaction the design was run under, or None if params cannot name one.
 
     Used to recompute quantities the results CSV does not carry, so the report
@@ -762,9 +763,9 @@ def _conditions_from_params(params: Dict[str, Any], results_path: Optional[Path]
 
 
 def _backfill_primer_tm(
-    primers: List["PrimerMetrics"],
-    params: Dict[str, Any],
-    results_path: Optional[Path] = None,
+    primers: list["PrimerMetrics"],
+    params: dict[str, Any],
+    results_path: Path | None = None,
 ) -> None:
     """Give each primer the Tm its row does not carry.
 
@@ -801,7 +802,7 @@ def _backfill_primer_tm(
             primer.tm = tm
 
 
-def _backfill_primer_amp_pred(primers: List["PrimerMetrics"], results_path: Path) -> None:
+def _backfill_primer_amp_pred(primers: list["PrimerMetrics"], results_path: Path) -> None:
     """Give each primer the amplification score its step-4 row does not carry.
 
     `step4_improved_df.csv` holds the set-level result and seventeen columns,
@@ -845,7 +846,7 @@ def _backfill_primer_amp_pred(primers: List["PrimerMetrics"], results_path: Path
 
 
 def _backfill_primer_sites(
-    primers: List["PrimerMetrics"], results_path: Path, params: Dict[str, Any]
+    primers: list["PrimerMetrics"], results_path: Path, params: dict[str, Any]
 ) -> None:
     """Give each primer the site counts its row does not carry.
 
@@ -891,7 +892,7 @@ def _backfill_primer_sites(
             primer.specificity = fg_density / bg_density
 
 
-def _extract_reaction_conditions(params: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_reaction_conditions(params: dict[str, Any]) -> dict[str, Any]:
     """Pull the reaction conditions / additives actually used from params.
 
     Surfaced in the report so a reader can see the polymerase, temperature,
@@ -900,7 +901,7 @@ def _extract_reaction_conditions(params: Dict[str, Any]) -> Dict[str, Any]:
     """
     if not params:
         return {}
-    conditions: Dict[str, Any] = {}
+    conditions: dict[str, Any] = {}
     for key in ("polymerase", "reaction_temp", "na_conc", "mg_conc", "primer_conc"):
         if params.get(key) is not None:
             conditions[key] = params[key]

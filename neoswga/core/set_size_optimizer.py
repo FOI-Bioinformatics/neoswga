@@ -51,8 +51,9 @@ Usage:
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -92,10 +93,10 @@ class SetSizeMetrics:
     fg_bg_ratio: float  # fg_sites / bg_sites (specificity metric)
 
     # Optional: the actual primers if available
-    primers: Optional[Tuple[str, ...]] = None
+    primers: tuple[str, ...] | None = None
 
     # Pareto status (computed after generating all candidates)
-    _is_pareto_optimal: Optional[bool] = None
+    _is_pareto_optimal: bool | None = None
 
     @property
     def is_pareto_optimal(self) -> bool:
@@ -122,7 +123,7 @@ class SetSizeMetrics:
         )
         return at_least_as_good and strictly_better
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         result = {
             "set_size": self.set_size,
@@ -158,12 +159,12 @@ class FrontierResult:
     Contains all evaluated points and identifies the Pareto-optimal subset.
     """
 
-    all_points: List[SetSizeMetrics]
-    pareto_points: List[SetSizeMetrics]
-    selected_point: Optional[SetSizeMetrics] = None
+    all_points: list[SetSizeMetrics]
+    pareto_points: list[SetSizeMetrics]
+    selected_point: SetSizeMetrics | None = None
     selection_explanation: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "all_points": [p.to_dict() for p in self.all_points],
@@ -178,7 +179,7 @@ class FrontierResult:
 # =============================================================================
 
 
-def filter_pareto_optimal(points: List[SetSizeMetrics]) -> List[SetSizeMetrics]:
+def filter_pareto_optimal(points: list[SetSizeMetrics]) -> list[SetSizeMetrics]:
     """
     Filter a list of points to keep only Pareto-optimal ones.
 
@@ -239,10 +240,10 @@ class ParetoFrontierGenerator:
         self,
         primer_pool: pd.DataFrame,
         position_cache: Optional["PositionCache"] = None,
-        fg_prefixes: Optional[List[str]] = None,
-        bg_prefixes: Optional[List[str]] = None,
-        fg_seq_lengths: Optional[List[int]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
+        fg_prefixes: list[str] | None = None,
+        bg_prefixes: list[str] | None = None,
+        fg_seq_lengths: list[int] | None = None,
+        bg_seq_lengths: list[int] | None = None,
         optimizer: Optional["BaseOptimizer"] = None,
         processivity: int = 70000,
         mech_effects: Optional["MechanisticEffects"] = None,
@@ -383,7 +384,7 @@ class ParetoFrontierGenerator:
         self,
         min_size: int,
         max_size: int,
-    ) -> List[SetSizeMetrics]:
+    ) -> list[SetSizeMetrics]:
         """
         Quick estimation assuming greedy primer selection by fg/bg ratio.
 
@@ -515,9 +516,9 @@ class ParetoFrontierGenerator:
 
     def _identify_promising_sizes(
         self,
-        coarse_points: List[SetSizeMetrics],
+        coarse_points: list[SetSizeMetrics],
         num_refine: int = 5,
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Identify sizes worth full optimization.
 
@@ -606,7 +607,7 @@ class ParetoFrontierGenerator:
 
     def compute_metrics_for_set(
         self,
-        primers: List[str],
+        primers: list[str],
     ) -> SetSizeMetrics:
         """
         Compute SetSizeMetrics for a given primer set.
@@ -670,7 +671,7 @@ class ParetoFrontierGenerator:
 
     def _compute_coverage(
         self,
-        positions: List[int],
+        positions: list[int],
         total_length: int,
     ) -> float:
         """Compute coverage fraction from sorted positions."""
@@ -695,11 +696,11 @@ class ParetoFrontierGenerator:
 
 
 def select_from_frontier(
-    frontier: List[SetSizeMetrics],
+    frontier: list[SetSizeMetrics],
     application: str,
-    min_fg_bg_ratio: Optional[float] = None,
-    target_coverage: Optional[float] = None,
-) -> Tuple[SetSizeMetrics, str]:
+    min_fg_bg_ratio: float | None = None,
+    target_coverage: float | None = None,
+) -> tuple[SetSizeMetrics, str]:
     """
     Select optimal point from Pareto frontier based on application.
 
@@ -909,9 +910,9 @@ def recommend_set_size(
     primer_length: int,
     mech_effects: "MechanisticEffects",
     processivity: int = 70000,
-    min_fg_bg_ratio: Optional[float] = None,
-    target_coverage: Optional[float] = None,
-) -> Dict[str, Any]:
+    min_fg_bg_ratio: float | None = None,
+    target_coverage: float | None = None,
+) -> dict[str, Any]:
     """
     Recommend primer set size based on application profile.
 
@@ -1053,8 +1054,8 @@ def recommend_set_size(
 
 
 def find_optimal_size_by_elbow(
-    optimizer, candidates: List[str], min_size: int = 4, max_size: int = 15, verbose: bool = True
-) -> Tuple[int, List[Dict[str, Any]]]:
+    optimizer, candidates: list[str], min_size: int = 4, max_size: int = 15, verbose: bool = True
+) -> tuple[int, list[dict[str, Any]]]:
     """
     Find optimal set size using elbow method on coverage curve.
 

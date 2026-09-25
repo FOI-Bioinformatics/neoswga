@@ -23,13 +23,14 @@ Usage:
 
 import logging
 import threading
-from typing import Any, Callable, Dict, List, Optional, Type
+from collections.abc import Callable
+from typing import Any
 
 from .base_optimizer import BaseOptimizer, OptimizerConfig
 from .exceptions import OptimizerNotFoundError
 
 
-def upgrade_config(config: OptimizerConfig, target_class: Type[OptimizerConfig]):
+def upgrade_config(config: OptimizerConfig, target_class: type[OptimizerConfig]):
     """Re-home `config`'s values on `target_class`, without mutating `config`.
 
     Returns `config` unchanged when it is already an instance of the target, and
@@ -65,9 +66,9 @@ class OptimizerRegistry:
 
     _instance = None
     _lock = threading.Lock()
-    _registry: Dict[str, Type[BaseOptimizer]] = {}
-    _descriptions: Dict[str, str] = {}
-    _aliases: Dict[str, str] = {}
+    _registry: dict[str, type[BaseOptimizer]] = {}
+    _descriptions: dict[str, str] = {}
+    _aliases: dict[str, str] = {}
 
     def __new__(cls):
         if cls._instance is None:
@@ -79,8 +80,8 @@ class OptimizerRegistry:
 
     @classmethod
     def register(
-        cls, name: str, aliases: Optional[List[str]] = None, description: Optional[str] = None
-    ) -> Callable[[Type[BaseOptimizer]], Type[BaseOptimizer]]:
+        cls, name: str, aliases: list[str] | None = None, description: str | None = None
+    ) -> Callable[[type[BaseOptimizer]], type[BaseOptimizer]]:
         """
         Decorator to register an optimizer class.
 
@@ -99,7 +100,7 @@ class OptimizerRegistry:
                 ...
         """
 
-        def decorator(optimizer_class: Type[BaseOptimizer]) -> Type[BaseOptimizer]:
+        def decorator(optimizer_class: type[BaseOptimizer]) -> type[BaseOptimizer]:
             # Validate
             if not issubclass(optimizer_class, BaseOptimizer):
                 raise TypeError(
@@ -130,7 +131,7 @@ class OptimizerRegistry:
         return decorator
 
     @classmethod
-    def get(cls, name: str) -> Type[BaseOptimizer]:
+    def get(cls, name: str) -> type[BaseOptimizer]:
         """
         Get optimizer class by name.
 
@@ -153,7 +154,7 @@ class OptimizerRegistry:
             return cls._registry[canonical_name]
 
     @classmethod
-    def config_class(cls, name: str) -> Type[OptimizerConfig]:
+    def config_class(cls, name: str) -> type[OptimizerConfig]:
         """The `OptimizerConfig` subclass `name` expects, or the base class.
 
         An optimizer declares one by setting `CONFIG_CLASS` on itself. Two do:
@@ -173,7 +174,7 @@ class OptimizerRegistry:
         return getattr(optimizer_class, "CONFIG_CLASS", None) or OptimizerConfig
 
     @classmethod
-    def list_all(cls) -> Dict[str, str]:
+    def list_all(cls) -> dict[str, str]:
         """
         List all registered optimizers with descriptions.
 
@@ -228,11 +229,11 @@ class OptimizerFactory:
     def create(
         name: str,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
-        config: Optional[OptimizerConfig] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
+        config: OptimizerConfig | None = None,
         **kwargs,
     ) -> BaseOptimizer:
         """
@@ -309,7 +310,7 @@ class OptimizerFactory:
             raise
 
     @staticmethod
-    def from_params(params: Dict[str, Any], position_cache) -> BaseOptimizer:
+    def from_params(params: dict[str, Any], position_cache) -> BaseOptimizer:
         """
         Create optimizer from parameter dictionary.
 
@@ -389,7 +390,7 @@ class OptimizerFactory:
         )
 
     @staticmethod
-    def list_optimizers() -> Dict[str, str]:
+    def list_optimizers() -> dict[str, str]:
         """
         List all available optimizers.
 
@@ -399,7 +400,7 @@ class OptimizerFactory:
         return OptimizerRegistry.list_all()
 
     @staticmethod
-    def get_optimizer_info(name: str) -> Dict[str, Any]:
+    def get_optimizer_info(name: str) -> dict[str, Any]:
         """
         Get detailed information about an optimizer.
 
@@ -419,7 +420,7 @@ class OptimizerFactory:
         }
 
     @staticmethod
-    def register(name: str, aliases: Optional[List[str]] = None, description: Optional[str] = None):
+    def register(name: str, aliases: list[str] | None = None, description: str | None = None):
         """
         Decorator to register an optimizer class.
 

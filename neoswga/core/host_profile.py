@@ -49,8 +49,8 @@ set selected for cleanliness. Metrics computed this way report
 
 import logging
 import math
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +74,8 @@ class HostProfile:
 
     name: str
     order: int
-    base_freq: Dict[str, float]
-    transitions: Dict[str, Dict[str, float]]
+    base_freq: dict[str, float]
+    transitions: dict[str, dict[str, float]]
     provenance: str = ""
     fitted_length: int = 0
 
@@ -143,7 +143,7 @@ def fit_profile(
         raise ValueError(f"Markov order must be >= 0, got {order}")
 
     base_counts = {b: 0 for b in BASES}
-    transition_counts: Dict[str, Dict[str, int]] = {}
+    transition_counts: dict[str, dict[str, int]] = {}
     carry = ""
 
     for chunk in sequences:
@@ -167,7 +167,7 @@ def fit_profile(
         raise ValueError("No ACGT bases found; cannot fit a profile.")
     base_freq = {b: base_counts[b] / total_bases for b in BASES}
 
-    transitions: Dict[str, Dict[str, float]] = {}
+    transitions: dict[str, dict[str, float]] = {}
     for context, row in transition_counts.items():
         total = sum(row.values())
         if total:

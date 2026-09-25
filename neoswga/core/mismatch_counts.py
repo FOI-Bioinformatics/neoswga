@@ -35,8 +35,8 @@ which answers the same question without the dict.
 """
 
 import os
+from collections.abc import Iterable
 from functools import lru_cache
-from typing import Dict, Iterable, List, Set
 
 from neoswga.core.thermodynamics import reverse_complement
 
@@ -53,7 +53,7 @@ def canonical_kmer(kmer: str) -> str:
     return kmer if kmer <= rc else rc
 
 
-def one_mismatch_variants(seq: str) -> Set[str]:
+def one_mismatch_variants(seq: str) -> set[str]:
     """Every sequence differing from ``seq`` at exactly one position.
 
     ``3k`` of them, excluding ``seq`` itself. Shared with
@@ -68,7 +68,7 @@ def one_mismatch_variants(seq: str) -> Set[str]:
     return variants
 
 
-def _variants_at_distance(seq: str, n_mismatches: int) -> Set[str]:
+def _variants_at_distance(seq: str, n_mismatches: int) -> set[str]:
     """Sequences differing from ``seq`` at exactly ``n_mismatches`` positions.
 
     Grown one mismatch at a time and filtered by actual Hamming distance,
@@ -93,7 +93,7 @@ def _hamming(a: str, b: str) -> int:
 
 
 @lru_cache(maxsize=32)
-def load_kmer_counts(prefix: str, k: int) -> Dict[str, int]:
+def load_kmer_counts(prefix: str, k: int) -> dict[str, int]:
     """Canonical k-mer -> count, from a jellyfish ``{prefix}_{k}mer_all.txt``.
 
     Cached per (prefix, k): mismatch counting makes tens of lookups per primer,
@@ -110,7 +110,7 @@ def load_kmer_counts(prefix: str, k: int) -> Dict[str, int]:
             f"genome, or pass a prefix that has one."
         )
 
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     with open(path) as handle:
         for line in handle:
             parts = line.split()
@@ -119,7 +119,7 @@ def load_kmer_counts(prefix: str, k: int) -> Dict[str, int]:
     return counts
 
 
-def _count_of(kmers: Iterable[str], tables: List[Dict[str, int]]) -> int:
+def _count_of(kmers: Iterable[str], tables: list[dict[str, int]]) -> int:
     """Total count over distinct canonical forms, across all genomes."""
     total = 0
     for canonical in {canonical_kmer(kmer) for kmer in kmers}:
@@ -129,8 +129,8 @@ def _count_of(kmers: Iterable[str], tables: List[Dict[str, int]]) -> int:
 
 
 def mismatch_class_counts(
-    primer: str, prefixes: List[str], max_mismatches: int = 1
-) -> Dict[int, int]:
+    primer: str, prefixes: list[str], max_mismatches: int = 1
+) -> dict[int, int]:
     """Binding-site counts for ``primer``, grouped by mismatch count.
 
     Args:

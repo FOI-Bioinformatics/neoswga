@@ -31,8 +31,9 @@ of genome recovery.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple
+from typing import Any
 
 # Sense of each limit.
 _AT_LEAST = "at_least"
@@ -116,8 +117,8 @@ class PoolConstraints:
     """
 
     coverage_metric: str = "effective"
-    min_selectivity_density: Optional[float] = None
-    max_background_sites: Optional[int] = None
+    min_selectivity_density: float | None = None
+    max_background_sites: int | None = None
 
     # The spacing quantities, added 2026-09-18. Every one is unset by default
     # and so inert: NeoSWGA must not pick a spacing threshold, because none
@@ -126,10 +127,10 @@ class PoolConstraints:
     # either way. A user setting one is a different claim, and item 1's report
     # is what tells them these had no reference at all. See
     # `docs/validation/getting_ahead_on_spacing_2026-09-18.md`.
-    max_worst_hole: Optional[float] = None
-    max_mean_gap: Optional[float] = None
-    max_evenness: Optional[float] = None
-    max_host_coverage: Optional[float] = None
+    max_worst_hole: float | None = None
+    max_mean_gap: float | None = None
+    max_evenness: float | None = None
+    max_host_coverage: float | None = None
 
     def __post_init__(self) -> None:
         if self.coverage_metric not in {"effective", "raw"}:
@@ -179,7 +180,7 @@ class PoolObjective:
     ):
         self._evaluate = evaluate
         self.constraints = constraints
-        self._cache: Dict[Tuple[str, ...], Any] = {}
+        self._cache: dict[tuple[str, ...], Any] = {}
         self._cache_size = int(cache_size)
 
     def metrics(self, primers: Sequence[str]) -> Any:
@@ -202,7 +203,7 @@ class PoolObjective:
             self._cache[key] = self._evaluate(list(primers))
         return self._cache[key]
 
-    def coverage(self, primers: Sequence[str]) -> Optional[float]:
+    def coverage(self, primers: Sequence[str]) -> float | None:
         """The coverage figure this design is judged on.
 
         `None` when the evaluator could not compute it, which is not the same as
@@ -215,7 +216,7 @@ class PoolObjective:
             return metrics.fg_coverage
         return metrics.effective_fg_coverage
 
-    def violations(self, primers: Sequence[str]) -> Tuple[str, ...]:
+    def violations(self, primers: Sequence[str]) -> tuple[str, ...]:
         """Every constraint this panel fails, named.
 
         A tuple rather than a boolean, so a caller can report which limit bound

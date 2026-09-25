@@ -16,7 +16,6 @@ import sys
 import tempfile
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from neoswga.core.thermodynamics import reverse_complement
 
@@ -58,7 +57,7 @@ def check_jellyfish_available() -> bool:
     return shutil.which("jellyfish") is not None
 
 
-def get_jellyfish_version() -> Optional[str]:
+def get_jellyfish_version() -> str | None:
     """Parse the Jellyfish version from ``jellyfish --version``.
 
     Returns:
@@ -107,7 +106,7 @@ class MultiGenomeKmerCounter:
     counting compared to pure Python implementations.
     """
 
-    def __init__(self, cpus: int = 4, output_dir: Optional[str] = None):
+    def __init__(self, cpus: int = 4, output_dir: str | None = None):
         """
         Initialize counter.
 
@@ -125,10 +124,10 @@ class MultiGenomeKmerCounter:
         self._temp_dir = None
 
         # Cache
-        self.genome_fastas: Dict[str, str] = {}  # name -> fasta_path
-        self.genome_lengths: Dict[str, int] = {}
-        self.kmer_counts: Dict[str, Dict[str, int]] = {}  # genome -> {kmer: count}
-        self.kmer_files: Dict[str, Dict[int, str]] = {}  # genome -> {k: file_path}
+        self.genome_fastas: dict[str, str] = {}  # name -> fasta_path
+        self.genome_lengths: dict[str, int] = {}
+        self.kmer_counts: dict[str, dict[str, int]] = {}  # genome -> {kmer: count}
+        self.kmer_files: dict[str, dict[int, str]] = {}  # genome -> {k: file_path}
 
     def _get_work_dir(self) -> str:
         """Get working directory for intermediate files."""
@@ -162,7 +161,7 @@ class MultiGenomeKmerCounter:
 
         logger.debug(f"Added genome {name}: {length:,} bp from {fasta_path}")
 
-    def count_kmers_jellyfish(self, genome_name: str, k: int) -> Dict[str, int]:
+    def count_kmers_jellyfish(self, genome_name: str, k: int) -> dict[str, int]:
         """
         Count k-mers using Jellyfish.
 
@@ -232,7 +231,7 @@ class MultiGenomeKmerCounter:
         self.kmer_counts[cache_key] = counts
         return counts
 
-    def count_kmers(self, genome_name: str, k: int) -> Dict[str, int]:
+    def count_kmers(self, genome_name: str, k: int) -> dict[str, int]:
         """
         Count k-mers using Jellyfish.
 
@@ -289,7 +288,7 @@ class MultiGenomeKmerCounter:
             self._temp_dir = None
 
 
-def count_kmers_in_sequence(sequence: str, k: int) -> Dict[str, int]:
+def count_kmers_in_sequence(sequence: str, k: int) -> dict[str, int]:
     """
     Count all k-mers in a sequence (pure Python).
 
@@ -331,7 +330,7 @@ DIGEST_ALGORITHM = "sha256-full"
 # path -> (size, mtime_ns, digest). Computed once per input per run, which is
 # what makes a full digest affordable: `run_jellyfish` fingerprints once per k,
 # so seven k values used to mean seven passes over the genome.
-_DIGEST_CACHE: Dict[str, Tuple[int, int, str]] = {}
+_DIGEST_CACHE: dict[str, tuple[int, int, str]] = {}
 
 
 def genome_fingerprint(genome_fname: str) -> str:
@@ -610,7 +609,7 @@ def run_jellyfish(
         )
 
 
-def get_kmer_to_count_dict(f_in_name: str) -> Dict[str, int]:
+def get_kmer_to_count_dict(f_in_name: str) -> dict[str, int]:
     """
     Read a jellyfish dump file and return k-mer counts as a dictionary.
 
@@ -622,7 +621,7 @@ def get_kmer_to_count_dict(f_in_name: str) -> Dict[str, int]:
     """
     kmer_to_count = {}
 
-    with open(f_in_name, "r") as f_in:
+    with open(f_in_name) as f_in:
         for line in f_in:
             parts = line.strip().split()
             if len(parts) >= 2:
@@ -646,15 +645,15 @@ def _gc_content(seq: str) -> float:
 
 
 def get_primer_list_from_kmers(
-    prefixes: List[str],
-    kmer_lengths: Optional[range] = None,
+    prefixes: list[str],
+    kmer_lengths: range | None = None,
     min_tm: float = 15.0,
     max_tm: float = 55.0,
     wide_tm_margin: float = 2.0,
     gc_min: float = 0.10,
     gc_max: float = 0.90,
     conditions=None,
-) -> List[str]:
+) -> list[str]:
     """
     Get all k-mers from jellyfish output files, filtered by GC content and Tm.
 
@@ -715,7 +714,7 @@ def get_primer_list_from_kmers(
                 logger.warning(f"K-mer file not found: {fpath}")
                 continue
 
-            with open(fpath, "r") as f_in:
+            with open(fpath) as f_in:
                 for line in f_in:
                     parts = line.strip().split()
                     if not parts:

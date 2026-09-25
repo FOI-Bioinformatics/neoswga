@@ -36,9 +36,9 @@ from __future__ import annotations
 
 import csv
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
 
 from neoswga.core.exceptions import ReferenceDataError
 
@@ -62,19 +62,19 @@ class DeliveredSet:
     set, so every row is returned.
     """
 
-    rows: Tuple[Dict[str, str], ...]
-    set_index: Optional[int]
-    available: Tuple[int, ...]
+    rows: tuple[dict[str, str], ...]
+    set_index: int | None
+    available: tuple[int, ...]
 
     @property
-    def primers(self) -> Tuple[str, ...]:
+    def primers(self) -> tuple[str, ...]:
         """The sequences, in file order, deduplicated.
 
         A set should not repeat a primer; deduplicating here keeps a
         malformed file from inflating a panel size rather than hiding it,
         and the count is reported by `describe`.
         """
-        seen: List[str] = []
+        seen: list[str] = []
         for row in self.rows:
             sequence = str(row.get("primer") or row.get("sequence") or "").strip()
             if sequence and sequence not in seen:
@@ -95,8 +95,8 @@ class DeliveredSet:
 
 
 def select_delivered_set(
-    rows: Sequence[Dict[str, str]],
-    set_index: Optional[int] = DEFAULT_SET_INDEX,
+    rows: Sequence[dict[str, str]],
+    set_index: int | None = DEFAULT_SET_INDEX,
     *,
     artifact: str = "step4_improved_df.csv",
 ) -> DeliveredSet:
@@ -149,7 +149,7 @@ def select_delivered_set(
 
 def read_delivered_set(
     path,
-    set_index: Optional[int] = DEFAULT_SET_INDEX,
+    set_index: int | None = DEFAULT_SET_INDEX,
 ) -> DeliveredSet:
     """Read `step4_improved_df.csv` and return one set from it."""
     path = Path(path)
@@ -174,7 +174,7 @@ def read_delivered_set(
     return delivered
 
 
-def _as_int(value) -> Optional[int]:
+def _as_int(value) -> int | None:
     try:
         return int(float(value))
     except (TypeError, ValueError):

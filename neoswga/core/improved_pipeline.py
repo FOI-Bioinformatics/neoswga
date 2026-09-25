@@ -15,7 +15,6 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -38,8 +37,8 @@ class PipelineConfig:
 
     # Background filtering
     use_background_filter: bool = True
-    background_bloom_path: Optional[str] = None
-    background_sampled_path: Optional[str] = None
+    background_bloom_path: str | None = None
+    background_sampled_path: str | None = None
     max_bg_exact_matches: int = 10
     max_bg_1mm_matches: int = 100
 
@@ -74,7 +73,7 @@ class ImprovedPipeline:
         primers = pipeline.design_primers(fg_genome, bg_genome, candidates)
     """
 
-    def __init__(self, config: Optional[PipelineConfig] = None):
+    def __init__(self, config: PipelineConfig | None = None):
         """
         Initialize pipeline.
 
@@ -87,11 +86,11 @@ class ImprovedPipeline:
     def design_primers(
         self,
         fg_genome_path: str,
-        fg_prefixes: List[str],
-        bg_genome_path: Optional[str],
-        bg_prefixes: Optional[List[str]],
-        candidates: List[str],
-    ) -> Dict:
+        fg_prefixes: list[str],
+        bg_genome_path: str | None,
+        bg_prefixes: list[str] | None,
+        candidates: list[str],
+    ) -> dict:
         """
         Complete primer design pipeline.
 
@@ -258,7 +257,7 @@ class ImprovedPipeline:
             "config": self.config,
         }
 
-    def _get_genome_lengths(self, fasta_path: str) -> List[int]:
+    def _get_genome_lengths(self, fasta_path: str) -> list[int]:
         """Get lengths of all sequences in FASTA"""
         from Bio import SeqIO
 
@@ -276,7 +275,7 @@ def migrate_from_old_pipeline(old_params_json: str, output_json: str):
     """
     import json
 
-    with open(old_params_json, "r") as f:
+    with open(old_params_json) as f:
         old_params = json.load(f)
 
     # Map old parameters to new config
@@ -313,10 +312,10 @@ def migrate_from_old_pipeline(old_params_json: str, output_json: str):
 
 def run_comparison(
     fg_genome: str,
-    fg_prefixes: List[str],
+    fg_prefixes: list[str],
     bg_genome: str,
-    bg_prefixes: List[str],
-    candidates: List[str],
+    bg_prefixes: list[str],
+    candidates: list[str],
 ):
     """
     Run old vs. new pipeline comparison.

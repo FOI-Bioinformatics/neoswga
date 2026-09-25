@@ -34,7 +34,6 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from glob import glob
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -59,9 +58,9 @@ class BackgroundEntry:
     name: str
     species: str
     genome_size: int
-    bloom_path: Optional[str] = None
-    kmer_prefix: Optional[str] = None
-    k_range: Tuple[int, int] = (6, 12)
+    bloom_path: str | None = None
+    kmer_prefix: str | None = None
+    k_range: tuple[int, int] = (6, 12)
     created_date: str = ""
     description: str = ""
     source: str = ""
@@ -89,7 +88,7 @@ class BackgroundEntry:
                 return True
         return False
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,
@@ -104,7 +103,7 @@ class BackgroundEntry:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "BackgroundEntry":
+    def from_dict(cls, data: dict) -> "BackgroundEntry":
         """Create from dictionary."""
         k_range = tuple(data.get("k_range", [6, 12]))
         return cls(
@@ -152,7 +151,7 @@ class BackgroundRegistry:
 
     def __init__(
         self,
-        registry_path: Optional[str] = None,
+        registry_path: str | None = None,
         auto_discover: bool = True,
     ):
         """
@@ -169,7 +168,7 @@ class BackgroundRegistry:
             registry_path = str(registry_dir / "background_registry.json")
 
         self.registry_path = registry_path
-        self.entries: Dict[str, BackgroundEntry] = {}
+        self.entries: dict[str, BackgroundEntry] = {}
         self._load()
 
         if auto_discover:
@@ -209,9 +208,9 @@ class BackgroundRegistry:
         name: str,
         species: str,
         genome_size: int,
-        bloom_path: Optional[str] = None,
-        kmer_prefix: Optional[str] = None,
-        k_range: Tuple[int, int] = (6, 12),
+        bloom_path: str | None = None,
+        kmer_prefix: str | None = None,
+        k_range: tuple[int, int] = (6, 12),
         description: str = "",
         source: str = "",
         overwrite: bool = False,
@@ -273,7 +272,7 @@ class BackgroundRegistry:
             return True
         return False
 
-    def get(self, name: str) -> Optional[BackgroundEntry]:
+    def get(self, name: str) -> BackgroundEntry | None:
         """
         Get a background by name.
 
@@ -285,7 +284,7 @@ class BackgroundRegistry:
         """
         return self.entries.get(name)
 
-    def list_all(self) -> List[BackgroundEntry]:
+    def list_all(self) -> list[BackgroundEntry]:
         """
         List all backgrounds in registry.
 
@@ -296,7 +295,7 @@ class BackgroundRegistry:
 
     def discover(
         self,
-        directories: Optional[List[str]] = None,
+        directories: list[str] | None = None,
         verbose: bool = False,
     ) -> int:
         """
@@ -369,7 +368,7 @@ class BackgroundRegistry:
 
         return discovered
 
-    def _infer_name_from_bloom(self, bloom_path: str) -> Optional[str]:
+    def _infer_name_from_bloom(self, bloom_path: str) -> str | None:
         """Infer background name from Bloom filter path."""
         basename = os.path.basename(bloom_path)
         # Remove common suffixes
@@ -380,12 +379,12 @@ class BackgroundRegistry:
                 break
         return name if name else None
 
-    def _infer_name_from_prefix(self, prefix: str) -> Optional[str]:
+    def _infer_name_from_prefix(self, prefix: str) -> str | None:
         """Infer background name from k-mer file prefix."""
         basename = os.path.basename(prefix)
         return basename if basename else None
 
-    def _detect_k_range(self, prefix: str) -> Tuple[int, int]:
+    def _detect_k_range(self, prefix: str) -> tuple[int, int]:
         """Detect available k-mer range from files."""
         k_min = 30
         k_max = 1
@@ -401,7 +400,7 @@ class BackgroundRegistry:
 
         return (k_min, k_max)
 
-    def search(self, query: str) -> List[BackgroundEntry]:
+    def search(self, query: str) -> list[BackgroundEntry]:
         """
         Search for backgrounds by name or species.
 
@@ -444,7 +443,7 @@ COMMON_BACKGROUNDS = {
 }
 
 
-def get_common_background(name: str) -> Optional[Dict]:
+def get_common_background(name: str) -> dict | None:
     """
     Get pre-defined information for common backgrounds.
 

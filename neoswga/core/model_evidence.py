@@ -37,8 +37,8 @@ pins the registry against the constants the code actually uses.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional, Tuple
 
 from .exceptions import ReferenceDataError, UnsupportedModelError
 
@@ -53,7 +53,7 @@ __all__ = [
 EVIDENCE_STATUSES = ("measured", "estimated", "empirical", "assumed", "absent")
 
 _EVIDENCE_FILENAME = "model_evidence.json"
-_CACHE: Optional[Dict[str, "EvidenceRecord"]] = None
+_CACHE: dict[str, EvidenceRecord] | None = None
 
 
 @dataclass(frozen=True)
@@ -78,7 +78,7 @@ class EvidenceRecord:
     #: without one is NOT refused -- absence of a domain is not a domain of
     #: zero, and refusing on it would turn a gap in the evidence into a gap in
     #: the tool.
-    temperature_range_c: Optional[Tuple[float, float]] = None
+    temperature_range_c: tuple[float, float] | None = None
     temperature_range_note: str = ""
 
     @property
@@ -92,7 +92,7 @@ class EvidenceRecord:
         return self.status != "absent"
 
 
-def _span(value) -> Optional[Tuple[float, float]]:
+def _span(value) -> tuple[float, float] | None:
     """A recorded [low, high] temperature span, or None.
 
     Anything malformed is None rather than an error: a registry that refused
@@ -106,7 +106,7 @@ def _span(value) -> Optional[Tuple[float, float]]:
         return None
 
 
-def load_evidence() -> Dict[str, EvidenceRecord]:
+def load_evidence() -> dict[str, EvidenceRecord]:
     """The registry, by quantity. Raises if it is missing or malformed.
 
     Absent evidence is not evidence of no constraint, so a missing artifact
@@ -137,7 +137,7 @@ def load_evidence() -> Dict[str, EvidenceRecord]:
             "Reinstall the package.",
         )
 
-    records: Dict[str, EvidenceRecord] = {}
+    records: dict[str, EvidenceRecord] = {}
     for entry in payload["records"]:
         try:
             record = EvidenceRecord(

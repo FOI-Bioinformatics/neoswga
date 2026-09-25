@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Optional
 
 from neoswga.core.delivered_set import DEFAULT_SET_INDEX, read_delivered_set
 from neoswga.core.reaction_conditions import ReactionConditions
@@ -60,7 +60,7 @@ class PrimerModifications:
     """
 
     pto_bonds: int = 2
-    five_prime_block: Optional[str] = None  # 'c18', 'c3', or None
+    five_prime_block: str | None = None  # 'c18', 'c3', or None
     profile: ModificationProfile = ModificationProfile.STANDARD
 
     @classmethod
@@ -129,7 +129,7 @@ def primer_tm(seq: str, conditions: Optional["ReactionConditions"] = None) -> fl
 
 
 def export_to_fasta(
-    primers: List[str],
+    primers: list[str],
     output_path: str,
     prefix: str = "SWGA",
     include_metadata: bool = False,
@@ -160,8 +160,8 @@ def export_to_fasta(
 
 
 def export_to_bed(
-    primers: List[str],
-    positions: Dict[str, List[tuple]],
+    primers: list[str],
+    positions: dict[str, list[tuple]],
     genome_name: str,
     output_path: str,
 ) -> None:
@@ -217,8 +217,8 @@ def export_gaps_to_bed(gaps, output_path: str) -> None:
 
 
 def export_to_bedgraph(
-    primers: List[str],
-    positions: Dict[str, List[tuple]],
+    primers: list[str],
+    positions: dict[str, list[tuple]],
     genome_name: str,
     genome_length: int,
     output_path: str,
@@ -259,7 +259,7 @@ def export_to_bedgraph(
 
 
 # Vendor format specifications
-VENDOR_FORMATS: Dict[str, Dict[str, Any]] = {
+VENDOR_FORMATS: dict[str, dict[str, Any]] = {
     "idt": {
         "columns": ["Name", "Sequence", "Scale", "Purification"],
         "defaults": {"Scale": "25nm", "Purification": "STD"},
@@ -280,7 +280,7 @@ VENDOR_FORMATS: Dict[str, Dict[str, Any]] = {
 
 # Vendor-specific modification syntax
 # Reference: IDT ordering guide, Sigma custom oligo guide
-VENDOR_MODIFICATION_SYNTAX: Dict[str, Dict[str, Any]] = {
+VENDOR_MODIFICATION_SYNTAX: dict[str, dict[str, Any]] = {
     "idt": {
         "pto_symbol": "*",
         "c18_prefix": "/5SpC18/",
@@ -387,12 +387,12 @@ def apply_modifications(
 
 
 def export_to_vendor_csv(
-    primers: List[str],
+    primers: list[str],
     output_path: str,
     vendor: str = "generic",
     project_name: str = "SWGA",
-    scale: Optional[str] = None,
-    purification: Optional[str] = None,
+    scale: str | None = None,
+    purification: str | None = None,
     conditions: Optional["ReactionConditions"] = None,
 ) -> None:
     """
@@ -564,8 +564,8 @@ _PROTOCOL_ADDITIVE_NAMES = frozenset(name for name, _, _ in PROTOCOL_ADDITIVES)
 def build_conditions(
     polymerase: str,
     temperature: float,
-    mg_conc: Optional[float],
-    additives: Dict[str, float],
+    mg_conc: float | None,
+    additives: dict[str, float],
 ) -> Optional["ReactionConditions"]:
     """The reaction the exported numbers describe.
 
@@ -596,11 +596,11 @@ def build_conditions(
 
 
 def generate_protocol(
-    primers: List[str],
+    primers: list[str],
     polymerase: str = "phi29",
     temperature: float = 30.0,
     duration: float = 16.0,
-    mg_conc: Optional[float] = None,
+    mg_conc: float | None = None,
     **additives,
 ) -> str:
     """
@@ -659,7 +659,7 @@ def generate_protocol(
     )
 
 
-def export_protocol(primers: List[str], output_path: str, **kwargs) -> None:
+def export_protocol(primers: list[str], output_path: str, **kwargs) -> None:
     """
     Export protocol to markdown file.
 
@@ -714,11 +714,11 @@ class PrimerExporter:
 
     def __init__(
         self,
-        primers: List[str],
+        primers: list[str],
         polymerase: str = "phi29",
         temperature: float = 30.0,
-        mg_conc: Optional[float] = None,
-        modifications: Optional[PrimerModifications] = None,
+        mg_conc: float | None = None,
+        modifications: PrimerModifications | None = None,
         **additives,
     ):
         """
@@ -760,8 +760,8 @@ class PrimerExporter:
     def from_results_dir(
         cls,
         results_dir: str,
-        params_file: Optional[str] = None,
-        set_index: Optional[int] = DEFAULT_SET_INDEX,
+        params_file: str | None = None,
+        set_index: int | None = DEFAULT_SET_INDEX,
     ) -> "PrimerExporter":
         """
         Create exporter from pipeline results directory.
@@ -801,7 +801,7 @@ class PrimerExporter:
         params_path = params_file or (results_path / "params.json")
         params = {}
         if Path(params_path).exists():
-            with open(params_path, "r") as f:
+            with open(params_path) as f:
                 params = json.load(f)
 
         # What the run actually used beats what the user wrote. Both
@@ -868,7 +868,7 @@ class PrimerExporter:
     def export_bed(
         self,
         output_path: str,
-        positions: Dict[str, List[tuple]],
+        positions: dict[str, list[tuple]],
         genome_name: str = "genome",
     ) -> None:
         """Export primer binding sites in BED format."""
@@ -877,7 +877,7 @@ class PrimerExporter:
     def export_bedgraph(
         self,
         output_path: str,
-        positions: Dict[str, List[tuple]],
+        positions: dict[str, list[tuple]],
         genome_name: str = "genome",
         genome_length: int = 0,
         window_size: int = 1000,
@@ -888,8 +888,8 @@ class PrimerExporter:
         )
 
     def export_all(
-        self, output_dir: str, project_name: str = "SWGA", vendors: Optional[List[str]] = None
-    ) -> Dict[str, str]:
+        self, output_dir: str, project_name: str = "SWGA", vendors: list[str] | None = None
+    ) -> dict[str, str]:
         """
         Export all formats to a directory.
 
@@ -945,7 +945,7 @@ class PrimerExporter:
         logger.info(f"Exported all formats to {output_dir}")
         return outputs
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """
         Get summary statistics for the primer set.
 

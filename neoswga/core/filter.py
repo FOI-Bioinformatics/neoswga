@@ -8,7 +8,6 @@ import logging
 import multiprocessing
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -363,7 +362,7 @@ def _reject_lengths_the_filter_cannot_answer(bloom, primer_list, bloom_path) -> 
     )
 
 
-def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str, int]:
+def get_bg_rates_via_bloom(primer_list: list[str], bloom_path: str) -> dict[str, int]:
     """
     Get background rates using a pre-built Bloom filter.
 
@@ -416,7 +415,7 @@ def get_bg_rates_via_bloom(primer_list: List[str], bloom_path: str) -> Dict[str,
     return primer_to_count
 
 
-def _resolve_tm_window() -> Tuple[float, float]:
+def _resolve_tm_window() -> tuple[float, float]:
     """The Tm window this filter applies, in Celsius.
 
     Two faults lived in the two lines this replaces:
@@ -483,7 +482,7 @@ def resolve_homopolymer_run() -> int:
     return _configured_int("max_homopolymer_run", MAX_HOMOPOLYMER_RUN)
 
 
-def resolve_gc_clamp() -> Tuple[int, int]:
+def resolve_gc_clamp() -> tuple[int, int]:
     """(window, max G/C) for the 3'-end clamp, from configuration.
 
     The window is length-blind: five bases is 83% of a 6-mer and 42% of a
@@ -626,7 +625,7 @@ def filter_extra(primer: str) -> bool:
     return True
 
 
-def _resolve_background_source() -> Tuple[bool, Optional[str]]:
+def _resolve_background_source() -> tuple[bool, str | None]:
     """Which background source this run screens against, or refuse.
 
     Resolved before any counting: this is a configuration error, and
@@ -686,9 +685,9 @@ def _resolve_background_source() -> Tuple[bool, Optional[str]]:
 
 
 def get_all_rates(
-    primer_list: List[str],
-    fg_prefixes: List[str],
-    bg_prefixes: List[str],
+    primer_list: list[str],
+    fg_prefixes: list[str],
+    bg_prefixes: list[str],
     fg_total_length: int,
     bg_total_length: int,
 ) -> pd.DataFrame:
@@ -766,7 +765,7 @@ def get_all_rates(
     return df
 
 
-def get_rates_for_one_species(primer_list: List[str], fname_prefixes: List[str]) -> Dict[str, int]:
+def get_rates_for_one_species(primer_list: list[str], fname_prefixes: list[str]) -> dict[str, int]:
     """
     Computes the binding site frequencies for all ppsth prefixes in fname_prefixes.
 
@@ -807,13 +806,13 @@ def get_rates_for_one_species(primer_list: List[str], fname_prefixes: List[str])
     return all_primer_to_count
 
 
-def _get_rate_for_one_file(task: Tuple[List[str], str, int]) -> Dict[str, int]:
+def _get_rate_for_one_file(task: tuple[list[str], str, int]) -> dict[str, int]:
     primer_list, fname_prefix, k = task
     primer_set = set(primer_list)
     primer_to_count = {}
     found = 0
     target = len(primer_set)
-    with open(fname_prefix + "_" + str(k) + "mer_all.txt", "r") as f_in:
+    with open(fname_prefix + "_" + str(k) + "mer_all.txt") as f_in:
         for line in f_in:
             parts = line.split()
             if parts[0] in primer_set:
@@ -867,12 +866,12 @@ def check_gini_stage_kept_something(before_df, after_df):
 
 
 def get_gini(
-    fg_prefixes: List[str],
-    fg_genomes: List[str],
-    fg_seq_lengths: List[int],
+    fg_prefixes: list[str],
+    fg_genomes: list[str],
+    fg_seq_lengths: list[int],
     df: pd.DataFrame,
     circular: bool,
-    position_cache: Optional[Dict] = None,
+    position_cache: dict | None = None,
 ) -> pd.DataFrame:
     """Computes the Gini index of the gap distances between binding sites.
 

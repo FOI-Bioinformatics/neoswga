@@ -19,7 +19,7 @@ an otherwise reproducible run depend on storage layout.
 
 from __future__ import annotations
 
-from typing import Iterable, List, Sequence, Set
+from collections.abc import Iterable, Sequence
 
 from neoswga.core.position_cache import MissingPositionsError
 
@@ -36,7 +36,7 @@ class CandidateProvider:
         self.inventory = inventory
         self.condition_id = condition_id
         self.lengths = list(lengths)
-        self._ordered: List[str] | None = None
+        self._ordered: list[str] | None = None
         # The provider owns the position data for the candidates it hands out,
         # because it is the only thing that knows a batch was admitted. Nothing
         # may be scored before `attach_positions`.
@@ -67,17 +67,17 @@ class CandidateProvider:
 
     # -- batches -----------------------------------------------------------
 
-    def initial(self, limit: int) -> List[str]:
+    def initial(self, limit: int) -> list[str]:
         """The starting shortlist: the best-ranked `limit` eligible candidates."""
         return self._eligible_in_search_order()[: max(0, int(limit))]
 
-    def expand(self, excluded: Iterable[str], limit: int) -> List[str]:
+    def expand(self, excluded: Iterable[str], limit: int) -> list[str]:
         """The next batch of eligible candidates not yet examined.
 
         Returns an empty list only when the eligible inventory is exhausted, so
         an empty batch is a real answer rather than a budget artefact.
         """
-        seen: Set[str] = {str(s).upper() for s in excluded}
+        seen: set[str] = {str(s).upper() for s in excluded}
         batch = []
         for sequence in self._eligible_in_search_order():
             if sequence.upper() in seen:

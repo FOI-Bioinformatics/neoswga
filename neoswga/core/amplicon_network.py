@@ -16,7 +16,6 @@ import logging
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
 
 import h5py
 import networkx as nx
@@ -72,7 +71,7 @@ class AmpliconNetwork:
 
     def __init__(
         self,
-        primers: List[str],
+        primers: list[str],
         genome_length: int,
         max_amplicon_length: int = 5000,
         min_amplicon_length: int = 200,
@@ -239,7 +238,7 @@ class AmpliconNetwork:
 
         return coverage
 
-    def find_hubs(self, min_degree: int = 5) -> List[int]:
+    def find_hubs(self, min_degree: int = 5) -> list[int]:
         """
         Find hub nodes (high-degree vertices).
 
@@ -260,7 +259,7 @@ class AmpliconNetwork:
 
         return hubs
 
-    def find_dead_ends(self) -> List[int]:
+    def find_dead_ends(self) -> list[int]:
         """
         Find dead-end nodes (out-degree 0).
 
@@ -277,7 +276,7 @@ class AmpliconNetwork:
 
         return dead_ends
 
-    def calculate_amplicon_statistics(self) -> Dict:
+    def calculate_amplicon_statistics(self) -> dict:
         """
         Calculate statistics on amplicon lengths.
 
@@ -376,7 +375,7 @@ class AmpliconNetwork:
 
         return self.G.subgraph(sampled)
 
-    def find_critical_primers(self) -> List[Tuple[str, float]]:
+    def find_critical_primers(self) -> list[tuple[str, float]]:
         """
         Identify primers critical for network connectivity.
 
@@ -411,12 +410,12 @@ class AmpliconNetwork:
 
 
 def network_based_primer_selection(
-    primer_candidates: List[str],
+    primer_candidates: list[str],
     genome_length: int,
     hdf5_prefix: str,
     target_set_size: int = 6,
     max_amplicon_length: int = 5000,
-) -> List[str]:
+) -> list[str]:
     """
     Select primer set that maximizes network connectivity.
 

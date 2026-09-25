@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Mapping, Sequence
+from collections.abc import Mapping, Sequence
 
 from .exceptions import ReferenceDataError
 from .string_search import RECORD_STARTS_KEY
@@ -157,7 +157,7 @@ def verify_index_geometry(manifest: Mapping[str, str], lengths: Sequence[int]) -
     )
 
 
-def _count_records(genome) -> "int | None":
+def _count_records(genome) -> int | None:
     """Header lines in a FASTA, or None when it cannot be read.
 
     Counting ">" rather than loading the sequence: the loader would hold 8.5 GB

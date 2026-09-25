@@ -28,7 +28,6 @@ Version: 3.1 - Tier 1 Improvements
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -58,7 +57,7 @@ class PrimerStrandBias:
     bias_ratio: float  # forward / reverse
     bias_score: float  # 0 = balanced, 1 = maximum bias
     passes: bool
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
 
     @property
     def is_balanced(self) -> bool:
@@ -88,14 +87,14 @@ class PrimerStrandBias:
 class SetStrandBias:
     """Strand bias metrics for a primer set."""
 
-    primers: List[str]
+    primers: list[str]
     total_forward: int
     total_reverse: int
     mean_bias_score: float
     max_bias_score: float
     num_biased_primers: int
     passes: bool
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
 
     def __str__(self):
         status = "PASS" if self.passes else f"FAIL ({self.failure_reason})"
@@ -152,7 +151,7 @@ class StrandBiasAnalyzer:
         self.max_biased_fraction = max_biased_primers_fraction
 
     def analyze_primer(
-        self, primer: str, binding_sites: List[StrandBindingSite]
+        self, primer: str, binding_sites: list[StrandBindingSite]
     ) -> PrimerStrandBias:
         """
         Analyze strand bias for a single primer.
@@ -225,7 +224,7 @@ class StrandBiasAnalyzer:
             failure_reason=failure_reason,
         )
 
-    def analyze_primer_set(self, primer_biases: List[PrimerStrandBias]) -> SetStrandBias:
+    def analyze_primer_set(self, primer_biases: list[PrimerStrandBias]) -> SetStrandBias:
         """
         Analyze strand bias for a primer set.
 
@@ -283,7 +282,7 @@ class StrandBiasAnalyzer:
             failure_reason=failure_reason,
         )
 
-    def filter_primers_by_strand_bias(self, primer_biases: List[PrimerStrandBias]) -> List[str]:
+    def filter_primers_by_strand_bias(self, primer_biases: list[PrimerStrandBias]) -> list[str]:
         """
         Filter primers to only those with acceptable strand bias.
 
@@ -296,8 +295,8 @@ class StrandBiasAnalyzer:
         return [pb.primer for pb in primer_biases if pb.passes]
 
     def get_most_biased_primers(
-        self, primer_biases: List[PrimerStrandBias], n: int = 5
-    ) -> List[PrimerStrandBias]:
+        self, primer_biases: list[PrimerStrandBias], n: int = 5
+    ) -> list[PrimerStrandBias]:
         """
         Get the n primers with worst strand bias.
 
@@ -341,10 +340,10 @@ def create_strand_bias_analyzer(stringency: str = "moderate") -> StrandBiasAnaly
 
 # Utility function for quick filtering
 def filter_primers_by_strand_bias(
-    primers: List[str],
-    binding_sites_dict: Dict[str, List[StrandBindingSite]],
+    primers: list[str],
+    binding_sites_dict: dict[str, list[StrandBindingSite]],
     stringency: str = "moderate",
-) -> List[str]:
+) -> list[str]:
     """
     Quick utility to filter primers by strand bias.
 

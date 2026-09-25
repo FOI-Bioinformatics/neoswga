@@ -30,8 +30,8 @@ being able to help at all.
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +77,11 @@ def sweep_conditions(
     fg_prefixes: Sequence[str],
     bg_prefixes: Sequence[str],
     polymerase: str = "phi29",
-    temperatures: Optional[Sequence[float]] = None,
-    dmso_percentages: Optional[Sequence[float]] = None,
-    betaine_concentrations: Optional[Sequence[float]] = None,
+    temperatures: Sequence[float] | None = None,
+    dmso_percentages: Sequence[float] | None = None,
+    betaine_concentrations: Sequence[float] | None = None,
     max_mismatches: int = 1,
-) -> List[ConditionPoint]:
+) -> list[ConditionPoint]:
     """Selectivity and amplification across a temperature x additive grid.
 
     Selectivity uses the same `occupancy.weighted_site_load` the optimizer's
@@ -97,8 +97,8 @@ def sweep_conditions(
     dmso_grid = list(dmso_percentages if dmso_percentages is not None else DEFAULT_DMSO)
     betaine_grid = list(betaine_concentrations if betaine_concentrations is not None else (0.0,))
 
-    points: List[ConditionPoint] = []
-    skipped: List[tuple] = []
+    points: list[ConditionPoint] = []
+    skipped: list[tuple] = []
     for temp in temperatures:
         for dmso in dmso_grid:
             for betaine in betaine_grid:

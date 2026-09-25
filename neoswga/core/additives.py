@@ -35,7 +35,7 @@ References:
 
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 # =============================================================================
 # GC equalization, shared by both Tm paths
@@ -142,7 +142,7 @@ class ArrheniusTmCorrector:
         self._params = None  # Lazy-loaded
 
     @property
-    def params(self) -> Dict[str, Dict[str, Any]]:
+    def params(self) -> dict[str, dict[str, Any]]:
         """Lazy-load additive parameters."""
         if self._params is None:
             from neoswga.core.mechanistic_params import ADDITIVE_TM_PARAMS
@@ -214,7 +214,7 @@ class ArrheniusTmCorrector:
     def _gc_adjustment(
         self,
         additive: str,
-        params: Dict[str, Any],
+        params: dict[str, Any],
         gc_content: float,
         concentration: float,
         primer_length: int,
@@ -257,7 +257,7 @@ class ArrheniusTmCorrector:
         return 1.0 / (1.0 + math.exp(-steepness * (x - midpoint)))
 
     def calculate_total_correction(
-        self, additives: Dict[str, float], gc_content: float = 0.5, primer_length: int = 10
+        self, additives: dict[str, float], gc_content: float = 0.5, primer_length: int = 10
     ) -> float:
         """
         Calculate total Tm correction from multiple additives.
@@ -317,7 +317,7 @@ class ArrheniusTmCorrector:
         temp1_celsius: float,
         temp2_celsius: float,
         gc_content: float = 0.5,
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """
         Compare Tm correction at two different temperatures.
 
@@ -423,7 +423,7 @@ class AdditiveConcentrations:
         self,
         gc_content: float = 0.5,
         primer_length: int = 10,
-        reaction_temp_celsius: Optional[float] = None,
+        reaction_temp_celsius: float | None = None,
     ) -> float:
         """
         Calculate total Tm correction from all additives.
@@ -733,7 +733,7 @@ class AdditiveConcentrations:
 
         return min(supported_max, 18)
 
-    def gc_content_range(self) -> Tuple[float, float]:
+    def gc_content_range(self) -> tuple[float, float]:
         """
         Recommended GC content range with these additives.
 
@@ -865,7 +865,7 @@ class AdditiveConcentrations:
     # Serialization
     # =========================================================================
 
-    def to_dict(self) -> Dict[str, float]:
+    def to_dict(self) -> dict[str, float]:
         """Convert to dictionary for JSON serialization."""
         return {
             "dmso_percent": self.dmso_percent,
@@ -881,7 +881,7 @@ class AdditiveConcentrations:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, float]) -> "AdditiveConcentrations":
+    def from_dict(cls, data: dict[str, float]) -> "AdditiveConcentrations":
         """Create from dictionary."""
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
@@ -921,7 +921,7 @@ class AdditiveConcentrations:
 
 def estimate_combined_effect(
     additives: AdditiveConcentrations, gc_content: float, primer_length: int
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Estimate combined effects of additives on reaction.
 

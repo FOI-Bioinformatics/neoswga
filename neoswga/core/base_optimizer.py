@@ -15,7 +15,7 @@ import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -147,7 +147,7 @@ class PrimerSetMetrics:
 
     # Thermodynamic metrics
     mean_tm: float  # Mean melting temperature
-    tm_range: Tuple[float, float]  # (min_tm, max_tm)
+    tm_range: tuple[float, float]  # (min_tm, max_tm)
     dimer_risk_score: float  # 0-1, fraction of primer pairs with dimer risk
 
     # Gap statistics
@@ -160,26 +160,26 @@ class PrimerSetMetrics:
     # the position cache could not supply them, which is not the same as zero:
     # a one-site panel has nothing to alternate and genuinely scores 0.0. See
     # `core/strand_metrics.py`.
-    strand_alternation_score: Optional[float]
-    strand_coverage_ratio: Optional[float]
+    strand_alternation_score: float | None
+    strand_coverage_ratio: float | None
 
     # All five strand figures, per genome, foreground and background. Keyed by
     # prefix; a prefix the cache could not answer for is ABSENT rather than
     # zero. Three of the five used to be computed and discarded at the call
     # site, `strand_alternation_gap_max` among them, which is the closest
     # quantity here to the convergent-pair mechanism SWGA runs on.
-    strand_stats: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    strand_stats: dict[str, dict[str, float]] = field(default_factory=dict)
 
     # Fraction of the time each delivered primer is bound, per primer. Empty
     # when no reaction conditions were attached, because without a temperature
     # there is no occupancy to evaluate. Reported, never scored: no floor on it
     # can be validated against the outcome data available here.
-    primer_occupancy: Dict[str, float] = field(default_factory=dict)
+    primer_occupancy: dict[str, float] = field(default_factory=dict)
 
     # Per-target coverage (Phase 11D). Maps fg_prefix -> coverage fraction
     # so multi-genome runs can surface "target A 95% / target B 40%"
     # instead of a single aggregate. Empty dict in single-genome mode.
-    per_target_coverage: Dict[str, float] = field(default_factory=dict)
+    per_target_coverage: dict[str, float] = field(default_factory=dict)
     effective_fg_sites: float = 0.0
     effective_bg_sites: float = 0.0
     # "occupancy" when conditions were applied, "exact" when the jellyfish
@@ -225,7 +225,7 @@ class PrimerSetMetrics:
     # per-primer reach. The same set measures 0.418 / 0.836 / ~1.0 at 3 / 10 /
     # 70 kb, so a bare "coverage" number is not comparable to a published one.
     # Reporting the curve costs ~1 ms per reach and removes the ambiguity.
-    coverage_by_reach: Dict[int, float] = field(default_factory=dict)
+    coverage_by_reach: dict[int, float] = field(default_factory=dict)
 
     # Coverage at the MEASURED product reach (~10 kb phi29), which is what a
     # reader should be shown as "the" coverage of a design, and the reach it was
@@ -248,7 +248,7 @@ class PrimerSetMetrics:
     # per-primer reach for phi29.
     extension_reach: int = 3000
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "fg_coverage": self.fg_coverage,
@@ -338,7 +338,7 @@ class PrimerSetMetrics:
         dimer_w: float = 0.15,
         evenness_w: float = 0.10,
         tm_w: float = 0.10,
-        application: Optional[str] = None,
+        application: str | None = None,
     ) -> float:
         """Compute a [0,1] composite score from metrics.
 
@@ -473,7 +473,7 @@ class OptimizationResult:
     Contains the selected primers, score, and detailed metrics.
     """
 
-    primers: Tuple[str, ...]  # Selected primer sequences (tuple for immutability)
+    primers: tuple[str, ...]  # Selected primer sequences (tuple for immutability)
     score: float  # Overall optimization score
     status: OptimizationStatus
     metrics: PrimerSetMetrics
@@ -481,22 +481,22 @@ class OptimizationResult:
     optimizer_name: str  # Name of optimizer that produced this result
 
     # Optional detailed results
-    all_scores: Optional[Tuple[float, ...]] = None  # Score history
+    all_scores: tuple[float, ...] | None = None  # Score history
     message: str = ""  # Status message or error description
 
     # Optional Pareto front for multi-objective optimizers (Phase 14A).
     # Each entry is (tuple-of-primers, metrics). MOEA populates this; other
     # optimizers leave it None. `pareto_metrics` carries the per-solution
     # metrics when the Pareto front is present.
-    pareto_front: Optional[Tuple[Tuple[str, ...], ...]] = None
-    pareto_metrics: Optional[Tuple[Dict[str, Any], ...]] = None
+    pareto_front: tuple[tuple[str, ...], ...] | None = None
+    pareto_metrics: tuple[dict[str, Any], ...] | None = None
 
     # Per-method comparison rows when this result was produced by an ensemble
     # run (method='ensemble'). Each row is a dict:
     #   {method, normalized_score, score, n_primers, fg_coverage,
     #    bg_coverage, status, selected}
     # None for single-method runs.
-    ensemble_comparison: Optional[Tuple[Dict[str, Any], ...]] = None
+    ensemble_comparison: tuple[dict[str, Any], ...] | None = None
 
     # How many candidates the foreground position index could not place. These
     # cover nothing, so they are invisible to selection: the delivered panel is
@@ -505,7 +505,7 @@ class OptimizationResult:
     # unified_optimizer._check_candidate_index_coverage); this field is what
     # makes the count auditable on the paths that proceed.
     unindexed_candidates: int = 0
-    stage_history: Tuple[Dict[str, Any], ...] = ()
+    stage_history: tuple[dict[str, Any], ...] = ()
 
     @property
     def num_primers(self) -> int:
@@ -530,7 +530,7 @@ class OptimizationResult:
             return 0.0
         return self.metrics.normalized_score()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         d = {
             "primers": list(self.primers),
@@ -555,10 +555,10 @@ class OptimizationResult:
 
     def validate(
         self,
-        target_size: Optional[int] = None,
+        target_size: int | None = None,
         min_per_target_coverage: float = 0.0,
-        forbidden_primers: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+        forbidden_primers: list[str] | None = None,
+    ) -> dict[str, Any]:
         """Post-optimization sanity validation; see `core/result_validation.py`."""
         from .result_validation import validate_result
 
@@ -591,7 +591,7 @@ class OptimizerConfig:
     max_dimer_bp: int = 4
     # Optional ADDITIONAL floor on dimer stability, in kcal/mol. None is off.
     # It can only make the screen stricter; `max_dimer_bp` is applied first.
-    max_dimer_dg: Optional[float] = None
+    max_dimer_dg: float | None = None
     allow_dimer_relaxation: bool = False
     refinement_method: str = "network"
     swap_max_evaluations: int = 10000
@@ -755,11 +755,11 @@ class BaseOptimizer(ABC):
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
-        config: Optional[OptimizerConfig] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
+        config: OptimizerConfig | None = None,
         conditions=None,
         background_profile=None,
         background_profile_lengths=None,
@@ -858,9 +858,9 @@ class BaseOptimizer(ABC):
     @abstractmethod
     def optimize(
         self,
-        candidates: List[str],
-        target_size: Optional[int] = None,
-        fixed_primers: Optional[List[str]] = None,
+        candidates: list[str],
+        target_size: int | None = None,
+        fixed_primers: list[str] | None = None,
         **kwargs,
     ) -> OptimizationResult:
         """
@@ -890,7 +890,7 @@ class BaseOptimizer(ABC):
         """
         pass
 
-    def _validate_candidates(self, candidates: List[str]) -> List[str]:
+    def _validate_candidates(self, candidates: list[str]) -> list[str]:
         """
         Validate and deduplicate candidate primers.
 
@@ -1026,7 +1026,7 @@ class BaseOptimizer(ABC):
             logger.warning(f"Failed to get positions for {primer}: {e}")
             return np.array([], dtype=np.int64)
 
-    def _effective_site_load(self, primers) -> Tuple[float, float, str]:
+    def _effective_site_load(self, primers) -> tuple[float, float, str]:
         """Occupancy-weighted binding load for the foreground and background.
 
         Each mismatch class is weighted by how much of the time a duplex of
@@ -1111,7 +1111,7 @@ class BaseOptimizer(ABC):
         ]
         return fg_load, aggregate_loads(loads, mode), "modelled"
 
-    def compute_pool_metrics(self, primers: List[str]):
+    def compute_pool_metrics(self, primers: list[str]):
         """Only the five quantities a pool design is searched and accepted on.
 
         `compute_metrics` answers every question anything has ever asked of a
@@ -1126,7 +1126,7 @@ class BaseOptimizer(ABC):
 
     def compute_metrics(
         self,
-        primers: List[str],
+        primers: list[str],
     ) -> PrimerSetMetrics:
         """
         Compute detailed metrics for a primer set.
@@ -1353,7 +1353,7 @@ class BaseOptimizer(ABC):
             for reach in sorted(reaches)
         }
 
-    def _compute_coverage(self, positions: List[int], total_length: int, reverse=()) -> float:
+    def _compute_coverage(self, positions: list[int], total_length: int, reverse=()) -> float:
         """Compute coverage fraction from positions.
 
         Uses ``config.extension_reach`` (per-primer reach in bp) to
@@ -1375,7 +1375,7 @@ class BaseOptimizer(ABC):
             geometry=getattr(self.config, "coverage_geometry", "symmetric"),
         )
 
-    def _compute_coverage_by_reach(self, positions, total_length: int) -> Dict[int, float]:
+    def _compute_coverage_by_reach(self, positions, total_length: int) -> dict[int, float]:
         """Raw coverage at each reporting reach, plus the one used for selection.
 
         Coverage is meaningless without the reach it was computed at, and the
@@ -1443,7 +1443,7 @@ class BaseOptimizer(ABC):
             geometry=getattr(self.config, "coverage_geometry", "symmetric"),
         )
 
-    def _compute_gaps(self, positions: List[int], total_length: int) -> List[float]:
+    def _compute_gaps(self, positions: list[int], total_length: int) -> list[float]:
         """Compute gaps between adjacent binding sites."""
         if not positions:
             return [float(total_length)]
@@ -1458,7 +1458,7 @@ class BaseOptimizer(ABC):
             gaps.extend([positions[0], total_length - positions[-1]])
         return gaps
 
-    def _gini(self, values: List[float]) -> float:
+    def _gini(self, values: list[float]) -> float:
         """Compute Gini coefficient."""
         if not values:
             return 1.0
@@ -1501,7 +1501,7 @@ class BaseOptimizer(ABC):
             return self.conditions.calculate_effective_tm(primer)
         return calculate_tm_basic(primer)
 
-    def _estimate_dimer_risk(self, primers: List[str]) -> float:
+    def _estimate_dimer_risk(self, primers: list[str]) -> float:
         """
         Estimate dimer risk for primer set.
 
@@ -1531,13 +1531,13 @@ class CompositeOptimizer(BaseOptimizer):
 
     def __init__(
         self,
-        optimizers: List[BaseOptimizer],
+        optimizers: list[BaseOptimizer],
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
-        config: Optional[OptimizerConfig] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
+        config: OptimizerConfig | None = None,
     ):
         super().__init__(
             position_cache, fg_prefixes, fg_seq_lengths, bg_prefixes, bg_seq_lengths, config
@@ -1555,9 +1555,9 @@ class CompositeOptimizer(BaseOptimizer):
 
     def optimize(
         self,
-        candidates: List[str],
-        target_size: Optional[int] = None,
-        fixed_primers: Optional[List[str]] = None,
+        candidates: list[str],
+        target_size: int | None = None,
+        fixed_primers: list[str] | None = None,
         application: str = "balanced",
         **kwargs,
     ) -> OptimizationResult:

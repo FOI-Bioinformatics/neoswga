@@ -33,8 +33,9 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any
 
 from neoswga.core.candidate_inventory import STAGE2_INVENTORY_NAME
 from neoswga.core.exceptions import ReferenceDataError
@@ -65,7 +66,7 @@ class CandidateFrontier(list):
         self.source = source
 
 
-def describe_reach(candidates) -> Optional[Dict[str, Any]]:
+def describe_reach(candidates) -> dict[str, Any] | None:
     """How much of the available pool a run could reach, or None if unknown.
 
     A search that qualifies on its opening frontier stops there, so a design
@@ -113,14 +114,14 @@ class ListCandidateSource:
 
     def __init__(self, sequences: Sequence[str]):
         self._sequences = list(dict.fromkeys(str(s).upper() for s in sequences))
-        self._examined: List[str] = []
+        self._examined: list[str] = []
 
-    def initial(self, limit: Optional[int] = None) -> List[str]:
+    def initial(self, limit: int | None = None) -> list[str]:
         """The starting frontier."""
         self._examined = self._sequences if limit is None else self._sequences[: max(0, limit)]
         return list(self._examined)
 
-    def frontier(self) -> List[str]:
+    def frontier(self) -> list[str]:
         return list(self._examined)
 
     def advance(self, keep: Iterable[str] = ()) -> bool:
@@ -181,21 +182,21 @@ class InventoryCandidateSource:
 
     kind = "inventory"
 
-    def __init__(self, provider, frontier: Optional[int] = None):
+    def __init__(self, provider, frontier: int | None = None):
         self._provider = provider
         self._frontier_size = frontier
-        self._examined: List[str] = []
+        self._examined: list[str] = []
 
-    def initial(self, limit: Optional[int] = None) -> List[str]:
+    def initial(self, limit: int | None = None) -> list[str]:
         size = limit if limit is not None else self._frontier_size
         ordered = self._provider._eligible_in_search_order()
         self._examined = list(ordered if size is None else ordered[: max(0, size)])
         return list(self._examined)
 
-    def frontier(self) -> List[str]:
+    def frontier(self) -> list[str]:
         return list(self._examined)
 
-    def universe(self) -> List[str]:
+    def universe(self) -> list[str]:
         """Every eligible candidate, including the ones past the frontier.
 
         `universe_size` already reports the length. A caller asking whether a
@@ -290,8 +291,8 @@ def open_candidate_source(
     data_dir,
     condition_id: str,
     lengths: Sequence[int],
-    candidates: Optional[Sequence[str]] = None,
-    frontier: Optional[int] = None,
+    candidates: Sequence[str] | None = None,
+    frontier: int | None = None,
 ):
     """The one way a command asks for candidates.
 

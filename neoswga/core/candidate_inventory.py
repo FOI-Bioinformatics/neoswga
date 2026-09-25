@@ -38,15 +38,16 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Iterator, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterator, Sequence
+from typing import Any
 
 # Bumped when the meaning of a hard gate changes, so a verdict reached under the
 # old rules is not silently reused under the new ones.
 DEFAULT_POLICY_VERSION = "qc-2026-09-15"
 
 
-def qc_policy_fingerprint(thresholds: Dict[str, Any]) -> str:
+def qc_policy_fingerprint(thresholds: dict[str, Any]) -> str:
     """A stable name for one set of resolved hard-QC thresholds.
 
     `DEFAULT_POLICY_VERSION` alone said which generation of RULES was in force,
@@ -136,7 +137,7 @@ class CandidateInventory:
 
     # -- lifecycle ---------------------------------------------------------
 
-    def __enter__(self) -> "CandidateInventory":
+    def __enter__(self) -> CandidateInventory:
         return self
 
     def __exit__(self, *exc_info) -> None:
@@ -151,7 +152,7 @@ class CandidateInventory:
     # -- writing -----------------------------------------------------------
 
     def record_candidate(
-        self, sequence: str, metrics: Dict[str, Any], search_rank: float | None = None
+        self, sequence: str, metrics: dict[str, Any], search_rank: float | None = None
     ) -> None:
         """Record a candidate and its condition-independent measurements.
 
@@ -187,7 +188,7 @@ class CandidateInventory:
         condition_id: str,
         passed: bool,
         reasons: Sequence[str],
-        metrics: Dict[str, Any],
+        metrics: dict[str, Any],
         policy_version: str = DEFAULT_POLICY_VERSION,
         generation: int = 1,
     ) -> None:
@@ -374,7 +375,7 @@ class CandidateInventory:
             for policy, passed, reasons, generation in rows
         ]
 
-    def metrics(self, sequence: str) -> Dict[str, Any]:
+    def metrics(self, sequence: str) -> dict[str, Any]:
         """The condition-independent measurements recorded for one candidate."""
         row = self._connection.execute(
             "SELECT metrics_json FROM candidates WHERE sequence = ?", (sequence.upper(),)
@@ -407,7 +408,7 @@ class CandidateInventory:
         ).fetchone()
         return row is not None
 
-    def counts(self, condition_id: str | None = None) -> Dict[str, int]:
+    def counts(self, condition_id: str | None = None) -> dict[str, int]:
         """How many candidates were written, and how many currently qualify.
 
         `hard_qc_passed` is scoped to one condition, its current policy and the
@@ -443,7 +444,7 @@ class CandidateInventory:
 STAGE2_INVENTORY_NAME = "candidate_inventory.sqlite"
 
 
-def _search_ranks(cleared_hard_gates, shortlisted) -> Dict[str, float]:
+def _search_ranks(cleared_hard_gates, shortlisted) -> dict[str, float]:
     """The order a search should walk the whole hard-QC set in, lowest first.
 
     Two bands. The shortlist leads, in the order stage 2 put it in, because that
@@ -460,7 +461,7 @@ def _search_ranks(cleared_hard_gates, shortlisted) -> Dict[str, float]:
     A candidate with no usable counts gets no rank and sorts last, rather than
     being given a number that would place it somewhere it has not earned.
     """
-    ranks: Dict[str, float] = {}
+    ranks: dict[str, float] = {}
     for position, sequence in enumerate(shortlisted["primer"]):
         ranks[str(sequence).upper()] = float(position)
 
@@ -491,7 +492,7 @@ def record_stage2_inventory(
     shortlisted,
     indexed=None,
     policy_version: str = DEFAULT_POLICY_VERSION,
-    qc_policy: Dict[str, Any] | None = None,
+    qc_policy: dict[str, Any] | None = None,
     enumerated: int | None = None,
     retention: str = "all_qc",
 ) -> Path:
@@ -694,7 +695,7 @@ def record_stage3_policy(path, condition_id: str, carried, rejected, policy: str
         inventory.commit()
 
 
-def design_counts(path, condition_id: str) -> Dict[str, int]:
+def design_counts(path, condition_id: str) -> dict[str, int]:
     """The six distinctions the funnel could not express.
 
     `counted` is the enumerated universe and `assessed` the survivors written
@@ -735,7 +736,7 @@ def design_counts(path, condition_id: str) -> Dict[str, int]:
     }
 
 
-def report_design_counts(path, condition_id: str) -> Dict[str, int]:
+def report_design_counts(path, condition_id: str) -> dict[str, int]:
     """The six distinctions, by name, in one line.
 
     The funnel reported a handful of counts and none of them answered how many

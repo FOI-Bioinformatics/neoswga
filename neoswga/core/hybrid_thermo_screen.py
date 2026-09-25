@@ -11,7 +11,6 @@ else in the optimizer beyond the configuration attributes named below.
 """
 
 import logging
-from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ class ThermoScreenMixin:
             polymerase=self.polymerase,
         )
 
-    def _thermo_filter_candidates(self, candidates: List[str], verbose: bool = True) -> List[str]:
+    def _thermo_filter_candidates(self, candidates: list[str], verbose: bool = True) -> list[str]:
         """
         Apply thermodynamic filtering based on polymerase requirements.
 
@@ -136,7 +135,7 @@ class ThermoScreenMixin:
             logger.warning("Thermodynamic filter not available, skipping")
             return candidates
 
-    def _thermo_filter_with_cache(self, candidates: List[str], verbose: bool = True) -> List[str]:
+    def _thermo_filter_with_cache(self, candidates: list[str], verbose: bool = True) -> list[str]:
         """The Stage-0 screen, computed once per pool and reused for subsets.
 
         Returns the members of `candidates` that passed. A pool that is not a

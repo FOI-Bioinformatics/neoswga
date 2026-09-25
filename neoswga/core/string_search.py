@@ -2,7 +2,6 @@ import bisect
 import logging
 import multiprocessing
 import os
-from typing import Dict, List, Optional
 
 import h5py
 
@@ -28,17 +27,17 @@ except ImportError:
 # =============================================================================
 
 # Module-level cache for genome sequences
-_genome_cache: Dict[str, str] = {}
+_genome_cache: dict[str, str] = {}
 
 # Offsets in the concatenated sequence at which a new FASTA record begins,
 # excluding 0. Records are joined without a separator -- the concatenation is
 # the coordinate system every stored position is expressed in -- so a k-mer can
 # straddle a join and be reported as present when neither record contains it.
 # These offsets are what `get_all_positions_multi_k` rejects such a match with.
-_record_boundary_cache: Dict[str, List[int]] = {}
+_record_boundary_cache: dict[str, list[int]] = {}
 
 
-def get_cached_record_boundaries(seq_fname: str) -> List[int]:
+def get_cached_record_boundaries(seq_fname: str) -> list[int]:
     """Record-start offsets for a genome, loading it if it is not cached."""
     if seq_fname not in _record_boundary_cache:
         get_cached_genome_sequence(seq_fname)
@@ -125,7 +124,7 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
 
     loader = genome_io.GenomeLoader()
     sequence = ""
-    boundaries: List[int] = []
+    boundaries: list[int] = []
     for record in loader.load_genome_streaming(seq_fname):
         if sequence:
             boundaries.append(len(sequence))
@@ -138,7 +137,7 @@ def get_cached_genome_sequence(seq_fname: str) -> str:
     return sequence
 
 
-def preload_genomes(seq_fnames: List[str]) -> None:
+def preload_genomes(seq_fnames: list[str]) -> None:
     """
     Preload multiple genome sequences into cache.
 
@@ -162,7 +161,7 @@ def clear_genome_cache() -> None:
     logger.info(f"Cleared genome cache ({cache_size} entries)")
 
 
-def get_genome_cache_stats() -> Dict[str, int]:
+def get_genome_cache_stats() -> dict[str, int]:
     """Return statistics about the genome cache."""
     total_bp = sum(len(seq) for seq in _genome_cache.values())
     return {
@@ -449,7 +448,7 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
     # Load all k-mers present in genome
     all_present_kmers_in_genome = set()
     txt_path = fname_prefix + "_" + str(k) + "mer_all.txt"
-    with open(txt_path, "r") as txt_f:
+    with open(txt_path) as txt_f:
         for line in txt_f:
             curr_kmer = line.split(" ")[0]
             all_present_kmers_in_genome.add(curr_kmer)
@@ -468,7 +467,7 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
 
 # Genome fingerprints already computed in this process, keyed by path, size and
 # mtime. See `_position_provenance`.
-_fingerprint_cache: Dict[tuple, str] = {}
+_fingerprint_cache: dict[tuple, str] = {}
 
 
 def position_file_path(fname_prefix, k):

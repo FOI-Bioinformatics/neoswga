@@ -29,7 +29,7 @@ might well be non-monotonic, and the conservative direction is to keep looking.
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 # A violation that no addition can undo, so the panel is excluded outright.
 _UNRECOVERABLE = frozenset({"dimer constraint"})
@@ -41,8 +41,8 @@ _MONOTONIC = "background sites above maximum"
 
 def can_prune(
     violations: Sequence[str],
-    max_background_sites: Optional[int],
-    min_selectivity_density: Optional[float],
+    max_background_sites: int | None,
+    min_selectivity_density: float | None,
 ) -> bool:
     """Whether this partial panel can be abandoned without losing a solution.
 

@@ -16,7 +16,6 @@ Usage:
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -182,7 +181,7 @@ def generate_plots(result, simulator, analysis=None, output_file="simulation_plo
     logger.info(f"Plots saved to: {output_file}")
 
 
-def plot_coverage_heatmap(ax, positions_dict: Dict, genome_length: int):
+def plot_coverage_heatmap(ax, positions_dict: dict, genome_length: int):
     """
     Plot genome coverage as heatmap.
 
@@ -235,7 +234,7 @@ def plot_coverage_heatmap(ax, positions_dict: Dict, genome_length: int):
     ax.text(0.5, -0.15, stats_text, transform=ax.transAxes, ha="center", va="top", fontsize=10)
 
 
-def plot_primer_distribution(ax, positions_dict: Dict, genome_length: int):
+def plot_primer_distribution(ax, positions_dict: dict, genome_length: int):
     """
     Plot distribution of primers across genome.
 
@@ -412,7 +411,7 @@ def plot_metrics_summary(ax, result):
     )
 
 
-def plot_primer_contributions(ax, primer_contributions: List):
+def plot_primer_contributions(ax, primer_contributions: list):
     """
     Plot primer contributions as horizontal bar chart.
 
@@ -476,7 +475,7 @@ def _severity_from_size(length):
     return "low"
 
 
-def plot_gaps(ax, gaps: List[Dict]):
+def plot_gaps(ax, gaps: list[dict]):
     """
     Plot gap severity distribution.
 

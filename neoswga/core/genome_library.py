@@ -29,7 +29,6 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +45,8 @@ class GenomeLibraryEntry:
     role: str = "bg"  # "bg" or "bl"
     kmer_dir: str = ""
     kmer_prefix: str = ""
-    computed_k_ranges: List[Tuple[int, int]] = field(default_factory=list)
-    bloom_path: Optional[str] = None
+    computed_k_ranges: list[tuple[int, int]] = field(default_factory=list)
+    bloom_path: str | None = None
     created_date: str = ""
 
     def __post_init__(self) -> None:
@@ -96,7 +95,7 @@ class GenomeLibrary:
     ~/.neoswga/genomes/ for reuse across projects.
     """
 
-    def __init__(self, library_dir: Optional[str] = None) -> None:
+    def __init__(self, library_dir: str | None = None) -> None:
         """Initialize genome library.
 
         Args:
@@ -112,7 +111,7 @@ class GenomeLibrary:
         """Path to metadata JSON for a genome entry."""
         return os.path.join(self.library_dir, name, "metadata.json")
 
-    def _load_entry(self, name: str) -> Optional[GenomeLibraryEntry]:
+    def _load_entry(self, name: str) -> GenomeLibraryEntry | None:
         """Load a single entry from its metadata file."""
         meta_path = self._metadata_path(name)
         if not os.path.exists(meta_path):
@@ -139,7 +138,7 @@ class GenomeLibrary:
         fasta_path: str,
         role: str = "bg",
         species: str = "",
-        k_ranges: Optional[List[Tuple[int, int]]] = None,
+        k_ranges: list[tuple[int, int]] | None = None,
         build_bloom: str = "auto",
     ) -> GenomeLibraryEntry:
         """Add a genome to the library and pre-calculate k-mer data.
@@ -181,7 +180,7 @@ class GenomeLibrary:
         kmer_prefix = os.path.join(entry_dir, name)
 
         # Run Jellyfish for each k-range
-        computed_ranges: List[Tuple[int, int]] = []
+        computed_ranges: list[tuple[int, int]] = []
         for min_k, max_k in k_ranges:
             logger.info(f"Computing k-mers for {name} (k={min_k}-{max_k})...")
             try:
@@ -193,7 +192,7 @@ class GenomeLibrary:
                 logger.error(f"Jellyfish failed for k={min_k}-{max_k}: {e}")
 
         # Optional Bloom filter
-        bloom_path: Optional[str] = None
+        bloom_path: str | None = None
         should_bloom = build_bloom == "yes" or (build_bloom == "auto" and genome_size > 50_000_000)
         if should_bloom and not computed_ranges:
             logger.warning(
@@ -254,13 +253,13 @@ class GenomeLibrary:
         logger.info(f"Added genome '{name}' to library")
         return entry
 
-    def list(self) -> List[GenomeLibraryEntry]:
+    def list(self) -> list[GenomeLibraryEntry]:
         """List all genomes in the library.
 
         Returns:
             List of GenomeLibraryEntry objects.
         """
-        entries: List[GenomeLibraryEntry] = []
+        entries: list[GenomeLibraryEntry] = []
         if not os.path.exists(self.library_dir):
             return entries
         for item in sorted(os.listdir(self.library_dir)):
@@ -269,7 +268,7 @@ class GenomeLibrary:
                 entries.append(entry)
         return entries
 
-    def get(self, name: str) -> Optional[GenomeLibraryEntry]:
+    def get(self, name: str) -> GenomeLibraryEntry | None:
         """Get a genome entry by name.
 
         Args:
@@ -296,7 +295,7 @@ class GenomeLibrary:
         logger.info(f"Removed genome '{name}' from library")
         return True
 
-    def get_kmer_prefix(self, name: str) -> Optional[str]:
+    def get_kmer_prefix(self, name: str) -> str | None:
         """Get the k-mer file prefix for a genome.
 
         Args:
@@ -331,7 +330,7 @@ class GenomeLibrary:
                 return False
         return True
 
-    def _calculate_genome_stats(self, fasta_path: str) -> Tuple[int, float]:
+    def _calculate_genome_stats(self, fasta_path: str) -> tuple[int, float]:
         """Calculate genome size and GC content from FASTA.
 
         Args:

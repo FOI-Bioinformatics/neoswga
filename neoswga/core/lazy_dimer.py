@@ -31,7 +31,7 @@ adding a second screen with its own rules.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Optional, Sequence, Tuple
+from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class LazyDimerCompatibility:
         self,
         max_dimer_bp: int,
         cache_size: int = 200_000,
-        max_dimer_dg: Optional[float] = None,
+        max_dimer_dg: float | None = None,
         temp: float = 37.0,
     ):
         self.max_dimer_bp = int(max_dimer_bp)
@@ -64,7 +64,7 @@ class LazyDimerCompatibility:
         # delivered an 11 bp heterodimer against a configured 3 once already.
         self.max_dimer_dg = None if max_dimer_dg is None else float(max_dimer_dg)
         self.temp = float(temp)
-        self._cache: Dict[Tuple[str, str], bool] = {}
+        self._cache: dict[tuple[str, str], bool] = {}
         # How many pairs were actually computed, so a test can show that the
         # cache is used rather than merely present.
         self.computations = 0
@@ -117,7 +117,7 @@ class LazyDimerCompatibility:
 def dimer_screen(
     pool: Sequence[str],
     max_dimer_bp: int,
-    max_dimer_dg: Optional[float] = None,
+    max_dimer_dg: float | None = None,
     temp: float = 37.0,
 ):
     """The dimer screen suited to this pool's size.

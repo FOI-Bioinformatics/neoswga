@@ -11,7 +11,7 @@ carrying alone is the number of its bins whose count is one. This is exact, not
 an estimate: it computes the same number the rebuild computes.
 """
 
-from typing import Dict, Hashable, Iterable, Set
+from collections.abc import Hashable, Iterable
 
 
 class CoverageCounter:
@@ -19,8 +19,8 @@ class CoverageCounter:
 
     def __init__(self, total_bins: int):
         self.total_bins = int(total_bins)
-        self._count: Dict[Hashable, int] = {}
-        self._bins_of: Dict[str, Set[Hashable]] = {}
+        self._count: dict[Hashable, int] = {}
+        self._bins_of: dict[str, set[Hashable]] = {}
 
     def add(self, primer: str, bins: Iterable[Hashable]) -> None:
         """Record that `primer` covers `bins`. Adding a known primer replaces it."""

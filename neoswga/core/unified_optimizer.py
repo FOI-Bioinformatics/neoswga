@@ -24,7 +24,7 @@ import logging
 import os
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -65,14 +65,14 @@ _LAST_RESULT: Optional["OptimizationResult"] = None
 
 # Alternative primer sets from the most recent run, best first. Populated
 # when `max_sets` asks for more than one; always at least the primary set.
-_LAST_PRIMER_SETS: List[Tuple[str, ...]] = []
+_LAST_PRIMER_SETS: list[tuple[str, ...]] = []
 
 #: How much of the available candidate pool the last run could reach.
 #: Stashed rather than returned because `optimize_step4` writes the summary
 #: and `run_optimization` is where the frontier is in scope -- the same
 #: reason `_LAST_PRIMER_SETS` exists. None when the caller passed a plain
 #: list, which is absence rather than a reach of zero.
-_LAST_CANDIDATE_REACH: Optional[Dict[str, Any]] = None
+_LAST_CANDIDATE_REACH: dict[str, Any] | None = None
 
 
 @dataclass
@@ -96,10 +96,10 @@ class OptimizationConfig:
     output_file: str = "step4_improved_df.csv"
 
     # Genome info (loaded from pipeline if not provided)
-    fg_prefixes: Optional[List[str]] = None
-    fg_seq_lengths: Optional[List[int]] = None
-    bg_prefixes: Optional[List[str]] = None
-    bg_seq_lengths: Optional[List[int]] = None
+    fg_prefixes: list[str] | None = None
+    fg_seq_lengths: list[int] | None = None
+    bg_prefixes: list[str] | None = None
+    bg_seq_lengths: list[int] | None = None
 
     # Performance options
     use_position_cache: bool = True
@@ -113,14 +113,14 @@ class OptimizationConfig:
     allow_dimer_relaxation: bool = False
     refinement_method: str = "network"
     swap_max_evaluations: int = 10000
-    stage1_objective_width: Optional[int] = None
+    stage1_objective_width: int | None = None
     swap_max_seconds: float = 10.0
     uniformity_weight: float = 0.0
     minimize_primers: bool = False
     target_coverage: float = 0.70
 
 
-def list_available_optimizers() -> Dict[str, str]:
+def list_available_optimizers() -> dict[str, str]:
     """
     List all registered optimizers with descriptions.
 
@@ -205,13 +205,13 @@ def _resolve_target_coverage(kwargs, default=0.70):
 
 
 def _run_ensemble(
-    methods: List[str],
+    methods: list[str],
     cache,
-    candidates: List[str],
-    fg_prefixes: List[str],
-    fg_seq_lengths: List[int],
-    bg_prefixes: Optional[List[str]],
-    bg_seq_lengths: Optional[List[int]],
+    candidates: list[str],
+    fg_prefixes: list[str],
+    fg_seq_lengths: list[int],
+    bg_prefixes: list[str] | None,
+    bg_seq_lengths: list[int] | None,
     target_size: int,
     config,
     conditions,
@@ -228,8 +228,8 @@ def _run_ensemble(
     """
     from dataclasses import replace as _dc_replace
 
-    rows: List[Dict[str, Any]] = []
-    results: Dict[str, OptimizationResult] = {}
+    rows: list[dict[str, Any]] = []
+    results: dict[str, OptimizationResult] = {}
     from .search_control import SearchBudget
 
     shared_objective = None
@@ -813,7 +813,7 @@ def _pool_for_this_run(fg_prefixes, conditions):
     return CandidateFrontier(source)
 
 
-def _report_candidate_reach(candidates, verbose: bool) -> Optional[Dict[str, Any]]:
+def _report_candidate_reach(candidates, verbose: bool) -> dict[str, Any] | None:
     """What the search could have examined, against what it did.
 
     A run that qualifies on its opening frontier never widens, so this is
@@ -836,11 +836,11 @@ def _report_candidate_reach(candidates, verbose: bool) -> Optional[Dict[str, Any
 
 def run_optimization(
     method: str = "hybrid",
-    candidates: Optional[List[str]] = None,
-    fg_prefixes: Optional[List[str]] = None,
-    fg_seq_lengths: Optional[List[int]] = None,
-    bg_prefixes: Optional[List[str]] = None,
-    bg_seq_lengths: Optional[List[int]] = None,
+    candidates: list[str] | None = None,
+    fg_prefixes: list[str] | None = None,
+    fg_seq_lengths: list[int] | None = None,
+    bg_prefixes: list[str] | None = None,
+    bg_seq_lengths: list[int] | None = None,
     target_size: int = 6,
     verbose: bool = True,
     design_request=None,
@@ -1352,11 +1352,11 @@ def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResu
 
 def _simulation_rescore(
     result: OptimizationResult,
-    fg_prefixes: List[str],
-    fg_seq_lengths: List[int],
+    fg_prefixes: list[str],
+    fg_seq_lengths: list[int],
     simulation_time: float = 1800.0,
     verbose: bool = True,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Re-score optimization result using simulation-based fitness.
 
     Uses the agent-based replication simulator to predict actual
@@ -1435,12 +1435,12 @@ def optimize_step4(
     use_background_filter: bool = True,
     optimization_method: str = "hybrid",
     verbose: bool = True,
-    uniformity_weight: Optional[float] = None,
+    uniformity_weight: float | None = None,
     minimize_primers: bool = False,
     target_coverage: float = 0.70,
     design_request=None,
     **kwargs,
-) -> Tuple[List[List[str]], List[float], Any]:
+) -> tuple[list[list[str]], list[float], Any]:
     """
     Drop-in replacement for improved_step4 from pipeline_integration.
 

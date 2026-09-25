@@ -9,8 +9,6 @@ New code should read ``PolymeraseSpec`` fields directly rather than going throug
 these.
 """
 
-from typing import Dict, Tuple
-
 from neoswga.core.registry.polymerases import POLYMERASES
 
 __all__ = [
@@ -26,7 +24,7 @@ __all__ = [
 ]
 
 
-def as_characteristics() -> Dict[str, dict]:
+def as_characteristics() -> dict[str, dict]:
     """Shape of ``reaction_conditions.POLYMERASE_CHARACTERISTICS``."""
     return {
         key: {
@@ -46,22 +44,22 @@ def as_characteristics() -> Dict[str, dict]:
     }
 
 
-def hard_temp_ranges() -> Dict[str, Tuple[float, float]]:
+def hard_temp_ranges() -> dict[str, tuple[float, float]]:
     """Shape of the ``polymerase_temp_ranges`` local in ``ReactionConditions._validate``."""
     return {key: spec.temp_hard_range for key, spec in POLYMERASES.items()}
 
 
-def warn_temp_ranges() -> Dict[str, Tuple[float, float]]:
+def warn_temp_ranges() -> dict[str, tuple[float, float]]:
     """Shape of ``param_validator.POLYMERASE_TEMP_RANGES``."""
     return {key: spec.temp_warn_range for key, spec in POLYMERASES.items()}
 
 
-def primer_length_ranges() -> Dict[str, Tuple[int, int]]:
+def primer_length_ranges() -> dict[str, tuple[int, int]]:
     """Shape of ``param_validator.POLYMERASE_PRIMER_LENGTHS`` (and its two copies)."""
     return {key: spec.primer_length_range for key, spec in POLYMERASES.items()}
 
 
-def default_primer_lengths() -> Dict[str, int]:
+def default_primer_lengths() -> dict[str, int]:
     """Shape of the scalar defaults in ``cli/commands.py``.
 
     Distinct from ``primer_length_ranges``: this is a single suggested length, not
@@ -70,17 +68,17 @@ def default_primer_lengths() -> Dict[str, int]:
     return {key: spec.default_primer_length for key, spec in POLYMERASES.items()}
 
 
-def mg_defaults() -> Dict[str, float]:
+def mg_defaults() -> dict[str, float]:
     """Shape of ``parameter.MG_DEFAULTS_MM``."""
     return {key: spec.mg_default_mm for key, spec in POLYMERASES.items()}
 
 
-def processivity_map() -> Dict[str, int]:
+def processivity_map() -> dict[str, int]:
     """Single-molecule processivity, in bp."""
     return {key: spec.processivity_bp for key, spec in POLYMERASES.items()}
 
 
-def mechanistic_enzyme_params() -> Dict[str, dict]:
+def mechanistic_enzyme_params() -> dict[str, dict]:
     """Per-polymerase block of ``mechanistic_params.MECHANISTIC_MODEL_PARAMS['enzyme']``."""
     return {
         key: {
@@ -96,7 +94,7 @@ def mechanistic_enzyme_params() -> Dict[str, dict]:
     }
 
 
-def additive_optimizer_constraints() -> Dict[str, dict]:
+def additive_optimizer_constraints() -> dict[str, dict]:
     """Shape of ``additive_optimizer.AdditiveOptimizer.POLYMERASE_CONSTRAINTS``.
 
     Note ``optimal_temp`` here is ``preset_reaction_temp``, which differs from

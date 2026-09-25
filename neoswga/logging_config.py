@@ -8,7 +8,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 # Default log format
 DEFAULT_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -41,9 +40,9 @@ class ColoredFormatter(logging.Formatter):
 
 def setup_logging(
     level: str = "INFO",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     format_style: str = "default",
-    module_levels: Optional[dict] = None,
+    module_levels: dict | None = None,
 ):
     """
     Setup logging configuration for NeoSWGA.

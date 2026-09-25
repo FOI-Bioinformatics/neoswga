@@ -9,7 +9,6 @@ optimisation logic beyond the result object.
 import json
 import logging
 import os
-from typing import Optional
 
 import pandas as pd
 
@@ -38,7 +37,7 @@ def save_results(
     result: OptimizationResult,
     output_path: str,
     include_all_sets: bool = False,
-    application: Optional[str] = None,
+    application: str | None = None,
     primer_sets=None,
     regime=None,
     candidate_reach=None,

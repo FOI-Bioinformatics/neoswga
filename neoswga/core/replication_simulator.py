@@ -22,7 +22,7 @@ import random
 import warnings
 from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
@@ -59,10 +59,10 @@ class ReplicationFork:
     state: ForkState = ForkState.ACTIVE
     speed: float = 167.0  # bp/sec (phi29 typical: ~10 kb/min)
     birth_time: float = 0.0
-    termination_time: Optional[float] = None
+    termination_time: float | None = None
     bases_synthesized: int = 0
     template_id: int = 0  # Which template this fork is on (0 = original)
-    displaced_by: Optional[int] = None  # Fork ID that displaced this one
+    displaced_by: int | None = None  # Fork ID that displaced this one
 
 
 @dataclass
@@ -187,7 +187,7 @@ class SimulationConfig:
     max_concurrent_forks: int = 1000  # Polymerase availability limit
 
     # Random seed for reproducible simulation. None = nondeterministic.
-    seed: Optional[int] = None
+    seed: int | None = None
 
 
 @dataclass
@@ -203,18 +203,18 @@ class SimulationResult:
     num_forks_created: int
     num_forks_terminated: int
     mean_fork_travel: float
-    coverage_over_time: List[Tuple[float, float]]  # (time, coverage)
-    fork_history: List[ReplicationFork]
+    coverage_over_time: list[tuple[float, float]]  # (time, coverage)
+    fork_history: list[ReplicationFork]
 
     # Amplification metrics (for hyperbranching)
     amplification_fold: float = 1.0  # Total DNA / original genome
     total_bases_synthesized: int = 0  # Total bases synthesized
     num_displaced_strands: int = 0  # Number of displaced strand templates
-    amplification_over_time: List[Tuple[float, float]] = field(default_factory=list)  # (time, fold)
-    displaced_strand_history: List["DisplacedStrand"] = field(default_factory=list)
+    amplification_over_time: list[tuple[float, float]] = field(default_factory=list)  # (time, fold)
+    displaced_strand_history: list["DisplacedStrand"] = field(default_factory=list)
 
     # Copy number per region (for bias analysis)
-    copy_number_array: Optional[np.ndarray] = None  # Copies per position
+    copy_number_array: np.ndarray | None = None  # Copies per position
 
 
 class Phi29Simulator:
@@ -244,14 +244,14 @@ class Phi29Simulator:
 
     def __init__(
         self,
-        primers: List[str],
-        primer_positions: Dict[
-            str, Dict[str, List[int]]
+        primers: list[str],
+        primer_positions: dict[
+            str, dict[str, list[int]]
         ],  # primer -> {'forward': [...], 'reverse': [...]}
         genome_length: int,
         genome_sequence: str,
         conditions: rc.ReactionConditions,
-        config: Optional[SimulationConfig] = None,
+        config: SimulationConfig | None = None,
         mechanistic_model: Optional["MechanisticModel"] = None,
     ):
         """
@@ -280,7 +280,7 @@ class Phi29Simulator:
 
         # Initialize mechanistic model if requested
         self.mechanistic_model = mechanistic_model
-        self.primer_effects: Dict[str, "MechanisticEffects"] = {}
+        self.primer_effects: dict[str, MechanisticEffects] = {}
 
         if self.config.use_mechanistic_model:
             self._initialize_mechanistic_model()
@@ -329,13 +329,13 @@ class Phi29Simulator:
 
         # State
         self.current_time = 0.0
-        self.forks: List[ReplicationFork] = []
+        self.forks: list[ReplicationFork] = []
         self.fork_id_counter = 0
         self.coverage = np.zeros(genome_length, dtype=bool)
         self.coverage_history = []
 
         # Strand displacement / Hyperbranching state
-        self.displaced_strands: List[DisplacedStrand] = []
+        self.displaced_strands: list[DisplacedStrand] = []
         self.displaced_strand_counter = 0
         self.copy_number = np.ones(genome_length, dtype=np.float32)  # Start with 1 copy
         self.total_bases_synthesized = 0
@@ -541,7 +541,7 @@ class Phi29Simulator:
                 if random.random() < binding_prob * 0.1:
                     self._create_fork(primer, pos, "reverse", "bottom")
 
-    def _calculate_binding_probability(self, tm: float, primer: Optional[str] = None) -> float:
+    def _calculate_binding_probability(self, tm: float, primer: str | None = None) -> float:
         """
         Calculate primer binding probability based on Tm and mechanistic effects.
 
@@ -730,9 +730,7 @@ class Phi29Simulator:
             # Deterministic hard limit
             return fork.bases_synthesized >= self.config.processivity_limit
 
-    def _check_collisions(
-        self, fork: ReplicationFork, new_position: int
-    ) -> Optional[ReplicationFork]:
+    def _check_collisions(self, fork: ReplicationFork, new_position: int) -> ReplicationFork | None:
         """
         Check if fork will collide with another fork.
 
@@ -816,7 +814,7 @@ class Phi29Simulator:
 
     def _create_displaced_strand(
         self, start_pos: int, end_pos: int, strand: str, parent_template_id: int = 0
-    ) -> Optional[DisplacedStrand]:
+    ) -> DisplacedStrand | None:
         """
         Create a new displaced strand that can serve as template.
 
@@ -854,7 +852,7 @@ class Phi29Simulator:
 
         return displaced
 
-    def _get_available_displaced_strands(self, position: int) -> List[DisplacedStrand]:
+    def _get_available_displaced_strands(self, position: int) -> list[DisplacedStrand]:
         """
         Get displaced strands that cover a given position and are available.
 
@@ -1022,16 +1020,16 @@ class Phi29Simulator:
 
 
 def simulate_primer_set(
-    primers: List[str],
-    primer_positions: Dict,
+    primers: list[str],
+    primer_positions: dict,
     genome_length: int,
     genome_sequence: str,
-    conditions: Optional[rc.ReactionConditions] = None,
+    conditions: rc.ReactionConditions | None = None,
     n_replicates: int = 5,
-    config: Optional[SimulationConfig] = None,
+    config: SimulationConfig | None = None,
     mechanistic_model: Optional["MechanisticModel"] = None,
-    seed: Optional[int] = None,
-) -> Dict:
+    seed: int | None = None,
+) -> dict:
     """
     Simulate primer set performance with multiple replicates.
 

@@ -12,7 +12,7 @@ allowing graceful degradation.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 from neoswga.core.report.metrics import amp_pred_is_available
 
@@ -67,7 +67,7 @@ CHART_COLORS = {
 
 
 def render_filtering_funnel(
-    funnel_data: List[tuple],
+    funnel_data: list[tuple],
     include_plotlyjs: str = "cdn",
     height: int = 400,
 ) -> str:
@@ -135,7 +135,7 @@ def render_filtering_funnel(
 
 
 def render_component_radar(
-    components: List["GradeComponent"],
+    components: list["GradeComponent"],
     include_plotlyjs: str = "cdn",
     height: int = 400,
 ) -> str:
@@ -227,7 +227,7 @@ def render_component_radar(
 
 
 def render_tm_gc_distribution(
-    primers: List["PrimerMetrics"],
+    primers: list["PrimerMetrics"],
     reaction_temp: float = 30.0,
     include_plotlyjs: str = "cdn",
     height: int = 350,
@@ -340,7 +340,7 @@ def render_tm_gc_distribution(
 
 
 def render_coverage_specificity_scatter(
-    primers: List["PrimerMetrics"],
+    primers: list["PrimerMetrics"],
     genome_size: int = 0,
     include_plotlyjs: str = "cdn",
     height: int = 400,
@@ -479,7 +479,7 @@ def render_coverage_specificity_scatter(
     )
 
 
-def _calculate_pareto_frontier(points: List[tuple]) -> List[tuple]:
+def _calculate_pareto_frontier(points: list[tuple]) -> list[tuple]:
     """
     Calculate Pareto frontier for a set of 2D points.
 
@@ -510,7 +510,7 @@ def _calculate_pareto_frontier(points: List[tuple]) -> List[tuple]:
 
 
 def render_primer_heatmap(
-    primers: List["PrimerMetrics"],
+    primers: list["PrimerMetrics"],
     include_plotlyjs: str = "cdn",
     height: int = 400,
 ) -> str:
@@ -706,7 +706,7 @@ def _calculate_self_dimer_dg(seq: str) -> float:
 
 
 def _build_dimer_matrix(
-    primers: List["PrimerMetrics"],
+    primers: list["PrimerMetrics"],
     max_primers: int = 20,
 ) -> tuple:
     """
@@ -752,7 +752,7 @@ def _build_dimer_matrix(
 
 
 def render_dimer_network_heatmap(
-    primers: List["PrimerMetrics"],
+    primers: list["PrimerMetrics"],
     include_plotlyjs: str = "cdn",
     height: int = 500,
     max_primers: int = 20,
@@ -936,7 +936,7 @@ def render_dimer_network_heatmap(
 
 
 def render_dimer_network_graph(
-    primers: List["PrimerMetrics"],
+    primers: list["PrimerMetrics"],
     include_plotlyjs: str = "cdn",
     height: int = 500,
     max_primers: int = 15,

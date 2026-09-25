@@ -25,9 +25,10 @@ Literature basis:
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from neoswga.core.reaction_conditions import ReactionConditions
@@ -82,14 +83,14 @@ class AdditiveInteraction:
     """
 
     name: str
-    additives: List[str]
+    additives: list[str]
     pathway: Pathway
     effect_type: EffectType
     base_coefficient: float
 
     # Concentration thresholds
-    min_concentrations: Dict[str, float] = field(default_factory=dict)
-    max_concentrations: Dict[str, float] = field(default_factory=dict)
+    min_concentrations: dict[str, float] = field(default_factory=dict)
+    max_concentrations: dict[str, float] = field(default_factory=dict)
 
     # Temperature dependence
     temperature_coefficient: float = 0.0  # Effect per degree from reference
@@ -218,8 +219,8 @@ class AdditiveInteractionRegistry:
     """
 
     def __init__(self):
-        self.interactions: Dict[str, AdditiveInteraction] = {}
-        self._pathway_cache: Dict[str, List[AdditiveInteraction]] = {}
+        self.interactions: dict[str, AdditiveInteraction] = {}
+        self._pathway_cache: dict[str, list[AdditiveInteraction]] = {}
 
     def register(self, interaction: AdditiveInteraction) -> None:
         """Register a new interaction."""
@@ -232,7 +233,7 @@ class AdditiveInteractionRegistry:
             del self.interactions[name]
             self._invalidate_cache()
 
-    def get(self, name: str) -> Optional[AdditiveInteraction]:
+    def get(self, name: str) -> AdditiveInteraction | None:
         """Get an interaction by name."""
         return self.interactions.get(name)
 
@@ -240,7 +241,7 @@ class AdditiveInteractionRegistry:
         """Clear the pathway cache."""
         self._pathway_cache.clear()
 
-    def _get_pathway_interactions(self, pathway: Pathway) -> List[AdditiveInteraction]:
+    def _get_pathway_interactions(self, pathway: Pathway) -> list[AdditiveInteraction]:
         """Get all interactions affecting a pathway (cached)."""
         key = pathway.value
         if key not in self._pathway_cache:
@@ -251,7 +252,7 @@ class AdditiveInteractionRegistry:
 
     def get_active_interactions(
         self, conditions: "ReactionConditions", template_gc: float = 0.5
-    ) -> List[AdditiveInteraction]:
+    ) -> list[AdditiveInteraction]:
         """Get all interactions that are active under given conditions."""
         return [i for i in self.interactions.values() if i.is_active(conditions, template_gc)]
 
@@ -279,7 +280,7 @@ class AdditiveInteractionRegistry:
 
     def calculate_all_modifiers(
         self, conditions: "ReactionConditions", template_gc: float = 0.5
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Calculate modifiers for all pathways.
 
@@ -549,7 +550,7 @@ class AdditiveInteractionRegistry:
 
 
 # Global default registry
-_default_registry: Optional[AdditiveInteractionRegistry] = None
+_default_registry: AdditiveInteractionRegistry | None = None
 
 
 def get_default_registry() -> AdditiveInteractionRegistry:
@@ -570,8 +571,8 @@ def reset_default_registry() -> None:
 def calculate_interaction_modifiers(
     conditions: "ReactionConditions",
     template_gc: float = 0.5,
-    registry: Optional[AdditiveInteractionRegistry] = None,
-) -> Dict[str, float]:
+    registry: AdditiveInteractionRegistry | None = None,
+) -> dict[str, float]:
     """
     Convenience function to calculate all interaction modifiers.
 

@@ -37,7 +37,6 @@ Usage:
 import dataclasses
 import logging
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -66,7 +65,7 @@ class CoverageGap:
             self.size = self.end - self.start
 
 
-def merge_gap_intervals(gaps: List["CoverageGap"]) -> List["CoverageGap"]:
+def merge_gap_intervals(gaps: list["CoverageGap"]) -> list["CoverageGap"]:
     """Union overlapping/adjacent gap intervals per chromosome.
 
     Used to combine in-silico gaps (from binding positions) with real
@@ -79,7 +78,7 @@ def merge_gap_intervals(gaps: List["CoverageGap"]) -> List["CoverageGap"]:
     for g in gaps:
         by_chrom.setdefault(g.chromosome, []).append((g.start, g.end))
 
-    merged: List[CoverageGap] = []
+    merged: list[CoverageGap] = []
     for chrom, intervals in by_chrom.items():
         intervals.sort()
         cur_start, cur_end = intervals[0]
@@ -106,9 +105,9 @@ class ExpansionInput:
         coverage_gaps: Optional list of specific regions needing coverage
     """
 
-    fixed_primers: List[str] = field(default_factory=list)
-    failed_primers: List[str] = field(default_factory=list)
-    coverage_gaps: List[CoverageGap] = field(default_factory=list)
+    fixed_primers: list[str] = field(default_factory=list)
+    failed_primers: list[str] = field(default_factory=list)
+    coverage_gaps: list[CoverageGap] = field(default_factory=list)
 
 
 @dataclass
@@ -128,9 +127,9 @@ class ExpansionResult:
         optimization_method: Method used for optimization
     """
 
-    new_primers: List[str]
-    combined_set: List[str]
-    fixed_primers: List[str]
+    new_primers: list[str]
+    combined_set: list[str]
+    fixed_primers: list[str]
     coverage_before: float
     coverage_after: float
     gap_coverage: float
@@ -142,7 +141,7 @@ class ExpansionResult:
     # under. `None` when no BAM was used. A breadth figure means nothing
     # without the rule that produced it, and two runs under different rules
     # are not comparable. See `core/depth_policy.py`.
-    depth_policy: Optional[Dict] = None
+    depth_policy: dict | None = None
     stage_history: tuple = ()
 
     @property
@@ -160,7 +159,7 @@ class ExpansionResult:
         """Total primers in combined set."""
         return len(self.combined_set)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
             "new_primers": self.new_primers,
@@ -207,13 +206,13 @@ class PrimerExpander:
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
         bin_size: int = 10000,
-        max_extension: Optional[int] = None,
-        coverage_reach: Optional[int] = None,
+        max_extension: int | None = None,
+        coverage_reach: int | None = None,
         context=None,
         candidate_source=None,
     ):
@@ -267,11 +266,11 @@ class PrimerExpander:
 
     def identify_gaps(
         self,
-        primers: List[str],
+        primers: list[str],
         min_gap_size: int = 10000,
-        extra_gaps: Optional[List[CoverageGap]] = None,
+        extra_gaps: list[CoverageGap] | None = None,
         merge: bool = True,
-    ) -> List[CoverageGap]:
+    ) -> list[CoverageGap]:
         """
         Identify coverage gaps in a primer set.
 
@@ -359,7 +358,7 @@ class PrimerExpander:
 
         return gaps
 
-    def _calculate_coverage(self, primers: List[str]) -> float:
+    def _calculate_coverage(self, primers: list[str]) -> float:
         """Calculate genome coverage fraction for a primer set."""
         if not primers:
             return 0.0
@@ -394,13 +393,13 @@ class PrimerExpander:
 
     def expand(
         self,
-        candidates: List[str],
-        fixed_primers: List[str],
-        failed_primers: Optional[List[str]] = None,
+        candidates: list[str],
+        fixed_primers: list[str],
+        failed_primers: list[str] | None = None,
         target_new: int = 6,
         optimization_method: str = "hybrid",
         verbose: bool = True,
-        target_gaps: Optional[List[CoverageGap]] = None,
+        target_gaps: list[CoverageGap] | None = None,
     ) -> ExpansionResult:
         """
         Expand primer set with additional primers.
@@ -614,9 +613,9 @@ class PrimerExpander:
 
     def _filter_candidates_to_gaps(
         self,
-        candidates: List[str],
-        target_gaps: List[CoverageGap],
-    ) -> List[str]:
+        candidates: list[str],
+        target_gaps: list[CoverageGap],
+    ) -> list[str]:
         """Keep candidates whose WINDOW can reach any target gap.
 
         The intervals are the gaps dilated by one coverage reach, so a
@@ -837,13 +836,13 @@ class PrimerExpander:
 
     def _expand_hybrid(
         self,
-        candidates: List[str],
-        fixed_primers: List[str],
+        candidates: list[str],
+        fixed_primers: list[str],
         target_new: int,
         verbose: bool,
         background_pruning=None,
         target_gaps=None,
-    ) -> Dict:
+    ) -> dict:
         """Use hybrid optimizer for expansion.
 
         The Stage 2 is chosen rather than fixed, because the two carry
@@ -907,12 +906,12 @@ class PrimerExpander:
 
     def _expand_dominating_set(
         self,
-        candidates: List[str],
-        fixed_primers: List[str],
+        candidates: list[str],
+        fixed_primers: list[str],
         target_new: int,
         verbose: bool,
         target_gaps=None,
-    ) -> Dict:
+    ) -> dict:
         """Use dominating set optimizer for expansion."""
         if self.context is not None:
             return self._expand_configured(
@@ -948,16 +947,16 @@ class PrimerExpander:
 
 def expand_primers(
     params_path: str,
-    fixed_primers: List[str],
-    failed_primers: Optional[List[str]] = None,
+    fixed_primers: list[str],
+    failed_primers: list[str] | None = None,
     target_new: int = 6,
     optimization_method: str = "hybrid",
-    output_dir: Optional[str] = None,
+    output_dir: str | None = None,
     verbose: bool = True,
-    bam_path: Optional[str] = None,
+    bam_path: str | None = None,
     min_depth: int = 5,
     min_gap_size: int = 10000,
-    contig_aliases: Optional[Dict[str, str]] = None,
+    contig_aliases: dict[str, str] | None = None,
 ) -> ExpansionResult:
     """
     Convenience function to expand primer set using params.json.

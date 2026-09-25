@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape as html_escape
 from pathlib import Path
-from typing import List, Optional
 
 from neoswga.core.report.metrics import (
     PipelineMetrics,
@@ -528,7 +527,7 @@ def _format_primer_row(idx: int, primer: PrimerMetrics, show_quality: bool) -> s
     </tr>"""
 
 
-def _format_considerations(considerations: List[str]) -> str:
+def _format_considerations(considerations: list[str]) -> str:
     """Format considerations as HTML."""
     if not considerations:
         return ""
@@ -543,7 +542,7 @@ def _format_considerations(considerations: List[str]) -> str:
     </div>"""
 
 
-def _get_component_by_name(components: list, name: str) -> Optional[dict]:
+def _get_component_by_name(components: list, name: str) -> dict | None:
     """Get a component by name."""
     for c in components:
         if c.name == name:
@@ -804,7 +803,7 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
 
 def generate_executive_summary(
     results_dir: str,
-    output_file: Optional[str] = None,
+    output_file: str | None = None,
     interactive: bool = False,
 ) -> ExecutiveSummary:
     """

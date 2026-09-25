@@ -305,8 +305,7 @@ def read_fasta_file(fname):
     # Use genome_io for automatic gzip detection
     loader = genome_io.GenomeLoader()
     for sequence in loader.load_genome_streaming(fname):
-        for ch in sequence:
-            yield ch
+        yield from sequence
 
 
 def reverse(seq):

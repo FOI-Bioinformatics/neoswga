@@ -36,7 +36,7 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # fcntl is Unix-only; provide fallback for Windows
 try:
@@ -110,13 +110,13 @@ class ExperimentalOutcome:
         experiment_id: Unique identifier
     """
 
-    primer_set: List[str]
+    primer_set: list[str]
     predicted_enrichment: float
     predicted_coverage: float
     confidence_score: float
-    actual_enrichment: Optional[float] = None
-    actual_coverage: Optional[float] = None
-    experiment_date: Optional[str] = None
+    actual_enrichment: float | None = None
+    actual_coverage: float | None = None
+    experiment_date: str | None = None
     notes: str = ""
     experiment_id: str = ""
 
@@ -132,25 +132,25 @@ class ExperimentalOutcome:
         return self.actual_enrichment is not None
 
     @property
-    def enrichment_error(self) -> Optional[float]:
+    def enrichment_error(self) -> float | None:
         """Absolute error in enrichment prediction."""
         if self.actual_enrichment is None:
             return None
         return abs(self.predicted_enrichment - self.actual_enrichment)
 
     @property
-    def coverage_error(self) -> Optional[float]:
+    def coverage_error(self) -> float | None:
         """Absolute error in coverage prediction."""
         if self.actual_coverage is None:
             return None
         return abs(self.predicted_coverage - self.actual_coverage)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ExperimentalOutcome":
+    def from_dict(cls, data: dict[str, Any]) -> "ExperimentalOutcome":
         """Create from dictionary."""
         return cls(**data)
 
@@ -177,9 +177,9 @@ class CalibrationReport:
     overestimate_rate: float
     underestimate_rate: float
     recommendation_accuracy: float
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return {
             "n_experiments": self.n_experiments,
@@ -212,7 +212,7 @@ class ExperimentalTracker:
     - Guide iterative primer design
     """
 
-    def __init__(self, log_path: Optional[str] = None):
+    def __init__(self, log_path: str | None = None):
         """
         Initialize tracker.
 
@@ -230,7 +230,7 @@ class ExperimentalTracker:
 
         # Validate and sanitize path
         self.log_path = _validate_log_path(log_path)
-        self.experiments: List[ExperimentalOutcome] = []
+        self.experiments: list[ExperimentalOutcome] = []
         self._load()
 
     def _load(self) -> None:
@@ -295,7 +295,7 @@ class ExperimentalTracker:
 
     def record_prediction(
         self,
-        primer_set: List[str],
+        primer_set: list[str],
         prediction: "EfficiencyPrediction",
         notes: str = "",
     ) -> str:
@@ -326,10 +326,10 @@ class ExperimentalTracker:
 
     def record_outcome(
         self,
-        primer_set: Optional[List[str]] = None,
-        experiment_id: Optional[str] = None,
-        actual_enrichment: Optional[float] = None,
-        actual_coverage: Optional[float] = None,
+        primer_set: list[str] | None = None,
+        experiment_id: str | None = None,
+        actual_enrichment: float | None = None,
+        actual_coverage: float | None = None,
         notes: str = "",
     ) -> bool:
         """
@@ -376,14 +376,14 @@ class ExperimentalTracker:
         logger.info(f"Recorded outcome for {exp.experiment_id}")
         return True
 
-    def get_experiment(self, experiment_id: str) -> Optional[ExperimentalOutcome]:
+    def get_experiment(self, experiment_id: str) -> ExperimentalOutcome | None:
         """Get experiment by ID."""
         for exp in self.experiments:
             if exp.experiment_id == experiment_id:
                 return exp
         return None
 
-    def get_experiments_with_outcomes(self) -> List[ExperimentalOutcome]:
+    def get_experiments_with_outcomes(self) -> list[ExperimentalOutcome]:
         """Get experiments that have recorded outcomes."""
         return [exp for exp in self.experiments if exp.has_outcome]
 
@@ -471,7 +471,7 @@ class ExperimentalTracker:
             },
         )
 
-    def list_experiments(self, limit: int = 10) -> List[Dict]:
+    def list_experiments(self, limit: int = 10) -> list[dict]:
         """
         List recent experiments.
 

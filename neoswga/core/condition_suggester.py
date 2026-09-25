@@ -13,7 +13,7 @@ Provides detailed rationale for each recommendation.
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from neoswga.core.registry import views as _registry_views
 
@@ -36,7 +36,7 @@ class ConditionRecommendation:
     # Primary settings
     polymerase: str
     reaction_temp: float
-    primer_length_range: Tuple[int, int]
+    primer_length_range: tuple[int, int]
 
     # Additives
     betaine_m: float
@@ -45,15 +45,15 @@ class ConditionRecommendation:
     mg_conc: float
 
     # Rationale
-    rationale: List[str]
-    warnings: List[str]
-    alternatives: List[Dict[str, Any]]
+    rationale: list[str]
+    warnings: list[str]
+    alternatives: list[dict[str, Any]]
 
     # Confidence
     confidence: float  # 0-1
 
     # Preset name if applicable
-    preset_name: Optional[str] = None
+    preset_name: str | None = None
 
 
 # Decision matrix for polymerase selection
@@ -161,8 +161,8 @@ def classify_primer_length(length: int) -> str:
 
 
 def suggest_kmer_range(
-    genome_size: int, gc: Optional[float] = None, polymerase: str = "phi29"
-) -> Tuple[int, int]:
+    genome_size: int, gc: float | None = None, polymerase: str = "phi29"
+) -> tuple[int, int]:
     """Recommend a k-mer range given target genome size, GC content, and polymerase.
 
     Heuristic rationale:
@@ -224,8 +224,8 @@ class ConditionSuggester:
 
     def __init__(
         self,
-        genome_gc: Optional[float] = None,
-        primer_length: Optional[int] = None,
+        genome_gc: float | None = None,
+        primer_length: int | None = None,
         context: ApplicationContext = ApplicationContext.STANDARD,
     ):
         """
@@ -348,7 +348,7 @@ class ConditionSuggester:
             preset_name=preset_name,
         )
 
-    def _select_polymerase(self) -> Tuple[str, str]:
+    def _select_polymerase(self) -> tuple[str, str]:
         """Select polymerase with rationale."""
         # Default selections based on GC class
         if self.gc_class in ("extreme_at", "at_rich"):
@@ -376,7 +376,7 @@ class ConditionSuggester:
                 )
             return "phi29", "Polymerase: Phi29 (standard choice for balanced GC genomes)"
 
-    def _suggest_primer_range(self, polymerase: str) -> Tuple[int, int]:
+    def _suggest_primer_range(self, polymerase: str) -> tuple[int, int]:
         """Suggest primer length range."""
         if self.primer_length:
             # Center range around requested length
@@ -393,7 +393,7 @@ class ConditionSuggester:
                 return (12, 16)
             return (11, 15)
 
-    def _select_additives(self) -> Tuple[Tuple[float, float, float], List[str]]:
+    def _select_additives(self) -> tuple[tuple[float, float, float], list[str]]:
         """Select additives with rationale."""
         key = (self.gc_class, self.length_class)
         additives = ADDITIVE_MATRIX.get(key, (1.0, 3.0, 0.0))
@@ -417,9 +417,7 @@ class ConditionSuggester:
 
         return additives, rationale
 
-    def _match_preset(
-        self, polymerase: str, additives: Tuple[float, float, float]
-    ) -> Optional[str]:
+    def _match_preset(self, polymerase: str, additives: tuple[float, float, float]) -> str | None:
         """Match to a named preset if applicable."""
         betaine, dmso, trehalose = additives
 
@@ -501,8 +499,8 @@ class ConditionSuggester:
 
 
 def suggest_conditions(
-    genome_gc: Optional[float] = None,
-    primer_length: Optional[int] = None,
+    genome_gc: float | None = None,
+    primer_length: int | None = None,
     context: str = "standard",
     verbose: bool = True,
 ) -> ConditionRecommendation:
@@ -538,9 +536,9 @@ def sweep_conditions(
     genome_gc: float,
     primer_length: int = 10,
     polymerase: str = "phi29",
-    output_path: Optional[str] = None,
+    output_path: str | None = None,
     verbose: bool = True,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Sweep a grid of reaction conditions and rank by predicted amplification.
 
     Evaluates combinations of temperature, DMSO, betaine, and Mg2+

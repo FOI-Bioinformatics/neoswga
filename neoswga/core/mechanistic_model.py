@@ -36,7 +36,7 @@ Usage:
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING
 
 from neoswga.core.additive_interactions import (
     AdditiveInteractionRegistry,
@@ -117,7 +117,7 @@ class MechanisticModel:
     def __init__(
         self,
         conditions: "ReactionConditions",
-        interaction_registry: Optional[AdditiveInteractionRegistry] = None,
+        interaction_registry: AdditiveInteractionRegistry | None = None,
     ):
         """
         Initialize mechanistic model with reaction conditions.
@@ -138,7 +138,7 @@ class MechanisticModel:
 
         # Note: enzyme activity calculation is now deferred to calculate_effects
         # because it needs template_gc for interaction modifiers
-        self._enzyme_activity_cache: Dict[float, Dict[str, float]] = {}
+        self._enzyme_activity_cache: dict[float, dict[str, float]] = {}
 
     def calculate_effects(self, primer: str, template_gc: float) -> MechanisticEffects:
         """
@@ -410,7 +410,7 @@ class MechanisticModel:
     # Pathway 3: Enzyme Activity
     # =========================================================================
 
-    def _get_enzyme_activity(self, template_gc: float = 0.5) -> Dict[str, float]:
+    def _get_enzyme_activity(self, template_gc: float = 0.5) -> dict[str, float]:
         """
         Get enzyme activity with interaction modifiers (cached by template_gc).
 
@@ -451,7 +451,7 @@ class MechanisticModel:
 
         return self._enzyme_activity_cache[cache_key]
 
-    def _calculate_base_enzyme_activity(self) -> Dict[str, float]:
+    def _calculate_base_enzyme_activity(self) -> dict[str, float]:
         """
         Calculate base enzyme activity modifiers from individual additives.
 
@@ -579,7 +579,7 @@ class MechanisticModel:
 
     def _calculate_kinetics(
         self, effective_tm: float, template_gc: float = 0.5
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         Calculate binding kinetics modifiers.
 
@@ -707,7 +707,7 @@ class MechanisticModel:
         """
         return 1.0 / (1.0 + math.exp(-steepness * (x - midpoint)))
 
-    def get_enzyme_parameters(self, template_gc: float = 0.5) -> Dict[str, float]:
+    def get_enzyme_parameters(self, template_gc: float = 0.5) -> dict[str, float]:
         """
         Get enzyme activity parameters with interaction modifiers.
 

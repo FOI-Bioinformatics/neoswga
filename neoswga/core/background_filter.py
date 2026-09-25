@@ -11,7 +11,6 @@ import pickle
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -151,7 +150,7 @@ class BackgroundFilterConfig:
     # quantity can take, so the gate could not fire at any oligo length, and no
     # measurement here supports a particular ceiling. Shipping it unset says
     # that, where a smaller number would assert a threshold nothing validates.
-    max_1mm_matches: Optional[int] = None
+    max_1mm_matches: int | None = None
     bloom_fp_rate: float = 0.01  # Bloom filter false positive rate
     sample_rate: int = 100  # For sampled suffix array
     use_repeat_filter: bool = True
@@ -196,15 +195,15 @@ class BackgroundBloomFilter:
         # The oligo lengths this filter was built over. None means the range
         # was never recorded, which is what an artifact written before this
         # field looks like -- unknown, not empty.
-        self.min_k: Optional[int] = None
-        self.max_k: Optional[int] = None
+        self.min_k: int | None = None
+        self.max_k: int | None = None
 
     def _record_range(self, min_k: int, max_k: int) -> None:
         """Widen the recorded range; two builds on one filter give the union."""
         self.min_k = min_k if self.min_k is None else min(self.min_k, min_k)
         self.max_k = max_k if self.max_k is None else max(self.max_k, max_k)
 
-    def covers_length(self, k: int) -> Optional[bool]:
+    def covers_length(self, k: int) -> bool | None:
         """Whether this filter can answer for a k-mer of length k.
 
         None when the range was never recorded, which a caller must treat as
@@ -368,7 +367,7 @@ class BackgroundBloomFilter:
             n_lines = sum(1 for _ in open(fpath))
             logger.info(f"  Loading {k}bp k-mers: {n_lines:,} entries")
 
-            with open(fpath, "r") as f:
+            with open(fpath) as f:
                 iterator = f
                 if use_tqdm:
                     iterator = tqdm(
@@ -473,7 +472,7 @@ class BackgroundBloomFilter:
         """Check if k-mer contains only ATCG"""
         return all(base in "ATCG" for base in kmer)
 
-    def _generate_1mm_variants(self, seq: str) -> Set[str]:
+    def _generate_1mm_variants(self, seq: str) -> set[str]:
         """All 1-mismatch variants of a sequence.
 
         Delegates so this and `mismatch_counts` cannot come to disagree about
@@ -552,17 +551,17 @@ class SampledGenomeIndex:
             sample_rate: Index every Nth position (e.g., 100 = 1% sample)
         """
         self.sample_rate = sample_rate
-        self.kmers: Dict[str, int] = defaultdict(int)
+        self.kmers: dict[str, int] = defaultdict(int)
         self.genome_size = 0
-        self.min_k: Optional[int] = None
-        self.max_k: Optional[int] = None
+        self.min_k: int | None = None
+        self.max_k: int | None = None
         # Which quantity the counts are. "sampled_positions" means every
         # sample_rate-th position was stored and `estimate_count` extrapolates;
         # "kmer_counts" means exact jellyfish counts at sample_rate 1, where
         # that extrapolation is the identity and there is no sparsity to
         # assess. Both are written to `bg_sampled.pkl`, so without this a
         # reader cannot tell which one they hold. None means unrecorded.
-        self.source: Optional[str] = None
+        self.source: str | None = None
 
     def _record_range(self, min_k: int, max_k: int) -> None:
         """Widen the recorded range; two builds on one index give the union."""
@@ -731,9 +730,9 @@ class BackgroundFilter:
 
     def __init__(
         self,
-        bloom_filter: Optional[BackgroundBloomFilter] = None,
-        sampled_index: Optional[SampledGenomeIndex] = None,
-        config: Optional[BackgroundFilterConfig] = None,
+        bloom_filter: BackgroundBloomFilter | None = None,
+        sampled_index: SampledGenomeIndex | None = None,
+        config: BackgroundFilterConfig | None = None,
     ):
         """
         Initialize filter.
@@ -784,7 +783,7 @@ class BackgroundFilter:
         self.sampled_index = SampledGenomeIndex(sample_rate=self.config.sample_rate)
         self.sampled_index.add_genome(fasta_path, min_k=self.config.min_k, max_k=self.config.max_k)
 
-    def filter_primers(self, candidates: List[str]) -> List[str]:
+    def filter_primers(self, candidates: list[str]) -> list[str]:
         """
         Filter primers against background genome.
 
@@ -856,7 +855,7 @@ class BackgroundFilter:
 
     @classmethod
     def load(
-        cls, bloom_path: str, index_path: str, config: Optional[BackgroundFilterConfig] = None
+        cls, bloom_path: str, index_path: str, config: BackgroundFilterConfig | None = None
     ) -> "BackgroundFilter":
         """Load pre-built filter"""
         bloom = BackgroundBloomFilter.load(bloom_path) if os.path.exists(bloom_path) else None

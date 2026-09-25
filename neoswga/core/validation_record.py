@@ -26,12 +26,12 @@ disagreement between it and the validator has been measured.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 __all__ = ["panel_assessment", "limit_violation_issue"]
 
 
-def panel_assessment(design_request, result, optimizer) -> Dict[str, Any]:
+def panel_assessment(design_request, result, optimizer) -> dict[str, Any]:
     """The one acceptance record for the delivered panel, as a JSON dict.
 
     Recorded, not consulted. `evaluate_panel` carries each metric WITH its
@@ -56,7 +56,7 @@ def panel_assessment(design_request, result, optimizer) -> Dict[str, Any]:
     ).as_dict()
 
 
-def limit_violation_issue(acceptance) -> Optional[Dict[str, Any]]:
+def limit_violation_issue(acceptance) -> dict[str, Any] | None:
     """A blocking issue when the panel misses a limit this run configured.
 
     None when no limit was configured, when every limit was met, or when the

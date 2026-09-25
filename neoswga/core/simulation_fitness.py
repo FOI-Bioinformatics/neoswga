@@ -19,7 +19,6 @@ Version: 3.0 - Phase 2.2
 import logging
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -70,10 +69,10 @@ class SimulationBasedEvaluator:
         genome_sequence: str,
         genome_length: int,
         position_cache,
-        conditions: Optional[ReactionConditions] = None,
+        conditions: ReactionConditions | None = None,
         n_replicates: int = 3,
         simulation_duration: float = 3600.0,
-        seed: Optional[int] = None,
+        seed: int | None = None,
     ):
         """
         Initialize simulation-based evaluator.
@@ -109,7 +108,7 @@ class SimulationBasedEvaluator:
         logger.info(f"  Replicates: {n_replicates}")
         logger.info(f"  Duration: {simulation_duration:.0f}s")
 
-    def evaluate(self, primers: List[str], verbose: bool = True) -> SimulationFitness:
+    def evaluate(self, primers: list[str], verbose: bool = True) -> SimulationFitness:
         """
         Evaluate primer set using simulation.
 
@@ -235,7 +234,7 @@ class SimulationBasedEvaluator:
             n_replicates=self.n_replicates,
         )
 
-    def _build_position_dict(self, primers: List[str]) -> Dict[str, Dict[str, List[int]]]:
+    def _build_position_dict(self, primers: list[str]) -> dict[str, dict[str, list[int]]]:
         """Build position dictionary for simulator"""
         # PositionCache is keyed by (fname_prefix, primer, strand), where the
         # prefix is the real path stem the HDF5 was written under. This asked
@@ -256,8 +255,8 @@ class SimulationBasedEvaluator:
         total_sites = 0
 
         for primer in primers:
-            forward_positions: List[int] = []
-            reverse_positions: List[int] = []
+            forward_positions: list[int] = []
+            reverse_positions: list[int] = []
 
             for prefix in prefixes:
                 try:
@@ -319,8 +318,8 @@ class SimulationBasedEvaluator:
         return get_standard_conditions()
 
     def compare_sets(
-        self, primer_sets: List[Tuple[str, List[str]]], verbose: bool = True
-    ) -> List[Tuple[str, SimulationFitness]]:
+        self, primer_sets: list[tuple[str, list[str]]], verbose: bool = True
+    ) -> list[tuple[str, SimulationFitness]]:
         """
         Compare multiple primer sets using simulation.
 

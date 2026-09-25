@@ -2,7 +2,6 @@ import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 from neoswga.core import utility as _utility
 from neoswga.core.registry import views as _registry_views
@@ -364,22 +363,22 @@ class PipelineParameters:
     gc_min: float = 0.375
     gc_max: float = 0.625
     gc_tolerance: float = 0.15
-    genome_gc: Optional[float] = None
+    genome_gc: float | None = None
 
     # Per-primer extension reach for set-cover selection and reported coverage.
     # None means "use the polymerase's realistic reach"; an explicit value here
     # or on --coverage-reach overrides it.
-    coverage_reach: Optional[int] = None
+    coverage_reach: int | None = None
 
     # Candidate ranking in step 2. None means "use the read site's default",
     # which keeps one source of truth for it (pipeline.py).
     occupancy_ranking: bool = True
-    occupancy_shortlist: Optional[int] = None
-    max_mismatches: Optional[int] = None
+    occupancy_shortlist: int | None = None
+    max_mismatches: int | None = None
 
     # Polymerase and reaction conditions
     polymerase: str = "phi29"
-    reaction_temp: Optional[float] = None
+    reaction_temp: float | None = None
     na_conc: float = 50.0
     mg_conc: float = 2.0
     primer_conc: float = 0.5e-6
@@ -419,35 +418,35 @@ class PipelineParameters:
     bg_circular: bool = False
 
     # K-mer sampling (for performance)
-    sample_rate: Optional[float] = None
+    sample_rate: float | None = None
     min_sample_count: int = 5
 
     # Bloom filter (for large backgrounds)
     use_bloom_filter: bool = False
-    bloom_filter_path: Optional[str] = None
-    sampled_index_path: Optional[str] = None
+    bloom_filter_path: str | None = None
+    sampled_index_path: str | None = None
 
     # Paths
     data_dir: str = ""
     src_dir: str = ""
 
     # Genome data
-    fg_genomes: List[str] = field(default_factory=list)
-    bg_genomes: List[str] = field(default_factory=list)
-    fg_prefixes: List[str] = field(default_factory=list)
-    bg_prefixes: List[str] = field(default_factory=list)
-    fg_seq_lengths: List[int] = field(default_factory=list)
-    bg_seq_lengths: List[int] = field(default_factory=list)
+    fg_genomes: list[str] = field(default_factory=list)
+    bg_genomes: list[str] = field(default_factory=list)
+    fg_prefixes: list[str] = field(default_factory=list)
+    bg_prefixes: list[str] = field(default_factory=list)
+    fg_seq_lengths: list[int] = field(default_factory=list)
+    bg_seq_lengths: list[int] = field(default_factory=list)
 
     # Exclusion genomes (zero-tolerance filtering)
-    excl_genomes: List[str] = field(default_factory=list)
-    excl_prefixes: List[str] = field(default_factory=list)
+    excl_genomes: list[str] = field(default_factory=list)
+    excl_prefixes: list[str] = field(default_factory=list)
     excl_threshold: int = 0  # Max allowed hits in exclusion genome (0 = any hit rejects)
 
     # Blacklist genomes (penalty-weighted filtering)
-    bl_genomes: List[str] = field(default_factory=list)
-    bl_prefixes: List[str] = field(default_factory=list)
-    bl_seq_lengths: List[int] = field(default_factory=list)
+    bl_genomes: list[str] = field(default_factory=list)
+    bl_prefixes: list[str] = field(default_factory=list)
+    bl_seq_lengths: list[int] = field(default_factory=list)
     bl_penalty: float = 5.0
     max_bl_freq: float = 0.0
 
@@ -1556,6 +1555,6 @@ def read_args_from_json(in_fname):
         data: Parameter inputs in dictionary form.
 
     """
-    with open(in_fname, "r") as json_file:
+    with open(in_fname) as json_file:
         data = json.load(json_file)
     return data

@@ -31,8 +31,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Dict, Mapping, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +68,12 @@ class BoundRecords:
     the BAM does not cover has UNKNOWN depth, not zero depth.
     """
 
-    matched: Tuple[str, ...]
-    offsets: Dict[str, int]
-    bam_name_for: Dict[str, str]
-    unmatched_records: Tuple[str, ...]
-    length_mismatches: Dict[str, Tuple[int, int]]
-    lengths: Dict[str, int]
+    matched: tuple[str, ...]
+    offsets: dict[str, int]
+    bam_name_for: dict[str, str]
+    unmatched_records: tuple[str, ...]
+    length_mismatches: dict[str, tuple[int, int]]
+    lengths: dict[str, int]
 
     @property
     def evaluable_length(self) -> int:
@@ -100,7 +100,7 @@ class ReferenceLayout:
 
     prefix: str
     path: str
-    records: Tuple[Record, ...]
+    records: tuple[Record, ...]
     total_length: int
 
     def record(self, name: str) -> Record:
@@ -115,17 +115,17 @@ class ReferenceLayout:
         return self.record(name).start
 
     @property
-    def names(self) -> Tuple[str, ...]:
+    def names(self) -> tuple[str, ...]:
         return tuple(record.name for record in self.records)
 
     @property
-    def record_starts(self) -> Tuple[int, ...]:
+    def record_starts(self) -> tuple[int, ...]:
         return tuple(record.start for record in self.records)
 
     def bind(
         self,
         bam_lengths: Mapping[str, int],
-        aliases: Optional[Mapping[str, str]] = None,
+        aliases: Mapping[str, str] | None = None,
     ) -> BoundRecords:
         """Match this layout's records to BAM references, by RECORD.
 
@@ -179,7 +179,7 @@ def _candidate_bam_name(
     bam_lengths: Mapping[str, int],
     stripped: Mapping[str, str],
     aliases: Mapping[str, str],
-) -> Optional[str]:
+) -> str | None:
     alias = aliases.get(record_name)
     if alias is not None and alias in bam_lengths:
         return alias
@@ -199,11 +199,11 @@ def read_layout(fasta_path: str, prefix: str) -> ReferenceLayout:
         raise FileNotFoundError(f"No such FASTA: {fasta_path}")
 
     records: list = []
-    name: Optional[str] = None
+    name: str | None = None
     start = 0
     length = 0
 
-    with open(fasta_path, "r") as handle:
+    with open(fasta_path) as handle:
         for line in handle:
             if line.startswith(">"):
                 if name is not None:
@@ -228,7 +228,7 @@ def read_layout(fasta_path: str, prefix: str) -> ReferenceLayout:
 def verify_layout(
     layout: ReferenceLayout,
     record_starts: Sequence[int],
-    configured_length: Optional[int],
+    configured_length: int | None,
 ) -> LayoutCheck:
     """Refuse a layout that is not what the index and the config describe.
 

@@ -10,8 +10,8 @@ Memory usage: ~4 MB for 500 primers × 1000 sites × 8 bytes
 import logging
 import os
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import h5py
 import numpy as np
@@ -49,7 +49,7 @@ class MissingPositionsError(RuntimeError):
     Both previously produced an empty array and an identical 0.0 coverage.
     """
 
-    def __init__(self, message: str, missing: Optional[List[str]] = None):
+    def __init__(self, message: str, missing: list[str] | None = None):
         super().__init__(message)
         self.missing = list(missing or [])
 
@@ -102,14 +102,14 @@ class PositionCache:
     # tests do deliberately to exercise the merge logic without HDF5, still
     # answers the release check. Immutable, so no instance can mutate it by
     # accident; `__init__` replaces it with a real set.
-    _released: Set[str] = frozenset()  # type: ignore[assignment]
+    _released: set[str] = frozenset()  # type: ignore[assignment]
 
     def __init__(
         self,
-        fname_prefixes: List[str],
-        primers: List[str],
+        fname_prefixes: list[str],
+        primers: list[str],
         *,
-        genome_paths: Optional[List[str]] = None,
+        genome_paths: list[str] | None = None,
         circular: bool = False,
         on_missing: str = "warn",
         on_unindexed_prefix: str = "error",
@@ -154,12 +154,12 @@ class PositionCache:
         if on_missing not in ("warn", "scan", "error"):
             raise ValueError(f"on_missing must be 'warn', 'scan' or 'error', got {on_missing!r}")
 
-        self.cache: Dict[Tuple[str, str, str], np.ndarray] = {}
+        self.cache: dict[tuple[str, str, str], np.ndarray] = {}
         self.primers = set(primers)
         self.fname_prefixes = fname_prefixes
         # prefix -> offsets at which each FASTA record starts, read from the
         # position index. Empty for an index written before these were stored.
-        self.record_starts: Dict[str, List[int]] = {}
+        self.record_starts: dict[str, list[int]] = {}
         # A set for the per-lookup check in `_check_prefix_is_indexed`, which
         # runs on every `get_positions` call.
         self._indexed_prefixes = set(fname_prefixes)
@@ -170,20 +170,20 @@ class PositionCache:
         self.on_unindexed_prefix = on_unindexed_prefix
         # (prefix, primer) pairs that produced no cached positions -- i.e. whose
         # coverage is UNKNOWN because they were never indexed.
-        self.missing_primers: List[Tuple[str, str]] = []
+        self.missing_primers: list[tuple[str, str]] = []
         # Primers that were scanned and genuinely have no binding sites. Their
         # zero coverage is a real result. Only populated by on_missing='scan'.
-        self.zero_site_primers: List[str] = []
+        self.zero_site_primers: list[str] = []
         # Primers `release` has dropped. Kept because an entry that once existed
         # and is now gone must not answer the way one that never existed does:
         # both hold no array, and only this set can tell them apart.
-        self._released: Set[str] = set()
+        self._released: set[str] = set()
 
         self._load_all_positions()
         self._resolve_missing()
         self._report_statistics()
 
-    def _resolve_missing(self, primers: Optional[Sequence[str]] = None) -> None:
+    def _resolve_missing(self, primers: Sequence[str] | None = None) -> None:
         """Handle primers that produced no positions, per ``on_missing``.
 
         ``primers`` restricts the check to a subset, which is what :meth:`load`
@@ -234,7 +234,7 @@ class PositionCache:
                 summary,
             )
 
-    def _scan_missing_from_genomes(self, pairs: Optional[Sequence[Tuple[str, str]]] = None) -> None:
+    def _scan_missing_from_genomes(self, pairs: Sequence[tuple[str, str]] | None = None) -> None:
         """Find missing primers by scanning the FASTA directly.
 
         Uses the existing single-pass Aho-Corasick scanner in
@@ -256,8 +256,8 @@ class PositionCache:
 
         from neoswga.core import string_search as _ss
 
-        zero_site: List[str] = []
-        by_prefix: Dict[str, List[str]] = defaultdict(list)
+        zero_site: list[str] = []
+        by_prefix: dict[str, list[str]] = defaultdict(list)
         for prefix, primer in outstanding:
             by_prefix[prefix].append(primer)
 
@@ -270,7 +270,7 @@ class PositionCache:
                 genome_path,
                 len(wanted),
             )
-            by_k: Dict[int, List[str]] = defaultdict(list)
+            by_k: dict[int, list[str]] = defaultdict(list)
             for primer in wanted:
                 by_k[len(primer)].append(primer)
 
@@ -313,7 +313,7 @@ class PositionCache:
         self.missing_primers = [pair for pair in self.missing_primers if pair not in resolved]
         self.zero_site_primers = sorted(set(self.zero_site_primers) | set(zero_site))
 
-    def _load_all_positions(self, primers: Optional[Sequence[str]] = None) -> None:
+    def _load_all_positions(self, primers: Sequence[str] | None = None) -> None:
         """Single-pass load of position data, for a subset or for everything."""
 
         wanted = list(self.primers) if primers is None else list(primers)
@@ -389,7 +389,7 @@ class PositionCache:
 
     # -- a window that moves -------------------------------------------------
 
-    def load(self, primers: Sequence[str]) -> List[str]:
+    def load(self, primers: Sequence[str]) -> list[str]:
         """Bring candidates the cache was not built over into it.
 
         The constructor takes a fixed list, which was enough while a design
@@ -434,7 +434,7 @@ class PositionCache:
             raise
         return fresh
 
-    def release(self, primers: Sequence[str]) -> List[str]:
+    def release(self, primers: Sequence[str]) -> list[str]:
         """Drop candidates the search has moved past.
 
         A frontier that only ever grows is not a frontier. The Wolbachia
@@ -448,7 +448,7 @@ class PositionCache:
 
         Returns the candidates actually dropped.
         """
-        gone: List[str] = []
+        gone: list[str] = []
         for primer in dict.fromkeys(str(p) for p in primers):
             if primer not in self.primers:
                 continue
@@ -675,7 +675,7 @@ class PositionCache:
             return None
         return None
 
-    def get_record_starts(self, fname_prefix: str) -> List[int]:
+    def get_record_starts(self, fname_prefix: str) -> list[int]:
         """Offsets at which each FASTA record begins, for one prefix.
 
         Empty when the index predates these being stored, in which case the
@@ -756,8 +756,8 @@ class PositionCache:
         return self.cache.get((fname_prefix, primer, strand), np.array([], dtype=POSITION_DTYPE))
 
     def get_all_positions(
-        self, fname_prefix: str, primers: List[str]
-    ) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+        self, fname_prefix: str, primers: list[str]
+    ) -> dict[str, tuple[np.ndarray, np.ndarray]]:
         """
         Get positions for multiple primers (batched).
 
@@ -772,7 +772,7 @@ class PositionCache:
         return result
 
     def compute_coverage_vectorized(
-        self, fname_prefix: str, primers: List[str], genome_length: int
+        self, fname_prefix: str, primers: list[str], genome_length: int
     ) -> np.ndarray:
         """
         Compute coverage array for primer set (vectorized, fast).
@@ -804,8 +804,8 @@ class PositionCache:
     # kwarg from `coverage.polymerase_extension_reach`.
 
     def compute_statistics(
-        self, fname_prefix: str, primers: List[str], genome_length: int
-    ) -> Dict[str, float]:
+        self, fname_prefix: str, primers: list[str], genome_length: int
+    ) -> dict[str, float]:
         """
         Compute coverage statistics efficiently.
 
@@ -828,7 +828,7 @@ class PositionCache:
         }
 
     def compute_gap_entropy(
-        self, fname_prefix: str, primers: List[str], genome_length: int, num_bins: int = 50
+        self, fname_prefix: str, primers: list[str], genome_length: int, num_bins: int = 50
     ) -> float:
         """Compute Shannon entropy of gap size distribution.
 
@@ -862,7 +862,7 @@ class PositionCache:
         probs = counts / counts.sum()
         return float(scipy_entropy(probs, base=2))
 
-    def _find_gap_sizes(self, coverage: np.ndarray) -> List[int]:
+    def _find_gap_sizes(self, coverage: np.ndarray) -> list[int]:
         """Find sizes of uncovered regions"""
         # Find transitions
         transitions = np.diff(coverage.astype(int))
@@ -878,7 +878,7 @@ class PositionCache:
         gap_sizes = gap_ends - gap_starts
         return gap_sizes.tolist()
 
-    def _gini_coefficient(self, values: List[int]) -> float:
+    def _gini_coefficient(self, values: list[int]) -> float:
         """Compute Gini coefficient of gap distribution"""
         if len(values) == 0:
             return 0.0
@@ -894,9 +894,9 @@ class PositionCache:
     def compute_strand_alternation_stats(
         self,
         fname_prefix: str,
-        primers: List[str],
+        primers: list[str],
         genome_length: int,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Compute strand alternation metrics for a primer set.
 
         Strand alternation measures how well forward and reverse strand
@@ -925,7 +925,7 @@ class PositionCache:
               on the same strand (lower is better).
         """
         # Collect all binding sites with strand labels
-        sites: List[Tuple[int, str]] = []
+        sites: list[tuple[int, str]] = []
         total_fwd = 0
         total_rev = 0
 
@@ -969,7 +969,7 @@ class PositionCache:
         sites.sort(key=lambda x: x[0])
 
         # Compute gaps between consecutive opposite-strand sites
-        alternation_gaps: List[int] = []
+        alternation_gaps: list[int] = []
         alternations = 0
         same_strand_run = 1
         longest_run = 1
@@ -1027,7 +1027,7 @@ class StreamingPositionCache:
     Suitable for human genome (3 Gbp) where full cache is infeasible.
     """
 
-    def __init__(self, fname_prefixes: List[str], primers: Optional[List[str]] = None):
+    def __init__(self, fname_prefixes: list[str], primers: list[str] | None = None):
         """
         Initialize streaming cache with memory mapping.
 
@@ -1036,9 +1036,9 @@ class StreamingPositionCache:
             primers: Optional subset to preload (if small)
         """
         self.fname_prefixes = fname_prefixes
-        self.record_starts: Dict[str, List[int]] = {}
-        self.file_handles: Dict[str, h5py.File] = {}
-        self.preloaded: Dict[Tuple[str, str, str], np.ndarray] = {}
+        self.record_starts: dict[str, list[int]] = {}
+        self.file_handles: dict[str, h5py.File] = {}
+        self.preloaded: dict[tuple[str, str, str], np.ndarray] = {}
         # Same policy as PositionCache, and for the same reason. Known Issue 13
         # made an unindexed prefix raise there; this class is the sibling
         # `unified_optimizer` selects on a flag, and it kept returning an empty
@@ -1071,7 +1071,7 @@ class StreamingPositionCache:
         if primers and len(primers) < 100:
             self._preload_subset(primers)
 
-    def _preload_subset(self, primers: List[str]) -> None:
+    def _preload_subset(self, primers: list[str]) -> None:
         """Preload positions for small set of primers"""
         logger.info(f"Preloading {len(primers)} primers...")
 
@@ -1142,7 +1142,7 @@ class StreamingPositionCache:
 
 
 def benchmark_cache_vs_hdf5(
-    fname_prefixes: List[str], primers: List[str], iterations: int = 1000
+    fname_prefixes: list[str], primers: list[str], iterations: int = 1000
 ) -> None:
     """
     Benchmark cache performance vs. direct HDF5 access.

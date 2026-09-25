@@ -7,7 +7,7 @@ results for DMSO, betaine, temperature, and other reaction conditions.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from neoswga.core.mechanistic_model import MechanisticEffects, MechanisticModel
 from neoswga.core.reaction_conditions import ReactionConditions
@@ -15,7 +15,7 @@ from neoswga.core.reaction_conditions import ReactionConditions
 logger = logging.getLogger(__name__)
 
 
-def validate_dmso_inhibition() -> Dict[str, Any]:
+def validate_dmso_inhibition() -> dict[str, Any]:
     """
     Validate DMSO dose-response curve matches literature expectations.
 
@@ -68,7 +68,7 @@ def validate_dmso_inhibition() -> Dict[str, Any]:
     }
 
 
-def validate_betaine_biphasic() -> Dict[str, Any]:
+def validate_betaine_biphasic() -> dict[str, Any]:
     """
     Validate betaine shows enhancement then inhibition.
 
@@ -116,7 +116,7 @@ def validate_betaine_biphasic() -> Dict[str, Any]:
     }
 
 
-def validate_gc_accessibility() -> Dict[str, Any]:
+def validate_gc_accessibility() -> dict[str, Any]:
     """
     Validate GC content affects template accessibility.
 
@@ -170,7 +170,7 @@ def validate_gc_accessibility() -> Dict[str, Any]:
     }
 
 
-def validate_temperature_optimum() -> Dict[str, Any]:
+def validate_temperature_optimum() -> dict[str, Any]:
     """
     Validate temperature effects match polymerase optimum.
 
@@ -229,7 +229,7 @@ def validate_temperature_optimum() -> Dict[str, Any]:
     }
 
 
-def validate_binding_kinetics() -> Dict[str, Any]:
+def validate_binding_kinetics() -> dict[str, Any]:
     """
     Validate binding kinetics follow expected Tm relationships.
 
@@ -302,7 +302,7 @@ def validate_binding_kinetics() -> Dict[str, Any]:
     }
 
 
-def validate_mg_effects() -> Dict[str, Any]:
+def validate_mg_effects() -> dict[str, Any]:
     """
     Validate Mg2+ concentration effects.
 
@@ -359,7 +359,7 @@ def validate_mg_effects() -> Dict[str, Any]:
     }
 
 
-def validate_formamide_inhibition() -> Dict[str, Any]:
+def validate_formamide_inhibition() -> dict[str, Any]:
     """
     Validate formamide shows consistent inhibition.
 
@@ -401,7 +401,7 @@ def validate_formamide_inhibition() -> Dict[str, Any]:
     }
 
 
-def validate_mechanistic_model() -> List[Dict[str, Any]]:
+def validate_mechanistic_model() -> list[dict[str, Any]]:
     """
     Run all validation checks on mechanistic model.
 
@@ -438,7 +438,7 @@ def validate_mechanistic_model() -> List[Dict[str, Any]]:
     return results
 
 
-def format_validation_report(results: List[Dict[str, Any]]) -> str:
+def format_validation_report(results: list[dict[str, Any]]) -> str:
     """
     Format validation results as a human-readable report.
 
@@ -476,7 +476,7 @@ def format_validation_report(results: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def quick_validation() -> Tuple[bool, str]:
+def quick_validation() -> tuple[bool, str]:
     """
     Run quick validation and return pass/fail with summary.
 

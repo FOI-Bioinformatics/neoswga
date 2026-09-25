@@ -22,7 +22,6 @@ import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from dataclasses import replace as _dc_replace
-from typing import Dict, List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
@@ -89,8 +88,8 @@ _STAGE2_BACKGROUND_WEIGHT = 0.25
 
 
 def _rank_removal_candidates(
-    candidates: List[Tuple[str, float, int, int]], background_aware: bool
-) -> Tuple[Optional[str], float]:
+    candidates: list[tuple[str, float, int, int]], background_aware: bool
+) -> tuple[str | None, float]:
     """Pick which primer Stage 2 should drop this step.
 
     Each candidate is `(primer, network_score, unique_bins, bg_sites)`. Rank
@@ -189,7 +188,7 @@ class PolymeraseConfig:
 # These were previously hand-maintained numbers that disagreed with processivity
 # for bst (10000 vs 2000, physically impossible) and klenow (5000 vs 40). They
 # now derive from processivity_bp, so the two cannot diverge again.
-POLYMERASE_PRESETS: Dict[str, PolymeraseConfig] = {
+POLYMERASE_PRESETS: dict[str, PolymeraseConfig] = {
     key: PolymeraseConfig(
         max_extension=spec.processivity_bp,
         thermo_filter=spec.thermo_filter,
@@ -223,15 +222,15 @@ class HybridResult:
     """Result from hybrid optimization"""
 
     # Final primer set
-    primers: List[str]
+    primers: list[str]
 
     # Stage 1 (Coverage) results
-    stage1_primers: List[str]
+    stage1_primers: list[str]
     stage1_coverage: float
     stage1_regions_covered: int
 
     # Stage 2 (Network) results
-    stage2_primers: List[str]
+    stage2_primers: list[str]
     stage2_connectivity: float
     stage2_predicted_amplification: float
     stage2_largest_component: int
@@ -247,10 +246,10 @@ class HybridResult:
     # `stage1_count` was, and coverage over that prefix is non-decreasing in N.
     # Stage 2 is floored against it, which is what makes final coverage
     # monotone in the requested count.
-    stage1_ordered_primers: List[str] = field(default_factory=list)
+    stage1_ordered_primers: list[str] = field(default_factory=list)
 
     # Simulation validation (optional)
-    simulation_fitness: Optional[object] = None  # SimulationFitness if validated
+    simulation_fitness: object | None = None  # SimulationFitness if validated
 
     # Metadata
     runtime_stage1: float = 0.0
@@ -298,18 +297,18 @@ class HybridOptimizer(ThermoScreenMixin):
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
         bin_size: int = 10000,
-        max_extension: Optional[int] = None,
-        coverage_reach: Optional[int] = None,
+        max_extension: int | None = None,
+        coverage_reach: int | None = None,
         uniformity_weight: float = 0.0,
-        min_tm: Optional[float] = None,
-        max_tm: Optional[float] = None,
+        min_tm: float | None = None,
+        max_tm: float | None = None,
         polymerase: str = "phi29",
-        genome_gc_content: Optional[float] = None,
+        genome_gc_content: float | None = None,
         background_pruning: bool = False,
         background_weight: float = 2.0,
         min_coverage_threshold: float = 0.95,
@@ -334,17 +333,17 @@ class HybridOptimizer(ThermoScreenMixin):
         # uniformity=0.05, dimer_penalty=0.45" while the object doing the
         # selecting used 0.0, 0.0 and 0.0, and why a params.json max_dimer_bp of
         # 3 became 4 -- the looser threshold -- inside the default method.
-        reaction_temp: Optional[float] = None,
+        reaction_temp: float | None = None,
         tm_weight: float = 0.0,
         dimer_penalty: float = 0.0,
-        max_dimer_bp: Optional[int] = None,
+        max_dimer_bp: int | None = None,
         max_dimer_dg=None,
         template_gc: float = 0.5,
         allow_dimer_relaxation: bool = False,
         refinement_method: str = "network",
         swap_max_evaluations: int = 10000,
         swap_max_seconds: float = 10.0,
-        stage1_objective_width: Optional[int] = None,
+        stage1_objective_width: int | None = None,
     ):
         """
         Initialize hybrid optimizer.
@@ -506,7 +505,7 @@ class HybridOptimizer(ThermoScreenMixin):
             logger.info(f"  Background pruning: enabled (weight={background_weight})")
 
     @staticmethod
-    def _resolve_max_dimer_bp(max_dimer_bp: Optional[int]) -> int:
+    def _resolve_max_dimer_bp(max_dimer_bp: int | None) -> int:
         """Resolve the dimer limit: constructor argument, then params.json, then 3.
 
         `isinstance(..., int) and not isinstance(..., bool)` rather than a
@@ -564,14 +563,14 @@ class HybridOptimizer(ThermoScreenMixin):
 
     def optimize(
         self,
-        candidates: List[str],
+        candidates: list[str],
         final_count: int = 12,
         apply_polymerase_multiplier: bool = False,
-        stage1_count: Optional[int] = None,
-        fixed_primers: Optional[List[str]] = None,
+        stage1_count: int | None = None,
+        fixed_primers: list[str] | None = None,
         verbose: bool = True,
         validate_with_simulation: bool = False,
-        genome_sequence: Optional[str] = None,
+        genome_sequence: str | None = None,
         simulation_replicates: int = 3,
     ) -> HybridResult:
         """
@@ -928,12 +927,12 @@ class HybridOptimizer(ThermoScreenMixin):
 
     def _network_refine(
         self,
-        primers: List[str],
+        primers: list[str],
         target_count: int,
-        fixed_primers: Optional[List[str]] = None,
+        fixed_primers: list[str] | None = None,
         verbose: bool = True,
-        coverage_floor_set: Optional[List[str]] = None,
-    ) -> List[str]:
+        coverage_floor_set: list[str] | None = None,
+    ) -> list[str]:
         """
         Refine primer set using network analysis.
 
@@ -1104,7 +1103,7 @@ class HybridOptimizer(ThermoScreenMixin):
 
         return current_primers
 
-    def _coverage_bins_by_primer(self, primers: List[str]) -> Dict[str, set]:
+    def _coverage_bins_by_primer(self, primers: list[str]) -> dict[str, set]:
         """Bins each primer covers, at the granularity `_calculate_coverage` uses.
 
         Computed once per refinement so the removal loop can price a candidate
@@ -1153,7 +1152,7 @@ class HybridOptimizer(ThermoScreenMixin):
         return (region.chromosome, region.start, region.end)
 
     @staticmethod
-    def _bin_occupancy(bins_by_primer: Dict[str, set]) -> Dict[object, int]:
+    def _bin_occupancy(bins_by_primer: dict[str, set]) -> dict[object, int]:
         """How many of the given primers cover each bin.
 
         Keyed on the region's coordinates rather than on the region object, so
@@ -1161,7 +1160,7 @@ class HybridOptimizer(ThermoScreenMixin):
         belt and braces given `_coverage_bins_by_primer` now shares one graph,
         and it is what makes the count correct for any caller that does not.
         """
-        counts: Dict[object, int] = Counter()
+        counts: dict[object, int] = Counter()
         for owned in bins_by_primer.values():
             counts.update({HybridOptimizer._bin_key(r) for r in owned})
         return counts
@@ -1172,7 +1171,7 @@ class HybridOptimizer(ThermoScreenMixin):
         bin_size = coverage_bin_size(self.bin_size, self.coverage_reach)
         return sum((length + bin_size - 1) // bin_size for length in self.fg_seq_lengths)
 
-    def _build_network(self, primers: List[str]) -> AmplificationNetwork:
+    def _build_network(self, primers: list[str]) -> AmplificationNetwork:
         """Build amplification network for primer set"""
         network = AmplificationNetwork(max_extension=self.max_extension)
 
@@ -1190,7 +1189,7 @@ class HybridOptimizer(ThermoScreenMixin):
         network.build_edges()
         return network
 
-    def _calculate_coverage(self, primers: List[str]) -> float:
+    def _calculate_coverage(self, primers: list[str]) -> float:
         """Binned genome coverage for a primer set, at the realistic reach.
 
         This is an APPROXIMATION used for progress reporting and for the
@@ -1251,7 +1250,7 @@ class HybridOptimizer(ThermoScreenMixin):
         coverage = len(graph.regions) / total_bins if total_bins > 0 else 0.0
         return coverage
 
-    def _build_coverage_counter(self, primers: List[str]) -> CoverageCounter:
+    def _build_coverage_counter(self, primers: list[str]) -> CoverageCounter:
         """A `CoverageCounter` over the same bins `_calculate_coverage` counts.
 
         Delegates the graph-building to `_coverage_bins_by_primer`, which
@@ -1274,11 +1273,11 @@ class HybridOptimizer(ThermoScreenMixin):
 
     def _prune_background(
         self,
-        primers: List[str],
+        primers: list[str],
         target_size: int,
         verbose: bool = False,
-        fixed_primers: Optional[List[str]] = None,
-    ) -> Tuple[List[str], float, int]:
+        fixed_primers: list[str] | None = None,
+    ) -> tuple[list[str], float, int]:
         """
         Greedy background pruning: remove primers with worst background/coverage ratio.
 
@@ -1424,7 +1423,7 @@ class HybridOptimizer(ThermoScreenMixin):
 
         return current_primers, final_coverage, final_bg_sites
 
-    def _count_background_sites(self, primers: List[str]) -> int:
+    def _count_background_sites(self, primers: list[str]) -> int:
         """Count total background binding sites for primer set."""
         if not primers or not self.bg_prefixes:
             return 0
@@ -1489,11 +1488,11 @@ class HybridBaseOptimizer(BaseOptimizer):
     def __init__(
         self,
         position_cache,
-        fg_prefixes: List[str],
-        fg_seq_lengths: List[int],
-        bg_prefixes: Optional[List[str]] = None,
-        bg_seq_lengths: Optional[List[int]] = None,
-        config: Optional[OptimizerConfig] = None,
+        fg_prefixes: list[str],
+        fg_seq_lengths: list[int],
+        bg_prefixes: list[str] | None = None,
+        bg_seq_lengths: list[int] | None = None,
+        config: OptimizerConfig | None = None,
         conditions=None,
         **kwargs,
     ):
@@ -1565,9 +1564,9 @@ class HybridBaseOptimizer(BaseOptimizer):
 
     def optimize(
         self,
-        candidates: List[str],
-        target_size: Optional[int] = None,
-        fixed_primers: Optional[List[str]] = None,
+        candidates: list[str],
+        target_size: int | None = None,
+        fixed_primers: list[str] | None = None,
         **kwargs,
     ) -> OptimizationResult:
         """Run hybrid optimization."""

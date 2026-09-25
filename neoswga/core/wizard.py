@@ -17,7 +17,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from neoswga.core.gc_adaptive_strategy import GCAdaptiveStrategy
 from neoswga.core.genome_analysis import calculate_genome_stats, get_gc_class, recommend_adaptive_qa
@@ -204,24 +204,24 @@ class SetupWizard:
         self.advanced = advanced
 
         # Genome analysis results
-        self.target_stats: Optional[Dict] = None
-        self.background_stats: Optional[Dict] = None
-        self.target_path: Optional[Path] = None
-        self.background_path: Optional[Path] = None
-        self.blacklist_paths: List[Path] = []
-        self.blacklist_stats: List[Dict] = []
+        self.target_stats: dict | None = None
+        self.background_stats: dict | None = None
+        self.target_path: Path | None = None
+        self.background_path: Path | None = None
+        self.blacklist_paths: list[Path] = []
+        self.blacklist_stats: list[dict] = []
 
         # Recommendations
-        self.gc_class: Optional[str] = None
-        self.recommended_polymerase: Optional[str] = None
-        self.recommended_kmer_range: Optional[tuple] = None
-        self.recommended_additives: Optional[Dict] = None
-        self.recommended_temp: Optional[float] = None
+        self.gc_class: str | None = None
+        self.recommended_polymerase: str | None = None
+        self.recommended_kmer_range: tuple | None = None
+        self.recommended_additives: dict | None = None
+        self.recommended_temp: float | None = None
 
         # User overrides
-        self.user_overrides: Dict[str, Any] = {}
+        self.user_overrides: dict[str, Any] = {}
 
-    def analyze_genome(self, genome_path: str) -> Dict:
+    def analyze_genome(self, genome_path: str) -> dict:
         """
         Analyze target genome and generate recommendations.
 
@@ -266,7 +266,7 @@ class SetupWizard:
         }
 
         # Collect warnings
-        self.warnings: List[str] = []
+        self.warnings: list[str] = []
 
         # Check for potential issues
         # Warn at the point the PIPELINE actually changes behaviour, not at a
@@ -353,7 +353,7 @@ class SetupWizard:
             "warnings": self.warnings,
         }
 
-    def analyze_background(self, genome_path: str) -> Dict:
+    def analyze_background(self, genome_path: str) -> dict:
         """
         Analyze background genome (optional).
 
@@ -379,7 +379,7 @@ class SetupWizard:
 
         return {"stats": self.background_stats}
 
-    def analyze_blacklist(self, genome_paths: List[str]) -> List[Dict]:
+    def analyze_blacklist(self, genome_paths: list[str]) -> list[dict]:
         """Analyze blacklist genome(s).
 
         Args:
@@ -536,7 +536,7 @@ class SetupWizard:
         if num != 6:
             self.user_overrides["num_primers"] = num
 
-    def generate_config(self, output_dir: str = "results") -> Dict[str, Any]:
+    def generate_config(self, output_dir: str = "results") -> dict[str, Any]:
         """
         Generate complete configuration dictionary.
 
@@ -708,14 +708,14 @@ class SetupWizard:
 
 def run_wizard(
     genome_path: str,
-    background_path: Optional[str] = None,
-    blacklist_paths: Optional[List[str]] = None,
+    background_path: str | None = None,
+    blacklist_paths: list[str] | None = None,
     output_path: str = "params.json",
     output_dir: str = "results",
     interactive: bool = True,
     advanced: bool = False,
     auto_approve: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Run the setup wizard.
 

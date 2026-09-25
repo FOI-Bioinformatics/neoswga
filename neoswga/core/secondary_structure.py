@@ -16,7 +16,6 @@ References:
 """
 
 import warnings
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -100,7 +99,7 @@ class StructurePrediction:
     Predict secondary structures using dynamic programming.
     """
 
-    def __init__(self, conditions: Optional[rc.ReactionConditions] = None):
+    def __init__(self, conditions: rc.ReactionConditions | None = None):
         """
         Initialize structure predictor.
 
@@ -114,7 +113,7 @@ class StructurePrediction:
         pairs = {("A", "T"), ("T", "A"), ("G", "C"), ("C", "G")}
         return (base1.upper(), base2.upper()) in pairs
 
-    def predict_heterodimer(self, seq1: str, seq2: str) -> Dict:
+    def predict_heterodimer(self, seq1: str, seq2: str) -> dict:
         """
         Predict heterodimer structure and stability.
 
@@ -270,7 +269,7 @@ class StructurePrediction:
             "binding_length": self._estimate_binding_length(parent, n, m),
         }
 
-    def _estimate_binding_length(self, parent: Dict, n: int, m: int) -> int:
+    def _estimate_binding_length(self, parent: dict, n: int, m: int) -> int:
         """
         Estimate number of bound base pairs from traceback.
 
@@ -353,7 +352,7 @@ class StructurePrediction:
 
         return risk
 
-    def predict_hairpin(self, seq: str) -> List[Dict]:
+    def predict_hairpin(self, seq: str) -> list[dict]:
         """
         Predict all possible hairpin structures.
 
@@ -480,8 +479,8 @@ class StructurePrediction:
 
 
 def check_heterodimer(
-    seq1: str, seq2: str, conditions: Optional[rc.ReactionConditions] = None
-) -> Dict:
+    seq1: str, seq2: str, conditions: rc.ReactionConditions | None = None
+) -> dict:
     """
     Check if two primers form heterodimers.
 
@@ -497,7 +496,7 @@ def check_heterodimer(
     return predictor.predict_heterodimer(seq1, seq2)
 
 
-def check_homodimer(seq: str, conditions: Optional[rc.ReactionConditions] = None) -> Dict:
+def check_homodimer(seq: str, conditions: rc.ReactionConditions | None = None) -> dict:
     """
     Check if primer forms homodimers (self-complementary).
 
@@ -512,7 +511,7 @@ def check_homodimer(seq: str, conditions: Optional[rc.ReactionConditions] = None
     return predictor.predict_heterodimer(seq, seq)
 
 
-def check_hairpins(seq: str, conditions: Optional[rc.ReactionConditions] = None) -> List[Dict]:
+def check_hairpins(seq: str, conditions: rc.ReactionConditions | None = None) -> list[dict]:
     """
     Find all hairpin structures in sequence.
 
@@ -528,7 +527,7 @@ def check_hairpins(seq: str, conditions: Optional[rc.ReactionConditions] = None)
 
 
 def calculate_dimer_matrix(
-    primers: List[str], conditions: Optional[rc.ReactionConditions] = None
+    primers: list[str], conditions: rc.ReactionConditions | None = None
 ) -> np.ndarray:
     """
     Calculate pairwise dimer severity matrix.
@@ -562,11 +561,11 @@ def calculate_dimer_matrix(
 
 
 def filter_primers_by_structure(
-    primers: List[str],
+    primers: list[str],
     max_hairpin_tm: float = 35.0,
     max_self_dimer_severity: float = 0.3,
-    conditions: Optional[rc.ReactionConditions] = None,
-) -> List[str]:
+    conditions: rc.ReactionConditions | None = None,
+) -> list[str]:
     """
     Filter primers that have problematic secondary structures.
 

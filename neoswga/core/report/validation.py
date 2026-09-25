@@ -8,7 +8,6 @@ Uses a three-level severity system: ERROR, WARNING, INFO.
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
 
 from neoswga.core.report.metrics import PipelineMetrics
 
@@ -39,21 +38,21 @@ class ValidationIssue:
 class ValidationResult:
     """Result of validation with issues by severity."""
 
-    def __init__(self, issues: Optional[List[ValidationIssue]] = None):
+    def __init__(self, issues: list[ValidationIssue] | None = None):
         self.issues = issues or []
 
     @property
-    def errors(self) -> List[ValidationIssue]:
+    def errors(self) -> list[ValidationIssue]:
         """Get all ERROR level issues."""
         return [i for i in self.issues if i.level == ValidationLevel.ERROR]
 
     @property
-    def warnings(self) -> List[ValidationIssue]:
+    def warnings(self) -> list[ValidationIssue]:
         """Get all WARNING level issues."""
         return [i for i in self.issues if i.level == ValidationLevel.WARNING]
 
     @property
-    def infos(self) -> List[ValidationIssue]:
+    def infos(self) -> list[ValidationIssue]:
         """Get all INFO level issues."""
         return [i for i in self.issues if i.level == ValidationLevel.INFO]
 

@@ -17,7 +17,6 @@ Total: 120+ features for random forest and deep learning models.
 import gzip
 import warnings
 from collections import Counter
-from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -40,7 +39,7 @@ class AdvancedFeatureEngineer:
         self,
         genome_sequence: str,
         conditions: rc.ReactionConditions,
-        primer_positions: Optional[Dict] = None,
+        primer_positions: dict | None = None,
     ):
         """
         Initialize feature engineer.
@@ -68,7 +67,7 @@ class AdvancedFeatureEngineer:
         self.genome_3mer_freqs = self._kmer_frequencies(self.genome, 3)
         self.genome_4mer_freqs = self._kmer_frequencies(self.genome, 4)
 
-    def engineer_features(self, primers: List[str]) -> pd.DataFrame:
+    def engineer_features(self, primers: list[str]) -> pd.DataFrame:
         """
         Engineer all features for list of primers.
 
@@ -120,7 +119,7 @@ class AdvancedFeatureEngineer:
     # Category 1: Base Composition Features
     # ========================================
 
-    def _base_composition_features(self, primer: str) -> Dict:
+    def _base_composition_features(self, primer: str) -> dict:
         """Base composition and nucleotide statistics."""
         n = len(primer)
 
@@ -208,7 +207,7 @@ class AdvancedFeatureEngineer:
     # Category 2: Thermodynamic Features
     # ========================================
 
-    def _thermodynamic_features(self, primer: str) -> Dict:
+    def _thermodynamic_features(self, primer: str) -> dict:
         """Thermodynamic stability and binding features."""
         # Basic thermodynamics
         tm_base = thermo.calculate_tm_with_salt(
@@ -259,7 +258,7 @@ class AdvancedFeatureEngineer:
     # Category 3: Secondary Structure Features
     # ========================================
 
-    def _secondary_structure_features(self, primer: str) -> Dict:
+    def _secondary_structure_features(self, primer: str) -> dict:
         """Secondary structure propensity features."""
         # Hairpins
         hairpins = ss.check_hairpins(primer, self.conditions)
@@ -313,7 +312,7 @@ class AdvancedFeatureEngineer:
     # Category 4: Positional and Spatial Features
     # ========================================
 
-    def _positional_features(self, primer: str) -> Dict:
+    def _positional_features(self, primer: str) -> dict:
         """Positional and spatial binding features."""
         positions = self.primer_positions.get(primer, {"forward": [], "reverse": []})
 
@@ -391,7 +390,7 @@ class AdvancedFeatureEngineer:
             result = skew(values)
         return float(np.nan_to_num(result))
 
-    def _empty_positional_features(self) -> Dict:
+    def _empty_positional_features(self) -> dict:
         """Return zero-filled positional features."""
         return {
             "total_binding_sites": 0,
@@ -430,7 +429,7 @@ class AdvancedFeatureEngineer:
         small_gaps = np.sum(gaps < mean_gap / 2)
         return small_gaps / len(gaps)
 
-    def _mean_nearest_opposite_distance(self, fwd_pos: List[int], rev_pos: List[int]) -> float:
+    def _mean_nearest_opposite_distance(self, fwd_pos: list[int], rev_pos: list[int]) -> float:
         """Calculate mean distance from forward to nearest reverse site."""
         if not fwd_pos or not rev_pos:
             return self.genome_length
@@ -442,7 +441,7 @@ class AdvancedFeatureEngineer:
 
         return np.mean(distances)
 
-    def _positional_entropy(self, positions: List[int]) -> float:
+    def _positional_entropy(self, positions: list[int]) -> float:
         """Calculate entropy of positional distribution."""
         if len(positions) < 2:
             return 0.0
@@ -454,7 +453,7 @@ class AdvancedFeatureEngineer:
 
         return entropy(hist + 1e-10)  # Add small constant to avoid log(0)
 
-    def _estimate_coverage(self, positions: List[int], max_gap: int = 3000) -> float:
+    def _estimate_coverage(self, positions: list[int], max_gap: int = 3000) -> float:
         """Fraction of the genome within `max_gap` of one of this primer's sites.
 
         A numpy mask rather than a Python set of every covered base index. The
@@ -479,7 +478,7 @@ class AdvancedFeatureEngineer:
     # Category 5: Sequence Complexity Features
     # ========================================
 
-    def _complexity_features(self, primer: str) -> Dict:
+    def _complexity_features(self, primer: str) -> dict:
         """Information-theoretic complexity features."""
         # Shannon entropy
         shannon_ent = self._shannon_entropy(primer)
@@ -583,7 +582,7 @@ class AdvancedFeatureEngineer:
         # Normalize to [0, 1] (0 = very different, 1 = very similar)
         return np.exp(-dist)
 
-    def _calculate_dinucleotide_frequencies(self, seq: str) -> Dict[str, float]:
+    def _calculate_dinucleotide_frequencies(self, seq: str) -> dict[str, float]:
         """Calculate normalized dinucleotide frequencies."""
         if len(seq) < 2:
             return {}
@@ -598,7 +597,7 @@ class AdvancedFeatureEngineer:
     # Category 6: K-mer Motif Features
     # ========================================
 
-    def _motif_features(self, primer: str) -> Dict:
+    def _motif_features(self, primer: str) -> dict:
         """K-mer motif frequency features."""
         # 2-mer frequencies
         twoer_freqs = self._kmer_frequencies(primer, 2)
@@ -626,7 +625,7 @@ class AdvancedFeatureEngineer:
 
         return features
 
-    def _kmer_frequencies(self, seq: str, k: int) -> Dict[str, float]:
+    def _kmer_frequencies(self, seq: str, k: int) -> dict[str, float]:
         """Calculate k-mer frequencies."""
         if len(seq) < k:
             return {}
@@ -641,7 +640,7 @@ class AdvancedFeatureEngineer:
     # Category 7: Binding Landscape Features
     # ========================================
 
-    def _binding_landscape_features(self, primer: str) -> Dict:
+    def _binding_landscape_features(self, primer: str) -> dict:
         """Binding affinity landscape features."""
         # Calculate ΔG against all possible k-mers in genome
         k = len(primer)
@@ -686,7 +685,7 @@ class AdvancedFeatureEngineer:
 
         return features
 
-    def _empty_binding_landscape_features(self) -> Dict:
+    def _empty_binding_landscape_features(self) -> dict:
         """Return zero-filled binding landscape features."""
         features = {}
         bins = [-20, -15, -12, -10, -8, -6, -4, -2, 0, 2]
@@ -708,7 +707,7 @@ class AdvancedFeatureEngineer:
     # Category 8: Context and Interaction Features
     # ========================================
 
-    def _context_features(self, primer: str) -> Dict:
+    def _context_features(self, primer: str) -> dict:
         """Contextual and interaction features."""
         # Flanking GC content (if positions known)
         positions = self.primer_positions.get(primer, {"forward": [], "reverse": []})
@@ -809,10 +808,10 @@ class AdvancedFeatureEngineer:
 
 
 def engineer_features_for_primers(
-    primers: List[str],
+    primers: list[str],
     genome_sequence: str,
     conditions: rc.ReactionConditions,
-    primer_positions: Optional[Dict] = None,
+    primer_positions: dict | None = None,
 ) -> pd.DataFrame:
     """
     High-level function to engineer features for primer list.

@@ -39,8 +39,8 @@ than treating either as a corrected value.
 """
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -88,12 +88,12 @@ class ReachFit:
 
     best_reach: int
     correlation: float
-    by_reach: Dict[int, float]
+    by_reach: dict[int, float]
     informative: bool
     contig: str
     note: str
-    cv_correlation: Optional[float] = None
-    plausible_reaches: Tuple[int, ...] = ()
+    cv_correlation: float | None = None
+    plausible_reaches: tuple[int, ...] = ()
     at_grid_edge: bool = False
     n_bins: int = 0
 
@@ -102,7 +102,7 @@ class ReachFit:
         """What `correlation` has always been, named for what it is."""
         return self.correlation
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "best_reach": self.best_reach,
             "correlation": self.correlation,
@@ -163,7 +163,7 @@ def predicted_depth(
     return profile
 
 
-def _bin_starts(length: int, bin_size: int, record_starts: Optional[Sequence[int]]) -> np.ndarray:
+def _bin_starts(length: int, bin_size: int, record_starts: Sequence[int] | None) -> np.ndarray:
     """Offsets at which bins begin, restarting at every record boundary.
 
     Binning the concatenated array as one run let a bin span the end of one
@@ -176,7 +176,7 @@ def _bin_starts(length: int, bin_size: int, record_starts: Optional[Sequence[int
     bundled plasmid is most of it.
     """
     bounds = sorted({0} | {int(s) for s in (record_starts or ()) if 0 < int(s) < length})
-    starts: List[int] = []
+    starts: list[int] = []
     for start, end in zip(bounds, bounds[1:] + [length], strict=True):
         starts.extend(range(start, end, bin_size))
     return np.asarray(starts, dtype=np.int64)
@@ -211,8 +211,8 @@ def _spearman(predicted: np.ndarray, observed: np.ndarray) -> float:
 
 
 def _blocked_cv_correlation(
-    binned_by_reach: Dict[int, np.ndarray], observed: np.ndarray
-) -> Optional[float]:
+    binned_by_reach: dict[int, np.ndarray], observed: np.ndarray
+) -> float | None:
     """How much of the in-sample fit survives being held out.
 
     The reported correlation was the maximum over eleven candidates, computed
@@ -232,7 +232,7 @@ def _blocked_cv_correlation(
         return None
 
     edges = np.linspace(0, n_bins, folds + 1).astype(int)
-    held_out: List[float] = []
+    held_out: list[float] = []
     # strict=False DELIBERATELY: `edges` holds folds+1 boundaries and
     # `edges[1:]` holds folds, so this pairs each block with its successor and
     # the lists differ by one BY CONSTRUCTION. strict=True would raise on every
@@ -258,9 +258,9 @@ def fit_reach(
     depth: np.ndarray,
     positions: Sequence[int],
     contig: str = "",
-    reaches: Optional[Sequence[int]] = None,
+    reaches: Sequence[int] | None = None,
     bin_size: int = 1000,
-    record_starts: Optional[Sequence[int]] = None,
+    record_starts: Sequence[int] | None = None,
     circular: bool = False,
 ) -> ReachFit:
     """Choose the reach whose predicted depth profile best matches the observed one.
@@ -294,7 +294,7 @@ def fit_reach(
     widths = np.diff(np.append(starts, length)).astype(np.float64)
     n_bins = int(starts.size)
 
-    caveats: List[str] = []
+    caveats: list[str] = []
     if circular and n_bins and len(set(int(s) for s in (record_starts or ()))) > 1:
         caveats.append(
             "Circular wrapping was refused: this prefix holds more than one "
@@ -324,7 +324,7 @@ def fit_reach(
 
     observed = _binned(depth, starts, widths)
 
-    binned_by_reach: Dict[int, np.ndarray] = {
+    binned_by_reach: dict[int, np.ndarray] = {
         reach: _binned(predicted_depth(positions, length, reach, circular=circular), starts, widths)
         for reach in reaches
     }
