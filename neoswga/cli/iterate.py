@@ -99,9 +99,8 @@ def _alias_keys(fg_prefixes):
     exactly one record. So the useful thing to print is the record names, and
     the prefix only where that is what a prefix means here.
     """
-    from neoswga.core.reference_layout import read_layout
-
     from neoswga.core import parameter
+    from neoswga.core.reference_layout import read_layout
 
     keys = []
     # The truncation is deliberate: these are parallel in a well-formed config,
