@@ -102,3 +102,26 @@ def test_the_candidate_database_does_not_survive_the_call(counted, tmp_path):
     kmer_tables.counts_for(counted, 8, ["ACGTTGCA", "TTTTTTTT"])
     after = set(p.name for p in tmp_path.iterdir())
     assert after == before
+
+
+def test_a_kmc_database_without_kmc_says_what_to_install(tmp_path, monkeypatch):
+    """A directory counted on another machine. Failing inside Popen with a
+    message about None is not an answer anyone can act on."""
+    from neoswga.core.kmer_backend import KmcBackend
+
+    for suffix in (".kmc_pre", ".kmc_suf"):
+        (tmp_path / f"g_8mer{suffix}").write_bytes(b"x")
+    monkeypatch.setattr(KmcBackend, "binary", lambda self, name: None)
+    with pytest.raises(RuntimeError) as excinfo:
+        list(kmer_tables.iter_table(str(tmp_path / "g"), 8))
+    assert "conda install -c bioconda kmc" in str(excinfo.value)
+
+
+def test_a_kmc_database_without_kmc_falls_back_to_a_text_table(tmp_path, monkeypatch):
+    from neoswga.core.kmer_backend import KmcBackend
+
+    for suffix in (".kmc_pre", ".kmc_suf"):
+        (tmp_path / f"g_8mer{suffix}").write_bytes(b"x")
+    (tmp_path / "g_8mer_all.txt").write_text("ACGTTGCA 5\n")
+    monkeypatch.setattr(KmcBackend, "binary", lambda self, name: None)
+    assert dict(kmer_tables.iter_table(str(tmp_path / "g"), 8)) == {"ACGTTGCA": 5}

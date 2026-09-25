@@ -211,10 +211,11 @@ def run_doctor(args):
                 for prefix in raw.get("fg_prefixes", []) or []:
                     mn = raw.get("min_k", 6)
                     mx = raw.get("max_k", 12)
+                    from neoswga.core import kmer_tables
+
                     for k in range(mn, mx + 1):
-                        candidate = f"{prefix}_{k}mer_all.txt"
-                        if not _os.path.isfile(candidate):
-                            missing_files.append(candidate)
+                        if not kmer_tables.table_exists(prefix, k):
+                            missing_files.append(f"{k}-mer table for {prefix}")
                             if len(missing_files) > 10:
                                 break
                     if len(missing_files) > 10:

@@ -147,16 +147,38 @@ def link_table(src_prefix: str, dst_prefix: str, k: int) -> bool:
 
 
 def _counts_from_stream(prefix: str, k: int) -> Iterator[tuple[str, int]]:
-    """Every (k-mer, count) pair, from whichever form is present."""
+    """Every (k-mer, count) pair, from whichever form is present and readable.
+
+    A database is only readable with its counter's dump tool. A directory
+    counted with KMC on one machine and read on another without KMC would
+    otherwise fail inside `Popen` with a message about `None`. It falls back
+    to a text dump when one is present, and otherwise says what to install.
+    """
     database = _kmc_database(prefix, k)
     if database:
-        yield from _stream_pairs([str(KmcBackend().binary("kmc_dump")), database, "/dev/stdout"])
-        return
+        dump = KmcBackend().binary("kmc_dump")
+        if dump:
+            yield from _stream_pairs([dump, database, "/dev/stdout"])
+            return
+        if not os.path.exists(text_table_path(prefix, k)):
+            raise RuntimeError(
+                f"The {k}-mer table for {prefix!r} is a KMC database, and KMC is "
+                f"not installed here, so it cannot be read. Install it with: "
+                f"conda install -c bioconda kmc"
+            )
 
     jf = _jellyfish_database(prefix, k)
     if jf:
-        yield from _stream_pairs([str(JellyfishBackend().binary("jellyfish")), "dump", "-c", jf])
-        return
+        tool = JellyfishBackend().binary("jellyfish")
+        if tool:
+            yield from _stream_pairs([tool, "dump", "-c", jf])
+            return
+        if not os.path.exists(text_table_path(prefix, k)):
+            raise RuntimeError(
+                f"The {k}-mer table for {prefix!r} is a jellyfish database, and "
+                f"jellyfish is not installed here, so it cannot be read. Install "
+                f"it with: conda install -c bioconda kmer-jellyfish"
+            )
 
     with open(text_table_path(prefix, k)) as fh:
         for line in fh:

@@ -34,7 +34,6 @@ host-sized background belongs on the Bloom plus sampled-index route instead,
 which answers the same question without the dict.
 """
 
-import os
 from collections.abc import Iterable
 from functools import lru_cache
 
@@ -103,20 +102,14 @@ def load_kmer_counts(prefix: str, k: int) -> dict[str, int]:
     from an absent file is indistinguishable from zero background binding, and
     the second is a strong claim to make from a missing input.
     """
-    path = f"{prefix}_{k}mer_all.txt"
-    if not os.path.exists(path):
-        raise FileNotFoundError(
-            f"No k-mer count file at {path}. Run 'neoswga count-kmers' for this "
-            f"genome, or pass a prefix that has one."
-        )
+    # Through the table layer, so a KMC database answers as well as a text
+    # dump. This still materialises the whole table as a dict, which is its own
+    # ceiling on a host genome; asking only for each candidate's neighbours
+    # (`kmer_tables.counts_for`) is the change that removes it, and it is a
+    # restructuring of the callers rather than of this function.
+    from neoswga.core import kmer_tables
 
-    counts: dict[str, int] = {}
-    with open(path) as handle:
-        for line in handle:
-            parts = line.split()
-            if len(parts) >= 2:
-                counts[parts[0]] = int(parts[1])
-    return counts
+    return dict(kmer_tables.iter_table(prefix, k))
 
 
 def _count_of(kmers: Iterable[str], tables: list[dict[str, int]]) -> int:

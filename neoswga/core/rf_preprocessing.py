@@ -60,7 +60,6 @@ import pandas as pd
 
 from neoswga.core import parameter
 from neoswga.core import utility as _utility
-from neoswga.core.kmer_counter import get_kmer_to_count_dict
 from neoswga.core.melting_temp import temp as _melting_temp
 
 # =============================================================================
@@ -272,13 +271,7 @@ def _init_kmer_worker(
     for fname_prefix in fnames:
         cache_key = (fname_prefix, k)
         if cache_key not in _kmer_cache:
-            fpath = f"{fname_prefix}_{k}mer_all.txt"
-            if os.path.exists(fpath):
-                _kmer_cache[cache_key] = get_kmer_to_count_dict(fpath)
-                logger.debug(f"Worker loaded {fpath}: {len(_kmer_cache[cache_key]):,} k-mers")
-            else:
-                _kmer_cache[cache_key] = {}
-                logger.warning(f"K-mer file not found: {fpath}")
+            _kmer_cache[cache_key] = _load_table_or_empty(fname_prefix, k)
 
 
 # Fix for sklearn >= 1.0 compatibility with models pickled on older versions.
@@ -590,12 +583,26 @@ def get_cached_kmer_dict(fname_prefix: str, k: int) -> dict[str, int]:
     """
     cache_key = (fname_prefix, k)
     if cache_key not in _kmer_cache:
-        fpath = f"{fname_prefix}_{k}mer_all.txt"
-        if os.path.exists(fpath):
-            _kmer_cache[cache_key] = get_kmer_to_count_dict(fpath)
-        else:
-            _kmer_cache[cache_key] = {}
+        _kmer_cache[cache_key] = _load_table_or_empty(fname_prefix, k)
     return _kmer_cache[cache_key]
+
+
+def _load_table_or_empty(fname_prefix: str, k: int) -> dict[str, int]:
+    """A whole table as a dict, through the table layer, or {} if absent.
+
+    The empty dict for a missing table is a silent zero -- every count reads 0
+    -- and is kept deliberately: this serves the retired random-forest path
+    behind `--amp-model`, and changing what that path does is not this
+    change's business. It now warns in both callers rather than one.
+    """
+    from neoswga.core import kmer_tables
+
+    if not kmer_tables.table_exists(fname_prefix, k):
+        logger.warning(f"No {k}-mer table for {fname_prefix}; its counts read as zero")
+        return {}
+    table = dict(kmer_tables.iter_table(fname_prefix, k))
+    logger.debug(f"Loaded {k}-mer table for {fname_prefix}: {len(table):,} k-mers")
+    return table
 
 
 def preload_kmer_files(fnames: list[str], k_values: list[int]) -> None:
