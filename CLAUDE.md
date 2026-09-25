@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NeoSWGA is a command-line tool for selecting primer sets for selective whole-genome amplification (SWGA). See [README.md](README.md) for user-facing documentation and quick start.
 
-**External dependency**: Jellyfish k-mer counter must be in PATH.
+**External dependency**: a k-mer counter in PATH. KMC3 is the default; jellyfish is selectable with `"kmer_counter": "jellyfish"` in params.json. See Known Issue 24 for why the default changed and what it does NOT buy.
 
 ## Architecture
 
@@ -2401,3 +2401,65 @@ package, because nothing in the search uses it.
     Measured after all of it: 6,424 passed and 27 skipped on BOTH 3.13 and
     3.11, with identical collection of 6,444 tests on each, so nothing is
     quietly missing from either.
+
+24. **KMC3 is the default counter, and tables are read as databases** --
+    2026-09-25. `kmer_counter` in params.json takes "kmc" or "jellyfish".
+    `core/kmer_backend.py` owns the invocation; `core/kmer_tables.py` is the
+    one place anything asks about a table, and callers name a prefix and a k
+    rather than a file.
+
+    **What this buys is the QUERY path, not the counter.** `filter` asks one
+    question of a table: the counts of a known candidate list. It answered by
+    streaming every line into Python and testing set membership, which is a
+    scan answering a set question. Measured on *Drosophila* at k=18 with 2,000
+    candidates:
+
+    | approach | time | intermediate |
+    |---|---|---|
+    | dump to text, then Python scan | 17.9 s | 2.3 GB |
+    | stream the dump, then Python scan | 15.6 s | none |
+    | `kmc_tools simple ... intersect` | **2.5 s** | 2,000 lines |
+
+    **`-ocleft` is load-bearing and silent when wrong.** It keeps the counters
+    of the FIRST database. Without it the output carries the candidate
+    database's counters, which are all 1, so every background count reads 1 --
+    a wrong answer that looks entirely plausible. Verified by removing it,
+    which fails the test asserting the database and text paths agree.
+
+    **What it does NOT buy is memory, and the measurement says so.** KMC peaks
+    at 1,201 MB where jellyfish peaks at 631 MB on the same job, and `kmc -m1`
+    refuses: the floor is 2 GB, where jellyfish counted wMel in 18 MB. At the
+    shipped k=12 default the counting difference is 11.5 s against 1.4 s on a
+    139 MB genome, which is noise beside a design run. KMC's advantage is
+    speed at long k on large references, 3.6x at k=18
+    ([measurement](docs/validation/kmer_counter_comparison_2026-09-25.md)).
+
+    **KMC's defaults compute a different quantity and both differences are
+    failures this file already carries.** `-ci2` excludes k-mers occurring
+    once, which at k=18 is 96.9% of wMel's and 95.6% of *Drosophila*'s: a
+    background counted that way reports a host as almost k-mer-free and every
+    candidate as specific, which is Known Issues 5, 6, 13 and 15's shape.
+    `-cs255` saturates the counter at 255, which is Known Issue 7 exactly. The
+    backend passes `-ci1` and `-cs1000000`, and a test asserts neither default
+    returns.
+
+    **`py_kmc_api` is not usable here.** It exists, and the bioconda package
+    even ships `py_kmc_api.so`, but that build is compiled for Python 3.10: it
+    fails on 3.11 with an explicit version mismatch and on 3.13+ because
+    `__PyThreadState_UncheckedGet` was removed from CPython. Upstream's README
+    also warns the wrapper is "much slower than native C++ API". So Python
+    does not read `.kmc_suf` directly; everything goes through the C++ tools.
+
+    **A table is any of three forms**, and `table_exists` is the one predicate
+    that says so. Half a KMC database is not a table: it writes two files, and
+    one alone is an interrupted run. Two things a find-and-replace would have
+    broken: the genome library symlinked the text table by name, so a database
+    source linked nothing and the pipeline recounted a genome it already had;
+    and auto-discovery globbed `*_6mer_all.txt`, so a directory of databases
+    looked empty.
+
+    **Every existing data directory still works.** They hold text tables and
+    no database, and that path is preserved. It is also the only path CI
+    exercises, since CI installs no KMC -- which is why the text-fallback
+    tests are written to run without a counter rather than skipping with the
+    rest.
