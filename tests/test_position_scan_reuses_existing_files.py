@@ -23,7 +23,6 @@ was immune to a stale file, and reuse made the file authoritative.
 import math
 import random
 
-import h5py
 import pytest
 
 # Every test here pins the Aho-Corasick scan path: `_record_scans` spies on
@@ -40,6 +39,7 @@ pytest.importorskip("ahocorasick", reason="these tests pin the Aho-Corasick scan
 
 from neoswga.core import parameter, primer_attributes
 from neoswga.core import string_search as ss
+from neoswga.core.position_index import open_index
 
 A12 = "GCATTACGGTAC"
 B12 = "TTGACCATGACG"
@@ -329,7 +329,7 @@ def test_the_fallback_path_leaves_no_record_for_the_reuse_path_to_trust(tmp_path
     ss.get_positions([A12], [prefix], [fasta], circular=False, overwrite=True)
     ss.clear_genome_cache()
 
-    with h5py.File(ss.position_file_path(prefix, len(A12)), "r") as handle:
+    with open_index(ss.position_file_path(prefix, len(A12))) as handle:
         assert "provenance_fingerprint" not in handle.attrs
 
     calls = []
@@ -384,7 +384,7 @@ def test_a_primer_that_binds_nowhere_is_still_recorded_as_scanned(genome):
     assert result[(genome["prefix"], A12)] == [1_000]
 
     # And the file records it, which is what the reuse gate reads.
-    with h5py.File(ss.position_file_path(genome["prefix"], 12), "r") as handle:
+    with open_index(ss.position_file_path(genome["prefix"], 12)) as handle:
         assert absent in handle, "a scanned primer with no sites must still be a key"
         assert len(handle[absent][:]) == 0
 
@@ -466,7 +466,7 @@ def test_a_run_that_does_not_finish_leaves_the_previous_position_file_intact(tmp
         ss.get_all_positions_multi_k = real
     ss.clear_genome_cache()
 
-    with h5py.File(ss.position_file_path(prefix, len(A12)), "r") as handle:
+    with open_index(ss.position_file_path(prefix, len(A12))) as handle:
         assert A12 in handle, (
             "the interrupted run left an empty position file; the previous one "
             "is stale but complete, and an empty background file is read "
@@ -494,3 +494,30 @@ def test_a_position_file_that_cannot_be_opened_is_replaced_rather_than_fatal(tmp
     ss.clear_genome_cache()
 
     assert result[(prefix, A12)] == expected
+
+
+def test_a_file_an_older_release_wrote_into_is_rebuilt_by_the_scan(tmp_path):
+    """A mixed-layout index is refused by the reader, and the scan rebuilds it.
+
+    An older release finds no entry in sorted blocks, rescans, and writes
+    per-k-mer datasets beside them. The reuse gate must not trust the blocks
+    alone, and the write that follows must replace the file rather than merge.
+    """
+    import h5py
+
+    ss.clear_genome_cache()
+    genome, expected = _assembly(copies=2)
+    prefix = str(tmp_path / "fg")
+    fasta = _write_fasta(tmp_path / "g.fasta", genome)
+    ss.get_positions([A12], [prefix], [fasta], circular=False)
+    path = ss.position_file_path(prefix, len(A12))
+    with h5py.File(path, "r+") as handle:
+        handle.create_dataset(B12, data=[1, 2, 3])
+    ss.clear_genome_cache()
+
+    result = ss.get_positions([A12], [prefix], [fasta], circular=False)
+
+    assert result[(prefix, A12)] == expected
+    with open_index(path) as index:
+        assert B12 not in index
+        assert index.get(A12).tolist() == expected

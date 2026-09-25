@@ -5,7 +5,7 @@ import os
 
 import h5py
 
-from neoswga.core import kmer_tables, parameter
+from neoswga.core import kmer_tables, parameter, position_index
 from neoswga.core.thermodynamics import reverse_complement
 
 logger = logging.getLogger(__name__)
@@ -332,10 +332,9 @@ def get_all_positions_per_k(kmer_list, seq_fname, circular, fname_prefix=None):
 
 
 # Dataset name holding the record-start offsets for a prefix. '#' cannot occur
-# in a primer, so this can never collide with a k-mer key, and `PositionCache`
-# only ever reads datasets it looks up by primer name, so an older reader
-# ignores it.
-RECORD_STARTS_KEY = "#record_starts"
+# in a primer, so this can never collide with a k-mer key. Defined in
+# `position_index`, which owns every name inside the file.
+RECORD_STARTS_KEY = position_index.RECORD_STARTS_KEY
 
 # Bumped when the on-disk geometry an index carries changes shape.
 #
@@ -376,50 +375,39 @@ def write_to_h5py(kmer_dict, fname_prefix, replace=False, record_starts=None, ge
     """
     if not kmer_dict:
         return  # Nothing to write
-    import numpy as _np
 
     k = len(next(iter(kmer_dict.keys())))
-    h5_path = fname_prefix + "_" + str(k) + "mer_positions.h5"
-    with h5py.File(h5_path, "w" if replace else "r+") as f:
-        if record_starts is not None:
-            # Format version and reference identity, so a later design can tell
-            # a modern index from a concatenation-era one and can tell which
-            # reference it was built from. Stored as root attributes: the cache
-            # reads datasets by primer name and never enumerates them, so these
-            # cannot be mistaken for a k-mer.
-            f.attrs["index_format_version"] = INDEX_FORMAT_VERSION
-            if genome_fname is not None:
-                from neoswga.core import kmer_counter
+    h5_path = position_file_path(fname_prefix, k)
+    attrs = {}
+    if record_starts is not None:
+        # Format version and reference identity, so a later design can tell
+        # a modern index from a concatenation-era one and can tell which
+        # reference it was built from. Stored as root attributes, which no
+        # reader can mistake for a k-mer.
+        attrs["index_format_version"] = INDEX_FORMAT_VERSION
+        if genome_fname is not None:
+            from neoswga.core import kmer_counter
 
-                try:
-                    f.attrs["reference_digest"] = kmer_counter.genome_fingerprint(genome_fname)
-                except OSError as exc:  # pragma: no cover - unreadable reference
-                    logger.debug("Could not fingerprint %s: %s", genome_fname, exc)
-            # Where each FASTA record begins in the concatenated coordinate
-            # system every stored position uses. Without it a coverage window
-            # anchored near the end of one record extends into the next.
-            data = _np.asarray(list(record_starts), dtype=_np.int64)
-            if RECORD_STARTS_KEY in f:
-                del f[RECORD_STARTS_KEY]
-            f.create_dataset(RECORD_STARTS_KEY, data=data)
-        for kmer, positions in kmer_dict.items():
-            if kmer not in f:
-                f.create_dataset(kmer, data=positions)
-            elif len(f[kmer]) == len(positions) and f[kmer].dtype == _np.int64:
-                # In-place overwrite avoids HDF5 file fragmentation.
-                #
-                # In place means into the EXISTING dataset, with its existing
-                # dtype. An index written before genome coordinates were int64
-                # (Known Issue 7) therefore could not hold what a rescan found:
-                # h5py 3.x raises OverflowError, and a build that casts instead
-                # would write truncated coordinates that read as measurements.
-                # Requiring int64 here sends such a dataset down the recreate
-                # path below; every file written by current code still takes
-                # this branch.
-                f[kmer][...] = positions
-            else:
-                del f[kmer]
-                f.create_dataset(kmer, data=positions)
+            try:
+                attrs["reference_digest"] = kmer_counter.genome_fingerprint(genome_fname)
+            except OSError as exc:  # pragma: no cover - unreadable reference
+                logger.debug("Could not fingerprint %s: %s", genome_fname, exc)
+    # Written in the sorted-blocks layout (`core/position_index.py`). The
+    # per-dataset layout spent most of its bytes on HDF5 object headers and
+    # was rewritten entry by entry in place; this writes the whole index to
+    # a new file and moves it into place, so an index converted from the old
+    # layout, or merged with this run's entries, is never left half written.
+    #
+    # Record starts say where each FASTA record begins in the concatenated
+    # coordinate system every stored position uses. Without them a coverage
+    # window anchored near the end of one record extends into the next.
+    position_index.write_entries(
+        h5_path,
+        kmer_dict,
+        replace=replace,
+        record_starts=None if record_starts is None else list(record_starts),
+        attrs=attrs,
+    )
 
 
 def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
@@ -445,9 +433,8 @@ def check_which_primers_absent_in_h5py(primer_list, fname_prefix):
             pass
         return primer_list
 
-    # Get existing keys from HDF5 file using context manager
-    with h5py.File(h5_path, "r") as f:
-        keys = set(f.keys())
+    with position_index.open_index(h5_path) as index:
+        keys = set(index.keys())
 
     # Which of the not-yet-indexed primers occur in this genome at all. This
     # used to read EVERY k-mer in the genome into a Python set to answer a
@@ -532,7 +519,7 @@ def _provenance_matches(stored, expected):
 
 
 def _stored_provenance(handle):
-    """Read the provenance record off an open position file, or None."""
+    """Read the provenance record off an open position index, or None."""
     attrs = handle.attrs
     if "provenance_fingerprint" not in attrs:
         return None
@@ -599,10 +586,10 @@ def _reusable_positions(primers, fname_prefix, genome_fname, k, circular):
     and the datasets cannot come from different states of the file and the
     record cannot be verified against one state and the data taken from another.
 
-    A primer counts as reusable when the file holds a dataset for it. On the
+    A primer counts as reusable when the index holds an entry for it. On the
     Aho-Corasick path that test is sound: `write_to_h5py` is handed
     `all_positions.get(p, [])` for every pattern in the automaton, so a primer
-    that occurs nowhere still gets a key with an empty dataset, and key presence
+    that occurs nowhere still gets an empty entry, and entry presence
     means "this primer was scanned" rather than "this primer was found". That
     invariant is what the reuse rests on; a scan path that stopped writing empty
     entries would turn it into a silent wrong answer.
@@ -628,11 +615,11 @@ def _reusable_positions(primers, fname_prefix, genome_fname, k, circular):
         return {}, list(primers), True
 
     try:
-        with h5py.File(h5_path, "r") as handle:
-            stored = _stored_provenance(handle)
+        with position_index.open_index(h5_path) as index:
+            stored = _stored_provenance(index)
             if stored is not None and _provenance_matches(stored, expected):
                 positions = {
-                    primer: handle[primer][:].tolist() for primer in primers if primer in handle
+                    primer: found.tolist() for primer, found in index.get_many(primers).items()
                 }
                 to_scan = [primer for primer in primers if primer not in positions]
                 return positions, to_scan, False

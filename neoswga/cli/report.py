@@ -207,8 +207,7 @@ def _load_primer_positions(results_dir, primers):
     """
     import glob as glob_module
 
-    import h5py
-
+    from neoswga.core.position_index import open_index
     from neoswga.core.thermodynamics import reverse_complement
 
     positions = {}
@@ -239,14 +238,11 @@ def _load_primer_positions(results_dir, primers):
             if f"_{k}mer_" not in h5_path:
                 continue
             try:
-                with h5py.File(h5_path, "r") as db:
-                    if primer in db:
-                        for pos in db[primer][:]:
-                            sites.append((int(pos), "forward"))
-                    rc = rc_map[primer]
-                    if rc in db:
-                        for pos in db[rc][:]:
-                            sites.append((int(pos), "reverse"))
+                with open_index(h5_path) as db:
+                    for pos in db.get(primer, ()):
+                        sites.append((int(pos), "forward"))
+                    for pos in db.get(rc_map[primer], ()):
+                        sites.append((int(pos), "reverse"))
             except Exception as e:
                 logger.warning(f"Error reading {h5_path}: {e}")
         positions[primer] = sites

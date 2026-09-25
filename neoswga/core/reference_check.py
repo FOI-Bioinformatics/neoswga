@@ -26,7 +26,6 @@ import os
 from collections.abc import Mapping, Sequence
 
 from .exceptions import ReferenceDataError
-from .string_search import RECORD_STARTS_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -85,11 +84,11 @@ def verify_reference_digests(manifest: Mapping[str, str], lengths: Sequence[int]
 
 def _recorded_digest(path: str):
     """The reference digest an index carries, or None when it carries none."""
-    import h5py
+    from neoswga.core.position_index import open_index
 
     try:
-        with h5py.File(path, "r") as handle:
-            value = handle.attrs.get("reference_digest")
+        with open_index(path) as index:
+            value = index.attrs.get("reference_digest")
     except OSError as exc:
         raise ReferenceDataError(
             f"position index {path}",
@@ -122,7 +121,7 @@ def verify_index_geometry(manifest: Mapping[str, str], lengths: Sequence[int]) -
     if not manifest:
         return
 
-    import h5py
+    from neoswga.core.position_index import open_index
 
     problems = []
     for prefix, genome in sorted(manifest.items()):
@@ -135,8 +134,8 @@ def verify_index_geometry(manifest: Mapping[str, str], lengths: Sequence[int]) -
             continue
         for path in existing:
             try:
-                with h5py.File(path, "r") as handle:
-                    has_geometry = RECORD_STARTS_KEY in handle
+                with open_index(path) as index:
+                    has_geometry = index.record_starts() is not None
             except OSError as exc:
                 raise ReferenceDataError(
                     f"position index {path}",

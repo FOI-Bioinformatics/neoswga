@@ -1,22 +1,15 @@
-"""Rewriting a dataset in place must not truncate genome coordinates.
+"""Rewriting an index must not truncate genome coordinates, or grow the file.
 
 Known Issue 7 records genome coordinates being stored as int32, where every
 offset past 2,147,483,647 saturated at the ceiling. Human and mouse are past it.
-The stored dtype is int64 now, but one write path can still inherit a narrow one
-from a file written earlier.
 
-`write_to_h5py` overwrites a dataset in place when the new site count equals the
-old, to avoid HDF5 fragmentation. In place means into the existing dataset, with
-the existing dtype. So an older int32 index plus a rescan that happens to find
-the same number of sites cannot store what it scanned. Observed on h5py 3.x it
-raises OverflowError, so the run dies rather than lying; on a build that casts
-instead, the coordinates would be truncated into the file and the truncation
-would be indistinguishable from a measurement. Neither is acceptable, and the
-same fix covers both: a dataset that cannot hold the values is recreated.
-
-The round-trip test for far coordinates does not reach this branch: it creates
-the dataset, and the other write test changes the site count, so both take the
-create path instead.
+The per-dataset writer overwrote a dataset IN PLACE when the new site count
+equalled the old, to avoid HDF5 fragmentation, and in place meant into the
+existing dtype: an int32 index rescanned to the same site count could not
+hold what it scanned. The sorted-blocks writer (`core/position_index.py`)
+rewrites the whole index into a new file, so it inherits no dtype from the old
+one and leaves no freed space behind. These tests pin both properties that the
+in-place branch existed to protect, now that the branch is gone.
 """
 
 import numpy as np
@@ -24,6 +17,7 @@ import pytest
 
 h5py = pytest.importorskip("h5py")
 
+from neoswga.core.position_index import open_index
 from neoswga.core.string_search import write_to_h5py
 
 PRIMER = "ACGTACGTACGT"
@@ -41,33 +35,33 @@ def test_an_equal_length_rewrite_keeps_far_coordinates(tmp_path):
 
     write_to_h5py({PRIMER: FAR}, prefix)
 
-    with h5py.File(path, "r") as db:
-        assert (
-            list(db[PRIMER]) == FAR
-        ), "coordinates were truncated by the dataset's inherited dtype"
+    with open_index(path) as db:
+        assert db[PRIMER].tolist() == FAR, "coordinates were truncated by an inherited dtype"
 
 
-def test_the_branch_under_test_is_the_in_place_one(tmp_path):
-    """Guard the guard: a different site count would take the create path."""
+def test_an_int32_entry_that_is_not_rewritten_is_widened_on_conversion(tmp_path):
     prefix = str(tmp_path / "idx")
     path = f"{prefix}_12mer_positions.h5"
     with h5py.File(path, "w") as db:
         db.create_dataset(PRIMER, data=np.array([1, 2, 3], dtype=np.int32))
 
-    with h5py.File(path, "r") as db:
-        assert len(db[PRIMER]) == len(FAR)
+    write_to_h5py({"CCCCCCCCCCCC": FAR}, prefix)
+
+    with open_index(path) as db:
+        assert db[PRIMER].tolist() == [1, 2, 3]
+        assert db[PRIMER].dtype == np.int64
+        assert db["CCCCCCCCCCCC"].tolist() == FAR
 
 
-def test_an_equal_length_rewrite_still_avoids_fragmentation(tmp_path):
-    """The optimisation is kept where the dtype already fits."""
+def test_repeated_rewrites_do_not_grow_the_file(tmp_path):
+    """What the in-place branch was for: HDF5 does not reclaim deleted space."""
+    import os
+
     prefix = str(tmp_path / "idx")
     path = f"{prefix}_12mer_positions.h5"
-    with h5py.File(path, "w") as db:
-        db.create_dataset(PRIMER, data=np.array([1, 2, 3], dtype=np.int64))
-        original = db[PRIMER].id.get_offset()
-
-    write_to_h5py({PRIMER: [10, 20, 30]}, prefix)
-
-    with h5py.File(path, "r") as db:
-        assert list(db[PRIMER]) == [10, 20, 30]
-        assert db[PRIMER].id.get_offset() == original, "dataset was needlessly recreated"
+    entries = {f"{i:012b}".replace("0", "A").replace("1", "C"): [i, i + 1] for i in range(200)}
+    write_to_h5py(entries, prefix)
+    first = os.path.getsize(path)
+    for round_ in range(10):
+        write_to_h5py({key: [round_, round_ + 1] for key in entries}, prefix)
+    assert os.path.getsize(path) == first

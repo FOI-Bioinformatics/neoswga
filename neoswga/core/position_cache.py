@@ -13,9 +13,9 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-import h5py
 import numpy as np
 
+from neoswga.core import position_index
 from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.thermodynamics import reverse_complement
 
@@ -345,10 +345,8 @@ class PositionCache:
                         logger.warning(f"HDF5 file not found: {hdf5_path}")
                     continue
 
-                from .string_search import RECORD_STARTS_KEY
-
                 try:
-                    handle = h5py.File(hdf5_path, "r")
+                    index = position_index.open_index(hdf5_path)
                 except OSError as exc:
                     # A file that exists and cannot be opened is a corrupt or
                     # truncated index. Letting the OSError out names the HDF5
@@ -360,29 +358,32 @@ class PositionCache:
                         f"cannot be opened ({exc})",
                         "Regenerate it with 'neoswga count-kmers' followed by " "'neoswga filter'.",
                     ) from exc
-                with handle as db:
+                with index:
                     # Where each FASTA record starts, so a coverage window can
                     # be confined to the record holding its site. Absent from
                     # indexes written before 2026-09-14, which then behave as
                     # they always did.
-                    if RECORD_STARTS_KEY in db:
-                        self.record_starts[fname_prefix] = [
-                            int(v) for v in np.array(db[RECORD_STARTS_KEY])
-                        ]
+                    starts = index.record_starts()
+                    if starts is not None:
+                        self.record_starts[fname_prefix] = starts
+                    # One batched read per file. The forward strand is the
+                    # primer's own entry and the reverse strand is its reverse
+                    # complement's; a key with no entry is left out, which is
+                    # what `_resolve_missing` relies on to tell never-scanned
+                    # from binds-nowhere.
+                    found = index.get_many(
+                        [*primer_list, *(rc_map[primer] for primer in primer_list)]
+                    )
                     for primer in primer_list:
-                        # Forward strand
-                        if primer in db:
-                            positions = np.array(db[primer], dtype=POSITION_DTYPE)
-                            key = (fname_prefix, primer, "forward")
-                            self.cache[key] = positions
+                        if primer in found:
+                            self.cache[(fname_prefix, primer, "forward")] = found[primer]
                             total_loaded += 1
-
-                        # Reverse strand (pre-computed reverse complement)
                         rc = rc_map[primer]
-                        if rc in db:
-                            positions = np.array(db[rc], dtype=POSITION_DTYPE)
-                            key = (fname_prefix, primer, "reverse")
-                            self.cache[key] = positions
+                        if rc in found:
+                            # A palindrome's two strands are one entry; give
+                            # each cache slot its own array all the same.
+                            reverse = found[rc] if rc != primer else found[rc].copy()
+                            self.cache[(fname_prefix, primer, "reverse")] = reverse
                             total_loaded += 1
 
         logger.info(f"Loaded {total_loaded} position arrays into memory")
@@ -610,8 +611,8 @@ class PositionCache:
 
         for path in paths:
             try:
-                with h5py.File(path, "r") as handle:
-                    attrs = dict(handle.attrs)
+                with position_index.open_index(path) as index:
+                    attrs = index.attrs
             except OSError:
                 return "unreadable or corrupt"
 
@@ -1037,7 +1038,7 @@ class StreamingPositionCache:
         """
         self.fname_prefixes = fname_prefixes
         self.record_starts: dict[str, list[int]] = {}
-        self.file_handles: dict[str, h5py.File] = {}
+        self.file_handles: dict[str, position_index.PositionIndex] = {}
         self.preloaded: dict[tuple[str, str, str], np.ndarray] = {}
         # Same policy as PositionCache, and for the same reason. Known Issue 13
         # made an unindexed prefix raise there; this class is the sibling
@@ -1064,8 +1065,7 @@ class StreamingPositionCache:
             for path in sorted(_glob.glob(pattern)):
                 if not _re.fullmatch(rf"{_re.escape(prefix)}_\d+mer_positions\.h5", path):
                     continue
-                # Open with driver for memory mapping
-                self.file_handles[path] = h5py.File(path, "r", rdcc_nbytes=1024**2)
+                self.file_handles[path] = position_index.open_index(path)
 
         # Preload small subset if provided
         if primers and len(primers) < 100:
@@ -1085,8 +1085,9 @@ class StreamingPositionCache:
 
                 db = self.file_handles[path]
 
-                if primer in db:
-                    self.preloaded[(fname_prefix, primer, "forward")] = np.array(db[primer])
+                positions = db.get(primer)
+                if positions is not None:
+                    self.preloaded[(fname_prefix, primer, "forward")] = positions
 
     def get_positions(self, fname_prefix: str, primer: str, strand: str = "both") -> np.ndarray:
         """
@@ -1116,7 +1117,8 @@ class StreamingPositionCache:
         db = self.file_handles[path]
 
         def _read(key):
-            return np.array(db[key], dtype=POSITION_DTYPE) if key in db else empty
+            found = db.get(key)
+            return empty if found is None else found
 
         if strand == "both":
             # np.unique, matching PositionCache.get_positions: a palindromic
@@ -1174,9 +1176,8 @@ def benchmark_cache_vs_hdf5(
         primer = np.random.choice(primers)
         k = len(primer)
         path = f"{fname_prefixes[0]}_{k}mer_positions.h5"
-        with h5py.File(path, "r") as db:
-            if primer in db:
-                positions = np.array(db[primer])
+        with position_index.open_index(path) as db:
+            positions = db.get(primer)
     hdf5_time = time.time() - start
     print(f"HDF5 access time: {hdf5_time:.4f}s ({iterations/hdf5_time:.0f} queries/sec)")
 

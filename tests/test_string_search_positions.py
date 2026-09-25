@@ -23,6 +23,7 @@ import pytest
 
 from neoswga.core import parameter
 from neoswga.core import string_search as ss
+from neoswga.core.position_index import open_index
 
 P10 = "TTGACCATGA"
 P14 = "TTGACCATGACGTA"
@@ -156,15 +157,13 @@ def test_a_primer_absent_from_the_genome_returns_empty_not_missing(genome, tmp_p
 
 def test_positions_are_written_to_the_layout_position_cache_reads(genome):
     """The HDF5 file name and key layout are a contract between the two."""
-    import h5py
-
     parameter.min_k, parameter.max_k = 10, 14
     ss.get_positions([P10, P14], [genome["prefix"]], [genome["fasta"]], circular=False)
 
     for primer in (P10, P14):
         path = f"{genome['prefix']}_{len(primer)}mer_positions.h5"
         assert os.path.exists(path), f"no position file for {len(primer)}-mers"
-        with h5py.File(path, "r") as f:
+        with open_index(path) as f:
             assert primer in f
 
 

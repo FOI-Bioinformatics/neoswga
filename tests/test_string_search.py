@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import neoswga.core.string_search as string_search_mod
+from neoswga.core.position_index import open_index
 from neoswga.core.string_search import (
     AHOCORASICK_AVAILABLE,
     clear_genome_cache,
@@ -349,7 +350,7 @@ class TestWriteToH5py:
         with h5py.File(h5_path, "w"):
             pass
         write_to_h5py(kmer_dict, prefix)
-        with h5py.File(h5_path, "r") as f:
+        with open_index(h5_path) as f:
             assert list(f["ATCG"][:]) == [0, 4, 8]
             assert list(f["CGAT"][:]) == [2, 6]
 
@@ -364,5 +365,5 @@ class TestWriteToH5py:
             f.create_dataset("ATCG", data=[0, 4])
         # Overwrite with new data (different length)
         write_to_h5py({"ATCG": [0, 4, 8]}, prefix)
-        with h5py.File(h5_path, "r") as f:
+        with open_index(h5_path) as f:
             assert list(f["ATCG"][:]) == [0, 4, 8]

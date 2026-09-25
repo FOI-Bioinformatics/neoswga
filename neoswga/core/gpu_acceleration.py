@@ -318,7 +318,7 @@ class PositionDatabase:
             prefixes: List of HDF5 file prefixes
             cache_size: Size of LRU cache
         """
-        import h5py
+        from neoswga.core.position_index import open_index
 
         self.prefixes = prefixes
         self.cache_size = cache_size
@@ -331,13 +331,8 @@ class PositionDatabase:
             for k in range(6, 16):  # Support 6-15mers
                 fname = f"{prefix}_{k}mer_positions.h5"
                 try:
-                    # Open with memory mapping and large chunk cache
-                    handle = h5py.File(
-                        fname,
-                        "r",
-                        rdcc_nbytes=100 * 1024 * 1024,  # 100MB chunk cache
-                        rdcc_nslots=10000,  # Cache slots
-                    )
+                    # Either on-disk layout; see core/position_index.py.
+                    handle = open_index(fname)
                     self.handles[(prefix, k)] = handle
                 except FileNotFoundError:
                     pass  # Skip missing files
