@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
 
-from neoswga.core import dimer, parameter, primer_attributes
+from neoswga.core import dimer, kmer_tables, parameter, primer_attributes
 from neoswga.core.exceptions import InvalidDesignRequest, ReferenceDataError
 from neoswga.core.parameter import (
     EXTREME_AT_GENOME_GC,
@@ -807,21 +807,21 @@ def get_rates_for_one_species(primer_list: list[str], fname_prefixes: list[str])
 
 
 def _get_rate_for_one_file(task: tuple[list[str], str, int]) -> dict[str, int]:
-    primer_list, fname_prefix, k = task
-    primer_set = set(primer_list)
-    primer_to_count = {}
-    found = 0
-    target = len(primer_set)
-    with open(fname_prefix + "_" + str(k) + "mer_all.txt") as f_in:
-        for line in f_in:
-            parts = line.split()
-            if parts[0] in primer_set:
-                primer_to_count[parts[0]] = int(parts[1])
-                found += 1
-                if found == target:
-                    break
+    """Counts of one primer list against one reference at one k.
 
-    return {primer: primer_to_count.get(primer, 0) for primer in primer_list}
+    This used to stream the text table and test set membership line by line.
+    That is a scan answering a set question: on Drosophila at k=18 it reads
+    116,702,442 lines for 8.01 s, after 9.89 s spent writing the 2.3 GB table.
+    `kmer_tables.counts_for` asks KMC to intersect the table with the
+    candidates instead, which costs 2.5 s and returns only what was asked
+    ([measurement](../../docs/validation/kmer_counter_comparison_2026-09-25.md)).
+
+    The contract is unchanged: every requested primer appears in the result,
+    with 0 for one the reference does not hold, because an absent key would
+    read as unknown and an unknown background count passes the gate.
+    """
+    primer_list, fname_prefix, k = task
+    return kmer_tables.counts_for(fname_prefix, k, primer_list)
 
 
 def check_gini_stage_kept_something(before_df, after_df):
