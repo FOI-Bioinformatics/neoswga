@@ -2426,13 +2426,34 @@ package, because nothing in the search uses it.
     a wrong answer that looks entirely plausible. Verified by removing it,
     which fails the test asserting the database and text paths agree.
 
-    **What it does NOT buy is memory, and the measurement says so.** KMC peaks
-    at 1,201 MB where jellyfish peaks at 631 MB on the same job, and `kmc -m1`
-    refuses: the floor is 2 GB, where jellyfish counted wMel in 18 MB. At the
-    shipped k=12 default the counting difference is 11.5 s against 1.4 s on a
-    139 MB genome, which is noise beside a design run. KMC's advantage is
-    speed at long k on large references, 3.6x at k=18
+    **What it does NOT buy is memory, and on hg38 the gap is 18.6x.** Measured
+    on the 3.1 GB human genome at k=12 through the shipping backend: KMC
+    counts in 12.2 s against jellyfish's 89.7 s, and peaks at 1,950 MB against
+    105 MB. So KMC is 7.2x faster and uses 18.6x the memory, which is the
+    trade in one line. `kmc -m1` also refuses outright; the floor is 2 GB,
+    where jellyfish counted wMel in 18 MB.
+
+    The lookup on that hg38 database beats scanning its 8.4 million line text
+    table by 4.8x at 2,000 candidates and 2.1x at 500,000, the advantage
+    narrowing because building the candidate database is itself work. Every
+    absolute figure there is under two seconds, so at k=12 the win is real and
+    the stakes are modest; k=18 on *Drosophila* is where the 7x lives
     ([measurement](docs/validation/kmer_counter_comparison_2026-09-25.md)).
+
+    **Above k=12 a host genome cannot have a text table at all.** The distinct
+    count stops being bounded by the k-mer space and becomes bounded by the
+    genome, so hg38 at k=16 or k=18 would dump about 78 to 84 GB of text. That
+    is the sharpest argument for reading databases rather than dumps, and it
+    is also why those k could not be benchmarked here.
+
+    **Two figures this file recorded did not reproduce.** It says hg38 at k=12
+    costs "about 7 minutes and a 138 MB table (8,368,418 canonical 12-mers)".
+    The table size matches at 138.4 MB, which is what confirms it is the same
+    quantity; the time was 91 s here, which one machine against another
+    explains; and the distinct count was 8,368,476, which does not have an
+    explanation. Both counters agree with each other on that number, so it is
+    not a tool artifact. A different hg38 assembly is the likeliest cause and
+    is unestablished.
 
     **KMC's defaults compute a different quantity and both differences are
     failures this file already carries.** `-ci2` excludes k-mers occurring

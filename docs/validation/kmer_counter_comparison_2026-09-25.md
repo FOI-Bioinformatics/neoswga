@@ -44,6 +44,86 @@ this project rather than an idealised run.
 KMC3 is 3.6x faster at *Drosophila* k=18 and 8.2x at k=12. On wMel it is 2 to
 3x SLOWER, because its fixed startup dominates a 1.2 MB genome.
 
+## On hg38, where it matters most
+
+Measured 25 September 2026 on `tests/validation/genomes/human_full.fna`
+(3.1 GB, 705 records) at k=12, 4 threads, through the shipping backend.
+
+| hg38, k=12 | jellyfish | KMC3 |
+|---|---|---|
+| count | 89.74 s | **12.23 s** |
+| dump to text | 1.52 s | 0.40 s |
+| total | 91.26 s | **12.63 s** |
+| peak RSS | **105.1 MB** | 1,950.2 MB |
+| database | 58.6 MB | 34.0 MB |
+| text dump | 138.4 MB | 138.4 MB |
+| distinct k-mers | 8,368,476 | 8,368,476 |
+
+KMC is **7.2x faster and uses 18.6x more memory**. That is the trade in one
+line, at the scale this project cares about.
+
+### The lookup, which is what the change is for
+
+The same database, asked for the counts of a candidate list, against scanning
+the 8,368,476-line text table. A fifth of the candidates are absent, as a real
+background lookup's would be, so the scan cannot exit early.
+
+| candidates | `kmc_tools intersect` | Python scan | speedup |
+|---|---|---|---|
+| 2,000 | 0.26 s | 1.23 s | 4.8x |
+| 50,000 | 0.31 s | 1.30 s | 4.3x |
+| 500,000 | 0.92 s | 1.93 s | 2.1x |
+
+The advantage narrows as the candidate list grows, because building the
+candidate database is itself work. At k=12 every absolute figure is under two
+seconds, so the win is real and the stakes are modest; the 7x measured on
+*Drosophila* at k=18 is the regime where it matters.
+
+### Longer k is not measurable on this machine, and that is a finding
+
+Above k=12 the distinct count stops being bounded by the k-mer space (4**12 is
+16.8 million) and becomes bounded by the genome:
+
+| k | distinct k-mers | text dump |
+|---|---|---|
+| 12 | 16.8 million | 0.4 GB |
+| 16 | ~3.1 billion | 77.5 GB |
+| 18 | ~3.1 billion | 83.7 GB |
+
+Against 36 GB of free disk. KMC's working directory at that scale is a similar
+order again. So a host-genome design at Bst lengths cannot materialise a text
+table at all, which is the sharpest argument available for reading databases
+rather than dumps.
+
+### Two recorded figures did not reproduce
+
+CLAUDE.md records hg38 at k=12 as "about 7 minutes and a 138 MB table
+(8,368,418 canonical 12-mers)".
+
+| quantity | recorded | measured |
+|---|---|---|
+| table size | 138 MB | 138.4 MB |
+| jellyfish time | about 7 minutes | 91 s |
+| distinct k-mers | 8,368,418 | 8,368,476 |
+
+The table size matches, which is what confirms this is the same quantity. The
+time is 4.7x faster here, which one machine against another explains. The
+58-k-mer difference does not have an explanation: both counters agree with
+each other on 8,368,476, so it is not a tool artifact, and the likeliest cause
+is a different hg38 assembly. Recorded as unexplained rather than reconciled.
+
+### The first run of this measured something that never ships
+
+The script built its own KMC command line with `-m4` while the backend passes
+`-m2`, and KMC uses roughly the memory it is allowed: 3.36 GB at `-m4` against
+1.97 GB at `-m2`, on the same job. The memory column was therefore a figure no
+production run would produce.
+
+It now drives `KmcBackend` directly rather than a command written beside it,
+so it cannot drift from the code it measures again. The same rule as the
+agreement check: a benchmark that is not measuring the shipped thing is worse
+than no benchmark, because it is believed.
+
 ## The comparison is only valid because both counted the same thing
 
 The script refuses to report timings unless the two tools agree on the
