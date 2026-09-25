@@ -25,7 +25,33 @@ import pytest
 from neoswga.core import kmer_backend
 
 
-def test_kmc_is_the_default():
+def test_kmc_is_preferred_when_unset_and_installed(monkeypatch):
+    from neoswga.core import parameter
+
+    monkeypatch.setattr(parameter, "kmer_counter", None, raising=False)
+    monkeypatch.setattr(kmer_backend.KmcBackend, "available", lambda self: True)
+    assert kmer_backend.select_backend().name == "kmc"
+
+
+def test_unset_falls_back_to_jellyfish_when_kmc_is_absent(monkeypatch):
+    """Both produce identical tables, so the fallback changes time and memory,
+    never a result -- which is what makes it acceptable to do unasked."""
+    from neoswga.core import parameter
+
+    monkeypatch.setattr(parameter, "kmer_counter", None, raising=False)
+    monkeypatch.setattr(kmer_backend.KmcBackend, "available", lambda self: False)
+    monkeypatch.setattr(kmer_backend.JellyfishBackend, "available", lambda self: True)
+    assert kmer_backend.select_backend().name == "jellyfish"
+
+
+def test_an_explicit_setting_is_not_second_guessed(monkeypatch):
+    """Named in params.json, KMC is returned even when absent, so the caller's
+    availability check refuses with the install command rather than quietly
+    running jellyfish."""
+    from neoswga.core import parameter
+
+    monkeypatch.setattr(parameter, "kmer_counter", "kmc", raising=False)
+    monkeypatch.setattr(kmer_backend.KmcBackend, "available", lambda self: False)
     assert kmer_backend.select_backend().name == "kmc"
 
 

@@ -677,7 +677,7 @@ min_sample_count = 5
 # Bloom filter parameters for large background genome filtering.
 # `filter.py` reads sampled_index_path off this module, and its own
 # "index not found" message tells the user to set it in params.json.
-kmer_counter = "kmc"
+kmer_counter = None
 use_bloom_filter = False
 bloom_filter_path = None
 sampled_index_path = None
@@ -1267,7 +1267,7 @@ def get_params(args):
         data["sample_rate"] = sample_rate
 
     _apply_params_only_keys(data)
-    kmer_counter = data.get("kmer_counter", "kmc")
+    kmer_counter = data.get("kmer_counter")
     use_bloom_filter = data.get("use_bloom_filter", False)
     bloom_filter_path = data.get("bloom_filter_path", None)
 

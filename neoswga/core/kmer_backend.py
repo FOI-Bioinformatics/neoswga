@@ -171,11 +171,40 @@ DEFAULT_BACKEND = "kmc"
 
 
 def select_backend(name: str | None = None) -> KmerBackend:
-    """The counter to use, by name, falling back to the configured default."""
+    """The counter to use.
+
+    An explicit name -- an argument, or `kmer_counter` in params.json -- is
+    STRICT: asking for KMC on a machine without it fails at
+    `require_available` with the install command, rather than quietly running
+    something else.
+
+    Unset means "prefer KMC". KMC3 is used when it is installed and jellyfish
+    otherwise. That fallback is deliberate and bounded: the two produce
+    identical tables (verified on wMel, Drosophila and hg38, every distinct
+    k-mer and count agreeing), so it changes how long counting takes and how
+    much memory it uses, never a result. A hard KMC requirement would have
+    broken every existing jellyfish-only installation and CI, which installs
+    jellyfish alone, for no difference in any delivered panel.
+    """
     if name is None:
         from neoswga.core import parameter
 
-        name = getattr(parameter, "kmer_counter", None) or DEFAULT_BACKEND
+        name = getattr(parameter, "kmer_counter", None)
+    if name is None:
+        preferred = _BACKENDS[DEFAULT_BACKEND]()
+        if preferred.available():
+            return preferred
+        fallback = JellyfishBackend()
+        if fallback.available():
+            logger.info(
+                "KMC is not installed; counting with jellyfish. The tables are "
+                "identical; KMC is faster on large references. Install it with: "
+                "conda install -c bioconda kmc"
+            )
+            return fallback
+        # Neither is installed. Return the preferred one so the refusal names
+        # it, rather than a counter nobody asked for.
+        return preferred
     key = str(name).strip().lower()
     if key not in _BACKENDS:
         raise ValueError(

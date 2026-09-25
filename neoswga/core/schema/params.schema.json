@@ -448,8 +448,7 @@
     "kmer_counter": {
       "type": "string",
       "enum": ["kmc", "jellyfish"],
-      "default": "kmc",
-      "description": "Which k-mer counter to run. KMC3 is the default; jellyfish remains selectable. Both are driven with flags that make them count the same quantity, which their own defaults do not."
+      "description": "Which k-mer counter to run. Unset: KMC3 when installed, otherwise jellyfish, which produce identical tables. Set explicitly, the named counter is required and its absence is an error."
     },
     "min_sample_count": {
       "type": "integer",
