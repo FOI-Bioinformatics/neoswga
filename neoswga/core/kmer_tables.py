@@ -271,12 +271,25 @@ def _counts_by_intersection(
     return found
 
 
-def counts_for(prefix: str, k: int, kmers: Sequence[str]) -> dict[str, int]:
+def counts_for(
+    prefix: str, k: int, kmers: Sequence[str], genome: str | None = None
+) -> dict[str, int]:
     """Counts of exactly these k-mers, zero for any the table does not hold.
 
     Every requested k-mer appears in the result. A caller cannot tell "absent"
     from "not asked" by inspecting the keys, which is the distinction the
     background frequency gate depends on.
+
+    `genome` is the reference this prefix was counted from, and it is consulted
+    ONLY when there is no table. The counts of a known list can be measured by
+    scanning the reference once, which is what `query_scan` does, so a
+    reference too large to count is answered rather than refused. Naming the
+    genome at the call site is deliberate: pairing a prefix with a genome
+    looked up from a module global is how a design once scored itself against
+    another run's reference.
+
+    A table, where one exists, still wins. It is the cheaper answer by far on
+    every later batch, and the two agree.
     """
     if not kmers:
         return {}
@@ -287,6 +300,17 @@ def counts_for(prefix: str, k: int, kmers: Sequence[str]) -> dict[str, int]:
     if not usable:
         _require_counted(prefix, k)
         return dict.fromkeys(kmers, 0)
+
+    if genome is not None and not table_exists(prefix, k):
+        from neoswga.core import query_scan
+
+        logger.info(
+            "No %d-mer table for %s. %s",
+            k,
+            prefix,
+            query_scan.describe_cost(genome, k, len(usable)),
+        )
+        return query_scan.count_kmers(genome, k, kmers)
 
     _require_counted(prefix, k)
 

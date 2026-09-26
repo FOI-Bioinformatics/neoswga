@@ -57,8 +57,18 @@ class TestPlasmidE2E:
         """Run count-kmers, filter, score, optimize and verify outputs."""
         # Step 1: count-kmers
         self._run("count-kmers")
-        kmer_files = [f for f in os.listdir(self.workdir) if f.endswith("_all.txt")]
-        assert len(kmer_files) > 0, "No k-mer output files produced"
+        # Asked through `table_exists`, because a table is whatever the counter
+        # that ran wrote: jellyfish leaves `*_all.txt` and KMC leaves a binary
+        # database and no text at all. Globbing for the text form asserted
+        # which counter was installed, and failed on a runner that had KMC.
+        from neoswga.core import kmer_tables
+
+        counted = [
+            prefix
+            for k in range(4, 31)
+            for prefix in kmer_tables.discover_prefixes(self.workdir, k)
+        ]
+        assert counted, f"No k-mer table produced in {os.listdir(self.workdir)}"
 
         # Step 2: filter
         self._run("filter")

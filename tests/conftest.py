@@ -31,13 +31,26 @@ def plasmid_example_ready() -> bool:
     directory is COMMITTED -- git tracks the README, both FASTAs, params.json
     and step2_df.csv.original -- so it is always there and the question always
     answered yes. What those tests actually need is what
-    `_prime_plasmid_example` builds, and that runs only when jellyfish is on
+    `_prime_plasmid_example` builds, and that runs only when a counter is on
     PATH. Guarding on the directory meant they failed with a missing-k-mer-file
     error rather than skipping with a reason.
+
+    A table is asked for through `table_exists`, in whichever form the counter
+    that ran wrote it. This globbed `*mer_all.txt`, which is jellyfish's
+    artifact: once KMC was installed alongside it, priming wrote binary
+    databases, no text appeared, and 48 tests skipped as unprepared while the
+    directory was in fact ready. A guard that reads "not prepared" when
+    everything is prepared costs exactly the coverage it was written to
+    protect.
     """
-    return bool(glob.glob(os.path.join(_EXAMPLE_DIR, "*mer_all.txt"))) and os.path.exists(
-        os.path.join(_EXAMPLE_DIR, "step3_df.csv")
-    )
+    from neoswga.core import kmer_tables
+
+    # `discover_prefixes` rather than stripping a suffix here: a KMC database
+    # is `{prefix}_{k}mer.kmc_pre`, and cutting at the last underscore cuts
+    # inside `kmc_pre`, which silently answered "not prepared" for a directory
+    # that was.
+    counted = any(kmer_tables.discover_prefixes(_EXAMPLE_DIR, k) for k in range(4, 31))
+    return counted and os.path.exists(os.path.join(_EXAMPLE_DIR, "step3_df.csv"))
 
 
 def _run_priming():

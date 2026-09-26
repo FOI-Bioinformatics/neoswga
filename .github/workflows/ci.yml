@@ -163,6 +163,53 @@ jobs:
             brew install jellyfish
           fi
 
+      - name: Install KMC3 (the preferred k-mer counter)
+        # Both counters are installed because which one is present changes
+        # which code path runs: `select_backend` prefers KMC and falls back to
+        # jellyfish, so a runner with jellyfish alone never exercised the
+        # preferred path. Four tests encoded that gap -- they asserted
+        # jellyfish's `*mer_all.txt` artifact, or that an absent jellyfish is
+        # fatal, neither of which holds once KMC is installed.
+        #
+        # From the upstream release rather than a package manager: KMC is not
+        # in apt or the default brew taps, and the conda route would put a
+        # second Python on PATH. The tarball carries the three binaries and
+        # nothing else. Pinned to a version, so a new upstream release cannot
+        # change what CI measures without a commit here; 3.2.4 is the version
+        # every figure in docs/validation/kmer_counter_comparison_2026-09-25.md
+        # was measured with.
+        run: |
+          set -euo pipefail
+          VERSION=3.2.4
+          case "${{ runner.os }}" in
+            Linux) PLATFORM=linux ;;
+            macOS) PLATFORM=mac ;;
+            *) echo "no KMC build for ${{ runner.os }}" >&2; exit 1 ;;
+          esac
+          # Read the architecture rather than assuming it: upstream ships x64
+          # and arm64 for both platforms, and GitHub has changed the default
+          # macOS runner's architecture before.
+          case "$(uname -m)" in
+            x86_64) ARCH=x64 ;;
+            arm64|aarch64) ARCH=arm64 ;;
+            *) echo "no KMC build for $(uname -m)" >&2; exit 1 ;;
+          esac
+          ASSET="KMC${VERSION}.${PLATFORM}.${ARCH}.tar.gz"
+          curl -fsSL -o kmc.tar.gz \
+            "https://github.com/refresh-bio/KMC/releases/download/v${VERSION}/${ASSET}"
+          mkdir -p "$HOME/kmc"
+          tar xzf kmc.tar.gz -C "$HOME/kmc"
+          echo "$HOME/kmc/bin" >> "$GITHUB_PATH"
+
+      - name: Show which counters are installed
+        # Printed because a silent fallback is the thing this pair of steps
+        # exists to prevent: if the KMC install ever breaks, the suite still
+        # passes on jellyfish and nothing in the log would say so.
+        run: |
+          kmc | head -1
+          kmc_tools | head -1
+          jellyfish --version
+
       - name: Install package with dev dependencies
         run: pip install -e ".[dev]"
 

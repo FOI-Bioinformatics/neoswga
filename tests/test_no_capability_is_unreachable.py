@@ -55,6 +55,7 @@ WATCHED = (
     "core/partial_panel.py",
     "core/lazy_dimer.py",
     "core/panel_evaluation.py",
+    "core/query_scan.py",
 )
 
 # Public names no command can reach today, and why. Shrink this list.

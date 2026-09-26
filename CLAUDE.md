@@ -2495,6 +2495,67 @@ package, because nothing in the search uses it.
     the stakes are modest; k=18 on *Drosophila* is where the 7x lives
     ([measurement](docs/validation/kmer_counter_comparison_2026-09-25.md)).
 
+    **A host with no table is now scanned rather than refused.**
+    `core/query_scan.py` counts a KNOWN k-mer set directly in a reference,
+    which is the question `filter` asks of a background, and it reaches that
+    module only where a prefix has no table. A counted prefix takes the table
+    path unchanged. Counting is otherwise FASTER and stays the default: on
+    Drosophila at k=12, jellyfish counts in 0.9 s and answers a 2,000-candidate
+    batch in 0.2 s, against 4.0 s to scan. What the scan avoids is the table --
+    33.7 MB at k=12 and 818 MB at k=18 on that same 144 Mb reference -- so it
+    earns its place only where the table is the problem.
+
+    Agreement is checked three ways, because a fallback that disagrees with
+    the path it replaces is worse than none: against a brute-force oracle
+    written in the test file, against both counters, and against the
+    production `counts_for` on real references. One difference is known and
+    pinned. A canonical table stores one spelling of each reverse-complement
+    pair, so `counts_for` answers 0 for the other spelling while the scan
+    answers the pair's count -- 13 of 1,272 queries on Drosophila at k=18, all
+    non-canonical, with all 608 canonical queries agreeing exactly. Every
+    caller here reads its k-mers from a canonical table, so the pipeline never
+    asks the other spelling; the 0 is still not a measurement, and a test
+    holds both behaviours so a deliberate fix would show as a change
+    ([measurement](docs/validation/query_scan_2026-09-25.md)).
+
+    Memory is bounded by the largest RECORD and the chunk, NOT by the query
+    set: 332 MB on Drosophila, 46.6 MB on wMel. The module's first draft
+    claimed otherwise and the first measurement refuted it. The chunk size was
+    measured rather than chosen -- the prototype's 8,000,000 positions was the
+    worst value on both axes, 6.6 s and 1,194 MB against 3.9 s and 351 MB at
+    the shipped 125,000.
+
+    **CI installs both counters as of 2026-09-25.** It had only jellyfish, so
+    the preferred path never ran there, and four tests had quietly encoded
+    that: two asserted jellyfish's `*mer_all.txt`, which KMC does not write,
+    and two asserted an absent jellyfish is fatal, which stopped being true
+    when KMC became preferred. All four passed only because no runner had KMC.
+    Five more skipped on jellyfish alone, so a KMC-only machine skipped most
+    of the counting tests. **Installing it found three more fixtures asking
+    for a table by jellyfish's filename**, which is the same defect one layer
+    down: with KMC installed they found nothing, so `plasmid_example_ready()`
+    reported the example unprepared and 48 tests skipped as unavailable while
+    the directory was ready. Ask `kmer_tables.table_exists` or
+    `discover_prefixes`, never a glob -- and note a KMC database is
+    `{prefix}_{k}mer.kmc_pre`, so cutting at the last underscore cuts inside
+    `kmc_pre`, which is how the first attempt at that guard silently answered
+    "not prepared" for a prepared directory.
+
+    Unskipping those 48 exposed a real defect they had been hiding.
+    `_filter_blacklist_penalty` called `counts_for` once per PRIMER, and a
+    lookup against a KMC database builds a database of the query set,
+    intersects and dumps it -- three processes per call. A four-prefix design
+    spent minutes in that gate; batched by k it is seconds. A count lookup has
+    a fixed cost per CALL, so ask once per group, which is why
+    `get_rates_for_one_species` groups by k before asking. It now lives in
+    `core/blacklist_penalty.py`, extracted because `pipeline.py` had reached
+    its size budget; `pipeline` re-exports the name so its five importers are
+    unaffected.
+
+    KMC comes from the upstream release tarball pinned
+    to 3.2.4, not from a package manager: it is in neither apt nor the default
+    brew taps, and the conda route would put a second Python on PATH.
+
     **Above k=12 a host genome cannot have a text table at all.** The distinct
     count stops being bounded by the k-mer space and becomes bounded by the
     genome, so hg38 at k=16 or k=18 would dump about 78 to 84 GB of text. That

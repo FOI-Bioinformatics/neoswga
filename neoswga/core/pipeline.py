@@ -92,53 +92,9 @@ def _filter_exclusion_genome(
     return mask
 
 
-def _filter_blacklist_penalty(
-    primers: list[str], bl_prefixes: list[str], bl_seq_lengths: list[int], max_bl_freq: float = 0.0
-) -> tuple[list[bool], list[float]]:
-    """Filter primers by blacklist genome frequency.
-
-    Reads k-mer count files for blacklist genomes and calculates per-primer
-    frequency. Primers exceeding max_bl_freq are rejected.
-
-    Args:
-        primers: List of primer sequences.
-        bl_prefixes: Blacklist genome k-mer file prefixes.
-        bl_seq_lengths: Blacklist genome lengths for frequency calculation.
-        max_bl_freq: Maximum allowed blacklist frequency (0 = any hit rejects).
-
-    Returns:
-        Tuple of (boolean mask, list of bl_freq values).
-    """
-    if len(bl_seq_lengths) != len(bl_prefixes):
-        raise ValueError(
-            f"bl_seq_lengths has {len(bl_seq_lengths)} entries but bl_prefixes "
-            f"has {len(bl_prefixes)}; each blacklist genome must have a known length. "
-            f"Check params.json and the blacklist preparation step."
-        )
-
-    mask = []
-    bl_freqs = []
-    for primer in primers:
-        k = len(primer)
-        total_count = 0
-        total_length = 0
-        for i, prefix in enumerate(bl_prefixes):
-            seq_len = bl_seq_lengths[i]
-            total_length += seq_len
-            if kmer_tables.table_exists(prefix, k):
-                try:
-                    total_count += kmer_tables.counts_for(prefix, k, [primer])[primer]
-                except Exception as e:
-                    logger.debug(f"Ignored error reading kmer file for blacklist penalty: {e}")
-        freq = total_count / total_length if total_length > 0 else 0.0
-        bl_freqs.append(freq)
-        mask.append(freq <= max_bl_freq)
-    return mask, bl_freqs
-
-
-# =============================================================================
-# Step Prerequisite Validation
-# =============================================================================
+from neoswga.core.blacklist_penalty import (  # noqa: F401,E402
+    _filter_blacklist_penalty,
+)
 
 # Both names are defined in `core/exceptions.py` and re-exported here. They
 # moved on 2026-09-06 so that `cli_unified.py` could catch the exception
@@ -150,6 +106,10 @@ from neoswga.core.exceptions import (  # noqa: F401,E402
     StepPrerequisiteError,
     StepValidationResult,
 )
+
+# =============================================================================
+# Step Prerequisite Validation
+# =============================================================================
 
 
 def validate_step1_prerequisites(
@@ -1258,6 +1218,8 @@ def step2(all_primers=None, validate_prerequisites=True):
         "bg_prefixes": bg_prefixes,
         "fg_total_length": sum(fg_seq_lengths),
         "bg_total_length": sum(bg_seq_lengths),
+        "fg_genomes": list(fg_genomes or []),
+        "bg_genomes": list(bg_genomes or []),
     }
     if all_primers is None:
         # Use stored min_k and max_k values from parameter module (with safe defaults)

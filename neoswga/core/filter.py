@@ -690,6 +690,8 @@ def get_all_rates(
     bg_prefixes: list[str],
     fg_total_length: int,
     bg_total_length: int,
+    fg_genomes: list[str] | None = None,
+    bg_genomes: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     Computes the foreground and background binding site frequencies normalized by their respective genome lengths.
@@ -706,12 +708,12 @@ def get_all_rates(
     """
 
     use_bloom, bloom_path = _resolve_background_source()
-    primer_to_fg_count = get_rates_for_one_species(primer_list, fg_prefixes)
+    primer_to_fg_count = get_rates_for_one_species(primer_list, fg_prefixes, genomes=fg_genomes)
 
     if use_bloom:
         primer_to_bg_count = get_bg_rates_via_bloom(primer_list, bloom_path)
     else:
-        primer_to_bg_count = get_rates_for_one_species(primer_list, bg_prefixes)
+        primer_to_bg_count = get_rates_for_one_species(primer_list, bg_prefixes, genomes=bg_genomes)
 
     results = []
 
@@ -765,17 +767,40 @@ def get_all_rates(
     return df
 
 
-def get_rates_for_one_species(primer_list: list[str], fname_prefixes: list[str]) -> dict[str, int]:
+def get_rates_for_one_species(
+    primer_list: list[str],
+    fname_prefixes: list[str],
+    genomes: list[str] | None = None,
+) -> dict[str, int]:
     """
     Computes the binding site frequencies for all ppsth prefixes in fname_prefixes.
 
     Args:
         primer_list: The list of primers to compute frequencies for.
-        fg_prefixes: The list of foreground path prefixes used for creating the kmer files.
+        fname_prefixes: The path prefixes used for creating the kmer files.
+        genomes: The reference each prefix was counted from, in the same order.
+            Used only where a prefix has no table, in which case the counts are
+            measured by scanning that reference instead of refusing. Omitted,
+            or shorter than the prefix list, a prefix with no table still
+            refuses, which is what it has always done.
 
     Returns:
         all_primer_to_count: A dictonary of primer to frequency.
     """
+    # Paired here, where both lists are in hand, rather than looked up per
+    # prefix from a global. A prefix carries no record of its own genome, so a
+    # lookup would be a guess, and the wrong guess reports another reference's
+    # counts under this one's name.
+    genome_for: dict[str, str] = {}
+    if genomes and len(genomes) == len(fname_prefixes):
+        genome_for = dict(zip(fname_prefixes, genomes, strict=True))
+    elif genomes:
+        logger.warning(
+            "%d prefixes and %d genomes were given, so they cannot be paired; "
+            "a prefix with no k-mer table will be refused rather than scanned.",
+            len(fname_prefixes),
+            len(genomes),
+        )
     stratified_primer_list = {}
 
     for primer in primer_list:
@@ -788,7 +813,7 @@ def get_rates_for_one_species(primer_list: list[str], fname_prefixes: list[str])
 
     for fname_prefix in fname_prefixes:
         for k, primer_list_k in stratified_primer_list.items():
-            tasks.append((primer_list_k, fname_prefix, k))
+            tasks.append((primer_list_k, fname_prefix, k, genome_for.get(fname_prefix)))
 
     # Use ThreadPoolExecutor for I/O-bound file reads (avoids process creation
     # overhead and serialization costs compared to multiprocessing.Pool)
@@ -806,7 +831,7 @@ def get_rates_for_one_species(primer_list: list[str], fname_prefixes: list[str])
     return all_primer_to_count
 
 
-def _get_rate_for_one_file(task: tuple[list[str], str, int]) -> dict[str, int]:
+def _get_rate_for_one_file(task: tuple[list[str], str, int, str | None]) -> dict[str, int]:
     """Counts of one primer list against one reference at one k.
 
     This used to stream the text table and test set membership line by line.
@@ -820,8 +845,8 @@ def _get_rate_for_one_file(task: tuple[list[str], str, int]) -> dict[str, int]:
     with 0 for one the reference does not hold, because an absent key would
     read as unknown and an unknown background count passes the gate.
     """
-    primer_list, fname_prefix, k = task
-    return kmer_tables.counts_for(fname_prefix, k, primer_list)
+    primer_list, fname_prefix, k, genome = task
+    return kmer_tables.counts_for(fname_prefix, k, primer_list, genome=genome)
 
 
 def check_gini_stage_kept_something(before_df, after_df):
