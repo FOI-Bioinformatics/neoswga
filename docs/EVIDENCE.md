@@ -155,7 +155,7 @@ Tests: `tests/test_bloom_background_gate.py`
 
 Measurements: none.
 
-Often unnecessary: exact jellyfish counting of hg38 at k=12 costs about 7 minutes and a 138 MB table. The Bloom path matters at longer k. The sampled-index path has its own resolution trap.
+Often unnecessary: exact counting of hg38 at k=12 costs a 138 MB table, and 12.2 s with KMC3 or 89.7 s with jellyfish. The Bloom path matters at longer k, where the table stops being bounded by the k-mer space. The sampled-index path has its own resolution trap, and its companion index is about a hundred times the filter's size at host scale.
 
 ### Export for ordering
 

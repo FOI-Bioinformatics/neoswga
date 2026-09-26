@@ -21,7 +21,7 @@ This guide provides comprehensive documentation for using NeoSWGA, including ins
 ### System Requirements
 
 - Python >= 3.13
-- Jellyfish k-mer counter (v2.0+)
+- A k-mer counter: KMC3, or Jellyfish 2.x
 - 8+ GB RAM (16+ GB recommended for large genomes)
 - Optional: CUDA-capable GPU for acceleration
 
@@ -68,13 +68,30 @@ pip install -e ".[deep-learning-tf]"
 pip install -e ".[all]"
 ```
 
-### Installing Jellyfish
+### Installing a k-mer counter
 
-Jellyfish is required for k-mer counting. Install from:
-https://www.cbcb.umd.edu/software/jellyfish/
+One is required. Either works, and the two produce identical tables, so a
+design does not change with the counter that built it.
 
-Verify installation:
 ```bash
+conda install -c bioconda kmc              # KMC3, preferred
+conda install -c bioconda kmer-jellyfish   # Jellyfish 2.x
+```
+
+KMC3 is used when it is installed and Jellyfish otherwise, with no
+configuration. The trade is speed against memory: counting the human genome at
+k=12 takes KMC3 12.2 s at 1,950 MB peak and Jellyfish 89.7 s at 105 MB. KMC3 also
+answers a lookup of a known candidate list from its binary database rather
+than by scanning a text dump, which is where most of the gain shows up at
+large k.
+
+Set `"kmer_counter"` in params.json to `"kmc"` or `"jellyfish"` to require
+one. A named counter that is absent is an error naming the install command,
+rather than a silent fall back to the other.
+
+Verify:
+```bash
+kmc | head -1
 jellyfish --version
 ```
 
@@ -555,18 +572,28 @@ if not gpu.GPU_AVAILABLE:
 - Increase system RAM
 - Process chromosomes separately
 
-### Jellyfish Not Found
+### No k-mer counter found
 
-**Problem**: `jellyfish: command not found`
+**Problem**: a step refuses with "not installed" or "not found in PATH".
 
-**Solution**: Ensure Jellyfish is installed and in PATH:
+**Solution**: install either counter. Only one is needed.
 ```bash
-# Check installation
-which jellyfish
+which kmc jellyfish
 
-# If not found, install from source or package manager
-# https://www.cbcb.umd.edu/software/jellyfish/
+conda install -c bioconda kmc              # or
+conda install -c bioconda kmer-jellyfish
 ```
+
+If the message names one counter in particular, params.json sets
+`"kmer_counter"` to it and so requires it. Remove that key to accept whichever
+is installed.
+
+**Problem**: a step refuses a table as "counted from a different genome", or
+recounts one that looks current.
+
+**Solution**: this is provenance working, not a counter fault. Each table
+carries a SHA-256 of the genome it was counted from; repointing `fg_genomes`
+at a new assembly invalidates it. Re-run `neoswga count-kmers`.
 
 ---
 

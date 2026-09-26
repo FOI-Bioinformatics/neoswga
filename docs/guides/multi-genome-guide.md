@@ -463,9 +463,17 @@ result = pipeline.run()
 
 ### Where the time goes
 
-The pipeline is dominated by two costs: Jellyfish k-mer counting (linear in
-genome size x number of genomes) and per-candidate thermodynamics (linear in the
-number of candidates).
+The pipeline is dominated by two costs: k-mer counting (linear in genome size
+x number of genomes) and per-candidate thermodynamics (linear in the number of
+candidates).
+
+Counting is the one to attack first on large references, and which counter is
+installed decides how much it costs. On the human genome at k=12, KMC3 counts
+in 12.2 s against Jellyfish's 89.7 s, at 1,950 MB peak against 105 MB. Background
+counts of a known candidate list are then answered from KMC's binary database
+rather than by scanning a text dump, which is 2.5 s against 17.9 s on a 144 Mb
+reference at k=18
+([measurement](../validation/kmer_counter_comparison_2026-09-25.md)).
 
 Pairwise primer-primer compatibility is deliberately **not** in that list. The
 heterodimer check is O(n^2), and it runs on the ranked shortlist rather than the
