@@ -5,8 +5,23 @@ Get started with NeoSWGA primer design in minutes.
 ## Prerequisites
 
 - Python 3.13 or later
-- Jellyfish k-mer counter (v2.0+)
+- A k-mer counter: [KMC3](https://github.com/refresh-bio/KMC), or
+  [Jellyfish](https://www.cbcb.umd.edu/software/jellyfish/) 2.x
 - 8+ GB RAM
+
+Either counter works and both produce identical tables. KMC3 is used when it
+is installed and Jellyfish otherwise, so nothing needs configuring. KMC3 is
+faster on large references and uses more memory: counting the human genome at
+k=12 takes 12.2 s and 1,950 MB against Jellyfish's 89.7 s and 105 MB.
+
+```bash
+conda install -c bioconda kmc              # preferred
+conda install -c bioconda kmer-jellyfish   # or this
+```
+
+To require one rather than let the tool choose, set `"kmer_counter"` to
+`"kmc"` or `"jellyfish"` in params.json. A named counter that is not installed
+is an error rather than a silent fall back to the other.
 
 ## Installation
 
@@ -174,12 +189,26 @@ neoswga suggest --genome target.fasta --sweep --output conditions.csv
 
 ## Troubleshooting
 
-### "Jellyfish not found"
+### "not installed" or "not found in PATH" from a k-mer counter
 
-Install Jellyfish and ensure it's in your PATH:
+Check what is on your PATH:
 ```bash
-jellyfish --version
+kmc | head -1          # K-Mer Counter (KMC) ver. 3.2.4
+jellyfish --version    # jellyfish 2.3.1
 ```
+
+Either one is enough. Install whichever is missing with
+`conda install -c bioconda kmc` or
+`conda install -c bioconda kmer-jellyfish`.
+
+If the message names one counter specifically, params.json sets
+`"kmer_counter"` to it, which makes that counter a requirement. Remove the key
+to let the tool use whichever is installed.
+
+Under Python 3.13, `conda install kmer-jellyfish` can silently resolve to
+version 1.1.12, whose command line this project refuses. bioconda builds 2.3.1
+for Python 3.9 to 3.12 only. Install KMC3 instead, or get Jellyfish 2.x from
+apt or Homebrew. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ### "No primers pass filtering"
 

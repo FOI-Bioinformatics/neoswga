@@ -395,25 +395,41 @@ characters.
 MemoryError
 ```
 
-Or the process is killed by the OS, or Jellyfish reports insufficient memory.
+Or the process is killed by the OS, or the counter reports insufficient memory.
 
-**Cause:** Loading all k-mers from a large background genome (e.g., human at
-3 Gbp) into memory exceeds available RAM. The filter step is particularly
-memory-intensive.
+**Cause:** a large background genome (human at 3 Gbp) does not fit the memory
+available, either while counting it or while holding its table.
+
+Counting itself is where KMC and Jellyfish differ most. On the human genome at
+k=12, KMC peaks at 1,950 MB and Jellyfish at 105 MB, so a memory-bound
+machine may want Jellyfish even though it is 7.2x slower. KMC cannot be asked for less
+than 2 GB; `-m1` is refused.
+
+Note that the filter step no longer reads a whole background table to answer
+for its candidates. It asks for the counts of its own candidate list, which is
+a set operation against the table rather than a scan of it.
 
 **Solution:**
 
-1. Use the Bloom filter for large backgrounds:
+1. Choose the counter that fits the machine, by setting `"kmer_counter"` in
+   params.json to `"jellyfish"` for a low memory ceiling or `"kmc"` for speed.
+2. Let the background go uncounted. A prefix with no table is measured by
+   reading its reference once, with no table built and nothing written to
+   disk, so a host too large to count is answered rather than refused. This
+   costs one pass over the reference per candidate batch and is the right
+   trade only when the table is the problem -- at k=18, a 144 Mb reference
+   counts to an 818 MB table, and the human genome to tens of gigabytes.
+3. Use the Bloom filter for large backgrounds:
    ```bash
    neoswga build-filter --genome background_genome.fna -o ./
    ```
-   Then reference the filter in your pipeline run. The Bloom filter uses
-   approximately 1% of the memory of a full k-mer table.
-2. Reduce the k-mer range to lower memory usage (e.g., `"min_k": 8, "max_k": 12`).
-3. Increase available swap space on the system.
-4. See the System Requirements section below for RAM estimates.
+   Prefer `--from-kmers` at host scale: building from FASTA is about 10 hours
+   for the human genome over k 6-12, against about 37 s from a counted table.
+4. Reduce the k-mer range to lower memory usage (e.g., `"min_k": 8, "max_k": 12`).
+5. Increase available swap space on the system.
+6. See the System Requirements section below for RAM estimates.
 
-### Jellyfish timeout or failure
+### K-mer counter timeout or failure
 
 **Symptom:**
 

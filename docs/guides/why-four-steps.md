@@ -42,10 +42,17 @@ sequence occurs more often in the target. So before anything else you need to
 know how often every k-mer occurs in each genome, and that is all this step
 does.
 
-It shells out to Jellyfish, counting **canonical** k-mers, meaning a sequence
-and its reverse complement are counted together. That is correct here: a primer
-binds whichever strand presents its complement, so both occurrences are real
-binding sites.
+It shells out to a k-mer counter -- KMC3 when installed, Jellyfish otherwise --
+counting **canonical** k-mers, meaning a sequence and its reverse complement are
+counted together. That is correct here: a primer binds whichever strand presents
+its complement, so both occurrences are real binding sites.
+
+Both counters are driven to produce the same table, which takes some care:
+KMC's defaults exclude k-mers occurring once and saturate every count at 255,
+and either default would quietly change what a design sees. A background
+counted without singletons reports a host as nearly k-mer-free and every
+candidate as specific. So the counter a table was built with is recorded
+beside it and is not a property of the design.
 
 One table is written per length in your `min_k`-`max_k` range, per genome.
 A design mixing lengths therefore produces several tables and, later, several
@@ -120,6 +127,19 @@ genome. Everything downstream measures against this rather than re-scanning,
 and a candidate missing from it would score as covering nothing and binding the
 host nowhere. The pipeline refuses rather than reporting a coverage figure that
 describes only part of the pool.
+
+One file per genome and oligo length, `{prefix}_{k}mer_positions.h5`. It
+stores the k-mers sorted, their offsets, and every position concatenated, so a
+lookup is a binary search rather than an HDF5 dataset open. The older layout
+used one dataset per k-mer, where HDF5's own bookkeeping came to 376 MB of a
+381 MB file; the same index is 24.7 MB now and loads about 7x faster
+([measurement](../validation/position_index_layout_2026-09-25.md)). An index
+in the old layout is read as it is and converted the next time `filter` writes
+to it, so nothing needs regenerating.
+
+Read one with `neoswga.core.position_index.open_index` rather than h5py
+directly: looking a primer up by dataset name finds nothing in the current
+layout, which downstream reads as a primer that binds nowhere.
 
 ## Step 3, `prepare-candidates`: ordering, not scoring
 

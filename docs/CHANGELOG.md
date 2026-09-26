@@ -4,6 +4,24 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+
+- **The guides said Jellyfish was required.** It has not been the only option
+  since KMC3 became preferred, and the quick start, user guide and
+  troubleshooting guide all still named it as a prerequisite. They now say a
+  counter is required, name both, and state the trade: identical tables, KMC3
+  faster and heavier.
+- The troubleshooting guide's memory section attributed the cost to loading a
+  whole background table, which the filter step stopped doing when lookups
+  moved to set operations against the table. It now names counting itself as
+  the cost, and adds the two ways out: choose the counter that fits the
+  machine, or leave the background uncounted and let it be scanned.
+- The walkthrough describes the position index layout, and says to read an
+  index through `position_index.open_index` rather than h5py, since a lookup
+  by dataset name finds nothing in the current layout.
+- Figures in the guides are quoted as the validation records state them, and
+  link to those records.
+
 ### A host with no k-mer table is scanned rather than refused
 
 #### ADDED
