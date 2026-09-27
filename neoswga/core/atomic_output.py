@@ -23,9 +23,10 @@ import contextlib
 import json
 import os
 from collections.abc import Callable
+from typing import TextIO
 
 
-def atomic_write_text(path: str, render: Callable[[object], None]) -> None:
+def atomic_write_text(path: str, render: Callable[[TextIO], None]) -> None:
     """Write `path` by rendering into a temporary file and renaming it.
 
     `render` receives an open text handle. It may raise: the target is left as
