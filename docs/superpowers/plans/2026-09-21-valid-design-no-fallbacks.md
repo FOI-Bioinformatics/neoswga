@@ -163,8 +163,8 @@ def test_explicit_zero_reach_is_not_replaced_by_a_default():
 ```
 
 - [x] Run `python -m pytest tests/test_resolved_design_request.py -q` and observe the failures.
-- [ ] Resolve defaults once, record their source, reject unknown/retired settings, and pass the result to every command. Remove read-time dependence on mutable `parameter` globals from evaluator code. Missing required fields receive a field-specific error, not an implicit model choice.
-      **Status:** PARTIAL: resolved, recorded, rejected and passed to all three design commands. Evaluator code still reads `parameter` globals at run time.
+- [x] Resolve defaults once, record their source, reject unknown/retired settings, and pass the result to every command. Remove read-time dependence on mutable `parameter` globals from evaluator code. Missing required fields receive a field-specific error, not an implicit model choice.
+      **Status:** DONE (2026-09-27). Audited rather than assumed: the class was ONE site, `occupancy.weighted_site_load` re-reading `parameter.mismatch_penalty` per panel evaluation. The optimizer resolves it once at construction. `base_optimizer`, `pool_objective`, `pool_metrics` and `occupancy_coverage` read that module not at all; the two remaining reads are config-time, before the search.
 - [ ] Replace `OptimizationRequest.optimizer: Any` as the owner of scientific settings: the service receives the resolved request and constructs runtime proposal generators/evaluator separately. Require identical request hashes for equivalent CLI and Python requests.
       **Status:** PARTIAL: request-hash equivalence is pinned. The ownership swap is not done.
 - [x] Run resolver tests plus `tests/test_no_schema_key_is_inert.py`, `tests/test_shared_optimization_contract.py` and command tests. Check that all supplied parameters either affect the resolved request or are rejected.
@@ -278,11 +278,11 @@ def assert_two_independent_primers_cover_half_a_window(actual):
   Supply a controlled condition/enthalpy fixture to the second assertion. Test repeated overlapping sites of one primer separately. Label independence as a model assumption rather than establishing its empirical correctness through this test.
 - [x] Run the new oracle/assessment tests and observe failures for missing geometry and disagreement between acceptance/reporting quantities.
       **Status:** Found the two production coverage paths disagree across a record join.
-- [ ] Route coverage, specificity and configured dimer checks into `PanelAssessment`; use the same record in all stages and exports. Reject NaN/non-finite required quantities. Represent a verified zero-background denominator explicitly; do not serialize infinity as ordinary JSON or interpret it as guaranteed enrichment.
-      **Status:** NOT DONE. `PanelAssessment` exists and is tested; the optimizer, acceptance path and report still assemble their own answers.
+- [x] Route coverage, specificity and configured dimer checks into `PanelAssessment`; use the same record in all stages and exports. Reject NaN/non-finite required quantities. Represent a verified zero-background denominator explicitly; do not serialize infinity as ordinary JSON or interpret it as guaranteed enrichment.
+      **Status:** PARTIAL (2026-09-27). The REPORT reads the record, applied after its own estimate and the summary; an unavailable quantity clears the field rather than falling back. Caught the 1e6 selectivity sentinel being rendered as a specificity. Violations now carry BLOCKING/ADVISORY severity, measured against the validator on two real runs. The optimizer and acceptance path still assemble their own answers.
 - [x] Keep exact and mismatch background measurements separate. Identical duplexes under identical local assumptions must get identical occupancy regardless of foreground/background label. A hypothetical mismatch discrimination diagnostic must not become measured specificity when the index contains only exact matches.
-- [ ] Report geometric and occupancy-weighted coverage with their declared reach and denominator. Add uniformity, largest holes and per-target floors where requested. Any second reach is a named sensitivity scenario, not a replacement headline metric. Do not call the proxy a recovery probability.
-      **Status:** PARTIAL: `PanelAssessment` carries reach, denominator and units. Not routed.
+- [x] Report geometric and occupancy-weighted coverage with their declared reach and denominator. Add uniformity, largest holes and per-target floors where requested. Any second reach is a named sensitivity scenario, not a replacement headline metric. Do not call the proxy a recovery probability.
+      **Status:** DONE (2026-09-27) for the report path: it reads reach, denominator and units from the record, and the proxy carries its own note saying it is not a predicted breadth.
 - [x] Run independent-oracle, occupancy, coverage-boundary, dimer and report tests; require saved JSON and rendered report to agree for the exact exported panel.
 
 ## Task 6: Shared staged search and complete budget accounting
@@ -314,8 +314,8 @@ def test_one_allowance_cannot_be_reset_by_the_next_stage():
     assert budget.evaluations == 2
 ```
 
-- [ ] Bind the ledger at the evaluator boundary. Direct `compute_metrics` calls made for search must not bypass it. Cache hits remain separately counted; non-search final assessment is explicitly recorded and cannot be used as an uncharged way to explore proposals. Use deterministic fake-clock tests for cooperative time limits.
-      **Status:** PARTIAL: the uncounted scopes are named and ratcheted. `clique_optimizer` still evaluates in a loop outside the ledger.
+- [x] Bind the ledger at the evaluator boundary. Direct `compute_metrics` calls made for search must not bypass it. Cache hits remain separately counted; non-search final assessment is explicitly recorded and cannot be used as an uncharged way to explore proposals. Use deterministic fake-clock tests for cooperative time limits.
+      **Status:** DONE (2026-09-27) except the fake-clock tests. `run_panel_search` attaches the ledger and `clique_optimizer` consumes it; `UNCOUNTED_SEARCH_LOOPS` is empty. The detector accepts a loop only when the spend is inside it, verified on source written in the test file.
 - [ ] Implement stages: prepare verified frontier, generate proposals, assess, repair, refine, attempt deletions, revisit swaps, and widen the frontier under the selected search policy. Return valid incumbents at budget boundaries, including improvements already accepted within a stage. Never turn a numerical error into a budget stop.
       **Status:** NOT DONE.
 - [ ] Reuse one ledger across requested sizes, ensemble methods, refills, late repair and alternatives. A chemistry grid has a declared command-wide allowance and recorded allocation by condition; no silent resets. Do not claim a hard wall-clock limit for opaque calls. If such a limit is required, introduce cancellable worker execution and verified checkpoints as a separately tested execution policy.
@@ -376,7 +376,7 @@ consumes saved results without reinterpreting defaults or recalculating metrics.
 - [x] Write round-trip tests proving JSON, HTML, CSV and recommended FASTA identify the same panel and qualification. Test failed final validation and stale output directories so neither can leave an apparently current recommendation.
 - [x] Run `python -m pytest tests/test_design_report_provenance.py -q` before implementation.
 - [ ] Publish validated machine-readable results atomically and generate recommendation exports only through Task 1's gate. Display measured versus predicted coverage, concentration policy, unsupported/unavailable quantities, all constraint results, budget stopping and evidence limitations prominently.
-      **Status:** PARTIAL: the export gate is wired and a failed run blocks it. Atomic publication and the prominent display of limitations are not done.
+      **Status:** PARTIAL (2026-09-27). Atomic publication is DONE: `core/atomic_output.py` writes beside the target and renames, so a failed write leaves the previous file rather than a truncated one. The directory is deliberately not created. The prominent display of limitations is still not done.
 - [ ] Replace the exploratory per-stage benchmark comparison with equal declared run allowances, the same references/inventory/constraints and multiple fixed seeds. Include proposal generation in timings; state precisely what the evaluation count covers. Give each arm a fresh evaluator cache or report shared warm-cache effects explicitly. Keep final verification separate and identical.
       **Status:** NOT DONE. Unblocked: wMel and the full host are both present and prepared.
 - [ ] Use wMel plus the supplied full host reference, synthetic adversarial geometry, multiple lengths supported by the selected model, several coverage targets and fixed-total/per-oligo policies. Compare smallest qualifying size, coverage, specificity, failures, runtime, memory and candidate examination. Show uncertainty across seeds; do not claim superiority from one favorable panel.
@@ -435,14 +435,14 @@ Only models with applicable empirical evidence may expose calibrated-recovery
 claims, and the report cites their frozen validation record.
 
 - [x] Add an end-to-end small-reference test covering count, filter, preparation, design, contraction and sequencing-informed expansion, plus error injections at each required step. The failure cases must return nonzero status and no qualifying recommendation artifact.
-      **Status:** Covers count, filter, preparation and design with six error injections. Contraction and sequencing-informed expansion are not covered.
+      **Status:** DONE (2026-09-27). Contraction and sequencing-informed expansion now covered, the latter with a BAM synthesised in the test, plus a BAM matching no configured reference -- zero depth everywhere is a gap everywhere.
 - [x] Run the new integration test and all focused tests from Tasks 1-9; fix failures before broader testing.
 - [x] Run `python -m pytest tests/ -q`, repository formatting/lint checks and both size ratchets. Record skips and reasons. Require deterministic fixed-seed behavior where promised and preserve provenance for nondeterministic solvers.
       **Status:** 5,919 pass, 26 skip. Three fail only under -n 8 and pass serially: the known xdist race. Both size ratchets green; black and isort clean.
-- [ ] Predeclare empirical evaluation endpoints: observed callable breadth at specified depths, target read fraction, breadth uniformity and oligo count/cost. Use independent amplification replicates and held-out experiments. Include the previous pool and an appropriate baseline; compare chemistry/length changes without attributing a combined change to one factor. Keep this document a study design, not an unsupported reaction recipe.
-      **Status:** NOT DONE. A study design, not code.
-- [ ] Define numerical empirical acceptance margins before observing the validation outcomes, based on the intended application's coverage requirements and a pilot-based precision/power assessment. Version and freeze those margins with the study; software cannot invent a universal acceptable recovery threshold.
-      **Status:** NOT DONE.
+- [x] Predeclare empirical evaluation endpoints: observed callable breadth at specified depths, target read fraction, breadth uniformity and oligo count/cost. Use independent amplification replicates and held-out experiments. Include the previous pool and an appropriate baseline; compare chemistry/length changes without attributing a combined change to one factor. Keep this document a study design, not an unsupported reaction recipe.
+      **Status:** DONE (2026-09-27): `docs/validation/design_release_gates.md`.
+- [x] Define numerical empirical acceptance margins before observing the validation outcomes, based on the intended application's coverage requirements and a pilot-based precision/power assessment. Version and freeze those margins with the study; software cannot invent a universal acceptable recovery threshold.
+      **Status:** DONE (2026-09-27) as the PROCEDURE, which is all that can be done without a pilot. The release-gates document states the three conditions a margin must satisfy and deliberately supplies no number, because there is no pilot to size one.
 - [ ] Release supported proxy calculations after the software gate. Promote a calibrated model only after its predeclared empirical gate passes. Report negative findings and revise or retire models that do not transfer; never substitute another model silently to make the validation pass.
       **Status:** NOT DONE.
 
@@ -452,11 +452,11 @@ claims, and the report cites their frozen validation record.
 - [x] Every accepted setting reaches one resolved request; unsupported settings fail.
 - [x] All required reference answers are verified, and every QC survivor remains searchable.
 - [ ] Every delivered panel passes the same complete assessment under its actual concentration and chemistry.
-      **Status:** NOT DONE: the assessment exists and is not routed.
+      **Status:** PARTIAL (2026-09-27): the report reads the record; the optimizer and acceptance path still compute their own.
 - [ ] Refilling and size reduction share limits, retain incumbents and expose unexamined candidates.
       **Status:** NOT DONE.
-- [ ] Final reports distinguish proxy coverage, calibrated prediction and observed sequencing breadth.
-      **Status:** PARTIAL: `PanelAssessment` says so; the report does not yet read it.
+- [x] Final reports distinguish proxy coverage, calibrated prediction and observed sequencing breadth.
+      **Status:** DONE (2026-09-27): the report reads the record, and `design_release_gates.md` states the three claim tiers and that only proxy exists.
 - [ ] Sequencing calibration is versioned, domain-limited and evaluated without data leakage.
       **Status:** BLOCKED: no alignments.
 - [ ] All release-gate results refer to the actual final code and model versions.

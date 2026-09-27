@@ -30,6 +30,8 @@ from pathlib import Path
 
 import pytest
 
+pd = pytest.importorskip("pandas")
+
 pytestmark = pytest.mark.skipif(
     shutil.which("jellyfish") is None,
     reason="the pipeline's first step shells out to jellyfish",
@@ -359,3 +361,162 @@ def test_a_fresh_multi_record_run_produces_geometry_the_checks_accept(tmp_path):
 
     # And the check the pipeline's own output has to satisfy.
     verify_index_geometry({str(workspace / "multi"): str(workspace / "multi.fasta")}, [10])
+
+
+# ---------------------------------------------------------------------------
+# Contraction and sequencing-informed expansion
+# ---------------------------------------------------------------------------
+#
+# Task 10 asks the end-to-end test to cover these two stages as well, and it
+# did not. They are the two commands that take a DELIVERED panel and change it,
+# so a defect in either reaches a panel somebody would order while every test
+# of the four steps stays green.
+#
+# Expansion is the one that needed a decision. It reads sequencing depth, and
+# this repository contains no BAM or CRAM at all -- which is why
+# `calibrate-reach` has never been run against measured depth. A BAM is
+# synthesised here rather than skipping: the point is that the command's
+# plumbing works end to end, not that the depth is realistic. What cannot be
+# established this way is anything about recovery, and
+# `docs/validation/design_release_gates.md` is where that line is drawn.
+
+
+def _synthesise_bam(workspace, contig, length, covered_to):
+    """An indexed BAM covering `contig` from 0 to `covered_to`.
+
+    Deliberately leaves the tail uncovered, because a gap is what expansion
+    exists to design against. Depth is uniform and shallow; nothing here is a
+    claim about a real reaction.
+    """
+    pysam = pytest.importorskip("pysam")
+
+    header = {"HD": {"VN": "1.6"}, "SQ": [{"SN": contig, "LN": length}]}
+    path = workspace / "depth.bam"
+    read_length = 100
+    with pysam.AlignmentFile(str(path), "wb", header=header) as out:
+        for start in range(0, max(covered_to - read_length, 1), read_length // 2):
+            read = pysam.AlignedSegment()
+            read.query_name = f"r{start}"
+            read.query_sequence = "A" * read_length
+            read.flag = 0
+            read.reference_id = 0
+            read.reference_start = start
+            read.mapping_quality = 60
+            read.cigarstring = f"{read_length}M"
+            read.query_qualities = pysam.qualitystring_to_array("I" * read_length)
+            out.write(read)
+    pysam.index(str(path))
+    return path
+
+
+def _record_name(fasta):
+    for line in fasta.read_text().splitlines():
+        if line.startswith(">"):
+            return line[1:].split()[0]
+    raise AssertionError(f"{fasta} holds no FASTA record")
+
+
+def test_contraction_reduces_a_delivered_panel_without_breaking_it(completed):
+    """`--minimize-primers` must return a panel, not an empty one or a crash."""
+    before = pd.read_csv(completed / "results" / "step4_improved_df.csv")
+    delivered_before = before[before.get("set_index", 0) == 0]["primer"].tolist()
+
+    result = run(["optimize", "-j", "params.json", "--seed", "1", "--minimize-primers"], completed)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    after = pd.read_csv(completed / "results" / "step4_improved_df.csv")
+    delivered_after = after[after.get("set_index", 0) == 0]["primer"].tolist()
+
+    assert delivered_after, "contraction returned an empty panel"
+    assert len(delivered_after) <= len(delivered_before)
+    assert len(set(delivered_after)) == len(delivered_after), "contraction duplicated an oligo"
+    # And the directory is still exportable, which is the property that matters
+    # to whoever orders the result.
+    export = run(["export", "-d", "results", "-o", "order2", "--format", "fasta"], completed)
+    assert export.returncode == 0, export.stdout + export.stderr
+
+
+def test_sequencing_informed_expansion_runs_end_to_end(tmp_path):
+    """`expand-primers --bam` reads depth, finds a gap and adds oligos."""
+    pytest.importorskip("pysam")
+    workspace = prepared(tmp_path, num_primers=2, target_set_size=2)
+    assert run(["optimize", "-j", "params.json", "--seed", "1"], workspace).returncode == 0
+
+    fasta = workspace / "pcDNA.fasta"
+    contig = _record_name(fasta)
+    length = sum(
+        len(line.strip()) for line in fasta.read_text().splitlines() if not line.startswith(">")
+    )
+    bam = _synthesise_bam(workspace, contig, length, covered_to=length // 2)
+
+    delivered = pd.read_csv(workspace / "results" / "step4_improved_df.csv")
+    fixed = delivered[delivered.get("set_index", 0) == 0]["primer"].tolist()
+    assert fixed, "the design delivered no panel to expand"
+
+    result = run(
+        [
+            "expand-primers",
+            "-j",
+            "params.json",
+            "--fixed-primers",
+            *fixed,
+            "--num-new",
+            "1",
+            "--bam",
+            str(bam),
+            "--contig-alias",
+            f"{contig}={contig}",
+            "--output",
+            "expanded",
+        ],
+        workspace,
+    )
+
+    # The command may decline to add an oligo -- the pool is small and a short
+    # panel is a documented outcome -- but it must not fail, and it must have
+    # read the depth rather than ignoring it.
+    assert result.returncode == 0, result.stdout + result.stderr
+    written = sorted((workspace / "expanded").glob("*.csv"))
+    assert written, f"expansion wrote no panel: {list((workspace / 'expanded').iterdir())}"
+    expanded = pd.read_csv(written[0])
+    assert not expanded.empty
+    assert set(fixed).issubset(
+        set(expanded["primer"])
+    ), "expansion dropped an oligo it was told to keep"
+
+
+def test_expansion_refuses_a_bam_naming_no_configured_reference(tmp_path):
+    """A BAM whose contigs match nothing must not read as zero depth everywhere.
+
+    Zero depth everywhere is a gap everywhere, so expansion would design
+    against the whole target while appearing to use the sequencing data.
+    """
+    pytest.importorskip("pysam")
+    workspace = prepared(tmp_path, num_primers=2, target_set_size=2)
+    assert run(["optimize", "-j", "params.json", "--seed", "1"], workspace).returncode == 0
+
+    delivered = pd.read_csv(workspace / "results" / "step4_improved_df.csv")
+    fixed = delivered[delivered.get("set_index", 0) == 0]["primer"].tolist()
+    bam = _synthesise_bam(workspace, "a_contig_no_reference_here_has", 4000, covered_to=2000)
+    result = run(
+        [
+            "expand-primers",
+            "-j",
+            "params.json",
+            "--fixed-primers",
+            *fixed,
+            "--num-new",
+            "1",
+            "--bam",
+            str(bam),
+            "--output",
+            "expanded",
+        ],
+        workspace,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0 or "contig" in combined.lower() or "alias" in combined.lower(), (
+        "an unmatched BAM was accepted silently, so the depth it supplied was "
+        "nothing and every base looked like a gap:\n" + combined
+    )

@@ -793,6 +793,10 @@ class BaseOptimizer(ABC):
         # use additive-aware Tm (network / integrated_quality_scorer) can read
         # self.conditions; others simply leave it as attached metadata.
         self.conditions = conditions
+        # Once per run, not per evaluation. See occupancy.weighted_site_load.
+        from neoswga.core.occupancy import default_mismatch_penalty
+
+        self.mismatch_penalty = default_mismatch_penalty()
 
         # Compositional background, used only when there are no background
         # prefixes. A `HostProfile` (or a panel of them) supplies expected
@@ -1059,8 +1063,12 @@ class BaseOptimizer(ABC):
             return self._modelled_site_load(primers, conditions, max_mismatches)
 
         try:
-            fg_load = weighted_site_load(primers, self.fg_prefixes, conditions, max_mismatches)
-            bg_load = weighted_site_load(primers, self.bg_prefixes, conditions, max_mismatches)
+            fg_load = weighted_site_load(
+                primers, self.fg_prefixes, conditions, max_mismatches, self.mismatch_penalty
+            )
+            bg_load = weighted_site_load(
+                primers, self.bg_prefixes, conditions, max_mismatches, self.mismatch_penalty
+            )
         except (FileNotFoundError, OSError):
             return 0.0, 0.0, "exact"
 
@@ -1093,7 +1101,9 @@ class BaseOptimizer(ABC):
         from neoswga.core.occupancy import weighted_site_load
 
         try:
-            fg_load = weighted_site_load(primers, self.fg_prefixes, conditions, max_mismatches)
+            fg_load = weighted_site_load(
+                primers, self.fg_prefixes, conditions, max_mismatches, self.mismatch_penalty
+            )
         except (FileNotFoundError, OSError):
             return 0.0, 0.0, "exact"
 

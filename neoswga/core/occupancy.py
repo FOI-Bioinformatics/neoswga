@@ -122,7 +122,9 @@ def site_occupancy(dh_kcal: float, tm: float, temp: float) -> float:
     return 1.0 / (1.0 + math.exp(exponent))
 
 
-def weighted_site_load(primers, prefixes, conditions, max_mismatches: int = 1) -> float:
+def weighted_site_load(
+    primers, prefixes, conditions, max_mismatches: int = 1, penalty: float | None = None
+) -> float:
     """Occupancy-weighted binding load of a primer set against one genome set.
 
         load = SUM_primers SUM_j n_j * theta(dH, Tm - j*penalty, T)
@@ -139,7 +141,13 @@ def weighted_site_load(primers, prefixes, conditions, max_mismatches: int = 1) -
     from neoswga.core.mismatch_counts import mismatch_class_counts
     from neoswga.core.thermodynamics import calculate_enthalpy_entropy
 
-    penalty = default_mismatch_penalty()
+    # Resolved by the CALLER for a run, or from configuration when none is
+    # supplied. Reading the module global here meant re-reading it on every
+    # panel evaluation, so two evaluations inside one run could weigh their
+    # sites differently if anything reassigned it in between -- and the value
+    # is a property of the run, not of the call.
+    if penalty is None:
+        penalty = default_mismatch_penalty()
     total = 0.0
     for primer in primers:
         dh, _ds = calculate_enthalpy_entropy(primer)

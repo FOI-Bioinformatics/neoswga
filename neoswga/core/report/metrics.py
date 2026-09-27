@@ -373,6 +373,11 @@ class PipelineMetrics:
     # directory written before the field existed -- neither of which is a
     # reach of zero, so the renderer must skip rather than show 0%.
     candidate_reach: dict[str, Any] | None = None
+    # The saved acceptance record for the delivered panel, as written by
+    # `validation_record.panel_assessment`. None for a directory produced
+    # before it existed. Every figure this report shows that the assessment
+    # also carries comes FROM here.
+    panel_assessment: dict[str, Any] | None = None
     # Coverage gaps from the analyze-coverage command (coverage_gaps.json /
     # merged_gaps.bed), when present in the results dir. None = not run.
     coverage_gaps: dict | None = None
@@ -456,6 +461,121 @@ def _load_optimizer_summary(results_path: Path) -> dict | None:
         return None
 
 
+#: The assessment last seen beside the issues, keyed by the file it came from.
+#: `_load_validation_report` returns a two-tuple that several callers unpack
+#: positionally, so widening it would break them; the assessment is picked up
+#: from here by `_load_panel_assessment` instead.
+_ASSESSMENT_CACHE: dict = {}
+
+
+def _apply_panel_assessment(metrics, results_path: Path) -> None:
+    """Overwrite every rendered figure the acceptance record also holds.
+
+    Extracted from `collect_pipeline_metrics` when that function reached its
+    length budget. Separating it also makes the precedence testable on its own:
+    the assessment is applied LAST, so it wins over both the summary JSON and
+    the report's own estimate.
+    """
+    # The panel assessment has the last word, because it is the one record that
+    # carries each quantity WITH the reach and denominator it was computed at.
+    # Applied after the summary rather than instead of it: a directory written
+    # before the assessment existed still renders from the summary, and one
+    # written with it can no longer show a figure that disagrees with the saved
+    # acceptance record.
+    #
+    # A quantity the assessment marks UNAVAILABLE clears the field rather than
+    # leaving the estimate in place. Leaving it would show a computed-looking
+    # number for something that was not measured, which is the favourable
+    # default this module already had to remove from its gap metrics.
+    assessment = _load_panel_assessment(results_path)
+    if assessment is None:
+        return
+    metrics.panel_assessment = assessment
+    coverage_value, present = _assessed(assessment, "fg_coverage")
+    if present:
+        metrics.coverage.overall_coverage = coverage_value
+        metrics.coverage.from_optimizer = True
+        if coverage_value is not None and metrics.coverage.total_bases > 0:
+            metrics.coverage.covered_bases = int(coverage_value * metrics.coverage.total_bases)
+    for name, target in (
+        ("mean_gap", "mean_gap"),
+        ("max_gap", "max_gap"),
+        ("gap_gini", "gap_gini"),
+    ):
+        value, present = _assessed(assessment, name)
+        if present:
+            setattr(metrics.coverage, target, value)
+
+    for name, attribute in (
+        ("total_fg_sites", "target_sites"),
+        ("total_bg_sites", "background_sites"),
+        ("bg_coverage", "bg_coverage"),
+        ("selectivity_ratio", "selectivity_ratio"),
+    ):
+        value, present = _assessed(assessment, name)
+        if present:
+            if attribute in ("target_sites", "background_sites"):
+                setattr(
+                    metrics.specificity,
+                    attribute,
+                    int(value) if value is not None else None,
+                )
+            else:
+                setattr(metrics.specificity, attribute, value)
+            metrics.specificity.from_optimizer = True
+
+    # The optimizer's Tm, not the report's own recomputation of it. The two
+    # are computed under different reaction conditions whenever
+    # `retune_for_polymerase` or the GC-adaptive strategy moved them at run
+    # time, since those never write back to params.json.
+    mean_tm, present = _assessed(assessment, "mean_tm")
+    if present and mean_tm is not None:
+        metrics.thermodynamics.mean_tm = mean_tm
+
+
+def _load_panel_assessment(results_path: Path):
+    """The saved `PanelAssessment` for the delivered panel, or None.
+
+    This is the record the optimizer wrote through
+    `validation_record.panel_assessment`: every metric with its units and the
+    reach it was computed at, and an unavailable quantity kept apart from a
+    measured zero. The report used to ignore it entirely and recompute or
+    re-read each figure, so a rendered number and a stored one came from
+    different arithmetic -- which is what `PanelAssessment.as_dict` already
+    claimed was not the case.
+
+    Absent from a directory written before the assessment existed, in which
+    case the report falls back to the summary and its own estimates exactly as
+    it always did.
+    """
+    report_file = results_path / "step4_improved_df_validation.json"
+    if report_file not in _ASSESSMENT_CACHE:
+        _load_validation_report(results_path)
+    assessment = _ASSESSMENT_CACHE.get(report_file)
+    if isinstance(assessment, dict) and isinstance(assessment.get("metrics"), dict):
+        return assessment
+    return None
+
+
+def _assessed(assessment, name):
+    """One measurement from the assessment as `(value, present)`.
+
+    `present` is False when the assessment does not carry the quantity at all.
+    A quantity it carries as explicitly unavailable returns `(None, True)`, so
+    a caller can tell "not measured" from "not recorded" and must not
+    substitute an estimate for the first.
+    """
+    if assessment is None:
+        return None, False
+    measurement = assessment.get("metrics", {}).get(name)
+    if not isinstance(measurement, dict):
+        return None, False
+    if measurement.get("unavailable"):
+        return None, True
+    value = measurement.get("value")
+    return (float(value) if isinstance(value, (int, float)) else None), True
+
+
 def _load_validation_report(results_path: Path) -> tuple:
     """Load step4 validator report written by OptimizationResult.validate().
 
@@ -476,6 +596,7 @@ def _load_validation_report(results_path: Path) -> tuple:
         return [], True
     issues = data.get("issues", []) if isinstance(data, dict) else []
     ok = bool(data.get("ok", True)) if isinstance(data, dict) else True
+    _ASSESSMENT_CACHE[report_file] = data.get("assessment") if isinstance(data, dict) else None
     # Normalise: ensure each issue has level/code/detail strings.
     normalised = []
     for it in issues:
@@ -1062,6 +1183,8 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
             metrics.pareto_metrics = optimizer_summary["pareto_metrics"]
         if isinstance(optimizer_summary.get("candidate_reach"), dict):
             metrics.candidate_reach = optimizer_summary["candidate_reach"]
+
+    _apply_panel_assessment(metrics, results_path)
 
     # Coverage gaps from the analyze-coverage command, if present.
     metrics.coverage_gaps = _load_coverage_gaps(results_path)

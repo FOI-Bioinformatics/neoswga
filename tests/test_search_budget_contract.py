@@ -306,13 +306,13 @@ def test_a_stage_that_stops_on_its_own_allowance_records_which_one():
 #: never sees them. Each needs a reason and its own bound. The list can only
 #: shrink: a new entry means a new stage of the search became invisible to the
 #: allowance the user set.
-UNCOUNTED_SEARCH_LOOPS = {
-    "core/clique_optimizer.py::optimize": (
-        "scores the top `max_scored_sets` dimer-free cliques to pick a winner. "
-        "Bounded by that setting rather than by the shared ledger; `clique` is "
-        "not in the default ensemble and runs on pools of about 200 candidates."
-    ),
-}
+# Empty as of 2026-09-27, and meant to stay that way. Its one entry was
+# `clique_optimizer.optimize`, which scores the top `max_scored_sets` dimer-free
+# cliques through `compute_metrics` directly. The service now attaches the
+# shared ledger and that loop consumes it, so the work is counted; the
+# `max_scored_sets` bound remains, because it is about the method's own cost
+# rather than the run's.
+UNCOUNTED_SEARCH_LOOPS: dict[str, str] = {}
 
 
 #: Calls that measure a whole candidate panel. A loop over any of these is
@@ -344,25 +344,50 @@ def _called_name(call):
     return getattr(call.func, "attr", None) or getattr(call.func, "id", None)
 
 
+#: What charging the ledger looks like in source. A loop that evaluates panels
+#: AND spends the allowance in the same loop body is accounted for: the count a
+#: user reads includes that work, which is the whole question this file asks.
+#: The call must be inside the loop, not merely somewhere in the function, so a
+#: single `consume()` elsewhere cannot excuse an unmetered scan.
+LEDGER_SPEND = "consume"
+
+
+def _spends_the_ledger(loop) -> bool:
+    for node in ast.walk(loop):
+        if isinstance(node, ast.Call) and _called_name(node) == LEDGER_SPEND:
+            return True
+    return False
+
+
 def panel_evaluations_inside_loops(tree, label):
-    """Every panel evaluation in `tree` that a loop encloses, by function."""
+    """Every panel evaluation a loop encloses WITHOUT charging the ledger.
+
+    A loop that consumes the allowance per iteration is not reported: the work
+    is counted, so a reader comparing the ledger against the run is not
+    misled. `clique_optimizer.optimize` was the sole entry on the allowlist and
+    is exactly this case now, which is why the list is empty rather than
+    carrying a reworded excuse.
+    """
     found = {}
     for function in ast.walk(tree):
         if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
-        enclosed = {
-            node.lineno
-            for loop in ast.walk(function)
-            if isinstance(loop, LOOP_NODES)
-            for node in ast.walk(loop)
-            if hasattr(node, "lineno")
-        }
+        enclosed = {}
+        for loop in ast.walk(function):
+            if not isinstance(loop, LOOP_NODES):
+                continue
+            charged = _spends_the_ledger(loop)
+            for node in ast.walk(loop):
+                if hasattr(node, "lineno"):
+                    # An inner loop that charges marks its lines charged; an
+                    # outer one that does not must not un-mark them.
+                    enclosed[node.lineno] = enclosed.get(node.lineno, False) or charged
         for call in ast.walk(function):
             if not isinstance(call, ast.Call):
                 continue
             if _called_name(call) not in PANEL_EVALUATING_CALLS:
                 continue
-            if call.lineno in enclosed:
+            if call.lineno in enclosed and not enclosed[call.lineno]:
                 found[f"{label}::{function.name}"] = call.lineno
     return found
 
@@ -412,11 +437,22 @@ def test_the_allowlist_has_no_stale_entries():
 
 
 def test_the_ledger_says_what_it_does_not_bound():
-    """A count lower than a reader expects needs its scope beside it."""
+    """A count lower than a reader expects needs its scope beside it.
+
+    `proposal_generation` left this list on 2026-09-27, when the service began
+    attaching the ledger to the optimizer and `clique`'s scoring loop began
+    consuming it. The scope must shrink only when the work it named is
+    genuinely counted: `test_no_new_search_loop_escapes_the_ledger` is what
+    holds that, and it now accepts a loop only when the spend is inside it.
+    """
     described = SearchBudget(max_evaluations=10).describe()
 
-    assert "proposal_generation" in described["uncounted_scopes"]
     assert "final_assessment" in described["uncounted_scopes"]
+    assert "proposal_generation" not in described["uncounted_scopes"], (
+        "proposal effort is charged now; naming it as uncounted would tell a "
+        "reader to distrust a number that is in fact complete"
+    )
+    assert described["evaluation_scope"] == "uncached_shared_objective"
 
 
 # ---------------------------------------------------------------------------
@@ -481,3 +517,50 @@ def test_optimize_in_a_loop_is_not_flagged():
     would put two accounted loops on an allowlist for work the ledger sees.
     """
     assert _detect("def run(os_):\n    return [o.optimize(c, n) for o in os_]\n") == []
+
+
+def test_the_detector_still_catches_an_uncharged_loop():
+    """The refinement must not have turned the ratchet off.
+
+    Accepting a loop that charges the ledger is only safe if a loop that does
+    NOT charge it is still reported. Checked on source written here, so the
+    check does not depend on the package currently containing an offender.
+    """
+    uncharged = ast.parse(
+        "def scan(self, panels):\n"
+        "    for panel in panels:\n"
+        "        self.compute_metrics(panel)\n"
+    )
+    assert panel_evaluations_inside_loops(uncharged, "x.py") == {"x.py::scan": 3}
+
+
+def test_the_detector_accepts_a_loop_that_charges_the_ledger():
+    charged = ast.parse(
+        "def scan(self, panels, budget):\n"
+        "    for panel in panels:\n"
+        "        budget.consume()\n"
+        "        self.compute_metrics(panel)\n"
+    )
+    assert panel_evaluations_inside_loops(charged, "x.py") == {}
+
+
+def test_a_spend_outside_the_loop_does_not_excuse_the_scan():
+    """One `consume()` in the function is not per-iteration accounting."""
+    once = ast.parse(
+        "def scan(self, panels, budget):\n"
+        "    budget.consume()\n"
+        "    for panel in panels:\n"
+        "        self.compute_metrics(panel)\n"
+    )
+    assert panel_evaluations_inside_loops(once, "x.py") == {"x.py::scan": 4}
+
+
+def test_an_inner_charged_loop_is_accepted_inside_an_uncharged_outer_one():
+    nested = ast.parse(
+        "def scan(self, groups, budget):\n"
+        "    for group in groups:\n"
+        "        for panel in group:\n"
+        "            budget.consume()\n"
+        "            self.compute_metrics(panel)\n"
+    )
+    assert panel_evaluations_inside_loops(nested, "x.py") == {}

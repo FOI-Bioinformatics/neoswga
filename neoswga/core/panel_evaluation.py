@@ -98,12 +98,34 @@ class PanelAssessment:
     per_target: Mapping[str, Measurement]
     violations: tuple[str, ...]
     qualified: bool
+    #: The subset of `violations` that should refuse a panel. A gate consults
+    #: this and never `qualified`, because the two differ on a normal outcome:
+    #: `num_primers` is a request rather than a guarantee, so a panel shorter
+    #: than requested is advisory. Measured on the bundled plasmid example at
+    #: two requested sizes, the delivered panel was short both times, the
+    #: validator said ok with a warning, and `qualified` was False -- so a gate
+    #: on `qualified` would have refused two runs nobody considers failures.
+    blocking_violations: tuple[str, ...] = ()
+    #: Violations that are real and do not refuse the panel, each a documented
+    #: outcome rather than a defect.
+    advisory_violations: tuple[str, ...] = ()
     model_versions: tuple[tuple[str, str], ...] = ()
     notes: tuple[str, ...] = ()
     #: Present only when the background genome carries no sites at all. The
     #: selectivity ratio is then undefined rather than infinite.
     zero_background: bool = False
     evidence: Mapping[str, str] = field(default_factory=dict)
+
+    @property
+    def acceptable(self) -> bool:
+        """Whether nothing about this panel should stop it being delivered.
+
+        NOT `qualified`, which is the absence of EVERY violation including the
+        advisory ones. Keeping them apart is the whole point of the split: a
+        short panel is a documented outcome and a duplicated oligo is a defect,
+        and one boolean cannot say both.
+        """
+        return not self.blocking_violations
 
     def value(self, name: str) -> float | None:
         measurement = self.metrics.get(name)
@@ -112,14 +134,21 @@ class PanelAssessment:
     def as_dict(self) -> dict[str, Any]:
         """A JSON-serializable form. No infinities, no NaN.
 
-        The report and the saved result both read this, so that a rendered
-        figure and a stored one cannot come from different arithmetic.
+        The saved result carries this and the report reads it back, so a
+        rendered figure and a stored one cannot come from different arithmetic.
+        That was a claim before it was true: until 2026-09-27 nothing in
+        `core/report/` read this record, and the report rendered the
+        MAX_SELECTIVITY sentinel as a selectivity of a million for panels whose
+        host binding was simply never observed.
         """
         return {
             "primers": list(self.primers),
             "request_hash": self.request_hash,
             "qualified": self.qualified,
+            "acceptable": self.acceptable,
             "violations": list(self.violations),
+            "blocking_violations": list(self.blocking_violations),
+            "advisory_violations": list(self.advisory_violations),
             "zero_background": self.zero_background,
             "metrics": {name: m.as_dict() for name, m in sorted(self.metrics.items())},
             "per_target": {name: m.as_dict() for name, m in sorted(self.per_target.items())},
@@ -152,7 +181,14 @@ def _measure(name, value, units, basis, subject, *, required=False) -> Measureme
     return Measurement(name, _finite_or_fail(name, value, subject), units, basis)
 
 
-def _panel_violations(request, primers) -> list:
+#: A violation that must stop a panel being delivered.
+BLOCKING = "blocking"
+#: A violation that is real, reported, and a documented outcome rather than a
+#: defect. It does not stop delivery.
+ADVISORY = "advisory"
+
+
+def _panel_violations(request, primers) -> list[tuple[str, str]]:
     """Hard properties of a delivered panel, independent of configured limits.
 
     Both were enforced already and neither reached this record. Requested size
@@ -172,11 +208,17 @@ def _panel_violations(request, primers) -> list:
     admitted it. An earlier version of this docstring lumped the two together
     and the distinction is the reason only one of them belongs here.
     """
-    found = []
+    found: list[tuple[str, str]] = []
 
+    # ADVISORY. `num_primers` is a request, not a guarantee: Stage 1 stops once
+    # the coverage target is met, and selection stops rather than admitting a
+    # pair above `max_dimer_bp`. Both are documented outcomes, so a short panel
+    # is reported and does not refuse the panel. Measured on the bundled
+    # plasmid example, the delivered panel is short at every requested size,
+    # which is why blocking on this would refuse ordinary runs.
     requested = getattr(request, "target_size", None)
     if requested and len(primers) < requested:
-        found.append(f"panel size {len(primers)} is below the requested {requested}")
+        found.append((f"panel size {len(primers)} is below the requested {requested}", ADVISORY))
 
     # Composition. Both are properties of the DELIVERED panel under the request
     # rather than admission rules applied during `filter`, which is what
@@ -188,7 +230,7 @@ def _panel_violations(request, primers) -> list:
         counts[oligo] = counts.get(oligo, 0) + 1
     repeated = sorted(oligo for oligo, count in counts.items() if count > 1)
     if repeated:
-        found.append(f"duplicate oligo in the delivered panel: {', '.join(repeated)}")
+        found.append((f"duplicate oligo in the delivered panel: {', '.join(repeated)}", BLOCKING))
 
     # The request names what must not be selected. A candidate pool that was
     # never filtered against it can reach the optimizer through expand-primers
@@ -197,7 +239,7 @@ def _panel_violations(request, primers) -> list:
     excluded = set(getattr(request, "excluded_oligos", ()) or ())
     reinjected = sorted(set(primers) & excluded)
     if reinjected:
-        found.append(f"excluded oligo in the delivered panel: {', '.join(reinjected)}")
+        found.append((f"excluded oligo in the delivered panel: {', '.join(reinjected)}", BLOCKING))
 
     # The delivered-heterodimer rule is `dimer.dimer_validation_issue`, asked
     # for rather than rewritten. This measured complementary runs itself and
@@ -212,7 +254,7 @@ def _panel_violations(request, primers) -> list:
 
     issue = dimer_validation_issue(list(primers), getattr(request, "max_dimer_bp", None))
     if issue is not None:
-        found.append(issue["detail"])
+        found.append((issue["detail"], BLOCKING))
     return found
 
 
@@ -300,8 +342,16 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
     # Hard properties of the delivered panel, each already enforced elsewhere
     # and brought here so one record can be believed. `objective` keeps owning
     # the CONFIGURED limits; these three are not configurable and never were.
-    violations = list(objective.violations(primers)) if objective is not None else []
-    violations.extend(_panel_violations(request, primers))
+    # A configured limit is BLOCKING: a user drawing a line is asking for the
+    # panel to be refused when it is crossed, which is what
+    # `validation_record.limit_violation_issue` already does with these.
+    tagged: list[tuple[str, str]] = []
+    if objective is not None:
+        tagged.extend((detail, BLOCKING) for detail in objective.violations(primers))
+    tagged.extend(_panel_violations(request, primers))
+    violations = [detail for detail, _severity in tagged]
+    blocking = tuple(detail for detail, severity in tagged if severity == BLOCKING)
+    advisory = tuple(detail for detail, severity in tagged if severity == ADVISORY)
 
     notes = []
     if zero_background:
@@ -323,6 +373,8 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
         per_target=per_target,
         violations=tuple(violations),
         qualified=not violations,
+        blocking_violations=blocking,
+        advisory_violations=advisory,
         model_versions=tuple(getattr(request, "model_versions", ()) or ()),
         notes=tuple(notes),
         zero_background=zero_background,

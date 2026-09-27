@@ -350,3 +350,81 @@ def test_the_record_replaces_the_large_finite_sentinel():
     assert ratio.value is None
     assert ratio.unavailable == "zero denominator"
     assert "no exact-match site" in ratio.basis
+
+
+# ---------------------------------------------------------------------------
+# Severity: what may refuse a panel, and what may not
+# ---------------------------------------------------------------------------
+
+
+def test_a_short_panel_is_advisory_and_does_not_refuse_the_panel():
+    """`num_primers` is a request, so delivering fewer is a documented outcome.
+
+    This is the case that makes `qualified` unusable as a gate. Measured on the
+    bundled plasmid example at requested sizes 6 and 40, the delivered panel was
+    short both times, the validator reported ok with a warning, and `qualified`
+    was False. A gate on `qualified` would have refused two ordinary runs.
+    """
+    assessment = evaluate_panel(request(num_primers=9), PRIMERS, Metrics())
+
+    assert assessment.advisory_violations
+    assert any("below the requested" in v for v in assessment.advisory_violations)
+    assert assessment.blocking_violations == ()
+    assert assessment.acceptable is True
+    # And it is still recorded as a violation and still costs qualification.
+    assert assessment.qualified is False
+    assert assessment.violations == assessment.advisory_violations
+
+
+def test_a_duplicated_oligo_refuses_the_panel():
+    duplicated = (PRIMERS[0], PRIMERS[0])
+    assessment = evaluate_panel(request(num_primers=2), duplicated, Metrics())
+
+    assert any("duplicate oligo" in v for v in assessment.blocking_violations)
+    assert assessment.acceptable is False
+
+
+def test_a_configured_limit_refuses_the_panel():
+    assessment = evaluate_panel(
+        request(), PRIMERS, Metrics(), objective=Objective(("selectivity below minimum",))
+    )
+    assert assessment.blocking_violations == ("selectivity below minimum",)
+    assert assessment.acceptable is False
+
+
+def test_every_violation_is_classified_exactly_once():
+    """No violation may be silently unclassified, or counted twice.
+
+    A third severity added without a home would otherwise vanish from both
+    lists while still costing qualification, which is the shape of a check that
+    exists and does not run.
+    """
+    assessment = evaluate_panel(
+        request(num_primers=9),
+        (PRIMERS[0], PRIMERS[0]),
+        Metrics(),
+        objective=Objective(("a configured limit",)),
+    )
+    assert set(assessment.violations) == set(
+        assessment.blocking_violations + assessment.advisory_violations
+    )
+    assert len(assessment.violations) == len(assessment.blocking_violations) + len(
+        assessment.advisory_violations
+    )
+    assert not set(assessment.blocking_violations) & set(assessment.advisory_violations)
+
+
+def test_acceptable_and_qualified_are_not_the_same_question():
+    short = evaluate_panel(request(num_primers=9), PRIMERS, Metrics())
+    assert (short.qualified, short.acceptable) == (False, True)
+
+    clean = evaluate_panel(request(num_primers=len(PRIMERS)), PRIMERS, Metrics())
+    assert (clean.qualified, clean.acceptable) == (True, True)
+
+
+def test_the_saved_form_carries_the_split():
+    saved = evaluate_panel(request(num_primers=9), PRIMERS, Metrics()).as_dict()
+    assert saved["acceptable"] is True
+    assert saved["qualified"] is False
+    assert saved["advisory_violations"]
+    assert saved["blocking_violations"] == []

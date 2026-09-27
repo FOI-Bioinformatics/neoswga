@@ -12,6 +12,11 @@ import os
 
 import pandas as pd
 
+from neoswga.core.atomic_output import (
+    atomic_write_dataframe,
+    atomic_write_json,
+)
+
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus
 from .dimer import worst_heterodimer
@@ -104,7 +109,7 @@ def save_results(
             )
 
     df = pd.DataFrame(records)
-    df.to_csv(output_path, index=False)
+    atomic_write_dataframe(output_path, df, index=False)
     logger.info(f"Results saved to {output_path}")
 
     # Write summary JSON alongside CSV
@@ -165,8 +170,7 @@ def save_results(
         except Exception as exc:
             logger.debug(f"Could not measure the delivered pool's dimers: {exc}")
 
-        with open(summary_path, "w") as f:
-            json.dump(summary, f, indent=2, default=str)
+        atomic_write_json(summary_path, summary, indent=2, default=str)
         logger.info(f"Summary saved to {summary_path}")
     except Exception as e:
         logger.warning(f"Could not write summary JSON: {e}")
@@ -202,5 +206,6 @@ def _write_validation_report(validation):
     if not data_dir:
         logger.debug("No data_dir configured; skipping the validation report")
         return
-    with open(os.path.join(data_dir, "step4_improved_df_validation.json"), "w") as fh:
-        _json.dump(validation, fh, indent=2)
+    atomic_write_json(
+        os.path.join(data_dir, "step4_improved_df_validation.json"), validation, indent=2
+    )

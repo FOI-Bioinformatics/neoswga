@@ -949,8 +949,27 @@ Three rules it enforces, each for a failure this project has seen the shape of:
   and why, and keeps the site count. The sentinel is left in place because
   changing it moves every saved summary.
 
-It is NOT yet routed through the optimizer, the acceptance path or the report.
-Those still assemble their own answers, which is the rest of Task 5.
+**The REPORT reads it as of 2026-09-27**, so a rendered figure and a stored one
+cannot come from different arithmetic. `report/metrics.py` applies the
+assessment LAST, after its own estimate and after the summary JSON, and a
+quantity the assessment marks unavailable CLEARS the rendered field rather than
+falling back to an estimate -- the report's own coverage guess is primers times
+30 kb over genome length, which saturates at 1.0 on a small target.
+
+What that caught: the summary carries `selectivity_ratio: 1000000.0` beside
+`total_bg_sites: 0`, the MAX_SELECTIVITY sentinel, and the report rendered the
+million as a specificity. It now renders nothing there and says why.
+
+`qualified` still gates nothing, and the reason is now MEASURED rather than
+feared. It is the absence of every violation including a panel shorter than
+requested, and `num_primers` is a request. On the bundled plasmid example at
+requested sizes 6 and 40 the delivered panel was short both times, the
+validator said ok with a warning, and `qualified` was False -- so a gate on it
+would refuse two ordinary runs. Violations are tagged BLOCKING or ADVISORY at
+the site that raises them, and `acceptable` is what a gate may consult.
+
+The optimizer and the acceptance path still assemble their own answers, which
+is the rest of Task 5.
 
 `tests/test_coverage_independent_oracle.py` checks coverage against a
 base-by-base oracle written in that file. It calls neither
@@ -1016,17 +1035,28 @@ and it is None by default, so **by default there is no total bound at all.**
 ledger does not see, rather than leaving a reader to infer them from a count
 lower than they expected:
 
-- **proposal generation**: an optimizer scoring candidate panels through
-  `compute_metrics` directly rather than through the shared objective. Only
-  `clique` does this, in a loop bounded by its own `max_scored_sets`.
 - **final assessment**: one `compute_metrics` per stage once the panel is
   decided, deliberately uncharged so reporting cannot consume a search's
   allowance.
 
+**Proposal generation left that list on 2026-09-27.** `clique` scored the top
+`max_scored_sets` dimer-free sets through `compute_metrics` directly, which the
+allowance could not see, so a user setting `total_search_evaluations` would find
+the run spending past it. `run_panel_search` now attaches the ledger through
+`attach_search_config` and that loop consumes it; exhaustion keeps the best set
+scored so far rather than failing, because spending an allowance is a recorded
+stopping point. `max_scored_sets` remains, bounding the method's own cost.
+
+The ratchet's DETECTOR was refined rather than its allowlist reworded: a loop
+that evaluates panels is accepted only when the spend is INSIDE that loop, so
+one `consume()` elsewhere in the function cannot excuse an unmetered scan. Four
+tests drive it on source written in the test file, because a refinement that
+turned the ratchet off would otherwise be invisible.
+
 `tests/test_search_budget_contract.py` holds the ratchet.
 `UNCOUNTED_SEARCH_LOOPS` lists every function that evaluates panels in a loop
 outside the objective, with its reason and the bound that does apply, and the
-list can only shrink. A call made ONCE per stage is final assessment and is
+list can only shrink. **It is empty as of 2026-09-27.** A call made ONCE per stage is final assessment and is
 not flagged; one inside a `for` or `while` is search work, and search work the
 ledger cannot see is what the check is for. Verified load-bearing by wrapping
 an existing single call in a loop, which fails it.
