@@ -1063,6 +1063,20 @@ a handler for something that could not happen -- which is the tell, since it
 was written believing the ledger was in force. It now takes the run's budget
 and binds it around each attempt.
 
+**The binding does not yet bound anything, and the commit that added it
+overstated the case.** It said alternatives then "spend the run's allowance
+instead of none". Measured afterwards: an alternative search calls
+`optimizer.optimize` and nothing else, and neither `dominating-set` nor
+`hybrid` evaluates the shared objective inside `optimize` -- 0 objective
+evaluations for both with a 5,000 allowance. So the hole is closed and nothing
+in production travels through it, and that `except` clause is still unreachable
+on the shipped methods. Routing alternatives through `run_panel_search` is what
+would earn the claim, and it is the remaining Task 6 item.
+`tests/test_the_allowance_holds_on_the_production_path.py` fails when
+`optimize` starts consulting the objective, so the claim is corrected in the
+same change that makes it true. This is "verify the deciding stage" again: a
+budget reaching the code is not a budget that bounds the answer.
+
 `tests/test_search_budget_contract.py` holds the ratchet.
 `UNCOUNTED_SEARCH_LOOPS` lists every function that evaluates panels in a loop
 outside the objective, with its reason and the bound that does apply, and the
