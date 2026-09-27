@@ -27,20 +27,34 @@ def test_highs_is_preferred_when_its_runtime_is_present(monkeypatch):
     assert ilp_solver.select_solver_name() == mip.HIGHS
 
 
-def test_cbc_is_the_fallback(monkeypatch):
-    monkeypatch.setattr(ilp_solver, "highs_is_available", lambda: False)
-    assert ilp_solver.select_solver_name() == mip.CBC
+def test_cbc_is_no_longer_the_silent_fallback(monkeypatch):
+    """Changed deliberately on 2026-09-27; this test asserted the old policy.
 
+    CBC was substituted with a warning. A warning that precedes a SIGKILL is
+    never read in context: the process dies with no traceback, so the user sees
+    a killed command and no reason to connect it to a log line. Refusing costs
+    one `pip install highsbox` and says so.
 
-def test_falling_back_says_why_and_how_to_fix_it(monkeypatch, caplog):
-    """Unconditional, because every supported interpreter is one where CBC has
-    been measured to die. A 3.13 version guard here was dead code once
-    `requires-python` became ">=3.13", and ruff said so."""
+    The behaviour it used to pin now lives behind an explicit request; see
+    `tests/test_the_solver_is_not_substituted_silently.py`.
+    """
+    from neoswga.core.exceptions import UnsupportedModelError
+
     monkeypatch.setattr(ilp_solver, "highs_is_available", lambda: False)
-    with caplog.at_level(logging.WARNING):
+    monkeypatch.delenv(ilp_solver._ALLOW_CBC_ENV, raising=False)
+    with pytest.raises(UnsupportedModelError):
         ilp_solver.select_solver_name()
-    assert "highsbox" in caplog.text, "the warning must name the package that fixes it"
-    assert "SIGKILL" in caplog.text, "and what it is warning about"
+
+
+def test_an_explicit_request_for_cbc_still_says_why_it_is_risky(monkeypatch, caplog):
+    """The fatality measurement is one platform, so the opt-in exists -- and it
+    still states what was measured, because asking for CBC is not the same as
+    knowing it is safe here."""
+    monkeypatch.setattr(ilp_solver, "highs_is_available", lambda: False)
+    monkeypatch.setenv(ilp_solver._ALLOW_CBC_ENV, "1")
+    with caplog.at_level(logging.WARNING):
+        assert ilp_solver.select_solver_name() == mip.CBC
+    assert "SIGKILL" in caplog.text, "the warning must say what it is warning about"
 
 
 def test_the_preferred_path_is_quiet(monkeypatch, caplog):

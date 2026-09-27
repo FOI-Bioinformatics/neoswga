@@ -2432,7 +2432,13 @@ package, because nothing in the search uses it.
     terminates the interpreter with SIGKILL -- no exception, no traceback, no
     stderr -- measured on macOS arm64 with mip 2.0.0 and cbcbox 2.935. The same
     versions on 3.11 solve the same models in 0.34 s. `core/ilp_solver.py`
-    prefers HiGHS, which works on both, and falls back to CBC with a warning.
+    prefers HiGHS, which works on both, and **refuses rather than falling back**
+    as of 2026-09-27: a warning that precedes a SIGKILL is never read in
+    context, because the process dies with no traceback and the user has no
+    reason to connect a killed command to a log line. Refusing costs one
+    `pip install highsbox` and names it. The fatality measurement is ONE
+    platform, so `NEOSWGA_ALLOW_CBC=1` asks for CBC explicitly, which is a
+    request rather than a substitution nobody made.
     The fallback is deliberately unprobed: a probe would construct a CBC model,
     which is the operation that kills the process, so nothing in process can
     tell a working CBC from a fatal one.
