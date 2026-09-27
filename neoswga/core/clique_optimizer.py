@@ -46,6 +46,7 @@ from .base_optimizer import (
 )
 from .dimer import heterodimer_matrix_fast, is_dimer_fast
 from .optimizer_factory import OptimizerFactory
+from .search_control import SearchBudgetExhausted
 
 logger = logging.getLogger(__name__)
 
@@ -411,8 +412,31 @@ class CliqueOptimizer(BaseOptimizer):
         best_score = float("-inf")
         best_metrics = None
 
+        # Charged against the SHARED ledger when the service attached one, so
+        # this loop is no longer search work the allowance cannot see. It stays
+        # bounded by `max_scored_sets` as well: that bound is about this
+        # method's own cost and the ledger is about the run's.
+        #
+        # Exhaustion returns the best set scored SO FAR rather than failing.
+        # Spending an allowance is a recorded stopping point, which is why
+        # `SearchBudgetExhausted` sits outside the `DesignError` family, and a
+        # panel already measured is a valid incumbent.
+        budget = getattr(self, "search_budget", None)
+        scored = 0
         for full_set in shortlist:
+            if budget is not None:
+                try:
+                    budget.consume()
+                except SearchBudgetExhausted:
+                    logger.info(
+                        "Search allowance spent after scoring %d of %d dimer-free "
+                        "sets; keeping the best found so far.",
+                        scored,
+                        len(shortlist),
+                    )
+                    break
             metrics = self.compute_metrics(full_set)
+            scored += 1
             score = metrics.normalized_score()
             if score > best_score:
                 best_score = score

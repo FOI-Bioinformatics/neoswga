@@ -381,6 +381,7 @@ def run_panel_search(request, initial_result=None):
     """Run panel stages across one shared candidate source and search allowance."""
     from .base_optimizer import OptimizationResult
     from .search_control import SearchBudget, search_frontiers
+    from .swap_refinement import attach_search_config
 
     budget = request.budget or SearchBudget.from_config(getattr(request.optimizer, "config", None))
     request = replace(request, budget=budget)
@@ -388,6 +389,11 @@ def run_panel_search(request, initial_result=None):
     if source is None:
         return _run_panel_stages(request, initial_result)
     optimizer = request.optimizer
+    # The ledger reaches the optimizer, so a proposal method that scores whole
+    # panels itself is charged like any other search work. `clique` is the one
+    # that does; it reads the attribute and keeps its own `max_scored_sets`
+    # bound as well, since that is about its own cost rather than the run's.
+    attach_search_config(optimizer, "search_budget", budget)
     objective = objective_for_optimizer(optimizer, request.constraints)
     cache = getattr(optimizer, "cache", None)
     if cache is not None:

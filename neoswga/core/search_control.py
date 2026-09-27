@@ -70,21 +70,25 @@ class SearchBudget:
     def describe(self):
         """What was spent, and what this ledger does not claim to have bounded.
 
-        `evaluation_scope` is narrow on purpose. Two kinds of work sit outside
+        `evaluation_scope` is narrow on purpose. One kind of work sits outside
         it and a reader comparing this count against a run's wall clock needs
         to know which:
 
-        - **Proposal effort.** An optimizer that scores candidate panels
-          through `compute_metrics` directly, rather than through the shared
-          objective, is doing real search work this counter never sees. The
-          `clique` method does exactly that, bounded by its own
-          `max_scored_sets`.
         - **Final assessment.** One `compute_metrics` per stage once the panel
           is decided. Deliberately uncharged, so that reporting cannot consume
           the allowance a search needs.
 
-        `uncounted_scopes` names both rather than leaving a reader to infer
-        them from a count that is lower than they expected.
+        **Proposal effort used to sit outside it too.** An optimizer scoring
+        candidate panels through `compute_metrics` directly, rather than
+        through the shared objective, was doing real search work this counter
+        never saw, and `clique` was the one that did. Since 2026-09-27 the
+        service attaches this ledger and that loop consumes it, so the count
+        includes it; `max_scored_sets` still bounds the method's own cost.
+        `tests/test_search_budget_contract.py` holds the ratchet, and its
+        detector accepts a loop only when the spend is inside the loop.
+
+        `uncounted_scopes` names what remains rather than leaving a reader to
+        infer it from a count that is lower than they expected.
         """
         return dict(
             evaluations=self.evaluations,
@@ -92,7 +96,7 @@ class SearchBudget:
             max_seconds=self.max_seconds,
             stop_reason=self.stop_reason,
             evaluation_scope="uncached_shared_objective",
-            uncounted_scopes=("proposal_generation", "final_assessment"),
+            uncounted_scopes=("final_assessment",),
             time_enforcement="cooperative",
         )
 
