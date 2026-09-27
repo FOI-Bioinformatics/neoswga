@@ -99,6 +99,41 @@ repository already records for the pair.
   harness reported 1,112 MB for the first arm and 54 MB for the next doing the
   same work. A per-arm figure needs one process per arm.
 
+## A defect the sweep then found in the search itself
+
+The allowances above straddle the point where `reduction` begins. Running them
+showed the stage delivering 12 primers at 1,020 and at 1,060 alike, which did
+not fit: at 1,060 it had 48 evaluations to spend and the first removal needs
+about 12.
+
+It was discarding them. `reduce_result` removes one primer per iteration and
+each smaller panel is a valid incumbent -- it met the coverage target and
+violated nothing, which is why it was accepted -- but the shared allowance can
+run out inside that loop, since `objective.coverage` is the budgeted call. The
+exception propagated out of the function, and `run_panel_search`'s `execute`
+returned the PRE-STAGE incumbent because it has no access to the stage's partial
+state.
+
+Measured on a controlled eight-primer panel with a twenty-evaluation allowance:
+two removals accepted, both thrown away. On the real design, before and after:
+
+| allowance | delivered before | delivered after |
+|---|---|---|
+| 1,020 | 12 | 12 (nothing found in 8 evaluations) |
+| 1,040 | 12 | **10** |
+| 1,060 | 12 | **8** |
+| 1,200 | 12 | **3** |
+
+So the answer that needed 2,000 evaluations now arrives at 1,200, because
+progress is no longer thrown away and re-attempted. **No default run changes**:
+`total_search_evaluations` is None by default, so there is no allowance to
+exhaust.
+
+The stop reason now distinguishes `shared_search_allowance` from
+`evaluation_budget`. One says the run is out of compute, the other that this
+loop reached its own per-stage bound while the run had more to give, and a
+reader deciding whether to raise a limit needs to know which.
+
 ## Not covered
 
 The task asks for more than this, and the rest is not done:

@@ -91,6 +91,8 @@ def reduce_result(
     result, optimizer, target_coverage, fixed_primers=(), min_size=1, diagnostics=None
 ):
     """Delete redundant primers without losing fixed oligos or panel limits."""
+    from .search_control import SearchBudgetExhausted
+
     objective = objective_for_optimizer(optimizer)
     if objective is None:
         return result
@@ -102,32 +104,47 @@ def reduce_result(
     deadline = time.monotonic() + seconds
     evaluations = 0
     removals = []
-    while len(current) > max(min_size, len(fixed)):
-        proposals = []
-        for primer in current:
-            if primer in fixed:
-                continue
-            if evaluations >= budget or time.monotonic() >= deadline:
+    # A removal this loop has already accepted is a valid smaller panel, and the
+    # SHARED allowance can run out mid-loop: `objective.coverage` is the
+    # budgeted call, so it raises from inside. Letting that propagate discarded
+    # every accepted removal and `run_panel_search`'s `execute` then returned
+    # the PRE-STAGE incumbent, because it has no access to this function's
+    # partial state. Measured on an 8-primer panel with a 20-evaluation
+    # allowance: two removals were accepted and both were thrown away.
+    #
+    # Caught here, where the incumbent lives, and the accumulated `current` is
+    # returned. `compute_metrics` below is final assessment and deliberately
+    # uncharged, so it cannot raise again.
+    spent_allowance = False
+    try:
+        while len(current) > max(min_size, len(fixed)):
+            proposals = []
+            for primer in current:
+                if primer in fixed:
+                    continue
+                if evaluations >= budget or time.monotonic() >= deadline:
+                    break
+                evaluations += 1
+                panel = [p for p in current if p != primer]
+                coverage = objective.coverage(panel)
+                if (
+                    coverage is not None
+                    and coverage >= target_coverage
+                    and not panel_violations(optimizer, panel)
+                ):
+                    proposals.append(panel)
+            if not proposals:
                 break
-            evaluations += 1
-            panel = [p for p in current if p != primer]
-            coverage = objective.coverage(panel)
-            if (
-                coverage is not None
-                and coverage >= target_coverage
-                and not panel_violations(optimizer, panel)
-            ):
-                proposals.append(panel)
-        if not proposals:
-            break
-        following = max(proposals, key=lambda panel: panel_rank(objective, panel))
-        removals.append(
-            {
-                "primer": next(p for p in current if p not in following),
-                "resulting_coverage": objective.coverage(following),
-            }
-        )
-        current = following
+            following = max(proposals, key=lambda panel: panel_rank(objective, panel))
+            removals.append(
+                {
+                    "primer": next(p for p in current if p not in following),
+                    "resulting_coverage": objective.coverage(following),
+                }
+            )
+            current = following
+    except SearchBudgetExhausted:
+        spent_allowance = True
     if diagnostics is not None:
         diagnostics.update(
             evaluations=evaluations,
@@ -135,9 +152,19 @@ def reduce_result(
             max_evaluations=budget,
             max_seconds=seconds,
             stop_reason=(
-                "evaluation_budget"
-                if evaluations >= budget
-                else "time_budget" if time.monotonic() >= deadline else "no_qualifying_deletion"
+                # The SHARED allowance is named apart from this stage's own
+                # per-stage bound, because they mean different things to a
+                # reader: one says the run is out of compute, the other that
+                # this loop reached its own limit while the run had more.
+                "shared_search_allowance"
+                if spent_allowance
+                else (
+                    "evaluation_budget"
+                    if evaluations >= budget
+                    else (
+                        "time_budget" if time.monotonic() >= deadline else "no_qualifying_deletion"
+                    )
+                )
             ),
         )
     if tuple(current) == tuple(result.primers):
