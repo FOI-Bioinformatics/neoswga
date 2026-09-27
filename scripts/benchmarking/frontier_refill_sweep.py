@@ -14,20 +14,14 @@ directory must have been through count-kmers, filter and score.
 See docs/validation/frontier_refill_2026-09-17.md.
 """
 
-import json
-import pathlib
-import sys
-import time
+import json, sys, time, pathlib
 
 DESIGN = pathlib.Path(
     sys.argv[2]
     if len(sys.argv) > 2
     else "examples/wolbachia_pool_design/objective_cost_2026-09-17/design"
 )
-from types import SimpleNamespace
-
 import pandas as pd
-
 from neoswga.core.base_optimizer import OptimizerConfig
 from neoswga.core.candidate_source import open_candidate_source
 from neoswga.core.optimizer_factory import OptimizerFactory
@@ -35,6 +29,7 @@ from neoswga.core.pool_planner import plan_pool
 from neoswga.core.position_cache import PositionCache
 from neoswga.core.reaction_conditions import ReactionConditions, build_reaction_conditions
 from neoswga.core.unified_optimizer import _ensure_optimizers_registered
+from types import SimpleNamespace
 
 FLOOR = float(sys.argv[1]) if len(sys.argv) > 1 else 40.0
 SIZES = [12]

@@ -16,10 +16,10 @@ import numpy as np
 
 from neoswga.core.base_optimizer import OptimizerConfig
 from neoswga.core.optimizer_factory import OptimizerFactory
-from neoswga.core.pool_planner import plan_pool
-from neoswga.core.position_cache import PositionCache
-from neoswga.core.thermodynamics import reverse_complement
 from neoswga.core.unified_optimizer import _ensure_optimizers_registered
+from neoswga.core.position_cache import PositionCache
+from neoswga.core.pool_planner import plan_pool
+from neoswga.core.thermodynamics import reverse_complement
 
 GENOME_LENGTH = 2_000_000
 N_CANDIDATES = 300

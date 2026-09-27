@@ -16,10 +16,7 @@ argument and defaults to a value that does bind.
 See docs/validation/what_actually_bounds_the_search_2026-09-17.md.
 """
 
-import json
-import pathlib
-import sys
-import time
+import json, sys, time, pathlib
 
 # The design directory to measure, and the selectivity density floor. A floor
 # nothing violates leaves the repair unattempted and the objective unused, which
@@ -31,7 +28,6 @@ DESIGN = pathlib.Path(
 )
 
 import pandas as pd
-
 from neoswga.core.base_optimizer import OptimizerConfig
 from neoswga.core.optimizer_factory import OptimizerFactory
 from neoswga.core.pool_planner import plan_pool

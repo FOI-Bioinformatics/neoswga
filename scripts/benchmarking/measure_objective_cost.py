@@ -5,12 +5,7 @@ or an optimisation. Above roughly 200 microseconds per call, scoring every
 candidate at every greedy step is not affordable at 491,836 candidates.
 """
 
-import json
-import pathlib
-import shutil
-import subprocess
-import sys
-import time
+import json, pathlib, shutil, subprocess, sys, time
 
 EX = pathlib.Path("examples/wolbachia_pool_design")
 OUT = EX / "objective_cost_2026-09-17"
@@ -47,7 +42,6 @@ def main():
     build()
     sys.path.insert(0, ".")
     import pandas as pd
-
     from neoswga.core.base_optimizer import OptimizerConfig
     from neoswga.core.optimizer_factory import OptimizerFactory
     from neoswga.core.pool_objective import PoolConstraints, PoolObjective

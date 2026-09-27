@@ -29,20 +29,16 @@ improvement can do better and Stage 1 is not the problem.
 Usage: achievable_density.py <design_dir> [sizes]
 """
 
-import json
-import pathlib
-import sys
-import time
+import json, pathlib, sys, time
 from types import SimpleNamespace
 
 DESIGN = pathlib.Path(sys.argv[1])
 SIZES = [int(x) for x in (sys.argv[2].split(",") if len(sys.argv) > 2 else ["12"])]
 
 import pandas as pd
-
 from neoswga.core.candidate_source import open_candidate_source
-from neoswga.core.mismatch_counts import mismatch_class_counts
 from neoswga.core.occupancy import default_mismatch_penalty, mismatch_tm, site_occupancy
+from neoswga.core.mismatch_counts import mismatch_class_counts
 from neoswga.core.reaction_conditions import ReactionConditions, build_reaction_conditions
 from neoswga.core.thermodynamics import calculate_enthalpy_entropy
 

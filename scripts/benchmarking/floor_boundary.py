@@ -24,10 +24,7 @@ minutes to build the position cache, so pass a short floor list for that mode.
 See docs/validation/retention_changes_no_delivered_panel_2026-09-17.md.
 """
 
-import json
-import pathlib
-import sys
-import time
+import json, pathlib, sys, time
 from types import SimpleNamespace
 
 DESIGN = pathlib.Path(sys.argv[1])
@@ -41,7 +38,6 @@ SIZE = 12
 SWAP_EVALS, SWAP_SECONDS, SCAN_WIDTH = 10_000, 10.0, 64
 
 import pandas as pd
-
 from neoswga.core.base_optimizer import OptimizerConfig
 from neoswga.core.candidate_source import open_candidate_source
 from neoswga.core.optimizer_factory import OptimizerFactory
