@@ -4,6 +4,35 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### The acceptance record is read, and the allowance sees every search
+
+#### CHANGED
+
+- **The quality report reads the saved panel assessment** instead of
+  recomputing each figure or taking it from the summary JSON. It caught a real
+  one: the summary carries the MAX_SELECTIVITY sentinel (1e6) when the host has
+  no observed site, and the report rendered that as a specificity. It now shows
+  nothing there and says the ratio is undefined for want of a denominator.
+- **Assessment violations carry a severity.** A panel shorter than requested is
+  advisory, since `num_primers` is a request; a duplicated oligo, a re-injected
+  excluded oligo, a delivered heterodimer and a missed configured limit are
+  blocking. `acceptable` is what a gate may consult; `qualified` is unchanged.
+- **The shared search allowance now counts the `clique` method's own scoring
+  loop.** A run that set `total_search_evaluations` could previously spend past
+  it. Exhaustion keeps the best panel scored so far.
+- **Step-4 results are published atomically.** A failed or interrupted write
+  leaves the previous file intact rather than a truncated one that a later
+  command reads as current.
+- A scoring call no longer re-reads `parameter.mismatch_penalty`; the optimizer
+  resolves it once per run.
+
+#### DOCUMENTATION
+
+- `docs/validation/design_release_gates.md` separates the software gate from
+  the empirical one, states the study design, and declares no acceptance
+  margin, since one must come from a pilot and be frozen before any outcome is
+  seen. It also reframes the 9-oligo/70.07% figure as a proxy result.
+
 ### Documentation
 
 - **The guides said Jellyfish was required.** It has not been the only option
