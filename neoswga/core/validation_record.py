@@ -34,7 +34,15 @@ __all__ = ["panel_assessment", "limit_violation_issue"]
 def panel_assessment(design_request, result, optimizer) -> dict[str, Any]:
     """The one acceptance record for the delivered panel, as a JSON dict.
 
-    Recorded, not consulted. `evaluate_panel` carries each metric WITH its
+    Recorded, and consulted by the REPORT since 2026-09-27, which reads each
+    figure back from here rather than recomputing it. It still gates nothing:
+    `blocking_violations` is what a gate would consult, and the disagreement
+    that stopped `qualified` being usable is now measured rather than feared --
+    on the bundled plasmid example at requested sizes 6 and 40 the delivered
+    panel was short both times, so `qualified` was False while the validator
+    said ok with a warning. A gate on it would refuse two ordinary runs.
+
+    `evaluate_panel` carries each metric WITH its
     units and the reach it was computed at, keeps an unavailable quantity apart
     from a measured zero, and refuses a non-finite required value. Until the
     resolved request reached `run_optimization` it had no production caller at
