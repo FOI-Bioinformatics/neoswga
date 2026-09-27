@@ -33,7 +33,13 @@ class SearchBudget:
     max_evaluations: int | None = None
     max_seconds: float | None = None
     evaluations: int = 0
-    started: float = field(default_factory=time.monotonic)
+    #: Read through the module at call time, NOT as `default_factory=time.monotonic`.
+    #: That form captures the function object when the dataclass is created, so
+    #: the start instant came from the real clock while `check` read whatever
+    #: `search_control.time` pointed at. A substituted clock therefore compared
+    #: two different time bases and the limit never fired, which is why the
+    #: cooperative time limit had no deterministic test until 2026-09-27.
+    started: float = field(default_factory=lambda: time.monotonic())
     stop_reason: str | None = None
 
     def __post_init__(self):

@@ -299,7 +299,7 @@ objective-evaluation limits and cooperative elapsed-time limits for the declared
 run scope; separate counters record proposal effort and reporting evaluations.
 
 - [ ] Add and run this exact-cap test, then production-path tests spanning proposal selection, repair, swaps, deletion, refills, ensemble methods and alternatives:
-      **Status:** PARTIAL: the ledger's own contract is pinned. Production-path tests across ensemble methods, refills and alternatives are not written, nor fake-clock time tests.
+      **Status:** PARTIAL (2026-09-27). Fake-clock time tests are DONE, and writing them found why they did not exist: `started` used `default_factory=time.monotonic`, which captures the function object at class creation, so a substituted clock compared two different time bases and the limit never fired. Also pinned: the count reaches its allowance exactly and never passes it, every termination carries a reason, and the cooperative enforcement is named rather than assumed. Still not written: production-path tests across ensemble methods, refills and alternatives.
 
 ```python
 import pytest
