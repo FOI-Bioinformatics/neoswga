@@ -118,6 +118,42 @@ def budgeted_objective(objective, budget):
         base.evaluation_budget = previous
 
 
+def _prepare_or_widen(source, prepare, records):
+    """Prepare the current frontier, widening past ones a screen empties.
+
+    `prepare` raises `NoCandidatesError` when a screen rejects every candidate
+    in a non-empty frontier, which is the right answer when there is nothing
+    else to reach: it names the screen and its threshold rather than letting an
+    optimizer complain about an empty list. It is the wrong answer while
+    candidates remain unexamined. On the Wolbachia design a frontier is about
+    2,000 candidates of some 492,000, so a screen emptying one frontier says
+    nothing about the next, and aborting there refuses a design over candidates
+    nobody looked at.
+
+    Each emptied frontier is recorded, so a reader can see that a widening
+    happened for this reason rather than inferring it from a refill count. The
+    refusal is re-raised only once no further frontier exists, and then it is
+    the LAST one, naming the screen that emptied the widest frontier reached.
+    """
+    from .exceptions import NoCandidatesError
+
+    while True:
+        try:
+            return prepare(source.frontier())
+        except NoCandidatesError as refusal:
+            records.append(
+                dict(
+                    frontier_size=len(list(source.frontier())),
+                    qualified=False,
+                    primers=[],
+                    seconds=0.0,
+                    screened_out=str(refusal),
+                )
+            )
+            if not source.advance(keep=()):
+                raise
+
+
 def search_frontiers(
     source,
     pool,
@@ -192,8 +228,16 @@ def search_frontiers(
         if source is None or not source.advance(keep=keep):
             reason = "inventory_exhausted"
             break
-        pool = prepare(source.frontier())
         refills += 1
+        pool = _prepare_or_widen(source, prepare, records)
+        if pool is None:
+            # Every frontier this loop was allowed to reach was emptied by a
+            # screen. `_prepare_or_widen` re-raised the last refusal, so this
+            # is unreachable; the branch is here so a future change that
+            # returns None instead of raising cannot silently continue with no
+            # candidates.
+            reason = "frontier_screened_out"
+            break
     if qualified_seen and reason != "qualified":
         # It qualified and then kept looking, so the loop ended on its budget
         # or its refill cap. Both facts matter: a reader must not read
