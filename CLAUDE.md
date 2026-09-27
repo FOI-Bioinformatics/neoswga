@@ -1053,6 +1053,16 @@ one `consume()` elsewhere in the function cannot excuse an unmetered scan. Four
 tests drive it on source written in the test file, because a refinement that
 turned the ratchet off would otherwise be invisible.
 
+**Alternatives escaped the ledger entirely until 2026-09-27.**
+`budgeted_objective` restores the previous binding when it exits, correctly for
+a context manager, so once `run_panel_search` returned the evaluator was
+unbound and `collect_alternative_sets` searched each alternative with no budget
+at all. A run declaring `total_search_evaluations` could spend past it once per
+alternative, and that function's own `except SearchBudgetExhausted` clause was
+a handler for something that could not happen -- which is the tell, since it
+was written believing the ledger was in force. It now takes the run's budget
+and binds it around each attempt.
+
 `tests/test_search_budget_contract.py` holds the ratchet.
 `UNCOUNTED_SEARCH_LOOPS` lists every function that evaluates panels in a loop
 outside the objective, with its reason and the bound that does apply, and the

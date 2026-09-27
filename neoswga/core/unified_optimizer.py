@@ -1125,6 +1125,9 @@ def run_optimization(
             target_size=target_size,
             max_sets=_max_sets,
             max_iterations=getattr(config, "max_iterations", 8),
+            # The run's allowance, so alternatives cannot spend past a declared
+            # total. Without it each alternative searched unbounded.
+            budget=search_budget,
         )
         if verbose and len(_LAST_PRIMER_SETS) > 1:
             logger.info(f"max_sets={_max_sets}: offering {len(_LAST_PRIMER_SETS)} distinct sets")

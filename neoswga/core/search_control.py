@@ -328,8 +328,19 @@ def resolve_search_settings(data):
 # unaffected.
 
 
+def _objective_of(optimizer):
+    """The objective an alternative search spends against, or None.
+
+    The same attribute `swap_refinement` attaches and reads, so binding a budget
+    here binds it to the object the search actually evaluates through. None
+    leaves `budgeted_objective` a no-op, which is what an unconstrained run
+    wants.
+    """
+    return getattr(optimizer, "pool_objective", None)
+
+
 def collect_alternative_sets(
-    primary, optimizer, candidates, target_size, max_sets=1, max_iterations=8
+    primary, optimizer, candidates, target_size, max_sets=1, max_iterations=8, budget=None
 ):
     """Up to `max_sets` distinct primer sets, best first.
 
@@ -364,7 +375,15 @@ def collect_alternative_sets(
         if len(remaining) < target_size:
             break
         try:
-            result = optimizer.optimize(remaining, target_size)
+            # Under the RUN's allowance, not outside it. `budgeted_objective`
+            # restores the previous binding when `run_panel_search` returns, so
+            # every alternative used to search with no budget bound at all:
+            # a run could spend far past its declared `total_search_evaluations`
+            # here, and the `SearchBudgetExhausted` clause below was a handler
+            # for something that could not happen. Both ends existed and the
+            # path did not.
+            with budgeted_objective(_objective_of(optimizer), budget):
+                result = optimizer.optimize(remaining, target_size)
         except DesignError:
             # Identical policy, and for the identical reason, to the ensemble
             # path below: a failed calculation, a missing reference answer or
