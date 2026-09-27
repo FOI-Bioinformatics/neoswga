@@ -33,6 +33,7 @@ import time
 # macOS reports ru_maxrss in bytes, Linux in kilobytes.
 _RSS_SCALE = 1 if sys.platform == "darwin" else 1024
 
+
 def _tool(name, env_var):
     """Resolve a binary from PATH, or from an explicit override.
 
@@ -94,17 +95,33 @@ def run_jellyfish(genome, k, threads, workdir):
     txt = os.path.join(workdir, "j.txt")
     size = max(1_000_000, os.path.getsize(genome) // 10)  # neoswga's own guess
     t_count, rss = _run(
-        [JELLYFISH, "count", "-m", str(k), "-s", str(size), "-t", str(threads),
-         "-C", genome, "-o", jf]
+        [
+            JELLYFISH,
+            "count",
+            "-m",
+            str(k),
+            "-s",
+            str(size),
+            "-t",
+            str(threads),
+            "-C",
+            genome,
+            "-o",
+            jf,
+        ]
     )
     start = time.perf_counter()
     with open(txt, "w") as fh:
         subprocess.run([JELLYFISH, "dump", "-c", jf], check=True, stdout=fh)
     t_dump = time.perf_counter() - start
     return {
-        "count_s": t_count, "dump_s": t_dump, "total_s": t_count + t_dump,
-        "peak_rss": rss, "distinct": _distinct(txt),
-        "db_bytes": os.path.getsize(jf), "txt_bytes": os.path.getsize(txt),
+        "count_s": t_count,
+        "dump_s": t_dump,
+        "total_s": t_count + t_dump,
+        "peak_rss": rss,
+        "distinct": _distinct(txt),
+        "db_bytes": os.path.getsize(jf),
+        "txt_bytes": os.path.getsize(txt),
         "hash_size": size,
     }
 
@@ -129,13 +146,15 @@ def run_kmc(genome, k, threads, workdir):
     start = time.perf_counter()
     subprocess.run([backend.binary("kmc_dump"), db, txt], check=True, capture_output=True)
     t_dump = time.perf_counter() - start
-    db_bytes = sum(
-        os.path.getsize(db + suffix) for suffix in (".kmc_pre", ".kmc_suf")
-    )
+    db_bytes = sum(os.path.getsize(db + suffix) for suffix in (".kmc_pre", ".kmc_suf"))
     return {
-        "count_s": t_count, "dump_s": t_dump, "total_s": t_count + t_dump,
-        "peak_rss": rss, "distinct": _distinct(txt),
-        "db_bytes": db_bytes, "txt_bytes": os.path.getsize(txt),
+        "count_s": t_count,
+        "dump_s": t_dump,
+        "total_s": t_count + t_dump,
+        "peak_rss": rss,
+        "distinct": _distinct(txt),
+        "db_bytes": db_bytes,
+        "txt_bytes": os.path.getsize(txt),
         "hash_size": None,
     }
 
@@ -160,8 +179,10 @@ def main():
             f"db={r['db_bytes']/1e6:8.1f}MB txt={r['txt_bytes']/1e6:8.1f}MB "
             f"distinct={r['distinct']:,}"
         )
-    print(f"  AGREE on distinct k-mers: {agree}"
-          + ("" if agree else f"  jellyfish={j['distinct']:,} kmc={m['distinct']:,}"))
+    print(
+        f"  AGREE on distinct k-mers: {agree}"
+        + ("" if agree else f"  jellyfish={j['distinct']:,} kmc={m['distinct']:,}")
+    )
     if not agree:
         raise SystemExit("the two tools counted different things; the timings are not comparable")
 

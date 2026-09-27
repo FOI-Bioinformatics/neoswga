@@ -10,6 +10,7 @@ noise, four seeds. A direction, not a calibrated magnitude for a real profile.
 
     python clamped_tail_fit.py
 """
+
 import sys
 
 import numpy as np
@@ -26,8 +27,10 @@ DEPTH_SCALE = 30
 
 def main(seeds=(7, 11, 23, 41)) -> None:
     starts = [0, REC1]
-    print(f"Prevotella geometry: {REC1:,} + {REC2:,} = {TOTAL:,} bp; "
-          f"clamping fabricates {REC2 / TOTAL:.1%} of the array")
+    print(
+        f"Prevotella geometry: {REC1:,} + {REC2:,} = {TOTAL:,} bp; "
+        f"clamping fabricates {REC2 / TOTAL:.1%} of the array"
+    )
     for seed in seeds:
         rng = np.random.default_rng(seed)
         positions = sorted(rng.integers(0, TOTAL, N_SITES).tolist())

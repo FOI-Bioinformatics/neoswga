@@ -156,12 +156,12 @@ def _solve(
     return BoundResult(
         budget=budget,
         kind="lp" if relax else "ilp",
-        coverage=(objective / total_bases if total_bases else 0.0)
-        if objective is not None
-        else None,
-        coverage_upper_bound=(bound / total_bases if total_bases else 0.0)
-        if bound is not None
-        else None,
+        coverage=(
+            (objective / total_bases if total_bases else 0.0) if objective is not None else None
+        ),
+        coverage_upper_bound=(
+            (bound / total_bases if total_bases else 0.0) if bound is not None else None
+        ),
         objective_bases=objective,
         selected=selected,
         proven_optimal=(status.name == "OPTIMAL"),

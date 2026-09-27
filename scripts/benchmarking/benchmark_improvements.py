@@ -17,11 +17,12 @@ Usage:
 """
 
 import argparse
-import time
-import numpy as np
-import sys
 import os
-from typing import List, Dict
+import sys
+import time
+from typing import Dict, List
+
+import numpy as np
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -38,23 +39,23 @@ def test_gc_filter_fix():
 
     # Test organisms
     test_cases = [
-        ('Wolbachia', 0.35),
-        ('E. coli K12', 0.51),
-        ('Caulobacter crescentus', 0.67),
+        ("Wolbachia", 0.35),
+        ("E. coli K12", 0.51),
+        ("Caulobacter crescentus", 0.67),
     ]
 
     test_primers = [
-        'AAAATTTT',  # 0% GC
-        'AATATAAA',  # 12.5% GC
-        'ATATGCAT',  # 37.5% GC (old threshold min)
-        'ATCGATCG',  # 50% GC
-        'CGCGCGCG',  # 100% GC
-        'GCGCATGC',  # 75% GC
+        "AAAATTTT",  # 0% GC
+        "AATATAAA",  # 12.5% GC
+        "ATATGCAT",  # 37.5% GC (old threshold min)
+        "ATCGATCG",  # 50% GC
+        "CGCGCGCG",  # 100% GC
+        "GCGCATGC",  # 75% GC
     ]
 
     print("Test primers (by GC%):")
     for primer in test_primers:
-        gc = sum(1 for b in primer if b in 'GC') / len(primer)
+        gc = sum(1 for b in primer if b in "GC") / len(primer)
         print(f"  {primer}: {gc:.3f}")
 
     print("\n" + "-" * 80)
@@ -66,7 +67,7 @@ def test_gc_filter_fix():
         # Old filter (fixed thresholds)
         old_passed = []
         for primer in test_primers:
-            gc = sum(1 for b in primer if b in 'GC') / len(primer)
+            gc = sum(1 for b in primer if b in "GC") / len(primer)
             if 0.375 <= gc <= 0.625:  # Fixed!
                 old_passed.append(primer)
 
@@ -80,7 +81,9 @@ def test_gc_filter_fix():
         else:
             print(f"  **FAILS - NO PRIMERS ACCEPTED**")
 
-        print(f"New filter ({new_filter.gc_min:.3f}-{new_filter.gc_max:.3f}): {len(new_passed)}/6 passed")
+        print(
+            f"New filter ({new_filter.gc_min:.3f}-{new_filter.gc_max:.3f}): {len(new_passed)}/6 passed"
+        )
         print(f"  Passed: {new_passed}")
 
         improvement = len(new_passed) - len(old_passed)
@@ -103,7 +106,7 @@ def test_position_cache_speedup():
     print("\nDemonstrates I/O bottleneck elimination\n")
 
     # Check if example data exists
-    example_data = 'examples/plasmid_example'
+    example_data = "examples/plasmid_example"
     if not os.path.exists(example_data):
         print("⚠ Example data not found. Skipping test.")
         print(f"  Expected: {example_data}")
@@ -152,9 +155,9 @@ def test_background_filter_capability():
 
     # Simulate genome sizes
     genomes = [
-        ('Bacterial genome', 5e6, '5 MB HDF5'),
-        ('Human genome', 3e9, '**170 GB HDF5 (infeasible)**'),
-        ('Tick genome', 2.1e9, '**120 GB HDF5 (infeasible)**'),
+        ("Bacterial genome", 5e6, "5 MB HDF5"),
+        ("Human genome", 3e9, "**170 GB HDF5 (infeasible)**"),
+        ("Tick genome", 2.1e9, "**120 GB HDF5 (infeasible)**"),
     ]
 
     print("Storage requirements:\n")
@@ -180,16 +183,16 @@ def test_background_filter_capability():
     bloom = BackgroundBloomFilter(capacity=int(human_size), error_rate=0.01)
 
     # Add some k-mers (simulated)
-    human_kmers = ['ATCGATCG', 'GCGCGCGC', 'AAAAAAAA', 'TTTTTTTT']
+    human_kmers = ["ATCGATCG", "GCGCGCGC", "AAAAAAAA", "TTTTTTTT"]
     for kmer in human_kmers:
         bloom.add(kmer)
 
     # Test primers
     test_primers = [
-        'ATCGATCG',  # In human genome
-        'TACGTACG',  # Not in human genome
-        'GCGCGCGC',  # In human genome
-        'CAGTCAGT',  # Not in human genome
+        "ATCGATCG",  # In human genome
+        "TACGTACG",  # Not in human genome
+        "GCGCGCGC",  # In human genome
+        "CAGTCAGT",  # Not in human genome
     ]
 
     print(f"\nTest primers against simulated human genome:")
@@ -244,7 +247,9 @@ def test_network_vs_ratio():
 
     print("\n" + "-" * 80)
     print("\nOld method (ratio-based):")
-    print(f"  Selects: Primer A (ratio {primer_a_fg_count/primer_a_bg_count:.3f} > {primer_b_fg_count/primer_b_bg_count:.3f})")
+    print(
+        f"  Selects: Primer A (ratio {primer_a_fg_count/primer_a_bg_count:.3f} > {primer_b_fg_count/primer_b_bg_count:.3f})"
+    )
     print(f"  Predicted enrichment: ~10× (linear amplification)")
 
     print("\nNew method (network-based):")
@@ -270,31 +275,31 @@ def test_overall_comparison():
     # Simulated benchmark results
     scenarios = [
         {
-            'name': 'E. coli (50% GC) vs. Human',
-            'old_runtime': 300,
-            'new_runtime': 30,
-            'old_enrichment': 50,
-            'new_enrichment': 5000,
-            'old_memory': 170,
-            'new_memory': 8,
+            "name": "E. coli (50% GC) vs. Human",
+            "old_runtime": 300,
+            "new_runtime": 30,
+            "old_enrichment": 50,
+            "new_enrichment": 5000,
+            "old_memory": 170,
+            "new_memory": 8,
         },
         {
-            'name': 'Wolbachia (35% GC) vs. Human',
-            'old_runtime': None,  # FAILS
-            'new_runtime': 35,
-            'old_enrichment': None,
-            'new_enrichment': 3000,
-            'old_memory': None,
-            'new_memory': 8,
+            "name": "Wolbachia (35% GC) vs. Human",
+            "old_runtime": None,  # FAILS
+            "new_runtime": 35,
+            "old_enrichment": None,
+            "new_enrichment": 3000,
+            "old_memory": None,
+            "new_memory": 8,
         },
         {
-            'name': 'Caulobacter (67% GC) vs. Human',
-            'old_runtime': None,  # FAILS
-            'new_runtime': 40,
-            'old_enrichment': None,
-            'new_enrichment': 8000,
-            'old_memory': None,
-            'new_memory': 10,
+            "name": "Caulobacter (67% GC) vs. Human",
+            "old_runtime": None,  # FAILS
+            "new_runtime": 40,
+            "old_enrichment": None,
+            "new_enrichment": 8000,
+            "old_memory": None,
+            "new_memory": 10,
         },
     ]
 
@@ -302,7 +307,7 @@ def test_overall_comparison():
         print(f"\n{scenario['name']}")
         print("-" * 60)
 
-        if scenario['old_runtime'] is not None:
+        if scenario["old_runtime"] is not None:
             print(f"Old pipeline:")
             print(f"  Runtime: {scenario['old_runtime']:.0f}s")
             print(f"  Enrichment: {scenario['old_enrichment']:.0f}×")
@@ -313,9 +318,9 @@ def test_overall_comparison():
             print(f"  Enrichment: {scenario['new_enrichment']:.0f}×")
             print(f"  Memory: {scenario['new_memory']:.0f} GB")
 
-            speedup = scenario['old_runtime'] / scenario['new_runtime']
-            enrichment_improvement = scenario['new_enrichment'] / scenario['old_enrichment']
-            memory_reduction = scenario['old_memory'] / scenario['new_memory']
+            speedup = scenario["old_runtime"] / scenario["new_runtime"]
+            enrichment_improvement = scenario["new_enrichment"] / scenario["old_enrichment"]
+            memory_reduction = scenario["old_memory"] / scenario["new_memory"]
 
             print(f"\nImprovement:")
             print(f"  ✓ {speedup:.1f}× faster")
@@ -336,9 +341,9 @@ def test_overall_comparison():
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Benchmark improvements in new SWGA pipeline',
+        description="Benchmark improvements in new SWGA pipeline",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''
+        epilog="""
 Examples:
   %(prog)s --test all              Run all benchmarks
   %(prog)s --test gc_filter        Test GC filtering fix
@@ -346,12 +351,15 @@ Examples:
   %(prog)s --test background       Test background filtering
   %(prog)s --test network          Test network optimization
   %(prog)s --test comparison       Overall comparison
-        '''
+        """,
     )
 
-    parser.add_argument('--test', choices=['all', 'gc_filter', 'position_cache',
-                                           'background', 'network', 'comparison'],
-                       default='all', help='Which test to run')
+    parser.add_argument(
+        "--test",
+        choices=["all", "gc_filter", "position_cache", "background", "network", "comparison"],
+        default="all",
+        help="Which test to run",
+    )
 
     args = parser.parse_args()
 
@@ -361,7 +369,7 @@ Examples:
     print("╚" + "═" * 78 + "╝")
     print("\n")
 
-    if args.test == 'all':
+    if args.test == "all":
         test_gc_filter_fix()
         test_position_cache_speedup()
         test_background_filter_capability()
@@ -381,21 +389,21 @@ Examples:
         print("\nThe new pipeline is ready for production use!")
         print("=" * 80)
 
-    elif args.test == 'gc_filter':
+    elif args.test == "gc_filter":
         test_gc_filter_fix()
 
-    elif args.test == 'position_cache':
+    elif args.test == "position_cache":
         test_position_cache_speedup()
 
-    elif args.test == 'background':
+    elif args.test == "background":
         test_background_filter_capability()
 
-    elif args.test == 'network':
+    elif args.test == "network":
         test_network_vs_ratio()
 
-    elif args.test == 'comparison':
+    elif args.test == "comparison":
         test_overall_comparison()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

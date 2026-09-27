@@ -18,7 +18,12 @@ position indexes it reads are too large to commit.
 See docs/validation/parallelism_opportunities_2026-09-17.md.
 """
 
-import json, sys, time, pathlib, math
+import json
+import math
+import pathlib
+import sys
+import time
+
 import numpy as np
 
 DESIGN = pathlib.Path(
@@ -28,14 +33,15 @@ DESIGN = pathlib.Path(
 )
 
 import pandas as pd
+
 from neoswga.core.base_optimizer import OptimizerConfig
+from neoswga.core.coverage import _mark_window
+from neoswga.core.occupancy import site_occupancy
 from neoswga.core.optimizer_factory import OptimizerFactory
 from neoswga.core.position_cache import PositionCache
 from neoswga.core.reaction_conditions import ReactionConditions
-from neoswga.core.unified_optimizer import _ensure_optimizers_registered
-from neoswga.core.coverage import _mark_window
-from neoswga.core.occupancy import site_occupancy
 from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+from neoswga.core.unified_optimizer import _ensure_optimizers_registered
 
 params = json.loads((DESIGN / "params.json").read_text())
 candidates = list(dict.fromkeys(pd.read_csv(DESIGN / "step3_df.csv")["primer"]))

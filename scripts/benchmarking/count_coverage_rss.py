@@ -6,6 +6,7 @@ must therefore be its own process; this script measures one and prints a row.
 
     for L in 5000000 20000000 40000000; do python count_coverage_rss.py $L; done
 """
+
 import gc
 import os
 import resource
@@ -18,8 +19,7 @@ import pysam
 def measure(length: int) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "one.bam")
-        header = {"HD": {"VN": "1.6", "SO": "coordinate"},
-                  "SQ": [{"SN": "big", "LN": length}]}
+        header = {"HD": {"VN": "1.6", "SO": "coordinate"}, "SQ": [{"SN": "big", "LN": length}]}
         with pysam.AlignmentFile(path, "wb", header=header) as out:
             read = pysam.AlignedSegment()
             read.query_name = "r"
@@ -41,8 +41,10 @@ def measure(length: int) -> None:
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
         delta = peak - base  # bytes on macOS; KiB on Linux -- scale there
-        print(f"{length:>12,} bp   peak delta {delta:>15,} B   "
-              f"{delta / length:>6.1f} B/base   result {depth.nbytes / length:.1f} B/base")
+        print(
+            f"{length:>12,} bp   peak delta {delta:>15,} B   "
+            f"{delta / length:>6.1f} B/base   result {depth.nbytes / length:.1f} B/base"
+        )
 
 
 if __name__ == "__main__":

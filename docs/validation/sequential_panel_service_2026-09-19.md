@@ -1,5 +1,13 @@
 # Sequential panel-stage check, 19 September 2026
 
+
+> **Superseded method.** The figures below come from a per-stage budget,
+> so each arm received different total compute and a difference between
+> them cannot be attributed to the search. Under equal allowances the
+> reduction stage can be starved by refinement entirely. See
+> [equal_allowance_comparison_2026-09-27.md](equal_allowance_comparison_2026-09-27.md).
+> Read the coverage figures here as proxy results, which is what they are.
+
 An exploratory comparison on the saved Wolbachia wMel 12-mer candidate pool,
 using Drosophila as background. The run used 2,000 saved candidates, a 70%
 effective-coverage target for reduction and an explicit selectivity-density

@@ -16,7 +16,10 @@ See docs/validation/objective_evaluation_cost_2026-09-17.md and
 docs/validation/parallelism_opportunities_2026-09-17.md.
 """
 
-import json, sys, time, pathlib
+import json
+import pathlib
+import sys
+import time
 
 # The design directory to measure. Override with argv[1].
 DESIGN = pathlib.Path(
@@ -26,6 +29,7 @@ DESIGN = pathlib.Path(
 )
 
 import pandas as pd
+
 from neoswga.core.base_optimizer import OptimizerConfig
 from neoswga.core.optimizer_factory import OptimizerFactory
 from neoswga.core.pool_objective import PoolConstraints, PoolObjective

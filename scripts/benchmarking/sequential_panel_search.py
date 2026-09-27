@@ -1,7 +1,20 @@
-"""Compare a shared-objective pass with sequential reduction on a saved design.
+"""SUPERSEDED. Use `equal_allowance_comparison.py` instead.
 
-Both start from the same proposal. Budgets are per stage, not equal total
-compute; timings and actual evaluation counts are reported for that reason.
+Kept because `docs/validation/sequential_panel_service_2026-09-19.md` quotes
+figures this script produced, and deleting it would leave that record
+unreproducible. Do not draw new conclusions from it.
+
+Why it is superseded, in its own original words: "Budgets are per stage, not
+equal total compute". An arm running more stages was handed more compute, so a
+difference in its panel could not be attributed to the search. It also ran one
+unseeded configuration, and it built one proposal OUTSIDE the timed region and
+shared it between arms, which understates the cost of the arm that needed it.
+
+Measured consequence, from
+docs/validation/equal_allowance_comparison_2026-09-27.md: under a SHARED
+allowance the reduction stage can be starved by refinement before it runs at
+all, and at 400 evaluations it delivers 12 primers where at 8,000 it delivers 3.
+Reading the first as a fact about reduction would be reading the allowance.
 """
 
 import argparse

@@ -17,7 +17,12 @@ control -- the thing the invalid existence proof lacked.
 Usage: tension.py <design_dir> [D]
 """
 
-import importlib.util, json, random, statistics, sys, pathlib
+import importlib.util
+import json
+import pathlib
+import random
+import statistics
+import sys
 
 DESIGN = pathlib.Path(sys.argv[1])
 D = float(sys.argv[2]) if len(sys.argv) > 2 else 70.0
@@ -28,6 +33,7 @@ sb = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sb)
 
 import pandas as pd
+
 from neoswga.core.base_optimizer import OptimizerConfig
 from neoswga.core.dimer_validator import DimerValidator
 from neoswga.core.optimizer_factory import OptimizerFactory

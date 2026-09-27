@@ -36,19 +36,22 @@ def run_one(workdir: Path, method: str, size: int, extra: list[str], tag: str) -
     (workdir / f"params_{tag}.json").write_text(json.dumps(params, indent=1))
 
     cmd = [
-        "neoswga", "optimize",
-        "-j", f"params_{tag}.json",
-        "--optimization-method", method,
-        "--num-primers", str(size),
-        "--seed", "42",
+        "neoswga",
+        "optimize",
+        "-j",
+        f"params_{tag}.json",
+        "--optimization-method",
+        method,
+        "--num-primers",
+        str(size),
+        "--seed",
+        "42",
         *extra,
     ]
 
     before = resource.getrusage(resource.RUSAGE_CHILDREN)
     start = time.time()
-    proc = subprocess.run(
-        cmd, cwd=workdir, capture_output=True, text=True, env={**os.environ}
-    )
+    proc = subprocess.run(cmd, cwd=workdir, capture_output=True, text=True, env={**os.environ})
     elapsed = time.time() - start
     after = resource.getrusage(resource.RUSAGE_CHILDREN)
 

@@ -23,13 +23,14 @@ logging.basicConfig(level=logging.WARNING)
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+from max_coverage_bound import build_bin_coverage, coverage_bounds  # noqa: E402
+
 from neoswga.core.coverage import polymerase_extension_reach  # noqa: E402
 from neoswga.core.dominating_set_optimizer import (  # noqa: E402
     DominatingSetOptimizer,
     coverage_bin_size,
 )
 from neoswga.core.position_cache import PositionCache  # noqa: E402
-from max_coverage_bound import build_bin_coverage, coverage_bounds  # noqa: E402
 
 WORK = sys.argv[1]
 SIZES = [int(s) for s in sys.argv[2].split(",")]
@@ -120,12 +121,14 @@ for S in SIZES:
         "ilp_proven_optimal": ilp.proven_optimal,
         "ilp_status": ilp.status,
         "ilp_seconds": round(ilp.seconds, 1),
-        "lp_bound": round(lp.coverage_upper_bound, 6)
-        if lp.coverage_upper_bound is not None
-        else None,
-        "gap_pct": round((ilp.coverage - greedy_cov) / ilp.coverage * 100, 3)
-        if ilp.proven_optimal and ilp.coverage
-        else None,
+        "lp_bound": (
+            round(lp.coverage_upper_bound, 6) if lp.coverage_upper_bound is not None else None
+        ),
+        "gap_pct": (
+            round((ilp.coverage - greedy_cov) / ilp.coverage * 100, 3)
+            if ilp.proven_optimal and ilp.coverage
+            else None
+        ),
         "unconstrained_random_median": round(rnd_med, 6),
         "unconstrained_random_best_of_n": round(rnd_best, 6),
         "unconstrained_random_beating_greedy": better,
