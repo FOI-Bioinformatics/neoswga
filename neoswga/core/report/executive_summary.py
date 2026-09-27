@@ -27,6 +27,7 @@ from neoswga.core.report.quality import (
     format_grade_display,
 )
 from neoswga.core.report.utils import (
+    CLAIM_LIMITS_CSS,
     ENRICHMENT_EXCELLENT_THRESHOLD,
     GRADE_DESCRIPTIONS,
     VALIDATION_BANNER_CSS,
@@ -37,6 +38,7 @@ from neoswga.core.report.utils import (
 )
 from neoswga.core.report.utils import get_version as _get_version
 from neoswga.core.report.utils import (
+    render_claim_limits,
     render_validation_banner,
 )
 from neoswga.core.report.visualizations import (
@@ -355,6 +357,9 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
         /* Validator warnings banner — shared CSS from report.utils */
         {validation_banner_css}
 
+        /* What the figures are — shared CSS from report.utils */
+        {claim_limits_css}
+
         /* Footer */
         .footer {{
             padding: 16px 30px;
@@ -410,6 +415,7 @@ EXECUTIVE_SUMMARY_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         {validation_banner_html}
+    {claim_limits_html}
 
         {ensemble_winner_html}
 
@@ -796,6 +802,10 @@ def render_executive_summary(summary: ExecutiveSummary, interactive: bool = Fals
             list(getattr(metrics, "validation_issues", []) or [])
         ),
         validation_banner_css=VALIDATION_BANNER_CSS,
+        # What the figures above are, from the saved assessment. Empty for a
+        # directory written before that record existed.
+        claim_limits_html=render_claim_limits(getattr(metrics, "panel_assessment", None)),
+        claim_limits_css=CLAIM_LIMITS_CSS,
     )
 
     return html

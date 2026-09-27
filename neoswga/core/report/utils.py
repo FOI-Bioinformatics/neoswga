@@ -317,3 +317,87 @@ def calculate_enrichment_bar_percent(enrichment: float) -> float:
         Percentage (0-100)
     """
     return min(100.0, (enrichment / ENRICHMENT_EXCELLENT_THRESHOLD) * 100)
+
+
+#: Styling for the limits section. Deliberately not alarming: these are the
+#: terms a figure is true under, not a warning that something went wrong.
+CLAIM_LIMITS_CSS = """
+        .claim-limits {
+            padding: 14px 30px;
+            border-top: 1px solid #e9ecef;
+            background: #f8f9fa;
+            font-size: 0.88em;
+            color: #495057;
+        }
+        .claim-limits h3 {
+            margin: 0 0 8px 0;
+            font-size: 1em;
+            color: #212529;
+        }
+        .claim-limits ul { margin: 4px 0 0 0; padding-left: 20px; }
+        .claim-limits li { margin: 3px 0; }
+        .claim-limits .unmeasured { color: #7d5a00; }
+"""
+
+
+def render_claim_limits(assessment: dict | None) -> str:
+    """What the figures above are, and what they are not.
+
+    Rendered from the saved panel assessment, which is the only record carrying
+    each quantity WITH the reach and denominator it was computed at, the
+    quantities it could not measure and why, and the evidence status of the
+    constants behind them. A report that shows a coverage percentage and says
+    nothing else invites it to be read as a predicted sequencing breadth, which
+    nothing in this project has ever measured.
+
+    Returns "" for a directory written before the assessment existed, so a
+    caller can splice it unconditionally. An empty string is the honest output
+    there: the older record cannot say what it did not store, and inventing the
+    caveats from elsewhere would attribute them to a measurement that did not
+    make them.
+    """
+    if not isinstance(assessment, dict):
+        return ""
+
+    metrics = assessment.get("metrics") or {}
+    items: list[str] = []
+
+    coverage = metrics.get("fg_coverage") if isinstance(metrics, dict) else None
+    if isinstance(coverage, dict) and coverage.get("basis"):
+        items.append(
+            f"Coverage is computed at {html_escape(str(coverage['basis']))}. "
+            "Figures at different reaches are not comparable."
+        )
+
+    for note in assessment.get("notes") or []:
+        items.append(html_escape(str(note)))
+
+    unmeasured = [
+        (name, entry.get("unavailable"))
+        for name, entry in sorted(metrics.items())
+        if isinstance(entry, dict) and entry.get("unavailable")
+    ]
+    for name, reason in unmeasured:
+        items.append(
+            f'<span class="unmeasured">{html_escape(name)} was not measured: '
+            f"{html_escape(str(reason))}. It is absent above rather than zero.</span>"
+        )
+
+    for violation in assessment.get("blocking_violations") or []:
+        items.append(f"Unmet requirement: {html_escape(str(violation))}.")
+    for violation in assessment.get("advisory_violations") or []:
+        items.append(f"{html_escape(str(violation))}. This is a documented outcome, not a defect.")
+
+    evidence = assessment.get("evidence") or {}
+    for name, status in sorted(evidence.items()) if isinstance(evidence, dict) else []:
+        items.append(f"{html_escape(name)}: {html_escape(str(status))}.")
+
+    if not items:
+        return ""
+
+    return (
+        '<div class="claim-limits">'
+        "<h3>What these figures are</h3><ul>"
+        + "".join(f"<li>{item}</li>" for item in items)
+        + "</ul></div>"
+    )
