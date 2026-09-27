@@ -32,6 +32,7 @@ from neoswga.core.report.quality import (
     calculate_quality_grade,
 )
 from neoswga.core.report.utils import (
+    CLAIM_LIMITS_CSS,
     VALIDATION_BANNER_CSS,
     escape_format_braces,
     get_grade_colors,
@@ -40,6 +41,7 @@ from neoswga.core.report.utils import (
 )
 from neoswga.core.report.utils import get_version as _get_version
 from neoswga.core.report.utils import (
+    render_claim_limits,
     render_validation_banner,
 )
 from neoswga.core.report.visualizations import (
@@ -1190,6 +1192,10 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             list(getattr(metrics, "validation_issues", []) or [])
         ),
         validation_banner_css=VALIDATION_BANNER_CSS,
+        # What the figures above are, from the saved assessment. Empty for a
+        # directory written before that record existed.
+        claim_limits_html=render_claim_limits(getattr(metrics, "panel_assessment", None)),
+        claim_limits_css=CLAIM_LIMITS_CSS,
     )
 
     return html
