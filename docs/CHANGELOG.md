@@ -4,6 +4,29 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### Reports say what their figures are, and the benchmark compares fairly
+
+#### ADDED
+
+- **Both reports now carry a "What these figures are" section**, rendered from
+  the saved panel assessment: the reach each figure was computed at, that
+  coverage is a geometric proxy and not a predicted sequencing breadth, every
+  quantity that could not be measured with its reason, blocking against
+  advisory violations, and the evidence status of the constants behind the
+  numbers.
+- **`scripts/benchmarking/equal_allowance_comparison.py`** replaces
+  `sequential_panel_search.py`, whose budgets were per stage rather than equal
+  total compute. Equal allowances immediately showed that the reduction stage
+  can be starved by refinement: at 400 evaluations it delivers 12 oligos and at
+  8,000 it delivers 3
+  (docs/validation/equal_allowance_comparison_2026-09-27.md).
+
+#### CHANGED
+
+- `docs/validation/sequential_panel_service_2026-09-19.md` carries a
+  superseded-method note. Its figures come from unequal per-arm compute, so a
+  difference between arms cannot be attributed to the search.
+
 ### The acceptance record is read, and the allowance sees every search
 
 #### CHANGED
