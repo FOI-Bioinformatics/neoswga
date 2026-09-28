@@ -74,6 +74,11 @@ def test_alternatives_spend_the_shared_allowance():
         max_sets=5,
         max_iterations=5,
         budget=budget,
+        # The bare route, named explicitly. This pins the exception POLICY of
+        # `collect_alternative_sets` with a fake too small to survive the whole
+        # service, and that policy is the same whichever route the search takes.
+        # `test_the_default_route_is_the_shared_contract` pins what production uses.
+        through_contract=False,
     )
 
     assert budget.evaluations > 0, (
@@ -98,6 +103,11 @@ def test_an_exhausted_allowance_stops_the_alternatives_and_keeps_the_primary():
         max_sets=5,
         max_iterations=5,
         budget=budget,
+        # The bare route, named explicitly. This pins the exception POLICY of
+        # `collect_alternative_sets` with a fake too small to survive the whole
+        # service, and that policy is the same whichever route the search takes.
+        # `test_the_default_route_is_the_shared_contract` pins what production uses.
+        through_contract=False,
     )
 
     assert sets[0] == tuple(pool[:4]), "the primary set must always stand"
@@ -118,6 +128,11 @@ def test_the_budget_clause_can_now_actually_fire():
         target_size=2,
         max_sets=3,
         budget=spent,
+        # The bare route, named explicitly. This pins the exception POLICY of
+        # `collect_alternative_sets` with a fake too small to survive the whole
+        # service, and that policy is the same whichever route the search takes.
+        # `test_the_default_route_is_the_shared_contract` pins what production uses.
+        through_contract=False,
     )
 
     assert sets == [("P0",)], "only the primary should survive an already-spent allowance"
@@ -138,6 +153,11 @@ def test_no_budget_leaves_the_search_unconstrained():
         target_size=4,
         max_sets=3,
         max_iterations=3,
+        # The bare route, named explicitly. This pins the exception POLICY of
+        # `collect_alternative_sets` with a fake too small to survive the whole
+        # service, and that policy is the same whichever route the search takes.
+        # `test_the_default_route_is_the_shared_contract` pins what production uses.
+        through_contract=False,
     )
 
     assert len(sets) > 1, "alternatives should still be found with no allowance set"
@@ -154,3 +174,35 @@ def test_the_call_site_passes_the_run_allowance():
     assert (
         "budget=search_budget" in call
     ), "run_optimization must hand alternatives the run's ledger"
+
+
+def test_the_default_route_is_the_shared_contract():
+    """Production routes alternatives through `run_panel_search`, not a bare
+    `optimize`.
+
+    That is Task 6's "route ... alternatives through the same contract", and it
+    is what makes the ledger binding real: `optimize` alone consults no
+    objective, so a budget bound around it bounds nothing. Measured on the
+    Wolbachia design, the same five alternatives cost 0 ledger evaluations
+    through the bare route and 2,988 through the contract
+    (docs/validation/alternatives_through_the_contract_2026-09-28.md).
+
+    The tests above pass `through_contract=False` deliberately, so this is what
+    stops the default drifting away from what production runs.
+    """
+    import inspect
+
+    from neoswga.core.search_control import collect_alternative_sets
+
+    default = inspect.signature(collect_alternative_sets).parameters["through_contract"].default
+    assert default is True, "alternatives must take the shared contract by default"
+
+
+def test_the_caller_hands_alternatives_the_run_constraints():
+    """An alternative assessed against nothing is not assessed."""
+    import pathlib
+
+    source = pathlib.Path("neoswga/core/unified_optimizer.py").read_text()
+    call = source[source.index("collect_alternative_sets(") :]
+    call = call[: call.index(")\n")]
+    assert "constraints=constraints_from_parameter(parameter)" in call

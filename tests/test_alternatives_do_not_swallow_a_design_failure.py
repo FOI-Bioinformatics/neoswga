@@ -61,7 +61,19 @@ class Optimizer:
 
 def collect(optimizer, max_sets=3):
     return collect_alternative_sets(
-        Result(PRIMARY), optimizer, POOL, target_size=2, max_sets=max_sets, max_iterations=4
+        Result(PRIMARY),
+        optimizer,
+        POOL,
+        target_size=2,
+        max_sets=max_sets,
+        max_iterations=4,
+        # The bare route, named explicitly. This file pins the exception POLICY
+        # of `collect_alternative_sets` with fakes too small to survive the
+        # whole service, and that policy is the same whichever route the search
+        # takes. `test_the_default_route_is_the_shared_contract` in
+        # tests/test_one_ledger_covers_the_alternatives.py pins what production
+        # uses.
+        through_contract=False,
     )
 
 

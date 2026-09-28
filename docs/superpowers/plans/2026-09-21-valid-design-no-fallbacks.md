@@ -329,7 +329,9 @@ def test_one_allowance_cannot_be_reset_by_the_next_stage():
 
       The late pass is a FINAL one rather than a duplicate: `run_panel_search` orders repair BEFORE refinement and reduction, either of which can move the panel afterwards, so a violation can appear after the in-search repair has run. Measured on the plasmid example with an unsatisfiable density floor, the late repair ran, changed nothing and reported the violation rather than claiming compliance.
 
-      Still not done: routing standard, planning, grid, expansion, contraction and alternatives through one contract. That is the remaining restructure, and it is what would also make the alternatives ledger binding effective.
+      **Alternatives are routed as of 2026-09-28**, which is what made the ledger binding effective: the same five alternatives cost 0 counted evaluations through the bare `optimize` and 2,988 through the contract, so a declared total now bounds the whole run rather than the primary alone. Panel quality is a wash (two better on both axes, one trades, one slightly worse) at about 5x the wall clock, paid only when `max_sets` exceeds 1. Standard, planning, expansion and contraction already went through `run_panel_search`; `primer_expansion._expand_hybrid` still does not, because it passes expansion-specific arguments the contract does not carry ([measurement](../../validation/alternatives_through_the_contract_2026-09-28.md)).
+
+      That measurement exposed a SEPARATE defect, recorded and not fixed: an alternative that violates a configured limit is offered either way, and `export_is_blocked` takes a directory with no set index, so its findings describe set 0 while `export --set N` delivers another panel. Deciding whether a violating alternative should be suppressed, marked, or blocked is a decision about what `max_sets` offers rather than a repair.
 - [ ] Run the two new test modules, service/ensemble/refill tests and size ratchets. Demonstrate that the counted allowance is never exceeded and every termination has a reason and candidate-examination statistics.
       **Status:** PARTIAL.
 
