@@ -1019,7 +1019,7 @@ class PrimerExporter:
 DESIGN_FAILURE_FILENAME = "design_failure.json"
 
 
-def export_is_blocked(results_dir):
+def export_is_blocked(results_dir, set_index=0):
     """Why this directory must not produce a recommendation, or None.
 
     An output directory is the only thing a later command sees, and nothing in
@@ -1049,11 +1049,36 @@ def export_is_blocked(results_dir):
     POOL it finished with is unfit. A finished run leaves no failure record at
     all, so without the second source this gate could never refuse anything a
     completed run produced.
+
+    **`set_index` says which panel is about to be written, and both sources
+    describe set 0.** The validator and the panel assessment are computed for
+    the delivered result, which is the primary; the alternatives after it are
+    never assessed by anything. So this gate used to pass judgement on set 0
+    while `export --set 4` wrote a different panel, and a violating alternative
+    left here under "Primers ready for ordering!". Measured on the Wolbachia
+    design: with a density floor of 20 configured, set 4 came back at 17.05 and
+    was offered.
+
+    Refusing an unassessed set rather than passing it is the same rule this
+    function already applies to a failure record it cannot parse. Unknown is
+    not success, and here the unknown is total: nothing evaluated that panel.
+    `--allow-unqualified` is the deliberate override, as it is for every other
+    refusal here.
     """
     import json
     import os
 
     from neoswga.core.design_result import blocking_validator_findings, recommendation_allowed
+
+    if set_index:
+        return (
+            f"Set {set_index} has not been assessed. The validator findings and "
+            f"the panel assessment in this directory describe set 0, the one the "
+            f"run summary reports; the alternatives after it are separate answers "
+            f"that nothing evaluated against the configured limits. Export set 0, "
+            f"or pass --allow-unqualified to order set {set_index} knowing it "
+            f"carries no verdict."
+        )
 
     findings = blocking_validator_findings(results_dir)
     if findings:

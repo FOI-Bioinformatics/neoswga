@@ -59,10 +59,17 @@ findings it reads describe set 0 while `export --set 4` delivers a different
 panel.
 
 That is Known Issue 19's family reached from the other side: the commands were
-taught to read ONE set, and the sets after the first are never assessed. It is
-recorded here rather than fixed, because deciding what a violating alternative
-should do -- be suppressed, be marked, or block its own export -- is a decision
-about what `max_sets` offers, not a repair.
+taught to read ONE set, and the sets after the first are never assessed.
+
+**The export half is fixed.** `export_is_blocked` now takes the set index and
+refuses a non-zero set, naming why: nothing evaluated it. Verified end to end on
+the plasmid example with five sets -- set 0 exports, set 1 is refused and writes
+no files. `--allow-unqualified` overrides it, as it does every other refusal
+there.
+
+**The offering half is not**, and is a decision rather than a repair. Suppressing
+a violating alternative, marking it, and assessing every set are three different
+answers about what `max_sets` is for.
 
 ## What is still not routed
 

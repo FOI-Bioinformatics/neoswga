@@ -304,7 +304,10 @@ def run_export(args):
         # run: real, stale, and indistinguishable from current without this.
         from neoswga.core.export import export_is_blocked
 
-        blocked_run = export_is_blocked(args.dir)
+        # The set about to be WRITTEN, not the directory alone: the findings
+        # in it describe set 0, so a gate given only the directory judged a
+        # different panel from the one being exported.
+        blocked_run = export_is_blocked(args.dir, getattr(args, "set_index", 0) or 0)
         if blocked_run and getattr(args, "allow_unqualified", False):
             # The same shape as --allow-dimer-relaxation: the constraint is
             # traded deliberately, by name, and the run says so loudly.
