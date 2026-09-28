@@ -1070,8 +1070,18 @@ instead of none". Measured afterwards: an alternative search calls
 `hybrid` evaluates the shared objective inside `optimize` -- 0 objective
 evaluations for both with a 5,000 allowance. So the hole is closed and nothing
 in production travels through it, and that `except` clause is still unreachable
-on the shipped methods. Routing alternatives through `run_panel_search` is what
-would earn the claim, and it is the remaining Task 6 item.
+on the shipped methods. Routing alternatives through `run_panel_search` earned the
+claim on 2026-09-28: the same five alternatives cost 0 counted evaluations
+through the bare `optimize` and 2,988 through the contract. Panel quality is a
+wash at about 5x the wall clock, paid only when `max_sets` exceeds 1
+([measurement](docs/validation/alternatives_through_the_contract_2026-09-28.md)).
+
+**That measurement found a separate defect, recorded and not fixed.** An
+alternative violating a configured limit is offered either way -- set 4 sat at
+density 17.05 against a floor of 20 -- and `export_is_blocked` takes a directory
+with no set index, so the findings it reads describe set 0 while `export --set N`
+delivers a different panel. The primary is held to its limits and the sets after
+it are never assessed, which is Known Issue 19's family from the other side.
 `tests/test_the_allowance_holds_on_the_production_path.py` fails when
 `optimize` starts consulting the objective, so the claim is corrected in the
 same change that makes it true. This is "verify the deciding stage" again: a

@@ -345,8 +345,48 @@ def _objective_of(optimizer):
     return getattr(optimizer, "pool_objective", None)
 
 
+def _search_alternative(optimizer, pool, target_size, budget, constraints, through_contract):
+    """One alternative panel, through the shared contract or the bare optimizer.
+
+    Through the contract an alternative is assessed, repaired and refined like
+    the primary, and its search is charged to the run's ledger -- `optimize`
+    alone consults no objective, so binding a budget around it bounds nothing.
+    That is the difference measured in
+    docs/validation/alternatives_through_the_contract_2026-09-28.md.
+
+    `candidate_source=None` deliberately: an alternative searches the pool it
+    was handed, which is the inventory minus the primers already chosen. A
+    frontier refill would reach past that and hand back primers the caller
+    excluded.
+    """
+    if not through_contract:
+        with budgeted_objective(_objective_of(optimizer), budget):
+            return optimizer.optimize(pool, target_size)
+
+    from .optimization_service import OptimizationRequest, run_panel_search
+
+    return run_panel_search(
+        OptimizationRequest(
+            optimizer,
+            tuple(pool),
+            target_size,
+            constraints=constraints,
+            budget=budget,
+            candidate_source=None,
+        )
+    )
+
+
 def collect_alternative_sets(
-    primary, optimizer, candidates, target_size, max_sets=1, max_iterations=8, budget=None
+    primary,
+    optimizer,
+    candidates,
+    target_size,
+    max_sets=1,
+    max_iterations=8,
+    budget=None,
+    constraints=None,
+    through_contract=True,
 ):
     """Up to `max_sets` distinct primer sets, best first.
 
@@ -381,15 +421,14 @@ def collect_alternative_sets(
         if len(remaining) < target_size:
             break
         try:
-            # Under the RUN's allowance, not outside it. `budgeted_objective`
-            # restores the previous binding when `run_panel_search` returns, so
-            # every alternative used to search with no budget bound at all:
-            # a run could spend far past its declared `total_search_evaluations`
-            # here, and the `SearchBudgetExhausted` clause below was a handler
-            # for something that could not happen. Both ends existed and the
-            # path did not.
-            with budgeted_objective(_objective_of(optimizer), budget):
-                result = optimizer.optimize(remaining, target_size)
+            # Through the same contract the primary took, so an alternative is
+            # assessed, repaired and refined to the same standard and its search
+            # is charged to the run's ledger. Binding a budget around a bare
+            # `optimize` bounded nothing, because `optimize` consults no
+            # objective -- measured at 0 evaluations for both shipped methods.
+            result = _search_alternative(
+                optimizer, remaining, target_size, budget, constraints, through_contract
+            )
         except DesignError:
             # Identical policy, and for the identical reason, to the ensemble
             # path below: a failed calculation, a missing reference answer or
