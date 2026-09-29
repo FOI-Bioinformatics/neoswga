@@ -1082,6 +1082,18 @@ density 17.05 against a floor of 20 -- and `export_is_blocked` takes a directory
 with no set index, so the findings it reads describe set 0 while `export --set N`
 delivers a different panel. The primary is held to its limits and the sets after
 it are never assessed, which is Known Issue 19's family from the other side.
+
+**Half of that is fixed as of 2026-09-28.** `export_is_blocked` takes the set
+index and REFUSES a non-zero set, because nothing evaluated it: the findings and
+the assessment in the directory describe set 0. Unknown is not success, and here
+the unknown is total. `--allow-unqualified` is the deliberate override, as it is
+for every other refusal there. Verified end to end on the plasmid example with
+five sets: set 0 exports and set 1 is refused with no files written.
+
+What is NOT fixed is the other half -- an alternative that violates a configured
+limit is still OFFERED. Suppressing it, marking it, or assessing every set are
+three different answers about what `max_sets` is for, and that is a decision
+rather than a repair.
 `tests/test_the_allowance_holds_on_the_production_path.py` fails when
 `optimize` starts consulting the objective, so the claim is corrected in the
 same change that makes it true. This is "verify the deciding stage" again: a
