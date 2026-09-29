@@ -73,10 +73,32 @@ answers about what `max_sets` is for.
 
 ## What is still not routed
 
-`primer_expansion._expand_hybrid` calls `optimizer.optimize` directly, with
-expansion-specific arguments (`fixed_primers`, `apply_polymerase_multiplier`)
-that the contract does not currently carry. Expansion's other path already goes
-through `run_panel_search`.
+**Corrected 2026-09-29. Nothing, on any command path.** This section said
+`primer_expansion._expand_hybrid` calls `optimizer.optimize` directly with
+arguments the contract does not carry, and listed it as the last unrouted path.
+That reads as a gap in production and is not one.
+
+`_expand_hybrid` routes to `_expand_configured`, which builds through
+`OptimizerFactory` and calls `run_panel_search`, whenever the expander has a
+design context. Every command that expands supplies one: `expand-primers` and
+`iterate` both construct theirs with `context=context`. The third expander in
+the CLI, `analyze-coverage`, never expands -- it calls `identify_gaps`, which
+is read-only.
+
+The direct branch is the fallback for an API caller with NO context, and it
+exists for a reason rather than by omission: `_expand_configured` reads the
+optimizer config off that context, so without one there is nothing to build a
+factory optimizer from. Widening the contract's arguments would not reach it,
+because the missing thing is configuration and not parameters.
+
+Checked rather than reasoned: the wrapper `OptimizerFactory` returns already
+maps every argument the direct call passes -- `final_count` from `target_size`,
+`fixed_primers` from the request, `verbose` and `refinement_method` from the
+config, and `apply_polymerase_multiplier=False` hardcoded -- and its
+`OptimizationResult.message` already carries the connectivity figure the direct
+path reports. `tests/test_expansion_takes_the_shared_contract.py` pins both
+halves, because "already routed" and "cannot be routed here" are different
+claims and this section confused them.
 
 ## Reproducing
 
