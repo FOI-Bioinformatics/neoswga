@@ -24,9 +24,21 @@ from neoswga.core.dimer import (
 )
 from neoswga.core.thermodynamics import reverse_complement
 
-# Initialize default parameter values for testing.
-parameter.max_self_dimer_bp = 3
-parameter.max_dimer_bp = 3
+
+@pytest.fixture(autouse=True)
+def _dimer_limits(monkeypatch):
+    """The limits these tests were written against, set per test and restored.
+
+    They were assigned at module level, which runs when the file is IMPORTED.
+    pytest imports every test module during collection, so the assignment
+    reached the whole session: `max_self_dimer_bp` is 4 by default and every
+    later test in the process saw 3. `test_option_changes_the_design` then
+    failed for `minimize_primers` and `target_coverage`, because its delivered
+    panel holds a self-dimer at 3 and every deletion from it counted as a
+    violation. It passed whenever this file was not collected alongside it.
+    """
+    monkeypatch.setattr(parameter, "max_self_dimer_bp", 3)
+    monkeypatch.setattr(parameter, "max_dimer_bp", 3)
 
 
 # =============================================================================
