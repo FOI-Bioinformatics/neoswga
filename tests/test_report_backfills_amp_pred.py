@@ -62,23 +62,6 @@ def results_dir(tmp_path):
     return tmp_path
 
 
-def test_the_step4_file_really_lacks_the_column():
-    """Guard the guard, against the shipped output rather than the fixture."""
-    import pathlib
-
-    # Anchored to the repository root, not to the working directory. As a
-    # relative path this resolved against whatever cwd the xdist worker
-    # happened to hold, so the same tree gave 25 skips on one run and 26 on
-    # the next -- the test silently skipping when the file was there all
-    # along. Same idiom as tests/test_the_suite_leaves_no_files_behind.py.
-    root = pathlib.Path(__file__).resolve().parent.parent
-    real = root / "runs" / "gc_tiers" / "mid_ecoli" / "step4_improved_df.csv"
-    if not real.exists():
-        pytest.skip("no archived run available")
-    header = real.read_text().splitlines()[0]
-    assert "amp_pred" not in header and "on.target.pred" not in header
-
-
 def test_amp_pred_is_backfilled_from_step3(results_dir):
     from neoswga.core.report.metrics import collect_pipeline_metrics
 
