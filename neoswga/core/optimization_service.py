@@ -4,6 +4,7 @@ Front ends resolve references and chemistry before constructing a request. The
 optimizer owns that resolved evaluator; all stages reuse its objective.
 """
 
+import logging
 import math
 import time
 from copy import copy
@@ -13,6 +14,67 @@ from typing import Any
 from .base_optimizer import OptimizationStatus
 from .exceptions import NoCandidatesError
 from .panel_refinement import objective_for_optimizer, refine_result
+
+logger = logging.getLogger(__name__)
+
+
+def screen_supplied_candidates(candidates, config, fixed_primers=None):
+    """Hold a candidate list with no source to the configured self-dimer limit.
+
+    `run_panel_search` screens a frontier drawn from a candidate source. A list
+    handed to `run_optimization` directly has no source, so it skipped that
+    screen: selection could deliver a self-dimerising primer, the delivered-set
+    validator does not measure self-dimers, and the reduction stage, which
+    does, then found a violation in every smaller panel and removed nothing.
+
+    A fixed primer is kept. It is the caller's instruction, and dropping it
+    here would surface later as an optimizer that lost a fixed primer.
+    """
+    from .dimer_validator import DimerValidator
+
+    pool = list(candidates)
+    fixed = {str(p).upper() for p in (fixed_primers or ())}
+    validator = DimerValidator(config.max_dimer_bp, config.max_self_dimer_bp)
+    kept = [p for p in pool if str(p).upper() in fixed or not validator.has_self_dimer(p)]
+    limit = f"max_self_dimer_bp={config.max_self_dimer_bp}"
+    if pool and not kept:
+        raise NoCandidatesError(len(pool), f"the self-dimer screen at {limit}")
+    if len(kept) != len(pool):
+        logger.warning(
+            "The self-dimer screen at %s removed %d of %d supplied candidates.",
+            limit,
+            len(pool) - len(kept),
+            len(pool),
+        )
+    return kept
+
+
+def describe_reduction(
+    size_before, size_after, target_coverage, coverage, coverage_metric, stop_reason
+):
+    """One line saying what minimisation did and which coverage it judged by.
+
+    The target is compared against the objective's coverage, which is occupancy
+    weighted when conditions are attached, while the run prints the unweighted
+    figure. A panel reading 46.7% against a 30% target was left at 12 primers
+    because the compared figure was 19.7%, and nothing reported either fact.
+    """
+    measured = "unavailable" if coverage is None else f"{coverage:.3f} ({coverage_metric} coverage)"
+    judged = f"target {target_coverage:.3f} compared against {measured}"
+    removed = size_before - size_after
+    if removed:
+        return f"Minimisation removed {removed} of {size_before} primers; {judged}."
+    if coverage is not None and coverage < target_coverage:
+        return (
+            f"Minimisation removed no primer: the {size_before}-primer panel is "
+            f"already below the target on the measure it is judged by ({judged}), "
+            "so no smaller panel can meet it."
+        )
+    return (
+        f"Minimisation removed no primer ({stop_reason}): no single deletion from "
+        f"the {size_before}-primer panel keeps coverage at the target without "
+        f"violating a panel or dimer limit; {judged}."
+    )
 
 
 @dataclass(frozen=True)
@@ -337,6 +399,7 @@ def _run_panel_stages(request, initial_result=None):
         or not result.primers
     ):
         return _with_history(result, stages)
+    size_before_reduction = None
     while True:
         try:
             budget.check()
@@ -377,6 +440,8 @@ def _run_panel_stages(request, initial_result=None):
             break
         started = time.monotonic()
         previous = result
+        if size_before_reduction is None:
+            size_before_reduction = len(previous.primers)
         diagnostics = {}
         result = execute(
             lambda: reduce_result(
@@ -394,6 +459,19 @@ def _run_panel_stages(request, initial_result=None):
         stages[-1].update(diagnostics)
         if len(result.primers) == len(previous.primers):
             break
+    if size_before_reduction is not None:
+        last = stages[-1]
+        report = describe_reduction(
+            size_before_reduction,
+            len(result.primers),
+            request.target_coverage,
+            last.get("coverage"),
+            last.get("coverage_metric"),
+            last.get("stop_reason"),
+        )
+        # Unchanged is the outcome a user has to be told about.
+        level = logging.INFO if len(result.primers) < size_before_reduction else logging.WARNING
+        logger.log(level, report)
     violations = panel_violations(optimizer, result.primers)
     if violations and is_dataclass(result):
         result = replace(

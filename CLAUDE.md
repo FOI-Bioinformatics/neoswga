@@ -1121,6 +1121,26 @@ union of two others, so `{P1,P2,P3}` qualifies at size 3, no single deletion
 from it qualifies, and `{P4,P3}` qualifies at size 2. Deletion stops at 3;
 `panel_beam.beam_search` asked for 2 finds `{P4,P3}`.
 
+**Minimisation reports what it did, as of 2026-09-30.** It could leave a panel
+unchanged without a word, by two routes. The coverage target is compared
+against the objective's coverage, which is occupancy weighted when conditions
+are attached, while the run prints the unweighted figure: on the plasmid
+example at 100 bp reach a 12-primer panel printed 46.7% against a 30% target
+and was not reduced, because the compared figure was 19.7%. The run now logs
+the primers removed, the stop reason and the figure the target was compared
+against, at WARNING when nothing was removed. Which coverage `--target-coverage`
+SHOULD mean is not decided; this only makes the current rule visible.
+
+The second route was a candidate list handed to `run_optimization` directly.
+The self-dimer screen lives with the candidate source, a plain list has none,
+so selection could deliver a self-dimerising primer; the reduction stage counts
+that as a violation, and every deletion inherited it.
+`optimization_service.screen_supplied_candidates` applies the same screen to a
+supplied list, keeps fixed primers, and raises `NoCandidatesError` when it
+empties the list. `neoswga optimize` was never affected, since it always has a
+source. A panel the reduction stage made smaller is also no longer reported as
+a `set_size_mismatch` ERROR; it is a warning that says minimisation did it.
+
 **The capability exists and `optimize` cannot reach it.** `beam_search` is
 called only from `pool_planner`, so `plan-pool` can escape this local optimum
 and `optimize --minimize-primers` cannot.

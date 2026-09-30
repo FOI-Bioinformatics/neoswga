@@ -46,7 +46,7 @@ def test_last_result_starts_none_after_successful_run(monkeypatch):
 
     result = _uo.run_optimization(
         method="hybrid",
-        candidates=["ACGTACGT"],
+        candidates=["AACAGGAA"],
         fg_prefixes=["x"],
         fg_seq_lengths=[1000],
         bg_prefixes=[],

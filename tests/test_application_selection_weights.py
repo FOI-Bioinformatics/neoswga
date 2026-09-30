@@ -87,7 +87,7 @@ def test_unified_optimizer_forwards_application_weights(monkeypatch):
 
     _uo.run_optimization(
         method="hybrid",
-        candidates=["ACGTACGT", "CCCCGGGG"],
+        candidates=["AACAGGAA", "AAGCAGTC"],
         fg_prefixes=["x"],
         fg_seq_lengths=[1000],
         bg_prefixes=[],
@@ -147,7 +147,7 @@ def test_caller_overrides_application_weights(monkeypatch):
 
     _uo.run_optimization(
         method="hybrid",
-        candidates=["ACGTACGT"],
+        candidates=["AACAGGAA"],
         fg_prefixes=["x"],
         fg_seq_lengths=[1000],
         bg_prefixes=[],
@@ -221,7 +221,7 @@ def _run(monkeypatch, **kwargs) -> dict:
     captured = _capture_factory_kwargs(monkeypatch)
     _uo.run_optimization(
         method="hybrid",
-        candidates=["ACGTACGT", "CCCCGGGG"],
+        candidates=["AACAGGAA", "AAGCAGTC"],
         fg_prefixes=["x"],
         fg_seq_lengths=[1000],
         bg_prefixes=[],

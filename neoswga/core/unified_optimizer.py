@@ -1025,6 +1025,11 @@ def run_optimization(
         method=method,
     )
 
+    if _candidate_source is None:
+        from .optimization_service import screen_supplied_candidates as _screen
+
+        candidates = _screen(candidates, config, kwargs.get("fixed_primers"))
+
     # Popped rather than read off `config`: these arrive as kwargs, and the
     # `OptimizerConfig` built here has no field for them -- `minimize_primers`
     # lives on the separate `OptimizationConfig` used by

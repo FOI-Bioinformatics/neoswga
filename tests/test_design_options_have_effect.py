@@ -277,6 +277,26 @@ def test_option_changes_the_design(cache, genome, option, low, high):
     )
 
 
+def test_a_supplied_list_is_held_to_the_self_dimer_limit(cache, genome, monkeypatch, caplog):
+    """A list passed straight to `run_optimization` has no candidate source.
+
+    The self-dimer screen lived with the source, so this path skipped it and
+    delivered `GGGCGAATTT` and `GGTACGTGTC`, which self-dimerise at 3. The
+    reduction stage does count a self-dimer, so every deletion inherited the
+    violation and `minimize_primers` removed nothing, without a word.
+    """
+    from neoswga.core import dimer, parameter
+
+    monkeypatch.setattr(parameter, "max_self_dimer_bp", 3)
+
+    with caplog.at_level("INFO"):
+        result = run_with(cache, genome, minimize_primers=True, target_coverage=0.20)
+
+    assert result.primers
+    assert not [p for p in result.primers if dimer.is_dimer_fast(p, p, 3)]
+    assert "Minimisation removed" in caplog.text
+
+
 def test_uniformity_weight_reaches_the_scorer():
     """`--uniformity-weight` is consumed, but only by
     `NetworkOptimizer._evaluate_primer_addition`, which scores primer
