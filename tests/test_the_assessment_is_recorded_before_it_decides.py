@@ -28,10 +28,9 @@ import json
 import pytest
 
 from neoswga.core.design_result import VALIDATION_FILENAME
-from tests.conftest import plasmid_example_ready
 
 
-@pytest.mark.skipif(not plasmid_example_ready(), reason="needs jellyfish and the plasmid example")
+@pytest.mark.usefixtures("primed_plasmid_example")
 def test_the_artifact_carries_the_assessment(plasmid_run):
     payload = json.loads((plasmid_run / VALIDATION_FILENAME).read_text())
 
@@ -42,7 +41,7 @@ def test_the_artifact_carries_the_assessment(plasmid_run):
     assert assessment["primers"], "the assessment names no panel"
 
 
-@pytest.mark.skipif(not plasmid_example_ready(), reason="needs jellyfish and the plasmid example")
+@pytest.mark.usefixtures("primed_plasmid_example")
 def test_the_assessment_describes_the_panel_that_was_delivered(plasmid_run):
     """A record of a different panel is worse than no record.
 
@@ -61,7 +60,7 @@ def test_the_assessment_describes_the_panel_that_was_delivered(plasmid_run):
     assert sorted(payload["assessment"]["primers"]) == sorted(frame["primer"].tolist())
 
 
-@pytest.mark.skipif(not plasmid_example_ready(), reason="needs jellyfish and the plasmid example")
+@pytest.mark.usefixtures("primed_plasmid_example")
 def test_every_metric_says_what_it_is(plasmid_run):
     """The reason for the record: a coverage figure without its reach carries
     almost no information. One saved 26-oligo panel reads 41.3% at 1 kb and
@@ -79,7 +78,7 @@ def test_every_metric_says_what_it_is(plasmid_run):
         assert has_value != has_reason, f"{name} is {measurement}"
 
 
-@pytest.mark.skipif(not plasmid_example_ready(), reason="needs jellyfish and the plasmid example")
+@pytest.mark.usefixtures("primed_plasmid_example")
 def test_recording_it_adds_no_blocking_code(plasmid_run):
     """Verdict-neutral, asserted against the gate rather than against `ok`."""
     from neoswga.core.design_result import blocking_validator_findings

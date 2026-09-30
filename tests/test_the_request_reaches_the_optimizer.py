@@ -22,8 +22,6 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import plasmid_example_ready
-
 PIPELINE = Path(__file__).resolve().parent.parent / "neoswga" / "cli" / "pipeline.py"
 
 
@@ -52,7 +50,7 @@ def test_the_command_hands_the_request_to_the_optimizer():
     assert forwarded, "optimize_step4 is called without design_request"
 
 
-@pytest.mark.skipif(not plasmid_example_ready(), reason="needs jellyfish and the plasmid example")
+@pytest.mark.usefixtures("primed_plasmid_example")
 def test_the_request_arrives_with_the_hash_the_run_resolved(plasmid_run, monkeypatch):
     """The object itself, through the real command, named by the same hash.
 

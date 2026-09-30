@@ -89,11 +89,73 @@ def test_the_shared_guard_checks_for_the_artifacts_not_the_directory():
     assert callable(plasmid_example_ready)
 
 
-@pytest.mark.skipif(
-    not (EXAMPLE / "step3_df.csv").exists(),
-    reason="plasmid example not primed (jellyfish absent?)",
-)
+@pytest.mark.usefixtures("primed_plasmid_example")
 def test_when_primed_the_guard_agrees_the_example_is_usable():
     from tests.conftest import plasmid_example_ready
 
     assert plasmid_example_ready() is True
+
+
+def _import_time_readiness_calls(path):
+    """Line numbers where `plasmid_example_ready()` is called outside a function."""
+    import ast
+
+    found = []
+
+    def visit(node, in_function):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # Decorators run at import; the body does not.
+            for decorator in node.decorator_list:
+                visit(decorator, in_function)
+            for child in node.body:
+                visit(child, True)
+            return
+        if (
+            not in_function
+            and isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "plasmid_example_ready"
+        ):
+            found.append(node.lineno)
+        for child in ast.iter_child_nodes(node):
+            visit(child, in_function)
+
+    visit(ast.parse(path.read_text(encoding="utf-8")), False)
+    return found
+
+
+def test_no_test_asks_whether_the_example_is_ready_at_import_time():
+    """The answer at import is the answer BEFORE priming, so it is the wrong one.
+
+    `skipif(not plasmid_example_ready())` is evaluated during collection. The
+    session fixture that primes the example runs afterwards, so on a fresh
+    checkout the guard said "not ready", the test was skipped, and priming
+    then made the directory ready for nobody. 17 tests were skipped on every
+    CI run this way while passing on any machine whose example directory had
+    been primed by an earlier session. Use the `primed_plasmid_example`
+    fixture, which asks at run time.
+    """
+    offenders = {}
+    for path in sorted((ROOT / "tests").rglob("test_*.py")):
+        lines = _import_time_readiness_calls(path)
+        if lines:
+            offenders[path.relative_to(ROOT).as_posix()] = lines
+
+    assert not offenders, (
+        "plasmid_example_ready() is called at import time, before the example "
+        f"is primed: {offenders}. Request the primed_plasmid_example fixture."
+    )
+
+
+def test_the_import_time_detector_sees_a_decorator_and_a_module_mark(tmp_path):
+    """Drive the detector on source written here, so it cannot go blind quietly."""
+    source = tmp_path / "sample.py"
+    source.write_text(
+        "pytestmark = pytest.mark.skipif(not plasmid_example_ready(), reason='x')\n"
+        "@pytest.mark.skipif(not plasmid_example_ready(), reason='x')\n"
+        "def test_a():\n"
+        "    if not plasmid_example_ready():\n"
+        "        pass\n"
+    )
+
+    assert _import_time_readiness_calls(source) == [1, 2]

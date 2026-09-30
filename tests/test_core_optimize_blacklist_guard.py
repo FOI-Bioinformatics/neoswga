@@ -48,12 +48,13 @@ def plasmid_with_aliased_blacklist(tmp_path):
         if src.is_file():
             shutil.copy2(src, tmp_path / fname)
 
-    # Copy pLTR k-mer / position files as "bl_pLTR"
+    # Alias the pLTR k-mer tables as "bl_pLTR", in whichever form the counter
+    # that primed the example wrote them. Copying `pLTR_{k}mer_all.txt` by name
+    # aliased nothing once KMC wrote databases instead of text.
+    from neoswga.core import kmer_tables
+
     for k in range(6, 13):
-        src = tmp_path / f"pLTR_{k}mer_all.txt"
-        dst = tmp_path / f"bl_pLTR_{k}mer_all.txt"
-        if src.is_file() and not dst.exists():
-            shutil.copy2(src, dst)
+        kmer_tables.link_table(str(tmp_path / "pLTR"), str(tmp_path / "bl_pLTR"), k)
 
     params_path = tmp_path / "params.json"
     with open(params_path) as fh:
@@ -131,24 +132,22 @@ def test_library_caller_with_explicit_blacklist_candidate(
     step2()
     step3()
 
-    from neoswga.core import parameter
+    # Build a candidate list explicitly containing a primer known to
+    # appear in the blacklist k-mer table (any counted pLTR 8-mer will do).
+    from neoswga.core import kmer_tables, parameter
     from neoswga.core.unified_optimizer import run_optimization
 
-    # Build a candidate list explicitly containing a primer known to
-    # appear in the blacklist k-mer files (any primer from pLTR_Xmer_all.txt
-    # will do; we read one short entry from the file).
-    bl_kmer_file = tmpdir / "bl_pLTR_8mer_all.txt"
-    blacklist_primer = None
-    if bl_kmer_file.is_file():
-        with open(bl_kmer_file) as fh:
-            for line in fh:
-                parts = line.strip().split()
-                if parts and len(parts) >= 2 and int(parts[1]) > 0:
-                    blacklist_primer = parts[0].upper()
-                    break
-
-    if not blacklist_primer:
-        pytest.skip("no blacklist primer available in test fixture")
+    blacklist_primer = next(
+        (
+            kmer.upper()
+            for kmer, count in kmer_tables.iter_table(str(tmpdir / "bl_pLTR"), 8)
+            if count > 0
+        ),
+        None,
+    )
+    # An assertion, not a skip: the fixture aliases a counted genome, so an
+    # empty table means the alias was not made and the guard is untested.
+    assert blacklist_primer, "the aliased blacklist table holds no k-mer"
 
     # Combine real step3 primers with the blacklist one
     import pandas as pd

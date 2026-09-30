@@ -2485,11 +2485,22 @@ package, because nothing in the search uses it.
     executes. Wiring only the library left 16 of 17 tests passing and the
     seventeenth still killing the run.
 
-    **Those 17 tests have never run in CI**, before or after. `mip` lives only
-    in the `improved` and `all` extras and CI installs `.[dev]`, so they skip
-    there. Nightly installs `improved` but now runs only the scale-marked
-    tests. So the ILP path is covered locally and nowhere automated, and the
-    3.13 crash would not have been caught.
+    **Those 17 tests did not run in CI until 2026-09-30.** `mip` lives only in
+    the `improved` and `all` extras and CI installed `.[dev]`, so they skipped
+    there, and nightly installs `improved` but runs only the scale-marked
+    tests. It was not only the ILP path: 19 modules `importorskip` an optional
+    dependency at module level, so 185 tests were never collected in CI, every
+    Bloom and BAM test among them, while the job stayed green. The test job
+    now installs `.[dev,improved,bam,viz,interactive]` and passes `-rs`, so a
+    skip is in the log with its reason. Reading those reasons found 17 more
+    tests skipped as "needs jellyfish" on a runner that had it: a
+    `skipif(not plasmid_example_ready())` is evaluated at collection, before
+    the session fixture primes the example. Request the
+    `primed_plasmid_example` fixture instead; a ratchet in
+    `tests/test_plasmid_example_dependency_is_visible.py` refuses an
+    import-time call. CI went from 6,416 passed and 111 skipped to 6,643
+    passed and 33 skipped, and every remaining skip is opt-in, by design, or
+    needs a reference genome the repository does not hold.
 
     **bioconda has no Python 3.13 build of `kmer-jellyfish`.** 2.3.1 exists for
     3.9 to 3.12 only, so `conda create ... python=3.13 kmer-jellyfish` silently

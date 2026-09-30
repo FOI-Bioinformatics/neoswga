@@ -98,23 +98,6 @@ def test_hybrid_same_seed_same_primers(tmp_path, monkeypatch):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_moea_factory_config_receives_seed():
-    """MOEABaseOptimizer wrapper must copy seed into MOEAConfig."""
-    # Smoke test via introspection of the wrapper source to catch regression.
-    import inspect
-
-    try:
-        from neoswga.core import moea_optimizer
-    except ImportError:
-        pytest.skip("moea_optimizer unavailable (pymoo not installed)")
-    src = inspect.getsource(moea_optimizer)
-    assert (
-        "seed=kwargs.get('seed')" in src
-    ), "MOEABaseOptimizer must forward seed into MOEAConfig for reproducibility"
-
-
-@pytest.mark.integration
-@pytest.mark.slow
 def test_different_seeds_may_differ(tmp_path, monkeypatch):
     """Different seeds may produce different sets — weaker but useful
     sanity. Tolerate identical output on the small plasmid example where

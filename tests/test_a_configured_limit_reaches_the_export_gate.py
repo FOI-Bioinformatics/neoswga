@@ -41,11 +41,9 @@ import sys
 import pytest
 
 from neoswga.core.design_result import VALIDATION_FILENAME
-from tests.conftest import _EXAMPLE_DIR, plasmid_example_ready
+from tests.conftest import _EXAMPLE_DIR
 
-pytestmark = pytest.mark.skipif(
-    not plasmid_example_ready(), reason="needs jellyfish and the plasmid example"
-)
+pytestmark = pytest.mark.usefixtures("primed_plasmid_example")
 
 #: Far outside anything this 6 kb pair can deliver, so the repair cannot
 #: succeed and the panel is returned unchanged. That is the case the export

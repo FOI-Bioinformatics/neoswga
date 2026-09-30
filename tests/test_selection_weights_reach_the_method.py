@@ -33,12 +33,8 @@ import pytest
 from neoswga.core.hybrid_optimizer import HybridOptimizer
 from neoswga.core.position_cache import PositionCache
 from neoswga.core.reaction_conditions import ReactionConditions
-from tests.conftest import plasmid_example_ready
 
-pytestmark = pytest.mark.skipif(
-    not plasmid_example_ready(),
-    reason="needs the generated plasmid example, which needs jellyfish",
-)
+pytestmark = pytest.mark.usefixtures("primed_plasmid_example")
 
 EXAMPLE = "examples/plasmid_example"
 
