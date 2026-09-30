@@ -742,6 +742,13 @@ genome_gc = None
 # `unified_optimizer.run_optimization` reads this global, so get_params must
 # assign it or a params.json setting silently does nothing.
 coverage_reach = None
+#: Which of the two coverage figures a panel is JUDGED on, and the one
+#: `--target-coverage` is compared against. See `search_control.COVERAGE_METRICS`.
+#: None leaves `panel_refinement.objective_for_optimizer` to choose, which is
+#: "effective" whenever reaction conditions are attached. A different question
+#: from `coverage_geometry` below and from the reach choice that shares this
+#: name in `core/coverage.py`.
+coverage_metric = None
 #: Which geometry a coverage figure is computed under. See
 #: `coverage.COVERAGE_GEOMETRIES`; the default is what every recorded figure
 #: was produced under and the reach was fitted alongside it.
