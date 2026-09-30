@@ -20,12 +20,17 @@ def objective_for_optimizer(optimizer, constraints=None):
         if constraints is not None:
             raise ValueError("Configured panel constraints require a panel evaluator")
         return None
+    # An explicit choice applies whether or not limits were configured. Limits
+    # arrive as their own constraints, built with the default metric, so without
+    # this a run that set one would silently go back to effective coverage.
+    chosen = getattr(getattr(optimizer, "config", None), "coverage_metric", None)
     if constraints is None:
         constraints = PoolConstraints(
-            coverage_metric=(
-                "effective" if getattr(optimizer, "conditions", None) is not None else "raw"
-            )
+            coverage_metric=chosen
+            or ("effective" if getattr(optimizer, "conditions", None) is not None else "raw")
         )
+    elif chosen and constraints.coverage_metric != chosen:
+        constraints = replace(constraints, coverage_metric=chosen)
     constraints.require_background(
         bool(
             getattr(optimizer, "bg_prefixes", None)

@@ -351,6 +351,19 @@
       "default": null,
       "description": "Candidates per pick that Stage 1's set cover scores with the full objective, selecting on occupancy-weighted coverage instead of unweighted bins. null (default) keeps the bin count. Measured: turning it on raises effective coverage and lowers selectivity density, at 3.5-8.4x the runtime. See docs/validation/stage_one_objective_2026-09-19.md."
     },
+    "coverage_metric": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "effective",
+        "raw",
+        null
+      ],
+      "default": null,
+      "description": "Coverage a panel is judged on during repair, refinement and minimization, and the figure --target-coverage is compared against. 'effective' is occupancy-weighted; 'raw' is the unweighted fraction of the target within reach, which is the coverage a run prints. null (default) selects 'effective' whenever reaction conditions are configured. Not the same axis as the reach choice of the same name in core/coverage.py."
+    },
     "swap_max_seconds": {
       "type": "number",
       "minimum": 0,

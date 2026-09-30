@@ -742,6 +742,13 @@ genome_gc = None
 # `unified_optimizer.run_optimization` reads this global, so get_params must
 # assign it or a params.json setting silently does nothing.
 coverage_reach = None
+#: Which of the two coverage figures a panel is JUDGED on, and the one
+#: `--target-coverage` is compared against. See `search_control.COVERAGE_METRICS`.
+#: None leaves `panel_refinement.objective_for_optimizer` to choose, which is
+#: "effective" whenever reaction conditions are attached. A different question
+#: from `coverage_geometry` below and from the reach choice that shares this
+#: name in `core/coverage.py`.
+coverage_metric = None
 #: Which geometry a coverage figure is computed under. See
 #: `coverage.COVERAGE_GEOMETRIES`; the default is what every recorded figure
 #: was produced under and the reach was fitted alongside it.
@@ -946,6 +953,7 @@ def _apply_params_only_keys(data: dict) -> None:
     global swap_max_seconds
     global allow_dimer_relaxation
     global coverage_reach
+    global coverage_metric
     global coverage_geometry
     global occupancy_ranking
     global occupancy_shortlist
@@ -982,6 +990,7 @@ def _apply_params_only_keys(data: dict) -> None:
     swap_max_seconds = _search["swap_max_seconds"]
     stage1_objective_width = _search["stage1_objective_width"]
     coverage_reach = _search["coverage_reach"]
+    coverage_metric = _search["coverage_metric"]
     coverage_geometry = data.get("coverage_geometry", "symmetric")
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
     occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")

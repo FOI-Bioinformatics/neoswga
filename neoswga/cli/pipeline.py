@@ -691,6 +691,7 @@ def _step4_optimizer_kwargs(args, **resolved):
         # polymerase default in place; see coverage.resolve_coverage_reach.
         coverage_reach=getattr(args, "coverage_reach", None),
         allow_dimer_relaxation=getattr(args, "allow_dimer_relaxation", None),
+        coverage_metric=getattr(args, "coverage_metric", None),
         refinement_method=getattr(args, "refinement_method", None),
         swap_max_evaluations=getattr(args, "swap_max_evaluations", None),
         swap_max_seconds=getattr(args, "swap_max_seconds", None),

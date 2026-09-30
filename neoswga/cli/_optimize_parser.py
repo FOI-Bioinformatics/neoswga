@@ -219,7 +219,24 @@ def _add_optimize_selection_groups(parser):
         "--target-coverage",
         type=float,
         default=0.70,
-        help="Target genome coverage fraction when minimizing primers (default: 0.70)",
+        help=(
+            "Coverage fraction a minimized panel must keep (default: 0.70). "
+            "Compared against the coverage named by --coverage-metric, which for "
+            "a configured reaction is occupancy-weighted and lower than the "
+            "coverage the run prints"
+        ),
+    )
+    opt_post_group.add_argument(
+        "--coverage-metric",
+        choices=["effective", "raw"],
+        # None, not "effective": absent must leave the existing rule in place.
+        default=None,
+        help=(
+            "Coverage a panel is judged on during repair, refinement and "
+            "minimization. 'effective' is occupancy-weighted and is the default "
+            "when reaction conditions are configured; 'raw' is the unweighted "
+            "fraction of the target within reach, the figure the run prints"
+        ),
     )
     opt_post_group.add_argument(
         "--min-per-target-coverage",
