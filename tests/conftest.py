@@ -234,6 +234,23 @@ def _prime_plasmid_example():
 
 
 @pytest.fixture
+def primed_plasmid_example(_prime_plasmid_example):
+    """Skip, at RUN time, when the plasmid example has no generated artifacts.
+
+    Request this with `pytest.mark.usefixtures` instead of decorating with
+    `skipif(not plasmid_example_ready())`. A `skipif` condition is evaluated
+    when the module is imported, which is during collection and therefore
+    BEFORE `_prime_plasmid_example` has run. On a fresh checkout the example
+    is unprimed at that moment, so the test was marked skipped, priming then
+    succeeded, and the test stayed skipped. A developer's directory stays
+    primed between runs, so it ran there: 17 tests passed locally and never
+    ran on CI, reporting "needs jellyfish" on a runner that had it.
+    """
+    if not plasmid_example_ready():
+        pytest.skip("the plasmid example has no generated artifacts (no k-mer counter?)")
+
+
+@pytest.fixture
 def plasmid_run(tmp_path):
     """A completed `optimize` over a private copy of the plasmid example.
 

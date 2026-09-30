@@ -214,8 +214,9 @@ jobs:
         # The optional extras are installed because tests guard on them with
         # `importorskip`. With `.[dev]` alone, 19 modules skipped at collection
         # and 185 tests never ran here, the Bloom and BAM suites among them,
-        # while the job stayed green.
-        run: pip install -e ".[dev,improved,bam,viz]"
+        # while the job stayed green. `interactive` is Plotly, which 15 report
+        # tests skip without.
+        run: pip install -e ".[dev,improved,bam,viz,interactive]"
 
       - name: Run tests
         # `-m "not scale"` because the scale marker declares itself "opt-in;
