@@ -152,11 +152,12 @@ def test_validation_still_happens_before_the_expensive_work():
 
     source = inspect.getsource(pipeline.run_step4)
 
-    validate_at = source.index("design_request_for_run")
-    cache_at = source.find("PositionCache(")
+    # The call, not the import: the name first appears in a `from` clause.
+    validate_at = source.index("design_request_for_run(")
+    # `optimize_step4` is what builds the position cache and runs the search,
+    # so it marks where the run starts to cost something.
+    cache_at = source.index("optimize_step4(")
 
-    if cache_at == -1:
-        pytest.skip("run_step4 no longer builds the cache directly")
     assert validate_at < cache_at, (
         "the request is validated after the position cache is built, so a "
         "configuration mistake now costs a full index build"

@@ -211,7 +211,11 @@ jobs:
           jellyfish --version
 
       - name: Install package with dev dependencies
-        run: pip install -e ".[dev]"
+        # The optional extras are installed because tests guard on them with
+        # `importorskip`. With `.[dev]` alone, 19 modules skipped at collection
+        # and 185 tests never ran here, the Bloom and BAM suites among them,
+        # while the job stayed green.
+        run: pip install -e ".[dev,improved,bam,viz]"
 
       - name: Run tests
         # `-m "not scale"` because the scale marker declares itself "opt-in;
@@ -231,12 +235,16 @@ jobs:
         # The gate travels with the measurement. `--cov-fail-under=50` applies
         # wherever coverage is computed, so moving it does not weaken it, and a
         # cell that does not measure coverage cannot fail on it.
+        #
+        # `-rs` prints each skip with its reason. Without it the log holds a
+        # count only, so a test that stopped running is indistinguishable from
+        # one that was always opt-in.
         run: |
           COVERAGE=""
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             COVERAGE="--cov=neoswga --cov-report=term-missing --cov-fail-under=50"
           fi
-          pytest tests/ -m "not scale" -q --tb=short $COVERAGE
+          pytest tests/ -m "not scale" -q -rs --tb=short $COVERAGE
 
   build:
     # `needs: lint`, not `needs: test`. This job checks PACKAGING and publishes
