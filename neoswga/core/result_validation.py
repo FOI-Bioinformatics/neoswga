@@ -67,11 +67,21 @@ def validate_result(
 
     # Set size check — warning unless the optimizer already flagged PARTIAL.
     if target_size is not None and n != target_size:
+        # A panel the reduction stage made smaller is what `--minimize-primers`
+        # asked for. It was reported as an ERROR beside the result it produced.
+        minimised = n < target_size and any(
+            stage.get("stage") == "reduction"
+            and stage.get("after_size", 0) < stage.get("before_size", 0)
+            for stage in (getattr(result, "stage_history", None) or ())
+            if isinstance(stage, dict)
+        )
+        benign = minimised or result.status.value == "partial"
         issues.append(
             {
-                "level": ("warning" if result.status.value == "partial" else "error"),
+                "level": "warning" if benign else "error",
                 "code": "set_size_mismatch",
-                "detail": f"Requested target_size={target_size}, got {n}",
+                "detail": f"Requested target_size={target_size}, got {n}"
+                + (" after minimisation removed primers" if minimised else ""),
             }
         )
 

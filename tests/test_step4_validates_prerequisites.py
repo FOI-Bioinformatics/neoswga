@@ -19,7 +19,7 @@ from neoswga.core.pipeline import StepPrerequisiteError, validate_step4_prerequi
 def data_dir(tmp_path):
     pd.DataFrame(
         {
-            "primer": ["AAACCCGGGTTT", "ACCCGGGTTTAA"],
+            "primer": ["AACAGGAACATC", "AAGCAGTCCGAT"],
             "ratio": [1.0, 2.0],
             "gini": [0.3, 0.4],
             "fg_count": [20, 15],
@@ -39,7 +39,7 @@ def test_validator_accepts_present_position_files(data_dir, tmp_path):
     import h5py
 
     with h5py.File(str(tmp_path / "fg_12mer_positions.h5"), "w") as fh:
-        fh.create_dataset("AAACCCGGGTTT", data=[1, 2, 3])
+        fh.create_dataset("AACAGGAACATC", data=[1, 2, 3])
     result = validate_step4_prerequisites(data_dir, [str(tmp_path / "fg")])
     assert result.valid is True
 
@@ -80,7 +80,7 @@ def test_a_caller_supplying_its_own_candidates_is_not_blocked(data_dir, tmp_path
     monkeypatch.setattr(parameter, "data_dir", data_dir, raising=False)
     result = unified_optimizer.run_optimization(
         method="dominating-set",
-        candidates=["AAACCCGGGTTT", "ACCCGGGTTTAA"],
+        candidates=["AACAGGAACATC", "AAGCAGTCCGAT"],
         fg_prefixes=[str(tmp_path / "fg")],
         fg_seq_lengths=[100000],
         target_size=2,
