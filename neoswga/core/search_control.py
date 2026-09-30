@@ -276,7 +276,20 @@ SEARCH_SETTING_DEFAULTS = {
     "swap_max_seconds": 10.0,
     "stage1_objective_width": None,
     "coverage_reach": None,
+    # Which coverage a panel is judged on during repair, refinement and
+    # minimization. None leaves `panel_refinement.objective_for_optimizer` to
+    # choose, which is "effective" whenever reaction conditions are attached.
+    "coverage_metric": None,
 }
+
+#: The two coverage figures a panel can be judged on. "effective" is
+#: occupancy-weighted; "raw" is the unweighted fraction of the target within
+#: reach, which is the figure a run prints. Named here rather than compared
+#: inline, because `PoolConstraints` enforces the same pair and the two must not
+#: drift. NOT the same axis as `coverage.polymerase_extension_reach`'s
+#: `coverage_metric`, which chooses "realistic" or "processivity" reach -- same
+#: word, different question, so a value from one is invalid in the other.
+COVERAGE_METRICS = ("effective", "raw")
 
 
 def resolve_search_settings(data):
@@ -307,6 +320,16 @@ def resolve_search_settings(data):
     if isinstance(refills, bool) or not isinstance(refills, int) or refills < 0:
         raise InvalidDesignRequest(
             "max_frontier_refills", "must be a non-negative integer", refills
+        )
+
+    metric = resolved["coverage_metric"]
+    if metric is not None and metric not in COVERAGE_METRICS:
+        # Refused at load time rather than when the objective is built, because
+        # the objective is built after the position cache and a typo would
+        # otherwise cost a full index. "realistic" is the likely mistake: it is
+        # the other `coverage_metric` in this package.
+        raise InvalidDesignRequest(
+            "coverage_metric", f"must be one of {' | '.join(COVERAGE_METRICS)}", metric
         )
 
     # Raises `ValueError` for a negative or non-finite allowance. Constructing

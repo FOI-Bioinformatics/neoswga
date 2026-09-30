@@ -946,6 +946,7 @@ def _apply_params_only_keys(data: dict) -> None:
     global swap_max_seconds
     global allow_dimer_relaxation
     global coverage_reach
+    global coverage_metric
     global coverage_geometry
     global occupancy_ranking
     global occupancy_shortlist
@@ -982,6 +983,7 @@ def _apply_params_only_keys(data: dict) -> None:
     swap_max_seconds = _search["swap_max_seconds"]
     stage1_objective_width = _search["stage1_objective_width"]
     coverage_reach = _search["coverage_reach"]
+    coverage_metric = _search["coverage_metric"]
     coverage_geometry = data.get("coverage_geometry", "symmetric")
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
     occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")

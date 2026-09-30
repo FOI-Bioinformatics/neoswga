@@ -50,6 +50,16 @@ what follows is only what the filenames do not tell you.
   confines a window to the record holding its site, which is Phase 6's subject
   and is deliberately unchanged here. `coverage.merged_window_intervals` is the
   interval form of `_mark_window` and is tested against it base by base.
+- **`selectivity.py`**: `selectivity_from_loads`, `selectivity_density_from_loads`
+  and the `MAX_SELECTIVITY` / `SELECTIVITY_REFERENCE` constants. Extracted from
+  `base_optimizer` on 2026-09-30, the same way and for the same reason as
+  `occupancy_coverage.py`: one new configuration field pushed that module past
+  its budget, and it had been sitting at exactly its required headroom, so any
+  single line would have. All four names are re-exported from `base_optimizer`
+  and are the same objects, which is what leaves two modules and six test files
+  untouched; the underscored spellings are kept as aliases because that is what
+  those importers ask for. The two functions belong together because the
+  difference between them IS Known Issue 6.
 - **`lazy_dimer.py`**: owns the one decision about how to screen dimers.
   `dimer_screen(pool, max_dimer_bp)` returns the dense `dimer_matrix` below
   `LAZY_DIMER_POOL_THRESHOLD` (4,000) candidates and the pairwise
@@ -1128,8 +1138,27 @@ are attached, while the run prints the unweighted figure: on the plasmid
 example at 100 bp reach a 12-primer panel printed 46.7% against a 30% target
 and was not reduced, because the compared figure was 19.7%. The run now logs
 the primers removed, the stop reason and the figure the target was compared
-against, at WARNING when nothing was removed. Which coverage `--target-coverage`
-SHOULD mean is not decided; this only makes the current rule visible.
+against, at WARNING when nothing was removed.
+
+**Which coverage it is compared against is now the user's to choose**, as
+`--coverage-metric effective|raw` on `optimize` and as `coverage_metric` in
+params.json. `plan-pool` has had that flag since it was written; `optimize`
+judged panels on a metric no option could name. The default is unchanged and the
+flag is a `None` sentinel, so an absent flag leaves
+`panel_refinement.objective_for_optimizer`'s rule in place: effective whenever
+reaction conditions are attached, raw for a condition-free library evaluator.
+An explicit choice also overrides the metric a configured panel limit arrives
+with, which is otherwise built with the default. Measured on the plasmid example
+at 100 bp reach and a 0.30 target: the default leaves 12 primers and reports
+0.197 effective, `raw` removes 8 of them and reports 0.339.
+
+**It is the other `coverage_metric` in this package that makes the name a
+hazard.** `coverage.polymerase_extension_reach` takes one too, whose values are
+`realistic` and `processivity` -- same word, different question.
+`search_control.COVERAGE_METRICS` names the panel pair once, the schema's enum
+refuses the reach words with a message listing the permitted values, and
+`resolve_search_settings` refuses them again at load time for a caller that
+skips the schema. A test drives `realistic` through it for exactly this reason.
 
 The second route was a candidate list handed to `run_optimization` directly.
 The self-dimer screen lives with the candidate source, a plain list has none,
