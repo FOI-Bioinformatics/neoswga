@@ -4,6 +4,75 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### Documentation: CLAUDE.md is a summary, and the record moved to docs/development
+
+- `CLAUDE.md` was reduced from 2,744 lines to a working summary. Its long-form
+  content moved, verbatim apart from two dated corrections, into
+  `docs/development/implementation-notes.md`,
+  `docs/development/design-contracts.md` and
+  `docs/development/KNOWN_ISSUES.md`. Known Issue numbers are unchanged.
+- The export guide describes which set is exported and each case in which
+  `export` refuses. The optimization guide describes what
+  `--minimize-primers` compares against and how `--coverage-metric` changes
+  it. The CLI skill covers `evaluate-set`, `swap-primer`, `contract-set`,
+  `rescore-set`, `calibrate-reach`, `plan-pool`, `report-pool`, `export` and
+  `doctor`, and no longer describes the length-based contig fallback removed
+  on 2026-09-21.
+
+### Minimisation reports what it did, and optimize takes a coverage metric
+
+#### ADDED
+
+- **`--coverage-metric effective|raw` on `optimize`**, and `coverage_metric` in
+  params.json. It chooses the coverage figure `--target-coverage` is compared
+  against. The default is unchanged: effective when reaction conditions are
+  attached. `plan-pool` already had the flag.
+- `core/selectivity.py` holds the selectivity arithmetic, extracted from
+  `base_optimizer` and re-exported from it as the same objects.
+
+#### CHANGED
+
+- **`--minimize-primers` logs the primers removed, the stop reason and the
+  figure the target was compared against**, at WARNING when nothing was
+  removed. It could previously leave a panel unchanged without a message.
+- **A candidate list passed to `run_optimization` directly is screened for
+  self-dimers**, as a list from the candidate source already was. Fixed
+  primers are kept; a screen that empties the list raises
+  `NoCandidatesError`. `neoswga optimize` was not affected.
+- A panel made smaller by the reduction stage is reported as a warning, not
+  as a `set_size_mismatch` error.
+
+### Alternative sets take the shared search contract, and export knows which set it guards
+
+#### CHANGED
+
+- **Alternative primer sets are searched through `run_panel_search`**, so they
+  spend the run's `total_search_evaluations` allowance. Panel quality is
+  about the same at roughly 5x the wall clock, paid only when `max_sets`
+  exceeds 1 (docs/validation/alternatives_through_the_contract_2026-09-28.md).
+- **`export --set N` refuses a set other than 0** unless `--allow-unqualified`
+  is passed. The saved findings and assessment describe set 0 only.
+- **The ILP path refuses when HiGHS is absent** and names the package to
+  install. CBC was measured to kill the interpreter on Python 3.13 (macOS
+  arm64); `NEOSWGA_ALLOW_CBC=1` requests it explicitly.
+- A self-dimer screen that empties one frontier no longer refuses the whole
+  design, and a spent allowance keeps the smaller panel a stage had found.
+
+#### KNOWN LIMITATION
+
+- An alternative set that violates a configured panel limit is still offered
+  in `step4_improved_df.csv`. Whether to suppress, mark or assess it is
+  undecided.
+
+### CI runs the tests the optional extras were hiding
+
+- The test job installs `.[dev,improved,bam,viz,interactive]` and passes
+  `-rs`. 19 test modules skipped at collection for want of an optional
+  dependency, the Bloom and BAM tests among them, while the job stayed green.
+- Tests that need the generated plasmid example request the
+  `primed_plasmid_example` fixture. A `skipif` on `plasmid_example_ready()`
+  was evaluated at collection, before the example was primed.
+
 ### Reports say what their figures are, and the benchmark compares fairly
 
 #### ADDED
@@ -196,7 +265,8 @@ the CI matrix tests one version on two operating systems.
 - **The exact ILP solve crashed the interpreter on Python 3.13.** python-mip
   defaults to CBC, and constructing a CBC model terminates the process with
   SIGKILL there: no exception, no traceback, exit 137. `core/ilp_solver.py`
-  now prefers HiGHS, which works on 3.13, and warns when falling back.
+  now prefers HiGHS, which works on 3.13, and warns when falling back. (Since
+  2026-09-27 it refuses instead of falling back; see the entry above.)
   Measured on macOS arm64 with mip 2.0.0 and cbcbox 2.935.
 - **Documented `build-filter` commands did not run.** Nine examples across the
   guides, the developer docs and two example READMEs used a positional form

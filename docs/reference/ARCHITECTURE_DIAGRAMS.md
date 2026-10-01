@@ -154,8 +154,8 @@ flowchart LR
 > live components -- none exist in `neoswga/core/` (see the same defect
 > documented in [MODULE_REFERENCE.md](MODULE_REFERENCE.md)). Redrawing both
 > diagrams against the current six-optimizer architecture is outstanding
-> work. For the accurate dispatch path, see CLAUDE.md's "Core Modules"
-> section: optimizers route through `unified_optimizer.py` to
+> work. For the accurate dispatch path, see
+> [implementation-notes.md](../development/implementation-notes.md): optimizers route through `unified_optimizer.py` to
 > `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`,
 > `network_optimizer`, `background_aware_optimizer` (which delegates to
 > `HybridOptimizer`), and `clique_optimizer`, with `minimal_primer_selector`

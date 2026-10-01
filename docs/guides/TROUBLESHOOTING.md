@@ -171,7 +171,7 @@ ModuleNotFoundError: No module named 'sklearn'
 
 Or unpickling errors when `neoswga prepare-candidates --amp-model` loads the random forest
 model (the model is not loaded by default -- see
-[The score stage](../../CLAUDE.md#the-score-stage)):
+[The `prepare-candidates` stage](../development/implementation-notes.md#the-prepare-candidates-stage)):
 
 ```
 ValueError: node array from the pickle has an incompatible dtype

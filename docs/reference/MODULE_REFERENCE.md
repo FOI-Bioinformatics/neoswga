@@ -14,9 +14,10 @@ Complete reference for all modules in the NeoSWGA core package.
 > outstanding: 27 of the 92 real modules in `neoswga/core/` (excluding
 > `__init__.py`) have no section here at all -- writing those up is real work,
 > not yet done. Cross-check against `ls neoswga/core/` and the module
-> docstrings before relying on a specific entry; see CLAUDE.md's "Core
-> Modules" section for the modules that actually route through
-> `unified_optimizer.py` today.
+> docstrings before relying on a specific entry; see
+> [implementation-notes.md](../development/implementation-notes.md) for the
+> modules that actually route through `unified_optimizer.py` today. (The count of 92 is from the 2026-09-11 survey; `neoswga/core/` held 143
+> Python files on 2026-10-01.)
 
 ## Table of Contents
 

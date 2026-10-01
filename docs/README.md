@@ -93,19 +93,28 @@ to both don't need touching.
 | [Algorithms](development/algorithms.md) | Filtering and optimization algorithms |
 | [Optimizers](development/optimizers.md) | **Superseded 2026-08-31** -- describes a retired 17-optimizer architecture; read [Optimization Guide](guides/optimization_guide.md) instead |
 | [Deployment](development/deployment.md) | Deployment and configuration |
+| [Implementation notes](development/implementation-notes.md) | Per module, output file, command and params.json key: what it does that its name does not say, with the measurement behind each default |
+| [Design contracts](development/design-contracts.md) | The rules a design run enforces (failure, request resolution, candidate source, oracles, search budget, export gate, alignment reading), each with the defect it was written for |
+| [Known issues](development/KNOWN_ISSUES.md) | Known Issues 1-24. Code comments and tests cite these numbers |
+
+The last three were moved out of `CLAUDE.md` on 2026-10-01. `CLAUDE.md` at the
+repository root is now a short working summary that links to them.
 
 `MODULE_REFERENCE.md` and `development/architecture.md` both documented
 modules that no longer exist in `neoswga/core/` (a 2026-09-11 survey found 12
 in the former, 3 in the latter); both sets of ghost sections have now been
-removed. What's still outstanding on each is coverage, not accuracy: 27 of
-92 real modules have no section in `MODULE_REFERENCE.md`, and 86 of 92 have
-none in `architecture.md`. See CLAUDE.md's "Core Modules" section for what
+removed. What's still outstanding on each is coverage, not accuracy: at that
+survey 27 of 92 real modules had no section in `MODULE_REFERENCE.md`, and 86
+of 92 had none in `architecture.md`. `neoswga/core/` has grown since (143
+Python files on 2026-10-01), so the uncovered share is larger now. See
+[Implementation notes](development/implementation-notes.md) for what
 actually ships.
 
 ## Reports (audits, SWOT, technical debt)
 
 Point-in-time analysis documents. They are not superseded by being old: the
-pipeline audit is the one to read first, and CLAUDE.md cites finding
+pipeline audit is the one to read first, and the
+[known-issues record](development/KNOWN_ISSUES.md) cites finding
 identifiers from it and from the optimize-step audit (B4, B5, A6, E6, F0,
 F1b) directly.
 
@@ -140,6 +149,18 @@ Measurement records backing specific claims and defaults elsewhere in the docs:
 | [Tool comparison](validation/tool_comparison.md) | NeoSWGA against swga 1.0, swga 2.0/soapswga and COATswga |
 | [Optimizer cost](validation/optimizer_cost_2026-09.md) | Runtime and set quality per method across panel sizes |
 | [Dimer threshold trade-off](validation/dimer_threshold_tradeoff_2026-09.md) | What panel size each pool supports at each `max_dimer_bp` |
+| [Chemistry model evidence](validation/chemistry_model_evidence.md) | Per constant, whether it is measured, estimated, empirical, assumed or absent |
+| [Record geometry on *Drosophila*](validation/record_geometry_on_drosophila_2026-09-21.md) | What an unconfined coverage window costs on a 1,870-record host |
+| [Variable oligo length](validation/variable_oligo_length_2026-09-21.md) | A mixed-length design against single-length designs |
+| [Beam against deletion](validation/beam_does_not_beat_deletion_2026-09-21.md) | Whether a beam search finds a smaller panel than one-at-a-time removal |
+| [K-mer counter comparison](validation/kmer_counter_comparison_2026-09-25.md) | KMC3 against Jellyfish: time, memory and the query path |
+| [Query scan](validation/query_scan_2026-09-25.md) | Counting a known k-mer set directly in a host with no table |
+| [Position index layout](validation/position_index_layout_2026-09-25.md) | The sorted-blocks layout against one dataset per k-mer |
+| [Equal-allowance comparison](validation/equal_allowance_comparison_2026-09-27.md) | Search stages compared at equal total compute |
+| [Alternatives through the contract](validation/alternatives_through_the_contract_2026-09-28.md) | What routing alternative sets through the shared search contract costs |
+
+The table lists the records most often cited; `validation/` holds the rest,
+one file per claim, named by subject and date.
 
 Run validation tests:
 
