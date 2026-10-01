@@ -16,6 +16,18 @@ panel limits. `--minimize-primers` preserves the same metric and limits when
 removing oligos. This can change previously delivered panels and adds bounded
 refinement work; it does not establish improved experimental recovery.
 
+`--minimize-primers` removes one oligo at a time and stops when no single
+removal still meets `--target-coverage`. That is a local optimum and not
+necessarily the smallest qualifying panel. The run logs how many oligos were
+removed, why it stopped, and the coverage figure the target was compared
+against. With reaction conditions attached that figure is the effective
+(occupancy-weighted) coverage, which can be well below the unweighted figure
+printed elsewhere in the run. `--coverage-metric raw` on `optimize`, or
+`coverage_metric` in params.json, compares against the unweighted figure
+instead. On the bundled plasmid example at 100 bp reach and a 0.30 target, the
+default leaves 12 primers (0.197 effective) and `raw` removes 8 of them (0.339
+raw).
+
 `plan-pool` carries supported search settings from params.json, including
 `stage1_objective_width`, refill controls, and swap budgets. An explicit CLI
 swap-evaluation budget overrides the parameter-file value. Stage-one scoring
@@ -454,6 +466,14 @@ neoswga optimize -j params.json --optimization-method=hybrid
 `iterations` is a params.json key, not a flag. It bounds the search for
 ALTERNATIVE sets only, so raising it offers more alternatives; it does not make
 the primary selection more thorough.
+
+The sets in `step4_improved_df.csv` are alternatives, numbered by `set_index`.
+Set 0 is the one the summary, the report and the saved assessment describe.
+`export`, `interpret`, `report` and `simulate` read one set (set 0 unless
+`--set N` is given on `export` or `interpret`). An alternative set is not
+held to the configured panel limits and is not assessed, so `export --set N`
+refuses unless `--allow-unqualified` is passed; see
+[From Results to Lab](FROM_RESULTS_TO_LAB.md#which-set-is-exported-and-when-export-refuses).
 
 ## Iterative Design Workflow
 

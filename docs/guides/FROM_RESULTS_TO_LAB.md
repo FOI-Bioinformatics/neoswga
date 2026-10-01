@@ -153,6 +153,38 @@ neoswga export -d ./results/ -o ./order/ --format bedgraph
 neoswga export -d ./results/ -o ./order/ -j params.json --project MyPathogen
 ```
 
+### Which set is exported, and when export refuses
+
+`step4_improved_df.csv` can hold several primer sets, numbered by `set_index`
+(up to `max_sets`, default 5). They are alternative answers to the same
+design, each found by excluding the primers already chosen. They are not
+additions to one another and are never pooled: oligos from different sets
+were not screened against each other for dimers.
+
+```bash
+# Set 0 (default): the set the run summary and report describe
+neoswga export -d ./results/ -o ./order/
+
+# An alternative set
+neoswga export -d ./results/ -o ./order_alt/ --set 1 --allow-unqualified
+```
+
+`export` exits non-zero and writes nothing when:
+
+- the most recent design run in the directory failed or was interrupted. That
+  run leaves a `design_failure.json` naming the stage and reason, and any
+  `step4_improved_df.csv` beside it is from an earlier run. Fix the cause and
+  re-run `optimize`; a successful run removes the record.
+- the run finished and the optimizer recorded a defect in the delivered set,
+  such as a pair above `max_dimer_bp`.
+- `--set N` names a set other than 0. The saved findings and assessment
+  describe set 0 only, so the other sets have not been checked.
+- `--set N` names a set the file does not hold.
+
+`--allow-unqualified` overrides the second and third case: the findings are
+printed and the files are written. Review an alternative set (for example
+with `neoswga evaluate-set` or `neoswga analyze-dimers`) before ordering it.
+
 ### Output File Formats
 
 **IDT Format (order_idt.csv):**
@@ -759,7 +791,8 @@ Inactivate: 65C, 10 min
 
 - **[SWGA Science](../SWGA_SCIENCE.md)**: Thermodynamics, mechanism, and theory
 - **[README](../../README.md)**: Quick start and installation
-- **[CLAUDE.md](../../CLAUDE.md)**: Complete technical reference
+- **[Implementation notes](../development/implementation-notes.md)** and
+  **[design contracts](../development/design-contracts.md)**: technical reference
 - **[Examples](../../tests/integration)**: Working examples for different conditions
 
 ---

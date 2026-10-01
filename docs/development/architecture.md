@@ -9,8 +9,9 @@ This document provides technical details for developers working on NeoSWGA, incl
 > [MODULE_REFERENCE.md](../reference/MODULE_REFERENCE.md). What's still
 > outstanding: only 6 of the 92 real modules in `neoswga/core/` have a section
 > here. Cross-check against `ls neoswga/core/` and the module docstrings
-> before relying on a specific entry; see CLAUDE.md's "Core Modules" section
-> for what actually ships.
+> before relying on a specific entry; see
+> [implementation-notes.md](implementation-notes.md) for what actually ships. (The count of 92 is from the 2026-09-11 survey; `neoswga/core/` held 143
+> Python files on 2026-10-01.)
 
 ## Table of Contents
 
@@ -68,7 +69,7 @@ neoswga/  (repository directory)
 │       ├── mechanistic_model.py, simulation_fitness.py
 │       ├── report/  (quality report generation)
 │       ├── experimental/  (research features)
-│       └── [see CLAUDE.md for full inventory]
+│       └── [see `ls neoswga/core/` for the full inventory]
 ├── pyproject.toml
 ├── tests/
 └── README.md
@@ -237,7 +238,7 @@ for the full table and citations):
 ### Known Issues and Limitations
 
 1. **Validation**: Some performance claims are based on algorithmic analysis and remain to be verified experimentally
-2. **GPU**: Performance varies by hardware and dataset size; not reached by any pipeline stage today (see CLAUDE.md's `gpu_acceleration.py` note)
+2. **GPU**: Performance varies by hardware and dataset size; not reached by any pipeline stage today (see the `gpu_acceleration.py` note in [implementation-notes.md](implementation-notes.md))
 
 ---
 

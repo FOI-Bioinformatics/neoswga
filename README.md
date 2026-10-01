@@ -159,4 +159,6 @@ AGPL-3.0-or-later. See [LICENSE](LICENSE) for details.
 
 ## Contributing
 
-Contributions welcome. See [CLAUDE.md](CLAUDE.md) for architecture and development guidelines.
+Contributions welcome. See [CLAUDE.md](CLAUDE.md) for a working summary of the architecture and the rules a
+change must keep, and [docs/development/](docs/development/) for the developer guide, the design contracts and
+the known-issues record.

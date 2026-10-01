@@ -65,8 +65,9 @@ mypy neoswga/
 > `greedy_optimizer.py` and `genetic_algorithm.py`, neither of which exists in
 > `neoswga/core/` (same defect as [MODULE_REFERENCE.md](../reference/MODULE_REFERENCE.md)
 > and [architecture.md](architecture.md)). It is illustrative, not a complete
-> listing -- `neoswga/core/` holds 92 modules; see CLAUDE.md's "Core Modules"
-> section for the ones that route through `unified_optimizer.py`.
+> listing -- `neoswga/core/` holds about 140 modules; see
+> [implementation-notes.md](implementation-notes.md) for the ones that route
+> through `unified_optimizer.py`.
 
 ```
 neoswga/

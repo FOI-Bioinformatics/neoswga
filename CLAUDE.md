@@ -6,1470 +6,320 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NeoSWGA is a command-line tool for selecting primer sets for selective whole-genome amplification (SWGA). See [README.md](README.md) for user-facing documentation and quick start.
 
-**External dependency**: a k-mer counter in PATH. KMC3 is used when installed and jellyfish otherwise; setting `"kmer_counter"` in params.json requires the named one. See Known Issue 24 for why, and what it does NOT buy.
+**External dependency**: a k-mer counter in PATH. KMC3 is used when installed and jellyfish otherwise; setting `"kmer_counter"` in params.json requires the named one (Known Issue 24).
+
+Python 3.13 only (`requires-python = ">=3.13"`).
+
+## Where the detail lives
+
+This file is the working summary. The dated record behind each statement, with
+the measurements, was moved out on 2026-10-01 and is read on demand:
+
+| Document | Holds |
+|---|---|
+| [docs/development/implementation-notes.md](docs/development/implementation-notes.md) | Per module, output file, command and params.json key: what it does and why |
+| [docs/development/design-contracts.md](docs/development/design-contracts.md) | The rules a design run enforces, each with the failure it was written for |
+| [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md) | Known Issues 1-24 in full. The numbering is stable; code and tests cite it |
+| [docs/params-reference.md](docs/params-reference.md) | Every params.json key, generated from the schema by `scripts/render_schema.py` |
+| `docs/validation/` | One measurement record per claim or default |
+| `.claude/skills/neoswga-cli/SKILL.md` | Commands outside the four-step pipeline; loads on demand |
+
+Read the relevant section there before changing the behaviour it describes.
+When adding a record, add it there and keep this file to a line or two.
 
 ## Architecture
 
-### Entry Point
+- Entry point: `neoswga/cli_unified.py` (`neoswga = neoswga.cli_unified:main`
+  in `pyproject.toml`). Handlers live in `neoswga/cli/`.
+- `neoswga/core/` holds about 140 modules; `ls` and the module docstrings are
+  the current list. What the filenames do not say:
 
-- `neoswga/cli_unified.py`: Main CLI entry point (all commands)
-- Entry point defined in `pyproject.toml`: `neoswga = neoswga.cli_unified:main`
+| Module | Note |
+|---|---|
+| `unified_optimizer.py` | Dispatches the optimizers: `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`, `network_optimizer`, `background_aware_optimizer`, with `minimal_primer_selector` as a post-process. `background-aware` is `BackgroundAwareBaseOptimizer`, which delegates to `HybridOptimizer` |
+| `exceptions.py` | `StepPrerequisiteError`, `StepValidationResult` and the `DesignError` family. Keep it free of dependencies beyond `typing` and `dataclasses`; `core/pipeline.py` re-exports the same objects |
+| `occupancy_coverage.py`, `selectivity.py` | Extracted from `base_optimizer` when it reached its size budget; re-exported from it as the same objects |
+| `lazy_dimer.py` | `dimer_screen(pool, max_dimer_bp)` is the one decision about dense matrix against pairwise screen (threshold 4,000 candidates) |
+| `candidate_source.py` | `open_design_source` is the rule every design command asks. An explicit list wins; an absent inventory is None; a mismatched inventory raises. Only `plan-pool` advances the frontier, deliberately |
+| `position_index.py` | The only reader and writer of `*_positions.h5` (sorted-blocks layout) |
+| `position_cache.py` | In-memory positions. `load`/`release` move the window; `has_entry` and `require_entries` ask whether an ANSWER exists, which differs from a non-zero answer |
+| `kmer_backend.py`, `kmer_tables.py`, `query_scan.py` | Counter invocation; the one place anything asks about a k-mer table; a direct scan for a host with no table |
+| `design_request.py`, `design_result.py`, `panel_evaluation.py` | The resolved frozen request and its hash; run state against termination reason against qualification; one `PanelAssessment` |
+| `pool_planner.py`, `pool_objective.py`, `panel_acceptance.py` | `plan-pool`, the shared objective and `shortfall`, the configured panel limits. `repair_panel` is the one bounded repair |
+| `bam_coverage.py`, `depth_policy.py` | `open_alignment` is the only door to a BAM or CRAM |
+| `delivered_set.py` | Which `set_index` a command reads (default 0) |
+| `concurrent_runs.py` | Translates the HDF5 lock error from two runs sharing a directory |
+| `registry/model_evidence.json` | Per chemistry constant, its evidence status and supported domain; checked in `resolve_design_request` |
+| `gpu_acceleration.py` | Not reached by any pipeline stage; `--use-gpu` says so |
+| `advanced_features.py`, `gc_adaptive_strategy.py` | Read as optional but are wired into kept paths |
+| `report/` | Quality reports. Reads the saved panel assessment last, and `effective_conditions` from the run manifest in preference to params.json |
+| `models/random_forest_filter.skops` | Retired from the default path; reachable through `--amp-model` |
 
-### Core Modules (`neoswga/core/`)
-
-75 modules. `ls neoswga/core/` and the module docstrings are the current list;
-what follows is only what the filenames do not tell you.
-
-- **Optimizers** are dispatched through `unified_optimizer.py`:
-  `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`,
-  `network_optimizer`, `background_aware_optimizer`, with
-  `minimal_primer_selector` as a post-process. The registered
-  `background-aware` method is `BackgroundAwareBaseOptimizer`, which delegates
-  to `HybridOptimizer`. The standalone three-stage `BackgroundAwareOptimizer`
-  and its module-level `optimize()` / `compare_optimizers()` were deleted on
-  2026-09-10: nothing dispatched to them, and its `_prune_background` had
-  diverged from the one that ships.
-- **`core/exceptions.py`** holds `StepValidationResult` and
-  `StepPrerequisiteError`. `core/pipeline.py` re-exports both, so existing
-  importers are unaffected and the re-exported objects are identical, which is
-  what keeps `except` clauses matching. They moved because `cli_unified.py` and
-  `cli/pipeline.py` imported `core/pipeline.py` at module scope only to make
-  the exception catchable, and that import reaches scikit-learn through
-  `rf_preprocessing`. Keep this module free of dependencies beyond `typing`
-  and `dataclasses`.
-- **`occupancy_coverage.py`**: occupancy-weighted coverage, accumulated over
-  window edges rather than over bases. Extracted from `base_optimizer` on
-  2026-09-17 when the rewrite pushed that module past its size budget;
-  `BaseOptimizer._compute_effective_coverage` delegates to it and supplies the
-  reach and geometry. The old loop made two full passes over the target per
-  primer, so it cost the same on a 1.27 Mb genome whether a primer had two
-  sites or two thousand. That was 95% of one objective evaluation while the
-  144 Mb host everyone blamed was 16%. 19x to 21x faster, agreeing with an
-  independent float64 oracle to 1e-12; the old float32 accumulation is why the
-  delivered coverage moves by up to 2.4e-8. Neither this nor `_union_coverage`
-  confines a window to the record holding its site, which is Phase 6's subject
-  and is deliberately unchanged here. `coverage.merged_window_intervals` is the
-  interval form of `_mark_window` and is tested against it base by base.
-- **`selectivity.py`**: `selectivity_from_loads`, `selectivity_density_from_loads`
-  and the `MAX_SELECTIVITY` / `SELECTIVITY_REFERENCE` constants. Extracted from
-  `base_optimizer` on 2026-09-30, the same way and for the same reason as
-  `occupancy_coverage.py`: one new configuration field pushed that module past
-  its budget, and it had been sitting at exactly its required headroom, so any
-  single line would have. All four names are re-exported from `base_optimizer`
-  and are the same objects, which is what leaves two modules and six test files
-  untouched; the underscored spellings are kept as aliases because that is what
-  those importers ask for. The two functions belong together because the
-  difference between them IS Known Issue 6.
-- **`lazy_dimer.py`**: owns the one decision about how to screen dimers.
-  `dimer_screen(pool, max_dimer_bp)` returns the dense `dimer_matrix` below
-  `LAZY_DIMER_POOL_THRESHOLD` (4,000) candidates and the pairwise
-  `LazyDimerCompatibility` above it, and all three searches ask it:
-  `dominating_set_optimizer`, `network_optimizer` and `refine_hybrid_stage2`.
-  The last two built the dense array unconditionally, and `plan-pool` sets
-  `refinement_method="swap"`, so that was on the hot path -- at the 491,836
-  candidates `all_qc` retains the array is about 242 GB, a MemoryError rather
-  than a slowdown (audit finding F11). A threshold the dense form cannot
-  represent, 8 or above in its 4**8 code space, also takes the pairwise branch
-  rather than raising, so what was configured is always enforced;
-  `tests/test_one_dimer_screen_for_every_pool_size.py` holds a shrinking
-  allowlist of the sites that legitimately build a dense matrix.
-- **`candidate_source.py`**: where a command's candidates come from, and in
-  what order. `open_source_or_list` is the one rule all three commands ask:
-  the inventory when the directory has one, the supplied list otherwise, with
-  the frontier opening at the list's own size so no delivered panel moves.
-  `plan-pool`, `optimize` and `expand-primers` each read `step3_df.csv` for
-  themselves before Phase 4 (audit finding F1), which made everything the
-  inventory retained beyond the `max_primer` shortlist unreachable.
-  `order_candidates_by_background` lives here too, because ordering the scan is
-  the same concern as choosing it.
-  The frontier opens at the supplied list's size and only `plan-pool` reaches
-  past it: `pool_planner` is the sole caller of `source.advance()`. That is
-  deliberate as of 2026-09-19. Handing `optimize` the whole 20,670-candidate
-  Wolbachia inventory instead of its 2,000-primer shortlist moves the delivered
-  panel a long way (Jaccard 0.500/0.263/0.171 at n=6/12/24) and trades
-  specificity for coverage: density falls 12-42% while coverage rises 1-6
-  points. `max_primer` cuts on `bg_count / fg_count` ascending, so the
-  candidates a refill reaches bind the host twice as often and the target half
-  as often, and Stage 1's greedy has no specificity term to resist them (Known
-  Issue 16). Do not give `optimize` an unconditional refill; make Stage 1
-  specificity-aware first, or trigger a refill only on an unmet configured
-  panel limit, the way a size row does
-  ([measurement](docs/validation/frontier_refill_on_optimize_2026-09-19.md)).
-- **`position_cache.py`**: in-memory binding-position cache, about 1000x faster
-  than re-reading the HDF5 files. The constructor takes a fixed primer list;
-  `load` and `release` move that window afterwards, which is what a frontier
-  that advances needs. A released primer is remembered as released and
-  `get_positions` raises for it, because an array that is gone reads exactly
-  like one that never existed. `has_entry` answers whether the cache holds an
-  ANSWER for a primer on a prefix, which is not the same question as whether
-  that answer is non-zero; `require_entries` is the one rule both the inventory
-  provider and a `--candidates` list check a batch against.
-- **`gpu_acceleration.py`**: CuPy-based thermodynamics helpers. Not reached by
-  any pipeline stage, and `--use-gpu` says so rather than claiming otherwise.
-  `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in
-  Python writing element-by-element into a CuPy array, which is slower than the
-  NumPy path it replaces.
-- **`advanced_features.py`** and **`gc_adaptive_strategy.py`** read as optional
-  but are wired into the kept paths (`rf_preprocessing.py`, and `pipeline.py` /
-  `multi_genome_pipeline.py` respectively).
-- **`report/`** builds the quality reports. `report/metrics.py` reads
-  `effective_conditions` from the run manifest in preference to params.json.
-- Pre-trained scorer: `neoswga/core/models/random_forest_filter.skops` (skops
-  format, with a SHA-256 allowlist in `models/checksums.json`).
-
-### Data Flow
+### Data flow
 
 ```
 count-kmers            filter                 prepare-candidates     optimize
      |                    |                     |                       |
      v                    v                     v                       v
- *_Xmer_all.txt  -->  step2_df.csv +    -->  step3_df.csv      -->  step4_improved_df.csv
- (k-mer counts)       positions.h5           (ordered candidates)   (final primer sets)
+ k-mer tables    -->  step2_df.csv +    -->  step3_df.csv      -->  step4_improved_df.csv
+ (KMC db or text)     positions.h5           (ordered candidates)   (final primer sets)
 ```
 
-**File outputs** (in `data_dir`):
-- `step2_df.csv`: Filtered primers with fg_freq, bg_freq, gini, Tm
-- `filter_stats.json`: Per-stage filtering funnel counts (rendered in reports).
-  The stages are `total_kmers`, `after_fg_frequency`, `after_bg_frequency`,
-  `after_thermodynamic`, `after_exclusion_blacklist` (written only when an
-  exclusion genome or blacklist is configured), `after_gini`,
-  `after_max_primer_cut` and `final_candidates`. The frequency row is split
-  because the background gate is the `bg_bool` term, not the later stage that
-  used to be labelled "After background/blacklist": that one sat between two
-  configuration-gated blocks and was equal to `after_thermodynamic` on every
-  run without a blacklist. `after_max_primer_cut` is usually the largest single
-  reduction and used to have no stage name at all. On the bundled plasmid
-  example the background gate removed 13,006 of 24,809 candidates and the
-  `max_primer` cut removed 4,686 of the 5,186 that reached it. Directories
-  written before 2026-09-10 carry the old `after_frequency` / `after_background`
-  keys and still render.
-- `step3_df.csv`: The candidate pool the optimizer reads, carrying the step-2
-  measurements in a deterministic order. Step 2's own ranking leads that order
-  (`step2_rank`, read off step2_df.csv's row order), with Gini demoted to a
-  tie-break and the primer sequence last for totality. It no longer holds an
-  amplification score -- see **The `prepare-candidates` stage** below.
-- `step4_improved_df.csv`: Final optimized primer sets with enrichment scores
-- `step4_improved_df_summary.json`: Authoritative optimizer metrics the report reads (coverage, effective_fg_coverage, selectivity_ratio, selectivity_density, fg_total_length/bg_total_length,
-  effective_fg_sites/effective_bg_sites, selectivity_mode, ensemble_comparison, per_target_coverage, strand metrics). `metrics.strand_stats` holds all five strand figures per genome, foreground and host, keyed by prefix; `metrics.primer_occupancy` holds how much of the time each delivered primer is bound, empty when no conditions were attached; `panel_regime` holds which criterion limited the panel and which had no reference.
-  Also `unindexed_candidates`: how many candidates the foreground position
-  index could not place. Those cover nothing and so are invisible to
-  selection; the pipeline path refuses rather than reporting a coverage
-  figure that describes only the rest of the pool.
-- `*_positions.h5`: HDF5 files with primer binding positions, one per prefix
-  and k. Since 2026-09-25 they are written as **sorted blocks**: the k-mers
-  sorted as bytes, an offsets array and every position concatenated, with
-  entry i at `positions[offsets[i]:offsets[i+1]]`. The earlier layout used one
-  HDF5 dataset per k-mer, and on the wMel index 376 MB of its 381 MB was HDF5
-  bookkeeping. Sorted blocks bring that index to 24.7 MB and a full load
-  from 37 s to 5.4 s, entry for entry identical
-  ([measurement](docs/validation/position_index_layout_2026-09-25.md)).
+Files in `data_dir`:
 
-  `core/position_index.py` reads both layouts and writes only the new one.
-  An old index is converted on its next write and read in place until then.
-  Keys stay as written, never canonicalised, because the reverse strand is
-  read from the reverse complement's entry. An empty entry (scanned, occurs
-  nowhere) and an absent one (never scanned) stay distinct: `get` returns an
-  empty array for the first and None for the second.
-  `index_format_version` stays 2, because it records whether the sites are
-  join-safe and a layout change alters no site; `index_layout` names the
-  layout. A write rewrites the whole file beside the old one and renames it
-  into place, holding the old file open read-write so two runs sharing a
-  directory still collide loudly (Known Issue 21). An older release reading
-  a converted index refuses at step 4. A file an older `filter` wrote into is
-  refused as `MixedLayoutError` and rebuilt by the scan.
-- `*_{k}mer_all.provenance.json`: A sidecar recording the genome each k-mer
-  table was counted from (absolute path, content fingerprint, digest
-  algorithm, k). The fingerprint is a **full SHA-256** as of 2026-09-19. It
-  used to hash the size plus the first and last 1 MB, so a substitution
-  anywhere in the middle of a file over 2 MB left it unchanged and a
-  same-length consensus or sample-specific assembly reused the previous
-  genome's counts, index and inventory silently (audit finding F6). The stated
-  reason was cost and measurement does not support it: SHA-256 runs at about
-  2.5 GB/s, so hg38 is about a second, cached per input per run rather than
-  recomputed once per k.
-
-  `digest_algorithm` is what makes the upgrade safe. A record written under
-  the partial hash carries a value that cannot be compared with a full digest,
-  so it is UNKNOWN rather than stale: step 1 recounts it once, and step 2
-  SKIPS it rather than refusing. Those two must stay distinct. Making
-  `_table_is_current` false for such a record without teaching
-  `_tables_counted_from_another_genome` the difference made every existing
-  data directory fail step 2 with "counted from a different genome", which is
-  alarming and untrue; 28 tests caught it. After the one recount the records
-  are comparable and the guard is stricter than it has ever been. `count-kmers`
-  writes it and reuses a table only when it matches; `filter` checks the same
-  record before it starts. Without it, repointing `fg_genomes` at a new assembly
-  and skipping `count-kmers` built the design from the previous organism's
-  counts. Tables written before the sidecar existed have none, which is treated
-  as unknown rather than stale: `count-kmers` recounts them once.
-- `run_manifest.json`: One appended entry per step (version, git SHA, seed, input
-  checksums, CLI invocation). `resolved_params` is a copy of params.json;
-  `effective_conditions` is the reaction the step actually ran under, which is
-  not the same thing — `retune_for_polymerase` and the GC-adaptive strategy set
-  the polymerase, temperature and additives at run time and never write back to
-  the file. `export` and `report` read `effective_conditions` in preference to
-  params.json, which is what makes their Tm agree with the optimizer's.
+- `step2_df.csv`, `filter_stats.json`: the shortlist and the per-stage funnel.
+- `step3_df.csv`: the candidate pool in a deterministic order. It carries no
+  amplification score since 2026-09-05.
+- `step4_improved_df.csv`: up to `max_sets` ALTERNATIVE sets, numbered by
+  `set_index`. Set 0 is the one the summary describes (Known Issue 19).
+- `step4_improved_df_summary.json`: the authoritative optimizer metrics the
+  report reads.
+- `*_positions.h5`: one per prefix and k. Keys are never canonicalised. An
+  empty entry (scanned, binds nowhere) and an absent one (never scanned) are
+  distinct.
+- `*_{k}mer_all.provenance.json`: which genome a table was counted from, by
+  full SHA-256. A record under the older partial hash is unknown, not stale.
+- `run_manifest.json`: one entry per step. `effective_conditions` is the
+  reaction the step ran under, which can differ from params.json.
+- `design_failure.json`: written when a design fails; `export` refuses while
+  it is present.
 
 ## CLI Commands
 
-Setup, reporting, simulation, multi-genome, coverage-gap and primer-expansion
-commands are documented in the `neoswga-cli` skill
-(`.claude/skills/neoswga-cli/SKILL.md`), which loads on demand.
-
-### Standard Pipeline
 ```bash
-neoswga count-kmers -j params.json  # Step 1: Generate k-mer counts
-neoswga filter -j params.json       # Step 2: Filter candidate primers
-neoswga prepare-candidates -j params.json        # Step 3: Prepare the candidate pool
-neoswga optimize -j params.json     # Step 4: Find optimal primer sets
+neoswga count-kmers -j params.json         # Step 1: k-mer counts
+neoswga filter -j params.json              # Step 2: filter candidates, write position indexes
+neoswga prepare-candidates -j params.json  # Step 3: write the ordered candidate pool
+neoswga optimize -j params.json            # Step 4: select primer sets
+neoswga design -j params.json              # all four
+neoswga plan-pool -j params.json [--design-grid grid.json]
+neoswga validate --quick                   # installation check
+neoswga validate --smoke -j params.json    # config check against a packaged 6 kb target, ~4 s
+neoswga build-filter --genome genome.fna -o ./
+neoswga show-presets
 ```
 
-`optimize` can refuse with a step-4 prerequisite error rather than produce a
-set. It does so when `step3_df.csv` is missing or empty, when the position
-files are absent, and when the position index covers only part of the
-candidate pool. The last case used to return a plausible result: the
-unindexed candidates cover nothing, so selection never picks one and the
-coverage reported is correct for the smaller panel actually delivered. The
-remediation is to re-run `neoswga filter`. A caller that passes its own
-candidate list programmatically is not subject to these checks.
+- `prepare-candidates` was named `score` until 2026-09-21; there is no alias.
+  It prepares the pool and does not score it. `--amp-model` restores the
+  retired random-forest score and its `min_amp_pred` gate.
+- `optimize` refuses with a step-4 prerequisite error when `step3_df.csv` is
+  missing or empty, the position files are absent, or the index covers only
+  part of the pool. The remedy is to re-run `neoswga filter`.
+- `--enable-qa` is accepted by every step and is per-invocation.
+- `export`, `interpret`, `report` and `simulate` read one set, set 0 by
+  default; `--set N` on `export` and `interpret` selects another. `export`
+  refuses a set other than 0 because nothing assessed it;
+  `--allow-unqualified` overrides.
 
-### Quality Assurance (`--enable-qa`)
+### Optimization methods
 
-Accepted by every pipeline step; each one routes through
-`core/pipeline_qa_integration.py`:
+`--optimization-method` on the CLI, or `optimization_method` in params.json.
+An explicit flag wins; an absent flag does not.
 
-- `filter --enable-qa` runs `apply_post_step2_qa_filter` on step2_df.csv (3'
-  stability, dimer-hub degree, integrated quality score), rewrites the CSV with
-  a `qa_score` column, writes `qa_report.txt`, and corrects the last stage of
-  `filter_stats.json`. A QA pass that rejects every candidate fails the step
-  instead of writing an empty pool.
-- `prepare-candidates --enable-qa` re-orders step3_df.csv by a `composite_score`. With the
-  amplification model retired there is no RF half to blend, so this is the QA
-  score alone; pass `--amp-model` to get the 0.7 RF / 0.3 QA blend back. The QA
-  scores come from step2_df.csv when `filter --enable-qa` produced them, and
-  are computed on the spot otherwise.
-- `optimize --enable-qa` drops dimer-hub primers from the candidate pool before
-  optimizing. The pre-filter is pairwise, so it costs O(n^2) dimer
-  calculations.
-- `count-kmers --enable-qa` has no QA hook (there are no candidates yet); the
-  step logs that and proceeds.
+| Method | Speed | Notes |
+|---|---|---|
+| `hybrid` (default) | Medium | Set cover, then network refinement |
+| `dominating-set` | Fast | Graph-based set cover |
+| `background-aware` | Slow | `hybrid` with a host-binding term in pruning and in Stage 2 |
+| `network` | Medium | Tm-weighted, dimer-screened; stops short instead of relaxing the screen |
+| `clique` | Slow | The only method that guarantees no dimerising pair; pools of about 200 |
+| `ensemble` | Slow | Runs several on one shared cache and keeps the best by `normalized_score`, then smaller set, then method name. `--ensemble-combine union` re-optimizes over the pooled primers |
 
-The flag is per-invocation: it is assigned to `parameter.enable_qa` on every
-step, so it cannot carry over to a later step in the same process.
+Raw `score` is not comparable across methods; `normalized_score` is.
 
-### The `prepare-candidates` stage
-
-**Renamed from `score` on 2026-09-21, with no alias.** The old name described
-work the stage stopped doing on 2026-09-05, and an alias would have left it
-reachable and in every example someone copies. `neoswga score` now fails, but
-NOT with a message naming the new command: argparse rejects it as an invalid
-choice and prints all 39 subcommands, among which `prepare-candidates` has no
-special standing. This entry claimed otherwise until 2026-09-24. Nothing was
-left reachable, which was the point of removing it, but a user whose script
-breaks is not told what to use instead -- and the repository's own Nightly E2E
-workflow was one of those scripts, running red for three nights on this exact
-line. `tests/test_workflows_invoke_real_commands.py` is the check that would
-have caught it the day the rename landed. `--fast-score` went with it: it selected the
-behaviour that had been the default since the model left the default path, so it
-was a published flag that did nothing.
-
-The stage prepares the candidate pool; it does not score it. The bundled random
-forest was retired from the default path on 2026-09-05 (audit finding F0).
-
-It was computing a prediction for every candidate and then discarding it. The
-`min_amp_pred` gate removed 7 of 1222 candidates on the S. aureus panel and none
-at all on E. coli (0 of 449) or M. tuberculosis (0 of 319), because the scores
-cluster well above the default threshold of 10.0. And every step-4 consumer
-reads only the primer column -- `unified_optimizer.py`, `dominating_set_optimizer.py`,
-`background_aware_optimizer.py` and `primer_expansion.py` all call
-`step3_df["primer"].tolist()`. Asked whether the score identified good primers,
-taking the top half of a pool by it and optimizing over that produced the worst
-of five half-pools, behind all three random halves.
-
-The model is also fit to synthetic data generated by a hand-written rule in
-`scripts/retrain_rf_model.py`, so it reproduces an opinion rather than measured
-amplification, and under the default `fast_score` the delta-G features are zeroed,
-making the prediction a pure function of the primer sequence -- blind to the
-genome and to the reaction.
-
-What the stage still does: it writes `step3_df.csv`, a required intermediate that
-six modules read, carrying the step-2 measurements and the deterministic order
-`order_step3_rows` establishes. That order is what makes an unseeded run
-reproducible, and it does reach the optimizer, which is order-sensitive.
-
-Retiring it changed no delivered panel: re-running the E. coli design returned an
-identical 160-primer set. It costs 0.2 s instead of 3.1 s on 449 candidates and
-writes 5 columns instead of 61.
-
-**`--amp-model` restores the old behaviour**, score column and gate included.
-`min_amp_pred` without it warns rather than silently doing nothing.
-
-### Optimization Methods
-```bash
-neoswga optimize -j params.json --optimization-method=hybrid           # default
-neoswga optimize -j params.json --optimization-method=dominating-set   # fast graph-based
-neoswga optimize -j params.json --optimization-method=background-aware # clinical, host-aware
-neoswga optimize -j params.json --optimization-method=network          # Tm-weighted, dimer-screened
-neoswga optimize -j params.json --optimization-method=clique           # guaranteed dimer-free set
-neoswga optimize -j params.json --optimization-method=ensemble         # run all, keep best
-neoswga optimize -j params.json --optimization-method=ensemble --ensemble-combine=union  # re-optimize over pooled primers
-```
-
-**Optimization Method Comparison**:
-
-| Method | Speed | Best For | Notes |
-|--------|-------|----------|-------|
-| `hybrid` | Medium | General use (default) | Combines network + set-cover approaches |
-| `dominating-set` | Fast | Large primer pools | Graph-based set cover, ln(n) approximation |
-| `background-aware` | Slow | Clinical applications | Three-stage. Adds a host-binding term to Stage 1.5 pruning and to the Stage 2 refinement that chooses the panel. Measured against hg38 on the three GC-tier designs at n=24 and n=36, host sites in the delivered panel fall 7-35% against `hybrid` and coverage falls 0.1-3.1 points. At n=12 on those pools it returns the same panel as `hybrid`: Stage 1 yields only 18-19 primers there, so almost every one carries coverage nothing else supplies and the coverage term decides every removal by itself |
-| `clique` | Slow | Sets that must be dimer-free | Max-clique on the compatibility graph (swga 1.0's approach). The only method that GUARANTEES no dimerising pair; the others penalise dimers but can accept one. Pools of ~200 candidates; not in the default ensemble |
-| `network` | Medium | Tm-weighted selection | Tm weighted, dimer-screened; stops short rather than relaxing the constraint. The `dimer_penalty` multiplier defaults to 0.0 and only ever downweighted; as of 2026-09-10 this method carries the same hard guard as `dominating-set`, and unlike that one it stops rather than admitting an unscreened primer when the pool is exhausted |
-| `ensemble` | Slow | Best-of, unsure which | Runs several methods on one shared cache, keeps the best by application-weighted `normalized_score`, prints a per-method comparison table |
-
-**Ensemble** runs a configurable set of methods (default all four) and keeps
-the winner. It builds the `PositionCache` once and re-seeds before each method,
-so each method's RUN is reproducible and independent of the order the methods
-were listed in. Pick the subset with
-`--ensemble-methods hybrid network background-aware`. Selection is by
-`normalized_score` (a [0,1] value comparable across optimizers; raw `score` is
-NOT comparable), weighted by `--application`, then by the smaller set, then by
-method name. Those tie-breaks matter: ties are common, because
-`background-aware` wraps the same `HybridOptimizer` that `hybrid` uses and the
-two frequently return the identical set. Selection used to be a bare `max()`
-over a dict built in `--ensemble-methods` order, so a tie was decided by flag
-order while this section claimed order-independence -- reordering the same three
-tied methods returned three different winners. The runner-up table is written to
-`step4_improved_df_summary.json` as `ensemble_comparison`.
-`--ensemble-combine union` additionally re-optimizes over the pooled primers
-from all methods (can beat any single method; guarded to never worsen).
-
-**Coverage reach (important):** optimizers SELECT for coverage at the realistic
-per-primer reach (`coverage.polymerase_extension_reach('realistic')`, ~3 kb for
-phi29) — the same reach the result is scored on — while amplification-network
-CONNECTIVITY uses single-molecule processivity (~70 kb). Hybrid/background-aware
-thread the realistic `coverage_reach` into Stage-1 set-cover so selection and
-the reported `fg_coverage` agree (and ensemble comparisons are fair).
-
-A hybrid run prints **two** coverage figures and they do not match, by
-construction. `HybridOptimizer._calculate_coverage` works in bins and is used
-for progress reporting and the background-pruning floor; `fg_coverage` is
-computed base-by-base and is the authoritative number in
-`step4_improved_df_summary.json`. Both are labelled in the output —
-`(estimated, binned)` against `(measured)` — so read the measured one.
+**Coverage reach**: optimizers select and report coverage at the realistic
+per-primer reach (about 3 kb for phi29), while network connectivity uses
+processivity (about 70 kb). A hybrid run prints two coverage figures, labelled
+`(estimated, binned)` and `(measured)`; the measured one is authoritative.
 
 ### Choosing the set size
 
-`num_primers` is the most consequential choice in a design and three tools bear
-on it. They answer different questions and two of them stop at 20 primers.
+`num_primers` is a request, not a guarantee. The delivered panel is never
+larger and may be smaller: Stage 1 stops at the coverage target, and selection
+stops instead of admitting a pair above `max_dimer_bp`.
 
-- **`--auto-size`** estimates how many primers reach the `--application`
-  profile's target coverage under the configured chemistry. It inverts a
-  closed-form saturation curve over genome length, primer length, processivity
-  and additive effects. It never reads the candidate pool, never looks at
-  background binding, and is clamped to the profile's typical range, at most 20
-  primers. It does not weigh specificity, so do not read its answer as the best
-  size, only as the size that reaches a coverage target.
-- **`--show-frontier`** is the trade-off tool. It builds a coverage against
-  fg/bg ratio frontier over the real candidate pool using the binding
-  positions, and reports where the application profile lands on it. It
-  evaluates 4 to 20 primers, so it cannot describe a 96- or 160-oligo panel.
-- **The marginal coverage table** that `optimize` prints needs no flag and has
-  no size limit. It measures cumulative foreground coverage as the delivered
-  primers are added in order, at the same reach the run was scored on, and
-  reports the gain per primer in percentage points:
-
-  ```
-      n   coverage   pp/primer
-     32      0.627        1.10
-     96      0.890        0.41
-    160      0.943        0.083
-  ```
-
-  A flat `pp/primer` column means more primers buy little coverage. It is
-  measured on one delivered set in its delivered order, so each row is a lower
-  bound on re-optimizing at that size, and it says nothing about specificity.
-
-The two flags work on `optimize` and on `design`. On the measured sweeps
-coverage rises monotonically while selectivity density peaks near n=32 for
-*M. tuberculosis* and is already falling by n=32 for *E. coli*, so the coverage
-curve alone will not tell you where to stop.
-
-```bash
-neoswga optimize -j params.json --auto-size --application clinical
-neoswga optimize -j params.json --show-frontier
-neoswga design -j params.json --auto-size
-```
-
-### Utility Commands
-```bash
-neoswga plan-pool -j params.json --design-grid grid.json  # design per condition
-neoswga validate --quick            # Validate installation
-neoswga validate --smoke -j params.json  # Check a config: schema, unknown keys,
-                                    # genome files, then all four steps against a
-                                    # packaged 6 kb target under your chemistry
-neoswga build-filter --genome genome.fna -o ./  # Bloom filter for a large background
-neoswga show-presets                # Show reaction condition presets
-```
-
-`--smoke` takes about 4 s against the packaged plasmid pair and exits non-zero
-when the configuration would fail, so it is usable in CI. It resolves the genome
-paths in params.json relative to the working directory, exactly as a real run
-does: pointing it at `examples/plasmid_example/params.json` from the repository
-root correctly reports both FASTAs as missing, because that file names them
-relatively.
+- `--auto-size` inverts a closed-form coverage curve. It does not read the
+  candidate pool or the background and is clamped to at most 20 primers.
+- `--show-frontier` builds a coverage against fg/bg frontier over the real
+  pool, for 4 to 20 primers.
+- The marginal coverage table `optimize` prints has no size limit. Each row is
+  a lower bound on re-optimizing at that size and says nothing about
+  specificity.
+- `--minimize-primers` removes one primer at a time, which reaches a local
+  optimum. It logs what it removed and the figure the target was compared
+  against. `--coverage-metric effective|raw` chooses that figure; the values
+  `realistic`/`processivity` belong to a different `coverage_metric` in
+  `coverage.polymerase_extension_reach` and are refused here.
 
 ## Key Parameters (params.json)
 
-**Primer filtering**:
-- `min_k`, `max_k`: Primer length range (default: 6-12, use 12-18 for longer primers)
-- `min_fg_freq`: Minimum foreground frequency (default: 1e-5)
-- `max_bg_freq`: Maximum background frequency (default: 5e-6)
-- `max_gini`: Maximum Gini index for binding evenness (default: 0.7,
-  re-derived 2026-09-10 against delivered coverage). At 0.6 the gate removed
-  primers the optimizer had selected: 8 of 160 delivered on E. coli, 1 of 200 on
-  S. aureus, 5 of 36 on M. tuberculosis. The kept pools top out at 0.6877,
-  0.6932 and 0.6985, and all three shipped configs already set 0.7. The Gini is
-  NaN, and the primer is dropped, below `min_gini_sites` combined binding sites:
-  one site gives no gap and two give a single gap, whose Gini is identically
-  0.0, the best value available. Before that rule 86% of the shipped chr21 pool
-  and 96.2% of the plasmid pool scored 0.0.
-- `min_gini_sites`: Minimum recorded binding sites, across both strands, before
-  the Gini index counts as a measurement (default: 3, the first count at which
-  it can vary). Settable in params.json. The `--min-gini-sites` flag on
-  `neoswga filter` is accepted and does nothing (see Known Issue 8); use the
-  params.json key until that is wired. Lower
-  it to 2 or 1 for a small target, where single-site primers are most of the
-  pool: on the shipped plasmid example 10,158 of 10,532 indexed k-mers bind
-  exactly once, so the default removes nearly all of them.
-- `max_primer`: Primers to keep after filtering (default: 500). It bounds the
-  working shortlist written to `step2_df.csv`, not what a design can ever reach
-  -- see `candidate_retention`.
-- `candidate_retention`: Which candidates a design may ever select, and which
-  therefore get a background position index. `all_qc` (default) admits every
-  candidate clearing the declared hard gates. `post_gini` also requires the
-  evenness gate, as an ADMISSION rule rather than a ranking: a candidate that
-  misses it is recorded with an explicit failed assessment naming the gate, and
-  is not eligible. Both leave `max_primer` in charge of the shortlist, so the
-  optimizer's runtime does not move with this setting.
-
-  The eligible set and the indexed set are the same set in both modes, and a
-  test pins that. They were not: `post_gini` indexed 20,670 candidates while
-  marking all 491,836 eligible, so a design reaching one of the others would
-  have scored it against an absent index and read perfect specificity. The
-  mode is part of the admission-policy digest, so switching it opens a new
-  generation rather than inheriting the other mode's verdicts.
-  On the Wolbachia design the two index 491,836 and 20,670 candidates, costing
-  443 MB and 18.9 MB
-  ([benchmark](docs/validation/wolbachia_retention_benchmark_2026-09-16.md)).
-
-  **Retention has not been shown to buy anything.** Measured 2026-09-17 once
-  Phase 4 made the retained candidates reachable: at panel size 12 the
-  shortlist (2,000), the post-Gini inventory (20,670) and all hard-QC
-  candidates (491,836) all reach a selectivity density floor of 60 and all fail
-  at 80, and the two larger universes deliver panels agreeing to sixteen
-  significant figures on both density and coverage. The 471,166 candidates only
-  `all_qc` holds changed nothing and cost 772 s against 41 s, plus 123 s of
-  cache build and 785 MB of index against 20 MB. The larger universes also
-  report a LOWER density on any row they cannot satisfy, which is the Stage 1
-  drift recorded in `docs/validation/violation_magnitude_2026-09-17.md` rather
-  than retention's doing, and the two cannot be separated until Stage 1 is
-  constraint-aware. One pair, one panel size, so this is "no benefit
-  demonstrated", not "no benefit exists"; the default is unchanged
-  ([measurement](docs/validation/retention_changes_no_delivered_panel_2026-09-17.md)).
-
-  The shortlist-only `legacy` mode was removed on 2026-09-16. It gave a
-  background index to the 2,000 shortlisted candidates only, so the 489,836
-  that cleared hard QC without being shortlisted -- 963,931 of their 979,672
-  index entries carry real host sites -- scored against an empty background and
-  read as perfectly specific. That is the silent-zero shape of Known Issues 5, 6
-  and 13, reached by a fourth route. A config still naming it is refused with a
-  message saying what replaced it and why.
-
-**Thermodynamics**:
-- `polymerase`: "phi29" (30C), "equiphi29" (42-45C), "bst" (60-65C), "klenow" (25-40C)
-- `reaction_temp`: Reaction temperature in Celsius
-- `na_conc`, `mg_conc`: Salt concentrations (mM)
-- `dmso_percent`, `betaine_m`, `trehalose_m`: Common additive concentrations
-- `ethanol_percent`, `urea_m`, `tmac_m`, `formamide_percent`: Advanced additives
-- `min_tm`, `max_tm`: Melting temperature range
-
-**Polymerase Presets**:
-
-| Polymerase | Temp | Primer Length | Use Case |
-|------------|------|---------------|----------|
-| `phi29` | 30C | 6-12 bp | Standard SWGA, high processivity |
-| `equiphi29` | 42-45C | 12-18 bp | Higher specificity, GC-rich targets |
-| `bst` | 60-65C | 15-25 bp | LAMP-like applications, thermostable |
-| `klenow` | 25-40C | 8-15 bp | Room temperature, lower processivity |
-
-**Optimization**:
-- `optimization_method`: read from params.json since 2026-09-05; it was inert
-  before that, and Known Issue 8 records why. An explicit
-  `--optimization-method` on the CLI still wins over the configured value, an
-  absent flag does not. Values: 'hybrid' (default), 'dominating-set' (fast),
-  'background-aware' (clinical), 'network'.
-- `num_primers`, `target_set_size`: Requested primer set size (default: 6).
-  **It is a request, not a guarantee** (decided 2026-09-14). The delivered panel
-  is never larger, and may be smaller for two benign reasons before any pool
-  deficiency: Stage 1 stops once the coverage target is met, and selection stops
-  rather than admitting a pair above `max_dimer_bp`. The second is usually the
-  binding one on a real pool -- measured at `max_dimer_bp` 3 the shipped pools
-  support 29, 31 and 26 primers against panels of 200, 160 and 36. A short panel
-  is reported with the reason; `--allow-dimer-relaxation` trades the dimer
-  constraint for panel size. Guarded by
-  `tests/test_delivered_panel_honours_the_dimer_limit.py`.
-- `max_dimer_bp`: Longest complementary run tolerated between two different
-  primers (default 3, maximum 7). The screen represents t-mers in a 4**8 code
-  space, so 8 and above cannot be enforced and are refused by the schema rather
-  than silently disabling the screen. A pool supports a bounded panel size at a
-  given threshold: measured on the shipped pools, 3 supports 29, 31 and 26
-  primers for S. aureus, E. coli and M. tuberculosis, and 4 supports 83, 72 and
-  55. The shipped panels are larger than that. Selection therefore STOPS at the
-  conforming size rather than growing the panel, because `num_primers` is a
-  request; the 11 bp delivered heterodimer against a configured 3 came from the
-  relaxation that used to be on by default.
-- `allow_dimer_relaxation`: Let selection exceed `max_dimer_bp` when it stalls,
-  instead of stopping (default false; `--allow-dimer-relaxation` on `optimize`).
-  It trades the dimer constraint for panel size: on a 40-candidate fixture a
-  request for 20 returns 12 primers with no violating pair when false, and 20
-  primers with 25 violating pairs when true. Every admission is warned about by
-  name. `clique` remains strict either way.
-- `objective_scan_width`: How many panels the swap repair scores with the full
-  objective per round (default 64; None restores an unbounded scan). The scan
-  is over candidates times panel, so a 2,000-candidate shortlist against a
-  12-primer panel is 24,000 pairs. The cheap bin gain ranks them and only the
-  leaders are scored, and the prescreen is not a new criterion -- it is what
-  `refine_by_swaps` has always used when given no objective. Given a budget it
-  cannot exhaust, widths 16 and 64 and an unbounded scan converge to the
-  IDENTICAL panel on the Wolbachia pool at Jaccard 1.000, costing 64, 320 and
-  17,913 objective evaluations. The stronger reason to ship a width is not the
-  speed: without one the default budget truncated every size measured, landing
-  at Jaccard 0.500 against that optimum, so the answer was wherever the budget
-  ran out. The cheap pass is deliberately NOT charged against
-  `swap_max_evaluations`, since charging it would rank a prefix of the pool and
-  reintroduce the blindness the bound removes. Where no constraint binds the
-  repair never runs and every width returns the same panel.
-  ([measurement](docs/validation/scan_width_2026-09-17.md))
-- `max_frontier_refills`: How many times a size row may widen the candidate
-  frontier when it cannot satisfy its constraints (default 4; 0 restores the
-  single-frontier behaviour). The inventory holds every candidate that cleared
-  hard QC, 20,670 on the Wolbachia design against a 2,000 shortlist, and
-  `advance()` returned False from the day it was written, so the rest could not
-  affect any panel. Each refill doubles the frontier, so four reach that whole
-  universe, and a row that already qualifies never refills: at floors of 40 and
-  60 the delivered panel and the runtime are unchanged. At a floor of 100, which
-  the shortlist cannot reach, the run examines all 20,670 and reports
-  `inventory_exhausted` rather than `frontier_exhausted` after looking at under
-  a tenth of what it was allowed to reach. The row carries `frontier_refills`
-  and `candidates_exhausted`; the widened frontier is vetted through increment
-  3's position check rather than assumed.
-  ([measurement](docs/validation/frontier_refill_2026-09-17.md), which also
-  records a pre-existing objective defect this makes reachable: two panels
-  failing the same single constraint tie on violation COUNT, so coverage breaks
-  the tie and the deciding metric drifts the wrong way.)
-- **How failing panels are ranked**: `PoolObjective.shortfall`, not the NUMBER
-  of violated constraints. Both objective-scored searches used
-  `len(violations)`, so two panels failing the same single limit tied and
-  coverage broke the tie, letting the deciding metric drift away from the limit
-  it was chasing. Each shortfall term is relative to its own limit so a density
-  floor and a site ceiling are comparable, terms sum, and it is zero exactly
-  when `violations` is empty -- which is what keeps every feasible panel ahead
-  of every infeasible one. A repair that does NOT succeed now returns the panel
-  it was given, which is what makes the ordering safe: on a limit no panel can
-  meet, chasing it would otherwise trade real coverage for a step toward a floor
-  it never reaches. Measured on the Wolbachia pool at an unreachable floor,
-  delivered density rose 20.9 to 28.8 and 14.6 to 19.2 for 2 points of coverage
-  ([measurement](docs/validation/violation_magnitude_2026-09-17.md)). Not fixed:
-  density still falls as the frontier refills, and that drift is the optimizer's
-  own selection rather than the repair's.
-- `max_dimer_dg`: Optional ADDITIONAL dimer floor in kcal/mol on the free
-  energy of the longest complementary region between two primers, evaluated at
-  the reaction temperature. Unset by default. Applied only to a pair
-  `max_dimer_bp` has already passed, so it can make the screen stricter and
-  never looser, and a configured floor forces the pairwise screen because the
-  dense matrix codes t-mers and cannot express free energy.
-
-  **Do not read it as a way to relax `max_dimer_bp`.** A -6 floor with no
-  length cap admits 8 bp complementary runs, and the 11 bp delivered
-  heterodimer this project recorded is what that looks like. Its use is the
-  opposite: raise `max_dimer_bp` for a larger panel and keep a stability bound.
-  Measured on 200-primer pools, `run <= 3` supports a greedy panel of 17 to 21
-  while `run <= 5` with a -4 floor supports 50 to 77. At the shipped default a
-  floor decides nothing at all, because every pair it rejects the run screen
-  already rejects. Cost is 1.1x the run screen, not the O(n^2) problem the
-  audit guessed. -6.0 follows Rychlik (1995); nothing validates it against a
-  reaction
-  ([measurement](docs/validation/dimer_stability_floor_2026-09-18.md)).
-
-- `min_per_target_coverage`: Multi-genome runs only. Minimum coverage required
-  on EVERY individual target, unset by default; 0.0 also means disabled. Set it
-  and `optimize` prints a per-target table naming the starved targets.
-  Aggregate coverage hides them: a panel covering one target 0.9 and another
-  0.1 beats a balanced 0.5/0.5 panel on the mean, and nothing in selection
-  balances across targets.
-
-  **Checked and reported, deliberately not repaired.** The repair scores
-  candidate panels through `compute_metrics`, which does not populate
-  `per_target_coverage` -- that is filled in by the caller so all methods get
-  it uniformly -- so a floor chased through the repair would score every
-  candidate against an empty dict. Same reason `pool_planner.repair_panel`
-  leaves a dimer violation alone. `--min-per-target-coverage` previously
-  carried an argparse default of 0.0 and now uses the `None` sentinel, so a
-  configured value is not beaten on every run.
-
-- `max_sets`: How many distinct primer sets to offer, best first (default: 5).
-  Alternatives are found by excluding the primers already chosen and selecting
-  again, so each is a different set rather than a reordering. They are numbered
-  in the `set_index` column of `step4_improved_df.csv`; set 0 is the one the
-  metrics and the summary describe. Fewer than `max_sets` is normal on a small
-  candidate pool.
-- `iterations`: How many attempts to make when searching for those alternatives
-  (default: 8). It deliberately does NOT bound the primary selection — doing so
-  would cap how many primers a run can choose, so `iterations: 8` would quietly
-  truncate a 96-oligo panel.
-
-**Panel limits** (params.json only; every one unset by default):
-
-| Key | Holds | Needs a background |
-|---|---|---|
-| `min_selectivity_density` | occupancy-weighted fg load per base over bg load per base, at least | yes |
-| `max_background_sites` | total host binding sites, at most | yes |
-| `max_worst_hole` | largest foreground gap in bp (`max_gap`), at most | no |
-| `max_mean_gap` | mean foreground gap in bp, at most | no |
-| `max_evenness` | Gini of the PANEL's foreground gaps, at most (distinct from `max_gini`, which gates candidates) | no |
-| `max_host_coverage` | fraction of the host within reach of a panel site (`bg_coverage`), at most | yes |
-
-`core/panel_acceptance.py` reads them. **Set none and nothing changes**:
-`constraints_from_parameter` returns None, no objective is built, and the
-delivered panel is byte-identical to what it was. That is deliberate rather
-than cautious -- no spacing threshold derived from the polymerase reach
-separates the 18 published sets with wet-lab outcomes, the winners included, so
-NeoSWGA must not pick one, and a fitted weight is wrong for one of the two
-benchmarks either way. A user drawing a line is a different claim, and the
-"What limits this panel" report is what tells them which properties had no
-reference at all.
-
-Set one and `optimize` prints a "Configured limits" table, attempts ONE bounded
-repair through `pool_planner.repair_panel` (the same repair `plan-pool` uses, so
-there is one in the codebase rather than two that can disagree), and reports
-whether it succeeded. A repair that does not resolve the violation returns the
-panel it was given: on a limit no panel can meet, chasing it trades real
-coverage for a step toward a limit it never reaches. A background-measured limit
-set without a background genome is refused rather than reported as satisfied.
-
-`strand_coverage_ratio` and `strand_alternation_score` are deliberately NOT
-constrainable. Both read 0.0 when measured zero and when the position cache
-could not supply them, and nothing distinguishes the two, so a limit would
-reject a panel for a missing measurement while reporting a violated constraint.
-The dimer limit is outside for a different reason: it is a hard constraint on
-the delivered panel, not a tradeable term.
-
-**Application profiles** (`--application`). **On the default `hybrid` method
-this changes nothing about what is selected** -- measured 2026-09-21, all four
-profiles deliver an identical panel. The profile sets `tm_weight` and
-`uniformity_weight`, both of which `HybridOptimizer` hands to a
-`NetworkOptimizer` that nothing ever reads back; Stage 2 is
-`_network_refine`, a method on the class itself, with no Tm or uniformity
-term. The comment beside that construction claimed it was "the object that
-performs refinement" and has been corrected. Known Issue 8's class again, in
-`attach_search_config`'s shape: both ends exist and the path does not.
-
-What the profile DOES still do: weight `normalized_score` when picking an
-ensemble winner, and steer `--auto-size`. `network` reads `tm_weight`
-properly. Setting either weight now warns
-([measurement](docs/validation/selection_weights_are_inert_2026-09-21.md)).
-
-Wiring them into `_network_refine` would move every delivered panel and is a
-decision, not a repair -- more so because the Tm term is a Gaussian peaked at
-`reaction_temp + 5` while `occupancy.site_occupancy` is monotone increasing in
-Tm, so connecting it silently picks one of two unreconciled models. Its span
-across oligo lengths is large: median `tm_score` on the plasmid pool runs
-0.000014 at k=7 to 0.697 at k=9, 48,488-fold.
-
-The table below is the weighting used to pick an ensemble winner:
-
-| Application | Coverage Target | Specificity | Typical Size | Use Case |
-|-------------|-----------------|-------------|--------------|----------|
-| `discovery` | 90% | 60% | 10-15 | Pathogen discovery, maximize sensitivity |
-| `clinical` | 70% | 90% | 6-10 | Diagnostics, minimize false positives |
-| `enrichment` | 80% | 75% | 8-12 | Sequencing enrichment, balanced |
-| `metagenomics` | 95% | 50% | 15-20 | Capture diversity |
-
-## The design-failure contract (2026-09-21)
-
-A required calculation that fails now fails the run. It does not return a
-substitute value. Four errors in `core/exceptions.py` carry this, all under
-`DesignError`: `InvalidDesignRequest`, `ReferenceDataError`,
-`UnsupportedModelError` and `ModelEvaluationError`. `SearchBudgetExhausted` is
-deliberately outside the family, because spending an allowance is a recorded
-stopping point rather than a failure.
-
-The distinction the family draws is between a measurement and its absence. A
-candidate that misses a Tm window has been measured and rejected; a candidate
-whose Tm raised has not been measured at all. `DesignError.qc_reason` is always
-None, so code asking "was this a QC rejection" gets a definite no.
-
-What changed, and what each substitution used to cost:
-
-| Site | Was | Now |
-|---|---|---|
-| `thermodynamics.calculate_tm_batch` | NaN for any failure | raises; a non-ACGT base is a named `InvalidSequenceError` with `qc_reason`, which is a QC rejection and stays one |
-| `thermodynamic_filter._check_heterodimer_pair` | 0.0 free energy, the most permissive answer the screen has | raises; a positive or infinite duplex energy still returns 0.0, because that is a measurement |
-| `coverage.polymerase_extension_reach`, `product_reach` | a default reach for an unknown polymerase | raises `UnsupportedModelError` naming the supported set |
-| `coverage._record_starts_for` | None when the getter raised | raises; a cache with NO getter still returns None, which is absence rather than failure |
-| `occupancy.discrimination_profile` | skipped a failed primer | raises; a mean over an unknown subset was reported with the authority of a mean over the pool |
-| `unified_optimizer` per-target coverage | empty dict | raises; `base_optimizer` gates the floor on a non-empty dict, so a requested `min_per_target_coverage` passed vacuously |
-| `unified_optimizer` application weights | debug line, defaults applied | raises; `--application clinical` silently had no effect |
-| `unified_optimizer` ensemble winner evaluator | debug line, `optimizer=None` | raises; with None every configured panel limit went unenforced |
-| `unified_optimizer` post-optimization validator | skipped | raises; skipping disarms the duplicate, size-drift, zero-coverage, blacklist and delivered-dimer checks at once, and writes no validation file, so `export` prints "ready for ordering" |
-| `_reseed` | `pass` | raises; the caller logged "set for reproducibility" either way |
-| ensemble member failure | any exception became an `status: "error"` row | a `DesignError` propagates, because the next member computes the same quantity from the same data; an algorithm that cannot run on this pool is still a visible row |
-
-`core/design_result.py` separates three things that were one. **Run state** is
-what happened to the process (`finished`, `failed`, `interrupted`). **Termination
-reason** is why the search stopped (`qualified`, `budget_exhausted`,
-`candidates_exhausted`, `refill_exhausted`, `error`). **Qualification** is a
-property of the panel. `recommendation_allowed(run_state, qualified)` needs both,
-and refuses an unknown state rather than defaulting either way.
-
-At the command boundary a `DesignError` prints the stage, field, artifact, model
-and input, then writes `design_failure.json` into the run directory and exits
-nonzero. The record exists because an output directory holding last week's
-`step4_improved_df.csv` reads exactly like one holding this morning's. Each
-pipeline step re-raises `DesignError` rather than reducing it to "step N
-failed"; `cli/_failure.py` owns the record.
-
-## One resolved design request
-
-`core/design_request.py` resolves a params mapping into a frozen `DesignRequest`
-carrying references, chemistry, candidate-source identity, fixed and excluded
-oligos, panel limits, size policy, search budgets, seed, model identifiers and
-the concentration policy. Nested content is tuples, so a stage cannot append to
-a list it was handed.
-
-`default_sources` records, per setting, whether the request supplied it or which
-default did. `request_hash` is a SHA-256 over a canonical JSON form, so it is
-stable across processes and independent of key order; it is recorded in the run
-manifest for `optimize`.
-
-`optimize` resolves the request from the params FILE before the search starts,
-not from the `parameter` module: `get_params` runs inside `optimize_step4`, so
-at that point every reaction global still holds its default. This is the same
-ordering trap `warn_on_condition_drift` documents.
-
-Refusals it makes that used to be silent: unknown and retired keys (a leading
-underscore marks a comment and is accepted), non-finite values, `coverage_reach`
-of 0, negative budgets, an oligo that is both fixed and excluded, a
-background-measured panel limit with no background genome, and an unsupported
-polymerase. The explicit zero matters on its own: `design_context_from_params`
-used `override or params.get("coverage_reach")`, and 0 is falsy, so it silently
-became 3 kb and every coverage figure was reported at a reach the request did
-not ask for.
-
-All three design commands resolve it from the same file: `optimize`,
-`plan-pool` and `expand-primers`. A command that skipped the gate would accept
-what the others refuse, which is how one params file came to mean different
-chemistry depending on which command was run.
-`tests/test_resolved_design_request.py` walks the call path from each handler
-rather than checking that a call appears somewhere in the module.
-
-**Not yet done from the plan's Task 2**: evaluator code still reads `parameter`
-globals at run time, and `OptimizationRequest.optimizer` still owns the
-scientific settings. The request is a validation gate and a provenance record,
-not yet the single channel those settings travel through.
-
-One instance of the mutable-global read was found and removed the hard way. An
-index-identity check placed inside `run_optimization` read
-`parameter.fg_genomes` and paired it with the prefixes the CALL was given;
-under `pytest -n 8` that paired a test's own prefix with another test's FASTA
-and the design refused its own index. Reference identity now travels on the
-request, where a prefix and its genome are named together.
-
-## Which candidate pool a command searches
-
-`open_source_or_list` is gone, replaced by three functions in
-`candidate_source.py` that keep absence and failure apart.
-
-- `open_explicit_source(candidates)`: the pool the user named. It always wins.
-- `open_inventory_source(...)`: the inventory, or **None** when the directory has
-  none, which is a fact about the directory. It raises `ReferenceDataError` when
-  the directory HAS an inventory that holds nothing under this reaction.
-- `open_design_source(...)`: the rule every command asks, built from those two.
-
-The old function wrapped the inventory open in `except ValueError` and fell back
-to the caller's CSV for both cases. A reaction fingerprint mismatch therefore
-became a quiet run over the `max_primer` shortlist, at the shortlist's frontier,
-with everything the inventory held unreachable and one `logger.info` line to say
-so. That is how the occupancy-gate measurement in Known Issue 17 produced an
-apparent density improvement that was not real.
-
-So `filter --preset enhanced_equiphi29` followed by a plain `optimize` now
-refuses, naming the remedy, where it used to warn and proceed.
-`tests/test_optimize_warns_on_condition_drift.py` was inverted to match.
-
-A self-dimer screen that empties a non-empty frontier now raises
-`NoCandidatesError` naming the screen and its threshold, instead of handing an
-empty list to an optimizer that answered "candidates list cannot be empty".
-
-## Two scanners, one quantity
-
-Fixed 2026-09-21. `string_search` has two position scanners: the
-Aho-Corasick `get_all_positions_multi_k`, and the sliding-window
-`get_all_positions_per_k` used when that package is absent or one k is being
-scanned. Records are concatenated with no separator, so the last k-1 bases of
-one record and the first bases of the next form k-mers that occur in neither.
-The Aho-Corasick path rejected those matches. The sliding-window path did not.
-
-So the same reference produced different site sets depending on which path
-ran, and the sliding-window path stored up to k-1 fabricated sites per record
-join. On a two-record fixture `ACGGTA` is absent from both records and was
-stored at offset 4. A fabricated foreground site inflates coverage, a
-fabricated background site deflates specificity, and nothing downstream can
-tell either from a real one.
-
-Single-record references are unaffected: with no joins the two scanners always
-agreed, which is why every complete bacterial genome and every plasmid in this
-repository reads the same before and after. Draft assemblies and hg38 are where
-it bit.
-
-`spans_a_record_join` now holds the rule once and both scanners call it. A
-match beginning exactly ON a boundary starts a record and is kept; off by one
-here would delete the first k-1 sites of every contig.
-
-`INDEX_FORMAT_VERSION` is 2. A version 1 index is refused for a MULTI-RECORD
-reference only, because a single-record one cannot carry the defect and
-refusing it would force a recount for something that never applied to it.
-
-**Missing record GEOMETRY is judged the same way, and by a different layer.**
-An index with no `#record_starts` lets a coverage window run past a contig
-edge into the next record. Whether that matters depends on how many records
-the reference holds, and only the resolved request pairs a prefix with a
-genome, so `reference_check.verify_index_geometry` decides it against the
-manifest rather than `PositionCache` deciding it alone. Deciding it in the
-evaluator means reading `parameter.fg_genomes` and pairing it with the
-prefixes the call was GIVEN, which is the defect that made a design refuse
-its own index under `pytest -n 8`. Record counting reads header lines; the
-genome loader would hold 8.5 GB for hg38 to answer it.
-
-Measured on the shipped Wolbachia design: the 12-oligo panel's `bg_coverage`
-against *Drosophila* reads 0.00217080 unconfined against 0.00207162 confined,
-an inflation of 14,255 bp or **+4.788% relative**, from 52 host sites across
-1,870 records. The error overstates host coverage, so it is not flattering,
-but `max_host_coverage` is a configurable limit and a panel could be rejected
-for coverage it does not have.
-
-The same measurement on Prevotella, two chromosomes and one join, with 724
-target sites, gives **exactly zero**: the region either side of the join is
-already covered from both directions. So the magnitude is joins times
-sparsity, and neither figure generalises alone
-([measurement](docs/validation/record_geometry_on_drosophila_2026-09-21.md)).
-
-**Consequence for the shipped example.** Both its indexes predate record
-geometry. wMel is one record, so its index is accepted. *Drosophila* has 1,870
-and is refused until regenerated. `plan-pool` already refused both before this
-work; what changed is that `optimize` applies the same standard.
-
-`tests/test_positions_agree_with_an_independent_count.py` checks the scan
-against a brute-force sliding window written in that file, which calls neither
-scanner nor any helper they call. It covers overlapping occurrences,
-palindromes, a reverse complement that also occurs forward, ambiguous bases, a
-circular origin, record joins, and an exhaustive pass over every window of a
-small reference. It also asserts the two scanners agree, which is the check
-that would have caught this.
-
-## What the chemistry model supports
-
-`neoswga/core/registry/model_evidence.json` records, per constant, what it is
-and over what domain the model supports it. `model_evidence.py` loads it and
-`require_model_support(request)` runs inside `resolve_design_request`, so a
-computation outside a recorded domain is refused before any index is opened.
-
-Five statuses, and the line that carries the weight is between the first two.
-
-| Status | Meaning |
-|---|---|
-| `measured` | the cited work reports this value for a case the model applies it to |
-| `estimated` | extrapolated from data at another temperature, on longer DNA, or in another buffer |
-| `empirical` | chosen so the model behaves plausibly; no source reports it |
-| `assumed` | a modelling decision with a stated reason and no measurement |
-| `absent` | nothing computes this effect, and the code must not report zero for it |
-
-Most additive coefficients are 37 C figures for PCR-length duplexes applied to
-12-mers at 30 C. That may well be fine; it is not a measurement of it. Only
-`tm_urea` was chosen because its source concerns short oligos.
-
-**The registry does not claim the literature was re-read.** Every `source` is
-the attribution the repository already carried. What the registry adds is the
-second judgement the prose ledger never made: whether the cited work covers
-this case. A registry that implied verification would break, in the act of
-recording it, the rule it exists to enforce.
-
-**What is refused**: an unknown polymerase; an oligo length outside the
-enzyme's modelled range, which is the defect where a Bst design was filtered
-through phi29's 6-12 bp window; and an additive whose duplex effect nothing
-computes while the literature expects one. Estimates are NOT refused. A model
-that declined to run on an extrapolated coefficient would decline to run.
-
-Two findings from compiling it, both in
-[docs/validation/chemistry_model_evidence.md](docs/validation/chemistry_model_evidence.md):
-
-- **Glycerol is accepted, range-validated, printed, and changes no Tm.**
-  Measured here: a 12-mer at 10% glycerol returns the same effective Tm as at
-  0%, to the last digit. The literature expects a real destabilisation, and the
-  shipped `q_solution` preset sets 10%. No coefficient is invented to close
-  this, because inventing one is the promotion of an assumption the registry
-  exists to prevent; a design that sets glycerol is refused instead. BSA and
-  PEG also have no Tm term and are `assumed` rather than `absent`: they act on
-  the enzyme and on crowding, not on duplex stability.
-- **`neoswga.core.registry` was not installed.** It was missing from
-  `pyproject.toml`'s explicit `packages` list, so a built wheel contained none
-  of it, while `core/parameter.py` imports `registry.views` at module scope.
-  Verified by building a wheel. Package data could not have helped:
-  `include-package-data` applies to packages that are being installed. A test
-  now compares the declared list against the packages on disk.
-
-`docs/SCIENCE_CITATIONS.md` had drifted: it states Klenow processivity as
-10,000 bp citing Bambara (1978) while the shipped registry says 40 bp. The
-prose was right when written and the code moved. The registry is checked
-against `registry/views.as_characteristics()` by a test, so the two cannot
-disagree silently; read the prose document as commentary rather than as the
-record.
-
-## One panel assessment, and a coverage oracle that is not the code
-
-`core/panel_evaluation.py` holds `evaluate_panel(request, oligos, metrics) ->
-PanelAssessment`: one immutable record carrying the panel, the request hash,
-every metric WITH its units and the reach and denominator it was computed at,
-per-target results, every hard-constraint violation, and qualification as a
-boolean that is true exactly when there are none.
-
-Three rules it enforces, each for a failure this project has seen the shape of:
-
-- **A non-finite required quantity fails the run.** NaN compares False against
-  every threshold, so a panel carrying one passes no limit and fails no limit.
-- **Unavailable and zero have different representations.** A panel that binds
-  the host nowhere and a panel whose host index was never opened both read zero
-  otherwise. `Measurement` refuses to hold both a value and a reason for not
-  having one.
-- **A verified zero background is a zero denominator, not a ratio.**
-  `base_optimizer` reports `MAX_SELECTIVITY` (1e6) there, deliberately, because
-  it is finite and JSON carries it; its own docstring says that means "no
-  background binding was detected", not "measured this well", which concedes a
-  reader cannot tell them apart from the number. The assessment says undefined
-  and why, and keeps the site count. The sentinel is left in place because
-  changing it moves every saved summary.
-
-**The REPORT reads it as of 2026-09-27**, so a rendered figure and a stored one
-cannot come from different arithmetic. `report/metrics.py` applies the
-assessment LAST, after its own estimate and after the summary JSON, and a
-quantity the assessment marks unavailable CLEARS the rendered field rather than
-falling back to an estimate -- the report's own coverage guess is primers times
-30 kb over genome length, which saturates at 1.0 on a small target.
-
-What that caught: the summary carries `selectivity_ratio: 1000000.0` beside
-`total_bg_sites: 0`, the MAX_SELECTIVITY sentinel, and the report rendered the
-million as a specificity. It now renders nothing there and says why.
-
-`qualified` still gates nothing, and the reason is now MEASURED rather than
-feared. It is the absence of every violation including a panel shorter than
-requested, and `num_primers` is a request. On the bundled plasmid example at
-requested sizes 6 and 40 the delivered panel was short both times, the
-validator said ok with a warning, and `qualified` was False -- so a gate on it
-would refuse two ordinary runs. Violations are tagged BLOCKING or ADVISORY at
-the site that raises them, and `acceptable` is what a gate may consult.
-
-The optimizer and the acceptance path still assemble their own answers, which
-is the rest of Task 5.
-
-`tests/test_coverage_independent_oracle.py` checks coverage against a
-base-by-base oracle written in that file. It calls neither
-`merged_window_intervals` nor `_mark_window` nor anything they call, so
-agreement is evidence rather than a restatement. It is deliberately the slow
-implementation production replaced: the fast one accumulates log(1 - theta) at
-window edges, and an edge-accounting error is invisible from inside that
-formulation. Verified load-bearing by mutating the production grouping from
-per-primer to per-site, which fails four of its cases.
-
-The window convention, measured rather than assumed: a site at `pos` with reach
-`r` covers `[pos - r, pos + r)`, so a window is `2r` wide.
-
-**The two production coverage paths disagree across a record join, measured and
-not fixed.** `compute_per_prefix_coverage` marks through `_mark_window` WITH
-record starts, so a window stops at a contig edge. `_union_coverage` and the
-occupancy path go through `merged_window_intervals`, which takes no record
-starts by design. On the fixture in that file a site 2 bases before a join
-covers 12 bases confined and 20 unconfined. So a multi-record reference has two
-coverage figures and which one a reader sees depends on the code path. The test
-asserts both numbers so the gap cannot grow unnoticed.
-
-## The report and the saved result must agree
-
-`tests/test_report_agrees_with_the_saved_result.py` asserts that every quantity
-the report renders equals the one the summary holds, for the exact exported
-panel. The report computes its own estimates from the results CSV and overrides
-them with the optimizer summary where the summary has an opinion, which is the
-right order; `from_optimizer` says which a reader is looking at.
-
-**Writing that check found a favourable default.** `mean_gap`, `max_gap`,
-`gap_gini` and `gap_entropy` were read with `.get(key, 0.0)`, and zero is the
-BEST value for every one of them. A `max_gap` of 0.0 says the panel leaves no
-coverage hole anywhere. A summary that did not carry the key therefore rendered
-as the best possible measurement rather than as no measurement, and directories
-written before these keys existed are explicitly supported, so this was
-reachable rather than theoretical.
-
-The four fields are now `Optional[float] = None`, read without a literal
-default, and both render sites skip the gap section unless every figure in it
-was measured. Rendering it with one missing is what put a "no coverage hole"
-verdict beside three real numbers.
-
-This is the silent-zero family again, in its fourth shape: not a scan that
-found nothing, an integer that saturated, a cache asked for what it does not
-hold, or a guard with the wrong predicate, but a dictionary lookup whose
-fallback happens to be the answer everyone wants.
-
-## Two counters, and only one of them bounds the run
-
-`SearchBudget` is the SHARED ledger. It counts uncached evaluations of the
-shared objective across every stage and raises when spent, so a later stage
-cannot get a fresh allowance. `swap_max_evaluations` is a PER-STAGE allowance
-inside the deletion and swap loops, and it starts at zero every time one of
-them is entered.
-
-The per-stage one is not a defect; bounding one loop is reasonable. What would
-be a defect is believing it bounds the run. It defaults to 10,000 and looks
-like a total. The only setting that is a total is `total_search_evaluations`,
-and it is None by default, so **by default there is no total bound at all.**
-
-`describe()` now carries `uncounted_scopes`, naming the two kinds of work the
-ledger does not see, rather than leaving a reader to infer them from a count
-lower than they expected:
-
-- **final assessment**: one `compute_metrics` per stage once the panel is
-  decided, deliberately uncharged so reporting cannot consume a search's
-  allowance.
-
-**Proposal generation left that list on 2026-09-27.** `clique` scored the top
-`max_scored_sets` dimer-free sets through `compute_metrics` directly, which the
-allowance could not see, so a user setting `total_search_evaluations` would find
-the run spending past it. `run_panel_search` now attaches the ledger through
-`attach_search_config` and that loop consumes it; exhaustion keeps the best set
-scored so far rather than failing, because spending an allowance is a recorded
-stopping point. `max_scored_sets` remains, bounding the method's own cost.
-
-The ratchet's DETECTOR was refined rather than its allowlist reworded: a loop
-that evaluates panels is accepted only when the spend is INSIDE that loop, so
-one `consume()` elsewhere in the function cannot excuse an unmetered scan. Four
-tests drive it on source written in the test file, because a refinement that
-turned the ratchet off would otherwise be invisible.
-
-**Alternatives escaped the ledger entirely until 2026-09-27.**
-`budgeted_objective` restores the previous binding when it exits, correctly for
-a context manager, so once `run_panel_search` returned the evaluator was
-unbound and `collect_alternative_sets` searched each alternative with no budget
-at all. A run declaring `total_search_evaluations` could spend past it once per
-alternative, and that function's own `except SearchBudgetExhausted` clause was
-a handler for something that could not happen -- which is the tell, since it
-was written believing the ledger was in force. It now takes the run's budget
-and binds it around each attempt.
-
-**The binding does not yet bound anything, and the commit that added it
-overstated the case.** It said alternatives then "spend the run's allowance
-instead of none". Measured afterwards: an alternative search calls
-`optimizer.optimize` and nothing else, and neither `dominating-set` nor
-`hybrid` evaluates the shared objective inside `optimize` -- 0 objective
-evaluations for both with a 5,000 allowance. So the hole is closed and nothing
-in production travels through it, and that `except` clause is still unreachable
-on the shipped methods. Routing alternatives through `run_panel_search` earned the
-claim on 2026-09-28: the same five alternatives cost 0 counted evaluations
-through the bare `optimize` and 2,988 through the contract. Panel quality is a
-wash at about 5x the wall clock, paid only when `max_sets` exceeds 1
-([measurement](docs/validation/alternatives_through_the_contract_2026-09-28.md)).
-
-**That measurement found a separate defect, recorded and not fixed.** An
-alternative violating a configured limit is offered either way -- set 4 sat at
-density 17.05 against a floor of 20 -- and `export_is_blocked` takes a directory
-with no set index, so the findings it reads describe set 0 while `export --set N`
-delivers a different panel. The primary is held to its limits and the sets after
-it are never assessed, which is Known Issue 19's family from the other side.
-
-**Half of that is fixed as of 2026-09-28.** `export_is_blocked` takes the set
-index and REFUSES a non-zero set, because nothing evaluated it: the findings and
-the assessment in the directory describe set 0. Unknown is not success, and here
-the unknown is total. `--allow-unqualified` is the deliberate override, as it is
-for every other refusal there. Verified end to end on the plasmid example with
-five sets: set 0 exports and set 1 is refused with no files written.
-
-What is NOT fixed is the other half -- an alternative that violates a configured
-limit is still OFFERED. Suppressing it, marking it, or assessing every set are
-three different answers about what `max_sets` is for, and that is a decision
-rather than a repair.
-`tests/test_the_allowance_holds_on_the_production_path.py` fails when
-`optimize` starts consulting the objective, so the claim is corrected in the
-same change that makes it true. This is "verify the deciding stage" again: a
-budget reaching the code is not a budget that bounds the answer.
-
-`tests/test_search_budget_contract.py` holds the ratchet.
-`UNCOUNTED_SEARCH_LOOPS` lists every function that evaluates panels in a loop
-outside the objective, with its reason and the bound that does apply, and the
-list can only shrink. **It is empty as of 2026-09-27.** A call made ONCE per stage is final assessment and is
-not flagged; one inside a `for` or `while` is search work, and search work the
-ledger cannot see is what the check is for. Verified load-bearing by wrapping
-an existing single call in a loop, which fails it.
-
-## The smallest pool, and what deletion cannot reach
-
-`--minimize-primers` reduces a panel by removing one primer at a time and
-keeping it when no single removal still qualifies. That is a local optimum, not
-the smallest pool, and the two differ whenever one candidate covers what two
-others cover between them.
-
-`tests/test_smallest_pool_search.py` enumerates every subset of a four-candidate
-set-cover fixture and compares the search against the enumerated answer. The
-fixture is constructed so the structure is visible: one candidate covers the
-union of two others, so `{P1,P2,P3}` qualifies at size 3, no single deletion
-from it qualifies, and `{P4,P3}` qualifies at size 2. Deletion stops at 3;
-`panel_beam.beam_search` asked for 2 finds `{P4,P3}`.
-
-**Minimisation reports what it did, as of 2026-09-30.** It could leave a panel
-unchanged without a word, by two routes. The coverage target is compared
-against the objective's coverage, which is occupancy weighted when conditions
-are attached, while the run prints the unweighted figure: on the plasmid
-example at 100 bp reach a 12-primer panel printed 46.7% against a 30% target
-and was not reduced, because the compared figure was 19.7%. The run now logs
-the primers removed, the stop reason and the figure the target was compared
-against, at WARNING when nothing was removed.
-
-**Which coverage it is compared against is now the user's to choose**, as
-`--coverage-metric effective|raw` on `optimize` and as `coverage_metric` in
-params.json. `plan-pool` has had that flag since it was written; `optimize`
-judged panels on a metric no option could name. The default is unchanged and the
-flag is a `None` sentinel, so an absent flag leaves
-`panel_refinement.objective_for_optimizer`'s rule in place: effective whenever
-reaction conditions are attached, raw for a condition-free library evaluator.
-An explicit choice also overrides the metric a configured panel limit arrives
-with, which is otherwise built with the default. Measured on the plasmid example
-at 100 bp reach and a 0.30 target: the default leaves 12 primers and reports
-0.197 effective, `raw` removes 8 of them and reports 0.339.
-
-**It is the other `coverage_metric` in this package that makes the name a
-hazard.** `coverage.polymerase_extension_reach` takes one too, whose values are
-`realistic` and `processivity` -- same word, different question.
-`search_control.COVERAGE_METRICS` names the panel pair once, the schema's enum
-refuses the reach words with a message listing the permitted values, and
-`resolve_search_settings` refuses them again at load time for a caller that
-skips the schema. A test drives `realistic` through it for exactly this reason.
-
-The second route was a candidate list handed to `run_optimization` directly.
-The self-dimer screen lives with the candidate source, a plain list has none,
-so selection could deliver a self-dimerising primer; the reduction stage counts
-that as a violation, and every deletion inherited it.
-`optimization_service.screen_supplied_candidates` applies the same screen to a
-supplied list, keeps fixed primers, and raises `NoCandidatesError` when it
-empties the list. `neoswga optimize` was never affected, since it always has a
-source. A panel the reduction stage made smaller is also no longer reported as
-a `set_size_mismatch` ERROR; it is a warning that says minimisation did it.
-
-**The capability exists and `optimize` cannot reach it.** `beam_search` is
-called only from `pool_planner`, so `plan-pool` can escape this local optimum
-and `optimize --minimize-primers` cannot.
-
-**On a real design it costs nothing, measured on five instances.** Greedy at
-n=12, deletion at the greedy's own coverage, then a beam at width 4 over the
-delivered panel plus 100 candidates:
-
-| target | greedy coverage | deletion | beam best at n=11 |
-|---|---|---|---|
-| E. coli | 0.2551 | 12 | 0.2497 |
-| S. aureus | 0.1985 | 12 | 0.1859 |
-| M. tuberculosis | 0.1661 | 12 | 0.1619 |
-| wMel against chr21 | 0.6652 | 12 | 0.6553 |
-| wMel against *Drosophila* | 0.7334 | 12 | 0.7239 |
-
-Deletion removes nothing on any of them, and neither does the beam find
-anything smaller: every best-eleven falls short of the greedy's own coverage
-([measurement](docs/validation/beam_does_not_beat_deletion_2026-09-21.md)).
-
-**An earlier entry here claimed the opposite and was wrong.** It reported the
-beam finding 11 at 0.7599 against a greedy baseline of 0.7529 on the last row
-above. That baseline matches nothing else in this repository: two records
-written before the beam work, Known Issue 17 and
-`occupancy_and_discrimination_2026-09-19.md`, both put that panel at **0.7334**,
-which is what re-running it returns. The panel the beam was asked to beat was
-therefore not the panel this design delivers, and beating a weaker twelve with
-an eleven is an easier problem. The earlier run was measured inline with no
-script kept, so what it actually did is not recoverable.
-
-The check that would have caught it is free: **compare a baseline against the
-project's own recorded figure for the same quantity before drawing a
-conclusion from the delta.** A measurement whose baseline disagrees is
-reporting on a different object.
-
-A regime explanation was tested and refuted on the way. Widening only the reach
-put S. aureus at 0.8017 coverage, comparable to the Wolbachia figure, and the
-beam still found no smaller panel (0.7773 at n=11). Saturation is not the
-difference, because there is no difference.
-
-So it stays unwired, and back to the reason it had before: a capability with no
-demonstrated benefit, the resolution Known Issues 11 and 16 reached. Each row
-is "no saving found within a ~110-oligo beam pool" rather than "none exists",
-and a wider pool can only help the beam -- which is what makes the earlier
-positive suspect rather than these negatives weak.
-
-The file also states the claim the plan forbids, as arithmetic: a search that
-examined every candidate examined `n` things, while the subsets number `2**n`.
-Exhausting candidates is not exhausting candidate subsets, and only a toy case
-like this one can produce a minimum certificate.
-
-## A failed run leaves nothing exportable
-
-An output directory is the only thing a later command sees, and nothing in it
-carries a timestamp anyone compares. A directory whose most recent run FAILED
-therefore looked exactly like one whose run succeeded: the previous run's
-`step4_improved_df.csv` was still sitting there, real and stale, and `export`
-turned it into an oligo order.
-
-Task 1 wrote `design_failure.json` for exactly this, **and nothing read it.**
-That is the Known Issue 8 class in artifact form: the evidence exists and the
-check does not.
-
-`export.export_is_blocked(results_dir)` is that check, and `neoswga export`
-now consults it before loading anything, exiting nonzero with the recorded
-stage and reason. It refuses a `failed` or `interrupted` run, and also a
-`finished` one that did not qualify, since finishing is not finding something.
-
-A record that cannot be parsed blocks rather than passes. Unknown is not
-success, and defaulting the other way would make a corrupted artifact the most
-permissive state available, which is every silent-zero in this file.
-
-`cli/_failure.clear_failure_artifact` removes the record when step 4 finishes.
-A record that is never cleared is as wrong as one that is never read: the user
-fixes the problem, the next run succeeds, and the export refuses on evidence
-that no longer describes anything.
-
-Verified end to end: a directory carrying a failure record exits 1 and writes
-no FASTA; the same directory with the record cleared exits 0 and writes one.
-`tests/test_design_report_provenance.py` also pins that the CSV, the summary
-JSON, the rendered report and the exported FASTA all name the same panel.
-
-## Sequencing feedback must know which sequence it is reading
-
-`bam_coverage.match_contigs` bound a BAM contig to a foreground reference by
-**unique sequence length** when no name matched. That fallback is gone as of
-2026-09-21.
-
-Equal length is not identity. This repository ships two plasmids of 5,386 bp
-each, and two chromosomes from different assemblies routinely agree. When the
-lengths agree every coordinate lines up, so the depth profile reads cleanly
-against a sequence the design was not made for. Feedback drives redesign --
-low-depth regions become targeted additions -- so the additions would aim at
-gaps in the wrong genome, and nothing downstream could notice.
-
-Binding is now by name only: explicit alias, exact match, basename, then
-chr-prefix normalisation. Each is a name agreeing with a name, which is a
-claim somebody made. An unmatched prefix is skipped with a warning naming
-`--contig-alias`, which is the same claim made by someone who can check it.
-
-A name match whose LENGTHS disagree still binds, because the names are an
-assertion this code should not overrule, but it now warns: that combination
-means the BAM was aligned against a different version of the sequence.
-
-`core/sequencing_feedback.require_disjoint_experiments` refuses a validation
-set sharing an experiment with the training set, and names which. It also
-refuses an empty set on either side: nothing held out is not the same as
-nothing overlapping, and an out-of-sample result computed on no samples is an
-unsupported claim rather than a weaker one. A repeated identifier within one
-set is untidy rather than leakage and is allowed.
-
-## Reading an alignment file (2026-09-24)
-
-`core/bam_coverage.open_alignment` is the only door. Everything else in the
-package is forbidden a raw `pysam.AlignmentFile` by
-`tests/test_bam_reading_survives_real_aligners.py`, a source check rather than
-a behavioural one because a new raw open is invisible to every behavioural
-test until someone hits the failure it mishandles. Two such sites existed, and
-both were reached only AFTER a successful open elsewhere, which is why neither
-showed up in a failing run.
-
-**A CRAM needs a reference and `--reference` supplies it.** CRAM stores
-differences from a reference rather than sequence. htslib reports a missing
-one as `OSError: truncated file`, which is a claim about the CRAM and is
-wrong; `except RuntimeError` caught neither. htslib also resolves a reference
-through the `UR` header field, then `REF_PATH`, `REF_CACHE`, then the EBI, so
-the same CRAM reads on one machine and not another with nothing about the file
-changed. `--reference` is on all three commands taking `--bam` and is threaded
-to `compute_bam_depth` through `bam_depth_profile` and `bam_gaps`.
-
-**`--contig-alias` used to mean two things.** There are two binding rules:
-`match_contigs` keys on the foreground PREFIX or its basename, and
-`ReferenceLayout.bind` keys on the FASTA RECORD name. The CLI documented only
-the first, while the second is what every path carrying `fg_genomes` uses --
-`expand-primers`, `analyze-coverage`, `iterate` -- so the documented form
-failed on the commoner path, by binding nothing. Measured on a single-record
-`mygenome.fasta` holding `contig_A` against a BAM contig `BAMNAME`:
-prefix-keyed gave 0 gaps, record-keyed gave 1, and the run SUCCEEDED either
-way, having ignored the sequencing data `--bam` exists to use.
-`_record_keyed_aliases` translates the prefix form on a single-record
-reference, where it can only mean one thing, and warns on a multi-record one
-where a prefix names a FILE and a contig names a molecule.
-
-**Two limits of `count_coverage`, measured and named rather than fixed**, in
-`core/depth_policy.py` beside the two knobs already declared absent there:
-
-- An `N` in a read contributes no depth -- `ACGT` + ten `N` + `ACGT` covers 8
-  of the 18 bases it spans. This is the one place that module's reasoning does
-  not carry through: it declines a mapping-quality floor precisely because a
-  gap is what expansion then designs primers for, and an ambiguous BASE call
-  is the same situation. Closing it needs the pileup API.
-- `count_secondary` cannot count a bwa mem secondary record, which carries
-  `SEQ` set to `*`: measured identical at 20 covered bases with the knob on
-  and off. No production path sets it.
-
-**`DepthPolicy` was unit-tested against a stub and that could not pin the
-path.** The policy is handed to `count_coverage` as a `read_callback`, and
-whether pysam honours it -- for which record kinds, under which of its own
-default filters -- is a fact about pysam. Both ends existed and nothing walked
-between them. The file now builds real BAMs covering all seven CIGAR shapes,
-secondary/supplementary/QC-fail exclusion, duplicates counted, MAPQ floors on
-both the bowtie2 (0-42) and bwa (0-60) scales, and records with no base
-qualities as minimap2 writes from FASTA input. Everything in it passes today:
-it is a ratchet, since a pysam upgrade changing `count_coverage`'s filtering
-would move every depth figure here with no test to notice.
-
-**Depth is never reported for bases the BAM cannot answer for.**
-`count_coverage` CLAMPS its `stop` to the contig's length, and
-`compute_bam_depth` wrote the shorter result into a `length`-sized array of
-zeros. A zero there is not "no reads"; it is no sequence to have reads on. On
-a fully covered 2 kb contig asked for 5,000 bases, `bam_gaps` reported a gap
-of (1950, 5000) -- 3,050 bp, of which 3,000 is invented. `expand-primers`
-designs oligos AT gaps, so they would target a region the BAM says nothing
-about, and `calibrate-reach` would fit a reach against the same zeros. Only
-`match_contigs` could reach it, since that binds on a NAME and warns rather
-than refusing when lengths disagree -- which stays, because binding on the
-name and inventing the depth are separate decisions and only the second is
-wrong. A contig LONGER than the configured length stays silent: that reads a
-prefix of it, and every base reported was observed.
-
-**A shipped config reached it, and the tool's own advice was the way in.**
-`tests/validation/genomes/params.json` names `prevotella.fna`, two
-chromosomes, `fg_seq_lengths: [3168282]` -- the CONCATENATED total, since
-`utility.get_seq_length` sums characters across every record. `match_contigs`
-compares the prefix `prevotella` against `NC_014370.1` and `NC_014371.1`,
-matches nothing, and `calibrate-reach` then said "Map one explicitly with
---contig-alias FG=BAMCONTIG". Following that produced 1,796,408 real values
-and 1,371,874 fabricated zeros, **43.3% of the array**. The alias fix could
-not have prevented it: `calibrate-reach` is the one command where the
-prefix-keyed alias works exactly as documented.
-
-So the message now checks whether the references are multi-record and says
-this command cannot describe one, rather than offering a flag that cannot
-help. `calibrate-reach` also builds no `DepthProfile`, so the evaluable mask
-that keeps "measured zero" apart from "not observed" is absent on the one
-path that could fabricate zeros; the refusal is what stands in for it.
-
-**What the fabrication cost the fit**, measured through the production
-`fit_reach` on that geometry with synthetic depth at a true reach of 5,000,
-honest array against clamped, four seeds
-(`scripts/benchmarking/clamped_tail_fit.py`):
-
-| seed | honest rho | clamped rho | clamped plausible reaches |
-|---|---|---|---|
-| 7 | 0.993 | 0.272 | 2 |
-| 11 | 0.992 | 0.328 | 3 |
-| 23 | 0.992 | 0.318 | 2 |
-| 41 | 0.991 | 0.283 | 3 |
-
-`best_reach` recovered 5,000 in all eight runs, so the headline number
-survived. What did not is the confidence: rho falls about 3.5x and the
-plausible range widens from one reach to two or three, so `format_reach_table`
-reported "the range this data cannot separate" and told the user to repeat the
-design at both ends, for data that did separate them. And 0.27-0.33 sits ABOVE
-`MIN_INFORMATIVE_CORRELATION` (0.15), so the guard never fired; a sparser real
-profile with the same reduction lands below it and the run exits blaming the
-BAM, which was fine.
-
-Four seeds, one geometry, synthetic depth: a direction, not a calibrated
-magnitude for a real profile. The figures first arrived from a separate audit
-of this code as an inline measurement with no script -- the shape recorded as
-unrecoverable under **The smallest pool** above -- and were then written out
-and re-run here, reproducing digit for digit. That is why the script is in the
-repository rather than the numbers alone.
-
-**Depth costs about 72 bytes per base at peak, and that is the figure that
-fails rather than slows.** `count_coverage` allocates four `array('L')` of
-contig length, the caller copies them to int64 and sums, and only a 4 B/base
-int32 array survives -- an 18x transient. Measured with `ru_maxrss`, one size
-per process because it is a high-water mark that never falls
-(`scripts/benchmarking/count_coverage_rss.py`): 72.1 B/base at 5 Mb, 72.0 at
-10 Mb, 72.0 at 20 Mb. 2.5 Mb reads high (80.1) because fixed process overhead
-is a larger share of a small delta, and 40 Mb reads LOW (63.3) for a reason
-nobody has established -- macOS memory compression is the guess and was not
-verified. So a figure for a 250 Mb chromosome is an UPPER BOUND of about
-18 GB extrapolated from a range topping out at 40 Mb, not a prediction, and
-the only point above 20 Mb undershoots the trend. A foreground is rarely a
-chromosome, which is why this has not bitten.
-
-**Each bound record reopens the file**, since `bam_depth_profile` calls
-`compute_bam_depth` inside its loop. Measured at the *Drosophila* record count
-(`scripts/benchmarking/reopen_overhead.py`): about 1.2 ms per open, so about
-2.3 s for 1,870 records. Quote the seconds and not the ratio -- the fixture's
-records are 1,000 bp, so counting is trivial and the ratio is inflated by
-construction; on real records the ratio collapses while the toll stays. It is
-2.3 s against a run that already reads a 144 Mb reference.
-
-**Every fixture is synthesised.** There is still no BAM or CRAM in this
-repository, so `calibrate-reach` has never been run against measured
-sequencing depth and every reach figure remains fitted to a breadth proxy.
-
-**A failure record no longer creates a directory where a file was asked for.**
-`_failure_artifact_path` read `args.data_dir or args.output` and `makedirs`'d
-it, but `--output` names a directory for `analyze-coverage` and a FILE for
-`calibrate-reach`, `predict` and `report`. So a failure left a DIRECTORY at
-the path the user wanted a file, the next successful run could not write
-there, and the record landed where `export.export_is_blocked` never looks --
-so the record whose whole purpose is to block a stale export blocked nothing.
-`--output` is now consulted last and only when it is already a directory.
-
-## Refusals, end to end
-
-`tests/integration/test_strict_design_pipeline.py` runs the four steps over the
-packaged 5.4 kb plasmid and then injects one bad configuration at a time. Each
-injection is a params file somebody could write, not a monkeypatched internal:
-the point is that a refusal survives argument parsing, parameter resolution,
-the step's own `except` clause and the command boundary. Known Issue 8's class
-is exactly a check that exists and is not reached.
-
-**Two refusal mechanisms, and only one owes a failure record.**
-
-A setting the SCHEMA rejects -- `coverage_reach: 0`, `polymerase: taq` -- never
-enters the design path. It exits nonzero naming the permitted values, writes no
-record, and wants none: there is no stage to name and no step-4 output for
-anyone to mistake for current. That is an earlier and better refusal than the
-design-request contract's.
-
-A setting the DESIGN PATH rejects -- an additive with no Tm model, a
-background-measured limit with no background -- owes all three: nonzero exit, a
-record saying what failed, and nothing the next command will export.
-
-**The record was not being written**, found here and nowhere else. Both
-design-path refusals fire inside `resolve_design_request`, which runs BEFORE
-`get_params` populates the `parameter` module, so the failure writer looked for
-an output directory the module did not yet know about and wrote nowhere. The
-run exited nonzero and the directory still looked like its previous success.
-`_failure_artifact_path` now falls back to the `data_dir` named in the params
-file, resolved relative to that file as every command resolves paths. Same
-ordering trap as `warn_on_condition_drift`, reached from the other side.
-
-Also covered: a deleted position index, a FASTA replaced after indexing so the
-index is complete and describes another sequence, a reaction the filter never
-recorded, and the retired `score` command name.
-
-## What references are available to measure against
-
-All gitignored, so `git ls-files` shows none of them and a search of the
-tracked tree concludes there is nothing to test on. That conclusion has been
-reached and acted on at least once; see the correction in **The smallest pool**
-above.
+Full list: [docs/params-reference.md](docs/params-reference.md). Rationale and
+measurements: implementation-notes.md.
+
+- **Filtering**: `min_k`/`max_k` (6-12; 12-18 for longer primers),
+  `min_fg_freq` (1e-5), `max_bg_freq` (5e-6), `max_gini` (0.7),
+  `min_gini_sites` (3; the `--min-gini-sites` flag is inert, use the key),
+  `max_primer` (500; bounds the shortlist, not what a design can reach),
+  `candidate_retention` (`all_qc` default, or `post_gini`; `legacy` is refused).
+- **Thermodynamics**: `polymerase` (`phi29` 30 C, `equiphi29` 42-45 C, `bst`
+  60-65 C, `klenow` 25-40 C), `reaction_temp`, `na_conc`, `mg_conc`,
+  `min_tm`/`max_tm`, and the additives `dmso_percent`, `betaine_m`,
+  `trehalose_m`, `ethanol_percent`, `urea_m`, `tmac_m`, `formamide_percent`.
+  A design that sets glycerol is refused: nothing computes its Tm effect.
+- **Selection**: `num_primers`/`target_set_size` (6), `max_dimer_bp` (3,
+  maximum 7), `allow_dimer_relaxation` (false), `max_dimer_dg` (unset; can only
+  tighten the screen), `max_sets` (5), `iterations` (8; bounds the search for
+  alternatives, not the primary selection), `coverage_metric`,
+  `min_per_target_coverage` (checked and reported, not repaired).
+- **Search control**: `objective_scan_width` (64), `max_frontier_refills` (4),
+  `swap_max_evaluations` (per stage, not a total), `total_search_evaluations`
+  (the only total; None by default, so by default no total bound exists),
+  `stage1_objective_width` (None; off by default after measurement).
+- **Panel limits**, all unset by default and params.json only:
+  `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
+  `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the
+  delivered panel is unchanged. Set one and `optimize` attempts one bounded
+  repair and reports the outcome. A background-measured limit with no
+  background genome is refused.
+- **`--application`** (`discovery`, `clinical`, `enrichment`, `metagenomics`)
+  weights the ensemble winner and steers `--auto-size`. On `hybrid` it does
+  not change what is selected.
+
+## Rules a change must keep
+
+Each of these was learned from a defect; the record is in the linked documents.
+
+**Unknown is not zero, and not success.**
+- A quantity that could not be measured is `None`, absent, or an error. It is
+  never 0.0, an empty array, or a default that happens to be the best value.
+  `.get(key, 0.0)` on a gap, a background count or a dimer energy is this
+  defect.
+- A required calculation that fails raises a `DesignError` subclass
+  (`InvalidDesignRequest`, `ReferenceDataError`, `UnsupportedModelError`,
+  `ModelEvaluationError`). Do not catch it and substitute. A measured QC
+  rejection is a different thing and stays a rejection.
+  `SearchBudgetExhausted` is a recorded stopping point, not a failure.
+- An artifact that cannot be parsed blocks; it does not pass.
+- Genome coordinates are int64 (`position_cache.POSITION_DTYPE`). The scan is
+  chunked at `string_search.MAX_SCAN_CHUNK` because pyahocorasick finds nothing
+  past 2**31 characters; that chunking is load-bearing.
+
+**One door per resource.**
+- Position indexes: `core/position_index.open_index`. A raw `h5py` lookup finds
+  nothing in the sorted-blocks layout.
+- Alignment files: `bam_coverage.open_alignment`.
+- K-mer tables: `kmer_tables` (`table_exists`, `discover_prefixes`,
+  `counts_for`), never a filename glob. A table is a KMC database or a text
+  file. A count lookup has a fixed cost per call, so batch by k.
+- Dimer screening: `lazy_dimer.dimer_screen`. Candidate pool:
+  `candidate_source.open_design_source`. Delivered set: `delivered_set`.
+  Bounded repair: `pool_planner.repair_panel`.
+
+**Options must reach the code that decides (Known Issue 8).**
+- A CLI flag that also has a params.json key takes `None` as its argparse
+  default, so an absent flag does not beat the file.
+- A new params.json key needs the schema entry, a module-level default in
+  `core/parameter.py`, a reader, and a regenerated `docs/params-reference.md`.
+- Anything a delegate optimizer must read goes through
+  `swap_refinement.attach_search_config`. Stage 1 reads `stage1_pool_objective`;
+  Stage 2 reads `pool_objective`; keep them apart.
+- Assert the path, not the two ends. Extend the ratchets when adding an option:
+  `test_every_cli_option_has_an_effect.py`,
+  `test_no_capability_is_unreachable.py`, `test_no_schema_key_is_inert.py`,
+  `test_cli_defaults_do_not_beat_params_json.py`,
+  `test_params_json_routes_optional_keys.py`,
+  `test_design_options_have_effect.py`. Their allowlists may only shrink.
+- Do not record this class as closed.
+
+**Ordering and globals.**
+- `get_params` runs inside the step, so code that runs before it must resolve
+  from the params FILE. `resolve_design_request` does; all three design
+  commands call it.
+- Do not pair a `parameter` global with an argument the call was given. Under
+  `pytest -n 8` that paired one test's prefix with another's FASTA. Reference
+  identity travels on the request.
+- Step 2's sort ends on the primer sequence, so the counter's emission order
+  cannot change a result.
+
+**Structure.**
+- CLI startup must not import scikit-learn (`tests/test_cli_import_is_light.py`).
+- `base_optimizer.py` and `pipeline.py` are at their size budgets. Extract to a
+  new module and re-export the same objects.
+- New packages must be listed in `pyproject.toml`'s `packages`; a test compares
+  the list against disk.
+- ILP models use HiGHS. CBC kills the interpreter on Python 3.13, and
+  `core/ilp_solver.py` refuses instead of falling back.
+- KMC is invoked with `-ci1 -cs1000000`, and intersections with `-ocleft`.
+  All three are load-bearing and silent when wrong.
+
+**Defaults follow measurement.**
+- A capability with no demonstrated benefit ships off by default (redundancy
+  threshold, Stage 1 objective, beam search on `optimize`, frontier refill on
+  `optimize`, an occupancy gate). Do not switch one on without a new
+  measurement.
+- Panel limits and strand limits have no defaults because no threshold has a
+  reference.
+- The profile weights `tm_weight` and `uniformity_weight` are inert on
+  `hybrid`. Wiring them moves every delivered panel and is a decision, not a
+  repair.
+
+## Known Issues (index)
+
+Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
+
+1. **Large backgrounds**: `build-filter` exists, but exact counting of hg38 at
+   k=12 is minutes and a 138 MB table. Measure before reaching for it.
+2. **skops**: the format is version-tolerant, its default trust list is not;
+   `rf_preprocessing._TRUSTED_MODEL_TYPES` names what a model may reconstruct.
+3. **Memory**: `filter` loads all background k-mers.
+4. **PositionCache strand** is `'forward'`, `'reverse'` or `'both'`, not `+`/`-`.
+5. **pyahocorasick past 2 Gb** finds nothing, silently. The chunked scan works
+   around it; a canary test fails when the installed version changes.
+6. **A partial background is not a specific design**: `selectivity_ratio`
+   moves with background size. Compare `selectivity_density`.
+7. **int64 coordinates**. int32 saturated on hg38 and hid host sites. Test
+   against a whole genome, not a chromosome.
+   - Unnumbered, between 7 and 8: `--design-grid` on `plan-pool`;
+     `--min-fg-bg-ratio` orders candidates and no longer deletes them; the
+     objective must reach the stage that refines; Stage 1 is deliberately not
+     constraint-aware (reference figure for the Wolbachia pool: density 60.112
+     at coverage 0.6535).
+8. **Inert options**: declared, documented, read by nothing. Found repeatedly,
+   in flags, schema keys, capabilities and arguments.
+9. **Evenness needs sites**: Gini is NaN below `min_gini_sites`.
+10. **The candidate loader** uses the same Tm as the gate.
+11. **Near-duplicate primers**: the redundancy threshold exists and is disabled
+    (1.0); measurement did not support enabling it.
+12. **CLI startup** no longer imports scikit-learn.
+13. **Unindexed prefix**: `PositionCache.get_positions` raises
+    `MissingPositionsError` instead of answering with an empty array.
+14. **Reading the background is not acting on it**. `_network_refine` carries
+    the host term and `_swap_refine` reads the objective; neither carries both.
+15. **`require_entries`** asks for an entry on every prefix, not a hit on any.
+16. **Stage 1 objective**: wired as `stage1_objective_width`, off by default;
+    it gains coverage and costs specificity and runtime.
+17. **The phi29 30 C pool cannot discriminate**, and gating candidates on
+    occupancy gives a worse panel. The lever is the reaction. `filter` reports
+    the regime and does not enforce it.
+18. **`max_gap` and `bg_coverage`** are constrainable and enter no score.
+    Strand figures are `None` when unmeasurable.
+19. **One set, not every alternative**: see `delivered_set.py`.
+20. **Mixed oligo lengths** work; on the one pair measured they bought nothing.
+21. **HDF5 lock error (errno 35)** is two processes sharing a data directory.
+    Do not suggest `HDF5_USE_FILE_LOCKING=FALSE`.
+22. **Bloom path**: capacity bounds distinct k-mers; filters record their k
+    range. Use `--from-kmers` at host scale. Not yet built against a host
+    genome here.
+23. **Python 3.13 only**; HiGHS, not CBC; bioconda has no 3.13 build of
+    `kmer-jellyfish`; CI installs the optional extras so those tests run.
+24. **KMC3 preferred**, tables read as databases. About 7x faster and about
+    18x the memory of jellyfish on hg38 at k=12. A host with no table is
+    scanned by `query_scan`.
+
+## Reference genomes available locally
+
+All gitignored, so `git ls-files` shows none. Check here before concluding
+that something cannot be measured.
 
 | Reference | Size | Records | Location |
 |---|---|---|---|
@@ -1483,1262 +333,61 @@ above.
 | Wolbachia wMel | 1.27 Mb | 1 | both locations |
 | two plasmids | ~6 kb | 1 | `examples/plasmid_example/`, packaged in `core/smoke/` |
 
-**The Wolbachia design is prepared and is the one to reach for.**
-`examples/wolbachia_pool_design/work` holds 12-mer position indexes for wMel
-and *Drosophila* and a `step3_df.csv` whose funnel matches the figures quoted
-throughout this file: 874,596 k-mers, 491,836 past the thermodynamic gate,
-20,670 past evenness, 2,000 shortlisted. One `compute_metrics` call on it
-costs 40 ms, so a few thousand evaluations is minutes rather than hours.
-
-Prevotella and chr21 also carry k-mer tables and position indexes. The other
-bacterial genomes and hg38 have the FASTA only and would need counting first;
-hg38 at k=12 is about seven minutes and a 138 MB table.
-
-**There is no BAM or CRAM anywhere**, so anything needing measured sequencing
-depth is blocked: `calibrate-reach`, the reach calibration, and Task 9's
-held-out evaluation. Neither coverage reach has ever been measured against a
-reaction, and this is why.
-
-**The multi-record references are the interesting ones for geometry.**
-*Drosophila* has 1,870 records and hg38 has 705, which is exactly where the
-record-join scanner defect fabricated sites and where the two coverage paths
-disagree. Both of those fixes are currently justified on constructed fixtures
-alone; these references are what would measure them.
+`examples/wolbachia_pool_design/work` is prepared (12-mer indexes for wMel and
+*Drosophila*, 2,000-candidate shortlist; one `compute_metrics` call costs about
+40 ms) and is the one to reach for. Prevotella and chr21 also carry tables and
+indexes. The multi-record references (*Drosophila*, hg38, Prevotella) are the
+ones that exercise record-join geometry. There is no BAM or CRAM anywhere, so
+no coverage reach has been measured against sequencing depth.
 
 ## Testing
 
 ```bash
-pytest tests/                         # All unit tests
-pytest tests/test_hybrid_optimizer.py  # Specific test
-neoswga validate --quick              # Quick validation
+pytest tests/ -n 8                     # full suite, foreground
+pytest tests/test_hybrid_optimizer.py  # one file
+pytest tests/ -rs                      # show skip reasons; compare the skip count, not only passes
+neoswga validate --quick
 ```
 
-**Integration tests** (`tests/integration/`):
-- `phi29_baseline/`, `phi29_with_bg/`: Phi29 polymerase scenarios (no background / with background)
-- `equiphi29_baseline/`: EquiPhi29 scenario
-- End-to-end tests: `test_pipeline_e2e.py`, `test_integration.py`, `test_optimizer_method_coverage.py`, etc.
-
-Two things a contributor should know:
-
-- A full suite run leaves `git status --porcelain` byte-identical.
-  `tests/test_the_suite_leaves_no_files_behind.py` enforces that, and also
-  fails if a root-anchored `.gitignore` entry is added for a pipeline artifact
-  instead of stopping the write.
-- Tests needing `examples/plasmid_example`'s generated files guard on
-  `tests.conftest.plasmid_example_ready()`, not on the directory existing --
-  the directory is committed, so its presence proves nothing. Without jellyfish
-  those tests skip with a reason naming it. A new test that pins a quantity
-  should follow `tests/test_hybrid_optimizer_run.py`'s fixtures, which write
-  HDF5 directly and need no external tool.
+- A full run leaves `git status --porcelain` unchanged; a test enforces it.
+- Tests needing the generated plasmid example request the
+  `primed_plasmid_example` fixture. A `skipif` on `plasmid_example_ready()` is
+  evaluated at collection, before the fixture primes the example. Fixtures
+  that write HDF5 directly (`tests/test_hybrid_optimizer_run.py`) need no
+  external tool.
+- Import-time code in a test module runs at collection for the whole session.
+- CI runs serially on Python 3.13 with
+  `.[dev,improved,bam,viz,interactive]` and both k-mer counters.
+- Integration tests are in `tests/integration/`;
+  `test_strict_design_pipeline.py` drives each refusal end to end.
 
 ## Code Patterns
 
-**Parameter handling**:
 ```python
 from neoswga.core.parameter import get_params
 params = get_params('params.json')
-```
 
-**Multiprocessing**:
-```python
 from neoswga.core.utility import create_pool
 with create_pool(cpus) as pool:
     results = pool.map(process_func, items)
-```
 
-**Position data** (HDF5, read through `core/position_index.py` only):
-```python
 from neoswga.core.position_index import open_index
 with open_index('g_12mer_positions.h5') as index:
     positions = index.get(primer_sequence)  # None: never scanned; empty: binds nowhere
 ```
-A raw `h5py` lookup by primer name finds nothing in the sorted-blocks layout.
-`tests/test_position_index_has_one_door.py` refuses a new one.
 
-## Known Issues
-
-1. **Large background genomes**: Use `neoswga build-filter` to pre-build a Bloom filter for human genome. Note this is not always needed: at k=12 exact jellyfish counting of the whole human genome costs about 7 minutes and a 138 MB table (8,368,418 canonical 12-mers), which is well within reach. The Bloom path matters at longer k, where the count table stops being small. Measure before reaching for it -- the sampled-index path has its own resolution trap (see `_warn_if_sample_too_sparse`).
-
-2. **sklearn compatibility**: The RF model ships in skops format (version-tolerant, no arbitrary-code deserialization), so minor sklearn upgrades no longer require retraining. A major sklearn upgrade may still warrant re-validating the model.
-
-   **The format is version-tolerant; its default trust list is not**, and the
-   two are easy to conflate. skops 0.15.0 stopped implicitly trusting
-   `sklearn.tree._tree.Tree`, and every model-loading test went red on CI while
-   passing locally on 0.14.0 -- `pip install -e ".[dev]"` resolves
-   `skops>=0.11,<1` to whatever is newest, and `requirements-dev.lock` is not
-   used by the test job.
-
-   `rf_preprocessing._TRUSTED_MODEL_TYPES` now names the types a forest
-   legitimately needs and `unexpected_model_types` refuses anything else,
-   naming it. That is narrower than trusting the archive wholesale and does not
-   depend on a future release keeping today's defaults; pinning skops would
-   have worked until the next release did the same thing. The digest check
-   against `models/checksums.json` still runs first, so this narrows what an
-   already-vouched-for file may reconstruct rather than replacing provenance.
-
-   The refusal rule is a pure function because which types skops reports as
-   untrusted depends on the installed version: a test driving the loader would
-   exercise it on 0.15 and skip straight past it on 0.14.
-
-3. **Memory usage**: The filter command loads all background k-mers into memory. Use Bloom filter for large backgrounds.
-
-4. **PositionCache strand parameter**: Uses 'forward', 'reverse', 'both' (not '+' or '-').
-
-5. **pyahocorasick silently finds nothing past 2 Gb** (upstream, unfixed): `Automaton.iter()`
-   indexes with a 32-bit int, so for a string longer than `2**31 - 1` its scan loop never runs.
-   It yields nothing, raises nothing and warns nothing. Verified on **2.3.1, the latest release
-   as of 2026-08**, with the needle planted at offset 1000: length `2**31 - 10` finds it,
-   `2**31 + 10` does not. Not found in the upstream tracker.
-
-   The re-check is automated rather than left to memory. `tests/test_pyahocorasick_limit_canary.py`
-   fails as soon as the installed version leaves the set that has actually been measured, and
-   names the command that re-measures it:
-
-   ```bash
-   NEOSWGA_VERIFY_AHOCORASICK_LIMIT=1 pytest tests/test_pyahocorasick_limit_canary.py -k still_present
-   ```
-
-   That run allocates over 2 GB, so it is opt-in. If the limit is gone, the chunking is still
-   correct but no longer load-bearing, and keeping or dropping it is a deliberate choice.
-
-   `string_search.MAX_SCAN_CHUNK` (2**30) works around this by scanning in overlapping windows,
-   so this is **load-bearing, not defensive** -- removing the chunking silently breaks any
-   background above 2.147 Gb, which includes human (3.1 Gb) and mouse (2.7 Gb).
-
-   Symptom before the fix: `total_bg_sites` and `bg_coverage` read 0 for a whole-genome host,
-   which is indistinguishable downstream from a perfectly specific primer set. A 27-primer panel
-   scored 0 against hg38 where the jellyfish counts put the true figure at 860.
-
-6. **A partial background is not a specific design**: `selectivity_ratio` is a ratio of counts
-   with no genome length in it, so it moves with how much background sequence you supply --
-   about 66x between human chr21 and whole hg38, with nothing about the primers changed. Read
-   `selectivity_density` (added beside it) when comparing designs scored against different
-   backgrounds. At k=12 note that 99.7% of all canonical 12-mers occur in the human genome, so
-   a gate demanding zero host sites returns a single-site candidate pool rather than failing.
-   See [docs/validation/additive_specificity.md](docs/validation/additive_specificity.md#the-background-was-one-chromosome-and-that-mattered).
-
-7. **Genome coordinates are int64** (`position_cache.POSITION_DTYPE`), and must stay so.
-   Positions were cast to `np.int32` on the way out of HDF5. int32 tops out at 2,147,483,647,
-   so for human (3.1 Gb) and mouse (2.7 Gb) every site past that offset **saturated at the
-   ceiling**; the `strand="both"` path then calls `np.unique`, which collapsed all of them into
-   a single site.
-
-   This is a second, independent instance of the 2**31 failure in Known Issue #5 -- different
-   place, same symptom, and neither one is visible on a single chromosome. Measured on an
-   *M. tuberculosis*-vs-hg38 run: `CACCGACGACGA` occurs 48 times in hg38 (jellyfish and a
-   direct string count agree), the scan stored all 48 correctly, and the cache returned 5.
-   Across the twelve-primer set `total_bg_sites` read 48 against a true 114.
-
-   It changed the design, not just the report: with the true background visible the optimizer
-   **drops** `CACCGACGACGA`, the primer whose host load int32 had been hiding. After the fix
-   `total_bg_sites` matches the jellyfish count exactly (77 = 77).
-
-   The lesson both issues share: **test against a whole genome, not a chromosome.** chr21 is
-   46 Mb and cannot reach either limit, so both bugs sat behind a passing test suite.
-   `tests/test_position_cache.py::TestPositionsPastTheInt32Ceiling` pins this one.
-
-**`--design-grid` on `plan-pool`** designs once per condition and length in a
-JSON grid and writes `design_sweep.json` beside the usual report, rather than
-one `pool_plan`. The grid names `lengths` and `conditions`, where each condition
-names only the fields it changes: the baseline is the reaction this run
-resolved, so a grid varying DMSO alone keeps the buffer, salts and oligo
-concentration, and the comparison is between chemistries rather than against
-library defaults. A cache and optimizer are rebuilt per condition and length,
-since the index is per length and the chemistry is what varies.
-
-It needs the candidate inventory, and it looks each condition up by reaction
-fingerprint, so a condition the filter never recorded is reported as having no
-eligible candidate rather than designed with an empty pool. Wired on 2026-09-17
-in Phase 4 increment 6; it was audit finding F4, parsed and documented and read
-by nothing, and its entries are now gone from both the inert-option and
-unreachable-capability allowlists.
-
-**`--min-fg-bg-ratio` was read and then overruled** -- FIXED 2026-09-17.
-`optimize`'s background prefilter kept every candidate at or above the ratio,
-then, if that removed more than `max_removal_fraction` of them, discarded the
-threshold and kept the top 80% by ratio instead. On the 2,000-candidate
-Wolbachia shortlist the threshold removes 64.8% at its default of 1.0, so the
-clause fired at 1.0, 2.0, 5.0 and 20.0 and removed exactly 400 every time. The
-flag changed nothing above about 1.0 and the rule in force was "drop the worst
-20%".
-
-That is the Known Issue 8 class in a shape none of its ratchets look for: not a
-flag nobody reads, but a flag that is read and then overruled by a second rule
-on the same decision. `max_removal_fraction` was also a bound on the fraction
-of a BATCH, so which candidates survived depended on how many others were below
-the threshold alongside them.
-
-`order_candidates_by_background` replaces it. Candidates at or above the ratio
-are searched first and the rest are searched last; nothing is deleted, so the
-400 the old path made unreachable at every setting are reachable again, which
-matters because increment 5's refill can now reach them. The partition is
-stable, preserving the inventory's `search_rank` traversal. Delivered panel on
-the measured design: 11 of 12 primers shared, Jaccard 0.846
-([measurement](docs/validation/background_ordering_2026-09-17.md)).
-`bg_max_removal` is retired with the clause.
-
-**The objective never reached the stage that refines** -- FIXED 2026-09-18.
-`plan_pool` attached `pool_objective` to the optimizer it was handed, which on
-every command-line path is a wrapper (`HybridBaseOptimizer` or
-`BackgroundAwareBaseOptimizer`) that delegates the search to an inner
-`HybridOptimizer`. `_swap_refine` is a method of the INNER one, so
-`refine_hybrid_stage2` read the attribute off an object nobody had set. Measured
-through a real design, the refinement ran once and received None: Stage 2
-refined on raw covered bases while the row was accepted on occupancy-weighted
-coverage under a specificity floor. Delivered density on a failing row went from
-28.78 to 42.62 once connected.
-
-Two tests covered it and neither could see it -- one asserted by AST that
-`plan_pool` assigns an attribute of that name, the other by source text that the
-refinement reads one. Both ends existed and the path did not. Use
-`swap_refinement.attach_search_config` for anything a delegate must read, and
-assert the PATH: `tests/test_the_objective_reaches_the_stage_that_refines.py`
-drives a real factory-built optimizer under both methods.
-
-**Stage 1 is deliberately NOT constraint-aware**, and there is no demonstrated
-reason for it to be. The specificity density floor is exactly additive over
-primers, so a density-only ceiling is computable and comes to 79.807 for a
-12-primer panel on the shipped pool. **That figure bounds nothing deliverable**:
-the panel achieving it has coverage 0.4042 against a 0.5 target, and the
-constructions that appear to beat the search carry 30 dimerising pairs out of 66
-at the configured `max_dimer_bp` of 3. Only 6 of the 16 most selective
-candidates are mutually compatible, so a 12-primer panel cannot be built from
-them at all.
-
-With dimers and coverage both in force, no deterministic construction beats the
-search: the best reach density 50.6 at coverage 0.527, or 64.0 at coverage 0.385
-which fails the target, against the search's **60.112 at 0.6535**. So its
-failure at a floor of 65 is probably correct. Three Stage 1 rules built on the
-accounting each failed to improve a delivered panel, which is best explained by
-there being nothing to find.
-
-Settled with controls on 2026-09-18: **no construction respecting the dimer
-screen beats the search.** Nine of them, over three reference densities and
-three pool sizes, all land between 0.375 and 0.387 coverage against a 0.5 target
-and none exceeds 64.0 density. Selective candidates are GC-richer (0.44-0.48
-against 0.39) and pairwise less compatible (58-63% against 69-71%), but the
-largest mutually compatible subset is NOT smaller -- 18 among the top 64 by
-slack, more than a 12-primer panel needs -- so compatibility is not the barrier.
-The specificity against coverage trade-off is
-([measurement](docs/validation/no_search_headroom_on_this_pool_2026-09-18.md)).
-
-The lesson is the reusable part: **an achievability figure that omits a
-constraint bounds nothing, and a striking ratio without a control is not a
-finding.** Three claims of mine died in sequence here -- a 79.807 ceiling that
-ignored coverage and dimers, an existence proof carrying 30 dimerising pairs out
-of 66, and a "6 of 16" compatibility barrier that sits inside the random range
-of 6 to 8. Three Stage 1 search rules were built on the first two before the
-third was tested. The check that would have killed all three at the outset is
-the same one: evaluate a candidate panel through the acceptance path a delivered
-panel takes, and compare it against a control. Quote 60.112 at coverage 0.6535
-as the reference for this pool. The accounting lives in
-`scripts/benchmarking/selectivity_budget.py` as a diagnostic, not in the
-package, because nothing in the search uses it.
-
-8. **`optimization_method` in params.json did nothing** — FIXED 2026-09-05
-   (audit finding F1b). The key was declared in `params.schema.json`,
-   documented above, accepted by the validator, and read by nothing:
-   `get_params` assigned no module global, and `run_step4` passed
-   `args.optimization_method` straight through with an argparse default of
-   `'hybrid'`, so the flag's default beat the config every time.
-
-   ```
-   params.json "optimization_method": "dominating-set"
-     -> parameter module global: <UNSET>,  optimizer actually run: hybrid
-   ```
-
-   It cost more than provenance: `hybrid` returns a set **identical** to
-   `dominating-set` (Jaccard 1.000) at 7.8x the cost at 32 primers and 260x at
-   128 (2239 s against 8.6 s), so every params.json user ran the slowest method
-   for the same answer. `design` pinned it a second way — that subparser has no
-   `--optimization-method` and `run_design` hardcoded `"hybrid"`.
-
-   Fixed in three places, because one alone was not enough. The global is
-   assigned in `_apply_params_only_keys`. The flag's argparse default is now
-   `None`, the sentinel that distinguishes an explicit `--optimization-method
-   hybrid` — which must beat a configured `dominating-set` — from an absent
-   flag, which must not; do not give it a real default again.
-   And the lookup goes through `optimization_method_from_params`, beside the
-   other pre-read resolvers, because `run_step4` builds its argument list
-   before `optimize_step4` triggers `get_params`, so reading the global at that
-   point sees nothing. Tests:
-   `tests/test_optimization_method_routes_from_params.py`.
-
-   It was NOT the last instance of its class -- a config key or flag that is
-   documented, accepted, and read by nothing. An audit on 2026-09-14 found ten
-   more. The class is now closed, and held closed by a ratchet.
-
-   Closed on 2026-09-14 in the two ways available. Wired, because each already
-   had a reader taking its fallback: `mismatch_penalty` (whose consumer
-   `occupancy.default_mismatch_penalty` was written for it and received None on
-   every call), `max_homopolymer_run`, `gc_clamp_window` and `max_gc_in_clamp`.
-   Retired from the schema, because nothing implemented what they named:
-   `retries`, `drop_iterations`, `top_set_count`, `selection_metric` and
-   `bl_penalty`. The first four appeared only in a module-level `defaults` dict
-   in `core/pipeline.py` that itself had no reader; the dict is gone. Setting
-   any of the five now produces the unknown-key warning rather than silence.
-
-   `tests/test_no_schema_key_is_inert.py` is the ratchet: every schema key must
-   bind a `parameter` global or appear on a short list of keys consumed during
-   loading, each with its reason.
-
-   Fixed on 2026-09-14: `filter --gc-tolerance`, `filter --excl-threshold`,
-   `expand-primers --optimization-method` and
-   `plan-pool --swap-max-evaluations` all carried a real argparse default and so
-   beat params.json on every run. They now use the `None` sentinel, and
-   `expand-primers` routes through `resolve_optimization_method` rather than
-   reading the attribute. `--gc-tolerance` was the costly one: the block it fed
-   also computed its own GC window, clamping the lower bound at 0.20 where
-   `adaptive_gc_window` releases it to zero below the extreme-AT threshold, so
-   on a 19% GC target it excluded exactly the zero-GC primers published AT-rich
-   designs are built from. It now routes through `adaptive_gc_window`.
-
-   `tests/test_design_options_have_effect.py`,
-   `tests/test_params_json_routes_optional_keys.py` and
-   `tests/test_optimizer_config_reaches_optimizers.py` are named as the tests
-   that hold the line, but between them they cover about fifty keys and none of
-   the ten above -- which is why the class survived being declared closed.
-   `tests/test_cli_defaults_do_not_beat_params_json.py` now pins the four flag
-   defaults. Extend all four when adding an option.
-
-   **Declared closed twice, and closed neither time.** The audit of 2026-09-16
-   found `--design-grid` on `plan-pool` parsed, documented in the help text, and
-   never read -- added *after* the second closure. Checking for more found
-   `--data-dir` inert on `count-kmers`, `filter`, `prepare-candidates`,
-   `optimize`, `design`
-   and `evaluate-set`, and `--min-gini-sites` inert on `filter`, which the Key
-   Parameters section above documented as working. Both were verified by
-   resolving a config whose flag value differed from the file value: the file
-   won each time.
-
-   The reason none of the four ratchets caught them is structural.
-   `test_no_schema_key_is_inert.py` and `test_params_json_routes_optional_keys.py`
-   iterate params.json **schema keys**, so a CLI flag is invisible to them.
-   `test_cli_defaults_do_not_beat_params_json.py` checks four argparse
-   **defaults** and asserts nothing about whether a flag is read.
-   `test_design_options_have_effect.py` calls `run_optimization` directly, so it
-   covers the **optimize path only**. None of them asks "does this flag do
-   anything".
-
-   `tests/test_every_cli_option_has_an_effect.py` now does. It reads the dispatch
-   table out of `main()`, walks from each handler through the functions it calls,
-   collects every attribute read off the argparse namespace -- including the
-   `merge_args_to_parameter` and `@params_command(merge=...)` routes, which are
-   reads by another name -- and fails on any declared option it cannot account
-   for. Currently-inert options are listed in `KNOWN_INERT` with a reason, and a
-   second test fails on an entry that has since been wired, so the list can only
-   shrink.
-
-   The same defect exists one layer down, where a capability is built and tested
-   and no command can reach it. The audit found six at once, all from the
-   condition-aware pool design work: `CandidateProvider`, `design_sweep`,
-   `load_design_grid`, `load_grid_file`, `ensure_positions` and, in practice,
-   `beam_search`. Unit tests cannot see this, because a test that constructs the
-   thing directly and asserts it behaves passes whether or not anything calls it.
-   `tests/test_no_capability_is_unreachable.py` walks transitive reach from the
-   dispatch table -- not bare references, since `design_sweep` calling
-   `provider.expand` must not make `expand` count -- and holds the same kind of
-   shrinking allowlist.
-
-   Do not record this class as closed again. Record what the ratchets cover.
-
-   A third variant surfaced on 2026-09-17, and none of the five ratchets looks
-   for it: not a CLI flag and not a schema key nobody reads, but a schema key
-   read in some places and not in the one that would spend it. `cpus` reached
-   `create_pool` and did not reach step 1. `kmer_counter.run_jellyfish` declares
-   `cpus: int = 4` and computes
-   `max_workers = min(num_k, cpu_count // max(cpus, 1))`, so that default set
-   both the threads per jellyfish process AND how many k values ran at once,
-   while the configured value set neither. All four of step 1's call sites
-   omitted it. On a 64-core machine with `cpus: 16` the run used 4 threads per
-   process and 16 concurrent k values, the transpose of what was asked for.
-   Fixed by passing `parameter.cpus`; pinned by
-   `tests/test_the_configured_cpu_count_reaches_jellyfish.py`, which walks the
-   AST of step 1 rather than asserting a thread count.
-
-9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
-   (audit finding B4). `filter.get_gini` keeps a primer when
-   `gini.notna() & (gini < max_gini)`. The `.notna()` half was written for
-   exactly the case where evenness cannot be measured, but a single-site primer
-   produced 0.0, the best value available, so the guard never fired and the
-   gate ranked that primer first. 86% of the shipped Prevotella-against-chr21
-   pool and 96.2% of the plasmid example sat at 0.0, all with two or fewer
-   foreground sites; the three whole-genome GC-tier pools have none at 0.0,
-   which is why this was invisible in the runs this project usually inspects.
-   `min_gini_sites` is the threshold, default 3, settable in params.json and as
-   `--min-gini-sites` on `filter`; `primer_attributes.DEFAULT_MIN_GINI_SITES`
-   holds the default. It is threaded into `get_gini_from_txt_for_one_k` as an
-   argument rather than read from a module global, because that function runs in
-   a spawned multiprocessing worker which would otherwise see the default
-   instead of the configured value. `pipeline.check_gini_stage_kept_something`
-   refuses to write an empty pool and names the threshold in force.
-   Tests: `tests/test_gini_needs_enough_sites.py`,
-   `tests/test_min_gini_sites_is_configurable.py`.
-
-10. **The candidate loader filtered on a Tm known to be wrong** -- FIXED
-    2026-09-10 (audit finding B5). `melting_temp.py:153` keeps the original melt
-    package's GC-fraction bug for compatibility with the random forest retired
-    on 2026-09-05. It reads 10.12 C high at k=12 (measured over 20,000 random
-    12-mers, sd 0.30 C), so with the old symmetric 15 C margin the loader's
-    window was `[min_tm - 25, max_tm + 5]` in true-Tm terms. Nothing was lost on
-    plain phi29 and 9.6% of k=12 candidates were lost under DMSO 10% plus
-    betaine 1.5 M, silently. `kmer_counter.get_primer_list_from_kmers` now calls
-    the same `ReactionConditions.calculate_effective_tm` the gate calls, on the
-    window `filter._resolve_tm_window` resolves, with 2 C of stated headroom.
-    The shim itself is still used by `rf_preprocessing` and is correct to leave
-    there: it is what the bundled model was fitted against.
-
-11. **Near-duplicate primers reached the delivered panel** -- measured, and the
-    remedy is OFF by default (audit finding A6). Delivered E. coli set 0 held 9
-    pairs at Hamming distance 1 or less and 5 primers sharing the 3' hexamer
-    GCGAAA. No optimizer had a similarity rejection test: the greedy picked the
-    largest ABSOLUTE new coverage, so a primer with fifty sites and forty-eight
-    already covered beat one with five sites all new.
-    `dominating_set_optimizer.DEFAULT_REDUNDANCY_THRESHOLD` can skip a candidate
-    whose covered bins are already covered above the threshold, on site sets
-    rather than on sequences.
-
-    It defaults to **1.0, which disables it**, because measurement did not
-    support switching it on. Across three real pools at ten combinations of tier
-    and panel size, a 0.9 threshold fired 328,846 times and changed nothing:
-    coverage identical in five of six cases and 0.03 points lower in the sixth,
-    with the Hamming-1 pair count and the duplicate 3' hexamer count -- the two
-    things it was built to reduce -- identical in all six. The reason is
-    structural: a candidate more than 90% already covered has a small marginal
-    gain by construction, so the greedy's argmax was never going to pick it. The
-    criterion and the objective are nearly the same signal. No threshold beats
-    disabled on average, and gains sit beside large losses in the same tier:
-    M. tuberculosis at n=36 gains 5.53 coverage points at 0.05 and loses 10.72
-    at 0.00. The mechanism and its tests are kept; pass an explicit threshold to
-    use it. It affects `hybrid` and `background-aware` too, which both call
-    `optimize_greedy` for their Stage-1 set cover.
-
-    Taken together, entries 9 to 11 moved the three shipped whole-genome designs
-    by almost nothing. Coverage changed by at most 0.17 percentage points, the
-    delivered panels have Jaccard 0.993, 0.976 and 1.000 against their
-    baselines, and the candidate pool size is identical on all three. The
-    evenness rule bites on small targets, which is where the defect was
-    measurable in the first place.
-
-12. **CLI startup used to import scikit-learn** -- FIXED 2026-09-10 (audit
-    finding E6). `cli_unified.py` imported `core.pipeline` at module scope only
-    to make `StepPrerequisiteError` catchable, and `core/pipeline.py` imports
-    `rf_preprocessing`, which imported sklearn at module scope. Every invocation
-    paid it, `--help` and `show-presets` included, for a model retired from the
-    default path on 2026-09-05.
-
-    `StepPrerequisiteError` and `StepValidationResult` now live in
-    `core/exceptions.py` (re-exported from `core/pipeline.py`, the same objects,
-    so `except` clauses and the two importing tests are unaffected), and the
-    sklearn alias fix runs inside `load_model_safely` instead of at import.
-
-    `neoswga --help` now costs **about a third of what it did**. Quote the ratio
-    rather than an absolute pair: measured twice hours apart the saving was
-    about 3.3x both times, while the before figure itself moved from 1.21 s to
-    1.40 s between sessions with no code change, purely with machine load.
-    `python -X importtime -c "import neoswga.cli_unified"` reports no sklearn
-    entry at all. `tests/test_cli_import_is_light.py` fails if either import
-    comes back. What remains is not sklearn: it is pandas, reached through
-    `cli/_common.py` -> `reaction_conditions` -> `thermodynamics` -> `utility`.
-    That chain is pre-existing and is the obvious next target if CLI startup is
-    worth more work.
-
-13. **Five commands measured the host genome they were told to ignore** --
-    FIXED 2026-09-10. Each read `bg_prefixes` from params, built a
-    `PositionCache` over `fg_prefixes` alone, then handed the background
-    prefixes to something that queries that cache by prefix.
-    `PositionCache.get_positions` answered an unindexed prefix with an empty
-    array, silently, so every background lookup read zero.
-
-    The manifestation is `NetworkOptimizer._evaluate_primer_addition`, whose
-    score is `fg_improvement / (1.0 + bg_added)`. With an fg-only cache
-    `bg_added` is always 0.0, so every candidate scored as perfectly selective.
-    This is the same symptom as Known Issues 5 and 6, reached by a third route:
-    not a scan that found nothing and not an integer that saturated, but a cache
-    asked for something it does not hold.
-
-    It mattered most in `expand-primers`, which exists to add primers to an
-    existing panel, so specificity is the property the user is asking it to
-    preserve.
-
-    `get_positions` now raises `MissingPositionsError` for a prefix the cache
-    was not built over. That uses a separate `on_unindexed_prefix` knob, not the
-    existing `on_missing`: a primer with no hits on an INDEXED prefix is a
-    plausible measurement of zero and warns, while a prefix nobody indexed is a
-    caller error and raises.
-
-    `tests/test_expansion_counts_background.py` walks the AST for any function
-    that forwards `bg_prefixes` while building a cache without them. That check
-    found the fifth site after a manual review had settled on four.
-
-14. **Reading the background is not acting on it.** A background-aware stage
-    that does not choose the panel changes nothing useful. `expand-primers` was
-    fixed on 2026-09-10 to build its `PositionCache` over
-    `fg_prefixes + bg_prefixes`, and a real run afterwards still queried the
-    host prefix zero times. Three further seams had to be closed before the data
-    was read at all: `background_pruning` defaulted to False on the expansion
-    path, `PrimerExpander.expand` silently substituted `hybrid` for every method
-    it did not recognise including `background-aware`, and `_prune_background`
-    would have removed primers from the very panel the user asked to extend.
-
-    Even then it read the host without acting on it. Stage 1.5 pruning is not
-    the stage that picks the panel; Stage 2 `_network_refine` is, and it ranked
-    on amplification connectivity and unique coverage bins alone. Enabling
-    pruning therefore only shrank the pool Stage 2 drew from, and on a
-    40-candidate expansion over a 300 kb synthetic pair it moved delivered host
-    binding the wrong way, 32 sites to 45. `_STAGE2_BACKGROUND_WEIGHT` adds the
-    host as a third normalised axis in that stage, gated on `background_pruning`
-    so `hybrid` panels are unchanged (verified identical on all three GC tiers
-    at n=12/24/36).
-
-    The general lesson: check which stage produces the delivered result before
-    concluding that a measurement reaching the code means it reached the user. A
-    query count answers "was it read", not "did it matter".
-
-    **The two Stage 2s carry different things and neither carries both** --
-    found 2026-09-19 while wiring Phase 6's deficit objective. The host term
-    above lives in `_network_refine`. The objective a search can be steered by,
-    `pool_objective`, is read only by `_swap_refine`. So a host-aware expansion
-    cannot rank by recovered deficit, and a deficit-targeted one is not
-    host-aware. `PrimerExpander._expand_hybrid` chooses between them on
-    `background_pruning` and WARNS when target gaps are present but cannot
-    steer selection, rather than narrowing the pool to the gaps and then
-    ranking by something else. Switching expansion to `swap` wholesale was the
-    first attempt and `tests/test_expansion_uses_the_background.py` caught it
-    immediately: background-aware and hybrid returned the same panel, because
-    the host term had been left behind. Combining them means putting the host
-    term into the swap score as a weighted axis rather than its current
-    lexicographic tie-break, which is unmeasured.
-
-    `examples/plasmid_example` cannot demonstrate any of this. Six primers
-    already cover its 5.4 kb target completely at 3 kb reach, so expansion adds
-    nothing and `optimize` early-returns before Stage 1.5. Pin this behaviour on
-    a target large enough that Stage 1 over-selects;
-    `tests/test_expansion_uses_the_background.py` builds one at 300 kb with no
-    external tool.
-
-15. **The guard against the silent zero was itself silent** -- FIXED 2026-09-17
-    (Phase 4 increment 3 of the 2026-09-16 pipeline audit).
-    `CandidateProvider.ensure_positions` exists to refuse a candidate whose
-    binding data is absent, so an unmeasured primer cannot be scored as though
-    it bound nothing. It had two defects and each one alone made it useless.
-
-    It returned quietly when no position cache was attached, and nothing in
-    production attached one. So the single configuration it was written to
-    catch was the configuration in which it did not run.
-
-    And its predicate asked whether the candidate had a hit on ANY prefix:
-
-    ```
-    not any(len(cache.get_positions(prefix, sequence, "both"))
-            for prefix in cache.fname_prefixes)
-    ```
-
-    A candidate with fifty foreground sites and no background entry at all
-    therefore passed, which is unknown specificity reported as perfect
-    specificity. A candidate indexed against a host it binds nowhere failed,
-    though that zero is a measurement and a good one. The question is whether
-    there is an ENTRY on EVERY prefix the design scores against, which is the
-    distinction `_resolve_missing` already drew for the constructor's primer
-    list and `PositionCache.has_entry` now exposes.
-
-    `PositionCache.require_entries` holds the rule once, for both the inventory
-    provider and a `--candidates` list, and `pool_planner._prepare_candidate_pool`
-    is where `plan-pool` attaches the cache and runs the check, before any panel
-    is evaluated. Tests:
-    `tests/test_positions_arrive_on_demand.py` for the behaviour and
-    `tests/test_the_frontier_is_vouched_for_before_it_is_scored.py` for the
-    wiring, the second because the first would have passed throughout the years
-    the check was inert.
-
-    `load` and `release` arrive with it. The cache took a fixed primer list at
-    construction, which was sufficient only while a design never looked past
-    the `max_primer` shortlist. `load` also drops the memoized `both` key for
-    the primers it admits: `get_positions` writes one for any primer it is
-    asked about, including the empty one it returns for a primer the cache does
-    not hold, so without that invalidation a candidate would keep answering
-    with the zero it gave before its positions arrived.
-
-16. **The stage that picks the panel is the least informed one** -- WIRED and
-    measured 2026-09-19, and deliberately OFF by default (audit
-    [pool_selection_audit_2026-09-18.md](docs/validation/pool_selection_audit_2026-09-18.md)).
-    `optimize_greedy` takes an `objective`, and supplying it makes Stage 1
-    select on occupancy-weighted coverage with a background tie-break instead
-    of on unweighted coverage bins. Commit `59a4ee3` added it under the heading
-    "The greedy now chooses on the quantity the design is judged on". **No
-    production caller passes it.** `hybrid_optimizer.py:711`,
-    `dominating_set_adapter.py:164` and `primer_expansion.py:652` all omit it;
-    the only caller that supplies it is
-    `tests/test_partial_panel_pruning.py:214`.
-
-    It matters exactly where additives matter. Occupancy depends only on the
-    primer, so an unweighted bin count misranks two candidates by the ratio of
-    their occupancies, and across the pool the Tm gate admits that ratio is 1.8
-    on phi29 at 30 C, 7.8 on equiphi29 at 42 C and 8.3 under DMSO 5% plus
-    betaine 1 M. On phi29 occupancy is saturated and the unweighted count is
-    nearly right, which is the same reason phi29 offers no discrimination.
-
-    The ratchets cannot see this class.
-    `tests/test_no_capability_is_unreachable.py` walks reach to FUNCTIONS and
-    `optimize_greedy` is reachable; a PARAMETER no caller supplies is invisible
-    to it. This is a fifth route into Known Issue 8's class, and the list there
-    should be read as covering options and capabilities but not arguments.
-
-    **Now reachable, as `stage1_objective_width` in params.json, defaulting to
-    None.** An integer turns the objective on and bounds its cost: the cheap
-    bin gain ranks every candidate and only that many leaders are scored. The
-    bound is not optional -- one `compute_metrics` call costs 36 ms on the
-    Wolbachia design, so a full scan is 14.4 minutes against 39 s for the whole
-    run, which is the likeliest reason this stayed unwired.
-
-    **It is off by default because measurement does not support switching it
-    on.** At n=6/12/24 it improves the metric it now selects on (effective
-    coverage +0.0073, +0.0139, +0.0583) and costs specificity every time
-    (density -1.64, -6.50, -7.60; host sites 261 to 456 at n=24) for 3.5x to
-    8.4x the runtime. With no width set the delivered panel is identical to
-    before, verified at n=12 to the last digit. Same resolution as Known Issue
-    11, for the same reason
-    ([measurement](docs/validation/stage_one_objective_2026-09-19.md)).
-
-    Two things the wiring clarified. `PoolObjective.coverage()` is coverage and
-    nothing else, and `_objective_gain` is a coverage delta, so constraints
-    reach Stage 1 only as a STOP rule and never as a selection criterion --
-    "select on the quantity the design is judged on" changes what COVERAGE
-    means, not whether specificity is weighed. And occupancy weighting favours
-    primers whose Tm sits near the reaction temperature, which is the same
-    property that makes them bind the host, so the unweighted bin count was
-    accidentally the more specific rule. That is Known Issue 17's axis.
-
-    Stage 1 uses `stage1_pool_objective`, NOT `pool_objective`. Writing it into
-    the latter overwrote the objective `plan_pool` attaches for Stage 2 -- with
-    None on every default run -- silently undoing the Phase 6 fix recorded in
-    `attach_search_config`. Four tests caught it; keep the two names apart.
-
-17. **The pool cannot discriminate, and the candidate filter is not the fix**
-    -- measured 2026-09-19. Half of this entry's original diagnosis does not
-    survive measurement, and the remedy it implied makes panels worse.
-
-    **The floor is not padding the pool.** phi29's default floor does sit 10 C
-    below its reaction temperature, but at k = 12 there is nothing down there:
-    of 40,000 random 12-mers, 8 fall in the Tm 20-25 band (0.02%). Moving the
-    floor changes essentially nothing.
-
-    **Saturation is real and severe.** 86% of random 12-mers sit at or above
-    0.998 occupancy at phi29 30 C, where a 4 C mismatch penalty leaves
-    discrimination -- matched over single-mismatch occupancy -- at 1.01 or
-    less. On the real Wolbachia shortlist, 65% of 2,000 candidates are above
-    0.99 occupancy and mean discrimination is 1.11. Specificity in such a pool
-    is a property of where sites fall, not of binding.
-
-    **But gating on occupancy delivers a worse panel.** Measured at n=12 with
-    the candidate list authoritative: capping occupancy at 0.95 raises the
-    delivered panel's discrimination 1.098 to 1.400 and costs coverage 0.7334
-    to 0.4397, selectivity density 25.62 to 6.60, with host sites RISING 149 to
-    237. Discrimination lives in a tail too small to build a panel from --
-    candidates above 2 are 1.6% of the space at k = 12 and 30 C.
-
-    **The lever that works is the reaction.** Same 20,000 12-mers: phi29 30 C
-    gives mean discrimination 1.065 with 1.6% above 2; DMSO 10% plus betaine
-    1.5 M gives 1.374 and 11.3%; equiphi29 at 42 C gives 2.190 and 36.0%.
-    Nothing about the candidates changes in any row. Saturation is a
-    phi29-at-30-C problem, not a filtering problem.
-
-    So what ships is a measurement, not a gate. `occupancy.discrimination_profile`
-    computes the regime and `log_discrimination_profile` reports it at the end
-    of `filter`, warning below `DISCRIMINATION_FLOOR` (1.5, between the two
-    measured regimes) and naming the lever that works and the one that does
-    not. No candidate is filtered and no delivered panel moves
-    ([measurement](docs/validation/occupancy_and_discrimination_2026-09-19.md)).
-
-    There is still no occupancy gate anywhere, and that is now a decision
-    rather than an omission; `occupancy_ranking` remains the nearest thing and
-    ranks on background load rather than on whether the candidate binds the
-    target. Untested: whether a discrimination TERM in selection, as opposed to
-    a gate on the pool, would help.
-
-    A methodological note worth keeping. The first run of the gate experiment
-    appeared to show density IMPROVING to 44.28. It did not:
-    `open_source_or_list` prefers the inventory over the supplied list, so
-    swapping `step3_df.csv` only set the frontier SIZE and the run searched the
-    inventory as usual. The apparent gain was the smaller frontier. It was
-    caught by checking that the delivered primers were actually in the capped
-    pool -- none of them were.
-
-    The consequence for the additive lever is measured in the audit. Occupancy
-    and mismatch discrimination move in opposite directions along the Tm axis,
-    so an additive improves every GC class at or above 6 of 12 and degrades
-    every class below it, moving the best class up one step. The two routes to
-    specificity conflict: compositional rarity favours GC-rich against an AT-rich
-    host, thermodynamic discrimination favours AT-rich, and their correlation at
-    k = 12 is about -0.89. An additive is the only lever that moves a candidate
-    along the thermodynamic axis without changing its composition, which is why
-    the best design measured in `docs/validation/additive_specificity.md` is an
-    additive design at k = 12 rather than a longer-primer one.
-
-    Do not conclude from the pool-size table that longer primers help. Above
-    k = 15 an additive admits more candidates rather than fewer, and that regime
-    is saturated: mean discrimination is 1.09 at k = 18 against 2.99 at k = 12,
-    and occupancy spread across the admitted pool collapses to 1.0. A draft of
-    the audit recommended k >= 15 before the discrimination column was measured.
-
-18. **`max_gap` and `bg_coverage` are computed and read by nothing that
-    selects** -- found 2026-09-18, partly acted on. Both reach
-    `step4_improved_df_summary.json` and the reports. Neither appears in
-    `normalized_score` or in any optimizer's scoring, and deliberately still
-    does not.
-
-    What changed the same day: both are now **constrainable** via
-    `max_worst_hole` and `max_host_coverage` (see **Panel limits** above) and
-    both are **reported** by the "What limits this panel" table, which also
-    names them as having no reference. So a user can hold a panel to either,
-    and neither has acquired a default -- no threshold derived from the reach
-    separates the published wet-lab winners, so picking one would be the
-    scoring change that evidence refuses.
-
-    Also fixed on 2026-09-18: three of the five strand quantities
-    `PositionCache.compute_strand_alternation_stats` returns were computed and
-    discarded at the call site, and the loop stopped after the first foreground
-    prefix so the host was never measured at all.
-    `core/strand_metrics.py` collects all five for every foreground genome AND
-    the background onto `PrimerSetMetrics.strand_stats`, keyed by prefix.
-    `strand_alternation_gap_max` is the one that mattered: exponential
-    amplification needs two sites in convergent orientation within the
-    polymerase's reach, so the widest gap between opposite-strand sites is the
-    closest quantity here to the mechanism, and on the host it is what swga 2.0
-    approximates with `within_mean_gap_ratio` and fits against measured
-    sequencing breadth. It reaches the report as `convergent_gap` and
-    `host_convergent_gap`.
-
-    A prefix the cache cannot answer for is now ABSENT from `strand_stats`
-    rather than zero, and the two headline scalars are `None` rather than 0.0.
-    They were initialised to 0.0 and left there, so a zero meant either
-    "measured zero" or "never asked".
-
-    **The source was fixed on 2026-09-19 and the consumers audited.** A
-    one-site panel does NOT genuinely score 0.0 for alternation, which an
-    earlier note here got wrong: alternation is the fraction of ADJACENT site
-    pairs on opposite strands, so below two sites there is no pair and the
-    fraction is 0/0. `compute_strand_alternation_stats` now returns None there,
-    while two same-strand sites still return a measured 0.0.
-    `strand_coverage_ratio` is min/max over the two strand counts and needs
-    only one site, so it is None only with no sites at all; a lone forward site
-    really is maximally unbalanced. The gap figures keep the genome length,
-    which encodes "no convergent pair anywhere" rather than a missing
-    measurement, and `worst_convergent_gap` reads it that way.
-
-    Every consumer was checked and none needed changing: `panel_regime._as_float`
-    and `report/metrics._safe_float` preserve None, `headline_strand_scalars`
-    already returned `(None, None)`, and the technical report skips a row whose
-    value is None. Pinned by
-    `tests/test_strand_scores_say_when_they_are_unmeasurable.py`.
-
-    They are still NOT constrainable, but the reason is now different: no
-    threshold has a reference, which is why `max_worst_hole` and
-    `max_host_coverage` ship unset rather than defaulted. Adding a strand limit
-    is a decision about evidence, not a blocked repair.
-
-    `bg_coverage` is the only computed quantity that sees background site
-    POSITION. `selectivity_density` and `total_bg_sites` are additive in
-    per-primer counts -- `occupancy.weighted_site_load` sums `count * theta` per
-    mismatch class and no position enters -- so two backgrounds with identical
-    per-primer counts score identically whether their sites are clustered or
-    dispersed. That distinction is most of off-target amplification, since SWGA
-    needs two convergent sites within the polymerase's reach.
-
-    swga 1.0 made both criteria hard in 2017, and they are the only two things
-    that constrain its selection: the clique search runs `--unweighted --all`
-    and stores every clique passing the `max_fg_bind_dist` gap cut, so its score
-    expression ranks the output and never steers the search. The background side
-    is a pruning budget inside the recursion -- each vertex weight is the
-    primer's raw background site count (`weight = primer.bg_freq` in
-    `graph.py`), and a partial clique is pruned once the summed weight exceeds
-    `bg_length / min_bg_bind_dist`. It is NOT a ranking by mean background
-    binding distance; that quantity is what the search emits, as
-    `bg_len / graph_subgraph_weight`, and an earlier draft of this entry
-    conflated the two.
-
-    **The field does not agree that gap statistics belong in the objective.**
-    swga 2.0 fits both as `on_gap_gini` and `off_gap_gini`, where `off_gap_gini`
-    carries the second largest recorded weight in the only set-level model
-    fitted against measured sequencing breadth -- a value nobody has been able
-    to verify from a source that opens, since it sits in a CAPTCHA-gated table.
-    COATswga (2025) computes no Gini and no gap statistic at all, on the stated
-    ground that a per-primer Gini cannot speak for a whole set, which is an
-    argument against `max_gini` as much as for the interval-union objective this
-    project already uses. So treat background evenness as a measurement to make
-    before it is a term to add. No background amplification network is built
-    here, in contrast to the foreground network the hybrid and network methods
-    build at about 70 kb.
-
-    Worth knowing about the ancestry: swga 2.0 is this project's direct
-    ancestor, and the Known Issue 8 class is partly inherited. In its shipped
-    master `filter.filter_extra` implements the GC, homopolymer, GC-clamp and
-    self-dimer rules the paper describes and nothing calls it, and it would
-    raise if called, reading a `default_max_self_dimer_bp` that `parameter.py`
-    never assigns. Its step 2 also computes `ratio = bg_count / fg_count`, where
-    lower is more specific, then keeps `sort_values(by=["ratio"],
-    ascending=False)[:max_primer]`, retaining the LEAST specific survivors.
-    NeoSWGA sorts that ascending. All three were reported from that repository's
-    source and were not re-verified here.
-
-19. **Four commands meant "every alternative set" where they should have meant
-    one** -- FIXED 2026-09-21. `step4_improved_df.csv` holds up to `max_sets`
-    (default 5) primer sets, one per `set_index`, and they are ALTERNATIVES:
-    each is found by excluding the primers already chosen and selecting again.
-    Set 0 is the one the summary describes. `export`, `interpret`, `report` and
-    `simulate` all read every row and treated the union as one panel.
-
-    The costly one is `export`, whose output the tool calls "Primers ready for
-    ordering!". Measured on the bundled plasmid example at 300 bp reach, where
-    the pool is large enough for alternatives to be found: set 0 is 8 oligos
-    with no pair above the configured `max_dimer_bp` of 3, while the exported
-    FASTA was 18 oligos with five pairs above it, the worst a 9 bp
-    complementary run. All five join oligos from DIFFERENT sets, so no screen
-    had ever compared them and by construction none could. Nothing in the file
-    marked a set boundary: records run SWGA_001 upward straight through.
-    `interpret` reported 18 primers, a count matching no orderable set.
-
-    This is the 11 bp delivered heterodimer of the `max_dimer_bp` entry reached
-    by a second route, with selection behaving correctly throughout. No saved
-    run in this repository exhibits it -- every one holds set 0 alone -- which
-    is why it survived. It needs only a pool big enough for a second set.
-
-    `core/delivered_set.py` holds the rule once. Default set 0; `--set N` on
-    `export` and `interpret`; a requested set the file does not hold raises
-    `ReferenceDataError` rather than returning an empty panel; a file with no
-    `set_index` column is older output holding one set and every row is
-    returned. Tests: `tests/test_commands_read_one_primer_set.py`.
-
-20. **Mixed oligo lengths work, and on the one pair measured they bought
-    nothing.** A design may mix lengths: the schema admits k of 4 to 30, the
-    scan writes one index per length, `PositionCache.load` groups by length and
-    the dimer screen codes t-mers. No delivered panel here had ever mixed,
-    so this was an argument until
-    `tests/integration/test_variable_oligo_length.py` took a k 7-11 design
-    through all four steps and out to an ordering file.
-
-    Measured on Prevotella against human chr21 at equiphi29 42 C, a mixed
-    k 10-12 design lands BETWEEN the single-length designs on both axes at
-    panel sizes 8 and 20. It is beaten on coverage by the all-11-mer panel and
-    on specificity by the all-12-mer panel, which binds the host once against
-    the mixed panel's seventeen at n=8. **Choosing k matters far more than
-    choosing whether to mix.**
-
-    The occupancy spread across lengths is governed by the Tm WINDOW, not by
-    the length range, which a control established after a first draft concluded
-    otherwise. A 30 C window gives a 23.5 C median Tm spread across lengths and
-    occupancy from 0.042 to 0.994; a 12 C window gives 2.0 C and 0.580 to
-    0.794. `core/length_occupancy.py` reports this per length from `filter` and
-    `optimize` and never enforces it, the resolution Known Issue 17 reached for
-    the same quantity. Silent on a single-length design
-    ([measurement](docs/validation/variable_oligo_length_2026-09-21.md)).
-
-21. **The HDF5 lock failure is two runs sharing a data directory, not mixed
-    length** -- established 2026-09-21. `tests/validation/genomes/f_mixed.log`
-    records `BlockingIOError: [Errno 35] unable to lock file` from a
-    mixed-length run, and mixed length was blamed because that is what the
-    config changed.
-
-    Four measurements settle it. **The errno is cross-process by
-    construction**: a foreign process holding the file, even read-only,
-    produces exactly the recorded message, while a second handle inside ONE
-    process produces `OSError: ... file is already open for read-only` with no
-    errno 35, so a leaked handle cannot be the cause of this message. **A
-    reader is enough to stop a writer**, so a command that only reads the
-    index can stop a `filter`. How wide that window is depends on the cache:
-    the default `PositionCache` opens each file in a `with` block and closes
-    it promptly, making the collision a race, while `StreamingPositionCache`
-    holds handles until `close()` and is selected only when the in-memory
-    cache is DISABLED. An earlier version of this entry said `optimize` holds
-    them for a whole run, which is true only of that non-default path. **Concurrent pairs failed 10 of 11
-    across two trials and single-process runs 0 of 11**, the latter including
-    multi-k runs at realistic scale; a mixed k 10-12 `filter` in a clean
-    directory takes 146 s and exits 0. **The recorded directory shows the
-    collision directly**: its `run_manifest.json` has `score` on that config
-    completing 2.2 s before the failing filter's last log write and `optimize`
-    8.7 s after, with no `filter` entry at all because the manifest is written
-    on completion, and a `prevotella_13mer_positions.h5` of 800 bytes holding
-    zero datasets sits there with the same mtime for a k that run never
-    requested.
-
-    The recorded traceback differs from the reproduction only in `h5f.open`
-    against `h5f.create`, which is whether the target file already existed.
-    The frames match the sequential Aho-Corasick branch, so the per-k
-    multiprocessing fallback -- the first guess -- did not run.
-
-    **Which process held the lock is NOT determined, and probably cannot be.**
-    At least three runs were live in that window. Because the default cache
-    holds each file only briefly the collision is a race, so the blocker is
-    whichever process had that one file open at that one instant, and no
-    durable fact about "the holder" exists for the artifacts to have recorded.
-    Read it as "not determined" rather than "not determined yet": better
-    evidence would not settle it. The cause is settled and the mechanism is
-    not fully reconstructed, which are different claims. Nothing depends on
-    the answer, since the remedy is the same either way.
-
-    `core/concurrent_runs.py` translates it at the step boundary: steps 2, 3
-    and 4 all write HDF5 and each consults it. No lock is taken and no retry is
-    attempted -- a retry loop would hide a genuine second process, and two
-    designs writing one directory have a provenance problem that outlasts the
-    lock. The message steers AWAY from `HDF5_USE_FILE_LOCKING=FALSE`, which is
-    the usual first hit for this error and risks a corrupt index. The predicate
-    matches on errno AND message, because EAGAIN alone is raised by unrelated
-    things. Tests: `tests/test_two_runs_sharing_a_directory_say_so.py`.
-
-    **This entry took three corrections and they were all the same shape**,
-    which is worth keeping because it is the silent-zero family in a register
-    this file does not otherwise cover: not a value, but a SENTENCE that reads
-    as more definite than its evidence. "Another writer" when a reader
-    suffices. "`optimize` holds these for its whole run" when only the
-    non-default cache does. "Nothing in the artifacts separates the three
-    processes" when a race means there is nothing to separate. None was wrong
-    about the cause; each was wrong about the size of the claim, and the first
-    two shipped to users in an error message. A diagnostic written from a
-    finding is a claim about someone's machine, so name the mechanism that
-    generalises rather than the command that happened to be involved, and say
-    "not determined" only when better evidence would in fact settle it.
-
-22. **The Bloom path could not be built at the scale it exists for** -- FIXED
-    2026-09-24. Seven defects, and the shape they share is the one this file
-    records throughout: every one of them passed every small-genome test.
-
-    **Capacity bounded the wrong quantity.** pybloom allocates its bit array
-    upfront from `capacity` and its `add` counts only items the filter did not
-    already hold, so capacity bounds DISTINCT k-mers. `genome_size * 10`
-    bounded INSERTIONS -- the multiplier was chosen for the seven k-mer lengths
-    each position contributes. Measured at 9.59 bits per item:
-
-    | genome | asked for | allocation | distinct k-mers |
-    |---|---|---|---|
-    | plasmid 5.4 kb | 53,860 | 0.06 MB | 36,361 |
-    | E. coli 4.64 Mb | 46,416,520 | 55.6 MB | 10,232,681 |
-    | Drosophila 144 Mb | 1,440,000,000 | 1.73 GB | 22,368,256 |
-    | hg38 3.3 Gb | 33,000,000,000 | **39.56 GB** | 22,368,256 |
-
-    The last two agree because each term saturates at `4**k`. hg38 is the
-    documented reason the module exists and it is the row that cannot be
-    allocated. `distinct_kmer_capacity` holds the bound and all four call sites
-    ask it.
-
-    **A saved filter reloaded only at one geometry.** `make_hashfuncs` selects
-    the hash from `num_slices` and `num_bits`, so the constructor in the pickle
-    moves with capacity and error rate. At error rate 0.01 the bands are
-    capacity below about 3,400 (xxh3_128), up to about 224 million (sha256),
-    above that (sha512); other error rates reach sha384 and sha1. The
-    safe-pickle allowlist named sha256 alone, which is what one observed filter
-    carried. `save()` succeeded and `load()` raised for a small background, and
-    for any long-oligo host design. The ratchet asserts the RULE -- every
-    constructor `make_hashfuncs` can select must be listed -- because reaching
-    the sha512 arm behaviourally costs a 268 MB allocation.
-
-    **A length the filter never indexed read as absent.** `contains` answers
-    False for a k-mer of a length nobody inserted, the count is then zero, and
-    zero clears any frequency gate, so a design at k 13-18 screened against a
-    phi29-range filter passed its whole pool. Both artifacts now record
-    `min_k`/`max_k` and `get_bg_rates_via_bloom` refuses outside them. A filter
-    with no recorded range predates the field and warns rather than refusing,
-    the rule `digest_algorithm` established. `BackgroundFilter.build_from_genome`
-    could not have built a correct filter anyway: it took `add_genome`'s 6-12
-    defaults regardless of configuration.
-
-    **`use_bloom_filter` without a path screened nothing.** It took neither
-    branch and fell through to exact counting over `bg_prefixes`, which that
-    same flag leaves empty, so every background count was absent and an absent
-    count passes. Now `InvalidDesignRequest`, raised before any counting.
-
-    **One filename, two quantities.** `bg_sampled.pkl` holds sampled positions
-    at rate 100 from the FASTA route and exact jellyfish counts at rate 1 from
-    `--from-kmers`. `_warn_if_sample_too_sparse` reasons about sampling and was
-    skipped on the second only because that route left `genome_size` at 0.
-    `source` now records which quantity an index holds.
-
-    **The library's auto-built filter was wrong in both directions.**
-    `genome_library.add_genome` took the 3e9 default capacity -- 3.6 GB, far
-    more than a k 6-12 filter needs and far less than the 14.6 billion distinct
-    k-mers a k 6-18 filter holds, which is the range that path computes. The
-    `except Exception` turned pybloom's IndexError into "Bloom filter build
-    failed" with no filter registered. Capacity is now required, which is what
-    stops a third such call site appearing.
-
-    **The companion index undoes the memory argument.** Measured at 125 bytes
-    per entry (`scripts/benchmarking/sampled_index_rss.py`, ru_maxrss, one size
-    per process): hg38 at rate 100 over k 6-12 projects to 22.4 million entries
-    and about 2.8 GB, against 26.8 MB for the filter beside it. So the
-    structure the filter was chosen to avoid reappears at about a hundred times
-    its size. `warn_if_sampled_index_is_large` says so and names `--from-kmers`.
-
-    **What the FASTA route costs, and why `--from-kmers` is the answer.** The
-    scan now slides inside maximal ACGT runs instead of revalidating every
-    position; measured 1.21x to 1.33x on E. coli at k 6, 12, 18 and on
-    Drosophila at k 12, because the dominant cost is pybloom's insert, which
-    neither version changes. At 1.65 us per position, hg38 over k 6-12 is 23.1
-    billion inserts, about 10.6 hours EXTRAPOLATED, against about 37 seconds
-    for the 22.4 million unique k-mers `--from-kmers` reads. That route is
-    therefore the one to use for a host background, and it is now validated:
-    it previously indexed the first whitespace-delimited field of every line
-    with no base or length check, while `add_genome` skipped ambiguous k-mers,
-    so the two artifacts one command writes already disagreed.
-
-    **Still not measured.** No Bloom filter has ever been built against a host
-    genome in this repository, so every hg38 figure above is arithmetic from a
-    measured per-item or per-entry constant, not a build. The `--from-kmers`
-    route is also the only one whose artifacts `filter` can use, since
-    `genome_library` writes a filter with no sampled index beside it and
-    `get_bg_rates_via_bloom` requires one.
-
-23. **Python 3.13 only, and the code modernised to match** -- 2026-09-25.
-    `requires-python` is `>=3.13`; black, ruff and mypy all target it and both
-    workflow matrices are one interpreter on two operating systems. There were
-    no `sys.version_info` guards anywhere in the package, so nothing had to be
-    unwound.
-
-    2,294 modernisation sites were rewritten across the package and tests,
-    almost all `typing.List` to `list` and `Optional[X]` to `X | None`. Ruff
-    fixed 1,993; the orphaned `typing` imports took two passes and the last
-    five were done by hand. **Ruff reports zero UP findings now**, so those
-    rules could be made blocking if anyone wants them to be.
-
-    The import removal is the part worth knowing about. A blanket unused-import
-    fix would have deleted deliberate re-exports, so it was scoped to `typing`
-    names only. The first pass then kept `List` imported wherever the word
-    appeared anywhere in the file, including docstring prose like
-    "candidates: List of candidate primers"; the second asks whether the name
-    is used as CODE via the syntax tree, while still keeping forward references
-    inside string annotations.
-
-    **One test broke, and it was asserting a spelling rather than a property.**
-    `test_multi_genome_result_allows_none_metrics` required the literal string
-    "Optional" in a dataclass field's annotation, so it failed on `float | None`
-    while its subject had not changed. It now checks that NoneType is in
-    `typing.get_args`, which holds under either spelling and still fails if a
-    field is made non-optional.
-
-    **`mip`'s default solver kills Python 3.13.** Constructing a CBC model
-    terminates the interpreter with SIGKILL -- no exception, no traceback, no
-    stderr -- measured on macOS arm64 with mip 2.0.0 and cbcbox 2.935. The same
-    versions on 3.11 solve the same models in 0.34 s. `core/ilp_solver.py`
-    prefers HiGHS, which works on both, and **refuses rather than falling back**
-    as of 2026-09-27: a warning that precedes a SIGKILL is never read in
-    context, because the process dies with no traceback and the user has no
-    reason to connect a killed command to a log line. Refusing costs one
-    `pip install highsbox` and names it. The fatality measurement is ONE
-    platform, so `NEOSWGA_ALLOW_CBC=1` asks for CBC explicitly, which is a
-    request rather than a substitution nobody made.
-    The fallback is deliberately unprobed: a probe would construct a CBC model,
-    which is the operation that kills the process, so nothing in process can
-    tell a working CBC from a fatal one.
-
-    Two construction sites needed it, and the second is easy to miss:
-    `dominating_set_optimizer.py` and
-    `scripts/benchmarking/max_coverage_bound.py`, which a test loads and
-    executes. Wiring only the library left 16 of 17 tests passing and the
-    seventeenth still killing the run.
-
-    **Those 17 tests did not run in CI until 2026-09-30.** `mip` lives only in
-    the `improved` and `all` extras and CI installed `.[dev]`, so they skipped
-    there, and nightly installs `improved` but runs only the scale-marked
-    tests. It was not only the ILP path: 19 modules `importorskip` an optional
-    dependency at module level, so 185 tests were never collected in CI, every
-    Bloom and BAM test among them, while the job stayed green. The test job
-    now installs `.[dev,improved,bam,viz,interactive]` and passes `-rs`, so a
-    skip is in the log with its reason. Reading those reasons found 17 more
-    tests skipped as "needs jellyfish" on a runner that had it: a
-    `skipif(not plasmid_example_ready())` is evaluated at collection, before
-    the session fixture primes the example. Request the
-    `primed_plasmid_example` fixture instead; a ratchet in
-    `tests/test_plasmid_example_dependency_is_visible.py` refuses an
-    import-time call. CI went from 6,416 passed and 111 skipped to 6,643
-    passed and 33 skipped, and every remaining skip is opt-in, by design, or
-    needs a reference genome the repository does not hold.
-
-    **bioconda has no Python 3.13 build of `kmer-jellyfish`.** 2.3.1 exists for
-    3.9 to 3.12 only, so `conda create ... python=3.13 kmer-jellyfish` silently
-    resolves to 1.1.12, whose CLI this project refuses. CI is unaffected
-    because it installs Jellyfish through apt and brew rather than conda.
-    Recorded in docs/guides/TROUBLESHOOTING.md, since it costs an hour to
-    diagnose from the symptom.
-
-    **PyYAML was reaching CI only as a transitive dependency of pre-commit**,
-    while `tests/test_workflows_invoke_real_commands.py` `importorskip`s it.
-    A ratchet that can silently vanish is the defect class that ratchet exists
-    to catch, so it is now declared in the `dev` extra.
-
-    Measured after all of it: 6,424 passed and 27 skipped on BOTH 3.13 and
-    3.11, with identical collection of 6,444 tests on each, so nothing is
-    quietly missing from either.
-
-24. **KMC3 is preferred, and tables are read as databases** -- 2026-09-25.
-    `kmer_counter` in params.json takes "kmc" or "jellyfish" and, when set,
-    REQUIRES that counter. Unset, KMC3 is used when installed and jellyfish
-    otherwise. `core/kmer_backend.py` owns the invocation;
-    `core/kmer_tables.py` is the one place anything asks about a table, and
-    callers name a prefix and a k rather than a file.
-
-    **Unset falls back rather than failing**, which departs from a strict
-    "KMC is the default". A hard requirement would have broken CI, which
-    installs only jellyfish, and every jellyfish-only installation. The
-    fallback is acceptable to do unasked only because the choice does not
-    change any result -- and that was FALSE until a fix described below.
-
-    **The first version of this change was inert.** `kmer_counter` was
-    declared, validated, defaulted and documented, and `count-kmers` still ran
-    jellyfish at every call site: Known Issue 8's class, on the branch that
-    introduced the key. Tests covered the backend by calling it directly, so
-    none could see it. `tests/test_count_kmers_uses_the_configured_counter.py`
-    now walks from the two counting entry points, `run_jellyfish` and
-    `MultiGenomeKmerCounter`, and five of its tests fail against the old
-    behaviour.
-
-    **The counter choice used to change results.** Step 2 sorted by `ratio`
-    then `fg_count`, and ties kept their INPUT order -- the order the counter
-    emitted k-mers in, hash order for jellyfish and sorted order for KMC. That
-    order leads step 3 into an order-sensitive optimizer, and through
-    `[:max_primer]` it decided which tied candidates survived the shortlist.
-    The primer sequence is now the final sort key, and step 2's written index
-    is reset so it records rank rather than emission order. Verified by running
-    the plasmid example end to end under each counter from clean copies:
-    `step2_df.csv`, `step3_df.csv` and `step4_improved_df.csv` are
-    byte-identical, and the KMC run writes no text table. Found by comparing
-    files after the claim "changes speed, never a result" had already been
-    written into the code, which is why the comparison is worth keeping as a
-    habit. Tie order now differs from the old jellyfish-only order, so an
-    existing design with ties at a boundary can see a different shortlist; no
-    test-pinned output moved.
-
-    **What this buys is the QUERY path, not the counter.** `filter` asks one
-    question of a table: the counts of a known candidate list. It answered by
-    streaming every line into Python and testing set membership, which is a
-    scan answering a set question. Measured on *Drosophila* at k=18 with 2,000
-    candidates:
-
-    | approach | time | intermediate |
-    |---|---|---|
-    | dump to text, then Python scan | 17.9 s | 2.3 GB |
-    | stream the dump, then Python scan | 15.6 s | none |
-    | `kmc_tools simple ... intersect` | **2.5 s** | 2,000 lines |
-
-    **`-ocleft` is load-bearing and silent when wrong.** It keeps the counters
-    of the FIRST database. Without it the output carries the candidate
-    database's counters, which are all 1, so every background count reads 1 --
-    a wrong answer that looks entirely plausible. Verified by removing it,
-    which fails the test asserting the database and text paths agree.
-
-    **What it does NOT buy is memory, and on hg38 the gap is 18.6x.** Measured
-    on the 3.1 GB human genome at k=12 through the shipping backend: KMC
-    counts in 12.2 s against jellyfish's 89.7 s, and peaks at 1,950 MB against
-    105 MB. So KMC is 7.2x faster and uses 18.6x the memory, which is the
-    trade in one line. `kmc -m1` also refuses outright; the floor is 2 GB,
-    where jellyfish counted wMel in 18 MB.
-
-    The lookup on that hg38 database beats scanning its 8.4 million line text
-    table by 4.8x at 2,000 candidates and 2.1x at 500,000, the advantage
-    narrowing because building the candidate database is itself work. Every
-    absolute figure there is under two seconds, so at k=12 the win is real and
-    the stakes are modest; k=18 on *Drosophila* is where the 7x lives
-    ([measurement](docs/validation/kmer_counter_comparison_2026-09-25.md)).
-
-    **A host with no table is now scanned rather than refused.**
-    `core/query_scan.py` counts a KNOWN k-mer set directly in a reference,
-    which is the question `filter` asks of a background, and it reaches that
-    module only where a prefix has no table. A counted prefix takes the table
-    path unchanged. Counting is otherwise FASTER and stays the default: on
-    Drosophila at k=12, jellyfish counts in 0.9 s and answers a 2,000-candidate
-    batch in 0.2 s, against 4.0 s to scan. What the scan avoids is the table --
-    33.7 MB at k=12 and 818 MB at k=18 on that same 144 Mb reference -- so it
-    earns its place only where the table is the problem.
-
-    Agreement is checked three ways, because a fallback that disagrees with
-    the path it replaces is worse than none: against a brute-force oracle
-    written in the test file, against both counters, and against the
-    production `counts_for` on real references. One difference is known and
-    pinned. A canonical table stores one spelling of each reverse-complement
-    pair, so `counts_for` answers 0 for the other spelling while the scan
-    answers the pair's count -- 13 of 1,272 queries on Drosophila at k=18, all
-    non-canonical, with all 608 canonical queries agreeing exactly. Every
-    caller here reads its k-mers from a canonical table, so the pipeline never
-    asks the other spelling; the 0 is still not a measurement, and a test
-    holds both behaviours so a deliberate fix would show as a change
-    ([measurement](docs/validation/query_scan_2026-09-25.md)).
-
-    Memory is bounded by the largest RECORD and the chunk, NOT by the query
-    set: 332 MB on Drosophila, 46.6 MB on wMel. The module's first draft
-    claimed otherwise and the first measurement refuted it. The chunk size was
-    measured rather than chosen -- the prototype's 8,000,000 positions was the
-    worst value on both axes, 6.6 s and 1,194 MB against 3.9 s and 351 MB at
-    the shipped 125,000.
-
-    **CI installs both counters as of 2026-09-25.** It had only jellyfish, so
-    the preferred path never ran there, and four tests had quietly encoded
-    that: two asserted jellyfish's `*mer_all.txt`, which KMC does not write,
-    and two asserted an absent jellyfish is fatal, which stopped being true
-    when KMC became preferred. All four passed only because no runner had KMC.
-    Five more skipped on jellyfish alone, so a KMC-only machine skipped most
-    of the counting tests. **Installing it found three more fixtures asking
-    for a table by jellyfish's filename**, which is the same defect one layer
-    down: with KMC installed they found nothing, so `plasmid_example_ready()`
-    reported the example unprepared and 48 tests skipped as unavailable while
-    the directory was ready. Ask `kmer_tables.table_exists` or
-    `discover_prefixes`, never a glob -- and note a KMC database is
-    `{prefix}_{k}mer.kmc_pre`, so cutting at the last underscore cuts inside
-    `kmc_pre`, which is how the first attempt at that guard silently answered
-    "not prepared" for a prepared directory.
-
-    Unskipping those 48 exposed a real defect they had been hiding.
-    `_filter_blacklist_penalty` called `counts_for` once per PRIMER, and a
-    lookup against a KMC database builds a database of the query set,
-    intersects and dumps it -- three processes per call. A four-prefix design
-    spent minutes in that gate; batched by k it is seconds. A count lookup has
-    a fixed cost per CALL, so ask once per group, which is why
-    `get_rates_for_one_species` groups by k before asking. It now lives in
-    `core/blacklist_penalty.py`, extracted because `pipeline.py` had reached
-    its size budget; `pipeline` re-exports the name so its five importers are
-    unaffected.
-
-    KMC comes from the upstream release tarball pinned
-    to 3.2.4, not from a package manager: it is in neither apt nor the default
-    brew taps, and the conda route would put a second Python on PATH.
-
-    **Above k=12 a host genome cannot have a text table at all.** The distinct
-    count stops being bounded by the k-mer space and becomes bounded by the
-    genome, so hg38 at k=16 or k=18 would dump about 78 to 84 GB of text. That
-    is the sharpest argument for reading databases rather than dumps, and it
-    is also why those k could not be benchmarked here.
-
-    **Two figures this file recorded did not reproduce.** It says hg38 at k=12
-    costs "about 7 minutes and a 138 MB table (8,368,418 canonical 12-mers)".
-    The table size matches at 138.4 MB, which is what confirms it is the same
-    quantity; the time was 91 s here, which one machine against another
-    explains; and the distinct count was 8,368,476, which does not have an
-    explanation. Both counters agree with each other on that number, so it is
-    not a tool artifact. A different hg38 assembly is the likeliest cause and
-    is unestablished.
-
-    **KMC's defaults compute a different quantity and both differences are
-    failures this file already carries.** `-ci2` excludes k-mers occurring
-    once, which at k=18 is 96.9% of wMel's and 95.6% of *Drosophila*'s: a
-    background counted that way reports a host as almost k-mer-free and every
-    candidate as specific, which is Known Issues 5, 6, 13 and 15's shape.
-    `-cs255` saturates the counter at 255, which is Known Issue 7 exactly. The
-    backend passes `-ci1` and `-cs1000000`, and a test asserts neither default
-    returns.
-
-    **`py_kmc_api` is not usable here.** It exists, and the bioconda package
-    even ships `py_kmc_api.so`, but that build is compiled for Python 3.10: it
-    fails on 3.11 with an explicit version mismatch and on 3.13+ because
-    `__PyThreadState_UncheckedGet` was removed from CPython. Upstream's README
-    also warns the wrapper is "much slower than native C++ API". So Python
-    does not read `.kmc_suf` directly; everything goes through the C++ tools.
-
-    **A table is any of three forms**, and `table_exists` is the one predicate
-    that says so. Half a KMC database is not a table: it writes two files, and
-    one alone is an interrupted run. Two things a find-and-replace would have
-    broken: the genome library symlinked the text table by name, so a database
-    source linked nothing and the pipeline recounted a genome it already had;
-    and auto-discovery globbed `*_6mer_all.txt`, so a directory of databases
-    looked empty.
-
-    **Every existing data directory still works.** They hold text tables and
-    no database, and that path is preserved. It is also the only path CI
-    exercises, since CI installs no KMC -- which is why the text-fallback
-    tests are written to run without a counter rather than skipping with the
-    rest.
+## Working habits this project has paid for
+
+- Check which stage produces the delivered result before concluding that data
+  reaching the code changed the answer. A query count shows it was read.
+- Compare a baseline against the project's recorded figure for the same
+  quantity before interpreting a difference.
+- An achievability figure that omits a constraint bounds nothing. Evaluate a
+  candidate panel through the acceptance path and against a control.
+- Keep the script behind a measurement. An inline measurement cannot be
+  re-run.
+- Test against a whole genome and a multi-record reference; a single
+  chromosome reaches neither the 2**31 limits nor a record join.
+- State the size of a claim. One pair, one panel size or one seed is "no
+  benefit demonstrated", and "not determined" is for cases where more evidence
+  would settle it.
