@@ -68,6 +68,7 @@ __all__ = [
     "ROLE_HOST",
     "ROLE_TARGET",
     "PairRecord",
+    "PanelSources",
     "ReferencePanelAssessment",
     "ReferenceRecord",
     "ReferenceSpec",
@@ -107,6 +108,54 @@ class ReferenceSpec:
     def __post_init__(self):
         if self.role not in (ROLE_TARGET, ROLE_HOST):
             raise ValueError(f"role must be {ROLE_TARGET!r} or {ROLE_HOST!r}, got {self.role!r}")
+
+
+class PanelSources:
+    """Where one evaluation gets its positions, counts and weighted loads.
+
+    The default opens each of them per call, which is what a single evaluation
+    wants. A caller that evaluates many closely related panels -- `improve-set`
+    evaluates the set, the set without each oligo, and the set with each
+    candidate -- passes a subclass that keeps what was already read, so the
+    SAME evaluation code runs on every panel and only the reading is shared.
+    That is the point of the seam: the alternative is a second, cheaper
+    evaluation beside this one, and two implementations of one figure is how
+    they come to disagree.
+
+    A subclass must return what these return for the panel it is asked about.
+    It may hold more (a cache built over a larger primer list answers a subset
+    identically), and it must not answer for a primer nobody looked up.
+    """
+
+    def position_cache(
+        self,
+        prefixes: Sequence[str],
+        panel: Sequence[str],
+        genomes: Sequence[str | None],
+        circular: bool,
+        scan: bool,
+    ) -> Any:
+        from neoswga.core.position_cache import PositionCache
+
+        return PositionCache(
+            list(prefixes),
+            list(panel),
+            genome_paths=list(genomes) if scan else None,
+            circular=circular,
+            on_missing="scan" if scan else "warn",
+        )
+
+    def counts(self, spec: ReferenceSpec, k: int, kmers: Sequence[str]) -> Mapping[str, int]:
+        from neoswga.core import kmer_tables
+
+        return kmer_tables.counts_for(spec.prefix, k, list(kmers), genome=spec.genome)
+
+    def weighted_load(
+        self, panel: Sequence[str], prefix: str, conditions: Any, max_mismatches: int
+    ) -> float:
+        from neoswga.core.occupancy import weighted_site_load
+
+        return weighted_site_load(list(panel), [prefix], conditions, max_mismatches)
 
 
 @dataclass(frozen=True)
@@ -227,6 +276,7 @@ def evaluate_reference_panel(
     *,
     extension: int = 3000,
     max_mismatches: int = 1,
+    sources: PanelSources | None = None,
 ) -> ReferencePanelAssessment:
     """Measure one primer set against every reference, separately.
 
@@ -243,6 +293,8 @@ def evaluate_reference_panel(
             from the polymerase (`coverage.polymerase_extension_reach`); no
             default polymerase is assumed here.
         max_mismatches: mismatch classes the weighted load sums over.
+        sources: where positions, counts and loads are read from. None opens
+            them for this call. See `PanelSources`.
 
     Returns:
         A `ReferencePanelAssessment`. Nothing in it is a substituted value: a
@@ -252,6 +304,7 @@ def evaluate_reference_panel(
     """
     panel = _unique(primers)
     specs = list(references)
+    sources = sources or PanelSources()
     if not panel:
         raise ValueError("evaluate_reference_panel needs at least one primer")
 
@@ -279,17 +332,17 @@ def evaluate_reference_panel(
             group = [spec for spec in group if spec.prefix not in records]
         if not group:
             continue
-        records.update(_measure_positions(group, panel, extension))
+        records.update(_measure_positions(group, panel, extension, sources))
     for spec in specs:
         if spec.prefix not in records:
-            records[spec.prefix] = _measure_counts(spec, panel)
+            records[spec.prefix] = _measure_counts(spec, panel, sources)
 
     # The weighted load is a separate question with its own prerequisite (a
     # table for the mismatch classes), so a reference can have sites and no
     # weighted load. It is attached per reference rather than folded into the
     # site measurement.
     for prefix, record in list(records.items()):
-        records[prefix] = _with_weighted_load(record, panel, conditions, max_mismatches)
+        records[prefix] = _with_weighted_load(record, panel, conditions, max_mismatches, sources)
 
     ordered = tuple(records[spec.prefix] for spec in specs)
     pairs = _cross_table(ordered)
@@ -354,7 +407,10 @@ def _index_exists(prefix: str) -> bool:
 
 
 def _measure_positions(
-    group: Sequence[ReferenceSpec], panel: Sequence[str], extension: int
+    group: Sequence[ReferenceSpec],
+    panel: Sequence[str],
+    extension: int,
+    sources: PanelSources,
 ) -> dict[str, ReferenceRecord]:
     """Sites, coverage and gaps for one group, from one cache and one call.
 
@@ -365,7 +421,7 @@ def _measure_positions(
     """
     specs = list(group)
     try:
-        return _measure_group(specs, panel, extension)
+        return _measure_group(specs, panel, extension, sources)
     except Exception as exc:
         if len(specs) == 1:
             spec = specs[0]
@@ -373,15 +429,17 @@ def _measure_positions(
             return {spec.prefix: _unavailable_record(spec, f"position lookup failed: {exc}")}
         out: dict[str, ReferenceRecord] = {}
         for spec in specs:
-            out.update(_measure_positions([spec], panel, extension))
+            out.update(_measure_positions([spec], panel, extension, sources))
         return out
 
 
 def _measure_group(
-    specs: Sequence[ReferenceSpec], panel: Sequence[str], extension: int
+    specs: Sequence[ReferenceSpec],
+    panel: Sequence[str],
+    extension: int,
+    sources: PanelSources,
 ) -> dict[str, ReferenceRecord]:
     from neoswga.core.coverage import compute_per_prefix_coverage
-    from neoswga.core.position_cache import PositionCache
 
     prefixes = [spec.prefix for spec in specs]
     lengths = [int(spec.length) for spec in specs]
@@ -393,13 +451,7 @@ def _measure_group(
     # global.
     genomes = [spec.genome for spec in specs]
     scan = all(_scan_possible(spec) for spec in specs)
-    cache = PositionCache(
-        prefixes,
-        list(panel),
-        genome_paths=list(genomes) if scan else None,
-        circular=circular,
-        on_missing="scan" if scan else "warn",
-    )
+    cache = sources.position_cache(prefixes, panel, genomes, circular, scan)
 
     _overall, per_prefix = compute_per_prefix_coverage(
         cache,
@@ -531,7 +583,9 @@ def _gap_statistics(
 # ----------------------------------------------------------------------
 
 
-def _measure_counts(spec: ReferenceSpec, panel: Sequence[str]) -> ReferenceRecord:
+def _measure_counts(
+    spec: ReferenceSpec, panel: Sequence[str], sources: PanelSources
+) -> ReferenceRecord:
     """Sites from `kmer_tables.counts_for`, with coverage unavailable.
 
     This is the route for a reference nobody wants held in memory. It answers
@@ -540,7 +594,6 @@ def _measure_counts(spec: ReferenceSpec, panel: Sequence[str]) -> ReferenceRecor
     a positional question at all, so coverage and the gap figures carry that as
     their reason rather than a zero.
     """
-    from neoswga.core import kmer_tables
     from neoswga.core.thermodynamics import reverse_complement
 
     no_positions = (
@@ -559,7 +612,7 @@ def _measure_counts(spec: ReferenceSpec, panel: Sequence[str]) -> ReferenceRecor
         # docs/validation/query_scan_2026-09-25.md measures the difference.
         wanted = sorted({*group, *(reverse_complement(p) for p in group)})
         try:
-            counts = kmer_tables.counts_for(spec.prefix, k, wanted, genome=spec.genome)
+            counts = sources.counts(spec, k, wanted)
         except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
             logger.debug("Counts unavailable for %s at k=%d: %s", spec.prefix, k, exc)
             return _unavailable_record(spec, f"no {k}-mer counts available: {exc}")
@@ -598,7 +651,11 @@ def _measure_counts(spec: ReferenceSpec, panel: Sequence[str]) -> ReferenceRecor
 
 
 def _with_weighted_load(
-    record: ReferenceRecord, panel: Sequence[str], conditions: Any, max_mismatches: int
+    record: ReferenceRecord,
+    panel: Sequence[str],
+    conditions: Any,
+    max_mismatches: int,
+    sources: PanelSources,
 ) -> ReferenceRecord:
     """Occupancy-weighted load for one reference, when its tables allow it."""
     import dataclasses
@@ -621,10 +678,8 @@ def _with_weighted_load(
             weighted_load=Measurement("weighted_site_load", None, "sites", unavailable=reason),
         )
 
-    from neoswga.core.occupancy import weighted_site_load
-
     try:
-        load = weighted_site_load(list(panel), [record.prefix], conditions, max_mismatches)
+        load = sources.weighted_load(panel, record.prefix, conditions, max_mismatches)
     except (FileNotFoundError, OSError, RuntimeError, ValueError, KeyError) as exc:
         # Absent rather than substituted by the exact count: the two are
         # different numbers, and on a set with no exact host matches they

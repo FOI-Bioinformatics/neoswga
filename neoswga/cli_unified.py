@@ -160,6 +160,7 @@ COMMAND_GROUPS = [
             "swap-primer",
             "contract-set",
             "rescore-set",
+            "improve-set",
             "predict-efficiency",
             "validate-model",
         ],
@@ -276,6 +277,7 @@ from neoswga.cli.evaluate import run_evaluate_set  # noqa: E402,F401
 from neoswga.cli.iterate import (  # noqa: E402,F401
     run_contract_set,
     run_expand_primers,
+    run_improve_set,
     run_rescore_set,
     run_swap_primer,
 )
@@ -377,6 +379,7 @@ def main():
         "swap-primer": run_swap_primer,
         "contract-set": run_contract_set,
         "rescore-set": run_rescore_set,
+        "improve-set": run_improve_set,
         "predict-efficiency": run_predict_efficiency,
         # Category 7: Background registry
         "background-list": run_background_list,

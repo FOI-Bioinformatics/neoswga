@@ -1,5 +1,6 @@
 """Iterative set-editing CLI handlers: ``expand-primers``, ``swap-primer``,
-``contract-set``, ``rescore-set`` (and their private primer/candidate loaders).
+``contract-set``, ``rescore-set``, ``improve-set`` (and their private
+primer/candidate loaders).
 
 Extracted from cli_unified.py. Shared helpers come from neoswga.cli._common.
 """
@@ -827,6 +828,352 @@ def run_rescore_set(args):
         print(output_json)
 
 
+def _improvement_candidates(parameter, context):
+    """The pool `improve-set` draws an add from, or why there is none.
+
+    The same question `expand-primers` asks, through the same door:
+    `candidate_source.open_design_source` over `step3_df.csv`, so a directory
+    holding an inventory is searched at the frontier that file names and a
+    directory without one is searched as the file gives it.
+
+    Returns `(candidates, why_not)`. `candidates` is None when there is no pool,
+    and `why_not` then says so in terms of what to run. No pool is not an
+    error here: the diagnosis and the drops need none.
+    """
+    import pandas as _pd
+
+    from neoswga.core.candidate_source import open_design_source
+    from neoswga.core.io_utils import primer_column
+
+    data_dir = getattr(parameter, "data_dir", None) or "."
+    path = os.path.join(data_dir, "step3_df.csv")
+    if not os.path.exists(path):
+        return None, (
+            f"no candidate pool: {path} does not exist. Run 'neoswga filter' and "
+            f"'neoswga prepare-candidates' to build one; drops are proposed without it"
+        )
+    frame = _pd.read_csv(path)
+    listed = [str(p).strip().upper() for p in frame[primer_column(frame)].tolist()]
+    listed = [p for p in listed if p]
+    if not listed:
+        return None, f"no candidate pool: {path} lists no candidate"
+    source = open_design_source(
+        data_dir,
+        context.conditions.fingerprint(),
+        sorted({len(primer) for primer in listed}),
+        listed,
+    )
+    return list(source.initial()), ""
+
+
+def _limit_cache(oligos, references, scan, circular):
+    """Positions for one set over the configured references, or why not.
+
+    Returns `(cache, why_not)`. An oligo the index does not hold, on a reference
+    that may not be scanned, leaves the limits unevaluated with that as the
+    reason: a limit judged on positions nobody looked up would pass or fail on
+    an absence.
+
+    `circular` is the geometry a scan uses for matches across the origin. It is
+    the evaluation's, so the limits and the figures beside them describe the
+    same molecule.
+    """
+    from neoswga.core.position_cache import PositionCache
+
+    prefixes = [prefix for prefix, _genome in references]
+    cache = PositionCache(
+        prefixes,
+        list(oligos),
+        genome_paths=[genome for _prefix, genome in references] if scan else None,
+        circular=circular,
+        on_missing="scan" if scan else "warn",
+    )
+    unresolved = sorted({primer for _prefix, primer in cache.missing_primers})
+    if unresolved:
+        return None, (
+            f"{len(unresolved)} oligo(s) are absent from the position index of a "
+            f"configured reference ({', '.join(unresolved[:5])}); a host is scanned "
+            f"only with --scan-background, so the configured limits were not evaluated"
+        )
+    return cache, ""
+
+
+def _panel_limit_check(args, parameter, context):
+    """A function judging a set against the configured panel limits, or None.
+
+    None when params.json configures no limit, which is the default. Otherwise
+    the limits are evaluated the way `optimize` evaluates them, through
+    `panel_acceptance.enforce_constraints` with no repair budget, against the
+    references params.json names. They are advisory in `improve-set`: the
+    outcome is attached to a proposal and removes none.
+
+    A set whose limits cannot be evaluated is reported as not evaluated with
+    the reason, never as meeting them. A `DesignError` is not caught.
+    """
+    constraints = context.constraints
+    if constraints is None:
+        return None
+
+    fg_prefixes, fg_lengths = _prefix_lengths(parameter, "fg")
+    bg_prefixes, bg_lengths = _prefix_lengths(parameter, "bg")
+    fg_genomes = list(getattr(parameter, "fg_genomes", []) or [])
+    bg_genomes = list(getattr(parameter, "bg_genomes", []) or [])
+    prefixes = fg_prefixes + bg_prefixes
+    genomes = fg_genomes + bg_genomes
+    # One cache has one policy for a primer the index lacks, so scanning is
+    # all or nothing: every reference needs its FASTA, and a configured host is
+    # scanned only when the user asked for that.
+    scan = (
+        len(genomes) == len(prefixes)
+        and all(os.path.exists(str(g)) for g in genomes)
+        and (not bg_prefixes or bool(getattr(args, "scan_background", False)))
+    )
+    references = (
+        list(zip(prefixes, genomes, strict=True)) if scan else [(p, None) for p in prefixes]
+    )
+    # The evaluation's geometry, not params.json's `fg_circular`: the targets
+    # are circular unless --linear was given, exactly as the per-reference
+    # figures beside these limits were measured. The limit evaluator has ONE
+    # circular flag for every reference, where the evaluation gives hosts
+    # their own (`bg_circular`). Where that difference can change a figure the
+    # limits are reported as not evaluated instead of evaluated on a geometry
+    # the report does not describe.
+    circular = not args.linear
+    host_differs = bool(bg_prefixes) and bool(getattr(parameter, "bg_circular", False)) != circular
+    geometry_conflict = ""
+    if host_differs and (scan or constraints.max_host_coverage is not None):
+        geometry_conflict = (
+            "the targets are evaluated as "
+            + ("circular" if circular else "linear")
+            + " and the configured host as "
+            + ("linear" if circular else "circular")
+            + ", and the limit evaluator applies one geometry to every reference, "
+            "so the configured limits were not evaluated"
+        )
+
+    def check(oligos):
+        from neoswga.core.dominating_set_adapter import DominatingSetAdapter
+        from neoswga.core.exceptions import DesignError
+        from neoswga.core.panel_acceptance import enforce_constraints
+
+        def not_evaluated(reason):
+            return {"evaluated": False, "unavailable": reason, "violations": None, "values": []}
+
+        if geometry_conflict:
+            return not_evaluated(geometry_conflict)
+        try:
+            cache, why_not = _limit_cache(oligos, references, scan, circular)
+            if cache is None:
+                return not_evaluated(why_not)
+            optimizer = DominatingSetAdapter(
+                cache,
+                fg_prefixes,
+                fg_lengths,
+                bg_prefixes,
+                bg_lengths,
+                config=context.optimizer_config(verbose=False, fg_circular=circular),
+                conditions=context.conditions,
+            )
+            report = enforce_constraints(
+                list(oligos), optimizer, candidates=[], constraints=constraints, config=None
+            )
+        except DesignError:
+            raise
+        except (OSError, ValueError, KeyError, RuntimeError) as exc:
+            return not_evaluated(f"the configured limits could not be evaluated: {exc}")
+        return {
+            "evaluated": True,
+            "unavailable": None,
+            "violations": list(report.violations),
+            "values": [
+                {"limit": name, "panel": value, "configured": limit}
+                for name, value, limit in report.values
+            ],
+        }
+
+    return check
+
+
+def _improvement_references(args, parameter, foreground):
+    """One `ReferenceSpec` per target and host, as `evaluate-set` builds them.
+
+    The configured hosts and the ones given by `--background` are both
+    evaluated, each on its own. Built by the Phase 2 helper rather than here,
+    so the two commands cannot disagree about what a reference is.
+    """
+    from neoswga.cli._common import background_references_from_genomes
+    from neoswga.cli.evaluate import _reference_specs
+
+    prefixes, genomes, lengths = foreground
+    bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
+    bg_genomes = list(getattr(parameter, "bg_genomes", []) or [])
+    bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
+    if len(bg_genomes) != len(bg_prefixes):
+        # Kept aligned here, so a host given by path below keeps its own FASTA
+        # whatever the configured lists look like.
+        bg_genomes = [None] * len(bg_prefixes)
+    extra = []
+    if getattr(args, "background", None):
+        extra = background_references_from_genomes(args.background, args.output)
+    return _reference_specs(
+        args,
+        prefixes,
+        genomes,
+        lengths,
+        bg_prefixes + [host["prefix"] for host in extra],
+        bg_genomes + [host["genome"] for host in extra],
+        bg_lengths + [host["length"] for host in extra],
+    )
+
+
+@params_command
+def run_improve_set(args):
+    """Diagnose an existing oligo set and propose edits. Reports; applies nothing."""
+    from neoswga.cli.evaluate import _resolve_primers, _resolve_sources
+    from neoswga.core import parameter
+    from neoswga.core.design_context import design_context_from_params
+    from neoswga.core.design_request import design_request_for_run
+    from neoswga.core.set_improvement import ImprovementSettings, improve_set, report_lines
+
+    if not getattr(args, "json_file", None) and not getattr(args, "genome", None):
+        # Said here, so the message names this command and what each route
+        # gives, instead of the one `evaluate-set` words for itself.
+        raise ValueError(
+            "improve-set needs either -j params.json or --genome FASTA. With "
+            "--genome alone the set is diagnosed and drops are proposed; adds and "
+            "swaps need the candidate pool that -j names."
+        )
+
+    # Resolved from the params FILE, before anything is read: it is what
+    # carries `fixed_oligos`, and a file the design commands would refuse is
+    # refused here by name too.
+    request = design_request_for_run(args, None)
+    primers = _resolve_primers(args)
+    os.makedirs(args.output, exist_ok=True)
+    foreground = _resolve_sources(args)
+
+    configured = request is not None
+    # With no params.json the limits are the documented defaults, and the
+    # report says which they were. `vars(parameter)` is the resolved file.
+    context = design_context_from_params(vars(parameter) if configured else {})
+    specs = _improvement_references(args, parameter, foreground)
+
+    candidates, why_no_pool = None, "no candidate pool: pass -j params.json to name one"
+    limit_check = None
+    if configured:
+        candidates, why_no_pool = _improvement_candidates(parameter, context)
+        limit_check = _panel_limit_check(args, parameter, context)
+
+    settings = ImprovementSettings(
+        extension=context.coverage_reach,
+        max_dimer_bp=context.max_dimer_bp,
+        max_dimer_dg=context.max_dimer_dg,
+        min_tm=context.min_tm,
+        max_tm=context.max_tm,
+        fixed_oligos=request.fixed_oligos if configured else (),
+        excluded_oligos=request.excluded_oligos if configured else (),
+        max_edits=args.max_edits,
+    )
+    report = improve_set(
+        primers,
+        specs,
+        context.conditions,
+        settings,
+        candidates,
+        limit_check=limit_check,
+        pool_unavailable=why_no_pool,
+    )
+
+    result = report.as_dict()
+    result["settings"]["source"] = "params.json" if configured else "defaults (no params.json)"
+    result["design_request"] = request.request_hash if configured else None
+    absent = sorted(set(settings.fixed_oligos) - set(result["primers"]))
+    if absent:
+        result["notes"].append(
+            "fixed_oligos names oligo(s) that are not in this set: " + ", ".join(absent)
+        )
+
+    out_path = os.path.join(args.output, "improvement_report.json")
+    with open(out_path, "w") as handle:
+        json.dump(result, handle, indent=2)
+    print("\n".join(report_lines(result)))
+    print(f"\nWrote {out_path}")
+    print("Nothing was applied. To act on a proposal use swap-primer or")
+    print("expand-primers, or edit the oligo list and run evaluate-set on it.")
+    return result
+
+
+def _add_improve_set_parser(subparsers):
+    """`improve-set`. Kept out of `add_parsers`, which is near its length budget.
+
+    Only options the handler reads are declared. `add_common_options` is not
+    used: it brings flags (`--data-dir`, the GPU flags, `--enable-qa`) this
+    command has no reader for, and an option nothing reads is the defect
+    `tests/test_every_cli_option_has_an_effect.py` exists to keep out.
+    """
+    from neoswga.cli._common import add_position_source_options
+
+    p = subparsers.add_parser(
+        "improve-set",
+        help="Diagnose an existing oligo set per target and host, and propose "
+        "edits to it (reports; applies nothing)",
+        description=(
+            "Start from a primer set you already have. Reports each oligo's "
+            "contribution on every target and host, then proposes single edits "
+            "(drop, add, swap), each checked against the dimer limit and the Tm "
+            "window before it is listed. Writes improvement_report.json and "
+            "changes no primer set."
+        ),
+    )
+    p.add_argument(
+        "-j",
+        "--json-file",
+        type=str,
+        help="Parameters JSON file: the candidate pool (data_dir/step3_df.csv), "
+        "the reaction, max_dimer_bp, the Tm window, panel limits and "
+        "fixed_oligos. Optional with --genome, in which case only drops can be "
+        "proposed.",
+    )
+    p.add_argument("--primers", nargs="+", help="Primer sequences")
+    p.add_argument("--primers-file", help="File with one primer per line")
+    p.add_argument(
+        "--from-results",
+        metavar="DIR",
+        help="Read the oligo set from a finished run's step4_improved_df.csv "
+        "instead of --primers. One set, not the union of the alternatives.",
+    )
+    p.add_argument(
+        "--set",
+        dest="set_index",
+        type=int,
+        default=0,
+        help="Which of the alternative primer sets --from-results reads (default: 0).",
+    )
+    p.add_argument(
+        "--background",
+        nargs="+",
+        metavar="FASTA",
+        help="Host genome FASTA(s) to report against, needing no params.json "
+        "entry. Sites come from k-mer counts unless --scan-background is given.",
+    )
+    p.add_argument(
+        "--max-edits",
+        type=int,
+        default=5,
+        help="How many ranked proposals to report in EACH section of the report "
+        "(drops that cost nothing, adds, swaps, trade-off drops; default: 5). "
+        "Each section states how many it shows of how many were considered.",
+    )
+    p.add_argument("-o", "--output", default="improvement", help="Output directory")
+    p.add_argument(
+        "--linear",
+        action="store_true",
+        help="Treat targets as linear (default: circular, as evaluate-set does)",
+    )
+    add_position_source_options(p)
+    return p
+
+
 def add_parsers(subparsers):
     """Register this group's subcommands on the shared subparsers object.
 
@@ -1002,5 +1349,7 @@ def add_parsers(subparsers):
     rescore_parser.add_argument("--tmac-m", type=float)
     rescore_parser.add_argument("--output", "-o")
     rescore_parser.add_argument("--quiet", "-q", action="store_true")
+
+    _add_improve_set_parser(subparsers)
 
     # Predict efficiency - unified confidence score for primer set

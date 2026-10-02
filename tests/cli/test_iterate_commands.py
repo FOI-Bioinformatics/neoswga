@@ -233,16 +233,43 @@ def test_unindexed_primer_is_scanned_before_contraction(
 
 
 def test_iterate_commands_still_require_a_params_file():
-    """The standalone --genome shortcut remains specific to evaluate-set.
+    """The standalone --genome shortcut stays off every command in this module but one.
 
     contract-set scans the FASTAs supplied through params.json; it does not
-    expose the separate standalone --genome option.
+    expose the separate standalone --genome option, and neither does any other
+    command `cli/iterate.py` registers, except `improve-set`.
+
+    Changed 2026-10-02, deliberately. This asserted that the SOURCE of
+    `cli/iterate.py` never mentioned `add_position_source_options`, which pinned
+    the module rather than the commands. `improve-set` now lives in that module
+    and is the single named exception: it is a front door over the per-reference
+    evaluation and takes `--genome` and `--background` as `evaluate-set` defines
+    them. The commands are checked on their parsers, which also pins that `-j`
+    is required, something the source check never did.
+
+    The list is whatever the module registers, not a list written here, so a
+    command added to it later is held to the same rule without anyone
+    remembering to name it.
     """
-    import inspect
+    import argparse
 
     from neoswga.cli import iterate
 
-    assert "add_position_source_options" not in inspect.getsource(iterate)
+    exceptions = {"improve-set"}
+    subparsers = argparse.ArgumentParser().add_subparsers(dest="command")
+    iterate.add_parsers(subparsers)
+    registered = dict(subparsers.choices)
+
+    assert exceptions <= set(registered)
+    assert len(registered) > len(exceptions), "the module registered nothing else to check"
+    for command, parser in registered.items():
+        actions = {action.dest: action for action in parser._actions}
+        if command in exceptions:
+            assert "genome" in actions
+            assert not actions["json_file"].required
+            continue
+        assert "genome" not in actions, f"{command} grew a standalone --genome option"
+        assert actions["json_file"].required, f"{command} no longer requires -j"
 
 
 # ----------------------------------------------------------------------

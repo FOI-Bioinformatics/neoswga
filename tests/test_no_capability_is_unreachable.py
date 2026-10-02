@@ -56,6 +56,12 @@ WATCHED = (
     "core/lazy_dimer.py",
     "core/panel_evaluation.py",
     "core/query_scan.py",
+    # Added 2026-10-02 with `improve-set`. The evaluation gained a `PanelSources`
+    # seam and the improvement module a set of public names; both are built and
+    # unit-tested directly, which is exactly the shape that hid the six findings
+    # this file was written for.
+    "core/reference_panel_evaluation.py",
+    "core/set_improvement.py",
 )
 
 # Public names no command can reach today, and why. Shrink this list.

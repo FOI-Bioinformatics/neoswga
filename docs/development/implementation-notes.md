@@ -495,6 +495,155 @@ names the supported route (`fg_genomes` in params.json, one `fg_prefixes` entry
 each). `design --min-coverage` went with it: it fed the same absent entry point
 and nothing else on that path read it.
 
+### `improve-set`: from an existing set to proposed edits
+
+```bash
+neoswga improve-set -j params.json --primers SEQ1 SEQ2 \
+    [--background host.fna ...] [--scan-background] [--max-edits 5] -o improvement/
+neoswga improve-set --from-results results/ --set 0 --genome target.fna -o improvement/
+```
+
+Added 2026-10-02. The handler is `cli/iterate.run_improve_set` and the logic is
+`core/set_improvement.py`. It reports and applies nothing: the only file it
+writes is `improvement_report.json`, and no `step4_improved_df.csv` is written
+or changed.
+
+The four steps, and what each is built from:
+
+1. **Evaluate.** `reference_panel_evaluation.evaluate_reference_panel`, on the
+   `ReferenceSpec` list `cli/evaluate._reference_specs` builds, so the two
+   commands agree on what a reference is. Oligos absent from the index are
+   found by scanning, and mixed lengths need nothing special (Known Issue 20).
+2. **Attribute, per oligo.** Sites on each target and host from the
+   evaluation's `per_primer_sites`; marginal coverage per target as the
+   evaluation of the set minus the evaluation of the set without the oligo;
+   dimer partners in the set through `lazy_dimer.dimer_screen`; Tm from the
+   resolved reaction against `min_tm`/`max_tm`. "Sole cover of some region" is
+   a marginal coverage above zero, so it is unknown when the marginal is.
+3. **Propose**, in four sections (`sections` in the report, in this order).
+   `drop`: an oligo whose marginal coverage is exactly zero on every target.
+   `add`: a candidate that raises the worst target's coverage. `swap`: a
+   candidate that dimerises with exactly one oligo of the set, replacing that
+   oligo. `trade_off_drop`: an oligo whose removal raises the worst
+   target-against-host selectivity density; the entry carries the density
+   before and after and the coverage change per target. No threshold is defined
+   for any of these; each rule is a comparison of two measured figures.
+4. **Check.** An add is screened against every oligo that stays, at the
+   configured `max_dimer_bp` and `max_dimer_dg`, and against the Tm window, and
+   its sites must be known on every reference, target and host; a candidate
+   failing any of these is counted in `candidate_pool` and not listed. The
+   configured panel limits are evaluated through
+   `panel_acceptance.enforce_constraints` with no repair budget, against the
+   references params.json names, and are advisory: a miss is named on the
+   proposal. A set whose limits cannot be evaluated carries `evaluated: false`
+   with the reason, not a pass.
+
+Within a section the order is the gain in the worst target's coverage, then the
+worst host site density (an unmeasured one sorts after every measured one at
+the same gain), then the number of oligos changed. `--max-edits` bounds each
+section separately, and each section reports `shown` and `considered`.
+
+Four corrections made on 2026-10-02 after review, each with the case that
+showed it:
+
+- **Trade-off drops are not improvements.** The density rule is satisfied by
+  the member of any set with the lowest target-to-host ratio. A set of six
+  oligos with equal target sites and 5, 5, 5, 5, 5 and 6 host sites was told to
+  drop the sixth "for high host load", and following the first-ranked entry
+  repeatedly would empty a set. No threshold has a reference, so none was
+  added: these entries moved to their own section, the label was removed, the
+  wording states only what is measured, and the section carries
+  `is_improvement: false` and `lowest_ratio_member_always_qualifies: true` as
+  data. Every section carries `each_entry_evaluated_alone: true` and
+  `jointly_applicable: false`: two oligos covering the same bases each have
+  zero marginal coverage, and dropping both was not evaluated.
+- **`--max-edits` is per section.** Applied to one ranked list, five helpful
+  candidates filled the report and the oligo that binds nothing was never
+  shown. `--max-edits 0` shows nothing and still says how many were considered.
+- **A candidate with unknown host binding is not an option.** A candidate
+  absent from a configured host index, with no scan, ranked first with an
+  unmeasured host load. It is now counted in `candidate_pool.unmeasured`, with
+  up to five examples naming the candidate, the reference and the reason. The
+  same holds on a target. A host that cannot be measured at all therefore
+  blocks every add, and the report says why.
+- **A failure leaves no record.** `improve-set` resolves the design request to
+  read `fixed_oligos`, so a refused params file reached the command boundary as
+  a `DesignError`, which wrote `design_failure.json` into the design's
+  `data_dir`; `export` then refused a finished design, and nothing cleared the
+  record because clearing is a design step's job. `cli/_failure.py` now holds
+  `REPORT_ONLY_COMMANDS`, and `write_failure_artifact` writes nothing for a
+  command in it. The error is printed and the exit code is nonzero as before,
+  and what the design commands record is unchanged.
+
+The advisory limit check uses the evaluation's geometry: targets circular
+unless `--linear`, not params.json's `fg_circular`. The limit evaluator has one
+circular flag for every reference, where the evaluation gives hosts
+`bg_circular`. When a configured host's geometry differs from the targets' and
+the difference can change a figure (a host-coverage limit is set, or the
+references are scanned), the limits are reported as not evaluated with that
+reason. With the defaults (circular targets, linear host) this is the outcome
+for `max_host_coverage` and for any limit under `--scan-background`.
+
+With `max_dimer_dg` set and reaction conditions that carry no temperature,
+`set_improvement` raises instead of screening at an assumed 37 C.
+
+**The prediction is the evaluation.** `evaluate_reference_panel` gained a
+`sources` argument (`PanelSources`), which is where one evaluation reads
+positions, counts and weighted loads. `set_improvement.MemoisedSources` keeps
+what was read, so the set, the set without each oligo and the set with each
+candidate are all evaluated by the unchanged evaluation code while each
+reference is read once. Its keys name the reference in full (prefix, genome
+path and length for counts), a primer the held position cache lacks causes a
+rebuild, and the weighted load is keyed on the reaction's fingerprint. It is
+internal to the module. A proposal's predicted figures are that evaluation on
+the edited set, and
+`tests/test_improve_set_cli.py::test_the_predicted_figures_are_what_evaluate_set_then_reports`
+compares them with `evaluate-set` run in a separate process. The agreement
+shows the two commands share one model; it is not an independent check of the
+model, and the report carries a note saying so.
+
+**`evaluate-set` and `coverage_reach`.** Both commands resolve the reach
+through `coverage.resolve_coverage_reach`. `evaluate-set -j` ignored the key
+until 2026-10-02 (an inert key, Known Issue 8): with `coverage_reach: 800` it
+reported 3000. It now honours the key when a params file is given and writes
+`extension_reach_source` beside `extension_reach_bp`. No file it accepted is
+newly refused: a value the reader rejects already fails the schema check in
+`validate_params_json_file`, which was confirmed by running `evaluate-set -j`
+with 0, -5, "x" and 2.5 before the change.
+`tests/test_improve_set_cli.py::test_both_commands_measure_at_the_configured_coverage_reach`
+pins the agreement with the key set.
+
+What it does not do, deliberately or for now:
+
+- It does not call an optimizer and proposes single edits only (one drop, one
+  add, or one swap). Compound edits were not attempted.
+- While any target is unmeasured it proposes nothing, because every ranking is
+  by the worst target and that is then unknown. The attribution is still
+  reported, and an oligo whose sites could not be established on a target is
+  `unavailable` there with the reason.
+- The candidate pool is `data_dir/step3_df.csv` through
+  `candidate_source.open_design_source`, at the frontier that file names.
+  Without `-j` there is no pool, and only the diagnosis and drops are produced
+  under the default limits (`settings.source` in the report says which).
+- `fixed_oligos` is read from the design request
+  (`design_request.design_request_for_run`), where it already existed. It was
+  accepted and hashed before this command and had no reader; this is its first.
+  `excluded_oligos` is honoured the same way: such a candidate is not offered.
+- Each evaluation of a candidate reads no reference again, but it does compute
+  coverage on every target, so the cost grows with pool size times the number
+  of targets. This has not been timed on a real pool here.
+- A candidate's self-dimer is not rechecked here; only its pairing with the
+  oligos that stay is.
+- `improve-set` has no `--polymerase` flag and `evaluate-set` has one, so the
+  two agree when that flag is not used to override the params file.
+- Host aggregation other than per-host reporting (the plan's Phase 7
+  `worst-case` mode) does not exist yet, so an add is not required to be clean
+  against every host; its host binding must be KNOWN on every host, and host
+  load then enters the ranking only.
+- It has not been run on real data in this repository. The check planned for
+  it is that the delivered Wolbachia set 0 is offered no edit that raises the
+  worst target without costing density.
+
 `--smoke` takes about 4 s against the packaged plasmid pair and exits non-zero
 when the configuration would fail, so it is usable in CI. It resolves the genome
 paths in params.json relative to the working directory, exactly as a real run

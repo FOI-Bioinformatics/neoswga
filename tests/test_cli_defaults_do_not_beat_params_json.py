@@ -40,6 +40,38 @@ def test_the_flag_uses_the_none_sentinel(command, dest):
     assert _flag_default(command, dest) is None
 
 
+def test_improve_set_declares_no_default_that_could_beat_params_json():
+    """Checked for the whole command rather than flag by flag.
+
+    `improve-set` takes its limits (`max_dimer_bp`, the Tm window, the panel
+    limits, `fixed_oligos`) from params.json and declares no flag for any of
+    them. If one is added later, it has to carry the `None` sentinel: any option
+    whose name is also a params.json key, or a key the design request accepts,
+    must not arrive with a value the user did not type.
+    """
+    from neoswga.core.design_request import _REQUEST_ONLY_KEYS
+    from neoswga.core.schema import load_schema
+
+    configurable = set(load_schema().get("properties", {})) | set(_REQUEST_ONLY_KEYS)
+    parser = create_parser()
+    subparser = next(
+        sp
+        for sub in parser._subparsers._group_actions
+        for name, sp in sub.choices.items()
+        if name == "improve-set"
+    )
+    shadowing = {
+        action.dest: action.default
+        for action in subparser._actions
+        if action.dest in configurable and action.default is not None
+    }
+
+    assert not shadowing, (
+        "improve-set declares option(s) that are also params.json keys with a "
+        f"non-None default, so an absent flag would beat the file: {shadowing}"
+    )
+
+
 def test_an_absent_gc_tolerance_leaves_the_configured_window_alone():
     from neoswga.cli.pipeline import _resolve_gc_window
 
