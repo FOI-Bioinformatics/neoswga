@@ -9,7 +9,7 @@ import csv
 import json
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -220,6 +220,12 @@ class FilteringStats:
     #: is a TypeError rather than an ignored field. "occupancy" under the
     #: shipped uniform model, and absent from a file written before 2026-10-02.
     occupancy_ranking_mode: str = "occupancy"
+    #: Which reading of "the background" the frequency gate applied: "sum",
+    #: every listed host pooled into one count over one length, or "worst-case",
+    #: each host judged on its own length. Not a stage count either, and
+    #: declared for the same reason as the field above. "sum" on a file written
+    #: before 2026-10-02 and on every design that does not set the key.
+    background_aggregate: str = "sum"
 
     def as_funnel(self) -> list[tuple]:
         """Return filtering stages as a funnel list, in actual pipeline order.
@@ -252,6 +258,18 @@ class FilteringStats:
             for i, (label, count) in enumerate(ordered)
             if i in (0, len(ordered) - 1) or count > 0
         ]
+
+
+#: The keys `collect_pipeline_metrics` accepts out of `filter_stats.json`.
+#:
+#: Derived from the dataclass rather than written out, because it was written
+#: out and the two disagreed: `occupancy_ranking_mode` was declared above and
+#: missing from the hand-maintained list, so the filter wrote it, the class
+#: claimed to carry it, and the loader dropped it. A key the filter writes and
+#: this class does not declare is still filtered out here -- `after_qa`, which
+#: `pipeline_qa_integration` adds and the rendered funnel deliberately does not
+#: show, is the one such key -- so an unknown key cannot make `report` raise.
+FILTERING_STATS_FIELDS = frozenset(f.name for f in fields(FilteringStats))
 
 
 @dataclass
@@ -1224,21 +1242,9 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         try:
             with open(filter_stats_file, encoding="utf-8") as f:
                 stats = json.load(f)
-                # Only use fields that FilteringStats accepts
-                valid_fields = {
-                    "total_kmers",
-                    "after_fg_frequency",
-                    "after_bg_frequency",
-                    "after_frequency",
-                    "after_background",
-                    "after_gini",
-                    "after_thermodynamic",
-                    "after_exclusion_blacklist",
-                    "after_complexity",
-                    "after_max_primer_cut",
-                    "final_candidates",
+                filtered_stats = {
+                    key: value for key, value in stats.items() if key in FILTERING_STATS_FIELDS
                 }
-                filtered_stats = {k: v for k, v in stats.items() if k in valid_fields}
                 metrics.filtering = FilteringStats(**filtered_stats)
         except (json.JSONDecodeError, TypeError, KeyError, OSError) as e:
             logger.warning(f"Failed to load filter stats: {e}")

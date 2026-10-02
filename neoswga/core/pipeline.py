@@ -1011,7 +1011,7 @@ def _occupancy_ranking_inputs():
         return None, None
 
 
-def _write_filter_stats(funnel, final_candidates):
+def _write_filter_stats(funnel, final_candidates, background_aggregate=None):
     """Write `filter_stats.json`: the real per-stage funnel, and what ordered it.
 
     Extracted from `step2` when adding `occupancy_ranking_mode` took that
@@ -1024,6 +1024,14 @@ def _write_filter_stats(funnel, final_candidates):
     table with nothing saying so. It is "occupancy" under the shipped uniform
     model, so no existing figure in this file moves.
 
+    `background_aggregate` names the reading of "the background" the frequency
+    gate applied, as the gate reported it rather than as a second lookup would
+    answer. It is "sum" on every design that does not set the key, so again no
+    existing figure moves. Both are keys the report reads: `FilteringStats` is
+    built from this file, so a key it does not declare is a TypeError in
+    `report` rather than an ignored field, and a key the loader's whitelist
+    omits is read by nothing.
+
     Best-effort: a diagnostic must never fail the step that produced it.
     """
     try:
@@ -1033,6 +1041,8 @@ def _write_filter_stats(funnel, final_candidates):
 
         funnel["final_candidates"] = final_candidates
         funnel["occupancy_ranking_mode"] = site_load_mode(resolve_mismatch_model())
+        if background_aggregate is not None:
+            funnel["background_aggregate"] = background_aggregate
         with open(os.path.join(parameter.data_dir, "filter_stats.json"), "w") as handle:
             _json.dump(funnel, handle, indent=2)
     except Exception as exc:  # pragma: no cover - defensive
@@ -1251,6 +1261,11 @@ def step2(all_primers=None, validate_prerequisites=True):
         "bg_total_length": sum(bg_seq_lengths),
         "fg_genomes": list(fg_genomes or []),
         "bg_genomes": list(bg_genomes or []),
+        # Each host's OWN length, beside the summed one. `worst-case` divides a
+        # host's count by this and refuses without it; `sum` ignores it and
+        # keeps using `bg_total_length`. Passed rather than looked up inside
+        # the gate so a prefix and its length travel together on the call.
+        "bg_seq_lengths": list(bg_seq_lengths or []),
     }
     if all_primers is None:
         # Use stored min_k and max_k values from parameter module (with safe defaults)
@@ -1288,6 +1303,13 @@ def step2(all_primers=None, validate_prerequisites=True):
         "after_fg_frequency": int(rate_df["fg_bool"].sum()),
         "after_bg_frequency": int((rate_df["fg_bool"] & rate_df["bg_bool"]).sum()),
     }
+    # Which reading of "the background" decided the count above. Read off the
+    # frame the gate returned rather than resolved again here: a second lookup
+    # could disagree with what was applied, which is the shape the per-step
+    # `effective_conditions` record exists to catch. Not a stage count, so it
+    # goes to `_write_filter_stats` beside `occupancy_ranking_mode` and never
+    # into the funnel.
+    _applied_aggregate = rate_df.attrs.get("background_aggregate")
     filtered_rate_df = rate_df[(rate_df["fg_bool"]) & (rate_df["bg_bool"])]
     filtered_rate_df = filtered_rate_df.drop(["fg_bool", "bg_bool"], axis=1)
     logger.info(
@@ -1361,7 +1383,7 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     report_pool_diagnostics(list(filtered_gini_df["primer"].astype(str)), parameter)
 
-    _write_filter_stats(_funnel, len(filtered_gini_df))
+    _write_filter_stats(_funnel, len(filtered_gini_df), background_aggregate=_applied_aggregate)
 
     if len(filtered_gini_df) == 0:
         logger.error(

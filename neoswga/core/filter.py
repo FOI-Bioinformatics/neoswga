@@ -12,7 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pandas as pd
 
-from neoswga.core import dimer, kmer_tables, parameter, primer_attributes
+from neoswga.core import background_gate, dimer, kmer_tables, parameter, primer_attributes
+from neoswga.core.background_aggregate import WORST_CASE, resolve_background_aggregate
 from neoswga.core.exceptions import InvalidDesignRequest, ReferenceDataError
 from neoswga.core.parameter import (
     EXTREME_AT_GENOME_GC,
@@ -692,6 +693,8 @@ def get_all_rates(
     bg_total_length: int,
     fg_genomes: list[str] | None = None,
     bg_genomes: list[str] | None = None,
+    bg_seq_lengths: list[int] | None = None,
+    background_aggregate: str | None = None,
 ) -> pd.DataFrame:
     """
     Computes the foreground and background binding site frequencies normalized by their respective genome lengths.
@@ -702,19 +705,43 @@ def get_all_rates(
         bg_prefixes: The list of background path prefixes used for creating the kmer files.
         fg_total_length: The total number of base pairs in the foregound genome.
         bg_total_length: The total number of base pairs in the background genome.
+        bg_seq_lengths: Each background genome's OWN length, in the order of
+            `bg_prefixes`. Needed only to judge the hosts one at a time, so
+            `sum` ignores it; `worst-case` refuses without it rather than
+            dividing one host's count by another's length.
+        background_aggregate: `sum` or `worst-case`. Omitted, the value is
+            resolved from the `parameter` globals, which is the route for code
+            running inside a step; an explicit argument wins, so a caller that
+            resolved the run's configuration once does not re-read a mutable
+            global per call.
 
     Returns:
         df: A pandas dataframe with the sequence, unnormalized counts, and  columns fg_bool and bg_bool which indicate if the sequence passes the respective filters.
+            With two or more hosts it also carries one `bg_count_<host>` column
+            per host, and `df.attrs["background_aggregate"]` records which
+            reading the bg_bool column was decided under.
     """
 
+    aggregate = resolve_background_aggregate(background_aggregate)
     use_bloom, bloom_path = _resolve_background_source()
     primer_to_fg_count = get_rates_for_one_species(primer_list, fg_prefixes, genomes=fg_genomes)
 
+    bg_by_prefix: dict[str, dict[str, int]] = {}
     if use_bloom:
+        # A Bloom filter answers for the pooled background and `parameter`
+        # leaves bg_prefixes empty for it, so there is no per-host count to
+        # take a worst case over. Refused before the filter is loaded.
+        background_gate.refuse_a_pooled_only_background(
+            aggregate, "a Bloom filter background", f"use_bloom_filter with {bloom_path}"
+        )
         primer_to_bg_count = get_bg_rates_via_bloom(primer_list, bloom_path)
+        hosts: tuple[background_gate.BackgroundHost, ...] = ()
     else:
-        primer_to_bg_count = get_rates_for_one_species(primer_list, bg_prefixes, genomes=bg_genomes)
+        bg_by_prefix = rates_by_prefix(primer_list, bg_prefixes, genomes=bg_genomes)
+        primer_to_bg_count = background_gate.pool_counts(bg_by_prefix)
+        hosts = background_gate.host_panel(bg_prefixes, bg_seq_lengths, aggregate)
 
+    per_host = background_gate.columns_are_written(hosts)
     results = []
 
     # When a k-mer is absent from the count dictionary (count is None), it passes
@@ -756,36 +783,48 @@ def get_all_rates(
         else:
             fg_bool = fg_count / fg_total_length > scaled_min_fg
         bg_count = primer_to_bg_count.get(primer, None)
-        if bg_count is None or bg_total_length <= 0:
-            bg_bool = bg_count is None
+        # The pooled count stays in `bg_count` under both readings, so the
+        # column keeps its meaning; what the aggregate decides is the verdict.
+        if aggregate == WORST_CASE:
+            bg_bool = background_gate.worst_case_verdict(bg_by_prefix, primer, hosts, scaled_max_bg)
         else:
-            bg_bool = bg_count / bg_total_length < scaled_max_bg
-        results.append([primer, fg_count, bg_count, fg_bool, bg_bool])
+            bg_bool = background_gate.pooled_verdict(bg_count, bg_total_length, scaled_max_bg)
+        row: list = [primer, fg_count, bg_count]
+        if per_host:
+            row.extend(background_gate.per_host_columns(bg_by_prefix, primer, hosts))
+        row.extend([fg_bool, bg_bool])
+        results.append(row)
 
-    df = pd.DataFrame(results, columns=["primer", "fg_count", "bg_count", "fg_bool", "bg_bool"])
+    columns = ["primer", "fg_count", "bg_count"]
+    if per_host:
+        columns.extend(host.column for host in hosts)
+    columns.extend(["fg_bool", "bg_bool"])
+    df = pd.DataFrame(results, columns=columns)
+    # Which reading the bg_bool column was decided under, carried on the frame
+    # rather than re-resolved by the caller: `filter_stats.json` has to record
+    # what the gate applied, not what a second lookup would answer.
+    df.attrs["background_aggregate"] = aggregate
 
     return df
 
 
-def get_rates_for_one_species(
+def rates_by_prefix(
     primer_list: list[str],
     fname_prefixes: list[str],
     genomes: list[str] | None = None,
-) -> dict[str, int]:
-    """
-    Computes the binding site frequencies for all ppsth prefixes in fname_prefixes.
+) -> dict[str, dict[str, int]]:
+    """The same counts as `get_rates_for_one_species`, kept apart per prefix.
 
-    Args:
-        primer_list: The list of primers to compute frequencies for.
-        fname_prefixes: The path prefixes used for creating the kmer files.
-        genomes: The reference each prefix was counted from, in the same order.
-            Used only where a prefix has no table, in which case the counts are
-            measured by scanning that reference instead of refusing. Omitted,
-            or shorter than the prefix list, a prefix with no table still
-            refuses, which is what it has always done.
+    The per-(prefix, k) results already arrive separately: one task per prefix
+    and k, and the merge below is the only thing that pooled them. Returning
+    them keyed by prefix as well costs no extra count lookup, which is the
+    expensive part (a fixed cost per call, batched by k), and is what lets the
+    background gate judge each host on its own length.
 
-    Returns:
-        all_primer_to_count: A dictonary of primer to frequency.
+    Keys are the prefixes as given, in the order given. A prefix with no
+    candidate of any length contributes an empty dictionary rather than being
+    left out, so "this host answered nothing" and "this host was not asked"
+    stay distinct for the caller.
     """
     # Paired here, where both lists are in hand, rather than looked up per
     # prefix from a global. A prefix carries no record of its own genome, so a
@@ -801,7 +840,7 @@ def get_rates_for_one_species(
             len(fname_prefixes),
             len(genomes),
         )
-    stratified_primer_list = {}
+    stratified_primer_list: dict[int, list[str]] = {}
 
     for primer in primer_list:
         k = len(primer)
@@ -820,15 +859,47 @@ def get_rates_for_one_species(
     with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
         results = list(executor.map(_get_rate_for_one_file, tasks))
 
-    all_primer_to_count = {}
+    by_prefix: dict[str, dict[str, int]] = {str(prefix): {} for prefix in fname_prefixes}
 
-    for primer_to_count in results:
+    for task, primer_to_count in zip(tasks, results, strict=True):
+        bucket = by_prefix[str(task[1])]
         for primer, count in primer_to_count.items():
-            if primer not in all_primer_to_count:
-                all_primer_to_count[primer] = count
+            if primer in bucket:
+                bucket[primer] += count
             else:
-                all_primer_to_count[primer] += count
-    return all_primer_to_count
+                bucket[primer] = count
+    return by_prefix
+
+
+def get_rates_for_one_species(
+    primer_list: list[str],
+    fname_prefixes: list[str],
+    genomes: list[str] | None = None,
+) -> dict[str, int]:
+    """
+    Computes the binding site frequencies for all ppsth prefixes in fname_prefixes.
+
+    One pooled count per primer: the sum over every prefix, which is what the
+    foreground gate wants and what the background gate wants under `sum`. The
+    per-prefix dictionaries behind it are `rates_by_prefix`; this function is
+    that one followed by `background_gate.pool_counts`, so the two cannot
+    disagree about a count.
+
+    Args:
+        primer_list: The list of primers to compute frequencies for.
+        fname_prefixes: The path prefixes used for creating the kmer files.
+        genomes: The reference each prefix was counted from, in the same order.
+            Used only where a prefix has no table, in which case the counts are
+            measured by scanning that reference instead of refusing. Omitted,
+            or shorter than the prefix list, a prefix with no table still
+            refuses, which is what it has always done.
+
+    Returns:
+        all_primer_to_count: A dictonary of primer to frequency.
+    """
+    return background_gate.pool_counts(
+        rates_by_prefix(primer_list, fname_prefixes, genomes=genomes)
+    )
 
 
 def _get_rate_for_one_file(task: tuple[list[str], str, int, str | None]) -> dict[str, int]:
