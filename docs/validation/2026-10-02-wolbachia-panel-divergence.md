@@ -52,9 +52,14 @@ fractions are reported because the genomes differ in size by up to 404 kb, so a
 ## Three levels, and the ordering agrees with the supergroups
 
 **The supergroup assignment is from the literature, not from this
-measurement.** A: wMel and wRi. B: wPip and wAlbB. D: wBm. The assignments are
-recorded in the catalogue entries in `scripts/fetch_reference_genomes.py` and
-were used to choose the panel; they were not derived here.
+measurement.** A: wMel and wRi. B: wPip and wAlbB. D: wBm, from the nematode
+*Brugia malayi*. The assignments are recorded in the catalogue entries in
+`scripts/fetch_reference_genomes.py` and were used to choose the panel; they
+were not derived here. They were checked on 2026-10-02 against Klasson et al.
+2009 (the wRi genome, PNAS 106:5725, which places wMel and wRi in A and wPip
+in B) and Sinha et al. 2019 (the wAlbB genome, Genome Biol Evol 11:706, which
+places wAlbB in B); the wBm supergroup D assignment appears in both as the
+nematode outgroup.
 
 | level | pairs | Jaccard range | spread within the level |
 |---|---|---|---|
@@ -139,9 +144,12 @@ longest one. Repeat content is the obvious explanation and is not measured here.
 - **Not ANI and not a phylogenetic distance.** Nothing was aligned. The figures
   order the panel; they do not quantify identity, and they must not be reported
   as a percentage identity.
-- **The supergroup assignment is not a result.** It comes from the literature
-  and from the catalogue entries. The agreement reported above is agreement with
-  an assumption the panel was built on, not a test of it.
+- **The supergroup assignment is not a result.** It comes from the literature,
+  cited above. The agreement reported here is agreement with an assumption the
+  panel was built on, not a test of it. Nothing here could overturn a
+  supergroup assignment, and a panel chosen to span supergroups was always
+  going to separate into bands; what the measurement adds is the size of the
+  separation and the fact that an exact-12-mer count sees it.
 - **One k and one measure.** Everything is at k=12 with exact canonical
   matching. No other k was counted, so the claim that a longer k would separate
   the distant pairs better is an expectation and not a measurement.
