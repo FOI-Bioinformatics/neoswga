@@ -161,6 +161,13 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             swap_max_evaluations=self.config.swap_max_evaluations,
             swap_max_seconds=self.config.swap_max_seconds,
             template_gc=kwargs.get("template_gc", 0.5),
+            # The reading BaseOptimizer resolved. This is the optimizer whose
+            # host term the key is for: `_prune_background` and the
+            # `_network_refine` host weighting both charge through
+            # `_count_background_sites`, and under `worst-case` that charge is
+            # the worst host's density rather than the pooled sum. Resolving it
+            # again here could disagree with the metrics this wrapper reports.
+            background_aggregate=self.background_aggregate,
         )
 
         # A second BackgroundAwareOptimizer was built here "for backward

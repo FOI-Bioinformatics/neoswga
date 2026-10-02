@@ -19,6 +19,12 @@ from typing import Any
 
 import numpy as np
 
+# Step 4's half of `background_aggregate`: each host genome on its own length,
+# and the reduction a panel limit is read against. A separate module because
+# this one is at its size budget, and because the quantity is per host while
+# every figure here is pooled.
+from . import per_host_metrics
+
 # Re-exported: it moved to `coverage`, which owns `site_spans` and `mark_span`
 # that it calls, and `base_optimizer` was at its size ceiling. Importers keep
 # working and there is still one implementation.
@@ -150,6 +156,39 @@ class PrimerSetMetrics:
     fg_total_length: int = 0
     bg_total_length: int = 0
 
+    # The three fields above, and `bg_coverage` and `total_bg_sites`, are the
+    # POOLED background under every `background_aggregate`: one summed load over
+    # one summed host length. They never change meaning, so no output has to be
+    # re-read and no reader has to ask which aggregate produced them.
+    #
+    # Which reading of "the background" this panel was measured under. Recorded
+    # beside the figures rather than left to be inferred, for the reason
+    # `selectivity_mode` is: a figure that could mean either of two things and
+    # does not say which is the failure this codebase has met most often.
+    background_aggregate: str = "sum"
+
+    # One record per host genome: sites, occupancy-weighted load, coverage and
+    # `selectivity_density` against that host's OWN length. Empty with no
+    # background. A host that was never scanned appears with every figure null
+    # and a reason, which is not the same as a host that binds nowhere.
+    # `core/per_host_metrics.py` holds the arithmetic and the naming, which are
+    # `core/reference_panel_evaluation.py`'s.
+    per_host: dict[str, dict] = field(default_factory=dict)
+
+    # The reduction over `per_host`, one per background-measured limit, because
+    # `worst-case` means every host must clear every limit and the host with the
+    # lowest density need not be the one with the most sites. `None` -- never
+    # the worst of the hosts that answered -- when any host went unmeasured.
+    # `pool_objective` reads these INSTEAD of the pooled fields under
+    # `worst-case`, through `per_host_metrics.limit_figure`, which is the one
+    # dispatch on the key in step 4.
+    worst_host_selectivity_density: float | None = None
+    worst_host_background_sites: int | None = None
+    worst_host_bg_coverage: float | None = None
+    #: Which host holds `worst_host_selectivity_density`. The other two
+    #: reductions may belong to other hosts; `per_host` is the full table.
+    worst_host: str | None = None
+
     # Coverage weighted by how much of the time each site is actually bound
     # under the configured conditions, beside the raw `fg_coverage` that counts
     # every exact match as fully occupied.
@@ -223,6 +262,18 @@ class PrimerSetMetrics:
             "selectivity_density": self.selectivity_density,
             "fg_total_length": self.fg_total_length,
             "bg_total_length": self.bg_total_length,
+            # Which reading of "the background" produced the pooled figures
+            # above and the per-host table below. Always written, so a summary
+            # never leaves a reader to guess which one it is.
+            "background_aggregate": self.background_aggregate,
+            "per_host": {k: dict(v) for k, v in self.per_host.items()},
+            "worst_host": self.worst_host,
+            # The per-host reductions, under names that say what they are. The
+            # pooled figures keep theirs, so no key means two different things
+            # in two outputs.
+            "worst_host_selectivity_density": self.worst_host_selectivity_density,
+            "worst_host_background_sites": self.worst_host_background_sites,
+            "worst_host_bg_coverage": self.worst_host_bg_coverage,
             "mean_tm": self.mean_tm,
             "tm_range": list(self.tm_range),
             "dimer_risk_score": self.dimer_risk_score,
@@ -614,7 +665,7 @@ class BaseOptimizer(ABC):
         conditions=None,
         background_profile=None,
         background_profile_lengths=None,
-        background_aggregate: str = "worst-case",
+        background_aggregate: str | None = None,
         **_unused_kwargs,
     ):
         """
@@ -659,7 +710,18 @@ class BaseOptimizer(ABC):
         # the metrics path reads them.
         self.background_profile = background_profile
         self.background_profile_lengths = background_profile_lengths
-        self.background_aggregate = background_aggregate
+        # Resolved through the one seam, never defaulted here. This argument's
+        # default was the literal "worst-case" while the params.json key's
+        # default is `sum`, and nothing passed the argument -- so the opposite
+        # of the documented behaviour sat one layer below the key, waiting for
+        # the first caller. `unified_optimizer` now passes the resolved value;
+        # with nothing passed, `resolve_background_aggregate` answers from the
+        # `parameter` globals the step is running under, which is `sum` for a
+        # design that did not set the key. Neither default stands in for the
+        # other, and `tests/test_per_host_figures.py` pins that.
+        from neoswga.core.background_aggregate import resolve_background_aggregate
+
+        self.background_aggregate = resolve_background_aggregate(background_aggregate)
 
         # Computed properties
         self.fg_total_length = sum(fg_seq_lengths)
@@ -990,14 +1052,25 @@ class BaseOptimizer(ABC):
         except (FileNotFoundError, OSError):
             return 0.0, 0.0, "exact"
 
-        # A panel of candidate hosts is aggregated worst-case by default: one
-        # unknown host is drawn from it, so a set that is clean against one and
-        # filthy against another is not generic, and a mean would hide that.
+        # A panel of modelled candidate hosts is aggregated by the same
+        # `background_aggregate` the measured hosts use: one key, one answer to
+        # what "several hosts" means, whether they are genomes or profiles.
+        #
+        # This used to default to `worst-case` here -- one unknown host drawn
+        # from the panel, so a set clean against one and filthy against another
+        # is not generic -- while the key it shadowed defaults to `sum`. Two
+        # defaults for one attribute is the shape that makes a key appear to
+        # work while one reader quietly disagrees, so the second one is gone and
+        # the key decides. The reasoning for `worst-case` is still available to
+        # a caller: it is what the key now spells, and it was unreachable before.
+        # Only a panel of SEVERAL profiles is affected -- `aggregate_loads` over
+        # one profile is that profile under either reading -- and nothing in the
+        # CLI or the schema supplies a panel.
         profiles = profile if isinstance(profile, (list, tuple)) else [profile]
         lengths = getattr(self, "background_profile_lengths", None) or [
             getattr(p, "fitted_length", 0) or 3_000_000_000 for p in profiles
         ]
-        mode = getattr(self, "background_aggregate", "worst-case")
+        mode = self.background_aggregate
         loads = [
             expected_site_load(primers, prof, length, conditions, max_mismatches)
             for prof, length in zip(profiles, lengths, strict=True)
@@ -1172,7 +1245,23 @@ class BaseOptimizer(ABC):
         strand_alt_score, strand_cov_ratio = headline_strand_scalars(strand_stats, self.fg_prefixes)
         occupancy_by_primer = panel_occupancy(primers, self.conditions)
 
+        # Each host on its own length, from the per-prefix positions gathered
+        # above rather than a second pass over the cache. Reduced per limit in
+        # `per_host_metrics`; the pooled figures passed below are unchanged.
+        background = per_host_metrics.measure_background(
+            self,
+            primers,
+            bg_by_prefix,
+            pooled_sites=total_bg,
+            pooled_coverage=bg_coverage,
+            pooled_density=selectivity_density,
+            effective_fg=effective_fg,
+            effective_bg=effective_bg,
+            selectivity_mode=selectivity_mode,
+        )
+
         return PrimerSetMetrics(
+            **background.kwargs(),
             fg_coverage=fg_coverage,
             effective_fg_coverage=effective_fg_coverage,
             coverage_by_reach=coverage_by_reach,

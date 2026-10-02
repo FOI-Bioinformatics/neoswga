@@ -325,6 +325,19 @@ class SpecificityMetrics:
     # from the shipped uniform model. "occupancy" under uniform, so no existing
     # report changes; "exact" when the mismatch tables were unavailable.
     selectivity_mode: str = "occupancy"
+    # Which reading of "the background" the figures above were taken under:
+    # "sum", every listed host pooled into one load over one length, or
+    # "worst-case", each host judged on its own length. The figures here are the
+    # POOLED ones under both, so this says what they are rather than changing
+    # what they mean -- but a report that does not say it leaves a reader to
+    # assume a panel was held to each host when it was held to the pool.
+    background_aggregate: str = "sum"
+    # One row per host genome, from the panel assessment: sites, sites per Mb,
+    # occupancy-weighted load, coverage and `selectivity_density` against that
+    # host's own length. Empty for a single-host run, where the pooled figures
+    # above say the same thing, and for a results directory written before
+    # 2026-10-02.
+    per_host: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -554,6 +567,18 @@ def _apply_panel_assessment(metrics, results_path: Path) -> None:
             else:
                 setattr(metrics.specificity, attribute, value)
             metrics.specificity.from_optimizer = True
+
+    # The host side of the assessment, and which reading of "the background"
+    # produced the pooled figures just applied. Read from the assessment rather
+    # than recomputed, and with no default: a report that showed the pooled
+    # figures without saying they were pooled is the ambiguity Phase 7c exists
+    # to remove. `tests/test_per_host_figures.py` drives a summary through this
+    # loader and asserts both arrive, rather than trusting that they do --
+    # `occupancy_ranking_mode` was written and silently dropped exactly here.
+    if isinstance(assessment.get("per_host"), dict):
+        metrics.specificity.per_host = dict(assessment["per_host"])
+    if assessment.get("background_aggregate"):
+        metrics.specificity.background_aggregate = str(assessment["background_aggregate"])
 
     # The optimizer's Tm, not the report's own recomputation of it. The two
     # are computed under different reaction conditions whenever

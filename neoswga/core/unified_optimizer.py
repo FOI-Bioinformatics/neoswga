@@ -29,6 +29,7 @@ from typing import Any, Optional
 import pandas as pd
 
 from . import parameter
+from .background_aggregate import resolve_background_aggregate
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .candidate_source import describe_reach, order_candidates_by_background
 from .design_result import panel_validation_is_ok
@@ -1060,6 +1061,16 @@ def run_optimization(
     search_budget = SearchBudget.from_config(config)
     kwargs["search_budget"] = search_budget
     kwargs["candidate_source"] = _candidate_source
+    # The resolved reading of "the background", passed EXPLICITLY to every
+    # optimizer this dispatch builds. `BaseOptimizer.__init__` used to carry a
+    # literal `worst-case` default for this argument while the params.json key
+    # defaults to `sum`, and nothing passed the argument -- so the opposite of
+    # the documented behaviour sat one layer below the key. Resolving here, once
+    # per run, is also what keeps a per-evaluation `parameter` read out of the
+    # metrics path. See `core/background_aggregate.py`.
+    kwargs["background_aggregate"] = resolve_background_aggregate(
+        getattr(parameter, "background_aggregate", None)
+    )
     result, optimizer = _dispatch_optimizer(
         method,
         cache,
