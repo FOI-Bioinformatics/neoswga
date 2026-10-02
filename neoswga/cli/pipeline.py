@@ -897,6 +897,9 @@ def run_step4(args):
         # took its own fallback. `request_hash` is what lets the saved result
         # name the configuration that produced it.
         from neoswga.core.design_request import (
+            cli_overrides as _cli_overrides,
+        )
+        from neoswga.core.design_request import (
             design_request_for_run,
             effective_request_for_manifest,
         )
@@ -1185,6 +1188,10 @@ def run_step4(args):
                 # invoked with `-n 160` is recorded there as whatever the file
                 # said. This is the number the run actually used.
                 "effective_set_size": _effective_size,
+                # Every other flag that overrode the file, for the same reason:
+                # `resolved_params` is verbatim, so a limit passed as a flag
+                # appeared nowhere in the record of the run it steered.
+                "cli_overrides": _cli_overrides(args),
                 "optimization_method": resolve_optimization_method(args),
                 # Resolved a SECOND time, after the overrides. `design_request` above
                 # is the file, validated early so a bad setting costs nothing;
