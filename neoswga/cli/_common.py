@@ -863,6 +863,67 @@ def bootstrap_params_from_genome(genome_paths, output_dir, circular=True):
     return applied
 
 
+def background_references_from_genomes(genome_paths, output_dir):
+    """The bookkeeping for host genomes given by path, with nothing configured.
+
+    The foreground sibling above synthesises `fg_prefixes` / `fg_seq_lengths`
+    for someone who has an oligo list and a reference and none of the pipeline's
+    artifacts. A host had no such route at all: the background came only from
+    `parameter.bg_prefixes` / `bg_genomes`, so no command could score a
+    delivered set against a host that was not in the design.
+
+    Two deliberate differences from `bootstrap_params_from_genome`.
+
+    It does NOT write to the `parameter` module. A host supplied for evaluation
+    is not a host the design used, and the pooled background fields read those
+    globals; setting them would make an evaluation host indistinguishable from a
+    configured one. The prefix and the genome are returned together and travel
+    together to the call that measures them, which is what
+    `kmer_tables.counts_for` documents as its requirement.
+
+    It creates no k-mer table. Counts come from `counts_for`, which reads a
+    table at this prefix if one is already there and otherwise scans the genome
+    through `query_scan`. Positions, and therefore coverage, need the genome
+    held in memory, so they are the caller's opt-in rather than a default --
+    `docs/validation/query_scan_2026-09-25.md` has the measured cost.
+
+    Args:
+        genome_paths: one or more host FASTA paths.
+        output_dir: where the synthesised prefixes are rooted.
+
+    Returns:
+        A list of ``{"prefix": str, "genome": str, "length": int}``, in the
+        order given.
+    """
+    import os
+
+    from neoswga.core import parameter
+    from neoswga.core import utility as _utility
+
+    genome_paths = [genome_paths] if isinstance(genome_paths, str) else list(genome_paths)
+    for path in genome_paths:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Background genome file not found: {path}")
+
+    os.makedirs(output_dir, exist_ok=True)
+    lengths = _utility.get_all_seq_lengths(
+        fname_genomes=genome_paths, cpus=getattr(parameter, "cpus", 1) or 1
+    )
+    references = [
+        {
+            "prefix": os.path.join(output_dir, os.path.splitext(os.path.basename(path))[0]),
+            "genome": path,
+            "length": int(length),
+        }
+        for path, length in zip(genome_paths, lengths, strict=True)
+    ]
+    logger.info(
+        "Background references given by path: %s",
+        ", ".join(f"{r['genome']} ({r['length']:,} bp)" for r in references),
+    )
+    return references
+
+
 def add_position_source_options(parser):
     """Add the flags that let a command find binding positions without an index.
 

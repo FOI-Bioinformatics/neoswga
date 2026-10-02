@@ -12,6 +12,12 @@ This is a thin front door, not a new engine. Position lookup goes through
 `compute_per_prefix_coverage` the optimizers use, and thermodynamics through
 `ReactionConditions` - so its numbers are the numbers the rest of the tool
 reports, not a parallel implementation that could drift.
+
+The per-reference blocks added on 2026-10-02 keep that contract: they are
+composed by `core/reference_panel_evaluation.py`, which this handler calls once.
+What they add is the question no command could ask before - how does this set do
+on EACH target and EACH host, including a host that was never in the design's
+params.json - and every pooled field keeps the name and the arithmetic it had.
 """
 
 import json
@@ -19,6 +25,7 @@ import logging
 import os
 
 from neoswga.cli._common import (
+    background_references_from_genomes,
     bootstrap_params_from_genome,
     collect_primers_from_args,
     merge_args_to_parameter,
@@ -78,6 +85,147 @@ def _resolve_sources(args):
             "params.json with fg_genomes/fg_prefixes/fg_seq_lengths populated."
         )
     return prefixes, genomes, lengths
+
+
+def _resolve_primers(args):
+    """The oligo set: either named on the command line, or a delivered set.
+
+    `--from-results DIR` reads ONE set through `core/delivered_set.py`, which is
+    the same reader `export`, `interpret`, `report` and `simulate` use. The
+    alternatives in `step4_improved_df.csv` are separate answers to one design,
+    so evaluating their union would describe a tube nobody would set up and a
+    dimer screen has never compared.
+    """
+    from_results = getattr(args, "from_results", None)
+    explicit = getattr(args, "primers", None) or getattr(args, "primers_file", None)
+    if from_results and explicit:
+        raise ValueError(
+            "Pass either --from-results or --primers/--primers-file, not both: "
+            "a delivered set and a hand-written list are two different panels."
+        )
+    if not from_results:
+        return collect_primers_from_args(
+            getattr(args, "primers", None), getattr(args, "primers_file", None)
+        )
+
+    from neoswga.core.delivered_set import read_delivered_set
+
+    path = from_results
+    if os.path.isdir(path):
+        path = os.path.join(path, "step4_improved_df.csv")
+    delivered = read_delivered_set(path, getattr(args, "set_index", 0))
+    primers = list(delivered.primers)
+    if not primers:
+        raise ValueError(f"No primers in {path}")
+    logger.info("Evaluating %s", delivered.describe())
+    return primers
+
+
+def _reference_specs(args, prefixes, genomes, lengths, bg_prefixes, bg_genomes, bg_lengths):
+    """One `ReferenceSpec` per genome, targets and hosts together.
+
+    Prefix, genome and length travel together on each spec. The hosts given by
+    `--background` are scanned only when `--scan-background` says so; otherwise
+    their sites come from k-mer counts and their coverage is reported as
+    unavailable with that as the reason, which is the honest answer for a
+    host-sized genome rather than a zero.
+    """
+    from neoswga.core import parameter
+    from neoswga.core.reference_panel_evaluation import ROLE_HOST, ROLE_TARGET, ReferenceSpec
+
+    circular_fg = not args.linear
+    scan_bg = bool(getattr(args, "scan_background", False))
+    # The same key the existing background block reads, so a host configured in
+    # params.json is treated identically in both places.
+    bg_circular = bool(getattr(parameter, "bg_circular", False))
+
+    specs = []
+    aligned_genomes = genomes if len(genomes) == len(prefixes) else [None] * len(prefixes)
+    for prefix, genome, length in zip(prefixes, aligned_genomes, lengths, strict=True):
+        specs.append(
+            ReferenceSpec(
+                prefix=prefix,
+                genome=genome,
+                length=int(length),
+                role=ROLE_TARGET,
+                circular=circular_fg,
+                scan=True,
+            )
+        )
+
+    host_genomes = bg_genomes if len(bg_genomes) == len(bg_prefixes) else [None] * len(bg_prefixes)
+    for prefix, genome, length in zip(bg_prefixes, host_genomes, bg_lengths, strict=True):
+        specs.append(
+            ReferenceSpec(
+                prefix=prefix,
+                genome=genome,
+                length=int(length),
+                role=ROLE_HOST,
+                circular=bg_circular,
+                scan=scan_bg,
+            )
+        )
+    return specs
+
+
+def _per_reference_blocks(args, primers, conditions, reach, foreground, background, totals):
+    """The per-reference blocks, and the pooled host fields they may fill.
+
+    Per reference, separately: the question the pooled figures cannot answer. A
+    primer that binds only one of two targets is invisible in `fg_coverage`, and
+    a host that is a small share of the pooled bases is invisible in
+    `selectivity_ratio` -- Known Issue 6 in a second place.
+
+    Hosts given by `--background` are kept apart from the configured ones all the
+    way through. `totals` comes back unchanged unless the ONLY hosts are ones
+    given by path: with a host configured in params.json the pooled fields keep
+    the arithmetic they have always had, so no existing output moves, and with
+    none they were simply None and a measurement now exists.
+    """
+    from neoswga.core.reference_panel_evaluation import evaluate_reference_panel
+
+    prefixes, genomes, lengths = foreground
+    bg_prefixes, bg_genomes, bg_lengths = background
+    total_sites, total_bg_sites, selectivity = totals
+
+    extra_hosts = []
+    if getattr(args, "background", None):
+        extra_hosts = background_references_from_genomes(args.background, args.output)
+
+    panel = evaluate_reference_panel(
+        primers,
+        _reference_specs(
+            args,
+            prefixes,
+            genomes,
+            lengths,
+            list(bg_prefixes) + [host["prefix"] for host in extra_hosts],
+            list(bg_genomes) + [host["genome"] for host in extra_hosts],
+            list(bg_lengths) + [host["length"] for host in extra_hosts],
+        ),
+        conditions,
+        extension=reach,
+    )
+    if not bg_prefixes and extra_hosts:
+        total_bg_sites, selectivity = _pooled_host_sites(panel, total_sites)
+    return panel.as_dict(), total_bg_sites, selectivity
+
+
+def _pooled_host_sites(panel, total_sites):
+    """The pooled host site count and ratio, for hosts given by `--background`.
+
+    None when ANY of those hosts could not be measured. A sum over the hosts
+    that happened to answer is not the panel's host binding, and it reads as
+    though it were -- the same shape as the reductions inside
+    `reference_panel_evaluation`. The per-host rows sit beside it in the JSON,
+    so a reader never has only the pooled figure for hosts of different sizes.
+    """
+    hosts = panel.hosts
+    if not hosts or any(host.sites.value is None for host in hosts):
+        return None, None
+    pooled = int(sum(host.sites.value for host in hosts))
+    ratio = round(total_sites / pooled, 4) if pooled else None
+    return pooled, ratio
 
 
 def _gap_statistics(cache, primers, prefixes, lengths, circular):
@@ -163,13 +311,12 @@ def run_evaluate_set(args):
     from neoswga.core.position_cache import PositionCache
     from neoswga.core.reaction_conditions import build_reaction_conditions
 
-    primers = collect_primers_from_args(
-        getattr(args, "primers", None), getattr(args, "primers_file", None)
-    )
+    primers = _resolve_primers(args)
     os.makedirs(args.output, exist_ok=True)
     prefixes, genomes, lengths = _resolve_sources(args)
     bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
     bg_genomes = list(getattr(parameter, "bg_genomes", []) or [])
+    bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
 
     polymerase = (
         getattr(args, "polymerase", None) or getattr(parameter, "polymerase", "phi29") or "phi29"
@@ -286,6 +433,17 @@ def run_evaluate_set(args):
     mean_gap, max_gap, gap_gini = _gap_statistics(
         cache, primers, prefixes, lengths, circular=not args.linear
     )
+
+    panel_block, total_bg_sites, selectivity = _per_reference_blocks(
+        args,
+        primers,
+        conditions,
+        reach,
+        (prefixes, genomes, lengths),
+        (bg_prefixes, bg_genomes, bg_lengths),
+        (total_sites, total_bg_sites, selectivity),
+    )
+
     result = {
         "primers": per_primer,
         "num_primers": len(primers),
@@ -319,6 +477,16 @@ def run_evaluate_set(args):
             "temp": conditions.temp,
             "mg_conc": conditions.mg_conc,
         },
+        # Per reference. `per_target_coverage` above keeps its shape and its
+        # meaning; these blocks carry the site counts, densities, gaps and
+        # weighted loads per genome, each measured against its OWN length, plus
+        # the target-against-host table and the two reductions over it.
+        "per_target": panel_block["per_target"],
+        "per_host": panel_block["per_host"],
+        "target_host_pairs": panel_block["target_host_pairs"],
+        "worst_target_coverage": panel_block["worst_target_coverage"],
+        "worst_host_selectivity_density": panel_block["worst_host_selectivity_density"],
+        "per_reference_notes": panel_block["notes"],
     }
 
     out_path = os.path.join(args.output, "evaluation.json")
@@ -330,6 +498,65 @@ def run_evaluate_set(args):
     print(f"\nWrote {out_path}")
     print("Next: neoswga expand-primers --fixed-primers <keep> --num-new N")
     return result
+
+
+def _measured(entry):
+    """A measurement's value, or None. One reader for the JSON shape."""
+    return entry.get("value") if isinstance(entry, dict) else None
+
+
+def _format_measurement(entry, fmt="{:.4g}"):
+    value = _measured(entry)
+    if value is None:
+        reason = (entry or {}).get("unavailable") or "not measured"
+        return f"unavailable ({reason})"
+    return fmt.format(value)
+
+
+def _print_per_reference(result):
+    """The per-reference rows, and the two reductions over them.
+
+    Printed with the reductions LAST, because they are the figures a reader acts
+    on and an unavailable one has to be read as unknown rather than skipped.
+    """
+    targets = result.get("per_target") or {}
+    hosts = result.get("per_host") or {}
+    if not targets and not hosts:
+        return
+
+    print("\n  Per reference (each against its own length):")
+    for name, record in list(targets.items()) + list(hosts.items()):
+        label = os.path.basename(name)
+        sites = _format_measurement(record.get("sites"), "{:.0f}")
+        density = _format_measurement(record.get("sites_per_mb"), "{:.1f}")
+        coverage = record.get("coverage") or {}
+        covered = _measured(coverage)
+        coverage_text = f"{covered:.1%}" if covered is not None else "coverage unavailable"
+        print(
+            f"      {record.get('role', '?'):<6s} {label:<22s} sites {sites:>8s}  "
+            f"{density:>8s}/Mb  {coverage_text}"
+        )
+        if covered is None and coverage.get("unavailable"):
+            print(f"          why: {coverage['unavailable']}")
+
+    pairs = result.get("target_host_pairs") or []
+    if pairs:
+        print("\n  Target against host (density is the comparable figure;")
+        print("  the ratio moves with host size -- Known Issue 6):")
+        for pair in pairs:
+            print(
+                f"      {os.path.basename(pair['target']):<18s} vs "
+                f"{os.path.basename(pair['host']):<18s} "
+                f"density {_format_measurement(pair.get('selectivity_density'))}  "
+                f"ratio {_format_measurement(pair.get('selectivity_ratio'))}"
+            )
+
+    worst_coverage = result.get("worst_target_coverage")
+    worst_density = result.get("worst_host_selectivity_density")
+    if worst_coverage or worst_density:
+        print("\n  Worst case over the panel:")
+        print(f"      worst target coverage      : {_format_measurement(worst_coverage, '{:.1%}')}")
+        print(f"      worst host density         : {_format_measurement(worst_density)}")
 
 
 def _print_report(result):
@@ -369,6 +596,8 @@ def _print_report(result):
     print(f"  Coverage @ {result['extension_reach_bp']} bp reach : {result['fg_coverage']:.1%}")
     for name, cov in result["per_target_coverage"].items():
         print(f"      {os.path.basename(name)}: {cov:.1%}")
+
+    _print_per_reference(result)
 
     if result.get("gap_interpretation"):
         print("\n  Gap analysis (all three shown: the published benchmarks")
@@ -421,6 +650,31 @@ def add_parsers(subparsers):
     # --genome alone is enough.
     p.add_argument("--primers", nargs="+", help="Primer sequences")
     p.add_argument("--primers-file", help="File with one primer per line")
+    p.add_argument(
+        "--from-results",
+        metavar="DIR",
+        help="Read the oligo set from a finished run's step4_improved_df.csv "
+        "instead of --primers. One set, not the union of the alternatives.",
+    )
+    p.add_argument(
+        "--set",
+        dest="set_index",
+        type=int,
+        default=0,
+        help="Which of the alternative primer sets --from-results reads "
+        "(default: 0, the set the run summary describes). Alternatives are "
+        "separate answers to the same design, not additions to it.",
+    )
+    p.add_argument(
+        "--background",
+        nargs="+",
+        metavar="FASTA",
+        help="Host genome FASTA(s) to score against, needing no params.json "
+        "entry. Sites come from k-mer counts, which is a frequency question a "
+        "table or a single pass over the reference answers; pass "
+        "--scan-background as well to locate them and measure host coverage, "
+        "which holds the host in memory.",
+    )
     p.add_argument("-o", "--output", default="evaluation", help="Output directory")
     p.add_argument("--reaction-temp", type=float)
     p.add_argument(
