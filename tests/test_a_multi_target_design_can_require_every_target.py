@@ -258,7 +258,9 @@ def _probe_class():
     return _Probe
 
 
-def _two_target_optimizer(seq_lengths=(TARGET_LENGTH, TARGET_LENGTH)):
+def _two_target_optimizer(
+    seq_lengths=(TARGET_LENGTH, TARGET_LENGTH), floor=0.05, geometry="symmetric"
+):
     from neoswga.core.base_optimizer import OptimizerConfig
 
     binds = {("A", primer): DENSE for primer in A_PRIMERS}
@@ -277,6 +279,12 @@ def _two_target_optimizer(seq_lengths=(TARGET_LENGTH, TARGET_LENGTH)):
             # effective coverage is None and every panel would carry a
             # "coverage unavailable" violation as well.
             coverage_metric="raw",
+            # A floor in force, which is what makes `compute_metrics` produce
+            # the per-target figure at all: with none configured nothing reads
+            # it during the search and it is not computed, which
+            # `TestTheFigureIsComputedOnlyWhenSomethingReadsIt` pins.
+            min_per_target_coverage=floor,
+            coverage_geometry=geometry,
             max_dimer_bp=3,
             max_self_dimer_bp=4,
         ),
@@ -331,7 +339,9 @@ class TestTheEvaluatorProducesTheFigure:
             fg_seq_lengths=[TARGET_LENGTH],
             bg_prefixes=[],
             bg_seq_lengths=[],
-            config=OptimizerConfig(target_set_size=2, extension_reach=REACH),
+            config=OptimizerConfig(
+                target_set_size=2, extension_reach=REACH, min_per_target_coverage=0.05
+            ),
         )
         metrics = optimizer.compute_metrics(A_PRIMERS)
 
@@ -415,7 +425,7 @@ class _DraftCache:
         return None if self._starts is None else list(self._starts)
 
 
-def _draft_optimizer(cache=None):
+def _draft_optimizer(cache=None, floor=0.9, geometry="symmetric"):
     from neoswga.core.base_optimizer import OptimizerConfig
 
     return _probe_class()(
@@ -424,7 +434,13 @@ def _draft_optimizer(cache=None):
         fg_seq_lengths=[DRAFT_LENGTH],
         bg_prefixes=[],
         bg_seq_lengths=[],
-        config=OptimizerConfig(target_set_size=1, extension_reach=REACH, coverage_metric="raw"),
+        config=OptimizerConfig(
+            target_set_size=1,
+            extension_reach=REACH,
+            coverage_metric="raw",
+            min_per_target_coverage=floor,
+            coverage_geometry=geometry,
+        ),
     )
 
 
@@ -508,6 +524,313 @@ class TestTheFloorReadsTheConfinedFigure:
         from neoswga.core import coverage
 
         assert "confined_covered_bases" in inspect.getsource(coverage.compute_per_prefix_coverage)
+
+
+class TestTheFigureIsComputedOnlyWhenSomethingReadsIt:
+    """A bitmap per target is linear in the sequence -- measured at +40 ms, about
+    18 percent of one objective evaluation, on a 145 Mb foreground -- and a
+    search performs very many evaluations. Paying that so an unused figure could
+    be reported is the wrong trade, so `compute_metrics` produces it only when a
+    per-target floor is configured, and `attach_per_target` fills it in once on
+    the delivered panel for every other run.
+    """
+
+    def test_with_no_floor_the_search_does_not_compute_it(self):
+        metrics = _two_target_optimizer(floor=None).compute_metrics([*A_PRIMERS, B_PRIMER])
+
+        assert metrics.per_target_coverage == {}
+        assert metrics.worst_target_coverage is None
+
+    def test_a_zero_floor_counts_as_no_floor(self):
+        """0.0 has meant disabled for this key since before it was a limit, and
+        the budget decision must read it the same way the limit does."""
+        metrics = _two_target_optimizer(floor=0.0).compute_metrics([*A_PRIMERS, B_PRIMER])
+
+        assert metrics.per_target_coverage == {}
+
+    def test_with_a_floor_the_search_computes_it(self):
+        metrics = _two_target_optimizer(floor=0.05).compute_metrics([*A_PRIMERS, B_PRIMER])
+
+        assert set(metrics.per_target_coverage) == {"A", "B"}
+        assert metrics.worst_target_coverage is not None
+
+    def test_not_computed_is_absent_and_never_zero(self):
+        """The whole point: an uncomputed figure must not look like a starved
+        target, or a floor would read a fabricated number out of it."""
+        from neoswga.core.target_coverage import not_computed
+
+        absent = not_computed()
+
+        assert absent.per_target == {}
+        assert absent.worst is None
+
+    def test_a_requested_floor_is_still_refused_on_an_uncomputed_figure(self):
+        """Belt and braces: if the gate and the floor ever disagreed, the floor
+        must refuse rather than pass."""
+        from neoswga.core.exceptions import ModelEvaluationError
+        from neoswga.core.target_coverage import require_per_target
+
+        with pytest.raises(ModelEvaluationError):
+            require_per_target({}, None, ["A", "B"], 0.5)
+
+    def test_the_light_evaluator_makes_the_same_decision(self):
+        """The search reads `compute_pool_metrics`. One evaluator computing the
+        figure and the other not is how two definitions of one number start."""
+        optimizer = _two_target_optimizer(floor=None)
+
+        assert optimizer.compute_metrics([*A_PRIMERS, B_PRIMER]).per_target_coverage == {}
+        assert optimizer.compute_pool_metrics([*A_PRIMERS, B_PRIMER]).worst_target_coverage is None
+
+    def test_one_reader_decides_whether_a_floor_is_in_force(self):
+        from neoswga.core.base_optimizer import OptimizerConfig
+        from neoswga.core.target_coverage import per_target_floor_in_force
+
+        assert per_target_floor_in_force(OptimizerConfig()) is None
+        assert per_target_floor_in_force(OptimizerConfig(min_per_target_coverage=0.4)) == 0.4
+
+    def test_the_config_field_is_resolved_from_the_run(self):
+        """`_build_optimizer_config` must set it, or the gate reads None on
+        every run and the figure is never computed during a search."""
+        import inspect
+
+        from neoswga.core import unified_optimizer
+
+        source = inspect.getsource(unified_optimizer._build_optimizer_config)
+
+        assert 'min_per_target_coverage=pick("min_per_target_coverage", None)' in source
+
+
+class TestTheReportStillCarriesTheFigureWithNoFloor:
+    """A reported figure must not disappear because an unrelated limit is
+    unset. `attach_per_target` fills it in once, on the delivered panel."""
+
+    def _result(self, primers, metrics):
+        from neoswga.core.base_optimizer import OptimizationResult, OptimizationStatus
+
+        return OptimizationResult(
+            primers=list(primers),
+            score=1.0,
+            status=OptimizationStatus.SUCCESS,
+            metrics=metrics,
+            iterations=1,
+            optimizer_name="probe",
+        )
+
+    def _attach(self, optimizer, primers, geometry="symmetric"):
+        from neoswga.core.target_coverage import attach_per_target
+
+        result = self._result(primers, optimizer.compute_metrics(list(primers)))
+        return attach_per_target(
+            result,
+            optimizer.cache,
+            optimizer.fg_prefixes,
+            optimizer.fg_seq_lengths,
+            extension=REACH,
+            circular=False,
+            geometry=geometry,
+        )
+
+    def test_it_is_filled_in_once_when_the_search_did_not(self):
+        optimizer = _two_target_optimizer(floor=None)
+        attached = self._attach(optimizer, [*A_PRIMERS, B_PRIMER])
+
+        assert set(attached.metrics.per_target_coverage) == {"A", "B"}
+        assert attached.metrics.worst_target_coverage is not None
+
+    def test_the_filled_in_figure_equals_the_searched_one(self):
+        """The two paths must agree, or the number a floor was enforced against
+        and the number reported would be different quantities."""
+        searched = _two_target_optimizer(floor=0.05).compute_metrics([*A_PRIMERS, B_PRIMER])
+        attached = self._attach(_two_target_optimizer(floor=None), [*A_PRIMERS, B_PRIMER])
+
+        assert attached.metrics.per_target_coverage == pytest.approx(searched.per_target_coverage)
+        assert attached.metrics.worst_target_coverage == pytest.approx(
+            searched.worst_target_coverage
+        )
+
+    def test_it_never_overwrites_what_the_search_measured(self):
+        optimizer = _two_target_optimizer(floor=0.05)
+        before = optimizer.compute_metrics([*A_PRIMERS, B_PRIMER])
+        attached = self._attach(optimizer, [*A_PRIMERS, B_PRIMER])
+
+        assert attached.metrics.per_target_coverage == before.per_target_coverage
+
+    def test_an_unmeasurable_target_stays_absent_rather_than_zero(self):
+        """`compute_per_prefix_coverage` writes 0.0 for a zero-length prefix,
+        which is the convention this module exists to refuse."""
+        optimizer = _two_target_optimizer(seq_lengths=(TARGET_LENGTH, 0), floor=None)
+        attached = self._attach(optimizer, A_PRIMERS)
+
+        assert "B" not in attached.metrics.per_target_coverage
+        assert attached.metrics.worst_target_coverage is None
+
+    def test_the_optimize_path_calls_it(self):
+        import ast
+        import inspect
+
+        from neoswga.core import unified_optimizer
+
+        tree = ast.parse(inspect.getsource(unified_optimizer))
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+
+        assert "attach_per_target" in called
+
+
+class TestTheDirectionalGeometryIsRefusedNotApproximated:
+    """`coverage.confined_covered_bases` marks `[pos-reach, pos+reach)`, which is
+    the symmetric geometry and what `evaluate-set` reports. Under
+    `coverage_geometry: directional` a site reaches one way only and half the
+    width, so reporting the symmetric number there is the same class of error as
+    reporting an unconfined one -- the error this step was reopened to fix.
+    """
+
+    def test_the_figure_is_absent_under_directional(self):
+        metrics = _two_target_optimizer(geometry="directional").compute_metrics(
+            [*A_PRIMERS, B_PRIMER]
+        )
+
+        assert metrics.per_target_coverage == {}
+        assert metrics.worst_target_coverage is None
+
+    def test_the_reason_is_carried_rather_than_a_silent_absence(self):
+        from neoswga.core.target_coverage import confined_coverage_by_target
+
+        optimizer = _two_target_optimizer(geometry="directional")
+        coverage = confined_coverage_by_target(optimizer, {"A": DENSE, "B": SPARSE})
+
+        assert coverage.unavailable is not None
+        assert "directional" in coverage.unavailable
+        assert coverage.worst is None
+
+    def test_a_floor_is_refused_under_directional(self):
+        from neoswga.core.exceptions import ModelEvaluationError
+        from neoswga.core.target_coverage import DIRECTIONAL_UNAVAILABLE, require_per_target
+
+        with pytest.raises(ModelEvaluationError) as excinfo:
+            require_per_target({}, None, ["A", "B"], 0.5, DIRECTIONAL_UNAVAILABLE)
+
+        assert "directional" in str(excinfo.value)
+
+    def test_the_objective_treats_it_as_unmet_rather_than_satisfied(self):
+        from neoswga.core.panel_refinement import objective_for_optimizer
+        from neoswga.core.pool_objective import PoolConstraints
+
+        optimizer = _two_target_optimizer(geometry="directional")
+        objective = objective_for_optimizer(
+            optimizer, PoolConstraints(min_per_target_coverage=0.5, coverage_metric="raw")
+        )
+
+        assert "per-target coverage below minimum" in objective.violations(A_PRIMERS)
+
+    def test_the_reporting_pass_does_not_substitute_a_symmetric_number(self):
+        from neoswga.core.base_optimizer import OptimizationResult, OptimizationStatus
+        from neoswga.core.target_coverage import attach_per_target
+
+        optimizer = _two_target_optimizer(geometry="directional")
+        result = OptimizationResult(
+            primers=[*A_PRIMERS, B_PRIMER],
+            score=1.0,
+            status=OptimizationStatus.SUCCESS,
+            metrics=optimizer.compute_metrics([*A_PRIMERS, B_PRIMER]),
+            iterations=1,
+            optimizer_name="probe",
+        )
+        attached = attach_per_target(
+            result,
+            optimizer.cache,
+            optimizer.fg_prefixes,
+            optimizer.fg_seq_lengths,
+            extension=REACH,
+            circular=False,
+            geometry="directional",
+        )
+
+        assert attached.metrics.per_target_coverage == {}
+
+    def test_the_optimize_path_passes_the_reason_through(self):
+        import inspect
+
+        from neoswga.core import unified_optimizer
+
+        source = inspect.getsource(unified_optimizer.run_optimization)
+
+        assert "DIRECTIONAL_UNAVAILABLE" in source
+
+    def test_the_schema_says_so(self):
+        import json
+
+        schema = json.loads(
+            (ROOT / "neoswga" / "core" / "schema" / "params.schema.json").read_text()
+        )
+        description = schema["properties"]["min_per_target_coverage"]["description"]
+
+        assert "directional" in description
+        assert "REFUSED" in description
+
+
+class TestTheRecordedMetricIsTheOneThatApplied:
+    """`constraints_from_parameter` never set `coverage_metric`, so a recorded
+    request whose run selected on RAW coverage named `effective` anyway -- and
+    `constraints` is hashed, so the CLI overlay made the hash claim to cover the
+    constraints faithfully while one field was a placeholder."""
+
+    def _params(self, **extra):
+        return dict(
+            schema_version=2,
+            fg_prefixes=["/tmp/t"],
+            fg_seq_lengths=[100_000],
+            fg_genomes=["/tmp/t.fna"],
+            polymerase="phi29",
+            reaction_temp=30.0,
+            num_primers=6,
+            target_set_size=6,
+            min_per_target_coverage=0.5,
+            **extra,
+        )
+
+    def test_a_stated_metric_reaches_the_recorded_constraints(self):
+        from neoswga.core.design_request import resolve_design_request
+
+        request = resolve_design_request(self._params(coverage_metric="raw"))
+
+        assert request.constraints.coverage_metric == "raw"
+
+    def test_a_stated_metric_moves_the_request_hash(self):
+        from neoswga.core.design_request import resolve_design_request
+
+        raw = resolve_design_request(self._params(coverage_metric="raw"))
+        effective = resolve_design_request(self._params(coverage_metric="effective"))
+
+        assert raw.request_hash != effective.request_hash
+
+    def test_an_unstated_metric_is_recorded_as_resolved_later(self):
+        """Not silently named: the record says the choice was not made here."""
+        from neoswga.core.design_request import resolve_design_request
+
+        request = resolve_design_request(self._params())
+
+        assert "resolved at selection" in request.default_sources["coverage_metric"]
+
+    def test_a_stated_metric_is_recorded_as_coming_from_the_request(self):
+        from neoswga.core.design_request import resolve_design_request
+
+        request = resolve_design_request(self._params(coverage_metric="raw"))
+
+        assert request.default_sources["coverage_metric"] == "request"
+
+    def test_no_limit_names_no_metric_at_all(self):
+        """With no limit there is no constraints object, so nothing can be
+        misdescribed."""
+        from neoswga.core.design_request import resolve_design_request
+
+        params = self._params()
+        del params["min_per_target_coverage"]
+
+        assert resolve_design_request(params).constraints is None
 
 
 class TestAnUnmeasuredTargetMakesTheWorstUnknown:

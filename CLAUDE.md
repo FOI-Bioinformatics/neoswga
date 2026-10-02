@@ -415,3 +415,14 @@ with open_index('g_12mer_positions.h5') as index:
 - State the size of a claim. One pair, one panel size or one seed is "no
   benefit demonstrated", and "not determined" is for cases where more evidence
   would settle it.
+- Before making an existing figure the subject of a user-settable limit, search
+  the audit records for that figure's NAME. A plan can tell you to compute it
+  the wrong way: Phase 6c was told to take per-target coverage from the loop
+  that produces `fg_coverage`, which audit finding F3 had already recorded as a
+  P1 error for that quantity and fixed elsewhere, and on a 500-contig draft the
+  floor passed a panel at 0.9996 that measures 0.775. Correctness beats reusing
+  one loop, and the record names the finding.
+- A figure only a configured limit reads should not be computed in every
+  objective evaluation. Compute it when something reads it, once at the end for
+  the report, and measure all three cases: with the limit, without it, and
+  against the pre-change cost.

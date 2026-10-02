@@ -476,14 +476,28 @@ def _resolve_oligos(params: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[s
     return fixed, excluded
 
 
-def _resolve_constraints(params: Mapping[str, Any], has_background: bool):
+def _resolve_constraints(params: Mapping[str, Any], has_background: bool, sources: dict):
     """Panel limits, refusing a background-measured one with no background.
 
     Reported as satisfied is the failure this prevents: the quantity cannot be
     measured at all without a host reference, and a limit on an unmeasurable
     quantity either passes vacuously or fails every panel. Neither is what the
     user asked for, and the remedy is to supply the reference.
+
+    `coverage_metric` is carried onto the returned `PoolConstraints` when the
+    request states it. It is a field of that dataclass with a default of
+    `"effective"`, and `constraints_from_parameter` never set it, so a recorded
+    request whose run selected on RAW coverage named `effective` anyway -- and
+    `constraints` is hashed, so after the CLI overlay the hash claimed to cover
+    the constraints faithfully while one of their fields was a placeholder.
+    When the request does not state it, the field is left at its default and
+    `default_sources` says the metric is resolved at selection time instead, so
+    the record does not assert a choice nobody made. Nothing is named when no
+    limit is configured at all: `constraints_from_parameter` returns None then,
+    and there is no object to misdescribe.
     """
+    from dataclasses import replace
+
     from .panel_acceptance import constraints_from_parameter
     from .pool_objective import _LIMITS
 
@@ -496,7 +510,17 @@ def _resolve_constraints(params: Mapping[str, Any], has_background: bool):
                     "names none. Supply bg_genomes/bg_prefixes, or remove the limit.",
                     params[field_name],
                 )
-    return constraints_from_parameter(SimpleNamespace(**dict(params)))
+    constraints = constraints_from_parameter(SimpleNamespace(**dict(params)))
+    metric = params.get("coverage_metric")
+    if metric:
+        sources["coverage_metric"] = "request"
+        if constraints is not None:
+            constraints = replace(constraints, coverage_metric=str(metric))
+    else:
+        sources["coverage_metric"] = (
+            "resolved at selection: effective with reaction conditions, raw without"
+        )
+    return constraints
 
 
 def _require_references(params: Mapping[str, Any]) -> None:
@@ -587,7 +611,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     fixed, excluded = _resolve_oligos(params)
     budgets = _resolve_budgets(params, sources)
     has_background = bool(params.get("bg_prefixes"))
-    constraints = _resolve_constraints(params, has_background)
+    constraints = _resolve_constraints(params, has_background, sources)
     policy = _resolve_concentration(params, sources)
 
     min_k = int(params.get("min_k", 6))

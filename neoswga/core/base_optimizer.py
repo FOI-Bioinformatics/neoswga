@@ -553,6 +553,10 @@ class OptimizerConfig:
     max_dimer_dg: float | None = None
     allow_dimer_relaxation: bool = False
     coverage_metric: str | None = None  # None: objective_for_optimizer chooses
+    # The per-target floor in force, so `compute_metrics` knows whether anything
+    # in this run reads the per-target figure. It is a bitmap per target per
+    # evaluation; see `target_coverage.confined_coverage_by_target`.
+    min_per_target_coverage: float | None = None
     refinement_method: str = "network"
     swap_max_evaluations: int = 10000
     swap_max_seconds: float = 10.0
@@ -1344,19 +1348,12 @@ class BaseOptimizer(ABC):
         ).aggregate
 
     def _confined_coverage_by_target(self, positions_by_prefix):
-        """Each target's coverage, window-confined to its own record: the
-        quantity `min_per_target_coverage` is held to and `evaluate-set`
-        reports. See `target_coverage.confined_coverage_by_target`, audit F3."""
+        """Each target's coverage, window-confined to its own record, WHEN a
+        configured floor needs it. `target_coverage` holds the gate, the
+        geometry refusal and audit F3."""
         from .target_coverage import confined_coverage_by_target
 
-        return confined_coverage_by_target(
-            self.cache,
-            positions_by_prefix,
-            self.fg_prefixes,
-            self.fg_seq_lengths,
-            extension=self.config.extension_reach,
-            circular=getattr(self.config, "fg_circular", False),
-        )
+        return confined_coverage_by_target(self, positions_by_prefix)
 
     def _coverage_by_reach_over_prefixes(self, positions_by_prefix, prefixes, seq_lengths):
         """`_compute_coverage_by_reach`, aggregated the same way."""

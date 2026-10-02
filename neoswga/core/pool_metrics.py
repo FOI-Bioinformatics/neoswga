@@ -91,9 +91,11 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     bg_by_prefix = {p: sorted(v) for p, v in bg_by_prefix.items()}
 
     # Both through the same helpers `compute_metrics` uses, so the two
-    # evaluators cannot disagree about either figure. They are two different
-    # geometries on purpose: the aggregate unconfined, the per-target ones
-    # confined to each record (audit F3). See `core/target_coverage.py`.
+    # evaluators cannot disagree about either figure -- including about whether
+    # the per-target one was computed at all, which depends on a configured
+    # floor. Two different geometries on purpose: the aggregate unconfined, the
+    # per-target ones confined to each record (audit F3). See
+    # `core/target_coverage.py`.
     fg_coverage = optimizer._coverage_over_prefixes(
         fg_by_prefix, optimizer.fg_prefixes, optimizer.fg_seq_lengths
     )

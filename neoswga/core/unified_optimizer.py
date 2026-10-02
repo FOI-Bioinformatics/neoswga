@@ -49,7 +49,12 @@ from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
 from .search_control import SearchBudgetExhausted, collect_alternative_sets  # noqa: F401
 from .step4_output import _write_validation_report, save_results
-from .target_coverage import require_per_target, saturation_issues
+from .target_coverage import (
+    DIRECTIONAL_UNAVAILABLE,
+    attach_per_target,
+    require_per_target,
+    saturation_issues,
+)
 from .validation_record import limit_violation_issue, panel_assessment
 
 logger = logging.getLogger(__name__)
@@ -537,6 +542,11 @@ def _build_optimizer_config(
         max_dimer_dg=pick("max_dimer_dg", None),
         allow_dimer_relaxation=pick("allow_dimer_relaxation", False),
         coverage_metric=pick("coverage_metric", None),
+        # So `compute_metrics` can tell whether anything in this run reads the
+        # per-target figure. `pick` is the same precedence `per_target_floor`
+        # applies -- the flag, then the params.json global -- so the two cannot
+        # disagree about whether a floor is in force.
+        min_per_target_coverage=pick("min_per_target_coverage", None),
         refinement_method=pick("refinement_method", "network"),
         swap_max_evaluations=pick("swap_max_evaluations", 10000),
         stage1_objective_width=pick("stage1_objective_width", None),
@@ -1149,13 +1159,25 @@ def run_optimization(
 
         result = _dc_replace(result, unindexed_candidates=_unindexed)
 
-    # `per_target_coverage` and `worst_target_coverage` arrive on the result
-    # already: `BaseOptimizer.compute_metrics` produces them from the same loop
-    # that produces `fg_coverage`, at the reach this run resolved. They used to
-    # be recomputed here, after the search, through
-    # `coverage.compute_per_prefix_coverage`; that is why a floor on them could
-    # be reported and never acted on, and the recomputation is gone rather than
-    # kept as a second definition of one number.
+    # With a floor configured, `compute_metrics` has already produced the
+    # per-target figures and the search, the acceptance check and the repair all
+    # read them. With no floor configured nothing read them during the search
+    # and they were not computed, because a bitmap per target is linear in the
+    # sequence (+40 ms on a 145 Mb foreground) and an objective evaluation runs
+    # very many times. They are filled in here ONCE, on the delivered panel, so
+    # a reported figure does not disappear because an unrelated limit is unset.
+    # `attach_per_target` never overwrites, so the figure a floor was enforced
+    # against is the figure reported.
+    _geometry = getattr(config, "coverage_geometry", "symmetric")
+    result = attach_per_target(
+        result,
+        cache,
+        fg_prefixes,
+        fg_seq_lengths,
+        extension=extension_reach,
+        circular=fg_circular,
+        geometry=_geometry,
+    )
     _saturation_warnings: list = []  # collected here, appended to validation dict below
     try:
         per_target = dict(getattr(result.metrics, "per_target_coverage", None) or {})
@@ -1165,6 +1187,7 @@ def run_optimization(
                 getattr(result.metrics, "worst_target_coverage", None),
                 fg_prefixes,
                 per_target_floor(kwargs, parameter),
+                DIRECTIONAL_UNAVAILABLE if _geometry == "directional" else None,
             )
             _saturation_warnings.extend(
                 saturation_issues(

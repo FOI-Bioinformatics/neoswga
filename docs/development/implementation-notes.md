@@ -82,7 +82,12 @@ what follows is only what the filenames do not tell you.
   through `coverage.confined_covered_bases`, which is what the per-target dict,
   `worst_target_coverage` and the floor use, and what `evaluate-set` reports.
   `compute_pool_metrics` calls both of the same two, so the full and the
-  focused evaluator cannot disagree about either figure. A target with no
+  focused evaluator cannot disagree about either figure -- including about
+  whether the confined one was computed at all, which `per_target_floor_in_force`
+  decides for both. `not_computed`, `attach_per_target` and
+  `DIRECTIONAL_UNAVAILABLE` are the three halves of that budget decision: the
+  absent value, the one-off reporting pass, and the geometry the figure has no
+  definition under. A target with no
   usable length is named in `unmeasured` and left out of `per_target`, and
   `.worst` is `None` whenever anything is unmeasured --
   `compute_per_prefix_coverage` writes 0.0 there, which is indistinguishable
@@ -1260,19 +1265,61 @@ relatively.
   the bound holds but is vacuous where it matters, reading 1.5 on the
   500-contig case, and `min(1, ...)` is the honest form.
 
-  **Cost of the confined figure**, a second bitmap and marking pass per
-  foreground prefix, linear in the sequence. One `compute_metrics` call,
-  interleaved against `origin/main` on the same machine: on the prepared
-  Wolbachia pool (one 1.27 Mb target) 35.1-35.8 ms before and 35.9-36.0 ms
-  after, about +0.4 ms; on a 145 Mb two-prefix foreground (wMel plus
-  *Drosophila* read as a target) 220-230 ms before and 263-264 ms after, about
-  **+40 ms or 18 percent**. It is paid on every objective evaluation rather
-  than once per run, and no extra position lookups are made. An interval form
-  clipping each window to its record would be O(sites) rather than O(length)
-  and is not built here: `coverage.merged_window_intervals` deliberately
-  refuses `record_starts` so a caller cannot change what it and
+  **Computed only when something reads it.** The confined figure is a bitmap
+  and a marking pass per foreground prefix, linear in the sequence, and an
+  objective evaluation runs very many times per search. Measured on a 145 Mb
+  two-prefix foreground (wMel plus *Drosophila* read as a target) it added
+  about **+40 ms to a 220 ms evaluation, 18 percent**. Paying that so an unused
+  figure could be reported is the wrong trade, so
+  `target_coverage.confined_coverage_by_target` computes it only when a
+  per-target floor is in force -- `OptimizerConfig.min_per_target_coverage`,
+  resolved by `_build_optimizer_config`'s usual precedence, so the gate and the
+  limit cannot disagree about whether a floor is set, and 0.0 counts as unset
+  there too. A run with no floor gets `not_computed()`: `per_target` empty and
+  `worst` `None`, never 0.0, so a floor cannot read a fabricated number out of
+  it.
+
+  The figure is still reported on every run. `target_coverage.attach_per_target`
+  fills it in ONCE, on the delivered panel, through
+  `coverage.compute_per_prefix_coverage` -- the same confined marking, the same
+  quantity, the same function `evaluate-set` uses -- so the assessment, the
+  summary JSON and the HTML report carry it whether or not a limit was set. It
+  never overwrites, so the number a floor was enforced against is the number
+  reported, and it re-reads the lengths so a zero-length prefix stays ABSENT
+  rather than taking that function's 0.0.
+
+  Measured three ways, interleaved against `origin/main` on the same machine
+  (medians of 10 and 6 calls):
+
+  | foreground | main | 6c, no floor | 6c, floor set |
+  |---|---|---|---|
+  | prepared Wolbachia pool, 1 prefix, 1.27 Mb | 34.1-36.2 ms | 33.8-36.7 ms | 34.2-36.4 ms |
+  | wMel + *Drosophila* as targets, 2 prefixes, 145 Mb | 216-224 ms | **218-220 ms** | 255-260 ms |
+
+  With no floor the per-evaluation cost is back at the pre-change figure; with a
+  floor it is the full +40 ms, paid by the run that asked for it. On the 1.27 Mb
+  pool the difference is below this machine's noise either way.
+
+  An interval form clipping each window to its record would be O(sites) rather
+  than O(length) and is still not built: `coverage.merged_window_intervals`
+  deliberately refuses `record_starts` so a caller cannot change what it and
   `union_coverage` report, and a third marking implementation is the failure
   those docstrings warn about.
+
+  **Unavailable under `coverage_geometry: directional`, not approximated.**
+  `confined_covered_bases` marks `[pos-reach, pos+reach)`, which is the
+  symmetric geometry and what `evaluate-set` reports; under `directional` a site
+  reaches one way only and half the width. Reporting the symmetric number there
+  would be the same class of error as reporting an unconfined one, and making
+  the confined route geometry-aware would re-break the agreement with
+  `evaluate-set` unless `compute_per_prefix_coverage`, `variant_sites` and
+  `cli/iterate` moved with it -- paths outside this step. So under `directional`
+  `per_target_coverage` is empty, `worst_target_coverage` is `None`,
+  `TargetCoverage.unavailable` carries `DIRECTIONAL_UNAVAILABLE` as the reason,
+  and a configured floor is REFUSED rather than reported as met -- by
+  `require_per_target` with that reason, and by `pool_objective._unmet` reading
+  the `None`. `attach_per_target` also declines, so no report substitutes a
+  symmetric number. Stated in the schema text and the CLI help.
 
   `--min-per-target-coverage` previously carried an argparse default of 0.0 and
   now uses the `None` sentinel, so a configured value is not beaten on every
@@ -1348,11 +1395,19 @@ relatively.
   overrides in `extra.cli_overrides`, beside `effective_set_size`, rather than
   changing what `resolved_params` means.
 
-  Still open, and pre-existing: `PoolConstraints.coverage_metric` is never set
-  by `constraints_from_parameter`, so a request records the default while
-  `objective_for_optimizer` applies the configured one. The overlay moves the
-  hash for `--coverage-metric` now, but the recorded constraint object still
-  does not name the metric in force.
+  `coverage_metric` was the sharpest case of this and is now closed.
+  `constraints_from_parameter` never set that field, so a request whose run
+  selected on RAW coverage recorded `PoolConstraints(coverage_metric=
+  "effective")` -- the dataclass default -- and `constraints` is hashed, so the
+  overlay made the hash claim to cover the constraints faithfully while one of
+  their fields was a placeholder. `_resolve_constraints` now carries a STATED
+  metric onto the constraints, with `default_sources["coverage_metric"] =
+  "request"`, and the hash moves with it. When the request does not state one,
+  the field keeps its default and `default_sources` records "resolved at
+  selection: effective with reaction conditions, raw without", so the record
+  does not assert a choice nobody made. With no limit configured at all
+  `constraints_from_parameter` returns `None` and there is no object to
+  misdescribe.
 
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting

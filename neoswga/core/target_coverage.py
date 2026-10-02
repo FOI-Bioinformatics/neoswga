@@ -81,12 +81,17 @@ class TargetCoverage:
 
     `per_target` holds only the targets that could be measured. `unmeasured`
     names the rest, so a caller can say which ones rather than only that some
-    figure is missing.
+    figure is missing. `unavailable` says WHY nothing could be measured when the
+    reason is a property of the run rather than of one target -- a geometry this
+    figure has no definition under, say -- and the same convention as
+    `reference_panel_evaluation.Measurement.unavailable`: a sentence a user can
+    act on, not a silent absence.
     """
 
     aggregate: float
     per_target: dict[str, float]
     unmeasured: tuple[str, ...] = ()
+    unavailable: str | None = None
 
     @property
     def worst(self) -> float | None:
@@ -94,9 +99,10 @@ class TargetCoverage:
 
         `None` with any target unmeasured, because the minimum over the subset
         that answered reads as a worst case and is not one. `None` with no
-        targets, because a minimum over nothing is not 0.0 either.
+        targets, because a minimum over nothing is not 0.0 either. `None`
+        whenever `unavailable` is set, for the same reason one level up.
         """
-        if self.unmeasured or not self.per_target:
+        if self.unavailable or self.unmeasured or not self.per_target:
             return None
         return min(self.per_target.values())
 
@@ -153,30 +159,76 @@ def coverage_by_target(
     return TargetCoverage(covered / total, per_target, tuple(unmeasured))
 
 
-def confined_coverage_by_target(
-    cache,
-    positions_by_prefix: Mapping[str, Sequence[int]],
-    prefixes: Sequence[str],
-    seq_lengths: Sequence[int],
-    *,
-    extension: int,
-    circular: bool,
-) -> TargetCoverage:
-    """Each target's coverage, with every window confined to its own record.
+#: Why the figure has no value under the second coverage geometry.
+DIRECTIONAL_UNAVAILABLE = (
+    "coverage_geometry is 'directional', and the per-target figure is only "
+    "defined under the symmetric geometry: confinement to a FASTA record lives "
+    "in coverage.confined_covered_bases, which marks [pos-reach, pos+reach) and "
+    "is what evaluate-set reports. Reporting that symmetric number under a "
+    "directional configuration would be the same error as reporting an "
+    "unconfined one. Use coverage_geometry 'symmetric' for a per-target floor, "
+    "or evaluate the panel after the fact with evaluate-set."
+)
+
+
+def per_target_floor_in_force(config) -> float | None:
+    """The per-target floor this run configured, or `None`/0.0 for "off".
+
+    One reader, so the gate below and the budget decision cannot disagree.
+    `_build_optimizer_config` resolves `min_per_target_coverage` onto the config
+    by the usual precedence -- the flag, then the params.json global -- so this
+    sees whichever the invocation meant.
+    """
+    return getattr(config, "min_per_target_coverage", None)
+
+
+def not_computed(reason: str | None = None) -> TargetCoverage:
+    """The figure nothing in this run asked for: absent, not zero.
+
+    `per_target` empty and `worst` None, so a floor cannot read a fabricated
+    number out of it and `require_per_target` refuses one that was requested.
+    """
+    return TargetCoverage(0.0, {}, (), reason)
+
+
+def confined_coverage_by_target(optimizer, positions_by_prefix) -> TargetCoverage:
+    """Each target's coverage, confined to its own record, WHEN a floor needs it.
 
     The figure `min_per_target_coverage` is read against, and the one
     `evaluate-set` reports: both go through `coverage.confined_covered_bases`.
     It takes the positions the caller has ALREADY gathered, so it costs one
     bitmap and one marking pass per target and no extra position lookups --
-    `cache` is consulted only for the record starts, through
+    the cache is consulted only for the record starts, through
     `coverage._record_starts_for`, which raises rather than guessing when a
     cache that has the getter fails.
 
-    `aggregate` here is the length-weighted mean of the confined fractions. It
-    is NOT `fg_coverage`, which stays unconfined; nothing reads it today and it
-    is returned only because `TargetCoverage` carries it.
+    **Computed only when something reads it during the search**, which means
+    only when a per-target floor is configured. A bitmap is linear in the
+    sequence, measured at +40 ms on a 145 Mb foreground, and an objective
+    evaluation is performed very many times per run: paying that so an unused
+    figure could be reported was the wrong trade. A run with no floor gets
+    `not_computed()` here and the figure is filled in ONCE by
+    `attach_per_target` when the panel is finished, so every report still
+    carries it. With a floor set, nothing about the figure or the behaviour
+    differs from computing it unconditionally.
+
+    **Refused under the directional geometry** rather than answered with the
+    symmetric number: see `DIRECTIONAL_UNAVAILABLE`.
+
+    `aggregate` is the length-weighted mean of the confined fractions. It is NOT
+    `fg_coverage`, which stays unconfined; nothing reads it and it is returned
+    only because `TargetCoverage` carries it.
     """
     from .coverage import _record_starts_for, confined_covered_bases
+
+    config = getattr(optimizer, "config", None)
+    if not per_target_floor_in_force(config):
+        return not_computed()
+    if getattr(config, "coverage_geometry", "symmetric") == "directional":
+        return not_computed(DIRECTIONAL_UNAVAILABLE)
+
+    extension = config.extension_reach
+    circular = bool(getattr(config, "fg_circular", False))
 
     def fraction_for(prefix, positions, length, _reverse):
         bases = confined_covered_bases(
@@ -184,14 +236,78 @@ def confined_coverage_by_target(
             length,
             extension,
             circular,
-            record_starts=_record_starts_for(cache, prefix),
+            record_starts=_record_starts_for(optimizer.cache, prefix),
         )
         return bases / length
 
-    return coverage_by_target(fraction_for, positions_by_prefix, prefixes, seq_lengths)
+    return coverage_by_target(
+        fraction_for, positions_by_prefix, optimizer.fg_prefixes, optimizer.fg_seq_lengths
+    )
 
 
-def require_per_target(per_target, worst, fg_prefixes, floor) -> None:
+def attach_per_target(result, cache, prefixes, seq_lengths, *, extension, circular, geometry):
+    """Fill the per-target figures on a FINISHED result, once, for the record.
+
+    A run that configures no floor does not compute them per objective
+    evaluation, so without this they would be missing from the assessment, the
+    summary JSON and the HTML report -- a reported figure must not disappear
+    because an unrelated limit is unset. One call here, on the delivered panel,
+    through `coverage.compute_per_prefix_coverage`: the same confined marking,
+    the same quantity, the same function `evaluate-set` uses.
+
+    Idempotent and never overwriting. A run that DID compute the figures during
+    the search arrives with them populated and is returned unchanged, so the
+    number a floor was enforced against is the number reported.
+
+    `compute_per_prefix_coverage` writes 0.0 for a prefix with no usable length.
+    That is re-read here against the lengths, so an unmeasurable target is
+    ABSENT and `worst_target_coverage` is None -- the convention the rest of
+    this module keeps, and the one 0.0 would silently break.
+    """
+    from dataclasses import replace
+
+    from .coverage import compute_per_prefix_coverage
+
+    metrics = getattr(result, "metrics", None)
+    if metrics is None or not getattr(result, "primers", None) or not prefixes:
+        return result
+    if getattr(metrics, "per_target_coverage", None) or getattr(
+        metrics, "worst_target_coverage", None
+    ):
+        return result
+    if geometry == "directional":
+        return result
+
+    _aggregate, reported = compute_per_prefix_coverage(
+        cache=cache,
+        primers=list(result.primers),
+        prefixes=list(prefixes),
+        seq_lengths=list(seq_lengths),
+        extension=extension,
+        circular=circular,
+    )
+    measured: dict[str, float] = {}
+    unmeasured: list[str] = []
+    for prefix, raw_length in zip(prefixes, seq_lengths, strict=True):
+        if int(raw_length) <= 0 or prefix not in reported:
+            unmeasured.append(prefix)
+            continue
+        measured[prefix] = reported[prefix]
+    if not measured and not unmeasured:
+        return result
+
+    coverage = TargetCoverage(0.0, measured, tuple(unmeasured))
+    return replace(
+        result,
+        metrics=replace(
+            metrics,
+            per_target_coverage=dict(coverage.per_target),
+            worst_target_coverage=coverage.worst,
+        ),
+    )
+
+
+def require_per_target(per_target, worst, fg_prefixes, floor, unavailable=None) -> None:
     """Refuse a requested per-target floor that nothing measured.
 
     `panel_acceptance.check_per_target_coverage` answers "nothing to say" on an
@@ -226,6 +342,10 @@ def require_per_target(per_target, worst, fg_prefixes, floor) -> None:
     """
     if not floor:
         return
+    if unavailable:
+        # A reason that belongs to the run rather than to one target, so it is
+        # reported as itself instead of as "N of N targets unmeasured".
+        raise ModelEvaluationError("worst_target_coverage", sorted(fg_prefixes), unavailable)
     if not per_target:
         raise ModelEvaluationError(
             "per_target_coverage",
