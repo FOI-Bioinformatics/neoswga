@@ -77,6 +77,15 @@
       "type": "boolean",
       "default": false
     },
+    "background_aggregate": {
+      "type": "string",
+      "enum": [
+        "sum",
+        "worst-case"
+      ],
+      "default": "sum",
+      "description": "What 'the background' means when several host genomes are listed. 'sum' treats every listed host as present at once: background counts are summed and divided by the summed background length, which is what filter and the optimizers compute today, so it is the default and nothing about an existing design moves while it is set. 'worst-case' treats the panel as alternatives -- one host, not known in advance -- so each host is judged on its own length and the panel's figure is the worst host's. The two differ most when the hosts differ in size: with a 3.3 Mb, a 144 Mb and a 3.30 Gb host pooled, the largest is 95.7 percent of the pooled length, so the pooled ceiling is within 5 percent of its own while the numerator still charges a candidate for its sites on the small hosts (docs/validation/2026-10-02-diversity-baseline.md, Q4 and Q5). 'worst-case' is reachable and is NOT the default: whether it is the better reading for a panel of several hosts is unmeasured, and this project does not switch a default on without a measurement. 'mean' is deliberately not offered, because an average over hosts is neither every host at once nor the worst one. As of Phase 7a the key is plumbed and validated only: it enters the resolved design request, request_hash and the run manifest's effective_conditions, and no gate or metric reads it, so with it absent or set to 'sum' every figure is unchanged. Phase 7b applies it to the step-2 background gate and Phase 7c to the step-4 per-host figures; core/background_aggregate.py is the one place its value is defined and resolved."
+    },
     "bl_genomes": {
       "type": "array",
       "description": "Blacklist genomes; primers matching these are penalized or rejected.",

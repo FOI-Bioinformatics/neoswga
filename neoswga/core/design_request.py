@@ -199,6 +199,17 @@ class DesignRequest:
     # value for anything that needs to know whether it was written down.
     mismatch_model: str = "uniform"
 
+    # Added 2026-10-02 (Phase 7a). What "the background" means when several
+    # hosts are listed. In the fields for the same reason as the key above: a
+    # design that judges each host on its own length is a different design from
+    # one that pools them, and two different designs must not share an identity.
+    #
+    # RESOLVED, not raw, following `candidate_retention` and `mismatch_model`:
+    # an absent key and an explicit `sum` deliver the same design, so they hash
+    # alike. There is no CLI flag, so there is no precedence to preserve;
+    # `parameter.background_aggregate` still holds the raw value.
+    background_aggregate: str = "sum"
+
     # ---------------------------------------------------------------- hashing
 
     def to_dict(self) -> dict[str, Any]:
@@ -464,6 +475,19 @@ def _resolved_mismatch_model(value: Any) -> str:
     return resolve_mismatch_model(value)
 
 
+def _resolved_background_aggregate(value: Any) -> str:
+    """The validated `background_aggregate`, with an absent key resolved to `sum`.
+
+    Refused here, with everything else this module can refuse from the request
+    alone. `background_aggregate.resolve_background_aggregate` is the one
+    definition of what the key accepts; an absent value is `sum`, so an absent
+    key and an explicit `sum` give one identity for what is one design.
+    """
+    from .background_aggregate import resolve_background_aggregate
+
+    return resolve_background_aggregate(value)
+
+
 def _resolve_oligos(params: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     fixed = tuple(str(p).upper() for p in (params.get("fixed_oligos") or ()))
     excluded = tuple(str(p).upper() for p in (params.get("excluded_oligos") or ()))
@@ -617,6 +641,12 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         # refused before any search begins. `resolve_mismatch_model` is the one
         # definition of what the key accepts.
         mismatch_model=_resolved_mismatch_model(params.get("mismatch_model")),
+        # Same reason, same place: `background_aggregate.
+        # resolve_background_aggregate` is the one definition of what the key
+        # accepts, and refusing here names a bad value before any index opens.
+        background_aggregate=_resolved_background_aggregate(
+            params.get("background_aggregate")
+        ),
         fixed_oligos=fixed,
         excluded_oligos=excluded,
         target_size=target_size,

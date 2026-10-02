@@ -780,6 +780,11 @@ max_mismatches = None
 # load reads the same key. Off by default: the position-dependent form is an
 # extrapolation of a 37 C table and has no measurement behind it here.
 mismatch_model = None
+# What "the background" means when several hosts are listed. None is the
+# shipped `sum`: every host present at once. `background_aggregate.
+# resolve_background_aggregate` is the only reader, so every stage gets one
+# answer. Off by default: `worst-case` is unmeasured as a default.
+background_aggregate = None
 
 # Dimer and Tm constraints. These mirror the PipelineParameters defaults above
 # and exist as module globals so the filtering rules can run before get_params
@@ -963,7 +968,7 @@ def _apply_params_only_keys(data: dict) -> None:
     global coverage_geometry
     global occupancy_ranking
     global occupancy_shortlist
-    global max_mismatches, mismatch_model
+    global max_mismatches, mismatch_model, background_aggregate
     global sampled_index_path
     global optimization_method
     global mismatch_penalty
@@ -1004,6 +1009,9 @@ def _apply_params_only_keys(data: dict) -> None:
     # Left as None when absent so `resolve_mismatch_model` can tell "not
     # configured" from "configured as uniform"; both run the shipped model.
     mismatch_model = data["mismatch_model"] = data.get("mismatch_model")
+    # Left as None when absent, like the key above: `resolve_background_aggregate`
+    # turns that into `sum`, and both run the pooled background.
+    background_aggregate = data["background_aggregate"] = data.get("background_aggregate")
     sampled_index_path = data["sampled_index_path"] = data.get("sampled_index_path")
     # Known Issue 8, and the last instance of this defect class. The key was
     # declared in the schema, documented, accepted by the validator, and
