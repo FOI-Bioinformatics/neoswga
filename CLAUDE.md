@@ -181,6 +181,10 @@ measurements: implementation-notes.md.
   `swap_max_evaluations` (per stage, not a total), `total_search_evaluations`
   (the only total; None by default, so by default no total bound exists),
   `stage1_objective_width` (None; off by default after measurement).
+- **Several hosts**: `background_aggregate` (`sum` default, every host pooled as
+  today; `worst-case` judges each host on its own length). params.json only, no
+  flag. As of Phase 7a it is plumbed and validated and nothing reads it, so no
+  figure moves; `core/background_aggregate.py` is the one place it resolves.
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
   `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the
