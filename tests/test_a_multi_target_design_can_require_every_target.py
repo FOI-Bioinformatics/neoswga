@@ -649,11 +649,39 @@ class TestTheReportStillCarriesTheFigureWithNoFloor:
         )
 
     def test_it_never_overwrites_what_the_search_measured(self):
-        optimizer = _two_target_optimizer(floor=0.05)
-        before = optimizer.compute_metrics([*A_PRIMERS, B_PRIMER])
-        attached = self._attach(optimizer, [*A_PRIMERS, B_PRIMER])
+        """Asserted by OBJECT IDENTITY, not by comparing values: both paths
+        compute the same confined quantity, so a recomputation would give equal
+        numbers and an equality check would pass while the result the floor was
+        enforced against had been replaced."""
+        from neoswga.core.target_coverage import attach_per_target
 
-        assert attached.metrics.per_target_coverage == before.per_target_coverage
+        optimizer = _two_target_optimizer(floor=0.05)
+        searched = self._result(
+            [*A_PRIMERS, B_PRIMER], optimizer.compute_metrics([*A_PRIMERS, B_PRIMER])
+        )
+        attached = attach_per_target(
+            searched,
+            optimizer.cache,
+            optimizer.fg_prefixes,
+            optimizer.fg_seq_lengths,
+            extension=REACH,
+            circular=False,
+            geometry="symmetric",
+        )
+
+        assert attached is searched, "a populated result must be returned untouched"
+
+    def test_the_run_assigns_the_attached_result_back(self):
+        """`attach_per_target(result, ...)` called and discarded would leave
+        every no-floor run reporting nothing, and an AST check that the name is
+        called cannot tell the two apart."""
+        import inspect
+
+        from neoswga.core import unified_optimizer
+
+        source = inspect.getsource(unified_optimizer.run_optimization)
+
+        assert "result = attach_per_target(" in source
 
     def test_an_unmeasurable_target_stays_absent_rather_than_zero(self):
         """`compute_per_prefix_coverage` writes 0.0 for a zero-length prefix,
@@ -705,6 +733,20 @@ class TestTheDirectionalGeometryIsRefusedNotApproximated:
         assert coverage.unavailable is not None
         assert "directional" in coverage.unavailable
         assert coverage.worst is None
+
+    def test_a_reason_suppresses_the_worst_even_beside_measured_targets(self):
+        """`not_computed()` always leaves `per_target` empty, so the empty-dict
+        branch would hide a missing `unavailable` check. Constructed directly:
+        a reason must win over figures that happen to be present, or a future
+        caller reporting a partial measurement alongside a reason would publish
+        a minimum over part of the panel."""
+        from neoswga.core.target_coverage import TargetCoverage
+
+        partial = TargetCoverage(0.5, {"a": 0.5, "b": 0.9}, (), "a reason")
+
+        assert partial.worst is None
+        assert partial.worst_target is None
+        assert TargetCoverage(0.5, {"a": 0.5, "b": 0.9}, ()).worst == pytest.approx(0.5)
 
     def test_a_floor_is_refused_under_directional(self):
         from neoswga.core.exceptions import ModelEvaluationError
