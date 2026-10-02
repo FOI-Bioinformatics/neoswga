@@ -328,17 +328,31 @@ that something cannot be measured.
 | human chr21 | 46.7 Mb | 1 | `tests/validation/genomes/` |
 | E. coli | 4.64 Mb | 1 | `tests/validation/genomes/` |
 | M. tuberculosis | 4.41 Mb | 1 | `tests/validation/genomes/` |
+| L. plantarum WCFS1 | 3.35 Mb | 4 | `tests/validation/genomes/lactobacillus.fna` |
 | Prevotella | 3.17 Mb | 2 | `tests/validation/genomes/` |
 | S. aureus | 2.82 Mb | 1 | `tests/validation/genomes/` |
+| Wolbachia wAlbB | 1.48 Mb | 1 | `tests/validation/genomes/wolbachia_walbb.fna` |
+| Wolbachia wPip | 1.48 Mb | 1 | `tests/validation/genomes/wolbachia_wpip.fna` |
+| Wolbachia wRi | 1.45 Mb | 1 | `tests/validation/genomes/wolbachia_wri.fna` |
 | Wolbachia wMel | 1.27 Mb | 1 | both locations |
+| Wolbachia wBm | 1.08 Mb | 1 | `tests/validation/genomes/wolbachia_wbm.fna` |
 | two plasmids | ~6 kb | 1 | `examples/plasmid_example/`, packaged in `core/smoke/` |
 
 `examples/wolbachia_pool_design/work` is prepared (12-mer indexes for wMel and
 *Drosophila*, 2,000-candidate shortlist; one `compute_metrics` call costs about
 40 ms) and is the one to reach for. Prevotella and chr21 also carry tables and
-indexes. The multi-record references (*Drosophila*, hg38, Prevotella) are the
-ones that exercise record-join geometry. There is no BAM or CRAM anywhere, so
-no coverage reach has been measured against sequencing depth.
+indexes. The multi-record references (*Drosophila*, hg38, Prevotella,
+*L. plantarum*) are the ones that exercise record-join geometry. There is no BAM
+or CRAM anywhere, so no coverage reach has been measured against sequencing
+depth.
+
+The five *Wolbachia* strains are a divergence gradient, not one distance: wMel
+and wRi are supergroup A, wPip and wAlbB supergroup B, wBm supergroup D.
+`tests/validation/genomes/diversity_panel.json` is the manifest over them and
+the three hosts (*L. plantarum*, *Drosophila*, hg38), written by
+`scripts/build_diversity_panel_manifest.py` with a measured length, record
+count and SHA-256 per genome. `scripts/fetch_reference_genomes.py` fetches the
+ones not already on disk and verifies them against a recorded checksum.
 
 ## Testing
 
