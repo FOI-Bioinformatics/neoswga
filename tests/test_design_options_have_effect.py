@@ -596,3 +596,100 @@ def test_the_mismatch_model_changes_the_load_and_says_which_model_ran(mismatch_w
     # Exact-match counts are not a model output and must not move.
     assert modelled.total_bg_sites == uniform.total_bg_sites
     assert modelled.total_fg_sites == uniform.total_fg_sites
+
+
+# ----------------------------------------------------------------------
+# background_aggregate: plumbed in 7a, and must not have moved a figure
+# ----------------------------------------------------------------------
+#
+# Added 2026-10-02 (Phase 7a). params.json only; there is no flag. The key says
+# whether several hosts are pooled (`sum`) or judged one at a time on their own
+# lengths (`worst-case`), and in 7a NOTHING reads it: the step-2 gate is Phase
+# 7b and the step-4 per-host figures are Phase 7c.
+#
+# So the assertion available here is the inverse of the usual one, and it is
+# worth having on its own: the delivered metrics under both values, on a design
+# with two hosts differing in size by a factor of 43, are the same numbers. That
+# is what "7a moves no figure" reduces to, and it is the claim a dispatch added
+# in the wrong place would break silently.
+#
+# **This test is replaced, not deleted, by 7b and 7c.** Once the gate and the
+# per-host figures read the key it becomes the usual assertion: `worst-case`
+# changes the delivered panel on this world, and says which host decided it.
+
+
+@pytest.fixture(scope="module")
+def two_host_world(tmp_path_factory):
+    """One target and two hosts whose lengths differ by a factor of 43.
+
+    The small host carries every primer and the large one carries none, which
+    is the configuration a pooled background hides: the small host is 2.3
+    percent of the pooled length, so its sites are diluted away.
+    """
+    k = PRIMER_LENGTH
+    rng = random.Random(7001)
+    directory = tmp_path_factory.mktemp("two_host_world")
+    lengths = {"fg": 40_000, "small": 40_000, "large": 1_720_000}
+
+    primers = sorted({"".join(rng.choice("ACGT") for _ in range(k)) for _ in range(8)})
+
+    prefixes = {}
+    for name, length in lengths.items():
+        prefix = str(directory / name)
+        prefixes[name] = prefix
+        step = length // 8
+        with h5py.File(f"{prefix}_{k}mer_positions.h5", "w") as handle:
+            for primer in primers:
+                hits = [] if name == "large" else [i * step + 11 for i in range(8)]
+                handle.create_dataset(primer, data=np.array(hits, dtype=np.int64))
+                handle.create_dataset(
+                    reverse_complement(primer), data=np.array([], dtype=np.int64)
+                )
+
+    return {"primers": primers, "lengths": lengths, **prefixes}
+
+
+def _two_host_metrics(two_host_world, monkeypatch, aggregate):
+    from neoswga.core import parameter
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.dominating_set_adapter import DominatingSetAdapter
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    monkeypatch.setattr(parameter, "background_aggregate", aggregate, raising=False)
+    lengths = two_host_world["lengths"]
+    bg = [two_host_world["small"], two_host_world["large"]]
+    optimizer = DominatingSetAdapter(
+        position_cache=PositionCache([two_host_world["fg"], *bg], two_host_world["primers"]),
+        fg_prefixes=[two_host_world["fg"]],
+        fg_seq_lengths=[lengths["fg"]],
+        bg_prefixes=bg,
+        bg_seq_lengths=[lengths["small"], lengths["large"]],
+        config=OptimizerConfig(target_set_size=4),
+        conditions=ReactionConditions(temp=30.0, polymerase="phi29"),
+    )
+    return optimizer.compute_metrics(two_host_world["primers"])
+
+
+@pytest.mark.parametrize("aggregate", [None, "sum", "worst-case"])
+def test_background_aggregate_moves_no_figure_in_phase_7a(two_host_world, monkeypatch, aggregate):
+    """Every value gives the pooled figures, because nothing reads the key yet.
+
+    Compared number by number against the key absent rather than read from the
+    code: "7a changes nothing" is exactly the claim a half-wired dispatch
+    breaks silently.
+    """
+    pooled = _two_host_metrics(two_host_world, monkeypatch, None)
+    measured = _two_host_metrics(two_host_world, monkeypatch, aggregate)
+
+    for field in (
+        "effective_fg_sites",
+        "effective_bg_sites",
+        "selectivity_ratio",
+        "selectivity_density",
+        "selectivity_mode",
+        "fg_coverage",
+        "total_fg_sites",
+        "total_bg_sites",
+    ):
+        assert getattr(measured, field) == getattr(pooled, field), field

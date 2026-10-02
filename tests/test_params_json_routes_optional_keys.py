@@ -222,6 +222,46 @@ class TestMismatchModel:
         assert {"mismatch_penalty", "mismatch_model"} <= assigned
 
 
+class TestBackgroundAggregate:
+    """What "the background" is when several hosts are listed. Phase 7a.
+
+    params.json is the only route, as for the key above and for the same
+    reason: `worst-case` is unmeasured as a default, and the key is the
+    documented way in. A flag would also have to be registered on `filter`,
+    where the gate it will act on lives, and that is Phase 7b.
+    """
+
+    def test_the_value_in_params_json_reaches_the_parameter_module(self, tmp_path, monkeypatch):
+        _load_params(tmp_path, monkeypatch, background_aggregate="worst-case")
+
+        assert getattr(parameter, "background_aggregate", None) == "worst-case"
+
+    def test_it_reaches_the_resolver_every_consumer_asks(self, tmp_path, monkeypatch):
+        from neoswga.core.background_aggregate import WORST_CASE, resolve_background_aggregate
+
+        _load_params(tmp_path, monkeypatch, background_aggregate="worst-case")
+
+        assert resolve_background_aggregate() == WORST_CASE
+
+    def test_absent_leaves_the_pooled_background(self, tmp_path, monkeypatch):
+        """Loaded after a run that set it, so a leaked global would show."""
+        from neoswga.core.background_aggregate import SUM, resolve_background_aggregate
+
+        _load_params(tmp_path, monkeypatch, background_aggregate="worst-case")
+        _load_params(tmp_path, monkeypatch)
+
+        assert getattr(parameter, "background_aggregate", None) is None
+        assert resolve_background_aggregate() == SUM
+
+    def test_declared_in_the_schema_with_the_values_the_code_accepts(self):
+        from neoswga.core.background_aggregate import BACKGROUND_AGGREGATES
+
+        declared = _schema()["properties"]["background_aggregate"]
+
+        assert tuple(declared["enum"]) == BACKGROUND_AGGREGATES
+        assert declared["default"] == "sum"
+
+
 class TestSampledIndexPath:
     """`filter.py` tells the user to set this in params.json. It must work."""
 

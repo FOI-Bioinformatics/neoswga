@@ -170,3 +170,41 @@ def test_mismatch_model_reaches_the_code_that_weights_a_site(monkeypatch):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
     }
     assert {"resolve_mismatch_model", "position_dependent_site_load"} <= called
+
+
+def test_background_aggregate_reaches_the_two_places_that_resolve_it(monkeypatch):
+    """Added 2026-10-02 (Phase 7a). The key says what "the background" is.
+
+    Asserted at BOTH routes, because having two is the thing that can go wrong
+    here: a stage that read `parameter.background_aggregate` itself would carry
+    its own fallback, and the key would appear to work while one of its readers
+    quietly disagreed.
+
+    There is no consumer to assert yet, deliberately -- 7a plumbs the key and
+    nothing acts on it. The missing third assertion is the one Phase 7b (the
+    step-2 background gate) and Phase 7c (the step-4 per-host figures) add, and
+    it belongs here beside the mismatch-model one above. Until then
+    `tests/test_background_aggregate_is_plumbed.py` asserts the complementary
+    claim: that the two values resolve to the same configuration everywhere
+    except the recorded identity.
+    """
+    from neoswga.core import background_aggregate as ba
+    from neoswga.core import parameter
+    from neoswga.core.design_request import resolve_design_request
+
+    monkeypatch.setattr(parameter, "background_aggregate", None, raising=False)
+    assert ba.resolve_background_aggregate() == ba.SUM
+
+    monkeypatch.setattr(parameter, "background_aggregate", "worst-case", raising=False)
+    assert ba.resolve_background_aggregate() == ba.WORST_CASE
+
+    request = resolve_design_request(
+        {
+            "fg_genomes": ["a.fna"],
+            "fg_prefixes": ["a"],
+            "polymerase": "phi29",
+            "reaction_temp": 30.0,
+            "background_aggregate": "worst-case",
+        }
+    )
+    assert request.background_aggregate == ba.WORST_CASE
