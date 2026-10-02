@@ -599,23 +599,26 @@ def test_the_mismatch_model_changes_the_load_and_says_which_model_ran(mismatch_w
 
 
 # ----------------------------------------------------------------------
-# background_aggregate: plumbed in 7a, and must not have moved a figure
+# background_aggregate: acting in step 2, not yet in step 4
 # ----------------------------------------------------------------------
 #
-# Added 2026-10-02 (Phase 7a). params.json only; there is no flag. The key says
-# whether several hosts are pooled (`sum`) or judged one at a time on their own
-# lengths (`worst-case`), and in 7a NOTHING reads it: the step-2 gate is Phase
-# 7b and the step-4 per-host figures are Phase 7c.
+# Added 2026-10-02 (Phase 7a), split 2026-10-02 (Phase 7b). params.json only;
+# there is no flag. The key says whether several hosts are pooled (`sum`) or
+# judged one at a time on their own lengths (`worst-case`).
 #
-# So the assertion available here is the inverse of the usual one, and it is
-# worth having on its own: the delivered metrics under both values, on a design
-# with two hosts differing in size by a factor of 43, are the same numbers. That
-# is what "7a moves no figure" reduces to, and it is the claim a dispatch added
-# in the wrong place would break silently.
+# The two halves are now at different stages, so they are asserted apart.
 #
-# **This test is replaced, not deleted, by 7b and 7c.** Once the gate and the
-# per-host figures read the key it becomes the usual assertion: `worst-case`
-# changes the delivered panel on this world, and says which host decided it.
+# - **Step 2 reads it.** `test_background_aggregate_changes_the_step2_gate`
+#   below is the usual assertion: changing the option changes the output. The
+#   full behaviour, including the funnel and the per-host columns, is in
+#   `tests/test_the_background_gate_reads_the_aggregate.py`.
+# - **Step 4 does not, yet.** `compute_metrics` still returns the pooled
+#   figures under both values, and
+#   `test_background_aggregate_moves_no_step4_figure_before_7c` says so number
+#   by number on a design whose two hosts differ in size by a factor of 43.
+#   That is the claim a dispatch added in the wrong place would break
+#   silently, and it is replaced -- not deleted -- when Phase 7c lands the
+#   per-host figures.
 
 
 @pytest.fixture(scope="module")
@@ -671,12 +674,41 @@ def _two_host_metrics(two_host_world, monkeypatch, aggregate):
     return optimizer.compute_metrics(two_host_world["primers"])
 
 
+def test_background_aggregate_changes_the_step2_gate(two_host_world, monkeypatch):
+    """The usual assertion, on the stage that reads the key as of Phase 7b.
+
+    The world here is the step-4 one, so the gate is exercised directly on its
+    two host lengths rather than through a `filter` run: a primer with one site
+    on the 40 kb host and none on the 1.72 Mb host is 5.7e-7 pooled, under a
+    5e-6 ceiling, and 2.5e-5 on the small host's own length, over it.
+    `tests/test_the_background_gate_reads_the_aggregate.py` runs the whole step
+    on a world built for it.
+    """
+    from neoswga.core import background_gate
+
+    lengths = two_host_world["lengths"]
+    primer = two_host_world["primers"][0]
+    panel = background_gate.host_panel(
+        [two_host_world["small"], two_host_world["large"]],
+        [lengths["small"], lengths["large"]],
+        "worst-case",
+    )
+    counts = {two_host_world["small"]: {primer: 1}, two_host_world["large"]: {primer: 0}}
+    pooled_length = lengths["small"] + lengths["large"]
+
+    assert background_gate.pooled_verdict(1, pooled_length, 5e-6) is True
+    assert background_gate.worst_case_verdict(counts, primer, panel, 5e-6) is False
+
+
 @pytest.mark.parametrize("aggregate", [None, "sum", "worst-case"])
-def test_background_aggregate_moves_no_figure_in_phase_7a(two_host_world, monkeypatch, aggregate):
-    """Every value gives the pooled figures, because nothing reads the key yet.
+def test_background_aggregate_moves_no_step4_figure_before_7c(
+    two_host_world, monkeypatch, aggregate
+):
+    """Every value gives the pooled step-4 figures, because `compute_metrics`
+    does not read the key yet; Phase 7c is what wires it.
 
     Compared number by number against the key absent rather than read from the
-    code: "7a changes nothing" is exactly the claim a half-wired dispatch
+    code: "step 4 has not changed" is exactly the claim a half-wired dispatch
     breaks silently.
     """
     pooled = _two_host_metrics(two_host_world, monkeypatch, None)

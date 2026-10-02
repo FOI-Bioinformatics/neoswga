@@ -6,15 +6,15 @@ request, the request's hash and the run manifest before anything acts on it.
 Two keys added earlier today were missing from exactly those two places, which
 is why they are asserted here rather than when a gate starts reading the value.
 
-**What 7a does NOT do, asserted as such.** No gate and no metric reads the key
-yet: step 2 gets it in Phase 7b and step 4's per-host figures in Phase 7c. So
-the one behavioural claim available is that nothing moves -- the delivered
-figures with the key absent and with it set to `sum` are the same figures --
-and `test_background_aggregate_does_not_yet_move_a_figure` is that claim.
-`tests/test_design_options_have_effect.py` carries the same pair at the metrics
-level. When 7b and 7c land, those two tests are replaced by ones asserting that
-`worst-case` moves the gate and the per-host figures; they are not deleted
-without that.
+**Updated by Phase 7b.** 7a plumbed the key and nothing read it, so the one
+behavioural claim available then was that nothing moved. The step-2 background
+gate now reads it, and
+`tests/test_the_background_gate_reads_the_aggregate.py` is where that
+behaviour is asserted; the non-effect test here was replaced by
+`test_the_two_readings_differ_only_in_this_field_of_the_request`, which keeps
+the part that is still true and still useful. Step 4's per-host figures remain
+unwired, and that half of the 7a position is now stated alone at
+`tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`.
 """
 
 import dataclasses
@@ -234,18 +234,21 @@ def test_a_change_between_steps_is_condition_drift(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# What 7a deliberately does not do
+# What the key now moves, and what is still waiting on 7c
 # ---------------------------------------------------------------------------
 
 
-def test_background_aggregate_does_not_yet_move_a_figure():
-    """7a plumbs the key and nothing more.
+def test_the_two_readings_differ_only_in_this_field_of_the_request():
+    """The request is the same design either way except for the key itself.
 
-    Replaced, not deleted, by Phase 7b and 7c: the step-2 gate and the step-4
-    per-host figures are what read the value, and when they do this becomes an
-    assertion that `worst-case` moves them. Until then the honest statement is
-    that the two readings resolve to the same configuration everywhere except
-    the recorded identity, so no existing design can have moved.
+    This was `test_background_aggregate_does_not_yet_move_a_figure` in 7a,
+    where it carried the stronger claim that nothing read the key at all. Phase
+    7b retired that claim: the step-2 gate reads it, and
+    `tests/test_the_background_gate_reads_the_aggregate.py` is where that is
+    asserted. What remains true, and worth pinning on its own, is that the two
+    readings change nothing in the RESOLVED REQUEST but the one field -- so any
+    difference a stage produces has to come from the stage reading the key, not
+    from a second field moving with it.
 
     Checked on the request rather than by grep: every field a stage reads is
     here, and the only one that differs is the key itself.
@@ -263,3 +266,22 @@ def test_background_aggregate_does_not_yet_move_a_figure():
 
     assert differing == {"background_aggregate"}
     assert pooled.conditions_fingerprint == worst.conditions_fingerprint
+
+
+def test_the_step_2_gate_is_the_one_stage_that_reads_it_so_far():
+    """7b wired step 2; 7c wires step 4's per-host figures.
+
+    Stated as a positive assertion about the gate rather than as "nothing reads
+    it", which is what 7a had to say. The step-4 half is still a non-effect
+    claim and lives at
+    `tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`.
+    """
+    from neoswga.core import background_gate
+
+    panel = background_gate.host_panel(["small", "large"], [40_000, 2_000_000], ba.WORST_CASE)
+    counts = {"small": {"ACGTACGTAC": 1}, "large": {"ACGTACGTAC": 1}}
+
+    # 2 sites over the pooled 2,040,000 bp is 9.8e-7 and passes; 1 site over
+    # the small host's own 40,000 bp is 2.5e-5 and does not.
+    assert background_gate.pooled_verdict(2, 2_040_000, 5e-6) is True
+    assert background_gate.worst_case_verdict(counts, "ACGTACGTAC", panel, 5e-6) is False

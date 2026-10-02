@@ -80,6 +80,11 @@ WATCHED = (
     # orphaned, which is the shape that hid the six findings this file was
     # written for.
     "core/background_aggregate.py",
+    # Added 2026-10-02 (Phase 7b). The step-2 background gate's arithmetic,
+    # reached from `filter.get_all_rates`. Most of its surface is only taken
+    # under `worst-case`, which is off by default, so a default run would not
+    # notice any of it becoming orphaned.
+    "core/background_gate.py",
 )
 
 # Public names no command can reach today, and why. Shrink this list.

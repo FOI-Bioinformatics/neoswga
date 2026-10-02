@@ -180,15 +180,19 @@ def test_background_aggregate_reaches_the_two_places_that_resolve_it(monkeypatch
     its own fallback, and the key would appear to work while one of its readers
     quietly disagreed.
 
-    There is no consumer to assert yet, deliberately -- 7a plumbs the key and
-    nothing acts on it. The missing third assertion is the one Phase 7b (the
-    step-2 background gate) and Phase 7c (the step-4 per-host figures) add, and
-    it belongs here beside the mismatch-model one above. Until then
-    `tests/test_background_aggregate_is_plumbed.py` asserts the complementary
-    claim: that the two values resolve to the same configuration everywhere
-    except the recorded identity.
+    **The consumer assertion arrived with Phase 7b** and is the third block
+    below: `filter.get_all_rates` resolves the key and dispatches the
+    background gate on it, which is what makes it reach `filter`, `design` and
+    every command that re-runs step 2. Phase 7c adds the step-4 per-host
+    figures; until it lands,
+    `tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`
+    states that step 4 still does not read it.
     """
+    import ast
+    import inspect
+
     from neoswga.core import background_aggregate as ba
+    from neoswga.core import filter as filter_module
     from neoswga.core import parameter
     from neoswga.core.design_request import resolve_design_request
 
@@ -208,3 +212,14 @@ def test_background_aggregate_reaches_the_two_places_that_resolve_it(monkeypatch
         }
     )
     assert request.background_aggregate == ba.WORST_CASE
+
+    # The consumer: the step-2 gate resolves the key and dispatches on it.
+    source = inspect.getsource(filter_module.get_all_rates)
+    tree = ast.parse(source.strip())
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "resolve_background_aggregate" in called
+    assert "WORST_CASE" in source, "the gate must branch on the value, not merely read it"
