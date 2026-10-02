@@ -162,6 +162,66 @@ class TestMaxMismatches:
         assert not _configured_positive_int_accepts(floor - 1)
 
 
+class TestMismatchModel:
+    """Which mismatch model weights a site. Added 2026-10-02 (Phase 4b).
+
+    params.json is the only route: there is no CLI flag, deliberately, because
+    the model is an extrapolation with no demonstrated benefit and the key is
+    the documented way in.
+    """
+
+    def test_the_model_in_params_json_reaches_the_parameter_module(self, tmp_path, monkeypatch):
+        _load_params(tmp_path, monkeypatch, mismatch_model="position-dependent")
+
+        assert getattr(parameter, "mismatch_model", None) == "position-dependent"
+
+    def test_it_reaches_the_resolver_every_consumer_asks(self, tmp_path, monkeypatch):
+        from neoswga.core.mismatch_model import POSITION_DEPENDENT, resolve_mismatch_model
+
+        _load_params(tmp_path, monkeypatch, mismatch_model="position-dependent")
+
+        assert resolve_mismatch_model() == POSITION_DEPENDENT
+
+    def test_absent_leaves_the_uniform_model(self, tmp_path, monkeypatch):
+        """Loaded after a run that set it, so a leaked global would show."""
+        from neoswga.core.mismatch_model import UNIFORM, resolve_mismatch_model
+
+        _load_params(tmp_path, monkeypatch, mismatch_model="position-dependent")
+        _load_params(tmp_path, monkeypatch)
+
+        assert getattr(parameter, "mismatch_model", None) is None
+        assert resolve_mismatch_model() == UNIFORM
+
+    def test_declared_in_the_schema_with_the_values_the_code_accepts(self):
+        from neoswga.core.mismatch_model import MISMATCH_MODELS
+
+        declared = _schema()["properties"]["mismatch_model"]
+
+        assert tuple(declared["enum"]) == MISMATCH_MODELS
+
+    def test_the_optimizer_resolves_it_once_at_construction(self):
+        """Like the penalty beside it, and for the same reason: re-reading the
+        global per panel evaluation let two evaluations in one run weigh their
+        sites differently. Source-pinned, because the behaviour it guards
+        against is invisible unless something reassigns the global mid-run."""
+        import ast
+        import inspect
+
+        from neoswga.core.base_optimizer import BaseOptimizer
+
+        source = inspect.getsource(BaseOptimizer.__init__)
+        tree = ast.parse(source.strip())
+        assigned = {
+            target.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Attribute)
+        }
+
+        assert {"mismatch_penalty", "mismatch_model"} <= assigned
+
+
 class TestSampledIndexPath:
     """`filter.py` tells the user to set this in params.json. It must work."""
 

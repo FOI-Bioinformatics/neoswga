@@ -42,7 +42,18 @@ def test_the_two_reaches_are_the_code_s_reaches(text):
 
 
 def test_the_evidence_record_count_is_right(text):
-    """The page says one of twenty-three states a checkable range."""
+    """The page splits the registry three ways, so all three are checked.
+
+    23 -> 25 on 2026-10-02: `mismatch_duplex_delta_g` and
+    `three_prime_mismatch_extension`, the two records behind the
+    position-dependent mismatch model. The first states a reference POINT, so
+    the split moved from 1 + 10 + 12 to 1 + 11 + 13.
+
+    Asserting only the total let the page keep saying "ten" while the registry
+    held eleven: a reader who counted found the page wrong, which is precisely
+    the staleness this file exists to prevent. Each category is now asserted
+    against the registry and against the page's own words.
+    """
     import json
 
     records = json.loads(
@@ -55,11 +66,28 @@ def test_the_evidence_record_count_is_right(text):
         ).read_text()
     )["records"]
 
-    with_range = sum(1 for r in records if r.get("temperature_range_c"))
+    def states_a_number(record):
+        return any(ch.isdigit() for ch in record.get("temperature_domain", ""))
 
-    assert len(records) == 23, f"the registry now holds {len(records)} records"
-    assert with_range == 1, f"{with_range} records now state a range"
-    assert "twenty-three" in text and "one of" in text
+    with_range = [r for r in records if r.get("temperature_range_c")]
+    point = [r for r in records if states_a_number(r) and not r.get("temperature_range_c")]
+    silent = [r for r in records if not states_a_number(r)]
+
+    assert len(records) == 25, f"the registry now holds {len(records)} records"
+    assert len(with_range) == 1, f"{len(with_range)} records now state a range"
+    assert len(point) == 11, f"{len(point)} records now state a reference point"
+    assert len(silent) == 13, f"{len(silent)} records now state no number"
+    assert len(with_range) + len(point) + len(silent) == len(records)
+
+    assert "twenty-five" in text and "one of" in text
+    assert "Eleven" in text or "eleven" in text, "the page's point count is stale"
+    assert "thirteen" in text or "Thirteen" in text, "the page's silent count is stale"
+
+    # The record that carries the range describes the same split, and used to
+    # describe the pre-branch one.
+    note = next(r for r in with_range)["temperature_range_note"]
+    assert str(len(records)) in note, f"the tm_dmso note is stale: {note}"
+    assert str(len(point)) in note and str(len(silent)) in note
 
 
 def test_the_page_does_not_overstate_its_evidence(text):

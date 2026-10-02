@@ -980,11 +980,14 @@ def _rank_by_occupancy(gini_df, max_primer):
         )
         return None
 
+    from .mismatch_model import resolve_mismatch_model, site_load_mode
+
     shortlist["occupancy_ratio"] = occupancy_ratio
     logger.info(
         f"Ranked {len(shortlist):,} candidates by occupancy-weighted background "
         f"load (median {shortlist['occupancy_ratio'].median():.3g}, "
-        f"best {shortlist['occupancy_ratio'].min():.3g})"
+        f"best {shortlist['occupancy_ratio'].min():.3g}, "
+        f"mode {site_load_mode(resolve_mismatch_model())})"
     )
     return shortlist.sort_values(**_RANK_BY_OCCUPANCY)[:max_primer]
 
@@ -1006,6 +1009,34 @@ def _occupancy_ranking_inputs():
     except (ImportError, ValueError, TypeError) as exc:
         logger.debug(f"Could not build reaction conditions for occupancy ranking: {exc}")
         return None, None
+
+
+def _write_filter_stats(funnel, final_candidates):
+    """Write `filter_stats.json`: the real per-stage funnel, and what ordered it.
+
+    Extracted from `step2` when adding `occupancy_ranking_mode` took that
+    function over its 200-line budget. Reports showed a fabricated per-stage
+    estimate before this file existed, which is why it is written at all.
+
+    `occupancy_ranking_mode` names the mismatch model that ordered the
+    candidates. The ranking's own output is the `occupancy_ratio` column of
+    step2_df.csv, so without it the pool's ORDER came out of an extrapolated
+    table with nothing saying so. It is "occupancy" under the shipped uniform
+    model, so no existing figure in this file moves.
+
+    Best-effort: a diagnostic must never fail the step that produced it.
+    """
+    try:
+        import json as _json
+
+        from .mismatch_model import resolve_mismatch_model, site_load_mode
+
+        funnel["final_candidates"] = final_candidates
+        funnel["occupancy_ranking_mode"] = site_load_mode(resolve_mismatch_model())
+        with open(os.path.join(parameter.data_dir, "filter_stats.json"), "w") as handle:
+            _json.dump(funnel, handle, indent=2)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug(f"Could not write filter_stats.json: {exc}")
 
 
 def _occupancy_ratio_column(primers, fg_prefixes, bg_prefixes, conditions):
@@ -1330,16 +1361,7 @@ def step2(all_primers=None, validate_prerequisites=True):
 
     report_pool_diagnostics(list(filtered_gini_df["primer"].astype(str)), parameter)
 
-    # Write the real filtering funnel so reports show genuine per-stage counts
-    # instead of a fabricated estimate. Best-effort: never fail the filter step.
-    try:
-        import json as _json
-
-        _funnel["final_candidates"] = len(filtered_gini_df)
-        with open(os.path.join(parameter.data_dir, "filter_stats.json"), "w") as _fh:
-            _json.dump(_funnel, _fh, indent=2)
-    except Exception as _e:  # pragma: no cover - defensive
-        logger.debug(f"Could not write filter_stats.json: {_e}")
+    _write_filter_stats(_funnel, len(filtered_gini_df))
 
     if len(filtered_gini_df) == 0:
         logger.error(

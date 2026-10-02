@@ -67,6 +67,13 @@ WATCHED = (
     # that hid the six findings this file was written for.
     "core/variant_table.py",
     "core/variant_sites.py",
+    # Added 2026-10-02 with the position-dependent mismatch model. Both are
+    # built and unit-tested directly against synthetic count tables, which is
+    # the shape that hid the six findings this file was written for, and the
+    # model is reachable only through a params.json key that is off by default
+    # -- so nothing about a default run would notice it becoming orphaned.
+    "core/mismatch_sites.py",
+    "core/mismatch_model.py",
 )
 
 # Public names no command can reach today, and why. Shrink this list.

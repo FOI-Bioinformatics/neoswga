@@ -983,6 +983,22 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             "Consider using background-aware optimization for improved specificity."
         )
 
+    # Which mismatch model weighted the sites behind every figure above. The
+    # report read no mode at all, so a number from an extrapolated 37 C table
+    # was rendered identically to one from the shipped uniform model. Appended
+    # only when a non-uniform model ran, so no existing report changes.
+    _mode = getattr(metrics.specificity, "selectivity_mode", "") if metrics.specificity else ""
+    if str(_mode).startswith("occupancy-position-dependent"):
+        specificity_interpretation += (
+            f" These figures were weighted by the {_mode.split('occupancy-', 1)[1]} "
+            f"mismatch model, not the shipped uniform one: mismatched sites are "
+            f"scored from SantaLucia (1998) internal-mismatch free energies "
+            f"measured at 37 C in 1 M NaCl and applied at this reaction's "
+            f"temperature and buffer. That is an extrapolation and no benefit "
+            f"over the uniform model has been demonstrated; see "
+            f"docs/validation/2026-10-02-position-dependent-mismatch.md."
+        )
+
     # Thermodynamics
     thermo = metrics.thermodynamics
     reaction_temp = thermo.reaction_temp if thermo else 30

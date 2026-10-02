@@ -453,3 +453,146 @@ def test_max_extension_changes_the_amplification_network(cache, genome):
 
     assert hybrid(max_extension=5000)._hybrid.max_extension == 5000
     assert hybrid(max_extension=None)._hybrid.max_extension == 70000
+
+
+# ----------------------------------------------------------------------
+# mismatch_model must change the number it is said to change
+# ----------------------------------------------------------------------
+#
+# Added 2026-10-02 (Phase 4b). params.json only; there is no flag, which makes
+# the key the single route and this the only place its effect can be asserted
+# end to end. The default must move nothing, so both halves are checked: the
+# delivered metrics under `uniform` must equal the metrics with the key unset,
+# and under `position-dependent` they must differ and say so.
+
+
+@pytest.fixture(scope="module")
+def mismatch_world(tmp_path_factory):
+    """A target and a host, with k-mer count tables and position indexes.
+
+    The host carries one perfect copy and three one-mismatch copies of every
+    primer, at different distances from the 3' end. Without that population
+    there is nothing for a mismatch model to weight and the test would pass
+    whatever the model did.
+    """
+    k = 10
+    length = 40_000
+    rng = random.Random(4120)
+    directory = tmp_path_factory.mktemp("mismatch_world")
+
+    fg = [rng.choice("ACGT") for _ in range(length)]
+    bg = [rng.choice("ACGT") for _ in range(length)]
+
+    primers: list[str] = []
+    for i in range(6):
+        bases = ["G", "C"] * 2 + ["A", "T"] * 3
+        rng.shuffle(bases)
+        primer = "".join(bases) + "".join(rng.choice("AT") for _ in range(k - len(bases)))
+        if primer in primers:
+            continue
+        primers.append(primer)
+        for j in range(4):
+            at = (i * 5_000 + j * 800) % (length - 20)
+            fg[at : at + k] = list(primer)
+        bg[i * 4_000 : i * 4_000 + k] = list(primer)
+        # Mismatches at the 3' terminus, one in from it, and mid-oligo, so the
+        # model has geometry to be sensitive to.
+        for offset_from_three_prime in (0, 1, 5):
+            index = k - 1 - offset_from_three_prime
+            variant = list(primer)
+            variant[index] = "ACGT"[("ACGT".index(variant[index]) + 1) % 4]
+            at = i * 4_000 + 400 + offset_from_three_prime * 120
+            bg[at : at + k] = variant
+
+    from neoswga.core.mismatch_counts import canonical_kmer
+
+    prefixes = {}
+    for name, letters in (("fg", fg), ("bg", bg)):
+        seq = "".join(letters)
+        prefix = str(directory / name)
+        prefixes[name] = prefix
+
+        counts: dict[str, int] = {}
+        for i in range(len(seq) - k + 1):
+            canonical = canonical_kmer(seq[i : i + k])
+            counts[canonical] = counts.get(canonical, 0) + 1
+        with open(f"{prefix}_{k}mer_all.txt", "w") as handle:
+            for kmer, count in counts.items():
+                handle.write(f"{kmer} {count}\n")
+
+        with h5py.File(f"{prefix}_{k}mer_positions.h5", "w") as handle:
+            for key in sorted({x for p in primers for x in (p, reverse_complement(p))}):
+                hits, at = [], seq.find(key)
+                while at != -1:
+                    hits.append(at)
+                    at = seq.find(key, at + 1)
+                if hits:
+                    handle.create_dataset(key, data=np.array(hits, dtype=np.int64))
+
+    return {"primers": primers, "k": k, "length": length, **prefixes}
+
+
+def _metrics_under(mismatch_world, monkeypatch, model):
+    from neoswga.core import parameter
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.dominating_set_adapter import DominatingSetAdapter
+    from neoswga.core.position_cache import PositionCache
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    monkeypatch.setattr(parameter, "mismatch_model", model, raising=False)
+    primers = mismatch_world["primers"]
+    optimizer = DominatingSetAdapter(
+        position_cache=PositionCache([mismatch_world["fg"], mismatch_world["bg"]], primers),
+        fg_prefixes=[mismatch_world["fg"]],
+        fg_seq_lengths=[mismatch_world["length"]],
+        bg_prefixes=[mismatch_world["bg"]],
+        bg_seq_lengths=[mismatch_world["length"]],
+        config=OptimizerConfig(target_set_size=4, max_mismatches=1),
+        conditions=ReactionConditions(temp=30.0, polymerase="phi29"),
+    )
+    return optimizer.compute_metrics(primers)
+
+
+def test_the_mismatch_model_default_moves_nothing(mismatch_world, monkeypatch):
+    """The key unset and the key set to `uniform` must be the same design.
+
+    Compared number by number rather than read from the code: "the default is
+    unchanged" is exactly the claim that a dispatch added in the wrong place
+    breaks silently.
+    """
+    unset = _metrics_under(mismatch_world, monkeypatch, None)
+    uniform = _metrics_under(mismatch_world, monkeypatch, "uniform")
+
+    assert unset.selectivity_mode == "occupancy"
+    assert uniform.selectivity_mode == "occupancy"
+    for field in (
+        "effective_fg_sites",
+        "effective_bg_sites",
+        "selectivity_ratio",
+        "selectivity_density",
+        "fg_coverage",
+        "total_fg_sites",
+        "total_bg_sites",
+    ):
+        assert getattr(uniform, field) == getattr(unset, field), field
+
+
+def test_the_mismatch_model_changes_the_load_and_says_which_model_ran(mismatch_world, monkeypatch):
+    """A key that changed nothing would be the inert option of Known Issue 8,
+    and a changed load reported under the old mode string would be worse than
+    inert."""
+    uniform = _metrics_under(mismatch_world, monkeypatch, "uniform")
+    modelled = _metrics_under(mismatch_world, monkeypatch, "position-dependent")
+    with_rule = _metrics_under(mismatch_world, monkeypatch, "position-dependent-3prime")
+
+    assert modelled.selectivity_mode == "occupancy-position-dependent"
+    assert with_rule.selectivity_mode == "occupancy-position-dependent-3prime"
+
+    assert modelled.effective_bg_sites != pytest.approx(uniform.effective_bg_sites, rel=1e-6)
+    # The 3'-terminal rule removes part of what the duplex term left, and the
+    # host carries a terminal-mismatch copy of every primer.
+    assert with_rule.effective_bg_sites < modelled.effective_bg_sites
+
+    # Exact-match counts are not a model output and must not move.
+    assert modelled.total_bg_sites == uniform.total_bg_sites
+    assert modelled.total_fg_sites == uniform.total_fg_sites

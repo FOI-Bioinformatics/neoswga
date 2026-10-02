@@ -712,6 +712,7 @@ def _effective_conditions(parameter):
     resolved state is what lets `export` and `report` correct a Tm for the
     buffer the design was optimized under instead of a different one.
     """
+    from neoswga.core.mismatch_model import resolve_mismatch_model
     from neoswga.core.parameter import REACTION_PARAM_DEFAULTS
 
     fields = ("polymerase", "reaction_temp", "na_conc", "mg_conc", *REACTION_PARAM_DEFAULTS)
@@ -720,6 +721,16 @@ def _effective_conditions(parameter):
         value = getattr(parameter, name, None)
         if value is not None:
             conditions[name] = value
+
+    # Recorded here, with the reaction, because it decides how every
+    # background site is weighted and so is part of what the step ran under.
+    # The RESOLVED value, never None, so a manifest always says which model
+    # produced its numbers. It also earns drift detection for free:
+    # `filter` under one model and `optimize` under another is exactly what
+    # `warn_on_condition_drift` is for, and nothing said so before.
+    conditions["mismatch_model"] = resolve_mismatch_model(
+        getattr(parameter, "mismatch_model", None)
+    )
     return conditions or None
 
 

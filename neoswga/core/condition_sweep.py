@@ -61,6 +61,11 @@ class ConditionPoint:
     amplification: float
     effective_fg_sites: float
     effective_bg_sites: float
+    #: Which mismatch model produced the two loads. "occupancy" under the
+    #: shipped uniform model, so no existing sweep output moves. A sweep is
+    #: read as "this reaction buys this much discrimination", and the amount it
+    #: reports depends on the model, so the point has to say which one.
+    selectivity_mode: str = "occupancy"
 
     @property
     def label(self) -> str:
@@ -96,6 +101,12 @@ def sweep_conditions(
     temperatures = list(temperatures if temperatures is not None else DEFAULT_TEMPERATURES)
     dmso_grid = list(dmso_percentages if dmso_percentages is not None else DEFAULT_DMSO)
     betaine_grid = list(betaine_concentrations if betaine_concentrations is not None else (0.0,))
+
+    from neoswga.core.mismatch_model import resolve_mismatch_model, site_load_mode
+
+    # Resolved once for the sweep, not per grid point: every point of one sweep
+    # must be weighed the same way or the grid is not comparable with itself.
+    load_mode = site_load_mode(resolve_mismatch_model())
 
     points: list[ConditionPoint] = []
     skipped: list[tuple] = []
@@ -139,6 +150,7 @@ def sweep_conditions(
                         amplification=amplification,
                         effective_fg_sites=fg_load,
                         effective_bg_sites=bg_load,
+                        selectivity_mode=load_mode,
                     )
                 )
 

@@ -185,6 +185,20 @@ class DesignRequest:
     swap_max_evaluations: int | None = None
     swap_max_seconds: float | None = None
 
+    # Added 2026-10-02, the same defect one more time. `mismatch_model` changes
+    # how every background site is weighted, so two designs that deliver
+    # different panels recorded the same identity while it sat outside the
+    # fields.
+    #
+    # RESOLVED, not raw: an absent key and `uniform` deliver byte-identical
+    # designs, and the hash is the identity of a design, so they must compare
+    # equal. That follows `candidate_retention`, which normalises absent to
+    # `all_qc`, rather than `optimization_method`, which keeps None because a
+    # CLI flag has to beat the file. There is no flag for this key, so there is
+    # no precedence to preserve. `parameter.mismatch_model` still holds the raw
+    # value for anything that needs to know whether it was written down.
+    mismatch_model: str = "uniform"
+
     # ---------------------------------------------------------------- hashing
 
     def to_dict(self) -> dict[str, Any]:
@@ -435,6 +449,21 @@ def _resolve_budgets(params: Mapping[str, Any], sources: dict[str, str]) -> dict
     return resolve_search_settings(dict(params))
 
 
+def _resolved_mismatch_model(value: Any) -> str:
+    """The validated `mismatch_model`, with an absent key resolved to `uniform`.
+
+    An unrecognised value is refused HERE, before any search begins, which is
+    where this module refuses everything else it can refuse from the request
+    alone. `mismatch_model.resolve_mismatch_model` is the one definition of
+    what the key accepts, and it resolves an absent value to `uniform`, so an
+    absent key and an explicit `uniform` give one identity for what is one
+    design.
+    """
+    from .mismatch_model import resolve_mismatch_model
+
+    return resolve_mismatch_model(value)
+
+
 def _resolve_oligos(params: Mapping[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
     fixed = tuple(str(p).upper() for p in (params.get("fixed_oligos") or ()))
     excluded = tuple(str(p).upper() for p in (params.get("excluded_oligos") or ()))
@@ -584,6 +613,10 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         data_dir=str(params.get("data_dir") or "."),
         primer_lengths=tuple(range(min_k, max_k + 1)),
         candidate_retention=str(params.get("candidate_retention") or "all_qc"),
+        # Validated here rather than at first use, so an unrecognised value is
+        # refused before any search begins. `resolve_mismatch_model` is the one
+        # definition of what the key accepts.
+        mismatch_model=_resolved_mismatch_model(params.get("mismatch_model")),
         fixed_oligos=fixed,
         excluded_oligos=excluded,
         target_size=target_size,

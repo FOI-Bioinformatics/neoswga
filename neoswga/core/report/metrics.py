@@ -213,6 +213,13 @@ class FilteringStats:
     after_complexity: int = 0
     after_max_primer_cut: int = 0
     final_candidates: int = 0
+    #: Which mismatch model ordered the surviving candidates, from
+    #: `filter_stats.json`. Not a stage count and never part of the funnel; it
+    #: is declared here because this class is built as `FilteringStats(**stats)`
+    #: straight from that file, so a key the file carries and the class does not
+    #: is a TypeError rather than an ignored field. "occupancy" under the
+    #: shipped uniform model, and absent from a file written before 2026-10-02.
+    occupancy_ranking_mode: str = "occupancy"
 
     def as_funnel(self) -> list[tuple]:
         """Return filtering stages as a funnel list, in actual pipeline order.
@@ -294,6 +301,12 @@ class SpecificityMetrics:
     selectivity_ratio: float | None = None
     bg_coverage: float | None = None
     from_optimizer: bool = False
+    # Which mismatch model weighted the sites behind `selectivity_ratio`, read
+    # from the optimizer summary. The report read no mode at all, so a figure
+    # computed from an extrapolated 37 C table was rendered identically to one
+    # from the shipped uniform model. "occupancy" under uniform, so no existing
+    # report changes; "exact" when the mismatch tables were unavailable.
+    selectivity_mode: str = "occupancy"
 
 
 @dataclass
@@ -1152,6 +1165,11 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
             metrics.specificity.enrichment_ratio = _safe_float(opt_metrics["selectivity_density"])
         if "bg_coverage" in opt_metrics:
             metrics.specificity.bg_coverage = _safe_float(opt_metrics["bg_coverage"])
+        # The optimizer records which mismatch model produced the loads above.
+        # Reading it is what makes the schema's claim true: that a
+        # position-dependent load cannot be read as the uniform one.
+        if opt_metrics.get("selectivity_mode"):
+            metrics.specificity.selectivity_mode = str(opt_metrics["selectivity_mode"])
         if "total_fg_sites" in opt_metrics:
             metrics.specificity.target_sites = _safe_int(opt_metrics["total_fg_sites"])
         if "total_bg_sites" in opt_metrics:
