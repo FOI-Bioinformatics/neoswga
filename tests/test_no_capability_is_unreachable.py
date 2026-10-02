@@ -62,6 +62,11 @@ WATCHED = (
     # this file was written for.
     "core/reference_panel_evaluation.py",
     "core/set_improvement.py",
+    # Added 2026-10-02 with `evaluate-set --variants`. Both are built and
+    # unit-tested directly against synthetic references, which is the shape
+    # that hid the six findings this file was written for.
+    "core/variant_table.py",
+    "core/variant_sites.py",
 )
 
 # Public names no command can reach today, and why. Shrink this list.

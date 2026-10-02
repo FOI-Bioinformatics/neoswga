@@ -319,6 +319,214 @@ def _occupancy_selectivity(primers, fg_prefixes, bg_prefixes, conditions):
     return round(fg_load / bg_load, 4) if bg_load > 0 else None
 
 
+def _configured_background():
+    """The hosts params.json configures, as (prefixes, genomes, lengths).
+
+    Read in one place and carried as one bundle, so prefix, genome and length
+    travel together: `tests/test_pairing_a_prefix_with_its_length_cannot_
+    truncate.py` and `tests/test_expansion_counts_background.py` both exist
+    because these three lists came apart somewhere.
+    """
+    from neoswga.core import parameter
+
+    return (
+        list(getattr(parameter, "bg_prefixes", []) or []),
+        list(getattr(parameter, "bg_genomes", []) or []),
+        list(getattr(parameter, "bg_seq_lengths", []) or []),
+    )
+
+
+def _background_totals(args, primers, per_primer, total_sites, prefixes, background, conditions):
+    """Host sites per primer, the pooled total, and the two selectivity figures.
+
+    This command is documented as reporting "coverage, gaps, selectivity,
+    dimers" and had no background handling at all: params.json carries
+    bg_prefixes, every other command counts them, and this one ignored them. A
+    user with a host genome configured got a report with no specificity in it
+    -- for SWGA, the half that decides whether a design is usable.
+
+    Scanning is opt-in for the reason its help gives: a host-sized genome held
+    in memory is expensive, and background specificity is a frequency question
+    the k-mer counts already answer.
+
+    `total_bg_sites` and the ratio are None where no background is configured.
+    An absent background is "not measured", and 0 would read as perfect
+    specificity -- a confident claim from no evidence.
+    """
+    from neoswga.core import parameter
+    from neoswga.core.position_cache import PositionCache
+
+    bg_prefixes, bg_genomes, _bg_lengths = background
+    if not bg_prefixes:
+        return None, None, None
+
+    scan_bg = bool(getattr(args, "scan_background", False)) and len(bg_genomes) == len(bg_prefixes)
+    bg_cache = PositionCache(
+        bg_prefixes,
+        primers,
+        genome_paths=bg_genomes if scan_bg else None,
+        circular=bool(getattr(parameter, "bg_circular", False)),
+        on_missing="scan" if scan_bg else "warn",
+    )
+    bg_per_primer = {
+        primer: sum(len(bg_cache.get_positions(prefix, primer)) for prefix in bg_prefixes)
+        for primer in primers
+    }
+    for record in per_primer:
+        record["background_sites"] = bg_per_primer.get(record["primer"], 0)
+
+    total_bg_sites = sum(bg_per_primer.values())
+    selectivity = round(total_sites / total_bg_sites, 4) if total_bg_sites else None
+    occupancy = _occupancy_selectivity(primers, prefixes, bg_prefixes, conditions)
+    return total_bg_sites, selectivity, occupancy
+
+
+def _same_file(left, right):
+    try:
+        return os.path.samefile(left, right)
+    except OSError:
+        return os.path.realpath(left) == os.path.realpath(right)
+
+
+def _variant_reference(prefixes, genomes, lengths, named=None):
+    """The one target a variant table is placed against, or a refusal.
+
+    A variant table states positions against ONE assembly. When the run has one
+    foreground genome that is it. When it has more than one -- readable or not
+    -- this refuses unless `--variants-reference FASTA` names one of them,
+    because choosing the only readable one, or the first, would place the
+    table in a coordinate space nobody chose, and the REF check cannot always
+    tell near-identical strains apart. Each refusal names an action that
+    works with the inputs the user already has, so following it cannot lead
+    into another refusal.
+    """
+    from neoswga.core.exceptions import ReferenceDataError
+
+    if len(genomes) != len(prefixes):
+        raise ReferenceDataError(
+            "variant route",
+            f"the run has {len(prefixes)} foreground prefix(es) and "
+            f"{len(genomes)} foreground FASTA path(s), so no prefix can be "
+            f"paired with the FASTA its coordinates come from",
+            "with -j, list one FASTA per fg_prefixes entry under fg_genomes in "
+            "params.json and leave --genome off (it replaces that list); "
+            "without -j, pass --genome FASTA",
+        )
+    if named:
+        chosen = [i for i, genome in enumerate(genomes) if genome and _same_file(genome, named)]
+        if not chosen:
+            raise ReferenceDataError(
+                "variant route",
+                f"--variants-reference {named} is not one of this run's foreground "
+                f"genomes ({', '.join(str(g) for g in genomes)})",
+                "name one of the foreground genomes listed, exactly as the run configures it",
+            )
+        index = chosen[0]
+    elif len(prefixes) > 1:
+        raise ReferenceDataError(
+            "variant route",
+            f"a variant table is stated against one assembly, and this run "
+            f"configures {len(prefixes)} foreground genomes, so which one the "
+            f"table was made against cannot be inferred",
+            "keep the run as it is and add --variants-reference FASTA naming "
+            "one of: " + ", ".join(str(g) for g in genomes),
+        )
+    else:
+        index = 0
+    genome = genomes[index]
+    if not genome or not os.path.isfile(genome):
+        raise ReferenceDataError(
+            "variant route",
+            f"the foreground genome {genome!r} cannot be read, and it is the "
+            f"reference the variant table would be placed against",
+            "check the path in fg_genomes or --genome",
+        )
+    return prefixes[index], genome, lengths[index]
+
+
+def _variant_blocks(args, primers, per_primer, cache, foreground, reach):
+    """The `per_strain` block, or None when `--variants` was not given.
+
+    Every figure in it comes from the functions the per-reference blocks use,
+    over the intact sites only, so a strain carrying no variants reproduces the
+    reference figures exactly. Nothing here is a score: an affected site is
+    counted as lost, never weighted and never called tolerated, because the
+    shipped mismatch model is uniform and its evidence status is `assumed`.
+    """
+    path = getattr(args, "variants", None)
+    named = getattr(args, "variants_reference", None)
+    if not path:
+        if named:
+            raise ValueError(
+                "--variants-reference names the reference a variant table is "
+                "placed against, and no --variants table was given"
+            )
+        return None
+
+    from neoswga.core.exceptions import ReferenceDataError
+    from neoswga.core.reference_layout import LayoutMismatch, verify_layout
+    from neoswga.core.variant_sites import evaluate_strain_panel
+    from neoswga.core.variant_table import open_variants
+
+    prefixes, genomes, lengths = foreground
+    prefix, genome, length = _variant_reference(prefixes, genomes, lengths, named)
+    table = open_variants(path, genome, prefix=prefix)
+    try:
+        # The record starts are the ones the position index stored when
+        # `filter` built it; a FASTA edited since then puts every variant at an
+        # offset the positions no longer use. When this run scanned the FASTA
+        # itself (no index for this prefix) the list is empty and
+        # `verify_layout` records the starts check as not run, which is right:
+        # positions scanned now come from this very file. The length half still
+        # applies, since the configured length is every coverage denominator.
+        verify_layout(table.layout, cache.get_record_starts(prefix), int(length))
+    except LayoutMismatch as exc:
+        raise ReferenceDataError(
+            f"reference {genome}",
+            str(exc),
+            "re-run `neoswga filter` so the index describes this FASTA, or "
+            "place the table against the FASTA the index was built from",
+        ) from exc
+    logger.info("Variant table %s placed against %s (prefix %s)", path, genome, prefix)
+    block = evaluate_strain_panel(
+        cache,
+        prefix,
+        primers,
+        int(length),
+        table,
+        extension=int(reach),
+        circular=not args.linear,
+    )
+    _attach_per_primer_intact(per_primer, block)
+    return block
+
+
+def _attach_per_primer_intact(per_primer, block):
+    """Per primer, the fraction of its sites intact in every strain.
+
+    None where any strain's answer is unknown, and None for a primer with no
+    site on the reference. Zero of zero sites intact is not 0.0, and a 0.0 here
+    would read as a primer whose sites the variants destroyed.
+    """
+    lowest = block.get("per_primer_intact_fraction_every_strain") or {}
+    by_strain = {
+        name: (record.get("per_primer_intact_fraction") or {})
+        for name, record in (block.get("per_strain") or {}).items()
+    }
+    for record in per_primer:
+        primer = record["primer"]
+        value = lowest.get(primer)
+        record["intact_fraction_every_strain"] = (
+            round(float(value), 4) if value is not None else None
+        )
+        record["intact_fraction_by_strain"] = {
+            name: (
+                round(float(fractions[primer]), 4) if fractions.get(primer) is not None else None
+            )
+            for name, fractions in by_strain.items()
+        }
+
+
 # Every other params-taking command carries this decorator; evaluate-set was
 # the one that did not. It validates the path and, critically, merges
 # `args.json_file` onto `parameter.json_file` -- which is what
@@ -342,9 +550,7 @@ def run_evaluate_set(args):
     primers = _resolve_primers(args)
     os.makedirs(args.output, exist_ok=True)
     prefixes, genomes, lengths = _resolve_sources(args)
-    bg_prefixes = list(getattr(parameter, "bg_prefixes", []) or [])
-    bg_genomes = list(getattr(parameter, "bg_genomes", []) or [])
-    bg_lengths = list(getattr(parameter, "bg_seq_lengths", []) or [])
+    background = _configured_background()
 
     polymerase = (
         getattr(args, "polymerase", None) or getattr(parameter, "polymerase", "phi29") or "phi29"
@@ -411,48 +617,10 @@ def run_evaluate_set(args):
             }
         )
 
-    # Background sites, and the selectivity they give.
-    #
-    # This command is documented as reporting "coverage, gaps, selectivity,
-    # dimers" and had no background handling at all: params.json carries
-    # bg_prefixes, every other command counts them, and this one ignored them.
-    # A user with a host genome configured got a report with no specificity in
-    # it -- for SWGA, the half that decides whether a design is usable.
-    # `--scan-background` was a flag for the missing capability.
-    #
-    # Scanning is opt-in for the reason its help gives: a host-sized genome
-    # held in memory is expensive, and background specificity is a frequency
-    # question the k-mer counts already answer.
-    bg_per_primer = {}
-    occupancy_selectivity = None
-    if bg_prefixes:
-        scan_bg = bool(getattr(args, "scan_background", False)) and len(bg_genomes) == len(
-            bg_prefixes
-        )
-        bg_cache = PositionCache(
-            bg_prefixes,
-            primers,
-            genome_paths=bg_genomes if scan_bg else None,
-            circular=bool(getattr(parameter, "bg_circular", False)),
-            on_missing="scan" if scan_bg else "warn",
-        )
-        for primer in primers:
-            bg_per_primer[primer] = sum(
-                len(bg_cache.get_positions(prefix, primer)) for prefix in bg_prefixes
-            )
-        for record in per_primer:
-            record["background_sites"] = bg_per_primer.get(record["primer"], 0)
-
     total_sites = sum(p["binding_sites"] for p in per_primer)
-    total_bg_sites = sum(bg_per_primer.values()) if bg_prefixes else None
-    # None rather than 0 where no background is configured: an absent
-    # background is "not measured", and reporting 0 would read as perfect
-    # specificity -- a confident claim from no evidence.
-    selectivity = None
-    if bg_prefixes:
-        selectivity = round(total_sites / total_bg_sites, 4) if total_bg_sites else None
-
-        occupancy_selectivity = _occupancy_selectivity(primers, prefixes, bg_prefixes, conditions)
+    total_bg_sites, selectivity, occupancy_selectivity = _background_totals(
+        args, primers, per_primer, total_sites, prefixes, background, conditions
+    )
     genome_bp = sum(lengths)
 
     # Gap statistics from the union of binding positions. Reported alongside
@@ -468,8 +636,13 @@ def run_evaluate_set(args):
         conditions,
         reach,
         (prefixes, genomes, lengths),
-        (bg_prefixes, bg_genomes, bg_lengths),
+        background,
         (total_sites, total_bg_sites, selectivity),
+    )
+    # Per strain, from a variant table against this reference. Added last so
+    # the per-primer records it annotates are already built.
+    variant_block = _variant_blocks(
+        args, primers, per_primer, cache, (prefixes, genomes, lengths), reach
     )
 
     result = {
@@ -517,6 +690,11 @@ def run_evaluate_set(args):
         "worst_host_selectivity_density": panel_block["worst_host_selectivity_density"],
         "per_reference_notes": panel_block["notes"],
     }
+    if variant_block is not None:
+        result["per_strain"] = variant_block["per_strain"]
+        result["variant_route"] = {
+            key: value for key, value in variant_block.items() if key != "per_strain"
+        }
 
     out_path = os.path.join(args.output, "evaluation.json")
     with open(out_path, "w") as fh:
@@ -588,6 +766,64 @@ def _print_per_reference(result):
         print(f"      worst host density         : {_format_measurement(worst_density)}")
 
 
+def _print_per_strain(result):
+    """The per-strain rows, the reductions, and the three limits.
+
+    The limits are printed with the figures rather than left to the JSON: the
+    route cannot see a site a variant creates, treats an indel as affecting
+    every site it overlaps, and says nothing about sequence absent from the
+    reference. A reader acting on the intact fraction needs all three.
+    """
+    strains = result.get("per_strain") or {}
+    route = result.get("variant_route") or {}
+    if not strains:
+        return
+
+    window = route.get("three_prime_window_nt")
+    geometry = route.get("geometry") or {}
+    print(
+        f"\n  Variants placed against {route.get('reference_fasta')} "
+        f"(prefix {os.path.basename(str(route.get('reference_prefix')))}, "
+        f"{geometry.get('length_bp')} bp, "
+        f"{'circular' if geometry.get('circular') else 'linear'})"
+    )
+    print(f"  Per strain, over {route.get('reference_sites', 0)} reference site(s):")
+    for name, record in strains.items():
+        if record.get("status") != "measured":
+            print(f"      {name:<20s} unavailable: {record.get('unavailable')}")
+            continue
+        intact = _format_measurement(record.get("intact_sites"), "{:.0f}")
+        affected = _format_measurement(record.get("affected_sites"), "{:.0f}")
+        not_assessed = _measured(record.get("not_assessed_sites"))
+        if not_assessed:
+            print(f"      {name:<20s} {not_assessed:.0f} site(s) not assessed")
+        fraction = _format_measurement(record.get("intact_site_fraction"), "{:.1%}")
+        coverage = _format_measurement(record.get("coverage_on_intact_sites"), "{:.1%}")
+        print(
+            f"      {name:<20s} intact {intact:>7s}  affected {affected:>7s}  "
+            f"intact fraction {fraction}  coverage {coverage}"
+        )
+        print(
+            f"          affected within {window} base(s) of the 3' end: "
+            f"{_format_measurement(record.get('affected_three_prime_proximal'), '{:.0f}')}"
+            f", further out: "
+            f"{_format_measurement(record.get('affected_distal'), '{:.0f}')}"
+        )
+
+    print("\n  Worst case over the strains:")
+    print(
+        f"      worst strain coverage      : "
+        f"{_format_measurement(route.get('worst_strain_coverage'), '{:.1%}')}"
+    )
+    print(
+        f"      worst intact site fraction : "
+        f"{_format_measurement(route.get('worst_strain_intact_fraction'), '{:.1%}')}"
+    )
+    print("\n  What this route cannot see:")
+    for limit in route.get("limits") or []:
+        print(f"      - {limit}")
+
+
 def _print_report(result):
     print("\n" + "=" * 70)
     print("PRIMER SET EVALUATION")
@@ -629,6 +865,7 @@ def _print_report(result):
         print(f"      {os.path.basename(name)}: {cov:.1%}")
 
     _print_per_reference(result)
+    _print_per_strain(result)
 
     if result.get("gap_interpretation"):
         print("\n  Gap analysis (all three shown: the published benchmarks")
@@ -648,8 +885,7 @@ def _print_report(result):
 
     if result["zero_site_primers"]:
         print(
-            f"\n  {len(result['zero_site_primers'])} primer(s) have NO binding "
-            f"sites in the target:"
+            f"\n  {len(result['zero_site_primers'])} primer(s) have NO binding sites in the target:"
         )
         for p in result["zero_site_primers"][:10]:
             print(f"      {p}")
@@ -705,6 +941,23 @@ def add_parsers(subparsers):
         "table or a single pass over the reference answers; pass "
         "--scan-background as well to locate them and measure host coverage, "
         "which holds the host in memory.",
+    )
+    p.add_argument(
+        "--variants",
+        metavar="FILE",
+        help="Variants of the target strains against this reference: a VCF/BCF, "
+        "or a TSV with a header of chrom/pos/ref/alt and one optional 0/1 "
+        "column per strain (pos is 1-based, as in VCF). Reports which binding "
+        "sites survive in which strain. A site is counted as lost when any "
+        "variant falls inside it; no mismatch is scored, and sites a variant "
+        "creates are invisible to this route.",
+    )
+    p.add_argument(
+        "--variants-reference",
+        metavar="FASTA",
+        help="With --variants and more than one foreground genome: the one the "
+        "variant table was made against. Must be one of the run's foreground "
+        "genomes. Not needed, and not guessed, when there is only one.",
     )
     p.add_argument("-o", "--output", default="evaluation", help="Output directory")
     p.add_argument("--reaction-temp", type=float)

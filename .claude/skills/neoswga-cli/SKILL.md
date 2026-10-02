@@ -143,6 +143,10 @@ neoswga evaluate-set --primers SEQ1 SEQ2 --genome target.fna -o eval/
 neoswga evaluate-set --from-results results/ --set 0 --genome target.fna \
     --background host1.fna host2.fna -o eval/
 
+# Report which binding sites survive in which strain, from a variant table
+neoswga evaluate-set --primers SEQ1 SEQ2 --genome reference.fna \
+    --variants strains.vcf -o eval/
+
 # Diagnose a set per oligo and propose edits to it; reports, applies nothing
 neoswga improve-set -j params.json --primers SEQ1 SEQ2 \
     --background host1.fna --max-edits 5 -o improvement/
@@ -182,6 +186,65 @@ neoswga calibrate-reach -j params.json --primers SEQ1 SEQ2 --bam reads.bam -o re
   the rest, and the reason says which member was missing. Compare
   `selectivity_density` across hosts of different size, never
   `selectivity_ratio` (Known Issue 6).
+- `evaluate-set --variants FILE` states target diversity as variants against
+  one reference instead of one FASTA per strain. It takes a VCF or BCF (through
+  `core/variant_table.py`, the only place a variant file is opened) or a TSV
+  with a header of `chrom pos ref alt` and one optional 0/1 column per strain.
+  Both formats are 1-based. `evaluation.json` then carries a `per_strain` block
+  and a `variant_route` block, and each per-primer record gains
+  `intact_fraction_every_strain` and `intact_fraction_by_strain`. There is no
+  params.json key for it.
+- The model is binary and needs none: a site `[pos, pos + k)` is intact in a
+  strain when no variant that strain carries falls inside it, and affected
+  otherwise. An affected site is counted as lost. It is never weighted,
+  scored with `occupancy.mismatch_tm`, or called tolerated: that model is a
+  uniform 4.0 C per mismatch with evidence status `assumed`.
+- Affected sites are split by the distance of the nearest variant from the
+  primer's 3' end, on the strand the primer binds, at a stated window
+  (`three_prime_window_nt`, 5 bases). The split is reported only; nothing is
+  compared against it and no penalty follows from it.
+- Three limits are written into `variant_route.limits` and printed: a site
+  GAINED in a strain through a variant is invisible, since sites are found on
+  the reference; an indel affects every site it overlaps and the coordinate
+  shift it causes downstream is not modelled, so gap lengths in a carrying
+  strain are approximate; and the table says nothing about sequence absent
+  from the reference.
+- The reader refuses rather than repairs: a contig the FASTA does not have, a
+  REF allele that disagrees with the FASTA (which is what catches a table made
+  against another assembly, and a 0-based one), an unsorted or interleaved
+  table, a TSV genotype that is neither 0 nor 1, a TSV row with more or fewer
+  columns than its header, a genotype naming an allele its row does not have
+  (`ALT=.` with `1/1`), a breakend ALT, a symbolic ALT (`<DEL>`, `<DUP>`, ...)
+  without `INFO/END` (declared in the header), a span past the end of its
+  record, and a `.vcf.gz` compressed with gzip rather than bgzip.
+- A symbolic ALT with `INFO/END` affects `[POS - 1, END)`, padding base
+  included; its REF alone is only that padding base.
+- VCF genotypes: any allele naming an ALT makes a carrier (`./1` is one);
+  otherwise any uncalled allele makes the genotype unknown (`0/.`, `./0`,
+  `.|0`, `./.`, no GT); only a fully stated reference genotype is a
+  non-carrier. A strain with an unknown genotype at any row is `unavailable`
+  with that row as the reason, and the `worst_strain_*` reductions are then
+  `None`, not the worst of the rest.
+- Circular references (the `evaluate-set` default unless `--linear`): the
+  scanner wraps the whole concatenated sequence once, so a site may start in
+  the last k-1 bases and end in the first ones, joining the last record to the
+  first on a multi-record reference. The mask and the 3'-end split follow that
+  definition. A site whose geometry the run cannot place -- a wrap position
+  read as linear, an offset past the end -- is counted as `not_assessed_sites`,
+  never as intact, and the strain's fraction, coverage and gaps are then
+  unavailable. `intact + affected + not_assessed` always equals
+  `reference_sites`, which counts a palindromic oligo's site once.
+- One reference per run. With one foreground genome that is the reference.
+  With more than one configured -- readable or not -- the run is refused
+  unless `--variants-reference FASTA` names one of them; the refusal lists
+  them. With `-j`, do not add `--genome` to pick one: it replaces
+  `fg_genomes`, leaves two prefixes and one FASTA, and is refused as such.
+  The chosen reference is logged, printed above the per-strain rows, and
+  recorded as `variant_route.reference_fasta`. When positions come from a
+  position index, its stored record starts are checked against the FASTA
+  (`reference_layout.verify_layout`) and a stale index is refused; the
+  configured length must equal the FASTA's. A refusal leaves no
+  `design_failure.json`, for the same reason `improve-set` leaves none.
 - `improve-set` takes the same set and reference options as `evaluate-set`
   (`--primers` / `--primers-file` or `--from-results DIR --set N`, `--genome`,
   `--background`, `--scan-background`, `--linear`) and writes

@@ -73,6 +73,7 @@ __all__ = [
     "ReferenceRecord",
     "ReferenceSpec",
     "evaluate_reference_panel",
+    "gap_statistics",
 ]
 
 ROLE_TARGET = "target"
@@ -503,7 +504,7 @@ def _measure_group(
             continue
 
         sites = sum(int(value) for value in per_primer.values())
-        mean_gap, max_gap, gini = _gap_statistics(cache, panel, spec)
+        mean_gap, max_gap, gini = gap_statistics(cache, panel, spec)
         out[spec.prefix] = ReferenceRecord(
             prefix=spec.prefix,
             genome=spec.genome,
@@ -532,7 +533,7 @@ def _measure_group(
     return out
 
 
-def _gap_statistics(
+def gap_statistics(
     cache: Any, panel: Sequence[str], spec: ReferenceSpec
 ) -> tuple[Measurement, Measurement, Measurement]:
     """Mean, maximum and Gini of the distances between sites, or unavailable.
@@ -540,6 +541,11 @@ def _gap_statistics(
     Fewer than two sites gives no gap at all. `cli/evaluate.py` returns
     (0.0, 0.0, 0.0) there, which reads as perfectly even spacing; here the three
     are unavailable with that as the reason.
+
+    Public because `variant_sites` computes the per-strain gap figures with it,
+    over the intact sites only. One implementation of a quantity is how the two
+    stay comparable: a second gap loop beside this one is how this repository
+    has produced disagreeing figures before.
     """
     import numpy as np
 
