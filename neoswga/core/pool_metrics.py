@@ -20,9 +20,13 @@ else. `tests/test_pool_metrics_agree_with_the_full_evaluation.py` pins it
 against `compute_metrics` on randomised panels, which is what stops the two
 definitions drifting while each stays self-consistent.
 
-The returned object carries only those five fields on purpose. A caller that
-reaches for a sixth gets an `AttributeError` rather than a default that would be
-indistinguishable from a measurement.
+The returned object carries only the fields something downstream READS, on
+purpose. A caller that reaches for one it does not carry gets an
+`AttributeError` rather than a default that would be indistinguishable from a
+measurement. `worst_target_coverage` joined it on 2026-10-02 for that reason and
+not as a convenience: `min_per_target_coverage` became an enforced limit, so
+`PoolObjective.violations` now reads that field, and the objective's `getattr`
+default would have made the floor unmeetable on every panel.
 """
 
 from __future__ import annotations
@@ -40,6 +44,18 @@ class PoolMetrics:
     total_bg_sites: int
     max_gap: float
 
+    # Sixth since 2026-10-02, when `min_per_target_coverage` became an enforced
+    # limit and `PoolObjective.violations` began reading this field. It is here
+    # because it is READ, which is the rule this module keeps: without it the
+    # objective's `getattr(metrics, metric, None)` would hand `_unmet` a None on
+    # every panel, so the floor would be unmeetable while reading as a violated
+    # constraint and the bounded repair would chase it to no end.
+    #
+    # The MINIMUM over the per-target fractions, and `None` when any target
+    # could not be measured -- never the lowest of the ones that answered. The
+    # loop is `core/target_coverage.py`, the same one `compute_metrics` uses.
+    worst_target_coverage: float | None = None
+
 
 def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     """The five design quantities for one panel.
@@ -53,7 +69,10 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     from .base_optimizer import _selectivity_density_from_loads
 
     if not primers:
-        return PoolMetrics(0.0, None, 0.0, 0, float("inf"))
+        # `compute_metrics` returns `PrimerSetMetrics.empty()` here, whose
+        # `worst_target_coverage` is None for the same reason: no panel is not
+        # a measured zero on any target.
+        return PoolMetrics(0.0, None, 0.0, 0, float("inf"), None)
 
     fg_by_prefix = {prefix: set() for prefix in optimizer.fg_prefixes}
     bg_by_prefix = {prefix: set() for prefix in optimizer.bg_prefixes}
@@ -71,9 +90,12 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     fg_by_prefix = {p: sorted(v) for p, v in fg_by_prefix.items()}
     bg_by_prefix = {p: sorted(v) for p, v in bg_by_prefix.items()}
 
-    fg_coverage = optimizer._coverage_over_prefixes(
+    # One call for both figures, through the same loop `compute_metrics` uses,
+    # so the two evaluators cannot disagree about either of them.
+    target_coverage = optimizer._coverage_by_target(
         fg_by_prefix, optimizer.fg_prefixes, optimizer.fg_seq_lengths
     )
+    fg_coverage = target_coverage.aggregate
 
     effective_fg_coverage = None
     if optimizer.conditions is not None:
@@ -116,4 +138,5 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
         selectivity_density=selectivity_density,
         total_bg_sites=total_bg,
         max_gap=max(gaps) if gaps else float("inf"),
+        worst_target_coverage=target_coverage.worst,
     )

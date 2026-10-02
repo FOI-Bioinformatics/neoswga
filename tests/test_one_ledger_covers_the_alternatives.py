@@ -205,4 +205,8 @@ def test_the_caller_hands_alternatives_the_run_constraints():
     source = pathlib.Path("neoswga/core/unified_optimizer.py").read_text()
     call = source[source.index("collect_alternative_sets(") :]
     call = call[: call.index(")\n")]
-    assert "constraints=constraints_from_parameter(parameter)" in call
+    # `kwargs` joined the call on 2026-10-02: `min_per_target_coverage` is the
+    # one panel limit with a CLI flag, and an alternative assessed against the
+    # params.json value while the primary was assessed against the flag is
+    # assessed against something else.
+    assert "constraints=constraints_from_parameter(parameter, kwargs)" in call

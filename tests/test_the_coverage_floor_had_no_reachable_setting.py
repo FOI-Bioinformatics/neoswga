@@ -24,14 +24,25 @@ Wiring it to `optimize_step4`'s `target_coverage` was the alternative and is
 not taken here: at its 0.70 default that newly fails validation on most measured
 designs, which is a verdict change needing its own measurement.
 
-**The gap this leaves is real and is recorded rather than filled.** None of the
-six configured panel limits is a minimum foreground coverage: they are
-`min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
-`max_mean_gap`, `max_evenness` and `max_host_coverage`. So after this there is
-no way to say "refuse a panel below X coverage". Adding one is a separate
-decision, and this project does not pick a threshold without evidence -- no
-spacing threshold derived from the polymerase reach separates the 18 published
-sets with wet-lab outcomes, which is why the other six ship unset.
+**The gap this leaves is real and is recorded rather than filled.** No
+configured panel limit is a minimum AGGREGATE foreground coverage. So after
+this there is still no way to say "refuse a panel below X coverage". Adding one
+is a separate decision, and this project does not pick a threshold without
+evidence -- no spacing threshold derived from the polymerase reach separates
+the 18 published sets with wet-lab outcomes, which is why every panel limit
+ships unset.
+
+Narrowed on 2026-10-02, not loosened. `min_per_target_coverage` became an
+enforced limit in Phase 6c of the diversity plan, and it is a minimum coverage
+-- per TARGET. It is a different quantity from the one retired here: it is read
+against `worst_target_coverage`, the minimum over the foreground targets, and
+it has a measured loss behind it
+(`docs/validation/2026-10-02-diversity-baseline.md` Q2 and Q3) rather than a
+threshold someone picked. It also ships unset, so it refuses nothing by
+default. The assertion below now names the gap precisely -- no limit is read
+against `fg_coverage` or `effective_fg_coverage` -- which is stronger than
+matching on the key's spelling, since the retired floor was spelled
+`min_coverage` and would have slipped past a name check.
 """
 
 import inspect
@@ -82,10 +93,29 @@ def test_the_checks_that_remain_still_fire():
     assert report["ok"] is False
 
 
-def test_no_configured_limit_is_a_foreground_coverage_floor():
+def test_no_configured_limit_is_an_aggregate_foreground_coverage_floor():
     """The gap, asserted so that filling it is a deliberate act.
 
-    If someone adds a minimum-coverage limit, this test fails and points them
-    at this file's docstring, which says what the evidence bar is.
+    Asserted on the METRICS FIELD each limit is read against, not on the key's
+    spelling: the retired floor was `min_coverage` and a name check would have
+    let it back in. If someone adds a limit against the aggregate foreground
+    coverage, this fails and points at this file's docstring, which says what
+    the evidence bar is.
     """
-    assert not [key for key in LIMIT_KEYS if "coverage" in key and key.startswith("min_")]
+    from neoswga.core.pool_objective import _LIMITS
+
+    aggregate_fields = {"fg_coverage", "effective_fg_coverage", "headline_coverage"}
+    offenders = [field for field, metric, *_rest in _LIMITS if metric in aggregate_fields]
+
+    assert not offenders, offenders
+
+
+def test_the_only_minimum_coverage_limit_is_the_per_target_one():
+    """Guard the guard above, which would also pass with no limits at all.
+
+    It also pins what Phase 6c added, so removing `min_per_target_coverage`
+    from the enforced limits is as deliberate an act as adding one was.
+    """
+    minimums = {key for key in LIMIT_KEYS if "coverage" in key and key.startswith("min_")}
+
+    assert minimums == {"min_per_target_coverage"}
