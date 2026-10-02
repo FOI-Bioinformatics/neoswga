@@ -1,6 +1,6 @@
 ---
 name: neoswga-cli
-description: Reference for NeoSWGA commands outside the four-step pipeline - init, start, suggest, validate, interpret, report, multi-genome, simulate, analyze-set, analyze-genome, analyze-dimers, analyze-coverage, calibrate-reach, evaluate-set, expand-primers, swap-primer, contract-set, rescore-set, report-pool, export, doctor - plus the mechanistic-model flags on optimize, RF model retraining, and the plasmid example. Use for any neoswga subcommand other than count-kmers, filter, prepare-candidates and optimize.
+description: Reference for NeoSWGA commands outside the four-step pipeline - init, start, suggest, validate, interpret, report, multi-genome, simulate, analyze-set, analyze-genome, analyze-dimers, analyze-coverage, calibrate-reach, evaluate-set, improve-set, expand-primers, swap-primer, contract-set, rescore-set, report-pool, export, doctor - plus the mechanistic-model flags on optimize, RF model retraining, and the plasmid example. Use for any neoswga subcommand other than count-kmers, filter, prepare-candidates and optimize.
 ---
 
 # NeoSWGA CLI reference (beyond the four-step pipeline)
@@ -143,6 +143,10 @@ neoswga evaluate-set --primers SEQ1 SEQ2 --genome target.fna -o eval/
 neoswga evaluate-set --from-results results/ --set 0 --genome target.fna \
     --background host1.fna host2.fna -o eval/
 
+# Diagnose a set per oligo and propose edits to it; reports, applies nothing
+neoswga improve-set -j params.json --primers SEQ1 SEQ2 \
+    --background host1.fna --max-edits 5 -o improvement/
+
 # Replace under-performing primers from a candidate pool (default: step2_df.csv)
 neoswga swap-primer -j params.json --primers SEQ1 SEQ2 --max-swaps 3 -o swaps.json
 
@@ -178,6 +182,55 @@ neoswga calibrate-reach -j params.json --primers SEQ1 SEQ2 --bam reads.bam -o re
   the rest, and the reason says which member was missing. Compare
   `selectivity_density` across hosts of different size, never
   `selectivity_ratio` (Known Issue 6).
+- `improve-set` takes the same set and reference options as `evaluate-set`
+  (`--primers` / `--primers-file` or `--from-results DIR --set N`, `--genome`,
+  `--background`, `--scan-background`, `--linear`) and writes
+  `improvement_report.json`: the per-reference figures, a per-oligo attribution
+  (sites on each target and host, marginal coverage per target, dimer partners
+  in the set, Tm against the window) and proposed single edits in four
+  sections. It writes no `step4_improved_df.csv`; applying a proposal is done
+  with `swap-primer`, `expand-primers` or by editing the list.
+- The sections are `drop` (drops that cost no coverage on any target), `add`,
+  `swap` and `trade_off_drop`. `--max-edits N` (default 5) bounds EACH section,
+  and each prints "shown M of N considered". Within a section the order is the
+  gain in the WORST target's coverage, then the worst host site density, then
+  the number of oligos changed. An add is listed only if it raises the worst
+  target; a candidate that raises the pooled coverage and not the worst target
+  is not offered.
+- `trade_off_drop` is not a list of improvements. An entry says that removing
+  the oligo raises the worst target-against-host selectivity density from X to
+  Y and what coverage that costs on each target. The member of any set with
+  the lowest target-to-host ratio always qualifies, so an ordinary set has
+  entries here. No threshold decides when a host cost is too high.
+- Every entry in every section was evaluated alone. Two drops that each cost
+  nothing are not shown to cost nothing together.
+- A proposed add is screened against every oligo that stays at `max_dimer_bp`
+  (and `max_dimer_dg` when set) and against `min_tm`/`max_tm`, and its sites
+  must be known on every target and host. A candidate absent from a host index
+  that is not scanned is counted in `candidate_pool.unmeasured` with the reason
+  and is not listed. The panel limits in params.json are advisory here: a
+  proposal that misses one is listed with the limit named, and one whose limits
+  could not be evaluated says so. They are judged on the evaluation's geometry
+  (circular unless `--linear`), not on `fg_circular`.
+- A failure of `improve-set` leaves no `design_failure.json`, and it removes
+  none: it is a report on a design, not a design run, so it cannot block or
+  unblock `export`.
+- Adds and swaps need `-j`: the pool is `data_dir/step3_df.csv`, opened through
+  `candidate_source.open_design_source`. With `--genome` alone only the
+  diagnosis and the drops are produced, under the default limits.
+- `fixed_oligos` in params.json marks oligos that are never proposed for
+  dropping or swapping out. There is no flag for it.
+- An oligo whose sites on a target could not be established is reported as
+  unavailable there, and while any target is unmeasured no edit is proposed.
+  The predicted figures are the evaluation run on the edited set, so they
+  agree with a later `evaluate-set` run on the same params file, references
+  and geometry flags by construction; that agreement is not an independent
+  check.
+- `evaluate-set -j` measures coverage at `coverage_reach` from params.json when
+  the key is set, as `optimize`, `plan-pool`, `expand-primers` and
+  `improve-set` do, and reports `extension_reach_source` beside
+  `extension_reach_bp`. Until 2026-10-02 it ignored the key and reported at the
+  polymerase's reach. With `--genome` alone it uses the polymerase's reach.
 - `design --multi-genome` refuses: it called a pan-genome entry point that has
   never existed in this package. Several targets go in params.json as
   `fg_genomes` with one `fg_prefixes` entry each. `--min-coverage` was removed

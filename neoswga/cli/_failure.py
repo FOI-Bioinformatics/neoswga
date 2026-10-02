@@ -30,6 +30,16 @@ __all__ = [
     "write_failure_artifact",
 ]
 
+#: Commands that describe an existing set and design nothing. A failure in one
+#: of them says nothing about the design whose directory it was pointed at, so
+#: it leaves no record there. `improve-set` resolves the design request to read
+#: `fixed_oligos`, and a refused params file would otherwise write
+#: `design_failure.json` beside a finished design: `export` would then refuse a
+#: panel that no run had failed on, and a later successful `improve-set` would
+#: not clear it, because clearing is a design step's job. The error is still
+#: printed and the exit code is still nonzero; only the record is withheld.
+REPORT_ONLY_COMMANDS = frozenset({"improve-set"})
+
 
 def _data_dir_from_params_file(json_file):
     """The output directory a params file names, resolved as a run resolves it.
@@ -111,7 +121,11 @@ def write_failure_artifact(args, error, run_state=RunState.FAILED):
     what tells a later command, or a person, that the most recent run did not
     finish. Failing to WRITE it must not mask the original error, so every
     error here is swallowed after being logged.
+
+    A report-only command writes none: see `REPORT_ONLY_COMMANDS`.
     """
+    if getattr(args, "command", None) in REPORT_ONLY_COMMANDS:
+        return None
     path = _failure_artifact_path(args)
     if path is None:
         return None

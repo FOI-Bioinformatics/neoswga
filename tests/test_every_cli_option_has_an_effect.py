@@ -383,6 +383,26 @@ def test_the_design_grid_stays_wired():
     )
 
 
+def test_improve_set_reads_every_option_it_declares():
+    """Pinned by name, with no entry in `KNOWN_INERT` to fall back on.
+
+    `improve-set` was added on 2026-10-02 without `add_common_options`, because
+    that helper brings `--data-dir`, `--enable-qa` and the GPU flags, which
+    `evaluate-set` carries as six excused entries above. A new command starts
+    with none, and this fails if an option is added to it that nothing reads,
+    or if someone excuses one instead of wiring it.
+    """
+    assert "improve-set" not in KNOWN_INERT
+    assert not unread_options().get("improve-set"), (
+        "improve-set declares option(s) its handler never reads: "
+        f"{sorted(unread_options().get('improve-set', set()))}"
+    )
+
+    found, _ = options_read_by("run_improve_set")
+    for option in ("max_edits", "background", "scan_background", "from_results", "set_index"):
+        assert option in found, f"{option} is declared by improve-set and was not found as read"
+
+
 @pytest.mark.parametrize("command", sorted(KNOWN_INERT))
 def test_every_excused_command_still_exists(command):
     """An excuse for a command that has gone is dead weight."""

@@ -45,6 +45,22 @@ def test_importing_the_cli_does_not_import_the_pipeline():
     ), "cli_unified still imports neoswga.core.pipeline at module scope"
 
 
+def test_importing_the_cli_does_not_import_the_set_improvement_modules():
+    """`improve-set` imports its logic inside the handler, as its siblings do.
+
+    `core/set_improvement.py` imports the per-reference evaluation at module
+    scope, so a top-level import of it in `cli/iterate.py` would be paid by
+    every command, including `--help`.
+    """
+    code = (
+        "import neoswga.cli_unified, sys, json\n"
+        "print(json.dumps(sorted(m for m in sys.modules if m in ("
+        "'neoswga.core.set_improvement', 'neoswga.core.reference_panel_evaluation'))))\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == []
+
+
 def test_the_exception_lives_in_exceptions_and_is_still_reachable_from_pipeline():
     """Two tests import it from `neoswga.core.pipeline`; that must keep working,
     and it must be the same object so `except` clauses still match."""

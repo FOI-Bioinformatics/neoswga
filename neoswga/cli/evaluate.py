@@ -228,6 +228,35 @@ def _pooled_host_sites(panel, total_sites):
     return pooled, ratio
 
 
+def _resolve_reach(args, polymerase):
+    """The per-primer reach coverage is measured at, and where it came from.
+
+    `coverage_reach` in params.json is honoured, through
+    `coverage.resolve_coverage_reach`, the reader `optimize`, `plan-pool`,
+    `expand-primers` and `improve-set` resolve it with. Until 2026-10-02 this
+    command read only the polymerase, so a design made at a configured reach
+    was evaluated at another one and the key was inert here (Known Issue 8):
+    with `coverage_reach: 800` it reported 3000.
+
+    The key is read only when a params file was given. With `--genome` alone
+    the `parameter` module holds whatever an earlier call in this process left
+    there, which is not this run's configuration.
+
+    No params file this command accepted is refused by this: a value the reader
+    would reject (zero, negative, not an integer) already fails the schema
+    check in `validate_params_json_file`, before this function runs.
+    """
+    from neoswga.core import parameter
+    from neoswga.core.coverage import resolve_coverage_reach
+
+    configured = None
+    if getattr(args, "json_file", None):
+        configured = getattr(parameter, "coverage_reach", None)
+    reach = resolve_coverage_reach(polymerase, override=configured)
+    source = "coverage_reach in params.json" if configured is not None else "polymerase default"
+    return reach, source
+
+
 def _gap_statistics(cache, primers, prefixes, lengths, circular):
     """Mean, max and Gini of the distances between binding sites.
 
@@ -306,7 +335,6 @@ def run_evaluate_set(args):
         compute_per_prefix_coverage,
         gap_regime_note,
         interpret_gap_metrics,
-        polymerase_extension_reach,
     )
     from neoswga.core.position_cache import PositionCache
     from neoswga.core.reaction_conditions import build_reaction_conditions
@@ -326,7 +354,7 @@ def run_evaluate_set(args):
     # command reports -- the point of the command being to evaluate an oligo
     # set under the user's chemistry.
     conditions = build_reaction_conditions(args, polymerase=polymerase)
-    reach = polymerase_extension_reach(polymerase, coverage_metric="realistic")
+    reach, reach_source = _resolve_reach(args, polymerase)
 
     # on_missing='scan' is the point of this command: an outside primer set is
     # not in the index, and scoring it zero would be the bug, not the answer.
@@ -450,6 +478,7 @@ def run_evaluate_set(args):
         "fg_coverage": round(overall, 4),
         "per_target_coverage": {k: round(v, 4) for k, v in coverage.items()},
         "extension_reach_bp": reach,
+        "extension_reach_source": reach_source,
         "total_binding_sites": total_sites,
         "total_background_sites": total_bg_sites,
         "selectivity_ratio": selectivity,
@@ -594,6 +623,8 @@ def _print_report(result):
         else:
             print("      sparser than published successful sets (1 per 2-5 kbp)")
     print(f"  Coverage @ {result['extension_reach_bp']} bp reach : {result['fg_coverage']:.1%}")
+    if result.get("extension_reach_source"):
+        print(f"      reach from: {result['extension_reach_source']}")
     for name, cov in result["per_target_coverage"].items():
         print(f"      {os.path.basename(name)}: {cov:.1%}")
 
