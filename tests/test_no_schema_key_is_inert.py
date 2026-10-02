@@ -183,10 +183,10 @@ def test_background_aggregate_reaches_the_two_places_that_resolve_it(monkeypatch
     **The consumer assertion arrived with Phase 7b** and is the third block
     below: `filter.get_all_rates` resolves the key and dispatches the
     background gate on it, which is what makes it reach `filter`, `design` and
-    every command that re-runs step 2. Phase 7c adds the step-4 per-host
-    figures; until it lands,
-    `tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`
-    states that step 4 still does not read it.
+    every command that re-runs step 2. Phase 7c added the step-4 half --
+    `per_host_metrics.limit_figure` is the one dispatch there, and
+    `tests/test_per_host_figures.py` and
+    `tests/test_the_host_term_reads_the_aggregate.py` assert it.
     """
     import ast
     import inspect

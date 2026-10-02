@@ -12,9 +12,14 @@ gate now reads it, and
 `tests/test_the_background_gate_reads_the_aggregate.py` is where that
 behaviour is asserted; the non-effect test here was replaced by
 `test_the_two_readings_differ_only_in_this_field_of_the_request`, which keeps
-the part that is still true and still useful. Step 4's per-host figures remain
-unwired, and that half of the 7a position is now stated alone at
-`tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`.
+the part that is still true and still useful.
+
+**Updated again by Phase 7c**, which wired step 4: the per-host figures and the
+limits that read them are in `tests/test_per_host_figures.py`, and the
+`background-aware` host term in
+`tests/test_the_host_term_reads_the_aggregate.py`. No non-effect claim about
+this key survives; what remains here is the plumbing -- schema, globals,
+request, hash and manifest.
 """
 
 import dataclasses
@@ -268,13 +273,12 @@ def test_the_two_readings_differ_only_in_this_field_of_the_request():
     assert pooled.conditions_fingerprint == worst.conditions_fingerprint
 
 
-def test_the_step_2_gate_is_the_one_stage_that_reads_it_so_far():
-    """7b wired step 2; 7c wires step 4's per-host figures.
+def test_the_step_2_gate_reads_it():
+    """7b wired step 2; 7c wired step 4.
 
     Stated as a positive assertion about the gate rather than as "nothing reads
-    it", which is what 7a had to say. The step-4 half is still a non-effect
-    claim and lives at
-    `tests/test_design_options_have_effect.py::test_background_aggregate_moves_no_step4_figure_before_7c`.
+    it", which is what 7a had to say. The step-4 half is
+    `tests/test_per_host_figures.py`.
     """
     from neoswga.core import background_gate
 
