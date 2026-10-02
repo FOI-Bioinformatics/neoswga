@@ -38,7 +38,7 @@ When adding a record, add it there and keep this file to a line or two.
 |---|---|
 | `unified_optimizer.py` | Dispatches the optimizers: `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`, `network_optimizer`, `background_aware_optimizer`, with `minimal_primer_selector` as a post-process. `background-aware` is `BackgroundAwareBaseOptimizer`, which delegates to `HybridOptimizer` |
 | `exceptions.py` | `StepPrerequisiteError`, `StepValidationResult` and the `DesignError` family. Keep it free of dependencies beyond `typing` and `dataclasses`; `core/pipeline.py` re-exports the same objects |
-| `occupancy_coverage.py`, `selectivity.py` | Extracted from `base_optimizer` when it reached its size budget; re-exported from it as the same objects |
+| `occupancy_coverage.py`, `selectivity.py`, `target_coverage.py` | Extracted from `base_optimizer` when it reached its size budget; re-exported from it as the same objects. `target_coverage` is the one loop behind `fg_coverage`, `per_target_coverage` and `worst_target_coverage` |
 | `lazy_dimer.py` | `dimer_screen(pool, max_dimer_bp)` is the one decision about dense matrix against pairwise screen (threshold 4,000 candidates) |
 | `candidate_source.py` | `open_design_source` is the rule every design command asks. An explicit list wins; an absent inventory is None; a mismatched inventory raises. Only `plan-pool` advances the frontier, deliberately |
 | `position_index.py` | The only reader and writer of `*_positions.h5` (sorted-blocks layout) |
@@ -171,7 +171,10 @@ measurements: implementation-notes.md.
   maximum 7), `allow_dimer_relaxation` (false), `max_dimer_dg` (unset; can only
   tighten the screen), `max_sets` (5), `iterations` (8; bounds the search for
   alternatives, not the primary selection), `coverage_metric`,
-  `min_per_target_coverage` (checked and reported, not repaired).
+  `min_per_target_coverage` (a panel limit since 2026-10-02: read against
+  `worst_target_coverage`, the minimum over targets, and repaired once like the
+  others. Unset by default, 0.0 means disabled, and an unmeasured target
+  refuses the limit rather than passing it).
 - **Mismatch weighting**: `mismatch_penalty` (4.0 C, uniform) and
   `mismatch_model` (`uniform` default, `position-dependent`,
   `position-dependent-3prime`; params.json only, no flag, off by default). The

@@ -336,6 +336,59 @@ class TestTheEvaluatorProducesTheFigure:
 
         assert metrics.worst_target_coverage == pytest.approx(metrics.fg_coverage)
 
+    def test_it_follows_the_aggregate_convention_at_a_record_join(self):
+        """The one place the two definitions differ, pinned as a decision.
+
+        `coverage.compute_per_prefix_coverage`, which used to supply this dict,
+        confines each window to the record holding the site.
+        `coverage.union_coverage`, which supplies `fg_coverage`, deliberately
+        does not, and says why. The per-target figure now follows the
+        aggregate: a limit read against a figure the search cannot optimise
+        would be a limit against a different measurement.
+
+        Measured on this case: 0.3000 unconfined against 0.1750 confined, a
+        0.125 difference from one site 500 bp from a join. On a 1,870-record
+        143.7 Mb reference the inflation is bounded by records x 2 x reach over
+        the length, which is 0.078. The prepared indexes store no record starts,
+        so no recorded figure in this repository moves.
+        """
+        from neoswga.core.base_optimizer import OptimizerConfig
+        from neoswga.core.coverage import compute_per_prefix_coverage
+
+        length, starts, site = 20_000, [0, 10_000], 9_500
+
+        class _JoinCache:
+            def get_positions(self, prefix, primer, strand="both"):
+                import numpy as np
+
+                if strand == "reverse":
+                    return np.array([], dtype=np.int64)
+                return np.array([site], dtype=np.int64)
+
+            def get_record_starts(self, prefix):
+                return list(starts)
+
+        optimizer = _probe_class()(
+            position_cache=_JoinCache(),
+            fg_prefixes=["x"],
+            fg_seq_lengths=[length],
+            bg_prefixes=[],
+            bg_seq_lengths=[],
+            config=OptimizerConfig(target_set_size=1, extension_reach=REACH),
+        )
+        metrics = optimizer.compute_metrics([A_PRIMERS[0]])
+        _aggregate, confined = compute_per_prefix_coverage(
+            cache=_JoinCache(),
+            primers=[A_PRIMERS[0]],
+            prefixes=["x"],
+            seq_lengths=[length],
+            extension=REACH,
+        )
+
+        assert metrics.per_target_coverage["x"] == pytest.approx(metrics.fg_coverage)
+        assert metrics.per_target_coverage["x"] == pytest.approx(0.30)
+        assert confined["x"] == pytest.approx(0.175)
+
     def test_the_summary_json_carries_it(self):
         """`step4_improved_df_summary.json` is what the report reads."""
         metrics = _two_target_optimizer().compute_metrics([*A_PRIMERS, B_PRIMER])
@@ -419,39 +472,55 @@ class TestAnEmptyPerTargetDictCannotPassVacuously:
 
     def test_a_requested_floor_with_nothing_measured_is_refused(self):
         from neoswga.core.exceptions import ModelEvaluationError
-        from neoswga.core.unified_optimizer import _require_per_target
+        from neoswga.core.target_coverage import require_per_target
 
         with pytest.raises(ModelEvaluationError):
-            _require_per_target({}, None, ["A", "B"], 0.5)
+            require_per_target({}, None, ["A", "B"], 0.5)
 
     def test_an_unmeasured_target_with_a_requested_floor_is_refused(self):
         from neoswga.core.exceptions import ModelEvaluationError
-        from neoswga.core.unified_optimizer import _require_per_target
+        from neoswga.core.target_coverage import require_per_target
 
         with pytest.raises(ModelEvaluationError):
-            _require_per_target({"A": 0.9}, None, ["A", "B"], 0.5)
+            require_per_target({"A": 0.9}, None, ["A", "B"], 0.5)
 
     def test_the_refusal_names_the_unmeasured_target(self):
         from neoswga.core.exceptions import ModelEvaluationError
-        from neoswga.core.unified_optimizer import _require_per_target
+        from neoswga.core.target_coverage import require_per_target
 
         with pytest.raises(ModelEvaluationError) as excinfo:
-            _require_per_target({"A": 0.9}, None, ["A", "B"], 0.5)
+            require_per_target({"A": 0.9}, None, ["A", "B"], 0.5)
 
         assert "B" in str(excinfo.value)
 
     def test_no_floor_requested_refuses_nothing(self):
         """What keeps this step from moving a delivered panel: with the key
         unset, an absent per-target measurement is not an error."""
-        from neoswga.core.unified_optimizer import _require_per_target
+        from neoswga.core.target_coverage import require_per_target
 
-        assert _require_per_target({}, None, ["A", "B"], None) is None
-        assert _require_per_target({}, None, ["A", "B"], 0.0) is None
+        assert require_per_target({}, None, ["A", "B"], None) is None
+        assert require_per_target({}, None, ["A", "B"], 0.0) is None
 
     def test_a_measured_worst_passes(self):
-        from neoswga.core.unified_optimizer import _require_per_target
+        from neoswga.core.target_coverage import require_per_target
 
-        assert _require_per_target({"A": 0.9, "B": 0.1}, 0.1, ["A", "B"], 0.5) is None
+        assert require_per_target({"A": 0.9, "B": 0.1}, 0.1, ["A", "B"], 0.5) is None
+
+    def test_the_guard_is_called_from_the_optimize_path(self):
+        """A guard nothing calls is the same as no guard."""
+        import ast
+        import inspect
+
+        from neoswga.core import unified_optimizer
+
+        tree = ast.parse(inspect.getsource(unified_optimizer))
+        called = {
+            node.func.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        }
+
+        assert "require_per_target" in called
 
     def test_the_reporter_still_says_nothing_on_an_empty_dict(self):
         """It is a reporter, and "nothing to say" and "all clear" print the

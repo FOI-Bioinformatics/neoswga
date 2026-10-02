@@ -598,7 +598,7 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1,
-      "description": "Multi-genome runs only: minimum coverage required on EVERY individual target. Unset by default, and 0.0 also means disabled. Aggregate coverage can hide a starved target, since a panel covering one target 0.9 and another 0.1 beats a balanced 0.5/0.5 panel on the mean. Checked and reported after selection; deliberately not repaired, because the repair scores candidate panels through compute_metrics, which does not populate per-target coverage."
+      "description": "Minimum coverage required on EVERY individual foreground target. Unset by default, and 0.0 also means disabled. Aggregate coverage can hide a starved target, since a panel covering one target 0.9 and another 0.1 beats a balanced 0.5/0.5 panel on the mean. A panel limit since 2026-10-02, read against worst_target_coverage -- the minimum over the targets -- so optimize attempts the one bounded repair and reports whether it met the floor, as it does for the other six limits. It was reported and not repaired until compute_metrics began producing the per-target figure itself. A target whose coverage could not be measured makes the minimum unknown, and the limit is then refused rather than reported as met."
     },
     "total_search_evaluations": {
       "type": [

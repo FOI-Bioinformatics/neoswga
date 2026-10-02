@@ -44,6 +44,8 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
+from .exceptions import ModelEvaluationError
+
 #: One prefix's coverage fraction from its positions, its length and its
 #: reverse-strand positions. `BaseOptimizer` supplies the reach and the geometry
 #: from its own config; this module supplies the loop and the bookkeeping.
@@ -125,3 +127,77 @@ def coverage_by_target(
         # every target was unmeasured rather than that the panel covers nothing.
         return TargetCoverage(0.0, per_target, tuple(unmeasured))
     return TargetCoverage(covered / total, per_target, tuple(unmeasured))
+
+
+def require_per_target(per_target, worst, fg_prefixes, floor) -> None:
+    """Refuse a requested per-target floor that nothing measured.
+
+    `panel_acceptance.check_per_target_coverage` answers "nothing to say" on an
+    empty dict and `result_validation` gates its warning on a non-empty one, so
+    an empty dict made a REQUESTED floor pass vacuously: the panel that starves
+    one target was reported as satisfying the limit set to stop exactly that,
+    and aggregate coverage cannot reveal it either, which is why the floor
+    exists. `docs/development/design-contracts.md` records that defect.
+
+    The same applies one target at a time: `worst` is `None` when any target
+    went unmeasured, and the minimum over the targets that answered is not a
+    worst case. Both are refused here rather than reported as met.
+
+    Nothing is refused when no floor was asked for. A single-genome run and a
+    run with an unusable length are then unchanged, which is what keeps the
+    per-target work from moving any delivered panel.
+    """
+    if not floor:
+        return
+    if not per_target:
+        raise ModelEvaluationError(
+            "per_target_coverage",
+            sorted(fg_prefixes),
+            f"a per-target floor of {floor} was requested and no target's "
+            "coverage could be measured, so the floor would pass vacuously",
+        )
+    if worst is None:
+        unmeasured = sorted(set(map(str, fg_prefixes)) - set(per_target))
+        raise ModelEvaluationError(
+            "worst_target_coverage",
+            unmeasured or sorted(fg_prefixes),
+            f"a per-target floor of {floor} was requested and coverage is "
+            f"unavailable for {len(unmeasured)} of {len(fg_prefixes)} targets, "
+            "so the worst over them is unknown rather than the lowest of the rest",
+        )
+
+
+def saturation_issues(per_target, fg_prefixes, fg_seq_lengths, n_primers, extension):
+    """Targets small enough that any panel covers them, as warning rows.
+
+    When `n_primers * 2 * extension >= genome_len` a set covers the genome
+    regardless of design quality, so the coverage figure is saturation-bounded
+    rather than a property of the panel. Said out loud so a plasmid-scale run is
+    not read as a perfect design. Warnings only: saturation is not a defect.
+
+    A target absent from `per_target` is skipped rather than read as 0.0, which
+    would be the one value that can never trip this warning and so would hide
+    an unmeasured target instead of leaving it to `require_per_target`.
+    """
+    issues = []
+    if n_primers <= 0 or extension <= 0:
+        return issues
+    for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
+        if length <= 0 or prefix not in per_target:
+            continue
+        window = n_primers * 2 * int(extension)
+        coverage = per_target[prefix]
+        if length / window < 1.0 and coverage >= 0.95:
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "coverage_saturated_on_small_genome",
+                    "detail": (
+                        f"{prefix}: genome={length} bp, {n_primers} primers "
+                        f"x 2x {int(extension)} bp reach = {window} bp; "
+                        f"coverage={coverage:.1%} is saturation-bounded "
+                        "(metric unreliable)"
+                    ),
+                }
+            )
+    return issues

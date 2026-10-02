@@ -244,11 +244,13 @@ def _add_optimize_selection_groups(parser):
         # None, not 0.0: a real default would beat `min_per_target_coverage`
         # in params.json on every run, which is Known Issue 8's shape.
         default=None,
-        help="Multi-genome runs only: minimum coverage required on every "
-        "individual target. Below this, the run prints a per-target table "
-        "naming the starved targets and the post-optimization validator "
-        "flags a warning. Unset by default; params.json may set it, and 0.0 "
-        "also means disabled.",
+        help="Minimum coverage required on every individual foreground "
+        "target, read against worst_target_coverage (the minimum over the "
+        "targets). Below it, the run prints a per-target table naming the "
+        "starved targets, attempts one bounded repair and reports whether it "
+        "met the floor. A target whose coverage could not be measured makes "
+        "the minimum unknown and the limit is refused rather than met. Unset "
+        "by default; params.json may set it, and 0.0 also means disabled.",
     )
 
     # Validation

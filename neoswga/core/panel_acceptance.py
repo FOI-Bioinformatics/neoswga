@@ -394,7 +394,7 @@ def check_per_target_coverage(metrics: Any, floor: float | None) -> PerTargetRep
 
     This is a REPORTER, and that last case is why it cannot be the only guard:
     "nothing to say" and "every target cleared the floor" print the same, which
-    is nothing. `unified_optimizer._require_per_target` refuses a requested
+    is nothing. `target_coverage.require_per_target` refuses a requested
     floor that nothing measured, and `pool_objective._unmet` refuses one whose
     `worst_target_coverage` is `None`; both run before this is called.
     """

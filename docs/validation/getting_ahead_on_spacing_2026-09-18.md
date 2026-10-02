@@ -165,6 +165,15 @@ only after the length screen passes. See
 already computed and used only as a post-hoc warning. No published tool has
 multi-target designs at all, so this extends a lead rather than closing a gap.
 
+> Superseded 2026-10-02. The reason above was mechanical, and it is gone:
+> `compute_metrics` now produces the per-target dict and a scalar
+> `worst_target_coverage` from the same loop that produces `fg_coverage`
+> (`core/target_coverage.py`), so `min_per_target_coverage` is an enforced
+> panel limit with one bounded repair, like the other six. It stays unset by
+> default. What prompted it is the measured loss in
+> [2026-10-02-diversity-baseline.md](2026-10-02-diversity-baseline.md), Q2 and
+> Q3. Nothing in the measurements recorded above changes.
+
 **6. Occupancy-weighted spacing. DECLINED 2026-09-18, and the ingredient
 shipped instead.**
 

@@ -65,6 +65,25 @@ what follows is only what the filenames do not tell you.
   untouched; the underscored spellings are kept as aliases because that is what
   those importers ask for. The two functions belong together because the
   difference between them IS Known Issue 6.
+- **`target_coverage.py`**: `TargetCoverage` and `coverage_by_target`, the loop
+  that measures each foreground sequence's coverage fraction and the
+  length-weighted aggregate over them. Extracted from `base_optimizer` on
+  2026-10-02 the same way and for the same reason as the two above: adding the
+  per-target figure to `compute_metrics` would have pushed that module past its
+  budget. `_coverage_over_prefixes` returns `.aggregate` by the same arithmetic
+  in the same order, so `fg_coverage` is unchanged; `_coverage_by_target` is the
+  same call keeping the dict as well, and `compute_pool_metrics` uses it too so
+  the two evaluators cannot disagree. The reach curve moved to
+  `coverage.coverage_curve` in the same commit to pay for the lines. It exists
+  so a per-target floor can be enforced rather than only reported: see
+  `min_per_target_coverage` below. A target with no usable length is named in
+  `unmeasured` and left out of `per_target`, and `.worst` is `None` whenever
+  anything is unmeasured -- `compute_per_prefix_coverage` writes 0.0 there,
+  which is indistinguishable from a target a panel reaches nowhere in. It also
+  holds `require_per_target`, which refuses a requested floor nothing measured,
+  and `saturation_issues`, the warning for a target small enough that any panel
+  covers it. Both moved out of `unified_optimizer` on the same day, which was
+  over its ceiling with them in it.
 - **`lazy_dimer.py`**: owns the one decision about how to screen dimers.
   `dimer_screen(pool, max_dimer_bp)` returns the dense `dimer_matrix` below
   `LAZY_DIMER_POOL_THRESHOLD` (4,000) candidates and the pairwise
@@ -1160,14 +1179,74 @@ relatively.
   0.1 beats a balanced 0.5/0.5 panel on the mean, and nothing in selection
   balances across targets.
 
-  **Checked and reported, deliberately not repaired.** The repair scores
-  candidate panels through `compute_metrics`, which does not populate
-  `per_target_coverage` -- that is filled in by the caller so all methods get
-  it uniformly -- so a floor chased through the repair would score every
-  candidate against an empty dict. Same reason `pool_planner.repair_panel`
-  leaves a dimer violation alone. `--min-per-target-coverage` previously
-  carried an argparse default of 0.0 and now uses the `None` sentinel, so a
-  configured value is not beaten on every run.
+  **Repaired since 2026-10-02. This reverses a recorded decision, and the
+  reason it rested on is gone.** It used to read: checked and reported,
+  deliberately not repaired, because the repair scores candidate panels through
+  `compute_metrics` and `compute_metrics` did not populate
+  `per_target_coverage` -- that was filled in afterwards by `unified_optimizer`
+  so all methods got it uniformly -- so a floor chased through the repair would
+  have scored every candidate against an empty dict.
+
+  `compute_metrics` now produces the per-target dict and a scalar
+  `worst_target_coverage` from the same loop that produces `fg_coverage`
+  (`core/target_coverage.py`, extracted because `base_optimizer` was at its
+  size budget). The post-hoc population is gone rather than kept as a second
+  definition of one number. So the key is a row in `pool_objective._LIMITS`
+  read against `worst_target_coverage`, a field on `PoolConstraints`, and a
+  member of `panel_acceptance.LIMIT_KEYS`: `optimize` attempts the one bounded
+  repair and reports the outcome, exactly as for the other six limits. The
+  measured loss it acts on is the reason the lever exists at all --
+  [the diversity baseline](../validation/2026-10-02-diversity-baseline.md) Q2
+  and Q3: under a pooled five-strain foreground the worst strain stays 0.24 to
+  0.31 below the reference, and a held-out strain loses 0.004 to 0.32 with
+  supergroup membership not predicting which (Phase 6c of the 2026-10-02
+  diversity plan).
+
+  It stays unset by default and 0.0 still means disabled, so no delivered panel
+  moves unless it is set. `panel_acceptance.DISABLED_WHEN_ZERO` holds that
+  rule: reading 0.0 as a floor of zero would build an objective for a run that
+  asked for nothing, which is the one thing that moves a panel unasked.
+  Verified on the packaged plasmid example with the key unset, against the same
+  figures from the pre-existing path: the delivered primer, all five
+  alternative sets, `fg_coverage`, `effective_fg_coverage`, the reach curve,
+  `selectivity_density`, the gap statistics and `per_target_coverage` are all
+  identical, and `worst_target_coverage` is the one field that appears.
+
+  **Two guards, each pinned by a test.** An empty per-target dict with a floor
+  requested is refused by `target_coverage.require_per_target`, because
+  `check_per_target_coverage` answers "nothing to say" on an empty dict and
+  that prints the same as "all clear". A target whose coverage could not be
+  measured is absent from the dict and makes `worst_target_coverage` `None`,
+  never the lowest of the targets that answered; `pool_objective._unmet` reads
+  `None` as missing the limit, so a floor is refused rather than satisfied.
+
+  **One definition changed, and it is the per-target figure, not the
+  aggregate.** `coverage.compute_per_prefix_coverage`, the old source, confines
+  each window to the record holding the site; `coverage.union_coverage`, which
+  produces `fg_coverage`, deliberately does not and says why. The per-target
+  figure now follows the aggregate, because a limit read against a figure the
+  search cannot optimise is a limit against a different measurement. Measured
+  on a two-record 20 kb case with one site 500 bp from the join: 0.3000
+  unconfined against 0.1750 confined. The inflation is bounded by
+  records x 2 x reach over the length, which is 0.078 for a 1,870-record
+  143.7 Mb reference. No recorded figure in this repository moves: the prepared
+  wMel and *Drosophila* indexes store no record starts, so both routes agree
+  bit-for-bit there (measured, 6 primers, reach 3 kb).
+
+  `--min-per-target-coverage` previously carried an argparse default of 0.0 and
+  now uses the `None` sentinel, so a configured value is not beaten on every
+  run. It is also the only panel limit with a CLI flag, so
+  `constraints_from_parameter` takes the run's flags and consults them before
+  the params.json globals; without that the flag would print a per-target table
+  and not be repaired, while the same value in the file would be.
+
+- `worst_target_coverage` on `PrimerSetMetrics`, `PoolMetrics` and in
+  `step4_improved_df_summary.json`: the MINIMUM over `per_target_coverage`, and
+  `null` when any target could not be measured. It is on `PoolMetrics` because
+  `PoolObjective.violations` reads it -- that module carries only the fields
+  something reads, and the objective's `getattr(metrics, metric, None)` default
+  would otherwise have made the floor unmeetable on every panel while reading
+  as a violated constraint.
 
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
@@ -1180,7 +1259,8 @@ relatively.
   would cap how many primers a run can choose, so `iterations: 8` would quietly
   truncate a 96-oligo panel.
 
-**Panel limits** (params.json only; every one unset by default):
+**Panel limits** (every one unset by default; all params.json only except the
+last, which also has a CLI flag):
 
 | Key | Holds | Needs a background |
 |---|---|---|
@@ -1190,6 +1270,7 @@ relatively.
 | `max_mean_gap` | mean foreground gap in bp, at most | no |
 | `max_evenness` | Gini of the PANEL's foreground gaps, at most (distinct from `max_gini`, which gates candidates) | no |
 | `max_host_coverage` | fraction of the host within reach of a panel site (`bg_coverage`), at most | yes |
+| `min_per_target_coverage` | `worst_target_coverage`, the minimum over the foreground targets, at least; 0.0 means disabled | no |
 
 `core/panel_acceptance.py` reads them. **Set none and nothing changes**:
 `constraints_from_parameter` returns None, no objective is built, and the

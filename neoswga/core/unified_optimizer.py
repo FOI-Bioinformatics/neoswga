@@ -49,6 +49,7 @@ from .position_cache import PositionCache, StreamingPositionCache
 from .progress import progress_context
 from .search_control import SearchBudgetExhausted, collect_alternative_sets  # noqa: F401
 from .step4_output import _write_validation_report, save_results
+from .target_coverage import require_per_target, saturation_issues
 from .validation_record import limit_violation_issue, panel_assessment
 
 logger = logging.getLogger(__name__)
@@ -357,9 +358,7 @@ def _run_ensemble(
 
                     attach_search_config(combiner, "pool_objective", shared_objective)
                 else:
-                    objective_for_optimizer(
-                        combiner, constraints_from_parameter(parameter, kwargs)
-                    )
+                    objective_for_optimizer(combiner, constraints_from_parameter(parameter, kwargs))
                 combined = run_panel_search(
                     OptimizationRequest(
                         combiner, tuple(union_pool), target_size, budget=search_budget
@@ -1161,14 +1160,14 @@ def run_optimization(
     try:
         per_target = dict(getattr(result.metrics, "per_target_coverage", None) or {})
         if result.primers and fg_prefixes:
-            _require_per_target(
+            require_per_target(
                 per_target,
                 getattr(result.metrics, "worst_target_coverage", None),
                 fg_prefixes,
                 per_target_floor(kwargs, parameter),
             )
             _saturation_warnings.extend(
-                _saturation_issues(
+                saturation_issues(
                     per_target,
                     fg_prefixes,
                     fg_seq_lengths,
@@ -1261,74 +1260,6 @@ def run_optimization(
         log_optimization_outcome(result, target_size, method, validation)
 
     return result
-
-
-def _require_per_target(per_target, worst, fg_prefixes, floor) -> None:
-    """Refuse a requested per-target floor that nothing measured.
-
-    `check_per_target_coverage` answers "nothing to say" on an empty dict and
-    `result_validation` gates its warning on a non-empty one, so an empty dict
-    made a REQUESTED floor pass vacuously: the panel that starves one target was
-    reported as satisfying the limit set to stop exactly that, and aggregate
-    coverage cannot reveal it either, which is why the floor exists. The same
-    applies one target at a time -- `worst_target_coverage` is `None` when any
-    target went unmeasured, and the minimum over the targets that answered is
-    not a worst case. Both are refused here rather than reported as met.
-
-    Nothing is refused when no floor was asked for. A single-genome run and a
-    run with an unusable length are then unchanged, which is what keeps this
-    step from moving any delivered panel.
-    """
-    if not floor:
-        return
-    if not per_target:
-        raise ModelEvaluationError(
-            "per_target_coverage",
-            sorted(fg_prefixes),
-            f"a per-target floor of {floor} was requested and no target's "
-            "coverage could be measured, so the floor would pass vacuously",
-        )
-    if worst is None:
-        unmeasured = sorted(set(map(str, fg_prefixes)) - set(per_target))
-        raise ModelEvaluationError(
-            "worst_target_coverage",
-            unmeasured or sorted(fg_prefixes),
-            f"a per-target floor of {floor} was requested and coverage is "
-            f"unavailable for {len(unmeasured)} of {len(fg_prefixes)} targets, "
-            "so the worst over them is unknown rather than the lowest of the rest",
-        )
-
-
-def _saturation_issues(per_target, fg_prefixes, fg_seq_lengths, n_primers, extension):
-    """Targets small enough that any panel covers them, as warning rows.
-
-    When `n_primers * 2 * extension >= genome_len` a set covers the genome
-    regardless of design quality, so the coverage figure is saturation-bounded
-    rather than a property of the panel. Said out loud so a plasmid-scale run is
-    not read as a perfect design. Warnings only: saturation is not a defect.
-    """
-    issues = []
-    if n_primers <= 0 or extension <= 0:
-        return issues
-    for prefix, length in zip(fg_prefixes, fg_seq_lengths, strict=True):
-        if length <= 0 or prefix not in per_target:
-            continue
-        window = n_primers * 2 * int(extension)
-        coverage = per_target[prefix]
-        if length / window < 1.0 and coverage >= 0.95:
-            issues.append(
-                {
-                    "level": "warning",
-                    "code": "coverage_saturated_on_small_genome",
-                    "detail": (
-                        f"{prefix}: genome={length} bp, {n_primers} primers "
-                        f"x 2x {int(extension)} bp reach = {window} bp; "
-                        f"coverage={coverage:.1%} is saturation-bounded "
-                        "(metric unreliable)"
-                    ),
-                }
-            )
-    return issues
 
 
 def _hold_to_configured_limits(
