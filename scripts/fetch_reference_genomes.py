@@ -94,6 +94,71 @@ REFERENCES: Dict[str, Reference] = {
         filename="wolbachia.fna",
         approx_mb=1,
     ),
+    "wolbachia_wri": Reference(
+        key="wolbachia_wri",
+        description="Wolbachia sp. wRi, supergroup A (target panel)",
+        url=(
+            "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/022/285/"
+            "GCF_000022285.1_ASM2228v1/GCF_000022285.1_ASM2228v1_genomic.fna.gz"
+        ),
+        filename="wolbachia_wri.fna",
+        approx_mb=1,
+        sha256="e5a9790e907e2229720f0273873bef291888c16d934f1aa57ea76a16deac8b64",
+    ),
+    "wolbachia_wpip": Reference(
+        key="wolbachia_wpip",
+        description=(
+            "Wolbachia wPip Pel, Culex quinquefasciatus, supergroup B (target panel)"
+        ),
+        url=(
+            "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/073/005/"
+            "GCF_000073005.1_ASM7300v1/GCF_000073005.1_ASM7300v1_genomic.fna.gz"
+        ),
+        filename="wolbachia_wpip.fna",
+        approx_mb=1,
+        sha256="368040a1de241d38350c360584f01a47ebad5f366ca7e53b672a223c2a4ef1c3",
+    ),
+    "wolbachia_walbb": Reference(
+        key="wolbachia_walbb",
+        description="Wolbachia pipientis wAlbB, supergroup B (target panel)",
+        url=(
+            "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/004/171/285/"
+            "GCF_004171285.1_ASM417128v1/GCF_004171285.1_ASM417128v1_genomic.fna.gz"
+        ),
+        filename="wolbachia_walbb.fna",
+        approx_mb=2,
+        sha256="7d4bb3efd77d9b7feddc4d8472a3f76b824980a9fa0659e3684f2493798f26a4",
+    ),
+    "wolbachia_wbm": Reference(
+        key="wolbachia_wbm",
+        description=(
+            "Wolbachia wBm strain TRS of Brugia malayi, supergroup D (target panel)"
+        ),
+        url=(
+            "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/008/385/"
+            "GCF_000008385.1_ASM838v1/GCF_000008385.1_ASM838v1_genomic.fna.gz"
+        ),
+        filename="wolbachia_wbm.fna",
+        approx_mb=1,
+        sha256="ddf06f1ea90c9f66ba4d08c9ef45f5968f5d5f484ce37d87c1d1e3ad57ffb668",
+    ),
+    # The genus Lactobacillus was split in 2020, so the organism a paper calls
+    # Lactobacillus plantarum is Lactiplantibacillus plantarum in this assembly.
+    # The key keeps the older genus name; the description records the current one.
+    "lactobacillus": Reference(
+        key="lactobacillus",
+        description=(
+            "Lactiplantibacillus plantarum WCFS1, a Drosophila gut commensal "
+            "(small host, host panel)"
+        ),
+        url=(
+            "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/203/855/"
+            "GCF_000203855.3_ASM20385v3/GCF_000203855.3_ASM20385v3_genomic.fna.gz"
+        ),
+        filename="lactobacillus.fna",
+        approx_mb=3,
+        sha256="ee5924b0aae7801395d0398979178527b9b5f7c78e72f7b633077daeb0d52e76",
+    ),
     "human_full": Reference(
         key="human_full",
         description="Human GRCh38 primary assembly (full background; slow)",
