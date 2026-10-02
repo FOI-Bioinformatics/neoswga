@@ -61,6 +61,22 @@ def test_importing_the_cli_does_not_import_the_set_improvement_modules():
     assert json.loads(out.stdout.strip().splitlines()[-1]) == []
 
 
+def test_importing_the_cli_does_not_import_the_variant_modules_or_pysam():
+    """`evaluate-set --variants` imports its reader inside the handler.
+
+    `core/variant_table.py` is the only place `pysam.VariantFile` is opened,
+    and pysam is the optional `[bam]` extra; a top-level import of either would
+    be paid by every command, including `--help`.
+    """
+    code = (
+        "import neoswga.cli_unified, sys, json\n"
+        "print(json.dumps(sorted(m for m in sys.modules if m in ("
+        "'pysam', 'neoswga.core.variant_table', 'neoswga.core.variant_sites'))))\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == []
+
+
 def test_the_exception_lives_in_exceptions_and_is_still_reachable_from_pipeline():
     """Two tests import it from `neoswga.core.pipeline`; that must keep working,
     and it must be the same object so `except` clauses still match."""

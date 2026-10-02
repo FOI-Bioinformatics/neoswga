@@ -38,7 +38,15 @@ __all__ = [
 #: panel that no run had failed on, and a later successful `improve-set` would
 #: not clear it, because clearing is a design step's job. The error is still
 #: printed and the exit code is still nonzero; only the record is withheld.
-REPORT_ONLY_COMMANDS = frozenset({"improve-set"})
+#:
+#: `evaluate-set` joined the list on 2026-10-02 with `--variants`. It reads a
+#: params.json to find the reference and now refuses a variant table it cannot
+#: trust -- an unknown contig, a REF allele that disagrees with the FASTA --
+#: with a `ReferenceDataError`, which says nothing whatever about the design
+#: whose directory `-j` named. Without this it would leave
+#: `design_failure.json` beside a finished design, and `export` would then
+#: refuse a panel no run had failed on.
+REPORT_ONLY_COMMANDS = frozenset({"improve-set", "evaluate-set"})
 
 
 def _data_dir_from_params_file(json_file):

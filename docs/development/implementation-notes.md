@@ -136,6 +136,84 @@ what follows is only what the filenames do not tell you.
   (`tests/test_a_host_by_path_agrees_with_the_designs_own_host.py`). A reference
   with length 0 -- an empty or unreadable FASTA -- is unmeasured rather than
   empty, because its length is the denominator of every figure.
+- **`variant_table.py`**: the one door into a variant file, added 2026-10-02
+  (Phase 4 of the genomic-diversity plan). `open_variants(path,
+  reference_fasta)` reads a VCF or BCF through `pysam.VariantFile` -- imported
+  lazily, the pattern `bam_coverage._require_pysam` sets -- or a TSV with a
+  header of `chrom pos ref alt` and one optional 0/1 column per strain, and
+  returns per strain two sorted int64 arrays giving each variant's
+  `[start, end)` in CONCATENATED reference coordinates. `pysam.VariantFile`
+  appears nowhere else in the package
+  (`tests/test_variant_table_is_the_one_door.py`); a second raw open would get
+  none of the refusals below. Contig name to record offset comes from
+  `reference_layout.read_layout`, not a second mapping.
+  Both formats are 1-based, which is stated because they could differ: VCF
+  because the specification says so, the TSV reader by choice, so that one
+  convention holds for both. Every refusal is a `ReferenceDataError`: a contig
+  the FASTA does not hold, a REF allele that disagrees with the FASTA, an
+  unsorted or interleaved table, a TSV genotype that is neither 0 nor 1, a TSV
+  row with more or fewer columns than its header, a genotype naming an allele
+  its row lacks, a breakend ALT, a symbolic ALT without `INFO/END`, a span past
+  the end of its record, a file pysam cannot open (including a gzip rather
+  than bgzip `.vcf.gz`, which pysam reports as `NotImplementedError` during
+  iteration). The REF check is the one that earns its
+  keep -- it catches a table made against another assembly AND a 0-based one,
+  since a shift of one base disagrees with the sequence at nearly every row.
+  Alleles are checked one record at a time against a streamed FASTA, so a
+  host-sized reference is never held whole. A symbolic ALT with `INFO/END`
+  spans `[POS - 1, END)`; pysam folds a declared END into `record.stop`, and an
+  undeclared one is not read, so it is refused rather than read as one base.
+  Genotypes are read from the record's own text, because pysam reports an
+  allele index the row does not have as None, the same as an uncalled allele.
+  The rule: any allele naming an ALT makes a carrier; otherwise any uncalled
+  allele (`0/.`, `./0`, `.|0`, `./.`, no GT) makes the strain `unavailable`
+  with that row as the reason; only a fully stated reference genotype is a
+  non-carrier.
+- **`variant_sites.py`**: which binding sites survive in which strain. Each
+  site's k bases are looked up with `numpy.searchsorted` against the variant
+  starts plus a running maximum of the ends, which is exact for intervals
+  longer than one base. Site geometry follows the scanner (`string_search`):
+  a circular reference is ONE ring of the concatenated sequence, so a site
+  starting in the last k-1 bases continues at base 0, joining the last record
+  to the first on a multi-record reference, and its bases are taken modulo
+  that length. A position the run's geometry cannot produce (a wrap read as
+  linear, an offset past the end) is `not_assessed`, never intact, and makes
+  that strain's fraction, coverage and gaps unavailable. All counts are over
+  the deduplicated union of the two strand keys, so a palindromic oligo's site
+  is one site in the denominator as well as the numerator. A site is intact
+  when no variant falls inside it and affected
+  otherwise -- binary, and chosen because it needs no model: the shipped
+  mismatch model is a uniform 4.0 C per mismatch with status `assumed` in
+  `core/registry/model_evidence.json`. An affected site is never weighted,
+  scored with `occupancy.mismatch_tm`, or called tolerated, and neither module
+  imports an occupancy or mismatch model at all (asserted, not just intended).
+  Affected sites are split by the distance of the nearest variant from the
+  primer's 3' end at `THREE_PRIME_WINDOW_NT` (5 bases), measured on the strand
+  the primer binds: a site is stored at the forward-strand offset of the k-mer
+  for either strand, so the 3' terminus is at `pos + k - 1` on the forward
+  strand and at `pos` on the reverse. The split is reported and nothing is
+  compared against it. Per-strain coverage and gaps come from
+  `coverage.compute_per_prefix_coverage` and
+  `reference_panel_evaluation.gap_statistics` -- which was renamed from
+  `_gap_statistics` for this -- over an `IntactPositions` view that answers as
+  a `PositionCache` does with the intact sites only, so a strain carrying no
+  variants reproduces the reference figures exactly rather than nearly
+  (`tests/test_variant_sites_match_a_mutated_reference.py`). Reductions over
+  the strains are `None` when any strain is unavailable.
+  Three limits are carried in `LIMITS` and written into the output and the
+  printed report, because a reader acting on an intact fraction needs all
+  three: (1) a site GAINED in a strain through a variant is invisible, since
+  sites are found on the reference and a k-mer a variant creates is never
+  looked for; (2) an indel affects every site it overlaps and the coordinate
+  shift it causes downstream is ignored, so positions in a carrying strain are
+  reference positions and gap lengths there are approximate; (3) the table says
+  nothing about sequence absent from the reference.
+  The oracle test is what the module rests on: SNPs generated with a seed are
+  written both as a VCF and as a mutated FASTA, and the intact-site set from
+  the variant route must EQUAL the reference sites still found by scanning the
+  mutated FASTA at the same coordinates -- over several seeds, and on a
+  two-record reference with a SNP at the last base of one record and the first
+  of the next. Equality, not a tendency.
 - **`gpu_acceleration.py`**: CuPy-based thermodynamics helpers. Not reached by
   any pipeline stage, and `--use-gpu` says so rather than claiming otherwise.
   `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in
@@ -494,6 +572,77 @@ genomes" and then printed an `AttributeError` traceback and exited 1. The refusa
 names the supported route (`fg_genomes` in params.json, one `fg_prefixes` entry
 each). `design --min-coverage` went with it: it fed the same absent entry point
 and nothing else on that path read it.
+
+### `evaluate-set --variants`: a SNP table as the statement of diversity
+
+```bash
+neoswga evaluate-set --primers SEQ1 SEQ2 --genome reference.fna \
+    --variants strains.vcf -o eval/
+```
+
+Added 2026-10-02 (Phase 4 of the genomic-diversity plan). Diversity can be
+stated as one FASTA per strain, which the per-reference blocks above already
+evaluate, or as variants against one reference, which is what a canonical-SNP
+matrix or a VCF from a mapping pipeline holds. This is the second form. It is
+an evaluation flag only: no schema key, no default, and no selection stage
+reads it. A params.json key, if one is ever wanted, belongs to Phase 6.
+
+- The reading is `core/variant_table.py` plus `core/variant_sites.py`, both
+  described under Architecture, including the three limits of the route and the
+  oracle test the model rests on.
+- `evaluation.json` gains `per_strain` (per strain: intact sites, affected
+  sites split 3'-proximal / distal with the window stated, coverage and the
+  three gap figures over the intact sites only, and the per-primer intact
+  fractions) and `variant_route` (the table's provenance, the reference
+  figures, the two reductions, and `limits`). Each entry of the existing
+  `primers` list gains `intact_fraction_every_strain` -- the lowest intact
+  fraction for that primer over the strains -- and
+  `intact_fraction_by_strain`. Without the flag nothing is added and no
+  existing field moves.
+- A fraction is `None` rather than 0.0 for a primer with no site on the
+  reference, and for any primer in a run where some strain is unavailable. Zero
+  of zero sites intact is not zero percent intact, and a 0.0 there reads as a
+  primer whose sites the variants destroyed.
+- One reference per run. A variant table is stated against one assembly. With
+  one foreground genome that is the reference; with more than one CONFIGURED,
+  readable or not, the run is refused unless `--variants-reference FASTA`
+  names one of them. Counting configured rather than readable genomes is
+  deliberate: picking the only readable one placed a table silently, and the
+  REF check cannot always tell near-identical strains apart. The refusal's
+  advice was tested by following it
+  (`tests/cli/test_evaluate_set_variants.py::test_two_configured_genomes_are_refused_and_the_advice_works`):
+  the first version told a `-j` user to pass `--genome`, which with `-j`
+  replaces `fg_genomes`, leaves two prefixes and one FASTA, and was refused
+  again with the same advice. That case now says to leave `--genome` off. The
+  chosen reference is logged, printed above the per-strain rows, and recorded
+  as `variant_route.reference_fasta`.
+- When positions come from a position index, `reference_layout.verify_layout`
+  checks its stored record starts against the FASTA the table is placed on,
+  and the configured length against the FASTA's; either disagreement is
+  refused. When this run scanned the FASTA itself the index has no record
+  starts and that half of the check is recorded as not run, which is correct:
+  those positions come from the same file.
+- Review of 2026-10-02 found and closed, each with a test and a mutation that
+  fails it: a palindromic oligo counted twice in the denominator (a strain with
+  no variants reported 2 of 3 sites intact); a VCF half-call `0/.` read as the
+  reference allele; a symbolic `<DEL>` read as its one padding base; a gzip
+  (not bgzip) `.vcf.gz` escaping as `NotImplementedError`; wrap-around sites on
+  a circular reference tested in flat coordinates, so a SNP in the wrapped part
+  was missed; a TSV row longer than its header accepted; a genotype naming an
+  allele its row lacks misreported as missing; and the running maximum in the
+  mask, which no test exercised. `tests/variant_invariants.py` asserts
+  `intact + affected + not_assessed == reference_sites` on every block a test
+  builds.
+- `evaluate-set` joined `cli/_failure.REPORT_ONLY_COMMANDS` with this flag. It
+  reads a params.json to find the reference and now raises `ReferenceDataError`
+  for a variant table it refuses, which says nothing about the design whose
+  directory `-j` named; without the entry it would leave `design_failure.json`
+  beside a finished design and `export` would refuse a panel no run had failed
+  on. `improve-set` was on that list for the same reason.
+- `run_evaluate_set` was at 199 source lines against a 200-line budget, so the
+  background block moved to `_background_totals` and the new logic went into
+  `_variant_blocks`, `_variant_reference` and `_attach_per_primer_intact`. No
+  ratchet entry was added or raised.
 
 ### `improve-set`: from an existing set to proposed edits
 
