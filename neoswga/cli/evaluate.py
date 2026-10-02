@@ -289,6 +289,20 @@ def _gap_statistics(cache, primers, prefixes, lengths, circular):
     return float(arr.mean()), float(arr.max()), gini
 
 
+def _load_mode():
+    """The mode string for a weighted load computed under the configured model.
+
+    Every output carrying a weighted load carries this. The schema says a
+    non-uniform load "is reported with its own selectivity_mode so it cannot be
+    read as the uniform one"; that was true only of the optimizer until this
+    and its four siblings were added, so the sentence described one path and
+    claimed six.
+    """
+    from neoswga.core.mismatch_model import resolve_mismatch_model, site_load_mode
+
+    return site_load_mode(resolve_mismatch_model())
+
+
 def _occupancy_selectivity(primers, fg_prefixes, bg_prefixes, conditions):
     """Occupancy-weighted selectivity, matching what the optimizers report.
 
@@ -656,6 +670,13 @@ def run_evaluate_set(args):
         "total_background_sites": total_bg_sites,
         "selectivity_ratio": selectivity,
         "occupancy_selectivity_ratio": occupancy_selectivity,
+        # Which mismatch model weighted the sites above. Always present, so a
+        # reader comparing this figure against one from another run compares
+        # two numbers that say what they are. Under the shipped `uniform`
+        # model this is the string "occupancy" and nothing else in the output
+        # moves; under `mismatch_model: position-dependent` the figure came
+        # from an extrapolated 37 C table and used to say so nowhere.
+        "occupancy_selectivity_mode": _load_mode(),
         # The literature's dominant predictor of SWGA success: mean distance
         # between binding sites (Clarke 2017, Dwivedi-Yu 2023). Successful
         # published sets sit near 1 site per 2-5 kbp.

@@ -235,7 +235,18 @@ class MemoisedSources(PanelSources):
             # Nothing stable identifies this reaction, so nothing is kept. An
             # object identity is not one: it can be reused after collection.
             return super().weighted_load(panel, prefix, conditions, max_mismatches)
-        key = (prefix, tuple(panel), str(fingerprint()), int(max_mismatches))
+        # The model is part of the key. It is constant within a run today, but
+        # a cache keyed on everything-but-the-model is one process-wide
+        # parameter change away from answering with the other model's number.
+        from neoswga.core.mismatch_model import resolve_mismatch_model
+
+        key = (
+            prefix,
+            tuple(panel),
+            str(fingerprint()),
+            int(max_mismatches),
+            resolve_mismatch_model(),
+        )
         if key not in self._loads:
             self._loads[key] = super().weighted_load(panel, prefix, conditions, max_mismatches)
         return self._loads[key]

@@ -188,6 +188,16 @@
       "default": 1,
       "description": "Highest mismatch class counted when ranking step-2 candidates by occupancy-weighted site load. Minimum 1 because the read site (pipeline._configured_positive_int) takes positive integers only; exact-match-only ranking is reached with occupancy_ranking: false instead. Applies to the filter step's ranking; the optimizers carry their own OptimizerConfig.max_mismatches."
     },
+    "mismatch_model": {
+      "type": "string",
+      "enum": [
+        "uniform",
+        "position-dependent",
+        "position-dependent-3prime"
+      ],
+      "default": "uniform",
+      "description": "How a mismatched binding site is weighted. 'uniform' is the shipped model: one Tm penalty per mismatch (mismatch_penalty), independent of identity and position; it is the default and nothing about a design moves while it is set. 'position-dependent' derives the Tm shift per neighbour from the SantaLucia (1998) nearest-neighbour INTERNAL-mismatch table, so where the mismatch sits and which bases are involved change the answer. A mismatch on the first or last base of the duplex is outside that table's domain -- a terminal position has one flanking stack, and no dangling-end or terminal-mismatch parameter set ships here -- so it takes the uniform penalty instead; applying the internal table there was measured as net STABILISING for 9 percent of terminal neighbours, which would have weighted a mismatched host site as well as a perfect one. The table was measured at 37 C in 1 M Na+ and this applies it near 30 C in magnesium buffer, so the registry record (mismatch_duplex_delta_g) is an extrapolation and not a measurement; no threshold refuses a design for the distance, because none has a reference, so the distance in degrees is reported in the panel assessment's evidence, in the run manifest and once per run in the log. No benefit over the uniform model has been demonstrated (docs/validation/2026-10-02-position-dependent-mismatch.md), which is why it is off by default. 'position-dependent-3prime' adds a separate multiplier for a mismatch on the 3'-terminal base, on the reasoning that a strand-displacing polymerase extends poorly from one; that rule has thin evidence (three_prime_mismatch_extension, status assumed) and is a separate value so it can be overturned on its own. The key reaches optimize, plan-pool, evaluate-set, improve-set, the condition sweep and the filter's candidate ranking, it enters request_hash, and every output carrying a weighted load carries the model that produced it. A modelled background (no host genome, host_profile.expected_site_load) has no k-mer neighbours to weight and always uses the uniform model."
+    },
     "sampled_index_path": {
       "type": "string",
       "description": "Path to a pre-built sampled background index, used when use_bloom_filter is set and no index is found beside the Bloom filter. Overridden by --sampled-index-path."

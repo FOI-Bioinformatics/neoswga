@@ -65,7 +65,7 @@
         30.0,
         45.0
       ],
-      "temperature_range_note": "Derived from this record's own temperature_domain sentence, not from a fresh reading of the source. It is the only one of the 23 records whose prose states a range: ten give a single reference point and twelve give no number. No range is invented for the others, because recording a domain nobody stated would break, in the act of recording it, the rule this registry exists to enforce."
+      "temperature_range_note": "The only one of the 25 records whose prose states a RANGE rather than a point, so it is the only one this check can act on: 11 give a single reference point and 13 give no number. Refusing on an unstated domain would turn a gap in the evidence into a gap in the tool."
     },
     {
       "quantity": "tm_betaine_uniform",
@@ -234,7 +234,34 @@
       "buffer_domain": "",
       "temperature_domain": "",
       "uncertainty": "a single internal mismatch costs roughly 4-8 C depending on identity and position",
-      "notes": "Position- and identity-independent by construction. Sites are grouped by mismatch count rather than modelled individually because per-site alignment against a 3 Gbp host is not tractable. Any specificity claim resting on this is an exact-match claim with a uniform correction, not a mismatch-discrimination measurement."
+      "notes": "Position- and identity-independent by construction. Sites are grouped by mismatch count rather than modelled individually because per-site alignment against a 3 Gbp host is not tractable. Any specificity claim resting on this is an exact-match claim with a uniform correction, not a mismatch-discrimination measurement. This record covers the shipped `mismatch_model: uniform` path only; the position-dependent alternative carries its own records."
+    },
+    {
+      "quantity": "mismatch_duplex_delta_g",
+      "units": "kcal/mol per nearest-neighbour doublet",
+      "model": "santalucia-1998-internal-mismatch",
+      "value": "64 doublets with a Watson-Crick 5' position, for INTERNAL mismatches only",
+      "status": "estimated",
+      "source": "SantaLucia (1998) PNAS 95:1460-1465; internal single-mismatch nearest-neighbour set",
+      "sequence_domain": "applied to 6-18mers; the source's duplexes are longer. INTERNAL positions only: the first and last base of a duplex are outside this set, which carries no dangling-end or terminal-mismatch parameters, and the model falls back to the uniform assumed penalty there",
+      "buffer_domain": "measured in 1 M NaCl, applied in a magnesium isothermal buffer with additives",
+      "temperature_domain": "measured at 37 C, applied near 30 C (phi29) to 65 C (bst)",
+      "temperature_range_note": "No checkable range is recorded, so nothing is refused on it. The reference point is 37 C and the gap to a 30 C reaction is the extrapolation this status names.",
+      "uncertainty": "not propagated; the source reports per-doublet values without an interval here",
+      "notes": "The table is a measurement. THIS USE of it is not: a 37 C 1 M Na+ doublet set, extrapolated to a short oligo in magnesium buffer at the reaction temperature, and converted to a melting-temperature shift by a first-order perturbation of Tm = dH/(dS + R ln C), which assumes the mismatch's cost is unchanged between 37 C and the reaction. The status describes the extrapolation, not the table. Used by core/mismatch_model.py, reachable through `mismatch_model: position-dependent` and off by default. Position enters through the flanking stacks rather than a position index. The nearest-neighbour rotation symmetry is applied so that a mismatch's 3'-side doublet resolves to a tabulated value instead of a flat penalty. Two cases are outside the set and take the uniform penalty instead of a tabulated value: a doublet with two mismatches, because the source does not parameterise tandem mismatches, and a mismatch at EITHER TERMINUS of the duplex, because an internal set does not describe a position with one flanking stack. Applying it at a terminus anyway was measured as net STABILISING for 771 of 8,400 terminal neighbours over 1,400 random primers at three polymerases, which would have weighted a mismatched host site as well as a perfect one; at interior positions it was stabilising for 0 of 43,199. Nothing refuses a design on the temperature distance, because no threshold has a reference; the distance is reported instead, in the panel assessment's evidence, in the run manifest and once per run in the log. Whether this ranks measured outcomes better than the uniform model is the question docs/validation/2026-10-02-position-dependent-mismatch.md measures."
+    },
+    {
+      "quantity": "three_prime_mismatch_extension",
+      "units": "fraction of a site retained",
+      "model": "terminal-mismatch-extension-block",
+      "value": "0.05 on the 3'-terminal base",
+      "status": "assumed",
+      "source": "Innis et al. (1988) PNAS 85:9436-9440, cited in core/three_prime_stability.py as a docstring attribution only",
+      "sequence_domain": "short oligos; the cited observation is about Taq in PCR",
+      "buffer_domain": "not established for an isothermal magnesium buffer",
+      "temperature_domain": "not established",
+      "uncertainty": "the factor is a stated claim, not an interval; it could be anywhere between 0 and 1",
+      "notes": "No measurement for a strand-displacing polymerase was found. The attribution in the repository is a docstring citation that was not re-read, and the quantity it would support is extension efficiency for Taq, not for phi29 or Bst. Separately switchable from the duplex term (`mismatch_model: position-dependent-3prime`) precisely because it is the weaker claim, so a later measurement can overturn it without touching the duplex model. What would settle it: extension yield from a primer with a single 3'-terminal mismatch against a matched control, on phi29 or EquiPhi29 at the reaction temperature, over the four mismatch identities. Until then a load computed with this rule is reported with its own mode string and this record."
     },
     {
       "quantity": "dimer_free_energy",

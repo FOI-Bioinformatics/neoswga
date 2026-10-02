@@ -179,6 +179,11 @@ class ReferenceRecord:
     per_primer_status: Mapping[str, str] = field(default_factory=dict)
     unavailable: str = ""
     genome: str | None = None
+    #: Which mismatch model produced `weighted_load`. "occupancy" under the
+    #: shipped uniform model, so no existing output moves; defaulted so a
+    #: hand-constructed record keeps working. A record built before the load is
+    #: computed carries the default and `_with_weighted_load` replaces it.
+    weighted_load_mode: str = "occupancy"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -196,6 +201,12 @@ class ReferenceRecord:
             "max_gap_bp": self.max_gap.as_dict(),
             "gap_gini": self.gap_gini.as_dict(),
             "weighted_site_load": self.weighted_load.as_dict(),
+            # Which mismatch model produced the load above. Always present, and
+            # the string "occupancy" under the shipped uniform model, so no
+            # existing figure moves. `weighted_site_load` sits beside measured
+            # site counts under one field name, so a load from an extrapolated
+            # 37 C table that said nothing about itself read as measured.
+            "weighted_site_load_mode": self.weighted_load_mode,
             "per_primer_sites": dict(self.per_primer_sites),
             "per_primer_status": dict(self.per_primer_status),
         }
@@ -700,14 +711,25 @@ def _with_weighted_load(
                 unavailable=f"mismatch-class counts unavailable: {exc}",
             ),
         )
+    from neoswga.core.mismatch_model import (
+        UNIFORM,
+        extrapolation_notice,
+        resolve_mismatch_model,
+        site_load_mode,
+    )
+
+    model = resolve_mismatch_model()
+    temp = getattr(conditions, "temp", "?")
+    basis = f"<= {max_mismatches} mismatch(es) at {temp} C"
+    if model != UNIFORM:
+        # Only under a non-uniform model, so the uniform basis string is
+        # byte-identical to what it has always been. The mode field beside it
+        # is the part that is always present.
+        basis += f"; {model}, {extrapolation_notice(model, getattr(conditions, 'temp', None))}"
     return dataclasses.replace(
         record,
-        weighted_load=Measurement(
-            "weighted_site_load",
-            float(load),
-            "sites",
-            basis=f"<= {max_mismatches} mismatch(es) at {getattr(conditions, 'temp', '?')} C",
-        ),
+        weighted_load=Measurement("weighted_site_load", float(load), "sites", basis=basis),
+        weighted_load_mode=site_load_mode(model),
     )
 
 

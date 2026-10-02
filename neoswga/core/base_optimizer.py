@@ -738,9 +738,11 @@ class BaseOptimizer(ABC):
         # self.conditions; others simply leave it as attached metadata.
         self.conditions = conditions
         # Once per run, not per evaluation. See occupancy.weighted_site_load.
+        from neoswga.core.mismatch_model import resolve_mismatch_model
         from neoswga.core.occupancy import default_mismatch_penalty
 
         self.mismatch_penalty = default_mismatch_penalty()
+        self.mismatch_model = resolve_mismatch_model()
 
         # Compositional background, used only when there are no background
         # prefixes. A `HostProfile` (or a panel of them) supplies expected
@@ -994,7 +996,13 @@ class BaseOptimizer(ABC):
         falls back to exact counting. That is reported rather than inferred,
         because silently swapping between two definitions of one number is the
         failure this codebase has produced most often.
+
+        Under a non-uniform `mismatch_model` the mode carries the model's name
+        (`occupancy-position-dependent`) for the same reason: a load whose
+        per-mismatch cost came out of an extrapolated table must not be
+        reported as the uniform one.
         """
+        from neoswga.core.mismatch_model import site_load_mode
         from neoswga.core.occupancy import weighted_site_load
 
         conditions = getattr(self, "conditions", None)
@@ -1006,17 +1014,28 @@ class BaseOptimizer(ABC):
         if not self.bg_prefixes:
             return self._modelled_site_load(primers, conditions, max_mismatches)
 
+        model = getattr(self, "mismatch_model", None)
         try:
             fg_load = weighted_site_load(
-                primers, self.fg_prefixes, conditions, max_mismatches, self.mismatch_penalty
+                primers,
+                self.fg_prefixes,
+                conditions,
+                max_mismatches,
+                self.mismatch_penalty,
+                model,
             )
             bg_load = weighted_site_load(
-                primers, self.bg_prefixes, conditions, max_mismatches, self.mismatch_penalty
+                primers,
+                self.bg_prefixes,
+                conditions,
+                max_mismatches,
+                self.mismatch_penalty,
+                model,
             )
         except (FileNotFoundError, OSError):
             return 0.0, 0.0, "exact"
 
-        return fg_load, bg_load, "occupancy"
+        return fg_load, bg_load, site_load_mode(model)
 
     def _modelled_site_load(self, primers, conditions, max_mismatches):
         """Background load from a compositional profile, when there is no genome.
@@ -1036,17 +1055,30 @@ class BaseOptimizer(ABC):
 
         Reports mode "modelled" rather than "occupancy", because a predicted
         background must not be mistaken for a measured one.
+
+        The `mismatch_model` key does NOT reach this path, and the uniform
+        model is requested explicitly rather than inherited. A compositional
+        profile has no k-mer neighbours to weight, so `expected_site_load`
+        can only ever apply the uniform penalty; computing the foreground with
+        a position-dependent model and the background without one would make
+        the ratio of the two a comparison between two different models.
         """
         profile = getattr(self, "background_profile", None)
         if profile is None:
             return 0.0, 0.0, "exact"
 
         from neoswga.core.host_profile import aggregate_loads, expected_site_load
+        from neoswga.core.mismatch_model import UNIFORM
         from neoswga.core.occupancy import weighted_site_load
 
         try:
             fg_load = weighted_site_load(
-                primers, self.fg_prefixes, conditions, max_mismatches, self.mismatch_penalty
+                primers,
+                self.fg_prefixes,
+                conditions,
+                max_mismatches,
+                self.mismatch_penalty,
+                UNIFORM,
             )
         except (FileNotFoundError, OSError):
             return 0.0, 0.0, "exact"

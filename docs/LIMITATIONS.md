@@ -72,9 +72,16 @@ coefficients are 37 C figures for PCR-length duplexes applied to 12-mers at
 attribution the repository already carried; what the registry adds is the
 judgement of whether the cited work covers this case.
 
-Consequently only **one of twenty-three** records states a temperature range
-that can be checked mechanically. Ten give a single reference point, twelve give
-no number. A range is enforced where one is recorded and invented nowhere.
+Consequently only **one of twenty-five** records states a temperature range
+that can be checked mechanically. Eleven give a single reference point and
+thirteen give no number. A range is enforced where one is recorded and invented
+nowhere.
+
+Where no range is recorded the distance is reported rather than enforced. A
+design run with `mismatch_model: position-dependent` states, in the panel
+assessment's evidence and once per run in the log, how many degrees separate
+the reaction from the 37 C at which its free energies were measured, and that
+the buffer differs. Nothing refuses it, because no threshold has a reference.
 
 Some additives change no melting temperature at all. Glycerol is the clearest:
 a design that sets it is refused rather than given an invented coefficient. BSA

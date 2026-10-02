@@ -123,7 +123,12 @@ def site_occupancy(dh_kcal: float, tm: float, temp: float) -> float:
 
 
 def weighted_site_load(
-    primers, prefixes, conditions, max_mismatches: int = 1, penalty: float | None = None
+    primers,
+    prefixes,
+    conditions,
+    max_mismatches: int = 1,
+    penalty: float | None = None,
+    model: str | None = None,
 ) -> float:
     """Occupancy-weighted binding load of a primer set against one genome set.
 
@@ -134,12 +139,49 @@ def weighted_site_load(
     implementations of one quantity is how they come to disagree, which this
     codebase has already demonstrated with Tm windows and dimer thresholds.
 
+    `model` selects the mismatch model: `uniform` is the form above and the
+    default, and the other values of the `mismatch_model` key hand the whole
+    computation to `mismatch_model.position_dependent_site_load`, where the
+    per-mismatch cost depends on where the mismatch sits. The dispatch is HERE
+    rather than at each call site so the key reaches every consumer of this
+    number -- `optimize`, `plan-pool`, `evaluate-set`, `improve-set`, the
+    condition sweep and the filter's candidate ranking all arrive through this
+    function. Resolved from configuration when None, like `penalty`; a caller
+    that resolved it once for a run passes it to avoid the per-evaluation read.
+
     Raises `FileNotFoundError` when the jellyfish count files needed for
     mismatch classes are absent, so a caller can fall back to exact counting
     deliberately rather than receiving a quietly different number.
     """
     from neoswga.core.mismatch_counts import mismatch_class_counts
+    from neoswga.core.mismatch_model import (
+        UNIFORM,
+        position_dependent_site_load,
+        resolve_mismatch_model,
+    )
     from neoswga.core.thermodynamics import calculate_enthalpy_entropy
+
+    resolved_model = resolve_mismatch_model(model)
+    if resolved_model != UNIFORM:
+        from neoswga.core.mismatch_model import (
+            POSITION_DEPENDENT_THREE_PRIME,
+            log_extrapolation_once,
+        )
+
+        # Here, so every consumer of a weighted load triggers it once: a load
+        # computed 26 C from the table's reference used to appear with nothing
+        # said. It is a warning rather than info because a number produced
+        # outside the domain its source covers must not pass silently.
+        log_extrapolation_once(resolved_model, getattr(conditions, "temp", None))
+
+        return position_dependent_site_load(
+            primers,
+            prefixes,
+            conditions,
+            max_mismatches,
+            penalty,
+            three_prime_rule=resolved_model == POSITION_DEPENDENT_THREE_PRIME,
+        )
 
     # Resolved by the CALLER for a run, or from configuration when none is
     # supplied. Reading the module global here meant re-reading it on every

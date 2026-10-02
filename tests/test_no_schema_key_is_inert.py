@@ -137,3 +137,36 @@ def test_mismatch_penalty_reaches_its_consumer():
             delattr(parameter, "mismatch_penalty")
         else:
             parameter.mismatch_penalty = original
+
+
+def test_mismatch_model_reaches_the_code_that_weights_a_site(monkeypatch):
+    """Added 2026-10-02. The key selects which mismatch model runs.
+
+    Asserted at the resolver AND at the consumer, because the two are the two
+    halves of this defect class: a key that binds a global nothing reads, and a
+    reader whose fallback is taken on every call.
+    """
+    from neoswga.core import mismatch_model, parameter
+
+    monkeypatch.setattr(parameter, "mismatch_model", None, raising=False)
+    assert mismatch_model.resolve_mismatch_model() == mismatch_model.UNIFORM
+
+    monkeypatch.setattr(parameter, "mismatch_model", "position-dependent", raising=False)
+    assert mismatch_model.resolve_mismatch_model() == mismatch_model.POSITION_DEPENDENT
+
+    # The consumer: the dispatch inside `occupancy.weighted_site_load` is what
+    # makes the key reach optimize, plan-pool, evaluate-set, improve-set, the
+    # condition sweep and the filter's ranking, all of which arrive there.
+    import ast
+    import inspect
+
+    from neoswga.core import occupancy
+
+    source = inspect.getsource(occupancy.weighted_site_load)
+    tree = ast.parse(source.strip())
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert {"resolve_mismatch_model", "position_dependent_site_load"} <= called

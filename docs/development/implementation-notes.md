@@ -644,6 +644,176 @@ reads it. A params.json key, if one is ever wanted, belongs to Phase 6.
   `_variant_blocks`, `_variant_reference` and `_attach_per_primer_intact`. No
   ratchet entry was added or raised.
 
+### `mismatch_model`: a position-dependent mismatch model, off by default
+
+```json
+{"mismatch_model": "position-dependent"}
+```
+
+Three values: `uniform` (the default and the shipped behaviour),
+`position-dependent`, `position-dependent-3prime`. params.json only; there is
+deliberately no CLI flag, so the key is the one documented route and
+`tests/test_params_json_routes_optional_keys.py::TestMismatchModel` is the one
+place its reachability is pinned.
+
+**Why two new modules rather than a patch.** `mismatch_counts.
+mismatch_class_counts` enumerates every neighbour, looks each one's count up,
+and then collapses the result to one total per Hamming distance. Position and
+identity are gone before any thermodynamics runs, so no penalty applied
+downstream can depend on them. `core/mismatch_sites.py` keeps the neighbour
+instead; the enumeration and the count lookups are the same ones, so the
+counting cost does not change.
+
+**Two terms, switched separately, because their evidence differs.**
+
+- *Duplex stability* (`position-dependent`). `core/mismatch_model.py` walks the
+  duplex through `thermodynamics.DELTA_G_MISMATCH` and converts the free-energy
+  difference to a melting-temperature shift by the first-order perturbation of
+  `Tm = dH/(dS + R ln C)`, which replaces `- distance * penalty` and nothing
+  else. Position enters through the flanking stacks, not a position index.
+  Registry record `mismatch_duplex_delta_g`, status `estimated`: the table is a
+  measurement taken at 37 C in 1 M Na+, and applying it near 30 C in magnesium
+  buffer on 8-12mers is not.
+- *3'-terminal extension* (`position-dependent-3prime`). A separate multiplier
+  on a site whose 3'-terminal base is mismatched. Registry record
+  `three_prime_mismatch_extension`, status `assumed`, and the record says what
+  would settle it. It is a separate value of the key so a later measurement can
+  overturn it without touching the duplex term.
+
+**The table's domain is INTERNAL positions, and that cost a defect.**
+`DELTA_G_MISMATCH` is an internal single-mismatch set. The first version
+applied it at the first and last base too, where a position has one flanking
+stack rather than two and dangling-end / terminal-mismatch parameters
+(Bommarito et al. 2000, which this repository does not carry) are the
+applicable set; it also dropped that end's `NN_INIT_CORRECTIONS` term because
+the terminus was no longer Watson-Crick paired. Dropping a positive correction
+is stabilising, so the two could net out positive -- a mismatch making the
+duplex look MORE stable than the perfect match -- and the clamp at zero then
+substituted exactly zero penalty, the most favourable value available.
+Measured over 1,400 random primers at three polymerases: **771 of 8,400
+terminal neighbours (9.2%) would have been clamped, and 0 of 43,199 interior
+ones.** A host 12-mer differing from a primer only at a terminal base would
+have been weighted as well as an exact host match, where the shipped model
+charges it 4 C. It also moved the validation figures: the model's apparent
+held-out advantage was entirely this.
+
+So a neighbour with a mismatch at either terminus does not use the table at
+all; it takes `- distance * mismatch_penalty`, the uniform number, exactly as a
+tandem-mismatch doublet already did. The 3'-terminal extension factor of the
+`-3prime` variant still applies on top, because that is an extension effect and
+not a duplex one. The clamp stays as a guard, and
+`test_the_clamp_never_binds_at_an_internal_position` is what makes "it never
+binds" measured rather than hoped. This is the "unknown is not zero, and not
+success" rule: an unmeasurable quantity must not get a default that happens to
+be the best available value.
+
+With terminal positions on the uniform penalty, the duplex term charges a
+3'-terminal mismatch *less* than most interior ones (4.0 C against 10-19 C on a
+12-mer). That is not a claim about extension; it is why the 3'-terminal rule
+has to be a separate term rather than something the duplex term expresses, and
+`test_the_duplex_term_alone_does_not_single_out_the_three_prime_base` pins it.
+
+**Its own duplex walk, and why that is not a duplicate.**
+`compute_free_energy_for_two_strings` abandons the walk once the running total
+passes `penalty * 10`, which is right for the dimer screen it was written for
+and truncates a whole-duplex sum. It also applies no nearest-neighbour rotation
+symmetry, so `DELTA_G_MISMATCH` -- which holds only the 64 doublets with a
+Watson-Crick 5' position -- misses the doublet on the 3' side of every mismatch
+and charges it the flat 4.0 kcal/mol. The new walk fixes both and that function
+is unchanged for its one existing caller (`rf_preprocessing`, the retired RF
+feature path). A doublet with two mismatches is in neither orientation, because
+the source does not parameterise tandem mismatches, and takes the penalty; at
+the default depth of one mismatch that case does not arise.
+
+A mismatch shift is clamped at `<= 0`. At a terminal position the arithmetic
+can net out positive, because a mismatched end also loses that end's initiation
+correction, and letting that through would raise a mismatched site's occupancy
+above its perfect-match value -- a mismatch turning a rejection into a pass.
+
+**Where the key reaches, and where it deliberately does not.** The dispatch is
+inside `occupancy.weighted_site_load`, not at each call site, so every consumer
+of that number arrives through it: `optimize` and `plan-pool` (through
+`base_optimizer._effective_site_load`), `evaluate-set`, `improve-set` (through
+`reference_panel_evaluation`), the condition sweep, and the filter's candidate
+ranking in `pipeline._rank_by_occupancy`. `base_optimizer` resolves it once at
+construction beside `mismatch_penalty`, for the reason that argument exists.
+`host_profile.expected_site_load` -- the modelled background used when there is
+no host genome -- has no k-mer neighbours to weight, so
+`_modelled_site_load` requests `UNIFORM` explicitly rather than inheriting the
+configured model; a position-dependent foreground over a uniform modelled
+background would be a ratio between two different models, and
+`test_the_modelled_background_path_asks_for_the_uniform_model` pins it at the
+source.
+
+**A non-uniform load is never reported as the uniform one, and no consumer
+reports one with no mode at all.** `PrimerSetMetrics.selectivity_mode` gains
+`occupancy-position-dependent` and `occupancy-position-dependent-3prime` beside
+`exact`, `occupancy` and `modelled`. `panel_evaluation` hardcoded
+`mismatch_penalty: "assumed (uniform in identity and position)"` on every
+assessment, including one computed under another model; `_mismatch_evidence`
+now reads the mode and emits the record for the model that actually ran.
+
+The dispatch made the key reach six consumers in one change, and only the
+optimizer recorded which model it had used -- so five commands printed a
+weighted load from an extrapolated table with nothing saying so, while the
+schema text asserted the opposite. Each now carries it, always, and the value
+is `"occupancy"` under the shipped model so no existing figure moves. The
+fields added:
+
+| command | output | field added |
+|---|---|---|
+| `optimize`, `plan-pool` | `step4_improved_df_summary.json` | `selectivity_mode` already existed; its value set widened |
+| `evaluate-set` | its result JSON | `occupancy_selectivity_mode` |
+| `evaluate-set`, `analyze-set`, `report-pool`, `improve-set` | each per-reference record | `weighted_site_load_mode`, and the `basis` string gains the model and the extrapolation distance under a non-uniform model only |
+| the condition sweep | each `ConditionPoint` | `selectivity_mode` |
+| `filter` | `filter_stats.json`, and the ranking log line | `occupancy_ranking_mode` |
+| `report` | the specificity narrative | reads `selectivity_mode` and names the model when it is not uniform |
+| every step | `run_manifest.json` `effective_conditions` | `mismatch_model` |
+
+`improve-set`'s memoised load cache also takes the model into its key. It is
+constant within a run today, which is exactly what made it safe to leave out
+and one process-wide change away from answering with the other model's number.
+
+**It is part of the request's identity.** `DesignRequest` gains
+`mismatch_model`, so `request_hash` moves with it; two designs that deliver
+different panels recorded one hash before. The RESOLVED value is stored, so an
+absent key and an explicit `uniform` compare equal -- they deliver identical
+designs, and the hash is a design's identity. That follows
+`candidate_retention` rather than `optimization_method`, which keeps `None`
+because a CLI flag has to beat the file; there is no flag here.
+`resolve_design_request` refuses an unrecognised value before any search.
+Recording it in `effective_conditions` also earns drift detection: `filter`
+under one model and `optimize` under another now warns, through the same path
+that already caught a preset applied on one step and not the next.
+
+**The extrapolation's size is stated wherever the model runs.** No threshold
+refuses a design for being far from the table's 37 C reference, because no
+threshold has a reference and the registry's rule is that a range is enforced
+where one is recorded and invented nowhere. So the distance is reported:
+`mismatch_model.extrapolation_notice` gives the degrees and the buffer
+mismatch, `log_extrapolation_once` warns once per (model, temperature) from
+inside the one dispatch, and the notice is carried in the assessment's evidence
+and in `effective_conditions`. A Bst design at 63 C is 26 C out of domain and
+used to say nothing.
+
+**One canonical form is one site group.** Two neighbours that are each other's
+reverse complement share a canonical form, which happens for near-palindromic
+primers; `NeighbourSite` carries both `readings` and the count once, and the
+scoring function takes the more stable reading. Summing `count` over the groups
+therefore cannot double count. Groups are deduplicated within a distance class,
+exactly as `mismatch_class_counts` deduplicates, which is what makes the
+reduction to the uniform load exact at any depth.
+
+**Measurement.** `docs/validation/2026-10-02-position-dependent-mismatch.md`
+and `scripts/benchmarking/mismatch_model_ranking.py`. On the twenty-one
+scorable published panels no benefit is demonstrated: within study the model is
+below the uniform one (mean area under the curve 0.39 against 0.43) and held
+out by study it is above it (0.57 against 0.48) but below the 0.62 majority
+baseline, and the largest gap is about two panels. The script writes counted
+tables outside the repository and refuses a `--table-dir` inside it, because a
+run has to leave `git status --porcelain` unchanged. Distance 2 costs about 19x
+distance 1 and stays behind `max_mismatches`.
+
 ### `improve-set`: from an existing set to proposed edits
 
 ```bash

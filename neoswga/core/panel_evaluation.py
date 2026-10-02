@@ -380,6 +380,49 @@ def evaluate_panel(request, oligos, metrics, *, objective=None) -> PanelAssessme
         zero_background=zero_background,
         evidence={
             "coverage_reach": "assumed (design-density convention; never measured)",
-            "mismatch_penalty": "assumed (uniform in identity and position)",
+            **_mismatch_evidence(
+                getattr(metrics, "selectivity_mode", None),
+                getattr(getattr(request, "conditions", None), "temp", None),
+            ),
         },
     )
+
+
+def _mismatch_evidence(selectivity_mode, temp=None) -> dict[str, str]:
+    """What the mismatch weighting in this assessment actually rests on.
+
+    Hardcoding one string here made every assessment describe the uniform
+    model, including one computed under another. The mode the metrics carry is
+    the record of which model ran -- that is what it exists for -- so the
+    evidence is read from it rather than assumed.
+
+    The quantity name changes with the model, because it is a different
+    quantity: `mismatch_penalty` is one number per mismatch, and
+    `mismatch_model` is a per-neighbour free energy. Both keys have a record in
+    `core/registry/model_evidence.json`.
+
+    `temp` adds how far the reaction sits from the table's reference, in
+    degrees. Nothing refuses a design on that distance -- no threshold has a
+    reference -- so stating it is the whole of what can be done about it, and
+    an assessment that does not state it reads as if the distance were zero.
+    """
+    mode = str(selectivity_mode or "")
+    if not mode.startswith("occupancy-position-dependent"):
+        return {"mismatch_penalty": "assumed (uniform in identity and position)"}
+
+    from neoswga.core.mismatch_model import extrapolation_notice
+
+    model = mode.split("occupancy-", 1)[1]
+    detail = (
+        "estimated (SantaLucia 1998 internal-mismatch free energies; position "
+        "and identity enter the weighting, which is not a measurement of "
+        "mismatch discrimination. A mismatch at either terminus is outside the "
+        "table's internal-position domain and takes the uniform penalty "
+        f"instead). {extrapolation_notice(model, temp)}"
+    )
+    if mode.endswith("3prime"):
+        detail += (
+            ". Plus an assumed 3'-terminal extension rule, for which no "
+            "measurement on a strand-displacing polymerase was found"
+        )
+    return {"mismatch_model": detail}

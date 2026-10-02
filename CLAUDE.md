@@ -44,6 +44,7 @@ When adding a record, add it there and keep this file to a line or two.
 | `position_index.py` | The only reader and writer of `*_positions.h5` (sorted-blocks layout) |
 | `position_cache.py` | In-memory positions. `load`/`release` move the window; `has_entry` and `require_entries` ask whether an ANSWER exists, which differs from a non-zero answer |
 | `kmer_backend.py`, `kmer_tables.py`, `query_scan.py` | Counter invocation; the one place anything asks about a k-mer table; a direct scan for a host with no table |
+| `mismatch_sites.py`, `mismatch_model.py` | The position-dependent mismatch model behind `mismatch_model`, off by default. `occupancy.weighted_site_load` is the one dispatch, so the key reaches every consumer of a weighted load; a modelled background cannot use it and asks for `uniform` explicitly. Its own duplex walk: the shipped one early-stops and applies no nearest-neighbour rotation |
 | `design_request.py`, `design_result.py`, `panel_evaluation.py` | The resolved frozen request and its hash; run state against termination reason against qualification; one `PanelAssessment` |
 | `pool_planner.py`, `pool_objective.py`, `panel_acceptance.py` | `plan-pool`, the shared objective and `shortfall`, the configured panel limits. `repair_panel` is the one bounded repair |
 | `bam_coverage.py`, `depth_policy.py` | `open_alignment` is the only door to a BAM or CRAM |
@@ -171,6 +172,11 @@ measurements: implementation-notes.md.
   tighten the screen), `max_sets` (5), `iterations` (8; bounds the search for
   alternatives, not the primary selection), `coverage_metric`,
   `min_per_target_coverage` (checked and reported, not repaired).
+- **Mismatch weighting**: `mismatch_penalty` (4.0 C, uniform) and
+  `mismatch_model` (`uniform` default, `position-dependent`,
+  `position-dependent-3prime`; params.json only, no flag, off by default). The
+  figures are in `docs/validation/2026-10-02-position-dependent-mismatch.md`.
+  `max_mismatches` (1) bounds the depth; distance 2 costs about 19x.
 - **Search control**: `objective_scan_width` (64), `max_frontier_refills` (4),
   `swap_max_evaluations` (per stage, not a total), `total_search_evaluations`
   (the only total; None by default, so by default no total bound exists),

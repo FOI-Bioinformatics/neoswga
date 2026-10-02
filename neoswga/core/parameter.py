@@ -774,6 +774,12 @@ candidate_retention = "all_qc"
 occupancy_ranking = True
 occupancy_shortlist = None
 max_mismatches = None
+# Which mismatch model weights a site. None means the shipped `uniform` one;
+# `occupancy.weighted_site_load` resolves it through
+# `mismatch_model.resolve_mismatch_model`, so every consumer of the weighted
+# load reads the same key. Off by default: the position-dependent form is an
+# extrapolation of a 37 C table and has no measurement behind it here.
+mismatch_model = None
 
 # Dimer and Tm constraints. These mirror the PipelineParameters defaults above
 # and exist as module globals so the filtering rules can run before get_params
@@ -957,7 +963,7 @@ def _apply_params_only_keys(data: dict) -> None:
     global coverage_geometry
     global occupancy_ranking
     global occupancy_shortlist
-    global max_mismatches
+    global max_mismatches, mismatch_model
     global sampled_index_path
     global optimization_method
     global mismatch_penalty
@@ -995,6 +1001,9 @@ def _apply_params_only_keys(data: dict) -> None:
     occupancy_ranking = data["occupancy_ranking"] = data.get("occupancy_ranking", True)
     occupancy_shortlist = data["occupancy_shortlist"] = data.get("occupancy_shortlist")
     max_mismatches = data["max_mismatches"] = data.get("max_mismatches")
+    # Left as None when absent so `resolve_mismatch_model` can tell "not
+    # configured" from "configured as uniform"; both run the shipped model.
+    mismatch_model = data["mismatch_model"] = data.get("mismatch_model")
     sampled_index_path = data["sampled_index_path"] = data.get("sampled_index_path")
     # Known Issue 8, and the last instance of this defect class. The key was
     # declared in the schema, documented, accepted by the validator, and
