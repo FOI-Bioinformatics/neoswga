@@ -290,23 +290,48 @@ whole distribution down by about a third and separates candidates neither
 better nor worse. Some oligos have a host load of exactly 0.0, so the max/min
 ratio is undefined and the coefficient of variation is the figure to read.
 
-**This is chr21, not hg38, and the question the plan asks is about hg38.** A
-3.30 Gb host is 66 times more sequence and the saturation argument is about
-exactly that difference, so this measurement does not answer it. It was NOT run
-against hg38, deliberately: no hg38 12-mer table exists on this machine and
-counting one is minutes of CPU and a 138 MB table (Known Issue 1). Once such a
-table exists at prefix `PREFIX`:
+That is chr21, and the question the plan asks is about hg38: a 3.30 Gb host is
+66 times more sequence and the saturation argument is about exactly that
+difference.
+
+**Measured against hg38 on 2026-10-02, it does not saturate either.** The hg38
+12-mer table is the one counted for the Phase 3 record
+(`docs/validation/2026-10-02-diversity-baseline.md`; 8,368,476 distinct
+canonical 12-mers). Two candidate pools of 2,000 12-mers each from that
+record's designs, both with wMel as the foreground: one selected with hg38 as
+the background, and one selected against *Drosophila*, which never saw hg38.
+
+| pool | model | min | p10 | median | p90 | max | coefficient of variation |
+|---|---|---|---|---|---|---|---|
+| designed against hg38 | uniform | 393.6 | 2,236.9 | 5,194.8 | 15,979.3 | 63,688.0 | 0.844 |
+| designed against hg38 | position-dependent | 230.9 | 1,028.0 | 2,692.1 | 10,020.8 | 52,539.6 | 1.018 |
+| designed against hg38 | position-dependent-3prime | 190.1 | 835.7 | 2,444.3 | 8,765.5 | 50,789.7 | 1.035 |
+| designed against *Drosophila* | uniform | 393.6 | 3,151.9 | 13,035.2 | 28,610.7 | 234,924.8 | 0.965 |
+| designed against *Drosophila* | position-dependent | 254.3 | 1,702.6 | 6,190.7 | 15,721.5 | 224,935.6 | 1.423 |
+| designed against *Drosophila* | position-dependent-3prime | 248.6 | 1,424.8 | 5,052.0 | 13,714.0 | 199,084.3 | 1.140 |
+
+No oligo in either pool has a host load of zero against hg38, so the max/min
+ratio is defined here: 162 to 267 in the hg38-designed pool and 597 to 885 in
+the other. The host load spans more than two orders of magnitude across a real
+candidate pool under every model, so at k=12 with one mismatch allowed it still
+separates candidates against a 3.30 Gb host. The position-dependent models
+roughly halve the median and spread the pool somewhat more than the uniform
+model does (coefficient of variation 1.02 and 1.42 against 0.84 and 0.97).
+
+What this does and does not say. It says the saturation the plan was concerned
+about is not observed on these two pools. It does not say the wider spread is
+more correct: whether a load ranks candidates in the order a reaction would is
+the question of section 3, and the answer there is that it is not shown to. Both
+pools passed this project's own filters first, one of them the background gate
+against hg38 itself, so neither is a random sample of 12-mers.
+
+Cost: 4.5 s and a 1.22 GB peak resident set per pool, the hg38 table held as a
+dict.
 
 ```
 python scripts/benchmarking/mismatch_model_ranking.py --saturation \
-    --pool tests/validation/genomes/step3_df.csv \
-    --host-prefix PREFIX --k 12 --limit 2000
+    --pool POOL/step3_df.csv --host-prefix PREFIX --k 12 --limit 2000
 ```
-
-Expect the peak resident set to be roughly 1.2 GB larger than the chr21 run's
-940 MB, because `mismatch_counts.load_kmer_counts` materialises the whole table
-as a dict and an hg38 12-mer table holds close to all 8.39 million canonical
-12-mers.
 
 ## Cost
 
@@ -404,7 +429,9 @@ model either.
   Neither is a measurement of mismatch discrimination, and a load computed
   under either is reported with its own `selectivity_mode` so it cannot be read
   as the uniform one.
-- The saturation check is chr21, and the question it was written for is hg38.
+- The saturation check against hg38 covers two candidate pools from one
+  target, both already filtered by this project; it is not a sample of all
+  12-mers.
 
 ## Decision gate C
 
