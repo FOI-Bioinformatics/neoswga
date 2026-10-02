@@ -52,7 +52,20 @@ The full technical report surfaces every in-silico result read from the
 authoritative `step4_improved_df_summary.json` (preferred over CSV estimates):
 the ensemble per-method comparison, per-target coverage, strand balance,
 coverage gaps (in-silico +/- BAM depth), and reaction conditions. Every value
-is badged MEASURED or ESTIMATED. The filtering funnel uses the real
+is badged MEASURED or ESTIMATED.
+
+A design that listed TWO OR MORE host genomes also gets a **Per-Host
+Background** table (added 2026-10-02): each host's length, sites, sites per Mb,
+coverage and `selectivity_density`, measured against that host's own length,
+with the design's `background_aggregate` named under it. Compare rows on
+selectivity density -- a count ratio is not comparable across hosts of
+different size (Known Issue 6), and none is shown. The figures in the
+Specificity section remain the POOLED ones under both readings of the key, so
+the two tables do not disagree; a host the design never scanned the panel
+against says "not measured" rather than showing zero. With one host the table
+is omitted, because the Specificity section already says the same thing.
+
+The filtering funnel uses the real
 `filter_stats.json` the filter step writes (no fabricated counts).
 `--interactive` adds Plotly charts on top of the static sections; the chart
 helpers in `neoswga/core/report/visualizations.py` return an empty string when

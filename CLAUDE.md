@@ -183,8 +183,12 @@ measurements: implementation-notes.md.
   `stage1_objective_width` (None; off by default after measurement).
 - **Several hosts**: `background_aggregate` (`sum` default, every host pooled as
   today; `worst-case` judges each host on its own length). params.json only, no
-  flag. The step-2 gate reads it (`core/background_gate.py`), where an absent
-  per-host count blocks under `worst-case`; step 4 does not yet.
+  flag. The step-2 gate reads it (`core/background_gate.py`) and so does step 4
+  (`core/per_host_metrics.py`): an absent per-host count or an unscanned host
+  blocks under `worst-case`, and `min_selectivity_density`,
+  `max_background_sites` and `max_host_coverage` then bind per host with no new
+  limit key. The pooled figures stay pooled under both readings; the reduction
+  is reported as `worst_host_*` beside `per_host`.
   `core/background_aggregate.py` is the one place it resolves.
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
@@ -287,7 +291,10 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 5. **pyahocorasick past 2 Gb** finds nothing, silently. The chunked scan works
    around it; a canary test fails when the installed version changes.
 6. **A partial background is not a specific design**: `selectivity_ratio`
-   moves with background size. Compare `selectivity_density`.
+   moves with background size. Compare `selectivity_density` -- and note that a
+   POOLED density is a property of the pool, not of any host, so it moves with
+   the host panel too. `background_aggregate: worst-case` is the per-host
+   reading; no per-host output carries a count ratio.
 7. **int64 coordinates**. int32 saturated on hg38 and hid host sites. Test
    against a whole genome, not a chromosome.
    - Unnumbered, between 7 and 8: `--design-grid` on `plan-pool`;
@@ -306,6 +313,8 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
     `MissingPositionsError` instead of answering with an empty array.
 14. **Reading the background is not acting on it**. `_network_refine` carries
     the host term and `_swap_refine` reads the objective; neither carries both.
+    Establish which stage produces the delivered panel before claiming a term
+    had an effect: for `background-aware` it is Stage 2, `_network_refine`.
 15. **`require_entries`** asks for an entry on every prefix, not a hit on any.
 16. **Stage 1 objective**: wired as `stage1_objective_width`, off by default;
     it gains coverage and costs specificity and runtime.

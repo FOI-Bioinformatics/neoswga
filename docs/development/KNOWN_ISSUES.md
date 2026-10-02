@@ -70,6 +70,34 @@ position and are left there.
    a gate demanding zero host sites returns a single-site candidate pool rather than failing.
    See [docs/validation/additive_specificity.md](../validation/additive_specificity.md#the-background-was-one-chromosome-and-that-mattered).
 
+   **The same defect appears WITHIN one design when it lists several hosts**, and the density
+   ratio does not fix that half. Pooling is by length share: with a 3.3 Mb, a 144 Mb and a
+   3.30 Gb host listed, the largest is 95.7 percent of the pooled length, so the pooled
+   ceiling sits within 5 percent of its own while the numerator still charges a candidate for
+   its sites on the two small hosts. A candidate frequent on a small host and clean on the
+   large one therefore passes, and `selectivity_density` computed over the POOLED background
+   says so too -- it is a density, but of one summed load over one summed length, which is a
+   property of the pool rather than of any host. Measured on the *Wolbachia* reference,
+   pooling the three hosts reached only 73.6 to 92.4 percent of the hg38-only design's
+   occupancy-weighted density on hg38, and the smallest host became the worst one
+   ([docs/validation/2026-10-02-diversity-baseline.md](../validation/2026-10-02-diversity-baseline.md),
+   Q4 and Q5).
+
+   `background_aggregate: "worst-case"` is the reading that does not move with host size:
+   each host judged on its own length, and the panel's figure the worst host's. It is
+   reachable and deliberately NOT the default, because no measurement yet says which reading
+   is right for a panel of several hosts. Both are reported either way --
+   `selectivity_density` stays pooled under both readings, `per_host` carries each host's own
+   figure, and `worst_host_selectivity_density` is the reduction. `core/per_host_metrics.py`
+   is where that lives, and no per-host output carries a count RATIO: per-host comparisons use
+   density, which is the whole subject of this issue.
+
+   One consequence to keep in mind when reading a pooled figure: a host added to `bg_genomes`
+   can make a design look MORE specific, because it enlarges the denominator faster than a
+   clean host enlarges the numerator. That is the pooled reading behaving as defined, not a
+   bug, and it is why a pooled density is not comparable between two designs whose host
+   panels differ.
+
 7. **Genome coordinates are int64** (`position_cache.POSITION_DTYPE`), and must stay so.
    Positions were cast to `np.int32` on the way out of HDF5. int32 tops out at 2,147,483,647,
    so for human (3.1 Gb) and mouse (2.7 Gb) every site past that offset **saturated at the
