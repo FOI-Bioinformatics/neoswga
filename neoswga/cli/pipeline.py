@@ -896,9 +896,7 @@ def run_step4(args):
         # position cache is built, or not finding out at all because a reader
         # took its own fallback. `request_hash` is what lets the saved result
         # name the configuration that produced it.
-        from neoswga.core.design_request import (
-            cli_overrides as _cli_overrides,
-        )
+        from neoswga.core.design_request import cli_overrides as _cli_overrides
         from neoswga.core.design_request import (
             design_request_for_run,
             effective_request_for_manifest,

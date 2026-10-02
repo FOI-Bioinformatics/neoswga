@@ -120,9 +120,7 @@ class TestCollectingWhatTheInvocationSet:
     def test_a_set_flag_is_collected_under_its_params_json_name(self):
         from neoswga.core.design_request import cli_overrides
 
-        assert cli_overrides(_Args(min_per_target_coverage=0.5)) == {
-            "min_per_target_coverage": 0.5
-        }
+        assert cli_overrides(_Args(min_per_target_coverage=0.5)) == {"min_per_target_coverage": 0.5}
 
     def test_the_size_flag_is_not_collected_here(self):
         """`effective_design_request` overlays the effective size afterwards,

@@ -570,19 +570,40 @@ def _render_coverage_gaps(gaps: dict | None) -> str:
     )
 
 
-def _render_per_target_coverage(per_target: dict[str, float]) -> str:
-    """Render per-target coverage for multi-genome runs (measured)."""
+def _render_per_target_coverage(per_target: dict[str, float], worst=None) -> str:
+    """Render per-target coverage for multi-genome runs (measured).
+
+    `worst` is the figure `min_per_target_coverage` is read against. It is shown
+    because a reader comparing a configured floor against this table was
+    otherwise left to take the minimum themselves, and because a reduction over
+    several measurements has to say that it is one. "not measured" rather than a
+    number when it is absent: a target whose coverage could not be measured
+    makes the minimum unknown, and 0.0 there would read as a starved target.
+    """
     if not per_target or len(per_target) < 2:
         return ""
     rows = "".join(
         f"<tr><td>{html_escape(str(k))}</td><td>{_safe_num(v) * 100:.1f}%</td></tr>"
         for k, v in per_target.items()
     )
+    shown = "not measured" if worst is None else f"{_safe_num(worst) * 100:.1f}%"
+    rows += (
+        f"<tr><td><strong>worst_target_coverage</strong></td>"
+        f"<td><strong>{shown}</strong></td></tr>"
+    )
     return (
         '<div class="section"><h2>Per-Target Coverage '
         '<span class="badge measured">MEASURED</span></h2>'
         "<table><tr><th>Target</th><th>Coverage</th></tr>"
-        f"{rows}</table></div>"
+        f"{rows}</table>"
+        "<p>Windows are confined to the FASTA record holding each site, so a "
+        "panel is not credited with bases on contigs its sites are not on. "
+        "<code>worst_target_coverage</code> is the MINIMUM over the rows above "
+        "and is the figure <code>min_per_target_coverage</code> is held to; it "
+        "reads <em>not measured</em> when any target could not be measured, "
+        "which does not satisfy a floor. The headline "
+        "<code>fg_coverage</code> is unconfined and is not the mean of these "
+        "rows on a fragmented reference.</p></div>"
     )
 
 
@@ -1153,7 +1174,8 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
         ensemble_comparison_html=_render_ensemble_comparison(metrics.ensemble_comparison),
         reaction_conditions_html=_render_reaction_conditions(metrics.reaction_conditions),
         per_target_coverage_html=_render_per_target_coverage(
-            metrics.coverage.per_target_coverage if metrics.coverage else {}
+            metrics.coverage.per_target_coverage if metrics.coverage else {},
+            metrics.coverage.worst_target_coverage if metrics.coverage else None,
         ),
         coverage_gaps_html=_render_coverage_gaps(metrics.coverage_gaps),
         strand_balance_html=_render_strand_balance(metrics.uniformity),

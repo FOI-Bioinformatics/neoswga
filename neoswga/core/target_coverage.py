@@ -208,6 +208,21 @@ def require_per_target(per_target, worst, fg_prefixes, floor) -> None:
     Nothing is refused when no floor was asked for. A single-genome run and a
     run with an unusable length are then unchanged, which is what keeps the
     per-target work from moving any delivered panel.
+
+    **What can actually reach these two raises, through the pipeline.** Only a
+    non-positive `fg_seq_lengths` entry, and an empty dict only when every entry
+    is non-positive. `base_optimizer._gather_sites` seeds `out["fg"]` with every
+    foreground prefix, so the "no positions entry" branch of
+    `coverage_by_target` cannot fire from `compute_metrics`; and
+    `base_optimizer.get_primer_positions` catches bare `Exception` and returns
+    an empty array with a warning, so an unindexed prefix or an HDF5 failure
+    arrives here as 0.0 coverage -- measured-looking, not unmeasured. That fails
+    SAFE for a floor, since 0.0 misses any positive one, and it is why these
+    raises are rarely the thing that fires. It is also a product defect of its
+    own: `compute_per_prefix_coverage` catches only `(KeyError, ValueError)` and
+    says "Do NOT swallow I/O / HDF5 errors here". The broad swallow predates
+    this limit and is not narrowed here, because narrowing it changes what every
+    existing design does with a damaged index.
     """
     if not floor:
         return

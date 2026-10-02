@@ -301,10 +301,11 @@ class TestTheEvaluatorProducesTheFigure:
         assert metrics.worst_target_coverage == pytest.approx(min(per_target.values()))
         assert metrics.worst_target_coverage == pytest.approx(per_target["B"])
 
-    def test_the_aggregate_is_the_length_weighted_mean_of_them(self):
-        """`fg_coverage` is not redefined: the two come from one loop, and a
-        discrepancy would mean the floor is read against a different
-        measurement from the one the headline reports."""
+    def test_the_aggregate_matches_them_with_no_record_joins(self):
+        """With no record starts the two geometries coincide, so the per-target
+        figures and `fg_coverage` agree -- which covers every single-record
+        reference in this repository. Where they diverge is the record join, and
+        `TestTheFloorReadsTheConfinedFigure` is where that is pinned."""
         metrics = _two_target_optimizer().compute_metrics([*A_PRIMERS, B_PRIMER])
         expected = sum(metrics.per_target_coverage.values()) / 2
 
@@ -336,59 +337,6 @@ class TestTheEvaluatorProducesTheFigure:
 
         assert metrics.worst_target_coverage == pytest.approx(metrics.fg_coverage)
 
-    def test_it_follows_the_aggregate_convention_at_a_record_join(self):
-        """The one place the two definitions differ, pinned as a decision.
-
-        `coverage.compute_per_prefix_coverage`, which used to supply this dict,
-        confines each window to the record holding the site.
-        `coverage.union_coverage`, which supplies `fg_coverage`, deliberately
-        does not, and says why. The per-target figure now follows the
-        aggregate: a limit read against a figure the search cannot optimise
-        would be a limit against a different measurement.
-
-        Measured on this case: 0.3000 unconfined against 0.1750 confined, a
-        0.125 difference from one site 500 bp from a join. On a 1,870-record
-        143.7 Mb reference the inflation is bounded by records x 2 x reach over
-        the length, which is 0.078. The prepared indexes store no record starts,
-        so no recorded figure in this repository moves.
-        """
-        from neoswga.core.base_optimizer import OptimizerConfig
-        from neoswga.core.coverage import compute_per_prefix_coverage
-
-        length, starts, site = 20_000, [0, 10_000], 9_500
-
-        class _JoinCache:
-            def get_positions(self, prefix, primer, strand="both"):
-                import numpy as np
-
-                if strand == "reverse":
-                    return np.array([], dtype=np.int64)
-                return np.array([site], dtype=np.int64)
-
-            def get_record_starts(self, prefix):
-                return list(starts)
-
-        optimizer = _probe_class()(
-            position_cache=_JoinCache(),
-            fg_prefixes=["x"],
-            fg_seq_lengths=[length],
-            bg_prefixes=[],
-            bg_seq_lengths=[],
-            config=OptimizerConfig(target_set_size=1, extension_reach=REACH),
-        )
-        metrics = optimizer.compute_metrics([A_PRIMERS[0]])
-        _aggregate, confined = compute_per_prefix_coverage(
-            cache=_JoinCache(),
-            primers=[A_PRIMERS[0]],
-            prefixes=["x"],
-            seq_lengths=[length],
-            extension=REACH,
-        )
-
-        assert metrics.per_target_coverage["x"] == pytest.approx(metrics.fg_coverage)
-        assert metrics.per_target_coverage["x"] == pytest.approx(0.30)
-        assert confined["x"] == pytest.approx(0.175)
-
     def test_the_summary_json_carries_it(self):
         """`step4_improved_df_summary.json` is what the report reads."""
         metrics = _two_target_optimizer().compute_metrics([*A_PRIMERS, B_PRIMER])
@@ -398,6 +346,128 @@ class TestTheEvaluatorProducesTheFigure:
             min(as_dict["per_target_coverage"].values())
         )
         json.dumps(as_dict["worst_target_coverage"])
+
+
+#: A draft assembly: 500 contigs of 4 kb, one site 100 bp inside each contig
+#: end, so every window would cross a join if nothing stopped it.
+DRAFT_LENGTH = 2_000_000
+DRAFT_CONTIG = DRAFT_LENGTH // 500
+DRAFT_STARTS = [i * DRAFT_CONTIG for i in range(500)]
+DRAFT_SITES = [start + DRAFT_CONTIG - 100 for start in DRAFT_STARTS]
+
+
+class _DraftCache:
+    """One prefix of 500 contigs, with its record starts, as a current
+    `neoswga filter` index carries them."""
+
+    def __init__(self, record_starts=DRAFT_STARTS, sites=DRAFT_SITES):
+        self._starts = record_starts
+        self._sites = sites
+
+    def get_positions(self, prefix, primer, strand="both"):
+        import numpy as np
+
+        if strand == "reverse":
+            return np.array([], dtype=np.int64)
+        return np.array(self._sites, dtype=np.int64)
+
+    def get_record_starts(self, prefix):
+        return None if self._starts is None else list(self._starts)
+
+
+def _draft_optimizer(cache=None):
+    from neoswga.core.base_optimizer import OptimizerConfig
+
+    return _probe_class()(
+        position_cache=cache or _DraftCache(),
+        fg_prefixes=["draft"],
+        fg_seq_lengths=[DRAFT_LENGTH],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=1, extension_reach=REACH, coverage_metric="raw"),
+    )
+
+
+class TestTheFloorReadsTheConfinedFigure:
+    """Review finding F2, and the reason the first version of Phase 6c was
+    wrong. It took the per-target figure from the loop that produces
+    `fg_coverage`, which is `coverage.union_coverage` and does not confine a
+    window to the record holding its site. Audit finding F3 of
+    `docs/validation/additives_coverage_audit_2026-09-14/` records that as a P1
+    error for target coverage on a fragmented reference, fixed and pinned by
+    `tests/test_coverage_windows_stop_at_record_edges.py`.
+
+    On this 500-contig draft the two read 0.775 and 0.9996, so a floor of 0.9
+    passed a panel that does not meet it -- a false pass on 449,100 bp credited
+    across joins the polymerase cannot cross.
+    """
+
+    def test_the_unconfined_figure_would_be_a_false_pass(self):
+        """Guard the guard: without this spread the rest proves nothing."""
+        metrics = _draft_optimizer().compute_metrics([A_PRIMERS[0]])
+
+        assert metrics.fg_coverage == pytest.approx(0.9995, abs=1e-4)
+        assert metrics.fg_coverage > 0.9, "the unconfined figure must clear the floor"
+
+    def test_the_per_target_figure_is_the_confined_one(self):
+        metrics = _draft_optimizer().compute_metrics([A_PRIMERS[0]])
+
+        assert metrics.per_target_coverage["draft"] == pytest.approx(0.775)
+        assert metrics.worst_target_coverage == pytest.approx(0.775)
+
+    def test_a_floor_of_zero_point_nine_fails_on_this_draft(self):
+        """The false pass, as a verdict."""
+        from neoswga.core.panel_refinement import objective_for_optimizer
+        from neoswga.core.pool_objective import PoolConstraints
+
+        optimizer = _draft_optimizer()
+        objective = objective_for_optimizer(
+            optimizer, PoolConstraints(min_per_target_coverage=0.9, coverage_metric="raw")
+        )
+
+        assert "per-target coverage below minimum" in objective.violations([A_PRIMERS[0]])
+
+    def test_the_focused_evaluator_fails_it_too(self):
+        """The search reads `compute_pool_metrics`; a confined full evaluator
+        and an unconfined light one would accept and refuse the same panel."""
+        light = _draft_optimizer().compute_pool_metrics([A_PRIMERS[0]])
+
+        assert light.worst_target_coverage == pytest.approx(0.775)
+
+    def test_it_is_the_figure_evaluate_set_reports(self):
+        """One quantity under one key name across the two commands. They used
+        to disagree: `optimize` could accept a panel at 0.9996 and
+        `evaluate-set` report 0.775 for the same panel and reference."""
+        from neoswga.core.coverage import compute_per_prefix_coverage
+
+        metrics = _draft_optimizer().compute_metrics([A_PRIMERS[0]])
+        _aggregate, confined = compute_per_prefix_coverage(
+            cache=_DraftCache(),
+            primers=[A_PRIMERS[0]],
+            prefixes=["draft"],
+            seq_lengths=[DRAFT_LENGTH],
+            extension=REACH,
+        )
+
+        assert metrics.per_target_coverage["draft"] == pytest.approx(confined["draft"])
+
+    def test_an_index_without_record_starts_still_agrees_with_the_aggregate(self):
+        """The prepared indexes in this repository store none, which is why no
+        recorded figure moved either way."""
+        optimizer = _draft_optimizer(_DraftCache(record_starts=None))
+        metrics = optimizer.compute_metrics([A_PRIMERS[0]])
+
+        assert metrics.per_target_coverage["draft"] == pytest.approx(metrics.fg_coverage)
+        assert metrics.per_target_coverage["draft"] == pytest.approx(0.9995, abs=1e-4)
+
+    def test_one_marking_implementation_serves_both_commands(self):
+        """Three implementations of one coverage number is how this codebase
+        produced disagreeing figures before; `union_coverage` says so."""
+        import inspect
+
+        from neoswga.core import coverage
+
+        assert "confined_covered_bases" in inspect.getsource(coverage.compute_per_prefix_coverage)
 
 
 class TestAnUnmeasuredTargetMakesTheWorstUnknown:
@@ -476,6 +546,22 @@ class TestAnEmptyPerTargetDictCannotPassVacuously:
 
         with pytest.raises(ModelEvaluationError):
             require_per_target({}, None, ["A", "B"], 0.5)
+
+    def test_the_empty_dict_refusal_says_that_is_what_happened(self):
+        """The empty-dict guard, ISOLATED. Removing only its `raise` leaves the
+        `worst is None` guard to catch the same input, so `pytest.raises` alone
+        cannot tell the two apart -- the review's mutation M2 showed that, and
+        corrected an overstated row in the first report. Asserting the distinct
+        message is what separates them: with the first raise gone this reads
+        "coverage is unavailable for 2 of 2 targets" instead.
+        """
+        from neoswga.core.exceptions import ModelEvaluationError
+        from neoswga.core.target_coverage import require_per_target
+
+        with pytest.raises(ModelEvaluationError) as excinfo:
+            require_per_target({}, None, ["A", "B"], 0.5)
+
+        assert "no target's coverage could be measured" in str(excinfo.value)
 
     def test_an_unmeasured_target_with_a_requested_floor_is_refused(self):
         from neoswga.core.exceptions import ModelEvaluationError

@@ -24,28 +24,39 @@ Wiring it to `optimize_step4`'s `target_coverage` was the alternative and is
 not taken here: at its 0.70 default that newly fails validation on most measured
 designs, which is a verdict change needing its own measurement.
 
-**The gap this leaves is real and is recorded rather than filled.** No
-configured panel limit is a minimum AGGREGATE foreground coverage. So after
-this there is still no way to say "refuse a panel below X coverage". Adding one
-is a separate decision, and this project does not pick a threshold without
-evidence -- no spacing threshold derived from the polymerase reach separates
-the 18 published sets with wet-lab outcomes, which is why every panel limit
-ships unset.
+**The gap this leaves is narrower than it was, and is recorded rather than
+filled.** No configured panel limit is read against the AGGREGATE foreground
+coverage (`fg_coverage`, `effective_fg_coverage`, `headline_coverage`), so
+there is no key that says "refuse a panel below X coverage" over several
+targets pooled. Adding one is a separate decision, and this project does not
+pick a threshold without evidence -- no spacing threshold derived from the
+polymerase reach separates the 18 published sets with wet-lab outcomes, which
+is why every panel limit ships unset.
 
 Narrowed on 2026-10-02, not loosened. `min_per_target_coverage` became an
 enforced limit in Phase 6c of the diversity plan, and it is a minimum coverage
--- per TARGET. It is a different quantity from the one retired here: it is read
-against `worst_target_coverage`, the minimum over the foreground targets, and
-it has a measured loss behind it
+-- per TARGET. It is read against `worst_target_coverage`, the record-confined
+minimum over the foreground targets, and it has a measured loss behind it
 (`docs/validation/2026-10-02-diversity-baseline.md` Q2 and Q3) rather than a
 threshold someone picked. It also ships unset, so it refuses nothing by
-default. The assertion below now names the gap precisely -- no limit is read
-against `fg_coverage` or `effective_fg_coverage` -- which is stronger than
-matching on the key's spelling, since the retired floor was spelled
-`min_coverage` and would have slipped past a name check.
+default.
+
+**On a SINGLE-TARGET design the two quantities coincide**, and the prose here
+used to deny it. With one foreground prefix `worst_target_coverage` equals that
+prefix's own coverage, which (absent record starts, so on every single-record
+reference) equals `fg_coverage`. So `min_per_target_coverage: 0.7` on a
+single-genome run IS the retired `min_coverage` floor at its old default, the
+one whose verdict change this file says needs its own measurement. The
+difference is that the user set it rather than the tool defaulting it, and the
+schema and the CLI help now say so. What remains genuinely absent is a floor on
+the POOLED figure of a multi-target design, which is what the assertion below
+tests: no limit reads an aggregate coverage field. That is asserted on the
+metrics field rather than the key's spelling, because the retired floor was
+spelled `min_coverage` and would have slipped past a name check.
 """
 
 import inspect
+import pathlib
 
 from neoswga.core.base_optimizer import OptimizationResult, OptimizationStatus
 from neoswga.core.panel_acceptance import LIMIT_KEYS
@@ -119,3 +130,18 @@ def test_the_only_minimum_coverage_limit_is_the_per_target_one():
     minimums = {key for key in LIMIT_KEYS if "coverage" in key and key.startswith("min_")}
 
     assert minimums == {"min_per_target_coverage"}
+
+
+def test_the_single_target_equivalence_is_documented_where_a_user_reads_it():
+    """The prose above used to deny this. On one target the per-target floor IS
+    a foreground coverage floor, and silence about that is what let the retired
+    verdict change back in without saying so."""
+    import json
+
+    schema = json.loads(
+        (pathlib.Path("neoswga") / "core" / "schema" / "params.schema.json").read_text()
+    )
+    description = schema["properties"]["min_per_target_coverage"]["description"].lower()
+
+    assert "single-target" in description
+    assert "foreground coverage" in description

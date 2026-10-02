@@ -71,15 +71,22 @@ what follows is only what the filenames do not tell you.
   2026-10-02 the same way and for the same reason as the two above: adding the
   per-target figure to `compute_metrics` would have pushed that module past its
   budget. `_coverage_over_prefixes` returns `.aggregate` by the same arithmetic
-  in the same order, so `fg_coverage` is unchanged; `_coverage_by_target` is the
-  same call keeping the dict as well, and `compute_pool_metrics` uses it too so
-  the two evaluators cannot disagree. The reach curve moved to
+  in the same order, so `fg_coverage` is unchanged. The reach curve moved to
   `coverage.coverage_curve` in the same commit to pay for the lines. It exists
   so a per-target floor can be enforced rather than only reported: see
-  `min_per_target_coverage` below. A target with no usable length is named in
-  `unmeasured` and left out of `per_target`, and `.worst` is `None` whenever
-  anything is unmeasured -- `compute_per_prefix_coverage` writes 0.0 there,
-  which is indistinguishable from a target a panel reaches nowhere in. It also
+  `min_per_target_coverage` below.
+
+  The loop is called with TWO geometries and that is the point of the module.
+  `_coverage_over_prefixes` supplies the unconfined fraction, which is
+  `fg_coverage`; `confined_coverage_by_target` supplies the record-confined one
+  through `coverage.confined_covered_bases`, which is what the per-target dict,
+  `worst_target_coverage` and the floor use, and what `evaluate-set` reports.
+  `compute_pool_metrics` calls both of the same two, so the full and the
+  focused evaluator cannot disagree about either figure. A target with no
+  usable length is named in `unmeasured` and left out of `per_target`, and
+  `.worst` is `None` whenever anything is unmeasured --
+  `compute_per_prefix_coverage` writes 0.0 there, which is indistinguishable
+  from a target a panel reaches nowhere in. It also
   holds `require_per_target`, which refuses a requested floor nothing measured,
   and `saturation_issues`, the warning for a target small enough that any panel
   covers it. Both moved out of `unified_optimizer` on the same day, which was
@@ -1220,33 +1227,132 @@ relatively.
   never the lowest of the targets that answered; `pool_objective._unmet` reads
   `None` as missing the limit, so a floor is refused rather than satisfied.
 
-  **One definition changed, and it is the per-target figure, not the
-  aggregate.** `coverage.compute_per_prefix_coverage`, the old source, confines
-  each window to the record holding the site; `coverage.union_coverage`, which
-  produces `fg_coverage`, deliberately does not and says why. The per-target
-  figure now follows the aggregate, because a limit read against a figure the
-  search cannot optimise is a limit against a different measurement. Measured
-  on a two-record 20 kb case with one site 500 bp from the join: 0.3000
-  unconfined against 0.1750 confined. The inflation is bounded by
-  records x 2 x reach over the length, which is 0.078 for a 1,870-record
-  143.7 Mb reference. No recorded figure in this repository moves: the prepared
-  wMel and *Drosophila* indexes store no record starts, so both routes agree
-  bit-for-bit there (measured, 6 primers, reach 3 kb).
+  **The figure is RECORD-CONFINED, and that reverses a first attempt within
+  the same step.** 6c initially took the per-target dict from the loop that
+  produces `fg_coverage`, because the plan said to expose it from there. That
+  loop is `coverage.union_coverage`, which does not confine a window to the
+  record holding its site; audit finding F3 of
+  [the 2026-09-14 coverage audit](../validation/additives_coverage_audit_2026-09-14/README.md)
+  records exactly that as a P1 error for target coverage on a fragmented or
+  multi-chromosome reference, the 2026-09-14 plan records the fix as done, and
+  `tests/test_coverage_windows_stop_at_record_edges.py` pins it. Measured on a
+  500-contig 2 Mb draft with one site 100 bp inside each contig end: **0.775
+  confined against 0.9996 unconfined**, so `min_per_target_coverage: 0.9` was a
+  FALSE PASS -- 449,100 bp credited across joins a polymerase cannot cross. The
+  plan's instruction is wrong for a figure a floor is compared against, and
+  correctness wins over reusing one loop.
+
+  So `per_target_coverage` and `worst_target_coverage` come from
+  `coverage.confined_covered_bases`, the marking half of
+  `compute_per_prefix_coverage` extracted so there is ONE implementation:
+  `optimize` and `evaluate-set` now report the same quantity under the same key
+  name, where before `optimize` could accept a panel at 0.9996 and
+  `evaluate-set` report 0.775 for the same panel and reference. On the real
+  1,870-record *Drosophila* index the two routes differed by +2.24 percent
+  relative.
+
+  `fg_coverage` is untouched and still unconfined (pinned bit-for-bit over 408
+  input shapes against `origin/main`), so on a fragmented reference it is NOT
+  the length-weighted mean of the per-target entries. Redefining the aggregate
+  would move every recorded figure and every selection stage at once, which is
+  a decision with its own measurement rather than a repair. The earlier claim
+  that the inflation is bounded by `records x 2 x reach / length` is withdrawn:
+  the bound holds but is vacuous where it matters, reading 1.5 on the
+  500-contig case, and `min(1, ...)` is the honest form.
+
+  **Cost of the confined figure**, a second bitmap and marking pass per
+  foreground prefix, linear in the sequence. One `compute_metrics` call,
+  interleaved against `origin/main` on the same machine: on the prepared
+  Wolbachia pool (one 1.27 Mb target) 35.1-35.8 ms before and 35.9-36.0 ms
+  after, about +0.4 ms; on a 145 Mb two-prefix foreground (wMel plus
+  *Drosophila* read as a target) 220-230 ms before and 263-264 ms after, about
+  **+40 ms or 18 percent**. It is paid on every objective evaluation rather
+  than once per run, and no extra position lookups are made. An interval form
+  clipping each window to its record would be O(sites) rather than O(length)
+  and is not built here: `coverage.merged_window_intervals` deliberately
+  refuses `record_starts` so a caller cannot change what it and
+  `union_coverage` report, and a third marking implementation is the failure
+  those docstrings warn about.
 
   `--min-per-target-coverage` previously carried an argparse default of 0.0 and
   now uses the `None` sentinel, so a configured value is not beaten on every
   run. It is also the only panel limit with a CLI flag, so
   `constraints_from_parameter` takes the run's flags and consults them before
   the params.json globals; without that the flag would print a per-target table
-  and not be repaired, while the same value in the file would be.
+  and not be repaired, while the same value in the file would be. And because
+  it steers the search, the flag must also move the run's IDENTITY: see
+  `design_request.cli_overrides` below.
 
-- `worst_target_coverage` on `PrimerSetMetrics`, `PoolMetrics` and in
-  `step4_improved_df_summary.json`: the MINIMUM over `per_target_coverage`, and
-  `null` when any target could not be measured. It is on `PoolMetrics` because
-  `PoolObjective.violations` reads it -- that module carries only the fields
-  something reads, and the objective's `getattr(metrics, metric, None)` default
-  would otherwise have made the floor unmeetable on every panel while reading
-  as a violated constraint.
+  **Setting it is a verdict change on a design that was passing.** A panel below
+  the floor used to carry a `per_target_coverage_below_threshold` warning and
+  `ok: true`; it is now a blocking violation with `qualified: false`, so
+  `export` refuses it without `--allow-unqualified`. That is the existing
+  contract for the other six panel limits, which this key has joined, and it is
+  the point of enforcing a floor -- but it is a compatibility note for anyone
+  already setting the key. The shape of the trade, measured on the packaged
+  plasmid example at reach 100 with a floor of 0.5, is coverage up and
+  specificity down: `fg_coverage` 0.3206 to 0.3783, `selectivity_density`
+  4.6884 to 2.6305, six primers both ways. **That is one panel on one example
+  and is not a recommendation**; the measurement that would support a default is
+  the deferred rerun of the Phase 3 designs.
+
+  **On a SINGLE-TARGET design this key is a minimum foreground coverage floor.**
+  With one prefix `worst_target_coverage` is that prefix's own coverage, which
+  equals `fg_coverage` on any single-record reference. That is the quantity
+  `tests/test_the_coverage_floor_had_no_reachable_setting.py` retired a default
+  for, and the schema, the CLI help and that file now say so. What stays absent
+  is a floor on the POOLED figure of a multi-target design.
+
+- `worst_target_coverage` on `PrimerSetMetrics`, `PoolMetrics`, in
+  `step4_improved_df_summary.json` and in the HTML report's per-target table:
+  the MINIMUM over `per_target_coverage`, and `null` / "not measured" when any
+  target could not be measured. Every one of those outputs says it is a minimum
+  over targets and what the absent case means, because a reduction over several
+  measurements reads as a property of the panel otherwise. It is on
+  `PoolMetrics` because `PoolObjective.violations` reads it -- that module
+  carries only the fields something reads, and the objective's
+  `getattr(metrics, metric, None)` default would otherwise have made the floor
+  unmeetable on every panel while reading as a violated constraint.
+
+  **What can make it unknown, exactly.** Through the pipeline only a
+  non-positive `fg_seq_lengths` entry: `_gather_sites` seeds every foreground
+  prefix, so `coverage_by_target`'s "no positions entry" branch cannot fire
+  from `compute_metrics`, and `base_optimizer.get_primer_positions` catches
+  bare `Exception` and returns an empty array, so an unindexed prefix or an
+  HDF5 failure arrives as 0.0 coverage rather than as unmeasured. That fails
+  safe for a floor -- 0.0 misses any positive one -- and it means the `None`
+  path guards a shape the module can produce rather than a common event. The
+  broad swallow is a separate, pre-existing defect in
+  `core/base_optimizer.py::get_primer_positions`; `compute_per_prefix_coverage`
+  is narrower, catching only `(KeyError, ValueError)` and saying why. Not
+  narrowed here, because that changes what every existing design does with a
+  damaged index.
+
+- `design_request.cli_overrides` and `_CLI_OVERLAY_KEYS`: the flags that name a
+  params.json key and carry `None` as their argparse default, overlaid onto the
+  params FILE before a request is resolved. Found on 2026-10-02 through
+  `min_per_target_coverage`, the first panel limit with a flag: it steered the
+  search while `resolve_design_request` read the file alone, so
+  `--min-per-target-coverage 0.5` and no flag at all recorded ONE
+  `request_hash` and delivered different primers with opposite qualification
+  verdicts, and `run_manifest.json` -- whose `resolved_params` is a verbatim
+  copy of the file -- named the limit nowhere. Nine other flags had the same
+  hole and are covered by the same list: `coverage_reach`, `polymerase`,
+  `optimization_method`, `coverage_metric`, `allow_dimer_relaxation`,
+  `refinement_method`, `seed` and the two swap budgets. `num_primers` stays out
+  because `effective_design_request` overlays the effective size afterwards and
+  must win; `data_dir` names a directory and `verbose` is not a design setting,
+  and `CLI_OVERLAY_EXCLUDED` records both reasons so the ratchet in
+  `tests/test_a_flag_that_changes_a_design_moves_its_identity.py` can tell a
+  considered exclusion from a forgotten flag. The manifest carries the
+  overrides in `extra.cli_overrides`, beside `effective_set_size`, rather than
+  changing what `resolved_params` means.
+
+  Still open, and pre-existing: `PoolConstraints.coverage_metric` is never set
+  by `constraints_from_parameter`, so a request records the default while
+  `objective_for_optimizer` applies the configured one. The overlay moves the
+  hash for `--coverage-metric` now, but the recorded constraint object still
+  does not name the metric in force.
 
 - `max_sets`: How many distinct primer sets to offer, best first (default: 5).
   Alternatives are found by excluding the primers already chosen and selecting
