@@ -644,9 +644,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         # Same reason, same place: `background_aggregate.
         # resolve_background_aggregate` is the one definition of what the key
         # accepts, and refusing here names a bad value before any index opens.
-        background_aggregate=_resolved_background_aggregate(
-            params.get("background_aggregate")
-        ),
+        background_aggregate=_resolved_background_aggregate(params.get("background_aggregate")),
         fixed_oligos=fixed,
         excluded_oligos=excluded,
         target_size=target_size,
