@@ -126,15 +126,16 @@ class PrimerSetMetrics:
 
     # Per-target coverage: fg_prefix -> coverage fraction, so a multi-genome run
     # surfaces "target A 95% / target B 40%" and not one aggregate. Produced by
-    # `compute_metrics` from the same loop as `fg_coverage` since 2026-10-02, so
-    # search, acceptance and the bounded repair all see it. A target whose
+    # `compute_metrics` since 2026-10-02 so search, acceptance and the bounded
+    # repair all see it. RECORD-CONFINED, the figure `evaluate-set` reports and
+    # not `fg_coverage`'s unconfined one: audit finding F3. A target whose
     # coverage could not be measured is ABSENT rather than 0.0.
     per_target_coverage: dict[str, float] = field(default_factory=dict)
 
     # The MINIMUM over `per_target_coverage`, which is what a per-target floor is
     # evaluated against. `None`, never 0.0, when any target went unmeasured or
     # there are no targets: a minimum over the members that answered reads as a
-    # worst case and is not one. `core/target_coverage.py` holds the rule.
+    # worst case and is not one. `core/target_coverage.py` holds both rules.
     worst_target_coverage: float | None = None
     effective_fg_sites: float = 0.0
     effective_bg_sites: float = 0.0
@@ -1172,17 +1173,17 @@ class BaseOptimizer(ABC):
         fg_positions = [pos for prefix in self.fg_prefixes for pos in fg_by_prefix[prefix]]
         bg_positions = [pos for prefix in self.bg_prefixes for pos in bg_by_prefix[prefix]]
 
-        # Coverage. One call, two figures: the length-weighted aggregate, which
-        # is unchanged, and each target's own fraction from the same loop. The
-        # per-target dict used to be filled in after the search, where nothing
-        # that selects or repairs a panel could read it.
-        fg_target_coverage = self._coverage_by_target(
+        # Coverage, two figures under two geometries, deliberately: the
+        # aggregate unconfined and unchanged, the per-target ones
+        # record-confined because a floor is compared against them and the
+        # unconfined reading credits bases on contigs no site is on (audit F3).
+        fg_coverage = self._coverage_over_prefixes(
             fg_fwd if directional else fg_by_prefix,
             self.fg_prefixes,
             self.fg_seq_lengths,
             reverse_by_prefix=fg_rev if directional else None,
         )
-        fg_coverage = fg_target_coverage.aggregate
+        fg_target_coverage = self._confined_coverage_by_target(fg_by_prefix)
         effective_fg_coverage = None
         if self.conditions is not None:
             effective_fg_coverage = (
@@ -1322,28 +1323,12 @@ class BaseOptimizer(ABC):
     ):
         """Coverage across several sequences, weighted by their lengths.
 
-        The aggregate half of `_coverage_by_target`, kept because this is the
-        name every caller of the scalar uses. The arithmetic moved to
-        `core/target_coverage.py` and did not change.
-        """
-        return self._coverage_by_target(
-            positions_by_prefix,
-            prefixes,
-            seq_lengths,
-            reach=reach,
-            reverse_by_prefix=reverse_by_prefix,
-        ).aggregate
-
-    def _coverage_by_target(
-        self, positions_by_prefix, prefixes, seq_lengths, reach=None, reverse_by_prefix=None
-    ):
-        """The same loop, keeping each sequence's own fraction as well.
-
-        Computing the two apart is how they came to be measured by different
-        code with different conventions. See `core/target_coverage.py`.
+        UNCONFINED, through `_union_coverage`: what `fg_coverage` has always
+        been, deliberately unchanged. The per-target figures are record-confined
+        and do not come from here; `core/target_coverage.py` says why.
         """
 
-        def fraction_for(positions, length, reverse):
+        def fraction_for(_prefix, positions, length, reverse):
             return (
                 self._compute_coverage(positions, length, reverse=reverse)
                 if reach is None
@@ -1356,6 +1341,21 @@ class BaseOptimizer(ABC):
             prefixes,
             seq_lengths,
             reverse_by_prefix=reverse_by_prefix,
+        ).aggregate
+
+    def _confined_coverage_by_target(self, positions_by_prefix):
+        """Each target's coverage, window-confined to its own record: the
+        quantity `min_per_target_coverage` is held to and `evaluate-set`
+        reports. See `target_coverage.confined_coverage_by_target`, audit F3."""
+        from .target_coverage import confined_coverage_by_target
+
+        return confined_coverage_by_target(
+            self.cache,
+            positions_by_prefix,
+            self.fg_prefixes,
+            self.fg_seq_lengths,
+            extension=self.config.extension_reach,
+            circular=getattr(self.config, "fg_circular", False),
         )
 
     def _coverage_by_reach_over_prefixes(self, positions_by_prefix, prefixes, seq_lengths):

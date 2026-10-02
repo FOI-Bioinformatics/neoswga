@@ -77,7 +77,6 @@ def compute_per_prefix_coverage(
         if length <= 0:
             per_prefix[prefix] = 0.0
             continue
-        occupied = np.zeros(length, dtype=bool)
         found: list[int] = []
         for primer in primers:
             try:
@@ -88,24 +87,73 @@ def compute_per_prefix_coverage(
                 # must surface rather than silently undercount coverage.
                 continue
             found.extend(int(pos) for pos in positions)
-        starts = _record_starts_for(cache, prefix)
 
-        # If the window diameter equals or exceeds the genome on a circular
-        # target, every position is covered by ANY SINGLE SITE -- which is why
-        # the premise has to be checked. Without `found`, an empty cache took
-        # this branch and reported 1.0 for a panel that binds nothing.
-        if circular and 2 * extension >= length and found:
-            occupied[:] = True
-        else:
-            for pos in found:
-                _mark_window(occupied, pos, extension, length, circular, record_starts=starts)
-        covered = int(occupied.sum())
+        covered = confined_covered_bases(
+            found,
+            length,
+            extension,
+            circular,
+            record_starts=_record_starts_for(cache, prefix),
+        )
         per_prefix[prefix] = covered / length if length else 0.0
         total_cov += covered
         total_len += length
 
     agg = total_cov / total_len if total_len else 0.0
     return agg, per_prefix
+
+
+def confined_covered_bases(
+    positions,
+    total_length: int,
+    extension: int,
+    circular: bool,
+    record_starts: Sequence[int] | None = None,
+) -> int:
+    """Bases a panel's sites reach, with each window confined to its own record.
+
+    The marking half of `compute_per_prefix_coverage`, extracted on 2026-10-02 so
+    `BaseOptimizer.compute_metrics` can produce the SAME per-target figure
+    `evaluate-set` reports without a second pass over the position cache. One
+    implementation, which is the point: `union_coverage`'s own docstring records
+    that three implementations of one quantity is how this codebase has produced
+    disagreeing coverage numbers before.
+
+    `record_starts` gives the offsets at which each FASTA record begins in the
+    concatenated sequence, including 0. With them the window stops at the record
+    holding the site, because a polymerase extending from a site near the end of
+    one contig does not continue into the next one, and the only reason it
+    appeared to was that concatenation left no boundary for the window to stop
+    at. That is audit finding F3 of
+    `docs/validation/additives_coverage_audit_2026-09-14/`, recorded there as a
+    P1 error for target coverage on fragmented or multi-chromosome references,
+    and `tests/test_coverage_windows_stop_at_record_edges.py` pins the fix.
+
+    `union_coverage` takes no `record_starts` and deliberately does not confine,
+    which is why `fg_coverage` and the per-target figures are now produced by
+    different functions rather than one loop. On a 500-contig 2 Mb draft with a
+    site 100 bp inside each contig end the two read 0.775 and 0.9996, so a
+    per-target floor compared against the unconfined figure passes a panel that
+    does not meet it.
+
+    Returns a base COUNT rather than a fraction so the caller that needs both a
+    per-prefix fraction and a pooled aggregate divides once, as before.
+    """
+    if total_length <= 0:
+        return 0
+    found = [int(pos) for pos in positions or ()]
+    occupied = np.zeros(total_length, dtype=bool)
+
+    # If the window diameter equals or exceeds the genome on a circular target,
+    # every position is covered by ANY SINGLE SITE -- which is why the premise
+    # has to be checked. Without `found`, an empty cache took this branch and
+    # reported 1.0 for a panel that binds nothing.
+    if circular and 2 * extension >= total_length and found:
+        occupied[:] = True
+    else:
+        for pos in found:
+            _mark_window(occupied, pos, extension, total_length, circular, record_starts)
+    return int(occupied.sum())
 
 
 def marginal_coverage_curve(

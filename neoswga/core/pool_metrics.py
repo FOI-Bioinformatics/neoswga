@@ -90,12 +90,14 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     fg_by_prefix = {p: sorted(v) for p, v in fg_by_prefix.items()}
     bg_by_prefix = {p: sorted(v) for p, v in bg_by_prefix.items()}
 
-    # One call for both figures, through the same loop `compute_metrics` uses,
-    # so the two evaluators cannot disagree about either of them.
-    target_coverage = optimizer._coverage_by_target(
+    # Both through the same helpers `compute_metrics` uses, so the two
+    # evaluators cannot disagree about either figure. They are two different
+    # geometries on purpose: the aggregate unconfined, the per-target ones
+    # confined to each record (audit F3). See `core/target_coverage.py`.
+    fg_coverage = optimizer._coverage_over_prefixes(
         fg_by_prefix, optimizer.fg_prefixes, optimizer.fg_seq_lengths
     )
-    fg_coverage = target_coverage.aggregate
+    target_coverage = optimizer._confined_coverage_by_target(fg_by_prefix)
 
     effective_fg_coverage = None
     if optimizer.conditions is not None:

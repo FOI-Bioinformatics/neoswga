@@ -19,24 +19,45 @@ five-strain foreground the worst strain stays 0.24 to 0.31 below the reference;
 Q3: a held-out strain loses 0.004 to 0.32, and supergroup membership does not
 predict which).
 
-Three conventions, each of which has cost this project a defect.
+Four conventions, each of which has cost this project a defect.
 
-**The aggregate is unchanged.** `aggregate` is the same length-weighted sum of
-covered bases over total bases `_coverage_over_prefixes` has always returned,
-computed by the same arithmetic in the same order, including the cases where it
-returned 0.0. `fg_coverage` is not redefined here; a figure is added beside it.
+**The per-target figure is RECORD-CONFINED, and the aggregate is not.** This
+reverses the first version of Phase 6c, which took the per-target dict from the
+loop that produces `fg_coverage` because the plan said to. That loop is
+`coverage.union_coverage`, which does not confine a window to the record holding
+its site, and audit finding F3 of
+`docs/validation/additives_coverage_audit_2026-09-14/` records exactly that as a
+P1 error for target coverage on a fragmented or multi-chromosome reference, fixed
+and pinned by `tests/test_coverage_windows_stop_at_record_edges.py`. On a
+500-contig 2 Mb draft with a site 100 bp inside each contig end the two figures
+read 0.775 confined and 0.9996 unconfined, so `min_per_target_coverage: 0.9`
+read against the unconfined figure passes a panel that does not meet it. A floor
+must be compared against the right quantity, so `confined_coverage_by_target`
+uses `coverage.confined_covered_bases` -- the same function
+`compute_per_prefix_coverage` uses, so `optimize` and `evaluate-set` report one
+number under one key name.
+
+**`fg_coverage` is untouched.** `_coverage_over_prefixes` still delegates here
+with the unconfined fraction, by the same arithmetic in the same order,
+including the cases where it returned 0.0. It is therefore NOT the
+length-weighted mean of `per_target_coverage` on a multi-record reference, and
+that is deliberate: redefining the aggregate would move every recorded figure
+and every selection stage at once, which is a decision with its own
+measurement, not a repair. The two differ only where a record join lies within
+one reach of a site.
 
 **An unmeasured target is absent, not zero.** A prefix with no usable length,
 or one the caller supplied no positions entry for, is named in `unmeasured` and
 left out of `per_target`. `compute_per_prefix_coverage` writes 0.0 for a
 zero-length prefix, which is indistinguishable from a target a panel reaches
-nowhere in.
+nowhere in. Through `compute_metrics` only the non-positive length can reach
+this, because `_gather_sites` seeds every prefix; see `require_per_target`.
 
 **A worst case over the members that answered is not a worst case.** `worst` is
 `None` whenever any target is unmeasured, and `None` whenever there are no
 targets at all. `pool_objective._unmet` treats `None` as missing its limit, so a
-limit resting on this figure is refused rather than satisfied. Same rule, for the
-same reason, as `reference_panel_evaluation._worst_coverage`.
+limit resting on this figure is refused rather than satisfied. Same rule, same
+reason AND now the same quantity as `reference_panel_evaluation._worst_coverage`.
 """
 
 from __future__ import annotations
@@ -46,10 +67,12 @@ from dataclasses import dataclass
 
 from .exceptions import ModelEvaluationError
 
-#: One prefix's coverage fraction from its positions, its length and its
-#: reverse-strand positions. `BaseOptimizer` supplies the reach and the geometry
-#: from its own config; this module supplies the loop and the bookkeeping.
-FractionFor = Callable[[Sequence[int], int, Sequence[int]], float]
+#: One prefix's coverage fraction from its name, its positions, its length and
+#: its reverse-strand positions. The prefix is passed because the confined
+#: geometry needs that prefix's record starts. `BaseOptimizer` supplies the
+#: reach and the geometry from its own config; this module supplies the loop and
+#: the bookkeeping.
+FractionFor = Callable[[str, Sequence[int], int, Sequence[int]], float]
 
 
 @dataclass(frozen=True)
@@ -114,6 +137,7 @@ def coverage_by_target(
             unmeasured.append(prefix)
             continue
         fraction = fraction_for(
+            prefix,
             positions_by_prefix[prefix],
             length,
             reverse.get(prefix, ()),
@@ -127,6 +151,44 @@ def coverage_by_target(
         # every target was unmeasured rather than that the panel covers nothing.
         return TargetCoverage(0.0, per_target, tuple(unmeasured))
     return TargetCoverage(covered / total, per_target, tuple(unmeasured))
+
+
+def confined_coverage_by_target(
+    cache,
+    positions_by_prefix: Mapping[str, Sequence[int]],
+    prefixes: Sequence[str],
+    seq_lengths: Sequence[int],
+    *,
+    extension: int,
+    circular: bool,
+) -> TargetCoverage:
+    """Each target's coverage, with every window confined to its own record.
+
+    The figure `min_per_target_coverage` is read against, and the one
+    `evaluate-set` reports: both go through `coverage.confined_covered_bases`.
+    It takes the positions the caller has ALREADY gathered, so it costs one
+    bitmap and one marking pass per target and no extra position lookups --
+    `cache` is consulted only for the record starts, through
+    `coverage._record_starts_for`, which raises rather than guessing when a
+    cache that has the getter fails.
+
+    `aggregate` here is the length-weighted mean of the confined fractions. It
+    is NOT `fg_coverage`, which stays unconfined; nothing reads it today and it
+    is returned only because `TargetCoverage` carries it.
+    """
+    from .coverage import _record_starts_for, confined_covered_bases
+
+    def fraction_for(prefix, positions, length, _reverse):
+        bases = confined_covered_bases(
+            positions,
+            length,
+            extension,
+            circular,
+            record_starts=_record_starts_for(cache, prefix),
+        )
+        return bases / length
+
+    return coverage_by_target(fraction_for, positions_by_prefix, prefixes, seq_lengths)
 
 
 def require_per_target(per_target, worst, fg_prefixes, floor) -> None:
