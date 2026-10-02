@@ -34,6 +34,11 @@ from .selectivity import (  # noqa: F401
     _selectivity_from_loads,
 )
 
+# Re-exported for the same reason and in the same shape: the per-prefix coverage
+# loop moved to `target_coverage` when adding the per-target figure here would
+# have pushed this module past its ceiling. Same objects, one implementation.
+from .target_coverage import TargetCoverage, coverage_by_target  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,10 +124,18 @@ class PrimerSetMetrics:
     # can be validated against the outcome data available here.
     primer_occupancy: dict[str, float] = field(default_factory=dict)
 
-    # Per-target coverage (Phase 11D). Maps fg_prefix -> coverage fraction
-    # so multi-genome runs can surface "target A 95% / target B 40%"
-    # instead of a single aggregate. Empty dict in single-genome mode.
+    # Per-target coverage: fg_prefix -> coverage fraction, so a multi-genome run
+    # surfaces "target A 95% / target B 40%" and not one aggregate. Produced by
+    # `compute_metrics` from the same loop as `fg_coverage` since 2026-10-02, so
+    # search, acceptance and the bounded repair all see it. A target whose
+    # coverage could not be measured is ABSENT rather than 0.0.
     per_target_coverage: dict[str, float] = field(default_factory=dict)
+
+    # The MINIMUM over `per_target_coverage`, which is what a per-target floor is
+    # evaluated against. `None`, never 0.0, when any target went unmeasured or
+    # there are no targets: a minimum over the members that answered reads as a
+    # worst case and is not one. `core/target_coverage.py` holds the rule.
+    worst_target_coverage: float | None = None
     effective_fg_sites: float = 0.0
     effective_bg_sites: float = 0.0
     # "occupancy" when conditions were applied, "exact" when the jellyfish
@@ -229,6 +242,8 @@ class PrimerSetMetrics:
             "strand_stats": {k: dict(v) for k, v in self.strand_stats.items()},
             "primer_occupancy": dict(self.primer_occupancy),
             "per_target_coverage": dict(self.per_target_coverage),
+            # The minimum over the dict above; null when a target went unmeasured.
+            "worst_target_coverage": self.worst_target_coverage,
             "extension_reach": self.extension_reach,
         }
 
@@ -1157,13 +1172,17 @@ class BaseOptimizer(ABC):
         fg_positions = [pos for prefix in self.fg_prefixes for pos in fg_by_prefix[prefix]]
         bg_positions = [pos for prefix in self.bg_prefixes for pos in bg_by_prefix[prefix]]
 
-        # Coverage
-        fg_coverage = self._coverage_over_prefixes(
+        # Coverage. One call, two figures: the length-weighted aggregate, which
+        # is unchanged, and each target's own fraction from the same loop. The
+        # per-target dict used to be filled in after the search, where nothing
+        # that selects or repairs a panel could read it.
+        fg_target_coverage = self._coverage_by_target(
             fg_fwd if directional else fg_by_prefix,
             self.fg_prefixes,
             self.fg_seq_lengths,
             reverse_by_prefix=fg_rev if directional else None,
         )
+        fg_coverage = fg_target_coverage.aggregate
         effective_fg_coverage = None
         if self.conditions is not None:
             effective_fg_coverage = (
@@ -1293,6 +1312,8 @@ class BaseOptimizer(ABC):
             strand_coverage_ratio=strand_cov_ratio,
             strand_stats=strand_stats,
             primer_occupancy=occupancy_by_primer,
+            per_target_coverage=dict(fg_target_coverage.per_target),
+            worst_target_coverage=fg_target_coverage.worst,
             extension_reach=self.config.extension_reach,
         )
 
@@ -1301,29 +1322,41 @@ class BaseOptimizer(ABC):
     ):
         """Coverage across several sequences, weighted by their lengths.
 
-        Each sequence is measured in its own coordinate space and the covered
-        BASES are summed, which is the only aggregate that means anything when
-        the parts are separate molecules. Equivalent to `_compute_coverage` when
-        there is one prefix, so single-target behaviour is unchanged.
+        The aggregate half of `_coverage_by_target`, kept because this is the
+        name every caller of the scalar uses. The arithmetic moved to
+        `core/target_coverage.py` and did not change.
         """
-        total = sum(int(length) for length in seq_lengths)
-        if total <= 0:
-            return 0.0
+        return self._coverage_by_target(
+            positions_by_prefix,
+            prefixes,
+            seq_lengths,
+            reach=reach,
+            reverse_by_prefix=reverse_by_prefix,
+        ).aggregate
 
-        covered = 0.0
-        for prefix, length in zip(prefixes, seq_lengths, strict=True):
-            length = int(length)
-            if length <= 0:
-                continue
-            positions = positions_by_prefix.get(prefix, [])
-            reverse = (reverse_by_prefix or {}).get(prefix, ())
-            fraction = (
+    def _coverage_by_target(
+        self, positions_by_prefix, prefixes, seq_lengths, reach=None, reverse_by_prefix=None
+    ):
+        """The same loop, keeping each sequence's own fraction as well.
+
+        Computing the two apart is how they came to be measured by different
+        code with different conventions. See `core/target_coverage.py`.
+        """
+
+        def fraction_for(positions, length, reverse):
+            return (
                 self._compute_coverage(positions, length, reverse=reverse)
                 if reach is None
                 else self._compute_coverage_at(positions, length, reach, reverse=reverse)
             )
-            covered += fraction * length
-        return covered / total
+
+        return coverage_by_target(
+            fraction_for,
+            positions_by_prefix,
+            prefixes,
+            seq_lengths,
+            reverse_by_prefix=reverse_by_prefix,
+        )
 
     def _coverage_by_reach_over_prefixes(self, positions_by_prefix, prefixes, seq_lengths):
         """`_compute_coverage_by_reach`, aggregated the same way."""
@@ -1340,17 +1373,11 @@ class BaseOptimizer(ABC):
         }
 
     def _compute_coverage(self, positions: list[int], total_length: int, reverse=()) -> float:
-        """Compute coverage fraction from positions.
+        """Union coverage at the selection reach `config.extension_reach`.
 
-        Uses ``config.extension_reach`` (per-primer reach in bp) to
-        determine how far each binding site extends along the genome.
-        Each binding site marks ``[pos - reach, pos + reach]`` occupied
-        and coverage is the union across all positions.
-
-        When ``config.fg_circular`` is True, the window wraps past the
-        sequence ends instead of being clipped. Delegates the per-site
-        marking to :func:`coverage._mark_window` so this implementation
-        stays in sync with :func:`coverage.compute_per_prefix_coverage`.
+        This supplies the reach and the geometry from the config; what a site
+        covers, what `fg_circular` changes and why the two geometries are not
+        interchangeable are documented on :func:`coverage.union_coverage`.
         """
         return _union_coverage(
             positions,
@@ -1362,31 +1389,22 @@ class BaseOptimizer(ABC):
         )
 
     def _compute_coverage_by_reach(self, positions, total_length: int) -> dict[int, float]:
-        """Raw coverage at each reporting reach, plus the one used for selection.
+        """The reach curve for one prefix; the semantics are on `coverage_curve`.
 
-        Coverage is meaningless without the reach it was computed at, and the
-        published tools do not share a convention: swga 2.0 reports at phi29's
-        ~70 kb processivity, NeoSWGA selects at the ~3 kb realistic per-primer
-        reach. The same set measures 0.418 at 3 kb and ~1.0 at 70 kb, so a bare
-        coverage figure cannot be compared to a published one in either
-        direction. Reporting the curve settles that without either convention
-        having to move.
-
-        The selection reach is always included even when it is not one of the
-        standard reporting points, so `fg_coverage` can always be located on
-        this curve rather than appearing to come from nowhere.
+        Moved there on 2026-10-02: this module was at its size ceiling and the
+        curve is arithmetic over `union_coverage` and `REPORTING_REACHES`, both
+        of which `coverage` already owns.
         """
-        from .coverage import REPORTING_REACHES
+        from .coverage import coverage_curve
 
-        if not positions or total_length == 0:
-            return {}
-
-        reaches = sorted(
-            set(REPORTING_REACHES) | {int(self.config.extension_reach), self._product_reach()}
+        return coverage_curve(
+            positions,
+            total_length,
+            selection_reach=self.config.extension_reach,
+            product_reach=self._product_reach(),
+            circular=getattr(self.config, "fg_circular", False),
+            geometry=getattr(self.config, "coverage_geometry", "symmetric"),
         )
-        return {
-            reach: self._compute_coverage_at(positions, total_length, reach) for reach in reaches
-        }
 
     def _product_reach(self) -> int:
         """Measured product reach for this run's polymerase; see coverage.product_reach."""

@@ -886,3 +886,40 @@ def union_coverage(
         # disagreeing about a contig edge instead of one.
         mark_span(occupied, low, high, total_length, circular)
     return float(occupied.sum()) / total_length
+
+
+def coverage_curve(
+    positions,
+    total_length: int,
+    *,
+    selection_reach: int,
+    product_reach: int,
+    circular: bool,
+    geometry: str = "symmetric",
+) -> dict[int, float]:
+    """Raw coverage at each reporting reach, plus the one used for selection.
+
+    Coverage is meaningless without the reach it was computed at, and the
+    published tools do not share a convention: swga 2.0 reports at phi29's
+    ~70 kb processivity, NeoSWGA selects at the ~3 kb realistic per-primer
+    reach. The same set measures 0.418 at 3 kb and ~1.0 at 70 kb, so a bare
+    coverage figure cannot be compared to a published one in either direction.
+    Reporting the curve settles that without either convention having to move.
+
+    The selection reach is always included even when it is not one of the
+    standard reporting points, so `fg_coverage` can always be located on this
+    curve rather than appearing to come from nowhere. The product reach is
+    included for the same reason: it is what `headline_coverage` is taken at.
+
+    Moved here from `base_optimizer._compute_coverage_by_reach` on 2026-10-02,
+    which was at its size ceiling; that method supplies the two reaches and the
+    geometry from its config and is otherwise unchanged.
+    """
+    if not positions or total_length == 0:
+        return {}
+
+    reaches = sorted(set(REPORTING_REACHES) | {int(selection_reach), int(product_reach)})
+    return {
+        reach: union_coverage(positions, total_length, reach, circular, geometry=geometry)
+        for reach in reaches
+    }
