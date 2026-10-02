@@ -72,6 +72,38 @@ other routes:
 Its sites and densities are then measured exactly and its coverage and gap
 figures are unavailable with the reason the Phase 2 function gives.
 
+THE HOST-SCALE ROUTE. `--host-scale-pass` is the one way a reference longer
+than `COUNTS_ONLY_ABOVE_BP` becomes a design background, and it is a separate
+stage rather than a relaxation of the rule above. Nothing about the default
+route changes: without this flag every check listed above still holds, and a
+host named only by `--hosts` or `--counts-only-hosts` is still refused as a
+background whatever its length.
+
+The route is deliberately awkward to enter, because entering it by accident is
+the failure the length rule was written for:
+
+  - `--host-scale-background KEY` must name the reference. Only a key named
+    there is admitted, it is admitted as a design background and nothing else
+    is relaxed, and `load_panel` records it in `host_scale_hosts` so the
+    results file says which reference was admitted and by which flag.
+  - `--host-scale-retention {all_qc,post_gini}` is required and has no default.
+    The retention mode decides how many candidates carry a background position
+    index, so on a host-scale reference it decides the memory peak; inheriting
+    it from the pipeline default is how this stage would run out of memory
+    without anyone having chosen anything. It enters `params_digest`, so a
+    directory built under one mode is not silently reused under the other.
+  - Naming a key to both `--counts-only-hosts` and `--host-scale-background`
+    is refused rather than resolved, since the two say opposite things.
+  - The watchdog runs at `--host-scale-rss-limit-gb` instead of the figure the
+    default route uses, and the designs run strictly largest background first,
+    so the pooled design's measured peak is known before the control starts.
+
+It plans two designs and no others: `H3` (the reference against every design
+host pooled, which is the D3 the host panel asks for) and `H1` (the reference
+against the host-scale reference alone, the control that says whether the
+pooled figure is decided by its largest member). They are appended to an
+existing results file; no design already recorded there is rebuilt or altered.
+
 THE COUNTS-ONLY PASS. `--counts-only-pass` adds those references to an existing
 results file: it reads `results.json`, measures every delivered set 0 and every
 C2 panel already recorded there against the counts-only hosts, and writes the
@@ -115,6 +147,15 @@ DEFAULT_WORKDIR = os.path.join("tests", "validation", "genomes", "diversity_base
 DEFAULT_HOSTS = ("lactobacillus", "drosophila")
 DEFAULT_SIZES = (6, 12, 24)
 GROUPS = ("D1", "D2", "C1", "C2", "D3")
+
+# The host-scale route's own groups. Kept out of GROUPS so that `--only` on the
+# default route accepts exactly what it accepted before, and so that no group
+# name reaches the host-scale designs except through `--host-scale-pass`.
+HOST_SCALE_GROUPS = ("H3", "H1")
+
+# The retention modes this stage will write. There is no default on purpose;
+# see THE HOST-SCALE ROUTE above.
+RETENTION_MODES = ("all_qc", "post_gini")
 
 K = 12
 
@@ -461,7 +502,7 @@ def sha256_of(path):
     return digest.hexdigest()
 
 
-def load_panel(manifest_path, host_keys, max_host_bp, counts_only_keys=()):
+def load_panel(manifest_path, host_keys, max_host_bp, counts_only_keys=(), host_scale_keys=()):
     """Targets and allowed hosts from the manifest, each verified by SHA-256.
 
     A host that is not named is not opened at all. A named host longer than
@@ -470,7 +511,23 @@ def load_panel(manifest_path, host_keys, max_host_bp, counts_only_keys=()):
     decides this, not the flag, so a host that large cannot reach a design
     background or a position scan. Among the rest, one longer than
     `max_host_bp` is refused.
+
+    `host_scale_keys` is the single exception, and it is an explicit one: a key
+    named there is admitted as a design host whatever its length, and is also
+    recorded in `host_scale_hosts` so that the results file says which
+    reference was admitted this way. Only `--host-scale-pass` passes it, and it
+    defaults to empty, so every other caller sees exactly the behaviour it saw
+    before. A key named both ways is refused rather than resolved.
     """
+    host_scale_keys = list(dict.fromkeys(host_scale_keys))
+    contradictory = sorted(set(host_scale_keys) & set(counts_only_keys))
+    if contradictory:
+        raise ValueError(
+            f"{contradictory} are named both as counts-only references and as "
+            f"host-scale design backgrounds. The first says the reference is "
+            f"measured by k-mer counts and enters no design; the second says it "
+            f"is a design background. Name each reference once."
+        )
     with open(manifest_path) as handle:
         manifest = json.load(handle)
     entries = {entry["key"]: entry for entry in manifest["panel"]}
@@ -487,11 +544,19 @@ def load_panel(manifest_path, host_keys, max_host_bp, counts_only_keys=()):
         )
     hosts = []
     counts_only = []
-    named = list(dict.fromkeys(list(host_keys) + list(counts_only_keys)))
+    host_scale = []
+    named = list(dict.fromkeys(list(host_keys) + list(counts_only_keys) + list(host_scale_keys)))
     for key in named:
         entry = entries.get(key)
         if entry is None or entry.get("role") != "host":
             raise ValueError(f"{key!r} is not a host in {manifest_path}.")
+        if key in host_scale_keys:
+            # The deliberate route. Its length is the point of the design, so
+            # neither the counts-only rule nor `max_host_bp` applies, and both
+            # are left in force for every key not named here.
+            host_scale.append(entry)
+            hosts.append(entry)
+            continue
         if int(entry["length"]) > COUNTS_ONLY_ABOVE_BP:
             # Whichever list named it. A reference this long is an evaluation
             # reference on the counts route and nothing else.
@@ -512,7 +577,7 @@ def load_panel(manifest_path, host_keys, max_host_bp, counts_only_keys=()):
     )
 
     panel = {}
-    for entry in targets + hosts + counts_only:
+    for entry in targets + hosts + counts_only:  # host_scale entries are in hosts
         path = entry["path"]
         if not os.path.isabs(path):
             path = os.path.join(REPO_ROOT, path)
@@ -533,6 +598,7 @@ def load_panel(manifest_path, host_keys, max_host_bp, counts_only_keys=()):
             "reference": bool(entry.get("reference", False)),
             "sha256": entry["sha256"],
             "counts_only": entry in counts_only,
+            "host_scale": entry in host_scale,
         }
     return {
         "genomes": panel,
@@ -542,6 +608,10 @@ def load_panel(manifest_path, host_keys, max_host_bp, counts_only_keys=()):
         # are planned from, and keeping these out of it is the guarantee that
         # no design takes one as a background.
         "counts_only_hosts": [e["key"] for e in counts_only],
+        # In "hosts" as well, and listed here so the record names the reference
+        # that was admitted at host scale and does not leave it looking like an
+        # ordinary small host.
+        "host_scale_hosts": [e["key"] for e in host_scale],
         "reference": references[0]["key"],
         "hosts_not_run": skipped,
     }
@@ -605,7 +675,44 @@ def plan_designs(panel, c1_host):
     return designs
 
 
-def design_params(design, panel, data_dir, cpus=None):
+def plan_host_scale_designs(panel, host_scale_key):
+    """The two designs of the host-scale route, largest background first.
+
+    H3 is the D3 the host panel asks for: the reference against every design
+    host pooled, the host-scale reference among them. H1 is the control that
+    says whether the pooled figure is decided by its largest member: the same
+    reference against the host-scale reference alone.
+
+    H3 is first because its background is a superset of H1's, so it is the
+    expensive one, and the route runs it first in order to measure a peak
+    before committing to the second.
+    """
+    reference = panel["reference"]
+    hosts = sorted(panel["hosts"], key=lambda key: panel["genomes"][key]["length"])
+    if host_scale_key not in hosts:
+        raise ValueError(f"{host_scale_key!r} is not a design host of this run")
+    designs = [
+        {
+            "id": f"H3__{reference}__vs__" + "+".join(hosts),
+            "group": "H3",
+            "fg": [reference],
+            "bg": list(hosts),
+            "held_out": None,
+            "c2": True,
+        },
+        {
+            "id": f"H1__{reference}__vs__{host_scale_key}",
+            "group": "H1",
+            "fg": [reference],
+            "bg": [host_scale_key],
+            "held_out": None,
+            "c2": True,
+        },
+    ]
+    return designs
+
+
+def design_params(design, panel, data_dir, cpus=None, retention=None):
     genomes = panel["genomes"]
     # The second check on the one fact. `plan_designs` cannot produce such a
     # design, so reaching this means a caller built one by hand; parameters
@@ -621,6 +728,14 @@ def design_params(design, panel, data_dir, cpus=None):
     params = dict(DESIGN_PARAMS)
     if cpus is not None:
         params["cpus"] = int(cpus)
+    if retention is not None:
+        # Written only on the host-scale route. Absent elsewhere, so the ten
+        # designs of the default route keep the pipeline default they ran
+        # under. It enters `params_digest`, which is what stops a directory
+        # built under one mode being reused under the other.
+        if retention not in RETENTION_MODES:
+            raise ValueError(f"candidate_retention must be one of {RETENTION_MODES}")
+        params["candidate_retention"] = retention
     params["data_dir"] = data_dir
     for side in ("fg", "bg"):
         keys = design[side]
@@ -715,11 +830,28 @@ def run_step(name, cmd, data_dir, state, limits, retry, complete, label, cpus=No
     return record
 
 
-def build_pool(design, panel, workdir, limits, retry, cpus, data_dir=None):
-    """Steps 1 to 3 for one design, in its own data directory."""
+def build_pool(
+    design,
+    panel,
+    workdir,
+    limits,
+    retry,
+    cpus,
+    data_dir=None,
+    retention=None,
+    reuse_tables_for=(),
+):
+    """Steps 1 to 3 for one design, in its own data directory.
+
+    `reuse_tables_for` names references whose `eval/` table is linked in rather
+    than counted again. Empty for the default route, so nothing it does changes.
+    """
     data_dir = data_dir or os.path.join(workdir, "pools", design["id"])
     os.makedirs(data_dir, exist_ok=True)
-    params = design_params(design, panel, data_dir, cpus)
+    params = design_params(design, panel, data_dir, cpus, retention)
+    linked = (
+        link_counted_tables(design, data_dir, workdir, reuse_tables_for) if reuse_tables_for else {}
+    )
     digest = params_digest(params)
     state = load_state(data_dir)
     if state.get("params_digest") not in (None, digest):
@@ -753,6 +885,8 @@ def build_pool(design, panel, workdir, limits, retry, cpus, data_dir=None):
         )
         steps[step] = record
         usable = record["status"] == STATUS_OK
+    if linked:
+        steps["count-kmers"] = dict(steps["count-kmers"], tables_linked=linked)
     return data_dir, params, steps, usable
 
 
@@ -880,16 +1014,132 @@ def eval_prefix(workdir, key):
     return os.path.join(workdir, "eval", key)
 
 
+def assert_pool_is_indexed(design, data_dir, panel, pool, keys):
+    """Every primer of the pool has an entry in each host-scale index.
+
+    The C2 panels are drawn from `step3_df.csv`, and a primer of that pool with
+    no entry in the host-scale index would make its reference unavailable --
+    the honest answer, but it would void the control rather than measure it.
+    Under `candidate_retention='post_gini'` the shortlist is drawn from the
+    post-Gini candidates, which are the ones indexed, so every primer should
+    have an entry. That is the reasoning; this is the measurement.
+
+    An entry that is EMPTY is fine and is kept distinct from an absent one: it
+    says the primer was scanned and binds nowhere, which is a result. Only
+    absence is the failure.
+
+    Returns one record per host-scale reference, for the results file.
+    """
+    from neoswga.core.position_index import open_index
+
+    records = {}
+    for key in keys:
+        if key not in set(design["fg"]) | set(design["bg"]):
+            continue
+        path = os.path.join(data_dir, f"{key}_{K}mer_positions.h5")
+        if not os.path.exists(path):
+            raise ValueError(
+                f"{path!r} does not exist, so the C2 panels for {design['id']!r} "
+                f"cannot be measured against {key} without a scan."
+            )
+        absent = []
+        empty = 0
+        with open_index(path) as index:
+            for primer in pool:
+                positions = index.get(primer)
+                if positions is None:
+                    absent.append(primer)
+                elif len(positions) == 0:
+                    empty += 1
+        if absent:
+            raise ValueError(
+                f"{len(absent)} of {len(pool)} step-3 primers have NO entry in "
+                f"{os.path.basename(path)} (first: {absent[:3]}). Their sites on "
+                f"{key} are unknown, not zero, and measuring the C2 panels would "
+                f"need a scan of a {panel['genomes'][key]['length']:,} bp "
+                f"reference. The pool and the index disagree; do not work around "
+                f"this by scanning."
+            )
+        records[key] = {
+            "pool_primers": len(pool),
+            "with_an_entry": len(pool),
+            "entries_that_are_empty": empty,
+            "note": (
+                "An empty entry is a measurement (scanned, binds nowhere); only an "
+                "absent one would be unknown. None were absent."
+            ),
+        }
+    return records
+
+
+def link_counted_tables(design, data_dir, workdir, keys):
+    """Link a table already counted under `eval/` into a design directory.
+
+    Counting a 3.3 Gb reference is the largest step of this stage and the
+    `eval/` prefix already holds that table, counted from the same file. This
+    links it, with its provenance record, to the design's prefix so that
+    `count-kmers` finds a current table and does not count it again.
+
+    The provenance record is LINKED, not written: nothing here says anything
+    about which genome a table came from. `kmer_counter._table_is_current` then
+    makes its own check, comparing the record's SHA-256 against the genome the
+    design actually names, and recounts if they differ. So this can make a
+    recount unnecessary and cannot make a wrong table look right.
+
+    Returns one record per key saying what was linked, for the results file.
+    """
+    from neoswga.core import kmer_tables
+    from neoswga.core.kmer_counter import table_provenance_path
+
+    records = {}
+    for key in keys:
+        if key not in set(design["fg"]) | set(design["bg"]):
+            continue
+        source = eval_prefix(workdir, key)
+        destination = os.path.join(data_dir, key)
+        if not kmer_tables.table_exists(source, K):
+            records[key] = "no table under eval/; the design counts it"
+            continue
+        if kmer_tables.table_exists(destination, K):
+            records[key] = "a table was already in the design directory"
+            continue
+        linked = kmer_tables.link_table(source, destination, K)
+        sidecar = table_provenance_path(source, K)
+        sidecar_linked = False
+        if os.path.exists(sidecar):
+            target = table_provenance_path(destination, K)
+            if not os.path.exists(target):
+                os.symlink(sidecar, target)
+                sidecar_linked = True
+        records[key] = (
+            f"linked from {os.path.relpath(source, REPO_ROOT)} "
+            f"(table={linked}, provenance={sidecar_linked})"
+        )
+    return records
+
+
 def build_eval_tables(panel, workdir, limits, retry):
     """K-mer tables for every reference under `eval/`, by one `count-kmers`.
 
     These prefixes hold a table and no position index. A reference outside a
     design is read through them: positions by scanning, the weighted load from
     the table.
+
+    A host-scale reference is left out of this step, exactly as a counts-only
+    one is. Its `eval/` table is built by `build_counts_only_table`, in its own
+    data directory and for the reason given there, and naming it here would
+    change this directory's parameter digest -- which is the digest the ten
+    designs of the default route were built under, so the directory would be
+    refused rather than reused. The table it needs is already on the prefix.
     """
     data_dir = os.path.join(workdir, "eval")
     os.makedirs(data_dir, exist_ok=True)
-    design = {"id": "eval_tables", "fg": panel["targets"], "bg": panel["hosts"]}
+    host_scale = set(panel.get("host_scale_hosts", ()))
+    design = {
+        "id": "eval_tables",
+        "fg": panel["targets"],
+        "bg": [key for key in panel["hosts"] if key not in host_scale],
+    }
     params = design_params(design, panel, data_dir)
     params.pop("genome_gc", None)
     digest = params_digest(params)
@@ -1020,9 +1270,18 @@ def reference_plan(design, data_dir, panel, workdir, offdesign_host_scan, keys=N
     A counts-only reference takes the counts route whatever that flag says, and
     is refused outright if it somehow reached a design. `keys` narrows the plan
     to those references; it does not change any reference's route.
+
+    A HOST-SCALE reference never gets `scan=True`, in or out of a design. In a
+    design its positions come from the index the design built and from nothing
+    else: `reference_panel_evaluation` reports a reference whose oligo is absent
+    from the index as unavailable, with that as the reason, when it may not
+    scan, and an hg38 scan from an evaluation or a C2 child is exactly what
+    must not happen. Out of a design it takes the counts route, as a
+    counts-only reference does.
     """
     in_design = set(design["fg"]) | set(design["bg"])
     counts_only = set(panel.get("counts_only_hosts", ()))
+    host_scale = set(panel.get("host_scale_hosts", ()))
     wanted = panel["targets"] + panel["hosts"] + list(panel.get("counts_only_hosts", ()))
     if keys is not None:
         unknown = [key for key in keys if key not in wanted]
@@ -1055,9 +1314,25 @@ def reference_plan(design, data_dir, panel, workdir, offdesign_host_scan, keys=N
                     f"read positions from it whatever `scan` says, which is the "
                     f"route this reference is too large for."
                 )
+        elif key in host_scale:
+            # Not `and not offdesign_host_scan`, and not conditional on being
+            # in the design: no flag reaches this either. Holding a 3.3 Gb
+            # reference to answer one oligo is the cost this stage is built to
+            # avoid, and an evaluation that silently paid it would read as a
+            # measurement.
+            scan = False
+            if not inside and _position_index_exists(eval_prefix(workdir, key)):
+                raise ValueError(
+                    f"{eval_prefix(workdir, key)!r} has a position index. A "
+                    f"host-scale reference outside the design must have none: the "
+                    f"evaluation reads positions whenever an index exists for the "
+                    f"prefix, whatever `scan` says."
+                )
         elif not inside and role == "host" and not offdesign_host_scan:
             scan = False
-        if inside:
+        if inside and key in host_scale:
+            route = "design index only; unavailable if an oligo is absent, never scanned"
+        elif inside:
             route = "design index, scan for anything absent"
         elif scan:
             route = "scan of the FASTA"
@@ -1484,8 +1759,7 @@ def counts_route_check(args, panel, workdir, limits, output):
     sized = [s for s in entry["sizes"] if s["requested_size"] == args.counts_route_check_size]
     if not sized or not sized[0].get("evaluation"):
         raise ValueError(
-            f"{entry['id']} has no evaluated set at requested size "
-            f"{args.counts_route_check_size}"
+            f"{entry['id']} has no evaluated set at requested size {args.counts_route_check_size}"
         )
     sized = sized[0]
     recorded = sized["evaluation"]["per_host"].get(host)
@@ -1649,8 +1923,7 @@ def run_counts_only_pass(args, panel, workdir, limits, output):
             write()
             if block["tables"][key]["status"] != STATUS_OK:
                 raise RunHalted(
-                    f"the {key} table could not be counted; see "
-                    f"{block['tables'][key].get('log')}"
+                    f"the {key} table could not be counted; see {block['tables'][key].get('log')}"
                 )
         if args.counts_only_tables_only:
             write()
@@ -1867,6 +2140,480 @@ def run_cpus_check(args, panel, workdir, limits, c1_host):
     return 0
 
 
+def run_retention_control(args, panel, workdir, limits, output, c1_host):
+    """Rebuild one recorded design under another retention mode and compare.
+
+    The host-scale designs run under `post_gini` because `all_qc` does not fit
+    in memory against a 3.3 Gb reference. That raises a question the host-scale
+    designs cannot answer about themselves: does the retention mode move the
+    delivered panel? This answers it on a design where both modes are
+    affordable, by building the same design again in its own directory under
+    the other mode and comparing the delivered primer lists size by size.
+
+    It touches no recorded design: the rebuild has its own data directory, and
+    the comparison is written under its own key.
+    """
+    mode = args.retention_control_mode
+    if mode is None:
+        raise ValueError("--retention-control needs --retention-control-mode")
+    matches = [d for d in plan_designs(panel, c1_host) if d["id"] == args.retention_control]
+    if not matches:
+        raise ValueError(f"--retention-control: no design has the id {args.retention_control!r}")
+    design = matches[0]
+    results = load_results(output)
+    recorded = next((e for e in results["designs"] if e["id"] == design["id"]), None)
+    if recorded is None:
+        raise ValueError(
+            f"{design['id']!r} has no record in {output}; there is nothing to compare with."
+        )
+
+    data_dir = os.path.join(workdir, f"pools_retention_{mode}", design["id"])
+    os.makedirs(os.path.dirname(data_dir), exist_ok=True)
+    sizes = [int(size) for size in args.sizes.split(",")]
+
+    def write():
+        results["written"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        with open(output + ".tmp", "w") as handle:
+            json.dump(results, handle, indent=2)
+            handle.write("\n")
+        os.replace(output + ".tmp", output)
+
+    block = {
+        "design": design["id"],
+        "retention_compared": mode,
+        "retention_recorded": recorded.get("candidate_retention") or "all_qc (the default)",
+        "data_dir": os.path.relpath(data_dir, REPO_ROOT),
+        "why": (
+            "The host-scale designs run under post_gini on memory grounds. This "
+            "says whether that choice moves the delivered panel, measured where "
+            "both modes are affordable."
+        ),
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "sizes": [],
+    }
+    results["retention_control"] = block
+    write()
+
+    try:
+        _, params, steps, usable = build_pool(
+            design, panel, workdir, limits, args.retry, DESIGN_PARAMS["cpus"], data_dir, mode
+        )
+        block["steps"] = steps
+        block["step2_candidates"] = csv_rows(os.path.join(data_dir, "step2_df.csv"))
+        block["step3_candidates"] = csv_rows(os.path.join(data_dir, "step3_df.csv"))
+        write()
+        if not usable:
+            block["outcome"] = "the candidate pool was not built; see steps"
+            write()
+            return EXIT_HALTED
+        state = load_state(data_dir)
+        for size in sizes:
+            sized = run_optimize(design, data_dir, params, size, state, limits, args.retry)
+            was = next(
+                (s for s in recorded["sizes"] if s["requested_size"] == size),
+                None,
+            )
+            row = {
+                "requested_size": size,
+                "outcome": sized["outcome"],
+                "delivered_size": sized.get("delivered_size"),
+                "recorded_outcome": was.get("outcome") if was else None,
+                "recorded_delivered_size": was.get("delivered_size") if was else None,
+            }
+            if sized["outcome"] == "delivered" and was and was.get("outcome") == "delivered":
+                here = list(sized["delivered_primers"])
+                there = list(was["delivered_primers"])
+                row["identical_as_a_list"] = here == there
+                row["identical_as_a_set"] = sorted(here) == sorted(there)
+                row["shared_primers"] = len(set(here) & set(there))
+                row["only_under_" + mode] = sorted(set(here) - set(there))
+                row["only_in_the_record"] = sorted(set(there) - set(here))
+            else:
+                row["identical_as_a_list"] = None
+                row["comparison_unavailable"] = (
+                    "one of the two did not deliver a set, so the panels cannot be compared"
+                )
+            block["sizes"].append(row)
+            write()
+    except RunHalted as halted:
+        block["halted"] = str(halted)
+        write()
+        print(f"HALTED: {halted}", flush=True)
+        return EXIT_HALTED
+
+    for row in block["sizes"]:
+        if row["identical_as_a_list"] is None:
+            print(f"  n={row['requested_size']}: {row['comparison_unavailable']}")
+        else:
+            verdict = "IDENTICAL" if row["identical_as_a_list"] else "DIFFERENT"
+            print(
+                f"  n={row['requested_size']}: {verdict} "
+                f"({row['shared_primers']} of {row['delivered_size']} shared)"
+            )
+    print(f"Wrote {os.path.relpath(output, REPO_ROOT)}")
+    return 0
+
+
+def run_host_scale_pass(args, panel, workdir, limits, output):
+    """The host-scale designs, appended to an existing results file.
+
+    Runs H3 and then H1, strictly in that order and strictly one at a time,
+    under the host-scale watchdog limits rather than the default route's. H1 is
+    not started if H3 did not finish inside those limits: the control is only
+    worth its cost once the design it controls for exists, and a peak that
+    reached the ceiling once will reach it again.
+
+    Nothing already in the results file is rebuilt. A design whose id is
+    already recorded is refused unless `--retry`, so a second invocation does
+    not quietly produce two records for one design.
+    """
+    retention = args.host_scale_retention
+    keys = panel["host_scale_hosts"]
+    if not keys:
+        raise ValueError(
+            "--host-scale-pass needs --host-scale-background to name the reference "
+            "admitted as a design background. Nothing is admitted by default."
+        )
+    if len(keys) != 1:
+        raise ValueError(
+            f"--host-scale-background names {keys}. This stage plans one pooled design "
+            f"and one control, so it takes exactly one host-scale reference."
+        )
+    if retention is None:
+        raise ValueError(
+            "--host-scale-retention is required on this route and has no default. "
+            "It decides how many candidates carry a background position index, "
+            "which on a host-scale reference decides the memory peak."
+        )
+    results = load_results(output)
+    if not results.get("designs"):
+        raise ValueError(
+            f"{output} holds no design. The host-scale designs are appended to the "
+            f"results of a default run; run that first."
+        )
+
+    designs = plan_host_scale_designs(panel, keys[0])
+    if args.match:
+        designs = [d for d in designs if args.match in d["id"]]
+    recorded = {entry["id"] for entry in results["designs"]}
+    clash = [d["id"] for d in designs if d["id"] in recorded]
+    if clash and not args.retry:
+        raise ValueError(
+            f"{clash} already have a record in {output}. Pass --retry to re-run them, "
+            f"or --match to select the other."
+        )
+    results["designs"] = [
+        e for e in results["designs"] if e["id"] not in {d["id"] for d in designs}
+    ]
+
+    sizes = [int(size) for size in args.sizes.split(",")]
+    block = {
+        "flag": "--host-scale-pass",
+        "host_scale_hosts": keys,
+        "candidate_retention": retention,
+        "retention_note": (
+            "Chosen from the measured estimate, not inherited. The pipeline default "
+            "is all_qc; what is recorded here is what these designs ran under."
+        ),
+        "index_size_estimate": args.host_scale_estimate,
+        "limits": dict(limits),
+        "above_bp": COUNTS_ONLY_ABOVE_BP,
+        "order": [d["id"] for d in designs],
+        "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "stopped_before": None,
+    }
+    results["host_scale"] = block
+    results["host_scale_hosts"] = keys
+
+    def write():
+        results["written"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        results["free_percent_at_write"] = free_percent()
+        with open(output + ".tmp", "w") as handle:
+            json.dump(results, handle, indent=2)
+            handle.write("\n")
+        os.replace(output + ".tmp", output)
+
+    write()
+    try:
+        results["eval_tables"] = build_eval_tables(panel, workdir, limits, args.retry)
+        write()
+        if results["eval_tables"]["status"] != STATUS_OK:
+            raise RunHalted("the evaluation tables could not be counted; see eval/logs")
+
+        built = []
+        for design in designs:
+            entry, data_dir, usable = run_one_design(
+                design,
+                panel,
+                workdir,
+                limits,
+                args,
+                sizes,
+                results,
+                write,
+                retention=retention,
+                # Only the host-scale reference. The small hosts cost seconds
+                # to count and are left alone, so this changes one step.
+                reuse_tables_for=keys,
+            )
+            if not usable:
+                # The expensive design did not produce a pool. Its step records
+                # carry the peak and the reason; the control is not started,
+                # because it would cost the same and answer nothing on its own.
+                block["stopped_before"] = (
+                    f"{design['id']} did not build a candidate pool; the designs after "
+                    f"it were not started"
+                )
+                write()
+                break
+            built.append((design, entry, data_dir))
+
+        for design, entry, data_dir in built:
+            if design["c2"]:
+                run_c2_for_design(
+                    design,
+                    entry,
+                    data_dir,
+                    panel,
+                    workdir,
+                    limits,
+                    args,
+                    write,
+                    assert_indexed_for=keys,
+                )
+    except RunHalted as halted:
+        results["halted"] = str(halted)
+        write()
+        print(f"HALTED: {halted}", flush=True)
+        print(f"Wrote {os.path.relpath(output, REPO_ROOT)}")
+        return EXIT_HALTED
+
+    write()
+    print(f"\nWrote {os.path.relpath(output, REPO_ROOT)}")
+    return 0
+
+
+def describe_host_scale_plan(args, panel, workdir, limits):
+    """Print the plan and the limits of the host-scale route and measure nothing.
+
+    What this prints is what `--host-scale-pass` would run: the designs in the
+    order they would run in, each design's genomes and lengths, the retention
+    mode, and the watchdog figures. It starts no step, so it is the way to read
+    a route's cost before paying it.
+    """
+    keys = panel["host_scale_hosts"]
+    print("host-scale route, dry run. Nothing is counted, filtered or optimized.")
+    print(f"  host-scale reference(s): {keys or 'NONE NAMED'}")
+    print(f"  candidate_retention:     {args.host_scale_retention or 'NOT SET (required)'}")
+    print(f"  index size estimate:     {args.host_scale_estimate or 'not stated'}")
+    print("  watchdog:")
+    print(f"    stop the child at        {limits['rss_limit_bytes'] / 2**30:.2f} GiB tree RSS")
+    print(f"    halt the run above       {limits['halt_peak_bytes'] / 2**30:.2f} GiB peak")
+    print(f"    stop below               {limits['stop_free_percent']}% system free")
+    print(f"    do not start below       {limits['start_free_percent']}% system free")
+    print(f"    refuse below             {limits['min_free_disk_bytes'] / 2**30:.2f} GiB free disk")
+    if not keys:
+        print("\nNo design is planned: --host-scale-background named nothing.")
+        return 0
+    designs = plan_host_scale_designs(panel, keys[0])
+    print(f"\n  {len(designs)} design(s), in this order:")
+    for design in designs:
+        print(f"    {design['id']}  [{design['group']}] {design_label(design)}")
+        for side in ("fg", "bg"):
+            for key in design[side]:
+                genome = panel["genomes"][key]
+                print(
+                    f"      {side}: {key} {genome['length']:,} bp, "
+                    f"{genome['records']} record(s)"
+                    + (" (host scale)" if genome.get("host_scale") else "")
+                )
+        references = reference_plan(design, "<data_dir>", panel, workdir, True)
+        for ref in references:
+            print(f"      evaluate {ref['key']}: {ref['route']}")
+        scanned = [r["key"] for r in references if r["scan"] and r["key"] in keys]
+        print(
+            f"      host-scale reference scanned by an evaluation or a C2 child: "
+            f"{scanned or 'NEVER'}"
+        )
+        print("      C2: every step-3 primer is asserted to have an index entry first")
+    return 0
+
+
+def design_label(design):
+    """What the record calls this design, beyond its group."""
+    if design["group"] == "D3":
+        return "preliminary D3: the small hosts only, not the full host panel"
+    if design["group"] == "H3":
+        return "D3 over the full host panel, the host-scale reference included"
+    if design["group"] == "H1":
+        return "control: the reference against the host-scale reference alone"
+    return design["group"]
+
+
+def run_one_design(
+    design,
+    panel,
+    workdir,
+    limits,
+    args,
+    sizes,
+    results,
+    write,
+    pool_cpus=None,
+    retention=None,
+    reuse_tables_for=(),
+):
+    """Steps 1 to 4 and the set-0 evaluation for one design.
+
+    Extracted from `run` so the host-scale route runs the same code rather than
+    a copy of it. The default route passes neither `pool_cpus` nor `retention`
+    and so behaves exactly as before.
+
+    Returns `(entry, data_dir, usable)`. The entry is already appended to
+    `results["designs"]` and written.
+    """
+    print(f"{design['id']}", flush=True)
+    entry = {
+        "id": design["id"],
+        "group": design["group"],
+        "label": design_label(design),
+        "fg": design["fg"],
+        "bg": design["bg"],
+        "held_out": design["held_out"],
+        "sizes": [],
+    }
+    if retention is not None:
+        entry["candidate_retention"] = retention
+    results["designs"].append(entry)
+    if pool_cpus is None:
+        pooled = len(design["fg"]) > 1
+        pool_cpus = args.pooled_cpus if pooled and args.pooled_cpus else DESIGN_PARAMS["cpus"]
+    data_dir, params, steps, usable = build_pool(
+        design,
+        panel,
+        workdir,
+        limits,
+        args.retry,
+        pool_cpus,
+        retention=retention,
+        reuse_tables_for=reuse_tables_for,
+    )
+    entry["cpus"] = {
+        "pool_steps_requested": pool_cpus,
+        "pool_steps_ran_under": {name: rec.get("cpus") for name, rec in steps.items()},
+        "optimize": DESIGN_PARAMS["cpus"],
+    }
+    entry["data_dir"] = os.path.relpath(data_dir, REPO_ROOT)
+    entry["steps"] = steps
+    entry["genome_gc_given"] = params.get("genome_gc")
+    entry["step2_candidates"] = csv_rows(os.path.join(data_dir, "step2_df.csv"))
+    entry["step3_candidates"] = csv_rows(os.path.join(data_dir, "step3_df.csv"))
+    write()
+    if not usable:
+        entry["outcome"] = "the candidate pool was not built; see steps"
+        return entry, data_dir, False
+    if design["fg"] == [panel["reference"]] and design["bg"] == ["drosophila"]:
+        entry["example_pool_comparison"] = compare_with_example_pool(data_dir)
+
+    state = load_state(data_dir)
+    references = reference_plan(design, data_dir, panel, workdir, True)
+    entry["references"] = [
+        {k: ref[k] for k in ("key", "role", "in_design", "held_out", "route")} for ref in references
+    ]
+    if getattr(args, "host_scale_pool_only", False):
+        entry["outcome"] = "pool built; stopped before optimize by --host-scale-pool-only"
+        write()
+        return entry, data_dir, True
+    for size in sizes:
+        sized = run_optimize(design, data_dir, params, size, state, limits, args.retry)
+        entry["sizes"].append(sized)
+        write()
+        if sized["outcome"] != "delivered":
+            sized["evaluation"] = None
+            sized["evaluation_unavailable"] = f"no delivered set: {sized['outcome']}"
+            continue
+        set_dir = os.path.join(REPO_ROOT, sized["set_dir"])
+        record, out = evaluate_panels(
+            [{"label": "set_0", "primers": sized["delivered_primers"]}],
+            [{k: v for k, v in ref.items() if k != "route"} for ref in references],
+            True,
+            os.path.join(set_dir, "evaluation.json"),
+            os.path.join(data_dir, "logs", f"evaluate_n{size:02d}.log"),
+            limits,
+            f"{design['id']} n={size}",
+        )
+        sized["evaluation_step"] = record
+        if out is None:
+            sized["evaluation"] = None
+            sized["evaluation_unavailable"] = (
+                f"the evaluation child ended with status {record['status']}; "
+                f"see {record.get('log')}"
+            )
+        else:
+            sized["evaluation_seconds"] = out["panels"][0]["seconds"]
+            sized["evaluation"] = by_key(out["panels"][0]["assessment"], references)
+        write()
+    return entry, data_dir, True
+
+
+def run_c2_for_design(
+    design, entry, data_dir, panel, workdir, limits, args, write, assert_indexed_for=()
+):
+    """The C2 random control panels for one design, drawn from its own pool.
+
+    Extracted from `run` alongside `run_one_design`. `assert_indexed_for` is
+    empty on the default route, so nothing it does changes there.
+    """
+    pool = candidate_pool(data_dir)
+    if assert_indexed_for:
+        entry["pool_indexed"] = assert_pool_is_indexed(
+            design, data_dir, panel, pool, assert_indexed_for
+        )
+        write()
+    references = reference_plan(design, data_dir, panel, workdir, args.c2_scan_offdesign_hosts)
+    for sized in entry["sizes"]:
+        if sized["outcome"] != "delivered":
+            sized["c2"] = None
+            sized["c2_unavailable"] = "no delivered set to match in size"
+            continue
+        size = sized["delivered_size"]
+        set_dir = os.path.join(REPO_ROOT, sized["set_dir"])
+        record, out = evaluate_panels(
+            random_panels(pool, size, args.seeds),
+            [{k: v for k, v in ref.items() if k != "route"} for ref in references],
+            True,
+            os.path.join(set_dir, "c2_evaluation.json"),
+            os.path.join(data_dir, "logs", f"c2_n{sized['requested_size']:02d}.log"),
+            limits,
+            f"{design['id']} C2 at delivered size {size}",
+        )
+        c2 = {
+            "panel_size": size,
+            "seeds": args.seeds,
+            "pool_candidates": len(pool),
+            "step": record,
+            "references": [
+                {k: ref[k] for k in ("key", "role", "in_design", "route")} for ref in references
+            ],
+            "raw": os.path.relpath(os.path.join(set_dir, "c2_evaluation.json"), REPO_ROOT),
+        }
+        if out is None:
+            c2["panels"] = None
+            c2["summary"] = None
+            c2["unavailable"] = f"the evaluation child ended with status {record['status']}"
+        else:
+            evaluations = [
+                by_key(panel_out["assessment"], references) for panel_out in out["panels"]
+            ]
+            c2["panels"] = [
+                dict(headline(evaluation), label=panel_out["label"])
+                for evaluation, panel_out in zip(evaluations, out["panels"], strict=True)
+            ]
+            c2["summary"] = summarise_seeds(evaluations)
+        sized["c2"] = c2
+        write()
+
+
 def run(args):
     workdir = os.path.abspath(args.workdir)
     ignored = subprocess.run(
@@ -1894,8 +2641,25 @@ def run(args):
     sizes = [int(size) for size in args.sizes.split(",")]
     hosts = [host.strip() for host in args.hosts.split(",") if host.strip()]
     counts_only = [key.strip() for key in (args.counts_only_hosts or "").split(",") if key.strip()]
+    host_scale = [
+        key.strip() for key in (args.host_scale_background or "").split(",") if key.strip()
+    ]
+    host_scale_route = bool(args.host_scale_pass or args.host_scale_dry_run)
+    if host_scale and not host_scale_route:
+        raise ValueError(
+            "--host-scale-background is only read on the host-scale route. Pass "
+            "--host-scale-pass to run it, or --host-scale-dry-run to see what it "
+            "would run. Without one of those the length rules stand and the "
+            "reference would be refused as a background."
+        )
+    if host_scale_route:
+        # The route's own ceiling, so the default route's figures are not
+        # quietly raised for a stage that is not running.
+        limits["rss_limit_bytes"] = int(args.host_scale_rss_limit_gb * 2**30)
+        limits["halt_peak_bytes"] = int(args.host_scale_halt_peak_gb * 2**30)
+        limits["route"] = "host-scale"
 
-    panel = load_panel(args.manifest, hosts, args.max_host_bp, counts_only)
+    panel = load_panel(args.manifest, hosts, args.max_host_bp, counts_only, host_scale)
     c1_host = args.c1_host or max(panel["hosts"], key=lambda key: panel["genomes"][key]["length"])
     if c1_host not in panel["hosts"]:
         raise ValueError(f"--c1-host {c1_host!r} is not among the hosts of this run")
@@ -1904,6 +2668,12 @@ def run(args):
         return run_cpus_check(args, panel, workdir, limits, c1_host)
     if args.counts_route_check:
         return counts_route_check(args, panel, workdir, limits, output)
+    if args.host_scale_dry_run:
+        return describe_host_scale_plan(args, panel, workdir, limits)
+    if args.retention_control:
+        return run_retention_control(args, panel, workdir, limits, output, c1_host)
+    if args.host_scale_pass:
+        return run_host_scale_pass(args, panel, workdir, limits, output)
     if args.counts_only_pass:
         return run_counts_only_pass(args, panel, workdir, limits, output)
     if args.tables:
@@ -1940,6 +2710,7 @@ def run(args):
         "reference": panel["reference"],
         "hosts": panel["hosts"],
         "counts_only_hosts": panel["counts_only_hosts"],
+        "host_scale_hosts": panel["host_scale_hosts"],
         "hosts_not_run": {
             key: "not named in --hosts for this run; nothing about it was measured"
             for key in panel["hosts_not_run"]
@@ -1977,137 +2748,17 @@ def run(args):
 
         built = []
         for design in wanted:
-            print(f"{design['id']}", flush=True)
-            entry = {
-                "id": design["id"],
-                "group": design["group"],
-                "label": (
-                    "preliminary D3: the small hosts only, not the full host panel"
-                    if design["group"] == "D3"
-                    else design["group"]
-                ),
-                "fg": design["fg"],
-                "bg": design["bg"],
-                "held_out": design["held_out"],
-                "sizes": [],
-            }
-            results["designs"].append(entry)
-            pooled = len(design["fg"]) > 1
-            pool_cpus = args.pooled_cpus if pooled and args.pooled_cpus else DESIGN_PARAMS["cpus"]
-            data_dir, params, steps, usable = build_pool(
-                design, panel, workdir, limits, args.retry, pool_cpus
+            entry, data_dir, usable = run_one_design(
+                design, panel, workdir, limits, args, sizes, results, write
             )
-            entry["cpus"] = {
-                "pool_steps_requested": pool_cpus,
-                "pool_steps_ran_under": {name: rec.get("cpus") for name, rec in steps.items()},
-                "optimize": DESIGN_PARAMS["cpus"],
-            }
-            entry["data_dir"] = os.path.relpath(data_dir, REPO_ROOT)
-            entry["steps"] = steps
-            entry["genome_gc_given"] = params.get("genome_gc")
-            entry["step2_candidates"] = csv_rows(os.path.join(data_dir, "step2_df.csv"))
-            entry["step3_candidates"] = csv_rows(os.path.join(data_dir, "step3_df.csv"))
-            write()
-            if not usable:
-                entry["outcome"] = "the candidate pool was not built; see steps"
-                continue
-            if design["fg"] == [panel["reference"]] and design["bg"] == ["drosophila"]:
-                entry["example_pool_comparison"] = compare_with_example_pool(data_dir)
-
-            state = load_state(data_dir)
-            references = reference_plan(design, data_dir, panel, workdir, True)
-            entry["references"] = [
-                {k: ref[k] for k in ("key", "role", "in_design", "held_out", "route")}
-                for ref in references
-            ]
-            for size in sizes:
-                sized = run_optimize(design, data_dir, params, size, state, limits, args.retry)
-                entry["sizes"].append(sized)
-                write()
-                if sized["outcome"] != "delivered":
-                    sized["evaluation"] = None
-                    sized["evaluation_unavailable"] = f"no delivered set: {sized['outcome']}"
-                    continue
-                set_dir = os.path.join(REPO_ROOT, sized["set_dir"])
-                record, out = evaluate_panels(
-                    [{"label": "set_0", "primers": sized["delivered_primers"]}],
-                    [{k: v for k, v in ref.items() if k != "route"} for ref in references],
-                    True,
-                    os.path.join(set_dir, "evaluation.json"),
-                    os.path.join(data_dir, "logs", f"evaluate_n{size:02d}.log"),
-                    limits,
-                    f"{design['id']} n={size}",
-                )
-                sized["evaluation_step"] = record
-                if out is None:
-                    sized["evaluation"] = None
-                    sized["evaluation_unavailable"] = (
-                        f"the evaluation child ended with status {record['status']}; "
-                        f"see {record.get('log')}"
-                    )
-                else:
-                    sized["evaluation_seconds"] = out["panels"][0]["seconds"]
-                    sized["evaluation"] = by_key(out["panels"][0]["assessment"], references)
-                write()
-            built.append((design, entry, data_dir))
+            if usable:
+                built.append((design, entry, data_dir))
 
         if "C2" in groups:
             for design, entry, data_dir in built:
                 if not design["c2"]:
                     continue
-                pool = candidate_pool(data_dir)
-                references = reference_plan(
-                    design, data_dir, panel, workdir, args.c2_scan_offdesign_hosts
-                )
-                for sized in entry["sizes"]:
-                    if sized["outcome"] != "delivered":
-                        sized["c2"] = None
-                        sized["c2_unavailable"] = "no delivered set to match in size"
-                        continue
-                    size = sized["delivered_size"]
-                    set_dir = os.path.join(REPO_ROOT, sized["set_dir"])
-                    record, out = evaluate_panels(
-                        random_panels(pool, size, args.seeds),
-                        [{k: v for k, v in ref.items() if k != "route"} for ref in references],
-                        True,
-                        os.path.join(set_dir, "c2_evaluation.json"),
-                        os.path.join(data_dir, "logs", f"c2_n{sized['requested_size']:02d}.log"),
-                        limits,
-                        f"{design['id']} C2 at delivered size {size}",
-                    )
-                    c2 = {
-                        "panel_size": size,
-                        "seeds": args.seeds,
-                        "pool_candidates": len(pool),
-                        "step": record,
-                        "references": [
-                            {k: ref[k] for k in ("key", "role", "in_design", "route")}
-                            for ref in references
-                        ],
-                        "raw": os.path.relpath(
-                            os.path.join(set_dir, "c2_evaluation.json"), REPO_ROOT
-                        ),
-                    }
-                    if out is None:
-                        c2["panels"] = None
-                        c2["summary"] = None
-                        c2["unavailable"] = (
-                            f"the evaluation child ended with status {record['status']}"
-                        )
-                    else:
-                        evaluations = [
-                            by_key(panel_out["assessment"], references)
-                            for panel_out in out["panels"]
-                        ]
-                        c2["panels"] = [
-                            dict(headline(evaluation), label=panel_out["label"])
-                            for evaluation, panel_out in zip(
-                                evaluations, out["panels"], strict=True
-                            )
-                        ]
-                        c2["summary"] = summarise_seeds(evaluations)
-                    sized["c2"] = c2
-                    write()
+                run_c2_for_design(design, entry, data_dir, panel, workdir, limits, args, write)
     except RunHalted as halted:
         results["halted"] = str(halted)
         write()
@@ -2134,7 +2785,20 @@ def _value(measurement, fmt):
 
 def print_report(results):
     targets = results["targets"]
-    hosts = results["hosts"]
+    # Every reference any design here was evaluated against, not only the ones
+    # that were a design background on the default route. Leaving the
+    # host-scale reference out of these columns dropped the one host the H
+    # designs exist to measure.
+    # dict.fromkeys, not a set: a key can appear in both the counts-only and
+    # the host-scale list (it is one reference read two ways), and it must
+    # still be ONE column, in a stable order.
+    hosts = list(
+        dict.fromkeys(
+            list(results["hosts"])
+            + list(results.get("counts_only_hosts") or [])
+            + list(results.get("host_scale_hosts") or [])
+        )
+    )
     print()
     print("Coverage per strain and selectivity density per host, set 0 of each design.")
     print("n/a is a figure that was not measured; the JSON carries the reason.")
@@ -2160,12 +2824,12 @@ def print_report(results):
             reference = results["reference"]
             for field in ("selectivity_density", "weighted_selectivity_density"):
                 for key in hosts:
-                    pair = next(
-                        p
-                        for p in evaluation["target_host_pairs"]
-                        if p["target"] == reference and p["host"] == key
-                    )
-                    line += f"{_value(pair[field], '{:.1f}'):>11}"
+                    # `_find_pair`, not a lookup in this evaluation alone: a
+                    # host-scale or counts-only reference is measured in a
+                    # second block for every design that did not have it as a
+                    # background, and a bare `next` raised StopIteration on
+                    # exactly those rows.
+                    line += f"{_value(_find_pair(sized, reference, key, field), '{:.1f}'):>11}"
             print(line)
     print()
     print(f"Density columns are the reference strain ({results['reference']}) against each host:")
@@ -2237,10 +2901,7 @@ def _spread_text(entry, fmt="{:.2f}"):
     zero = entry.get("seeds_with_zero_host_sites") or 0
     if zero:
         return f"ceiling in {zero}/{entry['n']}"
-    return (
-        f"{fmt.format(entry['median'])} [{fmt.format(entry['min'])}, "
-        f"{fmt.format(entry['max'])}]"
-    )
+    return f"{fmt.format(entry['median'])} [{fmt.format(entry['min'])}, {fmt.format(entry['max'])}]"
 
 
 def _c2_blocks(sized):
@@ -2314,6 +2975,20 @@ def print_tables(results):
     print(f"  targets               {', '.join(targets)}")
     print(f"  design hosts          {', '.join(results['hosts'])}")
     print(f"  counts-only hosts     {', '.join(results.get('counts_only_hosts') or []) or '-'}")
+    host_scale = list(results.get("host_scale_hosts") or [])
+    if host_scale:
+        # Stated separately because a host-scale reference is BOTH: a design
+        # background for the H designs and a counts-only evaluation reference
+        # for every other design in the file. Printing only the counts-only
+        # line would say no design ever had it as a background, which is now
+        # false for two of them.
+        retention = (results.get("host_scale") or {}).get("candidate_retention")
+        print(
+            f"  host-scale hosts      {', '.join(host_scale)} "
+            f"(a design background in the H designs only"
+            + (f", candidate_retention={retention}" if retention else "")
+            + ")"
+        )
     print(f"  k                     {results['k']}")
     print(f"  sizes requested       {results['sizes_requested']}")
     print(f"  optimize seed         {results['optimize_seed']}")
@@ -2442,7 +3117,66 @@ def print_tables(results):
             )
     print()
 
-    print("Table 8. What each step cost.")
+    host_scale = list(results.get("host_scale_hosts") or [])
+    if host_scale:
+        print("Table 8. The host-scale designs: the delivered sets, pairwise.")
+        print("  Q5 asks which host determines the pooled figure. A pooled design whose")
+        print("  set is the largest host's set would answer 'the largest'; one that")
+        print("  shares only part of it would not.")
+        wanted = [
+            e["id"]
+            for e in results["designs"]
+            if e["id"].startswith(("H3__", "H1__"))
+            or e["id"]
+            in (
+                f"D1__{results['reference']}__vs__drosophila",
+                f"D1__{results['reference']}__vs__lactobacillus",
+            )
+        ]
+        delivered = {}
+        for entry in results["designs"]:
+            if entry["id"] not in wanted:
+                continue
+            for sized in entry["sizes"]:
+                if sized.get("outcome") == "delivered":
+                    delivered[(entry["id"], sized["requested_size"])] = list(
+                        sized["delivered_primers"]
+                    )
+        for size in results["sizes_requested"]:
+            present = [key for key in wanted if (key, size) in delivered]
+            if len(present) < 2:
+                continue
+            print(f"  n={size}")
+            for i, first in enumerate(present):
+                for second in present[i + 1 :]:
+                    one, two = delivered[(first, size)], delivered[(second, size)]
+                    shared = len(set(one) & set(two))
+                    verdict = "identical" if one == two else f"{shared} of {len(one)} shared"
+                    print(f"    {first[:42]:<44}{second[:42]:<44}{verdict}")
+        print()
+
+    control = results.get("retention_control")
+    if control:
+        print("Table 9. candidate_retention: does the mode move the delivered panel?")
+        print(f"  design              {control['design']}")
+        print(f"  recorded under      {control['retention_recorded']}")
+        print(f"  rebuilt under       {control['retention_compared']}")
+        print(
+            f"  step2 / step3 rows  {control.get('step2_candidates')} / "
+            f"{control.get('step3_candidates')}"
+        )
+        for row in control["sizes"]:
+            if row.get("identical_as_a_list") is None:
+                print(f"  n={row['requested_size']:<4} {row.get('comparison_unavailable')}")
+            else:
+                verdict = "IDENTICAL" if row["identical_as_a_list"] else "DIFFERENT"
+                print(
+                    f"  n={row['requested_size']:<4} {verdict}, "
+                    f"{row['shared_primers']} of {row['delivered_size']} shared"
+                )
+        print()
+
+    print("Table 10. What each step cost.")
     print_report(results)
 
 
@@ -2498,6 +3232,75 @@ def main(argv=None):
         default=DESIGN_PARAMS["cpus"],
         help="Workers for the counts-only k-mer count "
         f"(default {DESIGN_PARAMS['cpus']}, as every other step).",
+    )
+    parser.add_argument(
+        "--host-scale-background",
+        metavar="KEY[,KEY]",
+        help="Admit these host keys as a DESIGN BACKGROUND whatever their length. "
+        "This is the only way a reference longer than "
+        f"{COUNTS_ONLY_ABOVE_BP:,} bp becomes a background, it admits nothing "
+        "else, and without it every length rule stands. Requires "
+        "--host-scale-pass or --host-scale-dry-run.",
+    )
+    parser.add_argument(
+        "--host-scale-pass",
+        action="store_true",
+        help="Run the two host-scale designs (H3 pooled, then H1 as the control) and "
+        "append them to an existing results file. Builds no other design and "
+        "rebuilds none already recorded.",
+    )
+    parser.add_argument(
+        "--host-scale-dry-run",
+        action="store_true",
+        help="Print what --host-scale-pass would run -- the designs, their genomes, "
+        "the retention mode and the watchdog figures -- and measure nothing.",
+    )
+    parser.add_argument(
+        "--retention-control",
+        metavar="DESIGN_ID",
+        help="Rebuild this recorded design under --retention-control-mode in its own "
+        "directory and compare the delivered panels size by size. The control for "
+        "the host-scale route's retention choice, measured where both modes are "
+        "affordable. Touches no recorded design.",
+    )
+    parser.add_argument(
+        "--retention-control-mode",
+        choices=RETENTION_MODES,
+        help="The candidate_retention to rebuild under for --retention-control.",
+    )
+    parser.add_argument(
+        "--host-scale-pool-only",
+        action="store_true",
+        help="With --host-scale-pass, build the candidate pool (steps 1 to 3), record "
+        "what each step cost, and stop before any optimize. The filter against a "
+        "host-scale reference is the largest step of this stage and its peak is "
+        "worth reading before more is started.",
+    )
+    parser.add_argument(
+        "--host-scale-retention",
+        choices=RETENTION_MODES,
+        help="candidate_retention for the host-scale designs. Required on that route "
+        "and deliberately without a default: it decides how many candidates carry "
+        "a background position index, so on a host-scale reference it decides the "
+        "memory peak. It enters the parameter digest.",
+    )
+    parser.add_argument(
+        "--host-scale-estimate",
+        help="The measured index-size estimate the retention mode was chosen from, "
+        "recorded verbatim in the results file beside the designs it decided.",
+    )
+    parser.add_argument(
+        "--host-scale-rss-limit-gb",
+        type=float,
+        default=10.5,
+        help="Stop a host-scale child above this tree RSS (default 10.5 GiB). Replaces "
+        "--rss-limit-gb on that route only.",
+    )
+    parser.add_argument(
+        "--host-scale-halt-peak-gb",
+        type=float,
+        default=10.5,
+        help="Halt the host-scale route after a step whose peak passed this (default 10.5 GiB).",
     )
     parser.add_argument(
         "--counts-route-check",

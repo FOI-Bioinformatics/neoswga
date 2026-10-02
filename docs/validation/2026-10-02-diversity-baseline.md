@@ -1,21 +1,27 @@
 # A single-reference design loses most of its coverage on another supergroup, and the host it is given decides its specificity against a host 1,000 times larger
 
 Phase 3 of `docs/superpowers/plans/2026-10-02-genomic-diversity-and-multi-host.md`.
-This record reports measurements, answers Q1 to Q4, and reads decision gate A
-against them: the target-diversity half is decided, the host half is not. Q5
-and the full D3 are not answered, for the reason given below.
+This record reports measurements, answers Q1 to Q5, and reads decision gate A
+against them. Both halves of the gate are now decided, and neither criterion
+for skipping work is met.
+
+Two designs were added on 2026-10-02 with hg38 in the background, which is what
+Q5 and the host half of the gate were waiting for. They answer Q5 against the
+expectation this record previously stated, and the expectation was wrong: a
+pooled background is **not** simply decided by its largest member.
 
 ## The instance
 
-One chemistry, one optimizer seed, these five strains, two design hosts and one
-evaluation-only host. Every claim below is bounded by that.
+One chemistry, one optimizer seed, these five strains, and three hosts, of
+which hg38 was a design background in two designs and an evaluation reference
+in the other ten. Every claim below is bounded by that.
 
 | | |
 |---|---|
 | Targets | *Wolbachia* wMel (`wolbachia`, the reference), wRi, wPip, wAlbB, wBm |
 | Supergroups | A: wMel, wRi. B: wPip, wAlbB. D: wBm |
-| Design hosts | *L. plantarum* WCFS1 (3,348,624 bp, 4 records), *Drosophila* (143,726,002 bp, 1,870 records) |
-| Evaluation-only host | hg38 (3,298,430,636 bp, 705 records), on the counts route. **No design has had it as a background** |
+| Design hosts | *L. plantarum* WCFS1 (3,348,624 bp, 4 records), *Drosophila* (143,726,002 bp, 1,870 records), and hg38 in the two H designs only |
+| hg38 | 3,298,430,636 bp, 705 records. A design background in H3 and H1; an evaluation reference on the counts route for the other ten designs |
 | Host size span | 3.3 Mb to 3.30 Gb, a factor of 985 |
 | k | 12 (`min_k` = `max_k` = 12) |
 | Chemistry | phi29, 30.0 C, Na 50 mM, Mg 10 mM, no additives |
@@ -24,14 +30,22 @@ evaluation-only host. Every claim below is bounded by that.
 | C2 control seeds | 20 per design and size |
 | Optimizer | `hybrid`, `max_dimer_bp` 3, no panel limit set |
 | Coverage reach | 3,000 bp (phi29, realistic) |
-| Designs | D1 (reference only, one host) x2; D2 (five strains pooled, one host) x2; C1 (leave one strain out, vs *Drosophila*) x5; D3 preliminary (reference, both small hosts) |
+| Designs | D1 (reference only, one host) x2; D2 (five strains pooled, one host) x2; C1 (leave one strain out, vs *Drosophila*) x5; D3 preliminary (reference, both small hosts); **H3** (reference, all three hosts pooled: the D3 the gate names); **H1** (reference against hg38 alone, the control for H3) |
+| `candidate_retention` | `all_qc` for the first ten designs; `post_gini` for H3 and H1, for the measured memory reason below. Table 9 shows the mode changes no delivered set where both are affordable |
 | git sha of the run | `66c4c19c92d2d3c3d170eac4baf8caf9fff6756c` |
 | Script | `scripts/benchmarking/diversity_baseline.py` |
 | Results | `tests/validation/genomes/diversity_baseline/results.json` (gitignored) |
 
-Ten designs were built from `count-kmers` onward, each delivered a set at all
-three requested sizes, and `delivered_size` equalled `requested_size`
-everywhere. No design failed.
+Twelve designs were built from `count-kmers` onward, each delivered a set at
+all three requested sizes, and `delivered_size` equalled `requested_size`
+everywhere. No design failed and no step was stopped by the watchdog.
+
+The two H designs are a separate stage of the script, reached only by
+`--host-scale-pass` with `--host-scale-background`. The length rule that keeps
+a 3.3 Gb reference out of a design background by accident
+(`COUNTS_ONLY_ABOVE_BP`) is unchanged and still applies to every reference not
+named by that flag; the ten earlier designs are byte-identical in
+`results.json` after the addition.
 
 ## Two densities, and which is which
 
@@ -205,8 +219,10 @@ and 6.971 on hg38; D1 vs *Drosophila* gives 1.493, 0.981 and 1.848.
 
 ### Which host sets the worst case
 
-With all three hosts measured, the worst target-against-host density of a panel
-is almost always set by hg38, the host no design was given:
+Over the 30 panels of the ten designs that never saw hg38 (H3 and H1 are
+excluded here by construction, since the question is what happens to a panel
+selected without it), the worst target-against-host density is almost always
+set by hg38:
 
 | Density | hg38 is the worst host | *L. plantarum* is | *Drosophila* is |
 |---|---|---|---|
@@ -218,33 +234,106 @@ against *Drosophila*, where *L. plantarum* carries so few sites that its exact
 ratio is noisy; the weighted density, which is the comparable figure, puts hg38
 worst everywhere.
 
-This is NOT an answer to Q5. Q5 asks which host determines the figure for a
-design whose background POOLS hosts of very different size, and no design here
-had hg38 as a background. What this table says is narrower and still useful: a
-panel designed against a bacterial or insect host, and then measured against a
-mammalian one, has its worst case set by the mammalian host in every case
-measured here.
+This is NOT an answer to Q5, which asks what a design whose background POOLS
+hosts of very different size does. What this table says is narrower and still
+useful: a panel designed against a bacterial or insect host, and then measured
+against a mammalian one, has its worst case set by the mammalian host in every
+case measured here.
 
-## Q5, and the full D3: still not answered
+Q5 below shows that putting hg38 in the background does act on this: exact-site
+density on hg38 rises by 1.60x to 2.65x over the design that never saw it. It
+does not make hg38 stop being the worst host -- under H3 at 12 primers the
+weighted densities are 13.470 on *L. plantarum*, 21.730 on *Drosophila* and
+19.097 on hg38, so the smallest host becomes the worst one instead.
 
-Every panel is now measured against hg38, but **no design in this record has had
-hg38 as a background.** Q5 asks which host determines the pooled figure for a
-design whose background pools hosts of very different size. The D3 here pools
-only the two small hosts (3.3 Mb and 144 Mb), a factor of 43, and its delivered
-set is identical to the D1-vs-*Drosophila* set at 6 and 12 primers, so it is not
-a second measurement at those sizes. The D3 rows are labelled preliminary
-throughout `results.json`.
+## Q5. Under D3 with hosts of very different size, which host determines the pooled figure, and what is the density against the smallest host?
 
-Why no design was given hg38 as a background: one `filter` run against hg38
-peaks at about 8.5 GB (Known Issue 1 and the Phase 3 cost note), which is
-outside the memory plan of this stage. It was never attempted, and hg38 was
-never given to `filter`, `optimize` or a position scan.
+Answered by two designs built on 2026-10-02: **H3**, the reference against all
+three hosts pooled (3.3 Mb + 144 Mb + 3.30 Gb, a span of 985), and **H1**, the
+reference against hg38 alone, which is the control that separates "the pool"
+from "its largest member". Both at 6, 12 and 24 primers, same chemistry and
+parameters as the other ten.
 
-What the hg38 evaluation does and does not support: the worst-host table under
-Q4 says hg38 sets the worst case in 30 of 30 panels by the comparable density.
-That is an after-the-fact measurement of panels selected without it. It says
-nothing about what a design would select if hg38 were in its background, which
-is what Phase 7 would build and what gate A has to weigh.
+### Which host determines the pooled figure: not one of them
+
+**On the largest host, how close the pool comes to the host-specific design
+depends on which density is read.** The reference strain against hg38,
+exact-site density then occupancy-weighted density:
+
+| n | H3 pooled, exact | H1 hg38 only, exact | D1 vs *Drosophila*, exact | H3 weighted | H1 weighted | D1 vs *Drosophila*, weighted |
+|---|---|---|---|---|---|---|
+| 6 | 531.846 | 494.421 | 200.433 | 17.231 | 18.650 | 13.357 |
+| 12 | 488.206 | 439.083 | 219.799 | 19.097 | 21.091 | 11.334 |
+| 24 | 282.070 | 287.103 | 175.806 | 12.950 | 17.587 | 11.759 |
+
+Putting hg38 in the background raises density on hg38 over the design that
+never saw it: 2.65x, 2.22x and 1.60x by exact sites, and 1.29x, 1.68x and 1.10x
+by the weighted figure. So the background a design is given does act on the
+host it is given, which Q4 could not show.
+
+How close the pool gets to the hg38-only design on hg38 depends on which
+density is read, and the two disagree in direction. By exact sites H3 reaches
+107.6, 111.2 and 98.2 percent of H1 -- at or above it. By the
+occupancy-weighted figure, which is the comparable one, H3 reaches only 92.4,
+90.5 and **73.6** percent. Pooling therefore costs real specificity on hg38
+too, most at 24 primers, and the exact-site figure hides it.
+
+**But it does not decide the panel.** H3 and H1 share only 3 of 6, 4 of 12 and
+7 of 24 primers (Table 8). A pooled design whose answer were its largest
+member's answer would deliver that member's set; this one delivers a third,
+distinct panel.
+
+The contrast with the small-host D3 is the point. There the larger host (144 Mb
+against 3.3 Mb, a factor of 43) **did** decide the set: D3 and
+D1-vs-*Drosophila* are identical at 6 and 12 primers and share 23 of 24 at 24.
+Adding a host 23 times larger again did not continue that pattern.
+
+The mechanism is visible in the gate. `core/filter.py` tests
+`bg_count / sum(bg_seq_lengths) < max_bg_freq * 4 ** (10 - k)`, so hg38 is 95.7
+percent of the pooled background by length and the pooled ceiling (1,076.7
+sites at k = 12) is within 5 percent of hg38's own (1,030.8). The numerator is
+what differs: the pooled count SUMS the three hosts, so a candidate frequent in
+*Drosophila* and clean in hg38 is charged for the *Drosophila* sites in the pool
+and not at all in H1. That is enough to move a majority of the panel.
+
+### What the pool costs on the smaller hosts
+
+| host | n | H3 pooled, exact | C2 exact median [min, max] | best single-host design, exact |
+|---|---|---|---|---|
+| *L. plantarum* 3.3 Mb | 6 | 268.755 | ceiling in 1/20 | 363.622 (D1 vs *L. plantarum*) |
+| *L. plantarum* | 12 | 97.526 | 40.580 [17.961, 303.752] | 413.808 |
+| *L. plantarum* | 24 | 76.484 | 40.374 [23.772, 85.051] | 239.606 |
+| *Drosophila* 144 Mb | 6 | 649.871 | 60.125 [41.897, 294.757] | 518.974 (D1 vs *Drosophila*) |
+| *Drosophila* | 12 | 425.130 | 72.664 [48.208, 135.806] | 414.075 |
+| *Drosophila* | 24 | 141.923 | 73.343 [45.953, 141.917] | 305.321 |
+
+**The density against the smallest host, which is what Q5 asks for**, is
+268.755, 97.526 and 76.484 exact, and 29.441, 13.470 and 7.991
+occupancy-weighted. Against *L. plantarum* the pooled design is worse than the
+design made against *L. plantarum* at every size, by 1.35x, 4.24x and 3.13x
+exact. At 24 primers both of its figures on that host fall inside the control
+range (exact 76.484 in [23.772, 85.051]; weighted 7.991 in [3.398, 8.742]):
+**on the smallest host at the largest size the pooled design is not
+distinguishable from a random panel drawn from its own candidate pool.**
+
+So the answer to Q5 is that **no single host determines the pooled figure.**
+The largest host dominates the pooled background by length (95.7 percent) and
+the gate's threshold, and it is what the pooled design most nearly matches on
+its own ground; but the pool does not inherit its panel, reaches only 74 to 92
+percent of its weighted density on hg38, and pays for what it does reach on the
+two smaller hosts, worst on the smallest, where at 24 primers it is no better
+than chance. A pooled background is a compromise across hosts, not a proxy for
+the largest one.
+
+### What was measured and what it cost
+
+No evaluation or control panel ever scanned hg38. On this route a host-scale
+reference is read from the index the design built and from nothing else: the
+route sets `scan=False` for it whether or not it is in the design, so an oligo
+absent from the index makes that reference unavailable with that as the reason
+rather than triggering a 3.3 Gb scan. All 2,000 step-3 primers of both designs
+were checked to have an index entry before the C2 panels were drawn (20 of them
+empty, which is a measurement: scanned, binds nowhere).
 
 ## The hg38 k-mer table
 
@@ -292,6 +381,68 @@ of the counter or of k.
 No product code was changed. Recorded at
 `tests/validation/genomes/diversity_baseline/eval_counts/human_full/`, with the
 per-sample trace on the step record.
+
+## What a design with hg38 in the background cost
+
+Measured on 2026-10-02 under a 10.5 GiB child ceiling and a 20 percent
+system-free stop. Nothing was stopped; free memory never fell below 40 percent;
+free disk went from 23 GiB to 22 GiB.
+
+| step | H3 (three hosts pooled) | H1 (hg38 alone) |
+|---|---|---|
+| `count-kmers` | 38.77 s, 7.46 GiB | 23.81 s, 6.85 GiB |
+| `filter` | 175.08 s, **5.68 GiB** | 157.47 s, **8.00 GiB** |
+| `prepare-candidates` | 1.65 s, 0.12 GiB | 1.71 s, 0.12 GiB |
+| `optimize` n = 6 / 12 / 24 | 63 / 64 / 168 s, 4.96 / 5.47 / 4.12 GiB | 55 / 58 / 186 s, 4.40 / 4.45 / 4.48 GiB |
+| set-0 evaluation, per size | 11 s, 2.47 to 2.52 GiB | 26 s, 2.84 to 2.94 GiB |
+| C2, 20 panels per size | 36 to 37 s, 4.86 to 5.57 GiB | 79 to 81 s, 5.30 to 5.61 GiB |
+| hg38 position index | 75.8 MiB (79,505,400 B) | 75.3 MiB (78,968,112 B) |
+
+The whole stage is 12 steps and about 21 minutes of child time. The largest
+step is `count-kmers` by peak and `optimize` at 24 primers by wall time.
+
+The hg38 k-mer table was **not** recounted for either design: the table already
+under `eval/` was symlinked to the design prefix with its provenance record, and
+`kmer_counter._table_is_current` accepted it after comparing the record's
+SHA-256 against the genome the design names. The `count-kmers` peak is therefore
+not the counter. It is the same Python genome load measured above: 7.46 GiB for
+H3, which loads four references including hg38, against 6.21 GiB for hg38
+alone.
+
+**The retention mode was chosen from an estimate made before the run, and the
+estimate was exact.** Under `candidate_retention='post_gini'` the estimate
+predicted 19,348 indexed candidates carrying 9,838,937 hg38 positions and a
+75.8 MiB index for H3; the run indexed 19,348 candidates and wrote 75.8 MiB.
+The pooled background gate it predicted (1,076.72 sites at k = 12) and the
+482,056 candidates clearing the hard gates were both reproduced exactly by
+`filter`.
+
+**Where the projection was off: the peak, and in the safe direction.** The
+`filter` peak was projected at about 8.3 GiB from the 8.46 GB this project
+measured in September plus the measured marginal cost of the position
+accumulation. H3 measured 5.68 GiB, 2.6 GiB below the projection, because the
+September figure was taken on a pool whose fixed cost did not transfer. H1,
+whose background is hg38 alone, measured 8.00 GiB -- close to the projection and
+2.3 GiB above H3, so pooling three hosts cost less memory than the single
+largest one. The projection was useful for deciding the retention mode and was
+not a good predictor of the peak.
+
+**Why `all_qc` was not used.** Its index would have been 1.55 GiB, inside the
+2 GiB this stage allowed, so the index was not the binding constraint. The scan
+is: `string_search.get_all_positions_multi_k` accumulates every position for
+every pattern as Python ints in Python lists before anything is written,
+measured at 41.75 bytes per position against 8 on disk. At `all_qc`'s
+205,792,494 positions that is 8.11 GiB of accumulation on top of a 3.07 GiB
+genome string and a scan window of up to 1.00 GiB (`MAX_SCAN_CHUNK` is
+`2**30`), which does not fit beside a 10.5 GiB ceiling on an 18 GB machine.
+`post_gini` accumulates 0.39 GiB. No design parameter was changed to make the
+run fit; `max_bg_freq` and the rest are those of every other design here.
+
+**One figure in Known Issue 1's neighbourhood is corrected.** At k = 12 the
+background gate applies `max_bg_freq * 4 ** (10 - k)`, so the configured 5e-6
+is applied as 3.125e-7 and the ceiling is about 1,030 hg38 sites per candidate,
+not the roughly 16,500 an unscaled 5e-6 over 3.3 Gb would admit. The scaling is
+logged by `filter` on every run.
 
 ## Reading hg38: what is measured and what is not
 
@@ -372,6 +523,21 @@ corresponding D1 figure and not a second measurement. Likewise, dropping wMel
 or wRi from the pooled foreground left the delivered set unchanged at n=6,
 which is the strongest form of the Q3 result for supergroup A.
 
+**No set in the table above is shared with H3 or H1**, and the two H designs do
+not share one with each other: the overlaps are 3 of 6, 4 of 12 and 7 of 24
+between H3 and H1, and 8 of 24 at most between either of them and any earlier
+design (Table 8). Adding a 3.3 Gb host does not leave the panel where a 144 Mb
+host left it, which is the opposite of what adding *L. plantarum* to
+*Drosophila* did, and is the substance of Q5.
+
+The same comparison answers a question about the retention mode rather than the
+background. H3 and H1 ran under `candidate_retention='post_gini'` where the
+other ten ran under `all_qc`, so an identical-set comparison between them would
+have confounded the two changes. Rebuilding D1 wMel-vs-*Drosophila* under
+`post_gini` in its own directory delivers the **same** 6, 12 and 24 primers as
+the recorded `all_qc` run (Table 9), so on that design the mode is not what
+moves a panel. One design, three sizes, one seed.
+
 ## Against the project's recorded figure for this pool
 
 The recorded figure for the *Wolbachia* pool is selectivity density 60.112 at
@@ -417,32 +583,78 @@ selection can see) have a measured loss to act on. Which lever is built first
 is not decided by this record; the shape of the loss says the worst target,
 not the pooled figure, is the quantity to act on.
 
-**Host panel: not decided.** The plan skips Phase 7 if per-host density under
-D3 is within the spread of C2 across hosts. The D3 that criterion names pools
-hosts of very different size, and no design here had hg38 as a background, so
-the criterion cannot be read. What is measured bears on it without settling
-it: the host a design is given changes its exact-site density on hg38 by a
-factor of 4.1, a panel designed against the 3.3 Mb host is inside the control
-spread on the 144 Mb host, and adding the 3.3 Mb host to the 144 Mb one changed
-no delivered set at 6 or 12 primers. Those are reasons to expect that a pooled
-background is decided by its largest member. They are not a measurement of it.
-Settling it needs one design with hg38 in the background, which is one `filter`
-run of about 8.5 GB.
+**Host panel: the criterion for skipping Phase 7 is not met.** The plan skips
+Phase 7 if per-host density under D3 is within the spread of C2 across hosts.
+H3 is the D3 that criterion names, and the comparison can now be read. Each
+cell is H3's figure for the reference strain against that host, against the
+range over 20 random size-matched panels from H3's own pool:
+
+| host | n | exact | C2 exact [min, max] | exact verdict | weighted | C2 weighted [min, max] | weighted verdict |
+|---|---|---|---|---|---|---|---|
+| *L. plantarum* | 6 | 268.755 | ceiling in 1/20 | not comparable | 29.441 | [2.241, 11.598] | above |
+| *L. plantarum* | 12 | 97.526 | [17.961, 303.752] | **inside** | 13.470 | [2.798, 8.934] | above |
+| *L. plantarum* | 24 | 76.484 | [23.772, 85.051] | **inside** | 7.991 | [3.398, 8.742] | **inside** |
+| *Drosophila* | 6 | 649.871 | [41.897, 294.757] | above | 41.902 | [3.653, 16.794] | above |
+| *Drosophila* | 12 | 425.130 | [48.208, 135.806] | above | 21.730 | [4.959, 11.362] | above |
+| *Drosophila* | 24 | 141.923 | [45.953, 141.917] | above by 0.006 | 12.145 | [5.276, 11.298] | above |
+| hg38 | 6 | 531.846 | [52.467, 555.311] | **inside** | 17.231 | [7.661, 22.117] | **inside** |
+| hg38 | 12 | 488.206 | [69.417, 390.737] | above | 19.097 | [7.586, 16.843] | above |
+| hg38 | 24 | 282.070 | [82.240, 268.420] | above | 12.950 | [8.083, 15.357] | **inside** |
+
+By the exact figure H3 is inside the control range in 3 of 8 comparable cells
+and above it in 5. By the occupancy-weighted figure it is inside in 3 of 9 and
+above in 6.
+
+The plan's wording can be read two ways, and neither reading supports skipping
+Phase 7. Read as "the pooled design is no better than a random panel on every
+host", it is not met: H3 is above the control range in most cells. Read as
+"the pooled design loses nothing on any host that designing against that host
+alone would keep", it is not met either, and this is the reading that bears on
+what Phase 7 would build: on the smallest host the pooled design is 4.24 and
+3.13 times worse by exact density than the design against that host alone (12
+and 24 primers), and on hg38 its occupancy-weighted density is 92.4, 90.5 and
+73.6 percent of the hg38-only design at 6, 12 and 24 primers. So Phase 7 is
+not skipped on these measurements.
+
+The shape of the result matters more than the count, and it points at what
+Phase 7 would have to fix. Where H3 sits inside the control range it does so on
+the two ends of the host panel and not in the middle: on the smallest host at
+24 primers by both densities, and on the largest host at 6 and 24 primers by
+the weighted density. The pooled design beats random panels comfortably on the
+144 Mb host at every size and fails to beat them on the 3.3 Mb host at the
+largest size. A single pooled background, scored as a frequency over summed
+length, does not distribute specificity evenly over hosts spanning a factor of
+985, which is the per-host gate and aggregation mode Phase 7 proposes. The
+measured cost of pooling falls on the smallest host (4.24x and 3.13x worse than
+designing against it directly, at 12 and 24 primers).
 
 The size of the claim for both halves: five strains of one genus, three hosts,
 one chemistry in a regime the repository describes as unfavourable for
-discrimination, three panel sizes, one optimizer seed, 20 control seeds.
+discrimination, three panel sizes, one optimizer seed, 20 control seeds. The
+host half rests on **two** designs with hg38 in the background, at one seed,
+and the inside/above verdicts at 24 primers on *Drosophila* (above by 0.006)
+and on *L. plantarum* turn on margins narrow enough that a second seed could
+move them. What does not turn on a narrow margin is the H3-against-H1 set
+comparison and the cost of pooling on the smallest host.
 
 ## What is not established
 
-- **No design has had hg38, or any host-sized reference, as a background.**
-  Every hg38 figure here is an after-the-fact measurement of a panel selected
-  against a 3.3 Mb or 144 Mb host. What a design would select with hg38 in its
-  background is not measured, and the worst-host table does not stand in for
-  it.
-- **No coverage or gap figure on hg38.** The counts route cannot produce one.
-  So the Q1 to Q3 coverage results rest on the five targets only, and nothing
-  here says how evenly a panel tiles a mammalian genome.
+- **Two designs had hg38 as a background, not a survey.** H3 and H1, one seed
+  each. Every hg38 figure for the other ten designs remains an after-the-fact
+  measurement of a panel selected against a 3.3 Mb or 144 Mb host.
+- **No coverage or gap figure on hg38 for the ten earlier designs.** The counts
+  route cannot produce one. H3 and H1 do have hg38 positions, from the index
+  their own `filter` built, so coverage on hg38 is available for those two and
+  for their C2 panels; it is not comparable with a scanned figure (see "Host
+  coverage is not tabulated across routes").
+- **`post_gini` against `all_qc` on a host-scale background is not measured.**
+  H3 and H1 ran under `post_gini` because `all_qc` does not fit in memory
+  against a 3.3 Gb reference. Table 9 shows the mode changes no delivered set
+  on D1-vs-*Drosophila*, where both modes are affordable, at three sizes and
+  one seed. That is evidence the choice is not load-bearing; it is not a
+  measurement on hg38, which is the case that cannot be run here.
+- **Whether a second seed would move the gate verdict.** Two of the nine
+  per-host cells sit within 1 percent of the control range's edge.
 - **Size against divergence for wBm.** Confounded in this panel; see Q2.
 - **One seed.** Each design was optimized once, at seed 0. No claim here
   distinguishes a property of the optimizer from a property of one run, except
@@ -453,7 +665,8 @@ discrimination, three panel sizes, one optimizer seed, 20 control seeds.
 - **C2 panels are not dimer-screened.** They are uniform draws from
   `step3_df.csv` and answer "what does any panel from this pool do", not "what
   does any orderable panel do".
-- **The full D3** was not built. The D3 rows are the two small hosts only.
+- **The D3 rows labelled preliminary** are still the two small hosts only. The
+  full D3 is H3, reported separately.
 - **No per-target coverage floor was set**, so `min_per_target_coverage` was
   neither checked nor repaired in any of these runs.
 - **Mismatch discrimination is not claimed.** The occupancy-weighted load uses
@@ -476,6 +689,47 @@ The counts-route agreement check, which appends to the results file:
 python scripts/benchmarking/diversity_baseline.py \
     --counts-route-check D1__wolbachia__vs__drosophila \
     --counts-route-check-host drosophila --counts-route-check-size 12
+```
+
+The two designs with hg38 in the background. They are a separate route, they
+need the results of the run above, and they append to it. Read the plan without
+running anything first:
+
+```
+python scripts/benchmarking/diversity_baseline.py \
+    --host-scale-dry-run --host-scale-background human_full \
+    --host-scale-retention post_gini
+```
+
+Then H3, stopping after the candidate pool so the `filter` peak can be read
+before three `optimize` runs are started, and then the rest of H3:
+
+```
+python scripts/benchmarking/diversity_baseline.py \
+    --host-scale-pass --host-scale-background human_full \
+    --host-scale-retention post_gini \
+    --host-scale-rss-limit-gb 10.5 --host-scale-halt-peak-gb 10.5 \
+    --host-scale-pool-only --match H3
+
+python scripts/benchmarking/diversity_baseline.py \
+    --host-scale-pass --host-scale-background human_full \
+    --host-scale-retention post_gini \
+    --host-scale-rss-limit-gb 10.5 --host-scale-halt-peak-gb 10.5 \
+    --match H3 --retry
+```
+
+Then the same two commands with `--match H1`. H1 is worth starting only once
+H3's `filter` has finished inside the ceiling; `--host-scale-background` is the
+only way a reference longer than 1 Gb becomes a design background, and without
+it the length rule refuses one.
+
+The retention control, which rebuilds one recorded design under the other mode
+in its own directory and compares the delivered panels (Table 9):
+
+```
+python scripts/benchmarking/diversity_baseline.py \
+    --retention-control D1__wolbachia__vs__drosophila \
+    --retention-control-mode post_gini
 ```
 
 Every table in this record, read from `results.json` and recomputing nothing:
