@@ -24,6 +24,12 @@ import numpy as np
 # working and there is still one implementation.
 from .coverage import union_coverage as _union_coverage  # noqa: F401
 
+# Same reason again: the normalised score and its application-weight presets
+# moved to `panel_score` when the per-host background figures brought this
+# module back to its ceiling. `APPLICATION_WEIGHTS` is re-exported under the
+# name it had here.
+from .panel_score import APPLICATION_WEIGHTS, normalized_panel_score  # noqa: F401
+
 # Re-exported for the same reason and in the same shape: the selectivity
 # arithmetic moved to `selectivity` when this module reached its size ceiling.
 # Same objects, so every importer of these four names is unaffected.
@@ -232,47 +238,11 @@ class PrimerSetMetrics:
             "extension_reach": self.extension_reach,
         }
 
-    # Application-profile weights for POST-HOC scoring (Phase 14C).
-    # Different use cases weigh the component metrics differently:
-    # clinical applications favour selectivity and dimer safety over raw
-    # coverage, while metagenomics favours coverage above all.
-    APPLICATION_WEIGHTS = {
-        "balanced": {
-            "coverage_w": 0.35,
-            "selectivity_w": 0.30,
-            "dimer_w": 0.15,
-            "evenness_w": 0.10,
-            "tm_w": 0.10,
-        },
-        "discovery": {
-            "coverage_w": 0.50,
-            "selectivity_w": 0.15,
-            "dimer_w": 0.10,
-            "evenness_w": 0.15,
-            "tm_w": 0.10,
-        },
-        "clinical": {
-            "coverage_w": 0.20,
-            "selectivity_w": 0.45,
-            "dimer_w": 0.20,
-            "evenness_w": 0.10,
-            "tm_w": 0.05,
-        },
-        "enrichment": {
-            "coverage_w": 0.35,
-            "selectivity_w": 0.30,
-            "dimer_w": 0.15,
-            "evenness_w": 0.10,
-            "tm_w": 0.10,
-        },
-        "metagenomics": {
-            "coverage_w": 0.60,
-            "selectivity_w": 0.10,
-            "dimer_w": 0.10,
-            "evenness_w": 0.15,
-            "tm_w": 0.05,
-        },
-    }
+    # The weight presets and the arithmetic moved to `core/panel_score.py` on
+    # 2026-10-02, when the per-host background figures below would otherwise
+    # have pushed this module past its size ceiling. Re-exported here because
+    # `PrimerSetMetrics.APPLICATION_WEIGHTS` is the name callers use.
+    APPLICATION_WEIGHTS = APPLICATION_WEIGHTS
 
     def normalized_score(
         self,
@@ -283,84 +253,21 @@ class PrimerSetMetrics:
         tm_w: float = 0.10,
         application: str | None = None,
     ) -> float:
-        """Compute a [0,1] composite score from metrics.
+        """A [0,1] composite score, comparable across optimizers.
 
-        Provides a single comparable value regardless of which optimizer
-        produced the result.  All component metrics are clamped to [0,1]
-        before weighting.
-
-        Args:
-            coverage_w: Weight for foreground coverage (default 0.35).
-            selectivity_w: Weight for selectivity (default 0.30).
-            dimer_w: Weight for dimer safety (default 0.15).
-            evenness_w: Weight for gap evenness (default 0.10).
-            tm_w: Weight for Tm tightness (default 0.10).
-            application: If provided (one of 'balanced', 'discovery',
-                'clinical', 'enrichment', 'metagenomics'), overrides the
-                individual weight arguments with the preset for that use
-                case. See APPLICATION_WEIGHTS.
+        The arithmetic, the weight presets and the reason selectivity enters on
+        a log scale are in `core/panel_score.normalized_panel_score`. This
+        method is its only caller in the package and exists so the figure stays
+        reachable as `metrics.normalized_score()`.
         """
-        if application is not None:
-            weights = self.APPLICATION_WEIGHTS.get(application.lower())
-            if weights is not None:
-                coverage_w = weights["coverage_w"]
-                selectivity_w = weights["selectivity_w"]
-                dimer_w = weights["dimer_w"]
-                evenness_w = weights["evenness_w"]
-                tm_w = weights["tm_w"]
-        # Coverage: already [0,1].
-        #
-        # Prefer the occupancy-weighted figure when conditions were available to
-        # compute it. Selecting on the raw count rewards a set for reaching
-        # sites it does not occupy at the reaction temperature, and the bias is
-        # not uniform across candidates -- on Prevotella at equiphi29 42 C a
-        # 10-mer set reports 0.520 raw against 0.245 effective while a 12-mer
-        # set reports 0.403 against 0.387, so the two figures rank them in
-        # opposite orders. Optimizing the raw one also hides the coverage that
-        # additives cost, which is the lever this tool exists to use.
-        #
-        # Falls back to the raw figure when no conditions are attached, matching
-        # how `selectivity_mode` degrades: None means "not computed"; a computed zero remains zero.
-        cov = min(self.fg_coverage, 1.0)
-        if self.effective_fg_coverage is not None:
-            cov = min(self.effective_fg_coverage, 1.0)
-
-        # Selectivity, on a log scale.
-        #
-        # This was `min(ratio / 100, 1.0)`, calibrated when selectivity was a
-        # count of exact matches -- ratios routinely exceeded 100 and saturated
-        # the cap, so the term behaved as a near-binary "good enough".
-        # Occupancy weighting counts near-match background load too, so ratios
-        # now land around 5-15 on the bundled example, where the same linear
-        # form contributes 0.05-0.15 of its weight and the term is effectively
-        # ignored instead. Saturating and vanishing are the same failure at
-        # opposite ends.
-        #
-        # A ratio spanning orders of magnitude wants a log scale: a design at
-        # SELECTIVITY_REFERENCE scores 1.0, and the term stays responsive
-        # across everything below it rather than being decided in the first or
-        # last few percent of the range.
-        sel = 0.0
-        if self.selectivity_ratio > 0:
-            sel = math.log10(1.0 + self.selectivity_ratio) / math.log10(1.0 + SELECTIVITY_REFERENCE)
-            sel = max(0.0, min(sel, 1.0))
-
-        # Dimer safety: 1 - risk (lower risk is better)
-        dimer_safe = 1.0 - min(self.dimer_risk_score, 1.0)
-
-        # Evenness: 1 - Gini (lower Gini is more uniform)
-        even = 1.0 - min(self.gap_gini, 1.0)
-
-        # Tm tightness: narrow Tm spread is better
-        tm_spread = abs(self.tm_range[1] - self.tm_range[0]) if self.tm_range else 0.0
-        tm_tight = max(0.0, 1.0 - tm_spread / 20.0)  # 0C spread -> 1.0, 20C+ -> 0.0
-
-        return (
-            coverage_w * cov
-            + selectivity_w * sel
-            + dimer_w * dimer_safe
-            + evenness_w * even
-            + tm_w * tm_tight
+        return normalized_panel_score(
+            self,
+            coverage_w=coverage_w,
+            selectivity_w=selectivity_w,
+            dimer_w=dimer_w,
+            evenness_w=evenness_w,
+            tm_w=tm_w,
+            application=application,
         )
 
     @classmethod
