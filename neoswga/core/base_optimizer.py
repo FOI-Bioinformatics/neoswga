@@ -1245,9 +1245,7 @@ class BaseOptimizer(ABC):
         strand_alt_score, strand_cov_ratio = headline_strand_scalars(strand_stats, self.fg_prefixes)
         occupancy_by_primer = panel_occupancy(primers, self.conditions)
 
-        # Each host on its own length, from the per-prefix positions gathered
-        # above rather than a second pass over the cache. Reduced per limit in
-        # `per_host_metrics`; the pooled figures passed below are unchanged.
+        # Each host on its own length, from the positions gathered above.
         background = per_host_metrics.measure_background(
             self,
             primers,

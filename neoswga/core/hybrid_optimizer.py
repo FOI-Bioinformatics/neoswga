@@ -26,11 +26,12 @@ from dataclasses import replace as _dc_replace
 import networkx as nx
 import numpy as np
 
-from neoswga.core.background_aggregate import WORST_CASE, resolve_background_aggregate
+from neoswga.core.background_aggregate import SUM
 from neoswga.core.coverage_counter import CoverageCounter
 from neoswga.core.dominating_set_optimizer import DominatingSetOptimizer
 from neoswga.core.hybrid_thermo_screen import ThermoScreenMixin
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
+from neoswga.core.per_host_metrics import host_site_charge
 from neoswga.core.registry import POLYMERASES as _POLYMERASES
 from neoswga.core.selection_weights import (
     build_unread_network_optimizer,
@@ -295,6 +296,11 @@ class HybridOptimizer(ThermoScreenMixin):
     while maintaining good coverage.
     """
 
+    #: The host term's reading of "the background"; see
+    #: `_count_background_sites`. `sum`, the key's own default, and the two
+    #: `BaseOptimizer` wrappers assign what the run resolved.
+    background_aggregate: str = SUM
+
     def __init__(
         self,
         position_cache,
@@ -345,12 +351,6 @@ class HybridOptimizer(ThermoScreenMixin):
         swap_max_evaluations: int = 10000,
         swap_max_seconds: float = 10.0,
         stage1_objective_width: int | None = None,
-        # What "the background" means for the host term in `_prune_background`
-        # and `_network_refine`. Resolved by the caller through
-        # `background_aggregate.resolve_background_aggregate`, which is why this
-        # takes None rather than a literal default: a second default here could
-        # disagree with the key, which is Known Issue 8 one layer down.
-        background_aggregate: str | None = None,
     ):
         """
         Initialize hybrid optimizer.
@@ -396,10 +396,6 @@ class HybridOptimizer(ThermoScreenMixin):
         self.bg_seq_lengths = bg_seq_lengths or []
         self.bin_size = bin_size
         self.uniformity_weight = uniformity_weight
-        # Resolved through the one seam, never defaulted here. With nothing
-        # passed it answers from the `parameter` globals this step runs under,
-        # which is `sum` for a design that did not set the key.
-        self.background_aggregate = resolve_background_aggregate(background_aggregate)
 
         # Polymerase-aware configuration
         self.polymerase = polymerase
@@ -1435,54 +1431,22 @@ class HybridOptimizer(ThermoScreenMixin):
         return current_primers, final_coverage, final_bg_sites
 
     def _count_background_sites(self, primers: list[str]) -> int:
-        """The host load this run charges a primer set, in site-count units.
+        """The host load this run charges a panel, in site-count units.
 
-        Both background-aware stages rank on this: `_prune_background` scores
-        `background_weight * sites - coverage_loss * 1000`, and
-        `_network_refine` carries it as `bg_by_primer`. One function, so the two
-        cannot charge differently for the same host panel.
-
-        Under `background_aggregate: sum` this is the flat sum over hosts it has
-        always been -- every listed host present at once.
-
-        Under `worst-case` the panel faces ONE host and which one is not known,
-        so the charge is the worst host's. Site counts are not comparable across
-        hosts of different size, for the same reason `selectivity_ratio` is not
-        (Known Issue 6): with a 40 kb and a 1.72 Mb host pooled, a primer with
-        every site on the small one looks clean. So the worst host is chosen on
-        site DENSITY and the charge is that density carried back onto the pooled
-        length, which keeps the number in count units -- `background_weight` is
-        calibrated against a coverage term in those units and must not change
-        meaning -- and is EXACTLY the pooled sum when there is one host.
-
-        A host with no length cannot supply a density. Rather than drop it from
-        the maximum, which would report a worst case computed over the hosts
-        that happened to be measurable, the pooled sum is charged and the panel
-        is no better off than under `sum`.
+        Both background-aware stages rank on this. The reduction over hosts is
+        `per_host_metrics.host_site_charge`, documented there.
         """
         if not primers or not self.bg_prefixes:
             return 0
 
-        per_host: dict[str, int] = {prefix: 0 for prefix in self.bg_prefixes}
+        per_host = {prefix: 0 for prefix in self.bg_prefixes}
         for primer in primers:
             for bg_prefix in self.bg_prefixes:
                 fwd = self.position_cache.get_positions(bg_prefix, primer, "forward")
                 rev = self.position_cache.get_positions(bg_prefix, primer, "reverse")
                 per_host[bg_prefix] += len(fwd) + len(rev)
 
-        total_sites = sum(per_host.values())
-        if self.background_aggregate != WORST_CASE or len(self.bg_prefixes) < 2:
-            return total_sites
-
-        lengths = [int(value) for value in (self.bg_seq_lengths or [])]
-        pooled_length = sum(lengths)
-        if len(lengths) != len(self.bg_prefixes) or min(lengths, default=0) <= 0:
-            return total_sites
-        worst_density = max(
-            per_host[prefix] / length
-            for prefix, length in zip(self.bg_prefixes, lengths, strict=True)
-        )
-        return int(round(worst_density * pooled_length))
+        return host_site_charge(per_host, self.bg_seq_lengths, self.background_aggregate)
 
 
 # =============================================================================
@@ -1597,11 +1561,10 @@ class HybridBaseOptimizer(BaseOptimizer):
             swap_max_seconds=self.config.swap_max_seconds,
             stage1_objective_width=getattr(self.config, "stage1_objective_width", None),
             template_gc=kwargs.get("template_gc", 0.5),
-            # The value BaseOptimizer resolved, passed rather than resolved a
-            # second time: the inner optimizer must charge host sites under the
-            # same reading the metrics are measured under.
-            background_aggregate=self.background_aggregate,
         )
+        # What BaseOptimizer resolved, so the host term charges under the same
+        # reading the metrics are measured under.
+        self._hybrid.background_aggregate = self.background_aggregate
 
     @property
     def name(self) -> str:

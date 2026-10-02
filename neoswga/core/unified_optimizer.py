@@ -1061,16 +1061,8 @@ def run_optimization(
     search_budget = SearchBudget.from_config(config)
     kwargs["search_budget"] = search_budget
     kwargs["candidate_source"] = _candidate_source
-    # The resolved reading of "the background", passed EXPLICITLY to every
-    # optimizer this dispatch builds. `BaseOptimizer.__init__` used to carry a
-    # literal `worst-case` default for this argument while the params.json key
-    # defaults to `sum`, and nothing passed the argument -- so the opposite of
-    # the documented behaviour sat one layer below the key. Resolving here, once
-    # per run, is also what keeps a per-evaluation `parameter` read out of the
-    # metrics path. See `core/background_aggregate.py`.
-    kwargs["background_aggregate"] = resolve_background_aggregate(
-        getattr(parameter, "background_aggregate", None)
-    )
+    # Resolved once and passed EXPLICITLY; see `core/per_host_metrics.py`.
+    kwargs["background_aggregate"] = resolve_background_aggregate()
     result, optimizer = _dispatch_optimizer(
         method,
         cache,

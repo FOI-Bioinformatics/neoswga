@@ -64,6 +64,7 @@ __all__ = [
     "AGGREGATE_REDUCED",
     "BackgroundReading",
     "HostFigures",
+    "host_site_charge",
     "limit_figure",
     "measure_background",
 ]
@@ -185,6 +186,53 @@ def limit_figure(metrics: Any, metric: str) -> Any:
     if aggregate == WORST_CASE and metric in AGGREGATE_REDUCED:
         return getattr(metrics, AGGREGATE_REDUCED[metric], None)
     return getattr(metrics, metric, None)
+
+
+def host_site_charge(sites_by_prefix: dict[str, int], lengths: Any, aggregate: str | None) -> int:
+    """The host load a SEARCH charges a panel, in site-count units.
+
+    `hybrid_optimizer._count_background_sites` is the caller, and through it
+    both background-aware stages: `_prune_background`'s ranking and
+    `_network_refine`'s `bg_by_primer` weighting. The reduction lives here
+    rather than there so the stage that selects and the metrics that report
+    cannot disagree about what "the background" is -- the two halves of Known
+    Issue 14.
+
+    Under `sum` this is the flat sum over hosts it has always been: every listed
+    host present at once.
+
+    Under `worst-case` the panel faces ONE host and which one is not known in
+    advance, so the charge is the worst host's. Site counts are not comparable
+    across hosts of different size, for the reason `selectivity_ratio` is not
+    (Known Issue 6): with a 40 kb and a 1.72 Mb host listed, a primer with every
+    one of its sites on the small host still looks clean against the pool. So
+    the worst host is chosen on site DENSITY, and the charge is that density
+    carried back onto the pooled length.
+
+    Returning it in count units is deliberate. `background_weight` scales this
+    term against a coverage term measured in bins, and it was calibrated with
+    counts on this side; changing the unit would silently retune the trade-off
+    the flag is named for. Carrying the density back onto the pooled length also
+    makes the one-host case EXACTLY the pooled sum, so `worst-case` and `sum`
+    agree on a single host rather than nearly agreeing.
+
+    A host with no positive length cannot supply a density, and a maximum taken
+    over the hosts that happened to have one is not a worst case. The pooled sum
+    is charged instead, which leaves the panel no better off than under `sum`.
+    """
+    prefixes = list(sites_by_prefix)
+    total = sum(int(value) for value in sites_by_prefix.values())
+    if resolve_background_aggregate(aggregate) != WORST_CASE or len(prefixes) < 2:
+        return total
+
+    sizes = [int(value) for value in (lengths or [])]
+    if len(sizes) != len(prefixes) or min(sizes, default=0) <= 0:
+        return total
+    worst = max(
+        int(sites_by_prefix[prefix]) / length
+        for prefix, length in zip(prefixes, sizes, strict=True)
+    )
+    return int(round(worst * sum(sizes)))
 
 
 def measure_background(
