@@ -150,7 +150,10 @@ def test_dispatch_attaches_contract_before_selection_and_refines(monkeypatch):
     monkeypatch.setattr(
         unified,
         "constraints_from_parameter",
-        lambda source: PoolConstraints(min_selectivity_density=10),
+        # `flags` since 2026-10-02: `min_per_target_coverage` is the one panel
+        # limit with a CLI flag, so the run's kwargs are consulted before the
+        # params.json globals.
+        lambda source, flags=None: PoolConstraints(min_selectivity_density=10),
     )
     delivered, evaluator = unified._dispatch_optimizer(
         "hybrid",
