@@ -632,25 +632,33 @@ def run_design(args):
     check_jellyfish_available()
     logger.info("Running complete primer design pipeline")
 
-    # Check for multi-genome mode
-    if hasattr(args, "multi_genome") and args.multi_genome:
-        logger.info(f"Multi-genome mode enabled for {len(args.multi_genome)} genomes")
-        from neoswga.core import multi_genome_pipeline
-
-        try:
-            results = multi_genome_pipeline.design_pan_genome_primers(
-                genome_paths=args.multi_genome,
-                min_coverage=args.min_coverage,
-                output_dir=getattr(args, "output", "./multi_genome_output"),
-            )
-            logger.info(f"Pan-genome design complete! Designed {len(results['primers'])} primers")
-            return
-        except Exception as e:
-            logger.error(f"Multi-genome pipeline failed: {e}")
-            import traceback
-
-            traceback.print_exc()
-            sys.exit(1)
+    # `--multi-genome` called `multi_genome_pipeline.design_pan_genome_primers`,
+    # which has never existed in this package: the call site was its only
+    # occurrence. Run on 2026-10-02 against the bundled plasmid example, the
+    # flag printed an AttributeError traceback and exited 1, after the handler
+    # had already logged "Multi-genome mode enabled for 2 genomes".
+    #
+    # It is a refusal rather than a repair because the supported route exists and
+    # is the one the four steps implement: several foreground genomes in
+    # params.json, aggregated as `core/filter.py` aggregates them (counts summed
+    # over summed length) and reported per target by `optimize`. Building a
+    # second pan-genome path on `multi_genome_pipeline` would aggregate
+    # differently again -- it takes the mean over targets and the maximum over
+    # backgrounds, reads no params.json, and reaches no optimizer or position
+    # cache.
+    if getattr(args, "multi_genome", None):
+        logger.error(
+            "`design --multi-genome` is not implemented: it called a pan-genome "
+            "entry point that does not exist in this package, and it never ran.\n"
+            "The supported route for several target genomes is params.json:\n"
+            '    "fg_genomes": [%s]\n'
+            "with one `fg_prefixes` entry per genome. Then run `neoswga design "
+            "-j params.json`; `optimize` reports `per_target_coverage` for each "
+            "target separately, and `neoswga evaluate-set --from-results DIR` "
+            "measures a delivered set against each target and host on its own.",
+            ", ".join(repr(str(path)) for path in args.multi_genome),
+        )
+        sys.exit(1)
 
     # Determine which steps to run
     start_step = getattr(args, "start_from", None) or 1
@@ -778,18 +786,17 @@ def _add_design_parser(subparsers):
     )
     add_common_options(design_parser)
 
-    # Multi-genome option (merges multi-genome)
+    # Kept only so the refusal can name the supported route; see `run_design`.
+    # `--min-coverage` went with it: it fed the same absent entry point and
+    # nothing else on this path ever read it, so it is gone rather than accepted
+    # and ignored (Known Issue 8).
     design_parser.add_argument(
         "--multi-genome",
         nargs="+",
         metavar="GENOME",
-        help="Design pan-genome primers for multiple target genomes",
-    )
-    design_parser.add_argument(
-        "--min-coverage",
-        type=float,
-        default=0.8,
-        help="Minimum fraction of genomes to cover (default: 0.8)",
+        help="Not implemented; refuses and names the supported route. Several "
+        "target genomes go in params.json as fg_genomes with one fg_prefixes "
+        "entry each.",
     )
 
     # Step control

@@ -113,6 +113,29 @@ what follows is only what the filenames do not tell you.
   ANSWER for a primer on a prefix, which is not the same question as whether
   that answer is non-zero; `require_entries` is the one rule both the inventory
   provider and a `--candidates` list check a batch against.
+- **`reference_panel_evaluation.py`**: one record per reference genome, plus the
+  target-against-host cross table and two reductions, for `evaluate-set`. Added
+  2026-10-02 (Phase 2 of the genomic-diversity plan) because every figure the
+  pipeline reports over several references is pooled: a primer frequent in one
+  strain and absent from another passes the foreground gate like one present in
+  both, and a host that is a small share of the summed background bases is
+  invisible in `selectivity_ratio` (Known Issue 6, in a second place). Nothing
+  here scores, constrains or defines a threshold, and no design stage reads it.
+  Each quantity is a `panel_evaluation.Measurement`, so an unmeasured reference
+  is `None` with a reason rather than a 0.0 that reads as a clean host, and
+  `worst_target_coverage` / `worst_host_selectivity_density` are `None` whenever
+  any member is unmeasured -- `host_profile.aggregate_loads` returning 0.0 for
+  an empty list is the shape deliberately not copied. Sites come from one of two
+  routes and the record says which: `positions` (the index, plus a scan where
+  the caller allows it) also yields coverage and gaps, `counts`
+  (`kmer_tables.counts_for`, falling back to `query_scan`) yields sites alone and
+  reports the positional figures as unavailable WITH that reason. The two agree
+  on the site count, verified on the prepared Wolbachia design: 10 candidates
+  gave 50 Drosophila sites by the design's own index and 50 by a single pass over
+  the 144 Mb FASTA with no table
+  (`tests/test_a_host_by_path_agrees_with_the_designs_own_host.py`). A reference
+  with length 0 -- an empty or unreadable FASTA -- is unmeasured rather than
+  empty, because its length is the denominator of every figure.
 - **`gpu_acceleration.py`**: CuPy-based thermodynamics helpers. Not reached by
   any pipeline stage, and `--use-gpu` says so rather than claiming otherwise.
   `batch_binding_probability` is vectorised; `batch_calculate_tm` loops in
@@ -419,6 +442,58 @@ neoswga validate --smoke -j params.json  # Check a config: schema, unknown keys,
 neoswga build-filter --genome genome.fna -o ./  # Bloom filter for a large background
 neoswga show-presets                # Show reaction condition presets
 ```
+
+### `evaluate-set` against several references
+
+```bash
+neoswga evaluate-set --from-results results/ --set 0 --genome target.fna \
+    --background host1.fna host2.fna [--scan-background] -o eval/
+```
+
+Three additions of 2026-10-02, all after the fact: no design code changed.
+
+- `--background FASTA...` takes hosts by path. Before it, the background came
+  only from `parameter.bg_prefixes` / `bg_genomes`, so no command could score a
+  delivered set against a host that was not in the design. The bookkeeping is
+  `cli/_common.background_references_from_genomes`, a sibling of
+  `bootstrap_params_from_genome` that deliberately does NOT write to the
+  `parameter` module: a host supplied for evaluation is not a host the design
+  used, and the pooled fields read those globals. Prefix and genome travel
+  together to `kmer_tables.counts_for`, which is that function's stated
+  requirement.
+- `--from-results DIR` with `--set N` reads one delivered set through
+  `delivered_set.read_delivered_set`, the reader `export`, `interpret`, `report`
+  and `simulate` use. It refuses to be combined with `--primers`.
+- `evaluation.json` gains `per_target`, `per_host`, `target_host_pairs`,
+  `worst_target_coverage`, `worst_host_selectivity_density` and
+  `per_reference_notes`. Every field it carried keeps its name and its
+  arithmetic: with no `--background` the pooled figures are computed by the code
+  that always computed them, which
+  `tests/cli/test_evaluate_set.py::test_the_new_blocks_do_not_change_a_run_without_them`
+  pins. With hosts given by path and none configured, the pooled host fields have
+  a measurement where they previously had None, and they are withheld (None)
+  whenever any of those hosts could not be measured.
+
+Cost: a counted host needs no table and no memory beyond the scan;
+`--scan-background` locates the sites instead, which measures host coverage and
+holds the reference in memory (332 MB on a 144 Mb reference, 2.3 GB on hg38 --
+`docs/validation/query_scan_2026-09-25.md`). Counting is the default for that
+reason, and a counted host's coverage is unavailable with that reason rather than
+zero.
+
+`rescore-set` lost its hand-rolled copy of the per-prefix coverage loop at the
+same time (`cli/iterate.py`): it caught a bare `Exception` per primer and
+reported 0.0, which is the silent-zero defect, and it ignored record starts and
+the circular flag. It now calls `coverage.compute_per_prefix_coverage` and emits
+the same field names.
+
+`design --multi-genome` now refuses. It called
+`multi_genome_pipeline.design_pan_genome_primers`, which has never existed in
+this package; run on 2026-10-02 it logged "Multi-genome mode enabled for 2
+genomes" and then printed an `AttributeError` traceback and exited 1. The refusal
+names the supported route (`fg_genomes` in params.json, one `fg_prefixes` entry
+each). `design --min-coverage` went with it: it fed the same absent entry point
+and nothing else on that path read it.
 
 `--smoke` takes about 4 s against the packaged plasmid pair and exits non-zero
 when the configuration would fail, so it is usable in CI. It resolves the genome

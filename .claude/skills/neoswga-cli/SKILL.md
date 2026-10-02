@@ -139,6 +139,10 @@ neoswga expand-primers -j params.json --fixed-primers SEQ1 SEQ2 \
 # Coverage, gaps and dimers for any oligo set; --genome lets -j be omitted
 neoswga evaluate-set --primers SEQ1 SEQ2 --genome target.fna -o eval/
 
+# Score a delivered set against hosts that were never in the design
+neoswga evaluate-set --from-results results/ --set 0 --genome target.fna \
+    --background host1.fna host2.fna -o eval/
+
 # Replace under-performing primers from a candidate pool (default: step2_df.csv)
 neoswga swap-primer -j params.json --primers SEQ1 SEQ2 --max-swaps 3 -o swaps.json
 
@@ -158,6 +162,26 @@ neoswga calibrate-reach -j params.json --primers SEQ1 SEQ2 --bam reads.bam -o re
 - `calibrate-reach` cannot describe a multi-record reference and says so. It
   has not been run against measured sequencing depth in this repository.
 - The GPU flags on `evaluate-set` are accepted and change nothing.
+- `evaluate-set --background FASTA...` takes hosts by path, with no params.json
+  entry; `--from-results DIR` reads one delivered set (`--set N`, default 0)
+  instead of `--primers`. `evaluation.json` then carries `per_target` and
+  `per_host` blocks, a `target_host_pairs` table and the two reductions
+  `worst_target_coverage` and `worst_host_selectivity_density`. Every field it
+  carried before keeps its name and its arithmetic.
+- Host sites come from k-mer counts, which is a table lookup where one exists
+  and a single pass over the reference otherwise. `--scan-background` locates
+  them instead, which also measures host coverage and holds the host in memory:
+  332 MB on a 144 Mb reference, 2.3 GB on hg38
+  (`docs/validation/query_scan_2026-09-25.md`). Without it, a counted host
+  reports its coverage as unavailable WITH that reason rather than as zero.
+- A reduction over a set with one unmeasured member is `None`, not the worst of
+  the rest, and the reason says which member was missing. Compare
+  `selectivity_density` across hosts of different size, never
+  `selectivity_ratio` (Known Issue 6).
+- `design --multi-genome` refuses: it called a pan-genome entry point that has
+  never existed in this package. Several targets go in params.json as
+  `fg_genomes` with one `fg_prefixes` entry each. `--min-coverage` was removed
+  from `design` with it; it fed the same absent code.
 
 ## Pool planning, export and diagnostics
 

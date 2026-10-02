@@ -722,7 +722,10 @@ def run_rescore_set(args):
     # multi-target user can see uneven distribution.
     coverage_block: dict = {}
     try:
-        from neoswga.core.coverage import polymerase_extension_reach
+        from neoswga.core.coverage import (
+            compute_per_prefix_coverage,
+            polymerase_extension_reach,
+        )
         from neoswga.core.position_cache import PositionCache
 
         # Realistic per-primer reach, matching how the optimizer scores
@@ -737,37 +740,31 @@ def run_rescore_set(args):
         all_prefixes = fg_prefixes + bg_prefixes
         cache = PositionCache(all_prefixes, primers) if all_prefixes else None
 
-        def _coverage_across(prefix_list, length_list):
+        # One implementation of the per-prefix loop, not two. The copy that
+        # stood here caught a bare `Exception` per primer and carried on, so a
+        # cache failure -- including the HDF5 and I/O errors
+        # `compute_per_prefix_coverage` deliberately lets through -- became a
+        # confident 0.0 coverage. It also ignored record starts and the circular
+        # flag, so a window crossing a record join covered bases no polymerase
+        # reaches. The emitted field names are unchanged.
+        def _coverage_across(prefix_list, length_list, circular):
             if not prefix_list or not length_list or cache is None:
                 return 0.0, {}
-            import numpy as _np
+            return compute_per_prefix_coverage(
+                cache,
+                primers,
+                prefix_list,
+                length_list,
+                extension=extension,
+                circular=circular,
+            )
 
-            per_prefix: dict = {}
-            total_cov = 0
-            total_len = 0
-            for prefix, length in zip(prefix_list, length_list, strict=True):
-                if length <= 0:
-                    per_prefix[prefix] = 0.0
-                    continue
-                occupied = _np.zeros(length, dtype=bool)
-                for primer in primers:
-                    try:
-                        positions = cache.get_positions(prefix, primer, "both")
-                    except Exception:
-                        continue
-                    for pos in positions:
-                        start = max(0, int(pos) - extension)
-                        end = min(length, int(pos) + extension)
-                        occupied[start:end] = True
-                covered = int(occupied.sum())
-                per_prefix[prefix] = covered / length if length else 0.0
-                total_cov += covered
-                total_len += length
-            agg = total_cov / total_len if total_len else 0.0
-            return agg, per_prefix
-
-        fg_cov, fg_per_target = _coverage_across(fg_prefixes, fg_lengths)
-        bg_cov, bg_per_prefix = _coverage_across(bg_prefixes, bg_lengths)
+        fg_cov, fg_per_target = _coverage_across(
+            fg_prefixes, fg_lengths, bool(getattr(parameter, "fg_circular", False))
+        )
+        bg_cov, bg_per_prefix = _coverage_across(
+            bg_prefixes, bg_lengths, bool(getattr(parameter, "bg_circular", False))
+        )
 
         coverage_block = {
             "fg_coverage": float(fg_cov),
