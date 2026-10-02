@@ -337,6 +337,46 @@ class TestTheEvaluatorProducesTheFigure:
 
         assert metrics.worst_target_coverage == pytest.approx(metrics.fg_coverage)
 
+    def test_the_html_report_shows_it_and_says_it_is_a_minimum(self):
+        """Review finding F6: the report rendered the per-target dict and not
+        the figure the limit is read against, leaving a reader to take the
+        minimum themselves. A reduction over several measurements has to say
+        that it is one."""
+        from neoswga.core.report.technical_report import _render_per_target_coverage
+
+        html = _render_per_target_coverage({"a": 0.9, "b": 0.42}, 0.42)
+
+        assert "worst_target_coverage" in html
+        assert "42.0%" in html
+        assert "MINIMUM" in html
+        assert "confined" in html
+
+    def test_the_html_report_says_not_measured_rather_than_a_number(self):
+        """0.0 there would read as a starved target rather than as an absent
+        measurement, which is the defect this whole step is built around."""
+        from neoswga.core.report.technical_report import _render_per_target_coverage
+
+        html = _render_per_target_coverage({"a": 0.9, "b": 0.42}, None)
+        worst_row = html.split("worst_target_coverage</strong>")[1].split("</tr>")[0]
+
+        assert "not measured" in worst_row
+        assert "%" not in worst_row
+
+    def test_the_report_metrics_do_not_default_the_figure_to_zero(self):
+        """A summary written before the field existed must not read as a panel
+        that reaches one target nowhere."""
+        from neoswga.core.report.metrics import CoverageMetrics
+
+        assert CoverageMetrics().worst_target_coverage is None
+
+    def test_the_module_is_watched_for_unreachability(self):
+        """Review finding F8. Two of its four public names are reached from one
+        call site each, behind a limit that is off by default, so a default run
+        would notice nothing if either became orphaned."""
+        from tests.test_no_capability_is_unreachable import WATCHED
+
+        assert "core/target_coverage.py" in WATCHED
+
     def test_the_summary_json_carries_it(self):
         """`step4_improved_df_summary.json` is what the report reads."""
         metrics = _two_target_optimizer().compute_metrics([*A_PRIMERS, B_PRIMER])
