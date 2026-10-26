@@ -224,6 +224,28 @@ class TestEdgeCases:
         # Very high GC needs SSB
         assert rec.ssb is True
 
+    def test_an_ssb_recommendation_says_the_design_model_does_not_use_it(self):
+        """The SSB recommendation carries its caveat.
+
+        `include_ssb` defaults True and the CLI does not override it, so this
+        recommendation fires by default for GC>0.55. SSB moves no melting
+        temperature, is not in the evidence map, and its only modelled consumer
+        is the mechanistic term the default `hybrid` method does not read -- so
+        following the recommendation changes no delivered panel on a default
+        run. The output has to say so; this pins that it does, in both the
+        summary and the rationale, so the honesty note cannot silently regress.
+        `docs/validation/2026-10-26-suggested-additives-reach-design.md`.
+        """
+        optimizer = AdditiveOptimizer(polymerase="phi29")
+        rec = optimizer.optimize(primer_length=10, template_gc=0.75)
+        assert rec.ssb is True
+
+        summary = rec.summary().lower()
+        assert "ssb" in summary
+        assert "design model does not use ssb" in summary
+        assert "mechanistic" in summary
+        assert "design model does not use it" in rec.rationale.lower()
+
     def test_very_short_primers(self):
         """Test with very short primers."""
         optimizer = AdditiveOptimizer(polymerase="phi29")

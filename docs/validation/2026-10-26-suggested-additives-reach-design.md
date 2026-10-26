@@ -133,9 +133,14 @@ driven through the real refusal path.
 - Reconcile glycerol: drop it from the optimizer grid and recommendation, or
   give it a duplex model with evidence. A decision, because removing it changes
   what the optimizer proposes.
-- Make the SSB recommendation honest: either gate "SSB: Yes" behind a note that
-  the design model does not use it on the default method, or stop defaulting
-  `include_ssb` on. A decision for the same reason.
+- ~~Make the SSB recommendation honest: either gate "SSB: Yes" behind a note
+  that the design model does not use it on the default method, or stop
+  defaulting `include_ssb` on.~~ **Done (the note).** The recommendation summary
+  and rationale now state that the design model does not use SSB and that it
+  changes a panel only under `--optimization-method=network` with a mechanistic
+  weight; `tests/test_additive_optimizer.py` pins it. Whether to also stop
+  defaulting `include_ssb` on is left open, since that changes what the
+  optimizer recommends rather than only how it is explained.
 - Both are instances of the chemistry audit's gap that the suggesters and the
   design accept different additive sets; this record is the per-additive
   evidence for that gap.

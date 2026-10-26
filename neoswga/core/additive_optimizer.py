@@ -150,7 +150,13 @@ class AdditiveRecommendation:
             lines.append(f"  Glycerol: {self.glycerol_percent:.1f}%")
         lines.append(f"  Mg2+: {self.mg_conc:.1f} mM")
         if self.ssb:
-            lines.append("  SSB: Yes (recommended)")
+            lines.append("  SSB: Yes (recommended for the reaction)")
+            lines.append("       note: this tool's design model does not use SSB. It has")
+            lines.append("       no melting-temperature term, so it does not reach the")
+            lines.append("       candidate gate or the occupancy scoring the default")
+            lines.append("       `hybrid` method selects on. It changes a delivered panel")
+            lines.append("       only under --optimization-method=network with a")
+            lines.append("       mechanistic weight (--use-mechanistic-model).")
 
         lines.extend(
             [
@@ -517,23 +523,25 @@ class AdditiveOptimizer:
         if dmso > 0:
             rationale_parts.append(
                 f"DMSO at {dmso:.0f}% helps melt secondary structure "
-                f"(accessibility +{(effects.accessibility_factor-0.5)*100:.0f}%)"
+                f"(accessibility +{(effects.accessibility_factor - 0.5) * 100:.0f}%)"
             )
         if betaine > 0:
             rationale_parts.append(
-                f"Betaine at {betaine:.1f}M normalizes GC effects and " f"stabilizes enzyme"
+                f"Betaine at {betaine:.1f}M normalizes GC effects and stabilizes enzyme"
             )
         if trehalose > 0:
             rationale_parts.append(
-                f"Trehalose at {trehalose:.2f}M provides additional " f"enzyme stabilization"
+                f"Trehalose at {trehalose:.2f}M provides additional enzyme stabilization"
             )
         if template_gc > 0.55:
             rationale_parts.append(
-                f"High-GC template ({template_gc:.0%}) benefits from " f"GC-normalizing additives"
+                f"High-GC template ({template_gc:.0%}) benefits from GC-normalizing additives"
             )
         if ssb:
             rationale_parts.append(
-                "SSB recommended for high-GC templates to maintain " "single-stranded regions"
+                "SSB is suggested for high-GC templates to maintain "
+                "single-stranded regions, but the design model does not use it "
+                "on the default method (see the note beside the recommendation)"
             )
 
         rationale = (
