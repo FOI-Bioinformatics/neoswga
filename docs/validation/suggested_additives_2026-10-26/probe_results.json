@@ -1,0 +1,121 @@
+[
+  {
+    "additive": "dmso_percent",
+    "suggested_by": [
+      "suggester",
+      "optimizer"
+    ],
+    "tm_delta_c": 2.7926,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "estimated"
+  },
+  {
+    "additive": "betaine_m",
+    "suggested_by": [
+      "suggester",
+      "optimizer"
+    ],
+    "tm_delta_c": 1.9826,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "estimated"
+  },
+  {
+    "additive": "trehalose_m",
+    "suggested_by": [
+      "suggester",
+      "optimizer"
+    ],
+    "tm_delta_c": 1.8167,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "estimated"
+  },
+  {
+    "additive": "formamide_percent",
+    "suggested_by": [
+      "optimizer"
+    ],
+    "tm_delta_c": 1.3242,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "measured"
+  },
+  {
+    "additive": "glycerol_percent",
+    "suggested_by": [
+      "optimizer"
+    ],
+    "tm_delta_c": 0.0,
+    "moves_tm": "False",
+    "design_outcome": "refused: UnsupportedModelError",
+    "evidence_status": "absent"
+  },
+  {
+    "additive": "ethanol_percent",
+    "suggested_by": [],
+    "tm_delta_c": 1.2164,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "estimated"
+  },
+  {
+    "additive": "urea_m",
+    "suggested_by": [],
+    "tm_delta_c": 1.3905,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "measured"
+  },
+  {
+    "additive": "tmac_m",
+    "suggested_by": [],
+    "tm_delta_c": 0.0918,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "estimated"
+  },
+  {
+    "additive": "propanediol_m",
+    "suggested_by": [],
+    "tm_delta_c": 5.4669,
+    "moves_tm": "True",
+    "design_outcome": "accepted",
+    "evidence_status": "empirical"
+  },
+  {
+    "additive": "bsa_ug_ml",
+    "suggested_by": [],
+    "tm_delta_c": 0.0,
+    "moves_tm": "False",
+    "design_outcome": "accepted",
+    "evidence_status": "assumed"
+  },
+  {
+    "additive": "peg_percent",
+    "suggested_by": [],
+    "tm_delta_c": 0.0,
+    "moves_tm": "False",
+    "design_outcome": "accepted",
+    "evidence_status": "assumed"
+  },
+  {
+    "additive": "dtt_mm",
+    "suggested_by": [],
+    "tm_delta_c": 0.0,
+    "moves_tm": "False",
+    "design_outcome": "accepted, never checked",
+    "evidence_status": null
+  },
+  {
+    "additive": "ssb",
+    "suggested_by": [
+      "optimizer"
+    ],
+    "tm_delta_c": 0.0,
+    "moves_tm": "False",
+    "design_outcome": "accepted, never checked",
+    "evidence_status": null
+  }
+]
