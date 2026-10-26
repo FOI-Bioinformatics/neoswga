@@ -169,7 +169,9 @@ measurements: implementation-notes.md.
   A design that sets glycerol is refused: nothing computes its Tm effect.
 - **Selection**: `num_primers`/`target_set_size` (6), `max_dimer_bp` (3,
   maximum 7), `allow_dimer_relaxation` (false), `max_dimer_dg` (unset; can only
-  tighten the screen), `max_sets` (5), `iterations` (8; bounds the search for
+  tighten the screen — consulted only for pairs the base-pair screen already
+  cleared, and evaluated at the REACTION temperature, not 37 C. Every method
+  honours it; `clique` only since 2026-10-26), `max_sets` (5), `iterations` (8; bounds the search for
   alternatives, not the primary selection), `coverage_metric`,
   `min_per_target_coverage` (checked and reported, not repaired).
 - **Mismatch weighting**: `mismatch_penalty` (4.0 C, uniform) and
@@ -331,7 +333,8 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 8. **Inert options**: declared, documented, read by nothing. Found repeatedly,
    in flags, schema keys, capabilities, arguments, and (2026-10-26) in the
    wrapper/inner seam where an adapter drops a config value before the engine
-   that decides. `clique` reading no `max_dimer_dg` is the open one.
+   that decides, and in one method ignoring a base-config key every other
+   method honoured (`clique` read no `max_dimer_dg`).
 9. **Evenness needs sites**: Gini is NaN below `min_gini_sites`.
 10. **The candidate loader** uses the same Tm as the gate.
 11. **Near-duplicate primers**: the redundancy threshold exists and is disabled

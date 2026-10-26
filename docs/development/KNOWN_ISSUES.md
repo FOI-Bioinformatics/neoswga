@@ -358,12 +358,22 @@ package, because nothing in the search uses it.
    repeating when a wrapper gains a parameter: diff the inner's constructor
    parameters against what the adapter passes or sets.**
 
-   Still open from the same sweep, and not a forwarding bug: `clique_optimizer`
-   reads no `max_dimer_dg` at all (zero occurrences; `CliqueOptimizerConfig` has
-   no such field), so the method advertised as the only one guaranteeing no
-   dimerising pair applies no free-energy floor. Honouring it means giving
-   clique a second screen path and changing what its enumeration guarantee
-   covers, so it is a design decision, not a repair.
+   **Also from the same sweep, and not a forwarding bug: `clique` applied no
+   free-energy floor.** `clique_optimizer` read `max_dimer_dg` nowhere at all
+   (zero occurrences; `CliqueOptimizerConfig` has no such field), so the method
+   advertised as the only one guaranteeing no dimerising pair screened on base
+   pairs alone. All three of its heterodimer questions -- graph edges, the fixed
+   pair check, and the fixed-compatibility filter -- went through
+   `is_dimer_fast`. Fixed on 2026-10-26: one pair test
+   (`CliqueOptimizer._heterodimer_test`) answers all three, routed through
+   `lazy_dimer.dimer_screen`, with the floor consulted only for pairs the
+   base-pair screen already cleared, which is what keeps it purely additive. The
+   temperature is the reaction's, read off `conditions` -- the lesson of the two
+   fixes above. Nothing moves by default (`max_dimer_dg` ships unset) and a
+   control test pins that the same candidate is still delivered with no floor;
+   a monotonicity test pins that a floor only ever removes edges. Clique's
+   guarantee is now strictly stronger rather than differently scoped.
+   `docs/validation/2026-10-26-clique-applied-no-free-energy-floor.md`.
 
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when
