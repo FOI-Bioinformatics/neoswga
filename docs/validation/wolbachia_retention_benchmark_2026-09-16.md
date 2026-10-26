@@ -1,7 +1,7 @@
 # Candidate retention on the Wolbachia/Drosophila pair
 
 Measured 2026-09-16. Plan steps 249 and 250 of
-`docs/superpowers/plans/2026-09-15-condition-aware-pool-design.md`.
+the condition-aware pool design plan (2026-09).
 
 Reproduce with `scripts/benchmarking/wolbachia_retention_benchmark.py` from the
 repository root. Raw numbers are in

@@ -1,7 +1,7 @@
 # Where a plan-pool run spends its time
 
 Measured 2026-09-16. Plan step 204 of
-`docs/superpowers/plans/2026-09-15-condition-aware-pool-design.md`, which asks
+the condition-aware pool design plan (2026-09), which asks
 for incremental interval and occupancy updates only where profiling warrants
 them. This is the profile, and what it warranted.
 

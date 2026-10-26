@@ -1,7 +1,7 @@
 # The search budget changes the panel
 
 Measured 2026-09-16. The second half of plan step 249 of
-`docs/superpowers/plans/2026-09-15-condition-aware-pool-design.md`, which asks
+the condition-aware pool design plan (2026-09), which asks
 for designs compared at equal documented search budgets and for runs allowed to
 spend more time.
 

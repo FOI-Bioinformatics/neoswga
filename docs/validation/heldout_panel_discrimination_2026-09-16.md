@@ -1,7 +1,7 @@
 # Do the optimised quantities separate effective panels from the rest?
 
 Measured 2026-09-16. Plan step 252 of
-`docs/superpowers/plans/2026-09-15-condition-aware-pool-design.md`, which asks
+the condition-aware pool design plan (2026-09), which asks
 for a held-out assessment against simple baselines, held out by panel or study
 rather than by splitting sites within one experiment, with negative results
 reported.

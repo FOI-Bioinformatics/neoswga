@@ -29,6 +29,8 @@ docs/
   migrations/                # version-upgrade guides
   reference/                 # API, module and architecture reference
   development/               # contributing to NeoSWGA itself
+  design/                    # design contracts and the comparative-improvement plan
+  superpowers/               # historical implementation plans and specs (checkbox-tracked)
   reports/                   # point-in-time audits, SWOT, tech-debt -- still cited, not superseded
   validation/                # measurement records backing specific claims/defaults
   archive/                   # historical/superseded documents, kept for the record
@@ -110,6 +112,21 @@ Python files on 2026-10-01), so the uncovered share is larger now. See
 [Implementation notes](development/implementation-notes.md) for what
 actually ships.
 
+## Design and planning
+
+Specifications and implementation plans, point-in-time like the reports below.
+The `design/` documents state intent; the `superpowers/` plans are
+checkbox-tracked execution plans, and the April 2026 "phase" plans are
+historical (the work they tracked has since landed or been superseded).
+
+| Document | Description |
+|----------|-------------|
+| [Valid design contract](design/2026-09-21-valid-design-contract.md) | 2026-09. The requirements a design run must satisfy; supersedes earlier behaviour-preservation requirements |
+| [Comparative improvement plan](design/2026-09-22-swga-leadership-plan.md) | 2026-09. Prioritized follow-up to the valid-design work, keyed to the [comparative review](validation/2026-09-22-swga-comparative-review.md) |
+| [Valid design without silent fallbacks](superpowers/plans/2026-09-21-valid-design-no-fallbacks.md) | 2026-09. Execution plan behind the valid-design contract |
+| [Optimizer-quality plan](superpowers/plans/2026-04-20-phase-11-onwards-optimizer-quality.md) | 2026-04. Historical. Primer-set optimization quality |
+| [Phase 0: stop the bleeding](superpowers/plans/2026-04-19-phase-0-stop-the-bleeding.md) | 2026-04. Historical. Earliest production-readiness plan, with its [design spec](superpowers/specs/2026-04-19-phase-0-stop-the-bleeding-design.md) and [production-readiness roadmap](superpowers/specs/2026-04-19-production-readiness-roadmap.md) |
+
 ## Reports (audits, SWOT, technical debt)
 
 Point-in-time analysis documents. They are not superseded by being old: the
@@ -120,12 +137,15 @@ F1b) directly.
 
 | Document | Description |
 |----------|-------------|
+| [Chemistry in pool design](reports/AUDIT_2026-10-26_chemistry_in_pool_design.md) | 2026-10. Audit/gap/SWOT of how the enzyme, temperature, buffer and additives reach pool SELECTION. Probe scripts in `reports/chemistry_audit_2026-10-26/`. |
 | [Four-step pipeline audit](reports/AUDIT_pipeline_four_steps_2026-09-06.md) | 2026-09. count-kmers through optimize, measured on three whole-genome designs. Defines findings B4, B5, A6 and E6. |
 | [Optimize-step audit](reports/AUDIT_optimize_step_2026-09-03.md) | 2026-09. Step 4 in depth. Defines findings F0 and F1b. |
 | [EquiPhi29 panel audit](reports/AUDIT_equiphi29_panel_2026-09-03.md) | 2026-09. Dimer content and Tm window of the delivered panels |
 | [Alternatives and scaling audit](reports/AUDIT_2026-08_alternatives_and_scaling.md) | 2026-08. Optimizer scaling, option reachability, and oligo-set quality against an exact optimum |
 | [SWOT: pipeline as workflow](reports/SWOT_2026-08_pipeline_as_workflow.md) | 2026-08. Strengths/weaknesses/opportunities/threats of the four-step pipeline |
 | [Audit completion plan](reports/PLAN_2026-08_audit_completion.md) | 2026-08. Plan for closing out the alternatives-and-scaling audit findings |
+| [Additives and coverage remediation plan](reports/PLAN_2026-09-14_additives_and_coverage.md) | 2026-09. Five-phase plan against the [additives/coverage audit](validation/additives_coverage_audit_2026-09-14/README.md) |
+| [Gap analysis](reports/GAP_ANALYSIS_2026-09-14.md) | 2026-09. Snapshot of measured gaps against `main`, each with the command or file:line behind it |
 | [Technical debt assessment](reports/TECH_DEBT_2026-09.md) | 2026-09. Structural debt (config architecture, complexity concentration, dead code), complementary to the alternatives-and-scaling audit |
 
 Ten point-in-time reports from 2026-03 and 2026-04 were removed on 2026-09-11:
