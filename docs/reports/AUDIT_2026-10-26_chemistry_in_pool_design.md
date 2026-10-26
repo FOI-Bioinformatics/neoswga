@@ -9,13 +9,16 @@ additives and temperature taken into account during design".
 **Tree:** `d27e137`, working tree clean at snapshot apart from this report.
 
 **How this was measured.** The container holds the source only. No reference
-genome is present (`tests/validation/genomes/` does not exist), neither k-mer
-counter is on PATH, `h5py` is absent and `pytest` is not installed in the
-environment that has the project's dependencies. No pipeline step and no test
-could be run here, and no delivered panel could be produced or compared.
+genome is present (`tests/validation/genomes/` does not exist) and neither k-mer
+counter is on PATH, so no step of the four-step pipeline can run here and no
+design against a real target could be produced. The Python dependencies were
+absent when the audit began and were installed partway through, which is why
+gap 2 carries a measurement and the surrounding sections do not.
+
 Everything below is either (a) read from code with a `file:line`, (b) quoted
-from a dated record already in the repository, or (c) measured by
-`chemistry_audit_2026-10-26/probes.py`, which is genome-free by construction:
+from a dated record already in the repository, (c) measured by
+`chemistry_audit_2026-10-26/probes.py`, which is genome-free by construction, or
+(d) measured by running a test, which is stated where it happens. The probes:
 
 ```
 PYTHONPATH=. python docs/reports/chemistry_audit_2026-10-26/probes.py
@@ -171,6 +174,29 @@ The consequence is structural, not cosmetic: gaps 5 and 10, where a chemistry
 term is wired to something that does not select, are exactly the failures this
 class of test exists to catch, and the inert Tm weight (gap 5) was in fact found
 by hand in September rather than by a ratchet.
+
+**Closed, with a result that matters (2026-10-26).** A `betaine_m` case was added
+to `BEHAVIOURAL_OPTIONS`, varying 0 against 1.5 M at equiphi29 42 C, and it
+passes. What it found is the more important half:
+
+| Reaction | Delivered | `normalized_score` |
+|---|---|---|
+| equiphi29 42 C, no betaine | 4 primers | 0.755929 |
+| equiphi29 42 C, 1.5 M betaine | **the same 4 primers** | 0.695307 |
+
+Deterministic over three runs. The reaction reaches the delivered result, and on
+this pool it does not choose different oligos: the score moves by 0.061 and
+membership is identical. At the phi29 30 C default the same comparison moves the
+score by 0.0004, which is gap 3's regime argument appearing as a number.
+
+This is direct confirmation of gap 5 from the selection side rather than from
+reading the wiring. The scope of the claim is one synthetic 30 kb target with no
+background and a four-primer panel that stops early on the dimer limit, so it
+does not establish that chemistry never moves a panel; occupancy-weighted
+selectivity needs a background to bite, and this harness has none. Membership is
+deliberately **not** asserted, because wiring the Tm term into Stage 2 is the
+change that would start moving it, and a test demanding sameness would fail on
+the fix.
 
 ### Gap 3 — the default chemistry cannot use the chemistry lever
 
@@ -609,9 +635,13 @@ Ordered by benefit per unit of risk. The first five need no new science.
 
 **First, and before anything else is decided.**
 
-1. Add a chemistry case to `BEHAVIOURAL_OPTIONS` and run it (gap 2). Everything
-   below is sized differently depending on whether the panel moves, and nobody
-   currently knows. Correct the three misleading test names in the same pass.
+1. ~~Add a chemistry case to `BEHAVIOURAL_OPTIONS` and run it (gap 2).~~ **Done
+   2026-10-26.** The panel's score moves and its membership does not, on the
+   synthetic harness. That answer sizes everything below: chemistry reaches the
+   result but does not steer selection, so item 11 stops being optional. Still
+   worth doing in the same area: correct the three misleading test names, and
+   repeat the comparison on a real pool with a background, where
+   occupancy-weighted selectivity can actually bite.
 
 **Then, no new science, each pinned by a test.**
 
@@ -663,16 +693,28 @@ Ordered by benefit per unit of risk. The first five need no new science.
 
 ## 5. What this audit did not establish
 
-- **Whether a chemistry change moves the delivered panel.** The central question
-  behind gaps 2, 5 and 9. It needs `step3_df.csv` and the position indexes;
-  neither is in a fresh clone, no reference genome is either, and neither k-mer
-  counter is installed. Probe 5 records that boundary. The adjacent question —
-  whether chemistry changes candidate *eligibility* — is settled affirmatively by
-  probes 1 and 2, since the Tm gate moves with every additive and salt term
-  measured.
-- **The test suite's actual size or state.** `pytest` is not installed in the
-  environment holding the project's dependencies, so nothing was run. File and
-  function counts quoted in gap 2 are static counts from the source.
+- **Whether a chemistry change moves the delivered panel on a real pool.**
+  Partly settled after this report was first written. On the synthetic harness in
+  `test_design_options_have_effect.py` the score moves and membership does not
+  (gap 2). That harness has no background genome, so occupancy-weighted
+  selectivity cannot contribute, and the panel is four primers stopped early by
+  the dimer limit. The same comparison on a prepared example with a background
+  is the measurement that would settle it, and it needs `step3_df.csv`, the
+  position indexes and a reference genome. None is in a fresh clone. The
+  adjacent question — whether chemistry changes candidate *eligibility* — is
+  settled affirmatively by probes 1 and 2, since the Tm gate moves with every
+  additive and salt term measured.
+- **A clean full-suite run.** The dependencies were installed partway through
+  this work, after which `pytest tests/ -n 8` reports 6,454 passed, 282 skipped,
+  55 failed and 4 errors. Every failure is
+  environmental and pre-existing: no k-mer counter is on PATH, so
+  `examples/plasmid_example/step3_df.csv` is never built and the fixtures that
+  need it error rather than skip, and no reference genome is present. Verified by
+  running the suite with this report's changes stashed, which gives 6,451 passed
+  and 56 failed, so the chemistry case added for gap 2 contributes two passing
+  tests and no failures. At least one of the environmental failures is flaky
+  across runs. `test_design_options_have_effect.py` and the five ratchet files
+  pass in full.
 - **Whether any additive coefficient is numerically right.** Unchanged from
   2026-09-14 and out of scope: this audit reports evidence status, not new
   values. That plan's rule still holds, that replacing one unsourced number with

@@ -39,6 +39,7 @@ import numpy as np
 
 from neoswga.core.hybrid_optimizer import HybridOptimizer
 from neoswga.core.position_cache import PositionCache
+from neoswga.core.reaction_conditions import ReactionConditions
 from neoswga.core.thermodynamics import reverse_complement
 
 GENOME_LENGTH = 30_000
@@ -252,8 +253,30 @@ def result_fingerprint(result):
 # `OptimizationConfig` field that is set, forwarded and never read, the second
 # only as substrings of the unrelated `per_target_coverage`. Stored is not
 # consumed. Only running the thing twice can tell the difference.
+#
+# Chemistry is varied at equiphi29 42 C, not at the phi29 30 C default, and the
+# choice is load-bearing rather than cosmetic. An additive discriminates only
+# where a duplex sits near its melting transition; far below it the perfect and
+# mismatched populations are both saturated and the occupancy terms cancel.
+# `docs/validation/additive_specificity.md` measures the consequence: 5% DMSO
+# with 1 M betaine buys 1.01x selectivity at phi29 30 C and 1.51x at equiphi29
+# 42 C. A chemistry assertion written at the default would be testing the knob
+# in the one regime where the project has already measured it to do almost
+# nothing, and would pass or fail on rounding.
+_NO_BETAINE = ReactionConditions(temp=42.0, polymerase="equiphi29")
+_WITH_BETAINE = ReactionConditions(temp=42.0, polymerase="equiphi29", betaine_m=1.5)
+
 BEHAVIOURAL_OPTIONS = [
     ("minimize_primers", {"minimize_primers": False}, {"minimize_primers": True}),
+    # The reaction has to reach the design. `filter` carries sixteen chemistry
+    # flags and `optimize` carries none, so the two steps can run under
+    # different Tm models and the only thing that notices is a log line
+    # (`cli/_common.py:770-776`). This entry pins the weaker half of the claim:
+    # that a reaction handed to the dispatcher reaches the delivered result at
+    # all. What it does NOT establish is that chemistry steers selection -- see
+    # `test_betaine_moves_the_score_and_not_the_membership` for what actually
+    # moves, and why asserting more here would be asserting something false.
+    ("betaine_m", {"conditions": _NO_BETAINE}, {"conditions": _WITH_BETAINE}),
     # `target_coverage` only means anything while minimising -- it is the floor
     # the trimmed set has to clear -- so it is varied with minimising on. A low
     # floor lets more primers be dropped than a high one.
@@ -274,6 +297,63 @@ def test_option_changes_the_design(cache, genome, option, low, high):
     assert result_fingerprint(a) != result_fingerprint(b), (
         f"{option} made no difference to the selected set or its score; "
         f"both runs returned {result_fingerprint(a)}"
+    )
+
+
+def test_betaine_moves_the_score_and_not_the_membership(cache, genome):
+    """What the betaine entry above does and does not establish.
+
+    Measured 2026-10-26 on this harness, deterministic over three runs:
+
+    | reaction | delivered | normalized_score |
+    |---|---|---|
+    | equiphi29 42 C, no betaine | 4 primers | 0.755929 |
+    | equiphi29 42 C, 1.5 M betaine | the same 4 primers | 0.695307 |
+
+    The score moves by 0.061 and **the selected set is identical**. At phi29
+    30 C the same comparison moves the score by 0.0004, which is the regime
+    argument above showing up as a number.
+
+    So the reaction reaches the delivered result, and on this pool it does not
+    choose different oligos. That is consistent with the melting-temperature
+    term being inert on the default method: `tm_weight` and `uniformity_weight`
+    are handed to a `NetworkOptimizer` that nothing reads again, and the
+    Tm-tightness term lives in `normalized_score`, which rates a panel after it
+    has been built (`docs/validation/selection_weights_are_inert_2026-09-21.md`,
+    and gaps 2 and 5 of `docs/reports/AUDIT_2026-10-26_chemistry_in_pool_design.md`).
+
+    **Membership is deliberately not asserted.** Freezing it would make the
+    repair point the wrong way: wiring the Tm term into Stage 2 is the change
+    that would start moving membership, and a test demanding sameness would
+    fail on the fix. CLAUDE.md records that wiring as a decision rather than a
+    repair, so this test pins only what is guaranteed today.
+
+    What it adds over the parametrized entry is the physical half. A score can
+    shift for reasons unrelated to chemistry; asserting that the delivered
+    panel's own effective melting temperature moves shows the additive is live
+    on the oligos that were actually returned, rather than merely reweighting
+    them.
+    """
+    without = run_with(cache, genome, conditions=_NO_BETAINE)
+    with_betaine = run_with(cache, genome, conditions=_WITH_BETAINE)
+
+    assert without.primers, "no panel was delivered without betaine"
+    assert with_betaine.primers, "no panel was delivered with betaine"
+
+    assert round(without.normalized_score, 6) != round(with_betaine.normalized_score, 6), (
+        "1.5 M betaine left the delivered panel's score unchanged at equiphi29 "
+        "42 C, so the reaction did not reach the result at all"
+    )
+
+    # The additive must move the melting temperature of the primers that were
+    # actually delivered, not only of some candidate considered on the way.
+    delivered = sorted(without.primers)
+    plain = [_NO_BETAINE.calculate_effective_tm(p) for p in delivered]
+    shifted = [_WITH_BETAINE.calculate_effective_tm(p) for p in delivered]
+
+    assert all(s < p for s, p in zip(shifted, plain)), (
+        "betaine is a destabiliser and must lower the effective Tm of every "
+        f"delivered primer; got {plain} without and {shifted} with"
     )
 
 
