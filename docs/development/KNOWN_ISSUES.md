@@ -309,6 +309,46 @@ package, because nothing in the search uses it.
    `tests/test_the_configured_cpu_count_reaches_jellyfish.py`, which walks the
    AST of step 1 rather than asserting a thread count.
 
+   **A fourth variant, 2026-10-26: the wrapper/inner forwarding seam.** Three
+   methods are an outer adapter over an inner engine that actually decides
+   (`hybrid` -> `HybridOptimizer`, `dominating-set` -> `DominatingSetOptimizer`,
+   `background-aware` -> the same inner as hybrid). A value can reach the
+   adapter's `OptimizerConfig`, be asserted there by a test, and still be
+   dropped when the adapter constructs the inner. Two instances, found by
+   diffing each inner's `__init__` parameters against what its adapter actually
+   passes:
+
+   - `stage2_tm_weight` reached the config and the wrapper never set it on the
+     inner, so the Stage-2 Tm term shipped on 2026-10-26 was inert on every
+     factory/CLI `hybrid` run and fired only when a `HybridOptimizer` was built
+     directly -- as its own measurement script does, which is why the
+     measurement was real and the feature still did nothing.
+     `docs/validation/2026-10-26-stage2-background-weight.md`.
+   - `dimer_temp` was never forwarded by `DominatingSetAdapter`, while
+     `max_dimer_dg` beside it was, so the free-energy dimer screen ran at the
+     inner's 37 C default under every reaction. The error is in the PERMISSIVE
+     direction on the phi29 30 C default -- at the Rychlik -6.0 floor, 171 of
+     30,000 random pairs are dimers at 30 C and not at 37 C.
+     `docs/validation/2026-10-26-dominating-set-dimer-temperature.md`.
+
+   Why the ratchets missed both: `test_optimizer_config_reaches_optimizers.py`
+   asserted on the innermost engine only for the parameters a `NetworkOptimizer`
+   reads, via `_SCORING_ENGINE_PATH`. Anything read by the inner
+   `HybridOptimizer` itself, or by the dominating-set inner, had no such
+   assertion. It now has one per seam
+   (`test_stage2_weights_reach_the_inner_hybrid`,
+   `test_the_reaction_temperature_reaches_the_dominating_set_dimer_screen`), and
+   both fail with the forwarding removed. **The general check is cheap and worth
+   repeating when a wrapper gains a parameter: diff the inner's constructor
+   parameters against what the adapter passes or sets.**
+
+   Still open from the same sweep, and not a forwarding bug: `clique_optimizer`
+   reads no `max_dimer_dg` at all (zero occurrences; `CliqueOptimizerConfig` has
+   no such field), so the method advertised as the only one guaranteeing no
+   dimerising pair applies no free-energy floor. Honouring it means giving
+   clique a second screen path and changing what its enumeration guarantee
+   covers, so it is a design decision, not a repair.
+
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when
    `gini.notna() & (gini < max_gini)`. The `.notna()` half was written for
@@ -644,8 +684,20 @@ package, because nothing in the search uses it.
 18. **`max_gap` and `bg_coverage` are computed and read by nothing that
     selects** -- found 2026-09-18, partly acted on. Both reach
     `step4_improved_df_summary.json` and the reports. Neither appears in
-    `normalized_score` or in any optimizer's scoring, and deliberately still
-    does not.
+    `normalized_score`, and `max_gap` appears in no optimizer's scoring, and
+    deliberately still does not -- see "the field does not agree" below.
+
+    **`bg_coverage` is the exception since 2026-10-26, and only opt-in.** It is
+    now an axis of the SWAP Stage-2 score, weighted by
+    `stage2_background_weight` and off by default, so a weight > 0 trades
+    foreground coverage against host coverage during the swap refinement
+    (`plan-pool`, `expand-primers`, `hybrid` with `refinement_method=swap`).
+    That was Known Issue 14's other half; it does NOT give `bg_coverage` a
+    default, a threshold, or any place in `normalized_score`, and the trade is
+    unmeasured against a reaction, which is why it ships off.
+    `docs/validation/2026-10-26-stage2-background-weight.md`. The paragraph
+    below still governs `max_gap`, and the evidence argument it makes is the
+    reason that key has no counterpart for the gap.
 
     What changed the same day: both are now **constrainable** via
     `max_worst_hole` and `max_host_coverage` (see **Panel limits** above) and

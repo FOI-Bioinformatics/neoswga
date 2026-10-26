@@ -246,6 +246,12 @@ Each of these was learned from a defect; the record is in the linked documents.
   `test_cli_defaults_do_not_beat_params_json.py`,
   `test_params_json_routes_optional_keys.py`,
   `test_design_options_have_effect.py`. Their allowlists may only shrink.
+- A wrapper can carry a value on its config and drop it when it builds the
+  inner engine that decides, which every ratchet above still passes. When an
+  adapter gains a parameter, diff the inner's `__init__` parameters against
+  what the adapter passes or sets: that found `stage2_tm_weight` inert on
+  every CLI `hybrid` run and the dominating-set dimer screen stuck at 37 C.
+  `test_optimizer_config_reaches_optimizers.py` holds one assertion per seam.
 - Do not record this class as closed.
 
 **Ordering and globals.**
@@ -315,7 +321,9 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
      constraint-aware (reference figure for the Wolbachia pool: density 60.112
      at coverage 0.6535).
 8. **Inert options**: declared, documented, read by nothing. Found repeatedly,
-   in flags, schema keys, capabilities and arguments.
+   in flags, schema keys, capabilities, arguments, and (2026-10-26) in the
+   wrapper/inner seam where an adapter drops a config value before the engine
+   that decides. `clique` reading no `max_dimer_dg` is the open one.
 9. **Evenness needs sites**: Gini is NaN below `min_gini_sites`.
 10. **The candidate loader** uses the same Tm as the gate.
 11. **Near-duplicate primers**: the redundancy threshold exists and is disabled
@@ -334,8 +342,11 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 17. **The phi29 30 C pool cannot discriminate**, and gating candidates on
     occupancy gives a worse panel. The lever is the reaction. `filter` reports
     the regime and does not enforce it.
-18. **`max_gap` and `bg_coverage`** are constrainable and enter no score.
-    Strand figures are `None` when unmeasurable.
+18. **`max_gap` and `bg_coverage`** are constrainable. `max_gap` enters no
+    score and deliberately does not: the field does not agree gap statistics
+    belong in the objective. `bg_coverage` enters the swap Stage-2 score only
+    when `stage2_background_weight` is set (off by default); neither enters
+    `normalized_score`. Strand figures are `None` when unmeasurable.
 19. **One set, not every alternative**: see `delivered_set.py`.
 20. **Mixed oligo lengths** work; on the one pair measured they bought nothing.
 21. **HDF5 lock error (errno 35)** is two processes sharing a data directory.

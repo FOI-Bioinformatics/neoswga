@@ -433,6 +433,109 @@ def test_stage2_weights_reach_the_inner_hybrid(prefix, planted, name, value):
 
 
 # ----------------------------------------------------------------------
+# The same question, asked of the methods that are NOT network-scored
+# ----------------------------------------------------------------------
+#
+# `_SCORING_ENGINE_PATH` above only covers the methods whose selection ends in a
+# `NetworkOptimizer`. Asking it of the other two is what found the defect below:
+#
+#   - `dominating-set` is an ADAPTER over `DominatingSetOptimizer`, the same
+#     wrapper/inner shape as hybrid, so anything the adapter fails to forward is
+#     inert exactly as `stage2_tm_weight` was.
+#   - `clique` is its own decider (no inner), so it has no forwarding seam. It
+#     screens on base-pair count only and reads no `max_dimer_dg` at all, which
+#     is a separate question from this one and not pinned here.
+
+
+@pytest.mark.parametrize("temp", [30.0, 65.0])
+def test_the_reaction_temperature_reaches_the_dominating_set_dimer_screen(temp):
+    """The free-energy dimer screen has to run at the reaction temperature.
+
+    `max_dimer_dg` was forwarded to the inner optimizer and `dimer_temp`, the
+    temperature that floor is evaluated at, was not -- so the inner kept its
+    37 C constructor default while every other dimer-screen call site
+    (`network_optimizer`, `refine_hybrid_stage2`, `panel_refinement`) passes the
+    reaction temperature. Delta-G is strongly temperature-dependent and the
+    verdict genuinely flips: a pair that passes the base-pair screen can be a
+    dimer at 30 C and not at 65 C. On the phi29 30 C default, screening at 37 C
+    is the PERMISSIVE direction, which is how a dimerising pair reaches a
+    delivered panel.
+
+    Parameterised below AND above 37 C so a fix that pinned the value to one
+    polymerase's preset, or re-derived it from a default rather than from the
+    supplied conditions, still fails.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    polymerase = "phi29" if temp < 37.0 else "bst"
+    optimizer = OptimizerFactory.create(
+        name="dominating-set",
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6, max_dimer_bp=3, max_dimer_dg=-6.0),
+        conditions=ReactionConditions(polymerase=polymerase, temp=temp),
+    )
+
+    assert optimizer._optimizer.dimer_temp == temp, (
+        f"reaction temperature {temp} C did not reach "
+        f"DominatingSetOptimizer.dimer_temp, the temperature the max_dimer_dg "
+        f"floor is evaluated at; it is using "
+        f"{optimizer._optimizer.dimer_temp!r}. The adapter forwards "
+        f"max_dimer_dg and must forward the temperature with it."
+    )
+
+
+def test_no_conditions_leaves_the_dominating_set_screen_temperature_alone():
+    """With nothing to read, the inner's own default stands.
+
+    The fix above must not invent a temperature. `max_dimer_dg` is unset by
+    default, so for a default run the screen never consults a temperature at
+    all; this pins that attaching no conditions changes nothing rather than
+    substituting a polymerase preset.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    optimizer = OptimizerFactory.create(
+        name="dominating-set",
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6),
+        conditions=None,
+    )
+    assert optimizer._optimizer.dimer_temp == 37.0, (
+        "with no conditions attached the inner's 37 C default must stand, not a "
+        f"polymerase preset; it is using {optimizer._optimizer.dimer_temp!r}"
+    )
+
+
+# ----------------------------------------------------------------------
 # Optimizer-specific configuration
 # ----------------------------------------------------------------------
 #

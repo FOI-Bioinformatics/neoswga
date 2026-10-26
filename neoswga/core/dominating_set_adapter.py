@@ -122,6 +122,18 @@ class DominatingSetAdapter(BaseOptimizer):
             # defect `HybridOptimizer` fixed for its Stage-1 greedy.
             max_dimer_bp=self.config.max_dimer_bp,
             max_dimer_dg=getattr(self.config, "max_dimer_dg", None),
+            # The temperature the free-energy floor above is evaluated AT, and
+            # the same omission one line up: `max_dimer_dg` was forwarded and
+            # the temperature it is meaningless without was not, so the inner
+            # kept its 37 C constructor default while `network_optimizer`,
+            # `refine_hybrid_stage2` and `panel_refinement` all screen at the
+            # reaction temperature. Delta-G is strongly temperature-dependent,
+            # so on the phi29 30 C default that under-called dimers -- the
+            # permissive direction, which is how an 11 bp heterodimer shipped
+            # against a configured 3 once already. Read off `conditions` the
+            # way `panel_refinement` does; with no conditions attached the
+            # inner's 37 C stands, so nothing moves by default.
+            dimer_temp=float(getattr(conditions, "temp", 37.0) or 37.0),
             allow_dimer_relaxation=self.config.allow_dimer_relaxation,
             stage1_objective_width=getattr(self.config, "stage1_objective_width", None),
         )
