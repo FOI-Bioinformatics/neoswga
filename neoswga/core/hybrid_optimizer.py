@@ -65,6 +65,7 @@ from neoswga.core.stage2_ranking import (  # noqa: E402
     _rank_removal_candidates,
     _removal_network_score,
     prefix_floors_refinement,
+    resolve_reaction,
     resolve_tm_inputs,
     tm_axis_for,
 )
@@ -218,7 +219,7 @@ class HybridOptimizer(ThermoScreenMixin):
         uniformity_weight: float = 0.0,
         min_tm: float | None = None,
         max_tm: float | None = None,
-        polymerase: str = "phi29",
+        polymerase: str | None = None,
         genome_gc_content: float | None = None,
         background_pruning: bool = False,
         background_weight: float = 2.0,
@@ -302,9 +303,9 @@ class HybridOptimizer(ThermoScreenMixin):
         self.bin_size = bin_size
         self.uniformity_weight = uniformity_weight
 
-        # Polymerase-aware configuration
-        self.polymerase = polymerase
-        self.poly_config = _get_polymerase_config(polymerase)
+        # Polymerase-aware configuration; `conditions` supplies what was unstated
+        self.polymerase, reaction_temp = resolve_reaction(polymerase, reaction_temp, conditions)
+        self.poly_config = _get_polymerase_config(self.polymerase)
         self._set_stage2_tm_inputs(stage2_tm_weight, reaction_temp)
         self.genome_gc_content = genome_gc_content
 
@@ -1528,7 +1529,7 @@ class HybridBaseOptimizer(BaseOptimizer):
             # unified_optimizer (OptimizerConfig.extension_reach), so selection
             # and the scored metrics.fg_coverage share one coverage definition.
             coverage_reach=getattr(self.config, "extension_reach", None),
-            polymerase=kwargs.get("polymerase", "phi29"),
+            polymerase=kwargs.get("polymerase"),
             min_tm=getattr(self.config, "min_tm", None),
             max_tm=getattr(self.config, "max_tm", None),
             genome_gc_content=kwargs.get("genome_gc_content"),

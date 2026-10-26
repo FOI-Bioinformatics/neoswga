@@ -499,6 +499,116 @@ def test_the_reaction_temperature_reaches_the_dominating_set_dimer_screen(temp):
     )
 
 
+#: (configured polymerase, a legal reaction temperature for it, its preset's
+#: `thermo_filter`). phi29 is the default and the one case that was already
+#: right, so it is the control: it must stay exactly as it was.
+_REACTIONS = [
+    ("phi29", 30.0, False),
+    ("equiphi29", 45.0, True),
+    ("bst", 65.0, True),
+]
+
+
+@pytest.mark.parametrize("method", ["hybrid", "background-aware"])
+@pytest.mark.parametrize("polymerase,temp,thermo_filter", _REACTIONS, ids=lambda p: str(p))
+def test_the_configured_reaction_reaches_the_hybrid_inner(method, polymerase, temp, thermo_filter):
+    """`hybrid` ran every reaction as phi29 at 30 C.
+
+    `unified_optimizer` hands every optimizer its `conditions` and hands it
+    neither `polymerase` nor `reaction_temp` (it mentions neither), while both
+    hybrid wrappers defaulted `polymerase` to the literal string "phi29" -- a
+    real default beating the configured value, which is Known Issue 8's usual
+    shape. So the inner built a phi29 preset at 30 C whatever params.json said.
+
+    Two things rode on it, both silent. phi29's preset sets
+    `thermo_filter=False` while `bst`'s and `equiphi29`'s set it True, so the
+    Stage-0 thermodynamic screen never ran for the hot polymerases that ask for
+    it. And Stage 2's dimer screen and Tm term both read `reaction_temp`, so
+    they ran at 30 C against a 63 C or 42 C reaction.
+
+    Parameterised over both wrappers because they build the same inner from two
+    separate argument lists that have drifted apart before, and over phi29 as a
+    control: the default path must be unchanged.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    optimizer = OptimizerFactory.create(
+        name=method,
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6),
+        conditions=ReactionConditions(polymerase=polymerase, temp=temp),
+    )
+    inner = optimizer._hybrid
+
+    assert inner.polymerase == polymerase, (
+        f"{method}: configured polymerase {polymerase!r} did not reach the inner "
+        f"HybridOptimizer; it is using {inner.polymerase!r}. The wrapper must not "
+        f"pass a literal default that beats the attached conditions."
+    )
+    assert inner.reaction_temp == temp, (
+        f"{method}: configured reaction temperature {temp} C did not reach the "
+        f"inner; it is using {inner.reaction_temp!r}. Stage 2's dimer screen and "
+        f"Tm term both read this."
+    )
+    assert inner.poly_config.thermo_filter is thermo_filter, (
+        f"{method}: {polymerase} resolved to a preset whose thermo_filter is "
+        f"{inner.poly_config.thermo_filter}, expected {thermo_filter}. A wrong "
+        f"preset silently turns the Stage-0 thermodynamic screen off."
+    )
+
+
+def test_an_explicit_polymerase_still_beats_the_attached_conditions():
+    """Precedence is explicit > conditions > preset.
+
+    The fallback must not become an override: a caller that states a polymerase
+    gets it, even when the attached conditions disagree. Without this, fixing
+    the default would simply have inverted which value was ignored.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    optimizer = OptimizerFactory.create(
+        name="hybrid",
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6),
+        conditions=ReactionConditions(polymerase="bst", temp=65.0),
+        polymerase="klenow",
+        reaction_temp=40.0,
+    )
+    inner = optimizer._hybrid
+    assert inner.polymerase == "klenow", inner.polymerase
+    assert inner.reaction_temp == 40.0, inner.reaction_temp
+
+
 def test_no_conditions_leaves_the_dominating_set_screen_temperature_alone():
     """With nothing to read, the inner's own default stands.
 

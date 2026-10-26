@@ -252,6 +252,14 @@ Each of these was learned from a defect; the record is in the linked documents.
   what the adapter passes or sets: that found `stage2_tm_weight` inert on
   every CLI `hybrid` run and the dominating-set dimer screen stuck at 37 C.
   `test_optimizer_config_reaches_optimizers.py` holds one assertion per seam.
+- `unified_optimizer` passes `conditions` and does NOT pass `polymerase` or
+  `reaction_temp`, so an optimizer that wants either resolves it from
+  `conditions`: `stage2_ranking.resolve_reaction`, precedence explicit >
+  conditions > preset. A constructor default that is a real value rather than
+  a `None` sentinel beats the file exactly as an argparse default does — that
+  literal `"phi29"` ran every `hybrid` reaction as phi29 at 30 C, skipping the
+  Stage-0 screen for `bst` and `equiphi29`.
+  `docs/validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md`.
 - Do not record this class as closed.
 
 **Ordering and globals.**

@@ -330,6 +330,22 @@ package, because nothing in the search uses it.
      direction on the phi29 30 C default -- at the Rychlik -6.0 floor, 171 of
      30,000 random pairs are dimers at 30 C and not at 37 C.
      `docs/validation/2026-10-26-dominating-set-dimer-temperature.md`.
+   - **`polymerase` and `reaction_temp` never reached the hybrid inner at all.**
+     `unified_optimizer` passes `conditions` to every optimizer and mentions
+     neither name, and both hybrid wrappers defaulted `polymerase` to the
+     literal `"phi29"` -- a real default beating the configured value, the
+     shape this issue opened with. So every CLI `hybrid` and `background-aware`
+     run built a phi29 preset at 30 C whatever params.json said. phi29's preset
+     sets `thermo_filter=False` and equiphi29's and bst's set it True, so the
+     Stage-0 thermodynamic pre-screen was SKIPPED for the hot polymerases that
+     ask for it: under the shipped `examples/equiphi29_scenario` reaction the
+     pre-screen keeps 299 of 500 candidates, so 500/500 reached selection
+     unscreened. Both Stage-2 temperatures were wrong by the same route.
+     `network_optimizer` already carried this fallback for `reaction_temp`;
+     `hybrid` never gained it. Now one door,
+     `stage2_ranking.resolve_reaction`, with precedence explicit > conditions >
+     preset. phi29 is unchanged and is carried as the test's control row.
+     `docs/validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md`.
 
    Why the ratchets missed both: `test_optimizer_config_reaches_optimizers.py`
    asserted on the innermost engine only for the parameters a `NetworkOptimizer`

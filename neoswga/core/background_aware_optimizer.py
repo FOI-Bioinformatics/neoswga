@@ -130,7 +130,7 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             min_coverage_threshold=kwargs.get("min_coverage_threshold", 0.95),
             min_coverage_drop=kwargs.get("min_coverage_drop", 0.05),
             absolute_coverage_floor=kwargs.get("absolute_coverage_floor", False),
-            polymerase=kwargs.get("polymerase", "phi29"),
+            polymerase=kwargs.get("polymerase"),
             # Forward ReactionConditions + mechanistic weight so the clinical
             # background-aware optimizer's stage-3 network refinement honours
             # DMSO / betaine / etc. Review I1: previously these dropped at

@@ -275,3 +275,42 @@ def prefix_floors_refinement(prefix_axes, refined_axes, eps: float = 1e-9) -> bo
     no_worse = all(p >= r - eps for p, r in zip(prefix_axes, refined_axes, strict=True))
     strictly_better = any(p > r + eps for p, r in zip(prefix_axes, refined_axes, strict=True))
     return no_worse and strictly_better
+
+
+def resolve_reaction(polymerase, reaction_temp, conditions):
+    """The polymerase and reaction temperature an optimizer actually runs under.
+
+    Both arrive as None when the caller did not state them, and the attached
+    `ReactionConditions` then supplies them. That fallback is the whole of this
+    function, and it was missing.
+
+    `unified_optimizer` hands every optimizer its `conditions` and hands it
+    neither `polymerase` nor `reaction_temp` -- it contains no mention of
+    either -- while the two hybrid wrappers defaulted `polymerase` to the
+    LITERAL "phi29". A real default beating the configured value is the shape
+    Known Issue 8 keeps taking, and here it meant every CLI `hybrid` and
+    `background-aware` run built a phi29 preset at 30 C whatever params.json
+    said. Two consequences, both silent:
+
+    - phi29's preset sets `thermo_filter=False` and `bst`'s and `equiphi29`'s
+      set it True, so the Stage-0 thermodynamic screen never ran for the hot
+      polymerases that ask for it.
+    - Stage-2's dimer screen and Tm term read `reaction_temp`, so both ran at
+      30 C against a 63 C or 42 C reaction.
+
+    `network_optimizer` already carried exactly this fallback for
+    `reaction_temp` ("previously _calculate_tm_score was a silent no-op"), and
+    `hybrid` never gained it. This is that same rule, for both values, in the
+    one place both wrappers pass through.
+
+    Precedence is explicit > conditions > preset: an explicitly passed value
+    always wins, so a direct caller is unchanged, and a `reaction_temp` left
+    None here still falls through to the preset in `resolve_tm_inputs` -- now
+    the preset of the polymerase that was actually configured.
+
+    See docs/validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md.
+    """
+    polymerase = polymerase or getattr(conditions, "polymerase", None) or "phi29"
+    if reaction_temp is None:
+        reaction_temp = getattr(conditions, "temp", None)
+    return polymerase, reaction_temp
