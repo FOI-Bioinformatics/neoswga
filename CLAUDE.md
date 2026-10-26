@@ -177,7 +177,11 @@ measurements: implementation-notes.md.
   `position-dependent-3prime`; params.json only, no flag, off by default). The
   figures are in `docs/validation/2026-10-02-position-dependent-mismatch.md`.
   `max_mismatches` (1) bounds the depth; distance 2 costs about 19x.
-- **Search control**: `objective_scan_width` (64), `max_frontier_refills` (4),
+- **Search control**: `objective_scan_width` (64; an internal `OptimizerConfig`
+  default, NOT a params.json key, and read only by the `plan-pool` repair's
+  objective-scored scan, which needs coverage bins — it is inert on the
+  `optimize` refinement, bounded there by `swap_max_evaluations`),
+  `max_frontier_refills` (4),
   `swap_max_evaluations` (per stage, not a total), `total_search_evaluations`
   (the only total; None by default, so by default no total bound exists),
   `stage1_objective_width` (None; off by default after measurement),

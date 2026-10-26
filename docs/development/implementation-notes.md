@@ -1087,7 +1087,11 @@ relatively.
   primers with 25 violating pairs when true. Every admission is warned about by
   name. `clique` remains strict either way.
 - `objective_scan_width`: How many panels the swap repair scores with the full
-  objective per round (default 64; None restores an unbounded scan). The scan
+  objective per round (default 64; None restores an unbounded scan). It reaches
+  only the `plan-pool` repair (`pool_planner`), the one caller that supplies the
+  coverage bins the bounded scan needs; the `optimize` refinement passes no bins
+  and so runs unbounded whatever this is set to, which is why it is an internal
+  default rather than a params.json key. The scan
   is over candidates times panel, so a 2,000-candidate shortlist against a
   12-primer panel is 24,000 pairs. The cheap bin gain ranks them and only the
   leaders are scored, and the prescreen is not a new criterion -- it is what
