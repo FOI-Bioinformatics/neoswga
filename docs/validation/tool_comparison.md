@@ -4,6 +4,13 @@
 **Scope:** capability comparison against the three published SWGA primer-set
 designers, and an audit of whether NeoSWGA's own design options change the design.
 
+**Corrected 2026-10-26.** Three entries described NeoSWGA as it was in August
+and had since stopped being true, each in the direction of understating it: the
+k-mer counter (KMC3 now preferred, jellyfish a fallback), primer scoring (the
+random forest is retired from the default path), and `bg_coverage` (one opt-in
+selection reader since `stage2_background_weight`). The COATswga and swga
+columns are unchanged; nothing here re-examines them.
+
 Related: [published_primer_sets.md](published_primer_sets.md), which validates the
 scoring against wet-lab outcomes rather than against other tools, and
 [pool_selection_audit_2026-09-18.md](pool_selection_audit_2026-09-18.md), which
@@ -36,10 +43,10 @@ in 2017, and NeoSWGA constrains neither.
 
 | | swga 1.0 | swga 2.0 | COATswga | NeoSWGA |
 |---|---|---|---|---|
-| K-mer counting | DSK (disk-based, low memory) | jellyfish + h5py cache | k-mer counting | jellyfish (hard dependency) + Bloom filter |
+| K-mer counting | DSK (disk-based, low memory) | jellyfish + h5py cache | k-mer counting | **KMC3 preferred, jellyfish fallback** (identical tables; a named counter is strict) + Bloom filter, and a direct scan for an uncounted host |
 | Set formation | exhaustive clique enumeration, sizes 2-7, under a background-site budget | beam search, width 5, with drop-out rounds and retries | greedy interval tiling on a descending novelty ladder | greedy set cover + network refinement; **clique also available** |
 | Set scoring | binding metrics, applied AFTER the search, not during it | ridge regression fitted to observed coverage | merged interval length, no gap statistic of any kind | `normalized_score`, hand-chosen weights |
-| Primer scoring | filters only | RF, 1500 trees / depth 50 | ML | RF, 100 trees / depth 15 |
+| Primer scoring | filters only | RF, 1500 trees / depth 50 | ML | **filters only by default** — the RF (100 trees / depth 15) was retired from the default path on 2026-09-05 and is opt-in via `--amp-model` |
 | Coverage reach | — | 70 kb (phi29 processivity) | — | **3 kb, fitted to a measured outcome (3.0-6.2 kb band)**; configurable, also fittable from BAM depth; reported at 3/10/70 kb |
 | Heterodimer-free set | guaranteed by clique | pairwise check while growing | — | guaranteed by `--optimization-method clique`; penalised in the other four |
 | Refine an existing set | no | no | yes | yes (`expand-primers`, `analyze-coverage --bam`) |
@@ -235,11 +242,24 @@ surface and correspondingly the one with least external calibration.
   reaction (`2026-10-26-stage2-background-weight.md`). Until then it had none,
   which is what this entry said. `off_gap_gini` is still not computed anywhere.
   See Known Issues 17 and 18.
-- **jellyfish is a hard dependency.** There is no in-process counting fallback;
-  `kmer_counter.count_kmers_in_sequence` exists but has no callers.
-- **RF training provenance is undocumented.** swga 2.0 states its training set (396
-  primers from RCA experiments); the model shipped in
-  `neoswga/core/models/random_forest_filter.skops` does not have an equivalent record.
+- **An external k-mer counter is required**, though no longer jellyfish
+  specifically: this entry read "jellyfish is a hard dependency" and that
+  stopped being true when the KMC3 backend landed. `select_backend` prefers
+  KMC3 and falls back to jellyfish, and the two produce identical tables
+  (verified on wMel, *Drosophila* and hg38, every distinct k-mer and count
+  agreeing), so the choice changes time and memory and never a delivered panel —
+  about 7x faster and about 18x the memory on hg38 at k=12
+  ([`kmer_counter_comparison_2026-09-25.md`](kmer_counter_comparison_2026-09-25.md),
+  Known Issue 24). What remains a gap is the in-process fallback: neither
+  counter being installed is a refusal, and
+  `kmer_counter.count_kmers_in_sequence` still has no production callers.
+- **RF training provenance is undocumented**, and it now bites only the
+  `--amp-model` user. swga 2.0 states its training set (396 primers from RCA
+  experiments); the model shipped in
+  `neoswga/core/models/random_forest_filter.skops` has no equivalent record. It
+  was retired from the default path on 2026-09-05, so an undocumented model no
+  longer scores a default design — which lowers the stakes of this gap without
+  closing it.
 - **Additive coverage is broader than the published tools', and correspondingly less
   validated.** None of the three models any additive, and their salt handling is
   weaker than this document implied: all three call the same `melt` package with
