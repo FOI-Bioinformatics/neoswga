@@ -27,8 +27,10 @@ what follows is only what the filenames do not tell you.
 
 - **Optimizers** are dispatched through `unified_optimizer.py`:
   `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`,
-  `network_optimizer`, `background_aware_optimizer`, with
-  `minimal_primer_selector` as a post-process. The registered
+  `network_optimizer`, `background_aware_optimizer`, `clique_optimizer`. The
+  `--minimize-primers` post-process is `optimization_service.reduce_result` via
+  `run_panel_search(minimize=True)`, not a separate module (a dead
+  `minimal_primer_selector` was removed 2026-10-26). The registered
   `background-aware` method is `BackgroundAwareBaseOptimizer`, which delegates
   to `HybridOptimizer`. The standalone three-stage `BackgroundAwareOptimizer`
   and its module-level `optimize()` / `compare_optimizers()` were deleted on

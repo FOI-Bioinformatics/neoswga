@@ -36,7 +36,7 @@ When adding a record, add it there and keep this file to a line or two.
 
 | Module | Note |
 |---|---|
-| `unified_optimizer.py` | Dispatches the optimizers: `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`, `network_optimizer`, `background_aware_optimizer`, with `minimal_primer_selector` as a post-process. `background-aware` is `BackgroundAwareBaseOptimizer`, which delegates to `HybridOptimizer` |
+| `unified_optimizer.py` | Dispatches the optimizers: `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`, `network_optimizer`, `background_aware_optimizer`, `clique_optimizer`. The `--minimize-primers` post-process is `optimization_service.reduce_result` (via `run_panel_search(minimize=True)`), not a separate module. `background-aware` is `BackgroundAwareBaseOptimizer`, which delegates to `HybridOptimizer` |
 | `exceptions.py` | `StepPrerequisiteError`, `StepValidationResult` and the `DesignError` family. Keep it free of dependencies beyond `typing` and `dataclasses`; `core/pipeline.py` re-exports the same objects |
 | `occupancy_coverage.py`, `selectivity.py` | Extracted from `base_optimizer` when it reached its size budget; re-exported from it as the same objects |
 | `lazy_dimer.py` | `dimer_screen(pool, max_dimer_bp)` is the one decision about dense matrix against pairwise screen (threshold 4,000 candidates) |

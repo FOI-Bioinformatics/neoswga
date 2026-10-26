@@ -1085,13 +1085,12 @@ def run_optimization(
 
     # --minimize-primers / --target-coverage post-processing.
     #
-    # Both flags were reaching this function and going no further: they were
-    # stored on OptimizationConfig, forwarded through **kwargs, and read by no
-    # optimizer. `MinimalPrimerSelector` -- which exists precisely to trim a set
-    # to the smallest one still meeting a coverage target -- had no callers
-    # anywhere outside its own module. So `--minimize-primers` did nothing,
-    # which also made the default path look like it was minimising when the
-    # real cause was the coverage-binning bug in dominating_set_optimizer.
+    # Both flags were reaching this function and going no further: stored on
+    # OptimizationConfig, forwarded through **kwargs, read by no optimizer. A
+    # standalone `MinimalPrimerSelector` existed to trim a set but had no
+    # callers and scored coverage by a windowless rule the codebase does not
+    # use; it was removed 2026-10-26. The real trim is the
+    # `run_panel_search(minimize=True)` below (`optimization_service.reduce_result`).
     if _minimize_primers and result.primers and optimizer is None:
         logger.warning(
             "--minimize-primers was requested but no optimizer is available to "

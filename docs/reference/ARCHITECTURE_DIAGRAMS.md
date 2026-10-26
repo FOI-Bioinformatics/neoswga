@@ -158,8 +158,8 @@ flowchart LR
 > [implementation-notes.md](../development/implementation-notes.md): optimizers route through `unified_optimizer.py` to
 > `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`,
 > `network_optimizer`, `background_aware_optimizer` (which delegates to
-> `HybridOptimizer`), and `clique_optimizer`, with `minimal_primer_selector`
-> as a post-process.
+> `HybridOptimizer`), and `clique_optimizer`. The `--minimize-primers`
+> post-process is `optimization_service.reduce_result`.
 
 Import relationships between core modules.
 
