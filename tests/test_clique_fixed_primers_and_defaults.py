@@ -20,8 +20,79 @@ import pytest
 
 pytest.importorskip("networkx")
 
-from neoswga.core.base_optimizer import OptimizerConfig
-from neoswga.core.clique_optimizer import build_compatibility_graph
+import itertools
+
+import numpy as np
+
+from neoswga.core.base_optimizer import OptimizationStatus, OptimizerConfig
+from neoswga.core.clique_optimizer import CliqueOptimizer, build_compatibility_graph
+from neoswga.core.dimer import is_dimer_fast
+
+
+class _StubCache:
+    """Positions are irrelevant to the dimer guarantee, so stub them.
+
+    `_score_set` is overridden in each test to steer selection, so the cache is
+    never consulted for coverage; this keeps the guarantee tests free of a
+    genome.
+    """
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def get_positions(self, *args, **kwargs):
+        return np.array([], dtype=np.int64)
+
+
+def _clique():
+    return CliqueOptimizer(position_cache=_StubCache(), fg_prefixes=["x"], fg_seq_lengths=[1000])
+
+
+def test_a_candidate_that_dimers_with_a_fixed_primer_is_never_delivered():
+    """The clique guarantee must hold between fixed primers and the clique.
+
+    Fixed primers are removed from the candidate pool before the graph is
+    built, so the old `if fp in G` filter was always False and never excluded a
+    candidate that heterodimers with a fixed primer. A clique drawn from the
+    unfiltered pool could then be returned as `fixed + clique`, a dimerising
+    pair the whole method exists to forbid (proved at the filter step on
+    2026-10-26). The filter now screens candidates directly against each fixed
+    primer.
+    """
+    fixed = "AAAAGGGGAAAA"  # does not self-dimer
+    partner = "TTTTCCCCTTTT"  # heterodimers with `fixed`
+    benign = ["ACACACATACAC", "ATACACAACAAT", "AATACAATACAA", "ACAATACAAATA", "TACAAATAACAA"]
+    assert not is_dimer_fast(fixed, fixed, 3)
+    assert is_dimer_fast(fixed, partner, 3)
+
+    opt = _clique()
+    # Make the dimerising partner the most attractive candidate, so only the
+    # filter can keep it out of the delivered set.
+    opt._score_set = lambda s: 1.0 if partner in s else 0.0
+    result = opt.optimize(candidates=benign + [partner], num_primers=4, fixed_primers=[fixed])
+
+    delivered = list(result.primers)
+    pairs = list(itertools.combinations(delivered, 2))
+    dimers = [(a, b) for a, b in pairs if is_dimer_fast(a, b, 3)]
+    assert not dimers, f"the delivered set contains a dimerising pair: {dimers}"
+    assert partner not in delivered, "the candidate that dimers with the fixed primer was delivered"
+
+
+def test_a_self_dimering_fixed_primer_is_refused():
+    """A fixed primer that self-dimers cannot be in a dimer-free set.
+
+    The method held candidates to this (it drops self-dimering nodes) and
+    fixed-fixed pairs to it (the mutual check), but let a self-dimering fixed
+    primer through with a warning and delivered it anyway. It now refuses, the
+    same answer the mutual-dimer check already gives.
+    """
+    self_dimer = "GGGGCCCCGGGG"
+    assert is_dimer_fast(self_dimer, self_dimer, 4)
+    benign = ["ACACACATACAC", "ATACACAACAAT", "AATACAATACAA", "ACAATACAAATA"]
+
+    result = _clique().optimize(candidates=benign, num_primers=4, fixed_primers=[self_dimer])
+    assert result.status == OptimizationStatus.ERROR
+    assert "self-dimer" in (result.message or "").lower()
 
 
 @pytest.mark.parametrize("field", ["max_dimer_bp", "max_self_dimer_bp"])
