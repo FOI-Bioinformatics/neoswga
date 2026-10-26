@@ -277,6 +277,12 @@ Each of these was learned from a defect; the record is in the linked documents.
   so it no longer discards a Tm-for-coverage trade; a run with no objective and
   no Tm term stays on the single coverage axis and is unchanged.
   `docs/validation/2026-10-26-wiring-the-tm-term.md`.
+- `hybrid` Stage 2 is deterministic since 2026-10-26: its
+  `algebraic_connectivity` calls are seeded (`_CONNECTIVITY_SEED`), so one input
+  gives one delivered panel across re-runs, machines and `pytest -n 8`. It had
+  drawn an unseeded random start and delivered 2-3 panels for one input. Keep
+  the seed; `tests/test_hybrid_optimizer_run.py` asserts every call carries it.
+  `docs/validation/2026-10-26-stage2-determinism.md`.
 
 ## Known Issues (index)
 

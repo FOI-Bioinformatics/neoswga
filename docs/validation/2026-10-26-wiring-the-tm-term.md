@@ -90,6 +90,15 @@ sequence, as `tests/test_hybrid_optimizer_run.py` does.
 
 ## Stage 2 is not deterministic, and that had to be measured first
 
+> **Fixed later the same day**, after this and the floor record were written.
+> `algebraic_connectivity` is now seeded, so Stage 2 is reproducible and the
+> "measure around the noise" machinery below was no longer strictly necessary
+> by the end of the day. The measurements here stand as taken; the fix and its
+> own measurement are in
+> [2026-10-26-stage2-determinism.md](2026-10-26-stage2-determinism.md). Of the
+> two sources named just below, only the eigensolver turned out to matter;
+> set-iteration order did not.
+
 The first version of this measurement ran each weight once and reported
 differences of 0.1 to 0.6 C as the term's effect. They were noise. Two
 independent sources, both pre-existing and neither introduced here:
@@ -255,10 +264,10 @@ own, the floor change is a no-op. And it is confined to the one place in
 
 ## What this still suggests, and does not do
 
-- **Stage 2's nondeterminism should be fixed on its own.** Passing a seed to
-  `algebraic_connectivity` and ordering the loop's set iterations would make
-  `optimize` reproducible. It changes delivered panels, so it is a decision,
-  and it is what forced the isolated floor measurement above.
+- **Stage 2's nondeterminism should be fixed on its own.** DONE, same day:
+  `algebraic_connectivity` is seeded and `optimize` is now reproducible. The
+  set-iteration ordering this bullet also proposed proved unnecessary -- node
+  order was already deterministic. [2026-10-26-stage2-determinism.md](2026-10-26-stage2-determinism.md).
 - **The dominance floor relaxes the coverage-monotonicity guarantee when
   another axis is active.** `test_more_primers_do_not_reduce_coverage` still
   holds because it sets no Tm term and attaches no objective, so it stays on

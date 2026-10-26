@@ -101,6 +101,75 @@ def test_optimize_respects_the_requested_size(optimizer, genome):
     assert len(result.primers) <= 4
 
 
+def test_stage2_connectivity_is_seeded_at_every_call_site():
+    """The seed is passed wherever `algebraic_connectivity` is called.
+
+    The real guard against the nondeterminism regressing, asserted at the
+    source because the behavioural check below cannot be trusted to exercise it
+    on a small synthetic network.
+
+    Before 2026-10-26, Stage-2 refinement scored each removal on
+    `algebraic_connectivity`, whose `tracemin_lu` solver starts from a random
+    vector drawn from numpy's global state. The connectivity figure the removal
+    ranking reads therefore moved between runs of the same input -- measured at
+    2-3 distinct delivered panels over 6 repeats of one fixed design on the
+    plasmid pool -- in a tool that records a seed in its run manifest. Seeding
+    the solver fixes it; the Laplacian eigenvalue does not depend on the
+    starting vector, so pinning the vector removes numerical wobble without
+    changing what the value means. `docs/validation/2026-10-26-stage2-determinism.md`.
+    """
+    import ast
+    import inspect
+
+    source = inspect.getsource(HybridOptimizer)
+    tree = ast.parse(source.strip())
+
+    calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "algebraic_connectivity"
+    ]
+    assert calls, "no algebraic_connectivity call found; the test is out of date"
+    for call in calls:
+        kwargs = {kw.arg for kw in call.keywords}
+        assert "seed" in kwargs, (
+            "an algebraic_connectivity call in HybridOptimizer has no seed=; "
+            "Stage 2 is nondeterministic again"
+        )
+
+
+def test_the_same_input_delivers_the_same_panel(cache, genome):
+    """One input, one delivered panel, independent of numpy's global state.
+
+    A behavioural companion to the source guard above. The two runs differ only
+    in the global RNG state the unseeded solver used to draw from, so with the
+    solver seeded they must agree. On this small synthetic network the panel is
+    stable even unseeded, so this is a sanity check rather than the primary
+    guard; the nondeterminism was measured on the larger plasmid pool, recorded
+    in `docs/validation/2026-10-26-stage2-determinism.md`.
+    """
+    position_cache, prefix = cache
+
+    def run():
+        optimizer = HybridOptimizer(
+            position_cache=position_cache,
+            fg_prefixes=[prefix],
+            fg_seq_lengths=[GENOME_LENGTH],
+            bin_size=1_000,
+            coverage_reach=3_000,
+        )
+        result = optimizer.optimize(genome["primers"], final_count=6, verbose=False)
+        return tuple(result.primers), round(result.final_coverage, 9)
+
+    np.random.seed(1)
+    first = run()
+    np.random.seed(999_999)
+    second = run()
+    assert first == second, f"same input gave two panels: {first} vs {second}"
+
+
 def test_optimize_reports_real_coverage(optimizer, genome):
     """Zero coverage would mean the position lookup silently found nothing --
     the failure mode this audit has found in six other modules."""

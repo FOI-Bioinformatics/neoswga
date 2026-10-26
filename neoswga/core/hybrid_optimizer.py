@@ -41,6 +41,21 @@ from neoswga.core.selection_weights import (
 
 logger = logging.getLogger(__name__)
 
+# Fixed seed for every `algebraic_connectivity` call in Stage-2 refinement.
+#
+# `tracemin_lu` starts its eigenvalue iteration from a RANDOM vector, drawn from
+# numpy's global state, which advances per call. So the connectivity figure the
+# removal ranking reads differed between two runs of the same input, and the
+# delivered panel with it: measured 2-3 distinct panels over 6 repeats of one
+# fixed design, within a single process. The second-smallest Laplacian
+# eigenvalue is mathematically independent of the starting vector; pinning the
+# vector removes the numerical wobble that was flipping near-ties in the
+# ranking without changing what the value means. The graph's node order is
+# already deterministic (`_build_network` adds nodes in primer-then-position
+# order), so a fixed seed is the whole of what this stage needs to reproduce.
+# See `docs/validation/2026-10-26-stage2-determinism.md`.
+_CONNECTIVITY_SEED = 0
+
 # Stage-2's removal ranking moved to `stage2_ranking` on 2026-10-26, when the
 # Tm axis took this module past its size budget. Re-exported here, as the
 # same objects, so every existing import keeps working.
@@ -949,7 +964,9 @@ class HybridOptimizer(ThermoScreenMixin):
                     connectivity = 0.0
                 else:
                     try:
-                        connectivity = nx.algebraic_connectivity(subgraph, method="tracemin_lu")
+                        connectivity = nx.algebraic_connectivity(
+                            subgraph, method="tracemin_lu", seed=_CONNECTIVITY_SEED
+                        )
                     except (nx.NetworkXError, ValueError, np.linalg.LinAlgError):
                         connectivity = 0.0
 
@@ -1001,7 +1018,9 @@ class HybridOptimizer(ThermoScreenMixin):
         if verbose:
             try:
                 final_connectivity = (
-                    nx.algebraic_connectivity(final_subgraph, method="tracemin_lu")
+                    nx.algebraic_connectivity(
+                        final_subgraph, method="tracemin_lu", seed=_CONNECTIVITY_SEED
+                    )
                     if len(final_subgraph) >= 2
                     else 0.0
                 )

@@ -13,8 +13,10 @@ nondeterminism cannot leak into the comparison.
 
 For reproducibility of the printed numbers this script pins both noise sources:
 run it as `PYTHONHASHSEED=0 python docs/validation/tm_term_2026-10-26/measure_floor.py`
-and it seeds `algebraic_connectivity`. The PRODUCTION code is still unseeded;
-making it deterministic is the separate decision deferred on 2026-10-26.
+and it seeds `algebraic_connectivity`. NOTE: production was seeded later the
+same day (docs/validation/2026-10-26-stage2-determinism.md), so this script's
+own seeding is now redundant with the shipped code; it is kept so the script
+reproduces identically whether run against that commit or an earlier one.
 
 Run:
   PYTHONHASHSEED=0 PYTHONPATH=. python docs/validation/tm_term_2026-10-26/measure_floor.py
