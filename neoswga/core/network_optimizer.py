@@ -779,15 +779,16 @@ class NetworkOptimizer:
         Returns 0-1 where 1 = optimal Tm for reaction, 0 = poor Tm.
         Optimal Tm is ~5C above reaction temperature for primer binding.
         """
+        # Delegated to `selection_weights.tm_fitness` on 2026-10-26, when
+        # hybrid's Stage 2 gained a Tm axis and a second copy of this shape
+        # would have been a second definition of the same quantity. The
+        # numbers are unchanged: same +5 C optimum, same Gaussian width.
+        from neoswga.core.selection_weights import tm_fitness
+
         if self.reaction_temp is None:
             return 1.0  # No Tm scoring if no reaction temp set
 
-        tm = self._get_primer_tm(primer)
-        optimal_tm = self.reaction_temp + 5  # Optimal annealing ~5C above reaction
-
-        # Gaussian decay: efficiency drops as |Tm - optimal| increases
-        delta = abs(tm - optimal_tm)
-        return math.exp(-0.05 * delta**2)  # 50% at ~3.7C difference
+        return tm_fitness(self._get_primer_tm(primer), self.reaction_temp)
 
     def _calculate_set_dimer_penalty(self, primer: str, current_set: list[str]) -> float:
         """

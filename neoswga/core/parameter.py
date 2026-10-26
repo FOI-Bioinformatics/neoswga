@@ -753,6 +753,14 @@ coverage_metric = None
 #: `coverage.COVERAGE_GEOMETRIES`; the default is what every recorded figure
 #: was produced under and the reach was fitted alongside it.
 coverage_geometry = "symmetric"
+#: Weight of the Tm term in hybrid's Stage-2 removal ranking. None (the
+#: default) leaves Stage 2 exactly as it was before the term was wired on
+#: 2026-10-26. NOT the `tm_weight` an `--application` profile supplies: that
+#: one feeds `NetworkOptimizer`, and since `--application` defaults to
+#: `enrichment` it would otherwise switch this term on for every run.
+#: Measurement, including the case where it makes a panel worse on both axes:
+#: `docs/validation/2026-10-26-wiring-the-tm-term.md`.
+stage2_tm_weight = None
 
 # Panel-level limits; all unset by default and they must stay that way.
 # Reasoning in `panel_acceptance`'s docstring.
@@ -955,7 +963,7 @@ def _apply_params_only_keys(data: dict) -> None:
     """
     global refinement_method
     global total_search_evaluations, total_search_seconds, max_frontier_refills
-    global swap_max_evaluations, stage1_objective_width
+    global swap_max_evaluations, stage1_objective_width, stage2_tm_weight
     global swap_max_seconds
     global allow_dimer_relaxation
     global coverage_reach
@@ -995,6 +1003,7 @@ def _apply_params_only_keys(data: dict) -> None:
     swap_max_evaluations = _search["swap_max_evaluations"]
     swap_max_seconds = _search["swap_max_seconds"]
     stage1_objective_width = _search["stage1_objective_width"]
+    stage2_tm_weight = _search["stage2_tm_weight"]
     coverage_reach = _search["coverage_reach"]
     coverage_metric = _search["coverage_metric"]
     coverage_geometry = data.get("coverage_geometry", "symmetric")

@@ -352,6 +352,16 @@
       "minimum": 0,
       "default": 10000
     },
+    "stage2_tm_weight": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1,
+      "default": null,
+      "description": "Weight of the Tm term in hybrid's Stage-2 removal ranking, which prefers dropping the primer whose effective Tm sits furthest from reaction_temp + 5 C. null (default) leaves Stage 2 as it was before the term was wired, bit for bit. This is NOT the tm_weight an --application profile supplies: that one feeds the network method, and --application defaults to enrichment, so honouring it here would switch this term on for every run. Measured: on a single-length pool it improves mean Tm deviation from 5.86 to 4.86 C and costs 2 points of coverage; on a mixed-length pool it costs coverage, trips the Stage-1 coverage floor, and the floor discards the Tm gain with the refinement. See docs/validation/2026-10-26-wiring-the-tm-term.md."
+    },
     "stage1_objective_width": {
       "type": [
         "integer",

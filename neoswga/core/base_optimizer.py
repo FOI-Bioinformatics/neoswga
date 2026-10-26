@@ -571,6 +571,13 @@ class OptimizerConfig:
     # None keeps the unweighted bin count; an integer turns it on and bounds
     # it. Off by default: docs/validation/stage_one_objective_2026-09-19.md.
     stage1_objective_width: int | None = None
+    # Stage 2's Tm axis, wired 2026-10-26. None keeps the removal ranking
+    # exactly as it was; a weight in [0, 1] makes it prefer dropping the primer
+    # whose effective Tm sits furthest from reaction_temp + 5 C. Off by default
+    # and deliberately NOT fed from the `--application` profile's `tm_weight`:
+    # docs/validation/2026-10-26-wiring-the-tm-term.md records a gain on a
+    # single-length pool and none on a mixed-length one.
+    stage2_tm_weight: float | None = None
     # How many times a size row may widen the candidate frontier when it cannot
     # satisfy its constraints. The inventory holds every candidate that cleared
     # hard QC -- 20,670 on the Wolbachia design against a 2,000 shortlist -- and
@@ -1480,12 +1487,15 @@ class BaseOptimizer(ABC):
 
         Without conditions there is no buffer to correct for, but that is not a
         reason to fall back to something worse than nearest-neighbour.
-        """
-        from neoswga.core.thermodynamics import calculate_tm_basic
 
-        if self.conditions is not None:
-            return self.conditions.calculate_effective_tm(primer)
-        return calculate_tm_basic(primer)
+        Delegated to `selection_weights.effective_tm` on 2026-10-26, when
+        hybrid's Stage-2 Tm term needed the same number from a class that does
+        not inherit this one. The behaviour is unchanged, and the delegation is
+        what keeps the two stages on one definition.
+        """
+        from neoswga.core.selection_weights import effective_tm
+
+        return effective_tm(primer, self.conditions)
 
     def _estimate_dimer_risk(self, primers: list[str]) -> float:
         """

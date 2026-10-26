@@ -275,6 +275,16 @@ SEARCH_SETTING_DEFAULTS = {
     "swap_max_evaluations": 10000,
     "swap_max_seconds": 10.0,
     "stage1_objective_width": None,
+    # The Stage-2 Tm term's weight. Deliberately NOT the `tm_weight` that
+    # `--application` supplies: that one reaches `NetworkOptimizer`, is 0.10 to
+    # 0.30 in every profile, and `--application` defaults to `enrichment`, so
+    # honouring it here would switch a measured-neutral-to-harmful term on for
+    # every run. None keeps Stage 2 exactly as it was before the term existed.
+    # Measured 2026-10-26: on a single-length pool it improves mean Tm
+    # deviation 5.86 -> 4.86 C for 2 points of coverage; on a mixed-length pool
+    # it costs coverage, trips the Stage-1 floor, and the floor discards the Tm
+    # gain with it. See docs/validation/2026-10-26-wiring-the-tm-term.md.
+    "stage2_tm_weight": None,
     "coverage_reach": None,
     # Which coverage a panel is judged on during repair, refinement and
     # minimization. None leaves `panel_refinement.objective_for_optimizer` to

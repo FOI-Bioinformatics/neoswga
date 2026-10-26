@@ -300,6 +300,123 @@ def test_option_changes_the_design(cache, genome, option, low, high):
     )
 
 
+def test_stage2_tm_weight_defaults_to_off(cache, genome):
+    """`stage2_tm_weight=None` must leave Stage 2 exactly as it was.
+
+    The Tm axis was wired into hybrid's Stage-2 removal ranking on 2026-10-26.
+    It is off by default, and this is the assertion that keeps it off: the
+    weights `--application` supplies for the separate `tm_weight` key run from
+    0.10 to 0.30 and `--application` defaults to `enrichment`, so a route from
+    the profile into this term would change every delivered panel. The
+    measurement in `docs/validation/2026-10-26-wiring-the-tm-term.md` does not
+    support that, so the default is None and the two keys stay apart.
+
+    Asserting the panel rather than the plumbing, because the plumbing is what
+    was wrong for a month: both ends of `tm_weight` existed and the path did
+    not.
+    """
+    off = run_with(cache, genome)
+    explicit_none = run_with(cache, genome, stage2_tm_weight=None)
+    zero = run_with(cache, genome, stage2_tm_weight=0.0)
+
+    assert result_fingerprint(off) == result_fingerprint(explicit_none), (
+        "passing stage2_tm_weight=None changed the design, so the default is "
+        "not the same path as an unset key"
+    )
+    assert result_fingerprint(off) == result_fingerprint(zero), (
+        "stage2_tm_weight=0.0 changed the design; a zero weight must leave the "
+        "removal ranking identical, which is what makes the term's cost zero "
+        "when nobody asks for it"
+    )
+
+
+def test_a_zero_tm_weight_cannot_rank(cache, genome):
+    """The ranking function itself, at the boundary the default relies on.
+
+    `test_stage2_tm_weight_defaults_to_off` asserts it end to end; this asserts
+    it where the arithmetic lives, so a change to the weight budget that breaks
+    the identity is caught with a name rather than as a moved panel somewhere
+    downstream.
+    """
+    from neoswga.core.hybrid_optimizer import _rank_removal_candidates
+
+    # Tm fitness deliberately disagrees with every other axis, so a term with
+    # any weight at all would change the answer.
+    candidates = [
+        ("best-network-worst-tm", 0.90, 0, 0, 0.01),
+        ("worst-network-best-tm", 0.10, 0, 0, 0.99),
+    ]
+
+    for aware in (False, True):
+        assert _rank_removal_candidates(candidates, aware, tm_weight=0.0) == (
+            _rank_removal_candidates(candidates, aware)
+        ), "an explicit zero weight differs from the default"
+        off_pick = _rank_removal_candidates(candidates, aware, tm_weight=0.0)[0]
+        assert off_pick == "best-network-worst-tm", (
+            "with the term off the network axis must still decide"
+        )
+
+    picked, _score = _rank_removal_candidates(candidates, False, tm_weight=1.0)
+    assert picked == "best-network-worst-tm", (
+        "at weight 1.0 only the Tm axis ranks, and the primer furthest from the "
+        "reaction's optimum is the one to drop"
+    )
+
+
+def test_a_tm_weight_reaches_the_delivered_panel(cache, genome):
+    """The wiring, asserted on the panel and not on the attribute.
+
+    This is the test whose absence let `tm_weight` sit inert for a month:
+    `tests/test_selection_weights_reach_the_method.py` records that both ends
+    existed and nothing connected them. A weight that does not move a panel on
+    this pool is not necessarily broken -- Stage 2 floors its result at the
+    Stage-1 prefix, so a Tm-driven refinement that costs coverage is discarded
+    -- so the assertion is that the term is live, by its own inputs, rather
+    than that any particular panel comes back.
+    """
+    from neoswga.core.hybrid_optimizer import HybridOptimizer
+    from neoswga.core.selection_weights import OPTIMAL_TM_OFFSET_C
+
+    position_cache, prefix = cache
+    optimizer = HybridOptimizer(
+        position_cache=position_cache,
+        fg_prefixes=[prefix],
+        fg_seq_lengths=[GENOME_LENGTH],
+        coverage_reach=COVERAGE_REACH,
+        conditions=_WITH_BETAINE,
+        reaction_temp=42.0,
+        stage2_tm_weight=0.25,
+    )
+
+    # Both inputs the term needs must survive the constructor. Neither did
+    # before 2026-10-26: `reaction_temp` was forwarded to an object nothing
+    # read and never stored, which is why no Stage-2 code could consult it.
+    assert optimizer.stage2_tm_weight == 0.25
+    assert optimizer.reaction_temp == 42.0
+
+    # And the preset must supply the temperature when the caller does not,
+    # because that is what decides whether the term can rank at all.
+    from_preset = HybridOptimizer(
+        position_cache=position_cache,
+        fg_prefixes=[prefix],
+        fg_seq_lengths=[GENOME_LENGTH],
+        coverage_reach=COVERAGE_REACH,
+        polymerase="equiphi29",
+        stage2_tm_weight=0.25,
+    )
+    assert from_preset.reaction_temp is not None, (
+        "no reaction temperature means no optimum, so the term silently stops "
+        "ranking; the polymerase preset has to supply one"
+    )
+
+    result = optimizer.optimize(list(genome["primers"]), final_count=6, verbose=False)
+    assert result.primers, "the run delivered no panel"
+
+    # The optimum the term aims at is the reaction plus the offset, and the
+    # offset has one definition shared with NetworkOptimizer.
+    assert OPTIMAL_TM_OFFSET_C == 5.0
+
+
 def test_betaine_moves_the_score_and_not_the_membership(cache, genome):
     """What the betaine entry above does and does not establish.
 
@@ -351,7 +468,7 @@ def test_betaine_moves_the_score_and_not_the_membership(cache, genome):
     plain = [_NO_BETAINE.calculate_effective_tm(p) for p in delivered]
     shifted = [_WITH_BETAINE.calculate_effective_tm(p) for p in delivered]
 
-    assert all(s < p for s, p in zip(shifted, plain)), (
+    assert all(s < p for s, p in zip(shifted, plain, strict=True)), (
         "betaine is a destabiliser and must lower the effective Tm of every "
         f"delivered primer; got {plain} without and {shifted} with"
     )

@@ -180,7 +180,9 @@ measurements: implementation-notes.md.
 - **Search control**: `objective_scan_width` (64), `max_frontier_refills` (4),
   `swap_max_evaluations` (per stage, not a total), `total_search_evaluations`
   (the only total; None by default, so by default no total bound exists),
-  `stage1_objective_width` (None; off by default after measurement).
+  `stage1_objective_width` (None; off by default after measurement),
+  `stage2_tm_weight` (None; the Tm axis in Stage 2's removal ranking, off by
+  default after measurement, and deliberately not the profile's `tm_weight`).
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
   `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the
@@ -267,7 +269,11 @@ Each of these was learned from a defect; the record is in the linked documents.
   reference.
 - The profile weights `tm_weight` and `uniformity_weight` are inert on
   `hybrid`. Wiring them moves every delivered panel and is a decision, not a
-  repair.
+  repair. `hybrid`'s Stage 2 does carry a Tm axis since 2026-10-26, driven by
+  the separate `stage2_tm_weight` key and off by default: measured 7% better
+  mean Tm deviation on a single-length pool and nothing on a mixed-length one,
+  because the Stage-1 coverage floor discards a refinement that trades coverage
+  for Tm. `docs/validation/2026-10-26-wiring-the-tm-term.md`.
 
 ## Known Issues (index)
 
