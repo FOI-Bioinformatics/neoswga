@@ -229,8 +229,12 @@ surface and correspondingly the one with least external calibration.
   has `gap_gini` for the foreground only, and nothing that SELECTS reads even that
   one: it enters the post-hoc `normalized_score` at weight 0.10 and the selection
   path uses a coefficient of variation of gaps instead. `bg_coverage` is the one
-  computed quantity that sees background site position and it has no reader. See
-  Known Issues 17 and 18.
+  computed quantity that sees background site position, and **since 2026-10-26 it
+  has exactly one selection reader**: the swap Stage-2 score, as a weighted axis
+  under `stage2_background_weight`, off by default and unmeasured against a
+  reaction (`2026-10-26-stage2-background-weight.md`). Until then it had none,
+  which is what this entry said. `off_gap_gini` is still not computed anywhere.
+  See Known Issues 17 and 18.
 - **jellyfish is a hard dependency.** There is no in-process counting fallback;
   `kmer_counter.count_kmers_in_sequence` exists but has no callers.
 - **RF training provenance is undocumented.** swga 2.0 states its training set (396
