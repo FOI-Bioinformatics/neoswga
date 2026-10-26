@@ -761,6 +761,10 @@ coverage_geometry = "symmetric"
 #: Measurement, including the case where it makes a panel worse on both axes:
 #: `docs/validation/2026-10-26-wiring-the-tm-term.md`.
 stage2_tm_weight = None
+#: Weight of the host term in the swap Stage-2 score (Known Issue 14); None keeps
+#: the lexicographic tie-break. Off by default; unmeasured against a reaction.
+#: docs/validation/2026-10-26-stage2-background-weight.md.
+stage2_background_weight = None
 
 # Panel-level limits; all unset by default and they must stay that way.
 # Reasoning in `panel_acceptance`'s docstring.
@@ -964,6 +968,7 @@ def _apply_params_only_keys(data: dict) -> None:
     global refinement_method
     global total_search_evaluations, total_search_seconds, max_frontier_refills
     global swap_max_evaluations, stage1_objective_width, stage2_tm_weight
+    global stage2_background_weight
     global swap_max_seconds
     global allow_dimer_relaxation
     global coverage_reach
@@ -1004,6 +1009,7 @@ def _apply_params_only_keys(data: dict) -> None:
     swap_max_seconds = _search["swap_max_seconds"]
     stage1_objective_width = _search["stage1_objective_width"]
     stage2_tm_weight = _search["stage2_tm_weight"]
+    stage2_background_weight = _search["stage2_background_weight"]
     coverage_reach = _search["coverage_reach"]
     coverage_metric = _search["coverage_metric"]
     coverage_geometry = data.get("coverage_geometry", "symmetric")

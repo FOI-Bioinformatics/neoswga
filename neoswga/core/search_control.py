@@ -285,6 +285,7 @@ SEARCH_SETTING_DEFAULTS = {
     # it costs coverage, trips the Stage-1 floor, and the floor discards the Tm
     # gain with it. See docs/validation/2026-10-26-wiring-the-tm-term.md.
     "stage2_tm_weight": None,
+    "stage2_background_weight": None,
     "coverage_reach": None,
     # Which coverage a panel is judged on during repair, refinement and
     # minimization. None leaves `panel_refinement.objective_for_optimizer` to

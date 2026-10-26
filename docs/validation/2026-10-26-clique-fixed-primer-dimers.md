@@ -108,19 +108,28 @@ so the validation was extracted to `_reject_undimerfree_fixed`.
 Pinned by `test_a_candidate_that_dimers_with_a_fixed_primer_is_never_delivered`
 and `test_a_self_dimering_fixed_primer_is_refused`.
 
-## Not fixed here (optimizer audit, same day)
+## Also surfaced by the audit (all three resolved the same day)
 
-The audit that found this surfaced other items, left for a decision:
+The audit that found this surfaced three further items. All were resolved on 26
+October 2026, in the order they are listed here:
 
-- `objective_scan_width` (default 64) is read only on the `plan-pool` repair
-  path; an `optimize` run's refinement never sees it, bounded only by
-  `swap_max_evaluations`. Documented without that scoping. Wiring it into
-  `optimize` needs coverage bins and a measurement; the honest alternative is to
-  scope its documentation.
-- `minimal_primer_selector.py` is dead (the real `--minimize-primers`
-  post-process is `optimization_service.reduce_result`); CLAUDE.md and
-  implementation-notes describe it as the post-process. A doc correction plus a
-  decision on removing the module.
-- Known Issue 14 (neither Stage-2 path carries both the shared objective as its
-  primary ranking and the host term as a weighted axis) remains a deliberate,
-  unmeasured modelling choice, not a defect.
+- `objective_scan_width` (default 64) was read only on the `plan-pool` repair
+  path; an `optimize` run's refinement never saw it, bounded only by
+  `swap_max_evaluations`, yet it was documented without that scoping. Resolved
+  by scoping the documentation (it is an internal `OptimizerConfig` default, not
+  a params.json key): `f04146c`. Wiring it into `optimize` would need coverage
+  bins and a measurement and was not done.
+- `minimal_primer_selector.py` was dead (the real `--minimize-primers`
+  post-process is `optimization_service.reduce_result`), and CLAUDE.md and
+  implementation-notes described it as the post-process. Resolved by removing
+  the module and its test and correcting the docs to name the real
+  post-process: `5dbe5dc`.
+- Known Issue 14 (the swap Stage-2 score carried the host term only as a
+  lexicographic tie-break, never as a weighted axis). Resolved by adding the
+  `stage2_background_weight` key: off by default (the score is unchanged bit for
+  bit), and a weight > 0 trades foreground coverage against host coverage as a
+  single axis. The trade is deliberately UNMEASURED against a reaction; see
+  `docs/validation/2026-10-26-stage2-background-weight.md`. Fixing it also closed
+  a latent instance of Known Issue 8: the `HybridBaseOptimizer` wrapper dropped
+  `stage2_tm_weight` on the way to the inner, so that key had been inert on every
+  factory/CLI hybrid run. Both weights now reach the inner.

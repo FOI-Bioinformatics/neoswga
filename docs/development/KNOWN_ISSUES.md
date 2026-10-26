@@ -460,8 +460,15 @@ package, because nothing in the search uses it.
     first attempt and `tests/test_expansion_uses_the_background.py` caught it
     immediately: background-aware and hybrid returned the same panel, because
     the host term had been left behind. Combining them means putting the host
-    term into the swap score as a weighted axis rather than its current
-    lexicographic tie-break, which is unmeasured.
+    term into the swap score as a weighted axis rather than its
+    lexicographic tie-break. That axis now exists, driven by
+    `stage2_background_weight` and off by default (weight 0/None is the old
+    lexicographic tuple, bit for bit): a weight > 0 trades foreground coverage
+    against host coverage on one axis, so a host-aware swap refinement can rank
+    on both the shared objective and the host term at once. The trade is still
+    unmeasured against a reaction, which is why it ships off; the key, its
+    off-by-default behaviour and the Known Issue 8 forwarding gap it closed are
+    recorded in `docs/validation/2026-10-26-stage2-background-weight.md`.
 
     `examples/plasmid_example` cannot demonstrate any of this. Six primers
     already cover its 5.4 kb target completely at 3 kb reach, so expansion adds

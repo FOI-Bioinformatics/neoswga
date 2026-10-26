@@ -115,6 +115,7 @@ class OptimizationConfig:
     swap_max_evaluations: int = 10000
     stage1_objective_width: int | None = None
     stage2_tm_weight: float | None = None
+    stage2_background_weight: float | None = None
     swap_max_seconds: float = 10.0
     uniformity_weight: float = 0.0
     minimize_primers: bool = False
@@ -541,6 +542,7 @@ def _build_optimizer_config(
         swap_max_evaluations=pick("swap_max_evaluations", 10000),
         stage1_objective_width=pick("stage1_objective_width", None),
         stage2_tm_weight=pick("stage2_tm_weight", None),
+        stage2_background_weight=pick("stage2_background_weight", None),
         swap_max_seconds=pick("swap_max_seconds", 10.0),
         max_self_dimer_bp=pick("max_self_dimer_bp", 5),
         # `parameter.max_mismatches` is assigned by _apply_params_only_keys and
@@ -1341,6 +1343,7 @@ def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResu
         swap_max_seconds=config.swap_max_seconds,
         stage1_objective_width=config.stage1_objective_width,
         stage2_tm_weight=config.stage2_tm_weight,
+        stage2_background_weight=config.stage2_background_weight,
         fg_prefixes=config.fg_prefixes,
         fg_seq_lengths=config.fg_seq_lengths,
         bg_prefixes=config.bg_prefixes,

@@ -186,7 +186,12 @@ measurements: implementation-notes.md.
   (the only total; None by default, so by default no total bound exists),
   `stage1_objective_width` (None; off by default after measurement),
   `stage2_tm_weight` (None; the Tm axis in Stage 2's removal ranking, off by
-  default after measurement, and deliberately not the profile's `tm_weight`).
+  default after measurement, and deliberately not the profile's `tm_weight`),
+  `stage2_background_weight` (None; the host term as a weighted axis in the swap
+  Stage-2 score — `plan-pool`, `expand-primers`, `hybrid` with
+  `refinement_method=swap` — off by default. Weight 0/None keeps the
+  lexicographic tie-break; a weight > 0 trades fg coverage against host coverage.
+  Known Issue 14; unmeasured against a reaction).
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
   `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the
@@ -319,7 +324,10 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 13. **Unindexed prefix**: `PositionCache.get_positions` raises
     `MissingPositionsError` instead of answering with an empty array.
 14. **Reading the background is not acting on it**. `_network_refine` carries
-    the host term and `_swap_refine` reads the objective; neither carries both.
+    the host term and `_swap_refine` reads the objective; neither carried both.
+    The swap score can now carry both via `stage2_background_weight` (off by
+    default; the host term is a lexicographic tie-break until then). Unmeasured
+    against a reaction: `docs/validation/2026-10-26-stage2-background-weight.md`.
 15. **`require_entries`** asks for an entry on every prefix, not a hit on any.
 16. **Stage 1 objective**: wired as `stage1_objective_width`, off by default;
     it gains coverage and costs specificity and runtime.

@@ -1558,6 +1558,13 @@ class HybridBaseOptimizer(BaseOptimizer):
             stage1_objective_width=getattr(self.config, "stage1_objective_width", None),
             template_gc=kwargs.get("template_gc", 0.5),
         )
+        # The two Stage-2 scoring weights, set here not as inner constructor
+        # params (its __init__ is at budget). Both None unless params.json sets
+        # them, so a default run is unchanged; before this, config carried them
+        # but the inner did not, leaving stage2_tm_weight inert on every CLI
+        # hybrid run (Known Issue 8). docs/validation/2026-10-26-stage2-background-weight.md.
+        for _weight in ("stage2_tm_weight", "stage2_background_weight"):
+            setattr(self._hybrid, _weight, getattr(self.config, _weight, None))
 
     @property
     def name(self) -> str:

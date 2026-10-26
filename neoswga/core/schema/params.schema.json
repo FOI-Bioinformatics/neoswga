@@ -362,6 +362,15 @@
       "default": null,
       "description": "Weight of the Tm term in hybrid's Stage-2 removal ranking, which prefers dropping the primer whose effective Tm sits furthest from reaction_temp + 5 C. null (default) leaves Stage 2 as it was before the term was wired, bit for bit. This is NOT the tm_weight an --application profile supplies: that one feeds the network method, and --application defaults to enrichment, so honouring it here would switch this term on for every run. Measured: on a single-length pool it improves mean Tm deviation from 5.86 to 4.86 C and costs 2 points of coverage; on a mixed-length pool it costs coverage, trips the Stage-1 coverage floor, and the floor discards the Tm gain with the refinement. See docs/validation/2026-10-26-wiring-the-tm-term.md."
     },
+    "stage2_background_weight": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "default": null,
+      "description": "Weight of the host term in the swap Stage-2 score (Known Issue 14). This is the swap refinement used by plan-pool, expand-primers, and hybrid when refinement_method is 'swap'. null (default) keeps background as the lexicographic tie-break the swap score has always used, bit for bit; a weight > 0 instead trades foreground coverage against host coverage as a single weighted axis (both are 0..1 fractions, so the weight is a genuine trade). It applies only when the objective can measure both coverages; with no background genome the score falls back to the lexicographic form rather than inventing a zero host coverage. The trade is UNMEASURED against a reaction and ships off; see docs/validation/2026-10-26-stage2-background-weight.md."
+    },
     "stage1_objective_width": {
       "type": [
         "integer",

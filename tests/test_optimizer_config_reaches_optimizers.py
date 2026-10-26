@@ -392,6 +392,46 @@ def test_the_scoring_engine_uses_the_configured_value(
     )
 
 
+#: The two Stage-2 scoring weights. Unlike SCORING_PARAMETERS they are NOT read
+#: by the NetworkOptimizer -- they drive hybrid's own Stage-2 ranking and the
+#: swap score -- so they live on the inner `HybridOptimizer` (`_hybrid`), not on
+#: the network engine. The wrapper `HybridBaseOptimizer` builds the inner and
+#: then sets them; before that assignment both were carried on OptimizerConfig
+#: and dropped at the inner's constructor, so `stage2_tm_weight` was inert on
+#: every factory/CLI hybrid run (Known Issue 8). This asserts the value survives
+#: the wrapper.
+STAGE2_HYBRID_WEIGHTS = [
+    ("stage2_tm_weight", 1.0),
+    ("stage2_background_weight", 0.5),
+]
+
+
+@pytest.mark.parametrize("name,value", STAGE2_HYBRID_WEIGHTS, ids=lambda p: str(p))
+def test_stage2_weights_reach_the_inner_hybrid(prefix, planted, name, value):
+    """A Stage-2 weight set from config has to reach the inner HybridOptimizer.
+
+    `stage2_tm_weight` and `stage2_background_weight` are read by the inner
+    `HybridOptimizer` -- the first by its removal ranking, the second by the
+    swap score -- not by the NetworkOptimizer the scoring-engine test covers.
+    They reach the wrapper on `OptimizerConfig`; the wrapper has to forward them
+    when it builds the inner, or the keys are inert exactly as Known Issue 8
+    describes. Both ship off by default, so this pins the plumbing, not a
+    default behaviour change.
+    """
+    optimizer = build(prefix, planted, "hybrid", **{name: value})
+    inner = getattr(optimizer, "_hybrid", None)
+    assert inner is not None, (
+        f"hybrid adapter {type(optimizer).__name__} has no '_hybrid' inner; "
+        "update this test if it was renamed."
+    )
+    actual = getattr(inner, name, None)
+    assert actual == value, (
+        f"{name}={value} did not reach HybridOptimizer.{name}; it is using "
+        f"{actual!r}. The value reaches the adapter's OptimizerConfig and is "
+        f"dropped when the adapter builds its inner engine."
+    )
+
+
 # ----------------------------------------------------------------------
 # Optimizer-specific configuration
 # ----------------------------------------------------------------------

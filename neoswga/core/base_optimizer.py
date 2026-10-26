@@ -578,6 +578,12 @@ class OptimizerConfig:
     # docs/validation/2026-10-26-wiring-the-tm-term.md records a gain on a
     # single-length pool and none on a mixed-length one.
     stage2_tm_weight: float | None = None
+    # Weight of the host term in the SWAP Stage-2 score (Known Issue 14). None
+    # keeps background as the lexicographic tie-break the swap score has always
+    # used; a weight > 0 trades fg coverage against host coverage as a single
+    # axis. Off by default, and the trade is unmeasured against a reaction:
+    # docs/validation/2026-10-26-stage2-background-weight.md.
+    stage2_background_weight: float | None = None
     # How many times a size row may widen the candidate frontier when it cannot
     # satisfy its constraints. The inventory holds every candidate that cleared
     # hard QC -- 20,670 on the Wolbachia design against a 2,000 shortlist -- and

@@ -286,6 +286,7 @@ def refine_by_swaps(
     background_sites=None,
     objective=None,
     objective_scan_width=None,
+    background_weight=0.0,
     max_evaluations=10000,
     max_seconds=10.0,
 ):
@@ -357,18 +358,31 @@ def refine_by_swaps(
     reason = "local_optimum"
 
     def _score(panel):
-        """Lexicographic, constraints first. Higher is better throughout."""
-        # `-shortfall` rather than `-len(violations)`: counting ties whenever
-        # two panels fail the same single constraint, and coverage then decides,
-        # which let more search move a panel further from the limit it was
-        # chasing. Zero shortfall is exactly feasibility, so a feasible panel
-        # still outranks every infeasible one however much coverage that would
-        # buy.
-        return (
-            -objective.shortfall(panel),
-            objective.coverage(panel),
-            -objective.metrics(panel).total_bg_sites,
-        )
+        """Lexicographic, constraints first. Higher is better throughout.
+
+        `-shortfall` rather than `-len(violations)`: counting ties whenever two
+        panels fail the same single constraint, and coverage then decides, which
+        let more search move a panel further from the limit it was chasing. Zero
+        shortfall is exactly feasibility, so a feasible panel still outranks
+        every infeasible one however much coverage that would buy.
+
+        With `background_weight > 0` the host term becomes a WEIGHTED axis rather
+        than the lexicographic tie-break below (Known Issue 14): fg coverage is
+        traded against host coverage, both 0..1 fractions so the weight is a
+        genuine trade and not a cross-scale fudge. Off by default
+        (`background_weight == 0`), the score is the lexicographic tuple it has
+        always been, bit for bit. The weighted form is applied only when the
+        objective can measure both coverages; an unmeasurable host coverage
+        (no background) falls back to the lexicographic form rather than
+        inventing a zero. The trade-off it introduces is UNMEASURED against a
+        reaction; see docs/validation/2026-10-26-stage2-background-weight.md.
+        """
+        shortfall = -objective.shortfall(panel)
+        coverage = objective.coverage(panel)
+        metrics = objective.metrics(panel)
+        if background_weight > 0 and coverage is not None and metrics.bg_coverage is not None:
+            return (shortfall, coverage - background_weight * metrics.bg_coverage, 0.0)
+        return (shortfall, coverage, -metrics.total_bg_sites)
 
     if bounded:
         return _refine_with_bounded_scan(
@@ -508,6 +522,7 @@ def refine_hybrid_stage2(optimizer, primers, candidates, fixed_primers):
         fixed_primers=fixed_primers,
         background_sites=background,
         objective=objective,
+        background_weight=float(getattr(optimizer, "stage2_background_weight", None) or 0.0),
         max_evaluations=optimizer.swap_max_evaluations,
         max_seconds=optimizer.swap_max_seconds,
     )
