@@ -190,7 +190,30 @@ _ADDITIVE_EVIDENCE = {
     "glycerol_percent": "tm_glycerol",
     "bsa_ug_ml": "tm_bsa",
     "peg_percent": "tm_peg",
+    "dtt_mm": "tm_dtt",
+    "ssb": "tm_ssb",
 }
+
+# Reaction fields that are NOT duplex additives and so are not expected in
+# `_ADDITIVE_EVIDENCE`: the buffer salts and dNTPs feed the salt correction,
+# `primer_conc` feeds the nearest-neighbour Tm directly, and `temp`/`polymerase`
+# are not concentrations. Named here so the completeness ratchet
+# (`tests/test_model_evidence_contract.py`) can assert that every OTHER
+# `ReactionConditions` field carries an evidence record -- the Known Issue 8
+# guard for additives: a new additive cannot be added to the reaction and then
+# reach a design unexamined, as `dtt_mm` and `ssb` did until 2026-10-26.
+_NON_ADDITIVE_CONDITION_FIELDS = frozenset(
+    {
+        "temp",
+        "polymerase",
+        "primer_conc",
+        "na_conc",
+        "mg_conc",
+        "k_conc",
+        "nh4_conc",
+        "dntp_conc",
+    }
+)
 
 
 def require_model_support(request) -> None:

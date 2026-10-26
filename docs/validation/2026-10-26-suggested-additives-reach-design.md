@@ -130,9 +130,20 @@ driven through the real refusal path.
 
 ## Suggested next, not done here
 
-- Reconcile glycerol: drop it from the optimizer grid and recommendation, or
-  give it a duplex model with evidence. A decision, because removing it changes
-  what the optimizer proposes.
+- ~~Reconcile glycerol: drop it from the optimizer grid and recommendation, or
+  give it a duplex model with evidence.~~ **Done.** The optimizer now gates its
+  optional additives on the evidence registry: an additive whose duplex model
+  is `absent` (glycerol) is not admitted to the grid, logged rather than
+  silent, so it can never be proposed as a non-zero dose the design would
+  refuse. The registry is the single source of truth both the optimizer and
+  `require_model_support` consult, so they cannot drift.
+  `tests/test_additive_optimizer.py` pins that glycerol stays 0.0 even when
+  asked for, and that a usable optional additive (formamide) still reaches the
+  grid. Giving glycerol a real duplex model is still open and needs evidence
+  the registry says does not exist.
+- `dtt_mm` and `ssb` are now recorded (`assumed`) and examined like every other
+  additive, closing the chemistry audit's gap 12; a completeness ratchet keeps
+  the additive map and the constructor in step.
 - ~~Make the SSB recommendation honest: either gate "SSB: Yes" behind a note
   that the design model does not use it on the default method, or stop
   defaulting `include_ssb` on.~~ **Done (the note).** The recommendation summary

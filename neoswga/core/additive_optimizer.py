@@ -376,22 +376,55 @@ class AdditiveOptimizer:
 
         return filtered
 
+    @staticmethod
+    def _additive_is_usable(field: str) -> bool:
+        """Whether a design could accept this additive, per the evidence registry.
+
+        False when the additive's duplex model is `absent` -- the one status
+        `resolve_design_request` refuses. Logged rather than silent, so a run
+        that asked for glycerol can see why its grid did not include it.
+        """
+        from neoswga.core.model_evidence import _ADDITIVE_EVIDENCE, load_evidence
+
+        quantity = _ADDITIVE_EVIDENCE.get(field)
+        record = load_evidence().get(quantity) if quantity else None
+        if record is not None and record.status == "absent":
+            logger.warning(
+                "%s is not included in the additive search: a design refuses it "
+                "because no term models its melting-temperature effect "
+                "(evidence status 'absent'). Recommending it would propose a "
+                "recipe the pipeline rejects.",
+                field,
+            )
+            return False
+        return True
+
     def _generate_combinations(
         self,
         ranges: dict[str, list[float]],
         include_formamide: bool = False,
         include_glycerol: bool = False,
     ) -> list[dict[str, float]]:
-        """Generate all additive combinations."""
+        """Generate all additive combinations.
+
+        An optional additive is admitted to the grid only if a design could
+        then accept it. `resolve_design_request` refuses any additive whose
+        duplex effect the model records as `absent` (glycerol today), so
+        proposing a non-zero dose of one would hand the user a recipe their own
+        `optimize`/`design` run rejects. The registry is the single source of
+        truth both this optimiser and that refusal consult, so they cannot
+        drift. A base additive is never `absent`, so only the optional ones are
+        gated.
+        """
         # Base additives
         keys = ["dmso_percent", "betaine_m", "trehalose_m", "mg_conc"]
         value_lists = [ranges.get(k, [0.0]) for k in keys]
 
-        # Optional additives
-        if include_formamide:
+        # Optional additives, each admitted only if the design would accept it.
+        if include_formamide and self._additive_is_usable("formamide_percent"):
             keys.append("formamide_percent")
             value_lists.append([0.0, 1.0, 2.0])
-        if include_glycerol:
+        if include_glycerol and self._additive_is_usable("glycerol_percent"):
             keys.append("glycerol_percent")
             value_lists.append([0.0, 5.0, 10.0])
 

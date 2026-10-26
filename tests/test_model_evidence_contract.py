@@ -35,6 +35,55 @@ from neoswga.core.model_evidence import (
 )
 
 
+def test_every_reaction_additive_has_an_evidence_record():
+    """A new additive cannot reach a design unexamined.
+
+    `require_model_support` only checks additives named in `_ADDITIVE_EVIDENCE`.
+    `dtt_mm` and `ssb` were accepted into the reaction and never checked because
+    nothing named them there (chemistry-audit gap 12, closed 2026-10-26). This
+    pins the general property so it cannot recur: every `ReactionConditions`
+    field that is not a buffer salt, dNTP, primer concentration, temperature or
+    the polymerase string carries an evidence record. Adding an additive to the
+    constructor without a record now fails here -- the Known Issue 8 guard for
+    the additive surface.
+    """
+    import inspect
+
+    from neoswga.core.model_evidence import (
+        _ADDITIVE_EVIDENCE,
+        _NON_ADDITIVE_CONDITION_FIELDS,
+    )
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    fields = [p for p in inspect.signature(ReactionConditions.__init__).parameters][1:]
+    additives = [f for f in fields if f not in _NON_ADDITIVE_CONDITION_FIELDS]
+
+    evidence = load_evidence()
+    for field in additives:
+        quantity = _ADDITIVE_EVIDENCE.get(field)
+        assert quantity is not None, (
+            f"{field} is a reaction additive with no entry in _ADDITIVE_EVIDENCE, "
+            f"so require_model_support would never examine it. Add a record, or "
+            f"name it in _NON_ADDITIVE_CONDITION_FIELDS if it is a buffer term."
+        )
+        assert quantity in evidence, f"{field} maps to {quantity}, absent from the registry"
+
+
+def test_dtt_and_ssb_are_recorded_as_having_no_duplex_model():
+    """Both carry an `assumed` record, not silence.
+
+    They act on the enzyme and on binding kinetics, not on duplex stability, so
+    the right answer is a record saying so rather than an invented coefficient.
+    `assumed` is the status that passes `require_model_support` (a deliberate
+    no-model), as it does for BSA and PEG.
+    """
+    evidence = load_evidence()
+    for quantity in ("tm_dtt", "tm_ssb"):
+        assert evidence[quantity].status == "assumed"
+        assert not evidence[quantity].value
+        assert evidence[quantity].notes
+
+
 def base_params(**overrides):
     params = {
         "fg_prefixes": ["target"],
@@ -317,7 +366,7 @@ def test_every_package_on_disk_is_declared_for_installation():
     }
 
     assert not on_disk - declared, (
-        "these packages exist and would not be installed: " f"{sorted(on_disk - declared)}"
+        f"these packages exist and would not be installed: {sorted(on_disk - declared)}"
     )
 
 

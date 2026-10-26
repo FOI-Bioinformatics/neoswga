@@ -102,7 +102,7 @@ size, coverage and background load rather than one winner.
 | 3 | The default chemistry cannot use the chemistry lever at all | High, decision |
 | 4 | Chemistry is never a decision variable; the one redesign-per-chemistry path needs a hand-written grid on another command | High |
 | 5 | The melting-temperature term is inert on the default method | High, recorded |
-| 6 | 7 of 25 chemistry constants are `measured`; the temperature-domain check guards exactly one additive | High |
+| 6 | 7 of 27 chemistry constants are `measured`; the temperature-domain check guards exactly one additive | High |
 | 7 | Nothing is calibrated against a reaction, and no recovery target is defined | High, blocked |
 | 8 | `rescore-set` accepts nine chemistry flags and reads none; two further commands carry inert temperature flags | Medium-high |
 | 9 | No panel limit constrains Tm spread, although Tm tightness is the precondition for chemistry having leverage | Medium-high |
@@ -260,8 +260,8 @@ decision, not a repair."
 
 ### Gap 6 — the evidence base, and the one guarded additive
 
-`registry/model_evidence.json` is `schema_version: 1`, compiled 2026-09-21, 25
-records, with a five-level vocabulary mirrored at `model_evidence.py:53` and
+`registry/model_evidence.json` is `schema_version: 1`, compiled 2026-09-21, 27
+records (25 at audit time; `tm_dtt` and `tm_ssb` added 2026-10-26, both `assumed`), with a five-level vocabulary mirrored at `model_evidence.py:53` and
 ordered from strongest to weakest claim:
 
 | Status | Meaning (verbatim, abridged) | Count |
@@ -269,7 +269,7 @@ ordered from strongest to weakest claim:
 | `measured` | "the cited work reports this value for a case the model applies it to" | 7 |
 | `estimated` | "extrapolated from cited data taken at another temperature, on longer DNA, or in another buffer" | 7 |
 | `empirical` | "chosen so the model behaves plausibly; no source reports it" | 1 |
-| `assumed` | "a modelling decision with a stated reason and no supporting measurement" | 9 |
+| `assumed` | "a modelling decision with a stated reason and no supporting measurement" | 11 |
 | `absent` | "no model computes this effect; the code must not report zero for it" | 1 |
 
 Restricted to the twelve additive Tm coefficients: 3 measured, 5 estimated, 1
@@ -434,6 +434,14 @@ file. Both are accepted by the schema, range-validated, carried into
 a design setting glycerol gets a refusal. BSA and SSB have no physical reason to
 shift a duplex Tm, so the right answer is probably a record saying so rather
 than a coefficient: the gap is the missing record, not the missing number.
+
+**Closed 2026-10-26.** `tm_dtt` and `tm_ssb` records were added (status
+`assumed`, no duplex model, like BSA and PEG) and wired into
+`_ADDITIVE_EVIDENCE`, so both are now examined by `require_model_support` like
+every other additive. A completeness ratchet
+(`test_every_reaction_additive_has_an_evidence_record`) pins that every future
+`ReactionConditions` additive field carries a record or is named a buffer term,
+so this cannot recur. `docs/validation/2026-10-26-suggested-additives-reach-design.md`.
 
 ### Gap 13 — the temperature extrapolation is outside the registry
 

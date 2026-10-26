@@ -49,6 +49,11 @@ def test_the_evidence_record_count_is_right(text):
     position-dependent mismatch model. The first states a reference POINT, so
     the split moved from 1 + 10 + 12 to 1 + 11 + 13.
 
+    25 -> 27 on 2026-10-26: `tm_dtt` and `tm_ssb`, records saying DTT and SSB
+    have no duplex melting-temperature effect, added so a design that sets
+    either is checked rather than passing unexamined. Both state no temperature
+    number, so the split moved from 1 + 11 + 13 to 1 + 11 + 15.
+
     Asserting only the total let the page keep saying "ten" while the registry
     held eleven: a reader who counted found the page wrong, which is precisely
     the staleness this file exists to prevent. Each category is now asserted
@@ -73,15 +78,15 @@ def test_the_evidence_record_count_is_right(text):
     point = [r for r in records if states_a_number(r) and not r.get("temperature_range_c")]
     silent = [r for r in records if not states_a_number(r)]
 
-    assert len(records) == 25, f"the registry now holds {len(records)} records"
+    assert len(records) == 27, f"the registry now holds {len(records)} records"
     assert len(with_range) == 1, f"{len(with_range)} records now state a range"
     assert len(point) == 11, f"{len(point)} records now state a reference point"
-    assert len(silent) == 13, f"{len(silent)} records now state no number"
+    assert len(silent) == 15, f"{len(silent)} records now state no number"
     assert len(with_range) + len(point) + len(silent) == len(records)
 
-    assert "twenty-five" in text and "one of" in text
+    assert "twenty-seven" in text and "one of" in text
     assert "Eleven" in text or "eleven" in text, "the page's point count is stale"
-    assert "thirteen" in text or "Thirteen" in text, "the page's silent count is stale"
+    assert "fifteen" in text or "Fifteen" in text, "the page's silent count is stale"
 
     # The record that carries the range describes the same split, and used to
     # describe the pre-branch one.
@@ -103,9 +108,9 @@ def test_the_page_does_not_overstate_its_evidence(text):
 
     stated = int(re.search(r"keeps (\d+) measurement records", text).group(1))
 
-    assert stated <= len(
-        records
-    ), f"the page claims {stated} validation records; there are {len(records)}"
+    assert stated <= len(records), (
+        f"the page claims {stated} validation records; there are {len(records)}"
+    )
     assert stated >= 30, "the claim has drifted so low it no longer says anything"
 
 

@@ -105,8 +105,8 @@
     "suggested_by": [],
     "tm_delta_c": 0.0,
     "moves_tm": "False",
-    "design_outcome": "accepted, never checked",
-    "evidence_status": null
+    "design_outcome": "accepted",
+    "evidence_status": "assumed"
   },
   {
     "additive": "ssb",
@@ -115,7 +115,7 @@
     ],
     "tm_delta_c": 0.0,
     "moves_tm": "False",
-    "design_outcome": "accepted, never checked",
-    "evidence_status": null
+    "design_outcome": "accepted",
+    "evidence_status": "assumed"
   }
 ]

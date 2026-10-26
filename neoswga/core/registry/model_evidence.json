@@ -65,7 +65,7 @@
         30.0,
         45.0
       ],
-      "temperature_range_note": "The only one of the 25 records whose prose states a RANGE rather than a point, so it is the only one this check can act on: 11 give a single reference point and 13 give no number. Refusing on an unstated domain would turn a gap in the evidence into a gap in the tool."
+      "temperature_range_note": "The only one of the 27 records whose prose states a RANGE rather than a point, so it is the only one this check can act on: 11 give a single reference point and 15 give no number. Refusing on an unstated domain would turn a gap in the evidence into a gap in the tool."
     },
     {
       "quantity": "tm_betaine_uniform",
@@ -209,6 +209,32 @@
       "temperature_domain": "",
       "uncertainty": "",
       "notes": "No Tm term, deliberately. PEG is a crowding agent; its modelled effect is on association rate, not on duplex stability."
+    },
+    {
+      "quantity": "tm_dtt",
+      "units": "C per mM",
+      "model": "",
+      "value": "",
+      "status": "assumed",
+      "source": "",
+      "sequence_domain": "",
+      "buffer_domain": "",
+      "temperature_domain": "",
+      "uncertainty": "",
+      "notes": "No Tm term, deliberately. DTT is a reducing agent that protects the enzyme; it does not act on duplex stability, so the absence is a modelling decision with a reason rather than a gap. Distinguished from `absent` for that reason. Added 2026-10-26 so a design that sets dtt_mm is checked through require_model_support like every other additive, rather than passing unexamined because no record named it."
+    },
+    {
+      "quantity": "tm_ssb",
+      "units": "boolean",
+      "model": "",
+      "value": "",
+      "status": "assumed",
+      "source": "",
+      "sequence_domain": "",
+      "buffer_domain": "",
+      "temperature_domain": "",
+      "uncertainty": "",
+      "notes": "No Tm term, deliberately. SSB (single-stranded binding protein) acts on the association rate, not on duplex stability; its only modelled effect is the mechanistic kon multiplier, which the default `hybrid` method does not read. Added 2026-10-26 so a design that sets ssb is checked like every other additive. See docs/validation/2026-10-26-suggested-additives-reach-design.md."
     },
     {
       "quantity": "additive_mixture",
