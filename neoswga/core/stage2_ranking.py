@@ -19,6 +19,7 @@ __all__ = [
     "_STAGE2_COVERAGE_WEIGHT",
     "_rank_removal_candidates",
     "_removal_network_score",
+    "prefix_floors_refinement",
     "resolve_tm_inputs",
     "tm_axis_for",
 ]
@@ -247,3 +248,30 @@ def resolve_tm_inputs(stage2_tm_weight, reaction_temp, poly_config):
     if reaction_temp is not None:
         return weight, float(reaction_temp)
     return weight, getattr(poly_config, "reaction_temp", None)
+
+
+def prefix_floors_refinement(prefix_axes, refined_axes, eps: float = 1e-9) -> bool:
+    """Whether the Stage-1 prefix should replace the refined set.
+
+    Each axis is oriented higher-is-better, and the two tuples carry the same
+    axes in the same order. The prefix floors the refinement only when it
+    PARETO-DOMINATES it: no worse on every axis and strictly better on at least
+    one. A refinement that is better on one axis and worse on another is
+    incomparable, so it survives.
+
+    That is the whole of the 2026-10-26 change. The floor used to compare raw
+    covered bases alone, so a Stage-2 refinement that traded a little coverage
+    for a better melting-temperature profile -- which is exactly what a
+    `stage2_tm_weight` run asks for -- was discarded for covering less. With
+    more than one axis the single-number comparison cannot express "better
+    overall", and dominance is the comparison that can. See
+    `docs/validation/2026-10-26-wiring-the-tm-term.md`.
+
+    On a run that declares neither an objective nor the Tm term there is ONE
+    axis, raw coverage, and dominance on one axis is `prefix > refined`, which
+    is bit-for-bit the comparison this replaced. Equal on every axis is not
+    domination, so a tie keeps the refinement, matching the old `else` branch.
+    """
+    no_worse = all(p >= r - eps for p, r in zip(prefix_axes, refined_axes, strict=True))
+    strictly_better = any(p > r + eps for p, r in zip(prefix_axes, refined_axes, strict=True))
+    return no_worse and strictly_better

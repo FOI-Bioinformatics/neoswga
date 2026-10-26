@@ -49,6 +49,7 @@ from neoswga.core.stage2_ranking import (  # noqa: E402
     _STAGE2_COVERAGE_WEIGHT,
     _rank_removal_candidates,
     _removal_network_score,
+    prefix_floors_refinement,
     resolve_tm_inputs,
     tm_axis_for,
 )
@@ -1011,29 +1012,83 @@ class HybridOptimizer(ThermoScreenMixin):
                 f"Connectivity improved: {initial_stats['connectivity']:.2f} → {final_connectivity:.2f}"
             )
 
-        # Floor the result at the Stage-1 greedy prefix of the same size.
-        #
-        # Coverage-aware removal makes Stage 2 much less destructive, but "much
-        # less destructive" is a tendency, not a guarantee -- it holds on the
-        # inputs someone happened to try. Greedy set cover selects in a
-        # deterministic order, so its first N picks are the same N whatever
-        # stage1_count was, and coverage over that prefix is non-decreasing in
-        # N. Refusing to return anything worse than it turns the tendency into
-        # a floor that is itself monotone in the requested count.
-        if coverage_floor_set:
-            baseline = list(coverage_floor_set)[:target_count]
-            if len(baseline) == target_count:
-                refined_coverage = self._calculate_coverage(current_primers)
-                baseline_coverage = self._calculate_coverage(baseline)
-                if baseline_coverage > refined_coverage + 1e-12:
-                    if verbose:
-                        logger.info(
-                            f"  Refinement covered {refined_coverage:.1%} against "
-                            f"{baseline_coverage:.1%} for the stage-1 prefix; "
-                            f"keeping the prefix."
-                        )
-                    return baseline
+        return self._apply_stage1_floor(
+            current_primers, coverage_floor_set, target_count, tm_by_primer, verbose
+        )
 
+    def _floor_axes(self, primers: list[str], tm_by_primer: dict) -> tuple:
+        """The axes Stage 2 judges a panel on, oriented higher-is-better.
+
+        This is what the Stage-1 floor compares two panels on. It is built from
+        the same objective the rest of this stage optimizes, so the floor and
+        the search agree on what "better" means:
+
+        - With a `pool_objective` attached (a design that declares what it is
+          judged on, e.g. `plan-pool`), the axes are `-shortfall` and the
+          accepted coverage. A refinement that reduces constraint shortfall at
+          a coverage cost is then not dominated, so it survives, which the old
+          raw-coverage floor discarded -- the two-rule split the swap path
+          already removed, now closed here too.
+        - With none, the axis is raw `_calculate_coverage`, so a run that
+          declares no objective keeps the figure it always floored on.
+        - When the Tm term is active, mean Tm fitness is appended. This is the
+          axis that lets a `stage2_tm_weight` refinement survive a coverage
+          cost it was asked to pay.
+
+        A single axis (the no-objective, no-Tm case) makes the dominance test
+        in `prefix_floors_refinement` identical to the `>` it replaced.
+        """
+        objective = getattr(self, "pool_objective", None)
+        if objective is not None:
+            coverage = objective.coverage(primers)
+            axes = [
+                -objective.shortfall(primers),
+                coverage if coverage is not None else float("-inf"),
+            ]
+        else:
+            axes = [self._calculate_coverage(primers)]
+
+        if tm_by_primer:
+            axes.append(sum(tm_by_primer[p] for p in primers) / len(primers))
+        return tuple(axes)
+
+    def _apply_stage1_floor(
+        self, current_primers, coverage_floor_set, target_count, tm_by_primer, verbose
+    ) -> list[str]:
+        """Replace the refinement with the Stage-1 prefix only if it dominates.
+
+        The floor exists because Stage-2 removal is destructive on some inputs:
+        its greedy set-cover prefix is a safe fallback, selected in a fixed
+        order so its first N picks are the same N at any size. The guarantee is
+        "never return a panel the prefix beats".
+
+        What changed on 2026-10-26 is "beats". It was strictly-higher raw
+        coverage, a single number. That vetoed a refinement which traded a
+        little coverage for a better melting-temperature profile -- precisely
+        what a `stage2_tm_weight` run performs -- because the one number it
+        compared could not see the trade. The floor now compares on every axis
+        Stage 2 optimized (`_floor_axes`) and keeps the prefix only when it
+        PARETO-DOMINATES the refinement. With one axis this is the old
+        comparison exactly; with more, an incomparable refinement survives.
+        """
+        if not coverage_floor_set:
+            return current_primers
+        baseline = list(coverage_floor_set)[:target_count]
+        if len(baseline) != target_count:
+            return current_primers
+
+        prefix_axes = self._floor_axes(baseline, tm_by_primer)
+        refined_axes = self._floor_axes(current_primers, tm_by_primer)
+        if prefix_floors_refinement(prefix_axes, refined_axes):
+            if verbose:
+                logger.info(
+                    "  Stage-1 prefix dominates the refinement on %s; keeping the "
+                    "prefix (prefix axes %s vs refined %s).",
+                    "coverage" if len(prefix_axes) == 1 else "every optimized axis",
+                    tuple(round(a, 4) for a in prefix_axes),
+                    tuple(round(a, 4) for a in refined_axes),
+                )
+            return baseline
         return current_primers
 
     def _coverage_bins_by_primer(self, primers: list[str]) -> dict[str, set]:

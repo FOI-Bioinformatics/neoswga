@@ -270,10 +270,13 @@ Each of these was learned from a defect; the record is in the linked documents.
 - The profile weights `tm_weight` and `uniformity_weight` are inert on
   `hybrid`. Wiring them moves every delivered panel and is a decision, not a
   repair. `hybrid`'s Stage 2 does carry a Tm axis since 2026-10-26, driven by
-  the separate `stage2_tm_weight` key and off by default: measured 7% better
-  mean Tm deviation on a single-length pool and nothing on a mixed-length one,
-  because the Stage-1 coverage floor discards a refinement that trades coverage
-  for Tm. `docs/validation/2026-10-26-wiring-the-tm-term.md`.
+  the separate `stage2_tm_weight` key and off by default: weighted, it lowers
+  mean Tm deviation on both single- and mixed-length pools by trading coverage,
+  by the amount of the weight. The Stage-1 floor was changed the same day to
+  compare on every axis Stage 2 optimized (dominance) instead of raw coverage,
+  so it no longer discards a Tm-for-coverage trade; a run with no objective and
+  no Tm term stays on the single coverage axis and is unchanged.
+  `docs/validation/2026-10-26-wiring-the-tm-term.md`.
 
 ## Known Issues (index)
 

@@ -6,7 +6,7 @@
     "distinct_panels": 2,
     "mean_abs_deviation_median": 5.229,
     "mean_abs_deviation_min": 5.229,
-    "mean_abs_deviation_max": 5.857,
+    "mean_abs_deviation_max": 5.336,
     "coverage_median": 0.74,
     "coverage_min": 0.74,
     "coverage_max": 0.76,
@@ -20,112 +20,112 @@
     "runs": [
       {
         "primers": [
-          "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACATTTCCCC",
-          "ACCACCACAC",
-          "ATCTCAAGAA",
-          "GCTTCAATAA"
-        ],
-        "mean_abs_deviation": 5.22875562152358,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.74,
-        "lengths": [
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACATTTCCCC",
-          "ACCACCACAC",
-          "ATCTCAAGAA",
-          "GCTTCAATAA"
-        ],
-        "mean_abs_deviation": 5.22875562152358,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.74,
-        "lengths": [
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACATTTCCCC",
-          "ACCACCACAC",
-          "ATCTCAAGAA",
-          "GCTTCAATAA"
-        ],
-        "mean_abs_deviation": 5.22875562152358,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.74,
-        "lengths": [
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACATTTCCCC",
-          "ACCACCACAC",
-          "ATCTCAAGAA",
-          "GCTTCAATAA"
-        ],
-        "mean_abs_deviation": 5.22875562152358,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.74,
-        "lengths": [
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACATTTCCCC",
-          "ACCACCACAC",
-          "ATCTCAAGAA",
-          "GCTTCAATAA"
-        ],
-        "mean_abs_deviation": 5.22875562152358,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.74,
-        "lengths": [
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACATTTCCCC",
-          "ACCACCACAC",
-          "ATCTCAAGAA",
-          "GCTTCAATAA"
-        ],
-        "mean_abs_deviation": 5.22875562152358,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.74,
-        "lengths": [
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAACCCGACA",
+          "AAACTCATCA",
           "AAGGCGATAG",
           "AATTAGTCAG",
           "ACCACCACAC",
           "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.856854609436624,
+        "mean_abs_deviation": 5.3363338384463175,
         "tm_spread": 15.53258422754675,
         "coverage": 0.76,
+        "lengths": [
+          10
+        ]
+      },
+      {
+        "primers": [
+          "AAGGCGATAG",
+          "AATTAGTCAG",
+          "ACATTTCCCC",
+          "ACCACCACAC",
+          "ATCTCAAGAA",
+          "GCTTCAATAA"
+        ],
+        "mean_abs_deviation": 5.22875562152358,
+        "tm_spread": 15.53258422754675,
+        "coverage": 0.74,
+        "lengths": [
+          10
+        ]
+      },
+      {
+        "primers": [
+          "AAGGCGATAG",
+          "AATTAGTCAG",
+          "ACATTTCCCC",
+          "ACCACCACAC",
+          "ATCTCAAGAA",
+          "GCTTCAATAA"
+        ],
+        "mean_abs_deviation": 5.22875562152358,
+        "tm_spread": 15.53258422754675,
+        "coverage": 0.74,
+        "lengths": [
+          10
+        ]
+      },
+      {
+        "primers": [
+          "AAGGCGATAG",
+          "AATTAGTCAG",
+          "ACATTTCCCC",
+          "ACCACCACAC",
+          "ATCTCAAGAA",
+          "GCTTCAATAA"
+        ],
+        "mean_abs_deviation": 5.22875562152358,
+        "tm_spread": 15.53258422754675,
+        "coverage": 0.74,
+        "lengths": [
+          10
+        ]
+      },
+      {
+        "primers": [
+          "AAGGCGATAG",
+          "AATTAGTCAG",
+          "ACATTTCCCC",
+          "ACCACCACAC",
+          "ATCTCAAGAA",
+          "GCTTCAATAA"
+        ],
+        "mean_abs_deviation": 5.22875562152358,
+        "tm_spread": 15.53258422754675,
+        "coverage": 0.74,
+        "lengths": [
+          10
+        ]
+      },
+      {
+        "primers": [
+          "AAGGCGATAG",
+          "AATTAGTCAG",
+          "ACATTTCCCC",
+          "ACCACCACAC",
+          "ATCTCAAGAA",
+          "GCTTCAATAA"
+        ],
+        "mean_abs_deviation": 5.22875562152358,
+        "tm_spread": 15.53258422754675,
+        "coverage": 0.74,
+        "lengths": [
+          10
+        ]
+      },
+      {
+        "primers": [
+          "AAGGCGATAG",
+          "AATTAGTCAG",
+          "ACATTTCCCC",
+          "ACCACCACAC",
+          "ATCTCAAGAA",
+          "GCTTCAATAA"
+        ],
+        "mean_abs_deviation": 5.22875562152358,
+        "tm_spread": 15.53258422754675,
+        "coverage": 0.74,
         "lengths": [
           10
         ]
@@ -536,14 +536,14 @@
     "stage2_tm_weight": 1.0,
     "repeats": 7,
     "distinct_panels": 1,
-    "mean_abs_deviation_median": 5.615,
-    "mean_abs_deviation_min": 5.615,
-    "mean_abs_deviation_max": 5.615,
-    "coverage_median": 0.68,
-    "coverage_min": 0.68,
-    "coverage_max": 0.68,
-    "tm_spread_median": 15.53,
-    "best_jaccard_to_a_baseline_panel_median": 0.714,
+    "mean_abs_deviation_median": 3.687,
+    "mean_abs_deviation_min": 3.687,
+    "mean_abs_deviation_max": 3.687,
+    "coverage_median": 0.5,
+    "coverage_min": 0.5,
+    "coverage_max": 0.5,
+    "tm_spread_median": 8.09,
+    "best_jaccard_to_a_baseline_panel_median": 0.5,
     "lengths_seen": [
       [
         10
@@ -552,112 +552,112 @@
     "runs": [
       {
         "primers": [
-          "AAACCCGACA",
           "AAACTCATCA",
           "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACCACCACAC",
+          "ACAAACCACA",
+          "ACATTTCCCC",
+          "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.614895648317599,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.68,
+        "mean_abs_deviation": 3.6869158027914657,
+        "tm_spread": 8.08913536417316,
+        "coverage": 0.5,
         "lengths": [
           10
         ]
       },
       {
         "primers": [
-          "AAACCCGACA",
           "AAACTCATCA",
           "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACCACCACAC",
+          "ACAAACCACA",
+          "ACATTTCCCC",
+          "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.614895648317599,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.68,
+        "mean_abs_deviation": 3.6869158027914657,
+        "tm_spread": 8.08913536417316,
+        "coverage": 0.5,
         "lengths": [
           10
         ]
       },
       {
         "primers": [
-          "AAACCCGACA",
           "AAACTCATCA",
           "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACCACCACAC",
+          "ACAAACCACA",
+          "ACATTTCCCC",
+          "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.614895648317599,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.68,
+        "mean_abs_deviation": 3.6869158027914657,
+        "tm_spread": 8.08913536417316,
+        "coverage": 0.5,
         "lengths": [
           10
         ]
       },
       {
         "primers": [
-          "AAACCCGACA",
           "AAACTCATCA",
           "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACCACCACAC",
+          "ACAAACCACA",
+          "ACATTTCCCC",
+          "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.614895648317599,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.68,
+        "mean_abs_deviation": 3.6869158027914657,
+        "tm_spread": 8.08913536417316,
+        "coverage": 0.5,
         "lengths": [
           10
         ]
       },
       {
         "primers": [
-          "AAACCCGACA",
           "AAACTCATCA",
           "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACCACCACAC",
+          "ACAAACCACA",
+          "ACATTTCCCC",
+          "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.614895648317599,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.68,
+        "mean_abs_deviation": 3.6869158027914657,
+        "tm_spread": 8.08913536417316,
+        "coverage": 0.5,
         "lengths": [
           10
         ]
       },
       {
         "primers": [
-          "AAACCCGACA",
           "AAACTCATCA",
           "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACCACCACAC",
+          "ACAAACCACA",
+          "ACATTTCCCC",
+          "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.614895648317599,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.68,
+        "mean_abs_deviation": 3.6869158027914657,
+        "tm_spread": 8.08913536417316,
+        "coverage": 0.5,
         "lengths": [
           10
         ]
       },
       {
         "primers": [
-          "AAACCCGACA",
           "AAACTCATCA",
           "AAGGCGATAG",
-          "AATTAGTCAG",
-          "ACCACCACAC",
+          "ACAAACCACA",
+          "ACATTTCCCC",
+          "ATCTCAAGAA",
           "GCTTCAATAA"
         ],
-        "mean_abs_deviation": 5.614895648317599,
-        "tm_spread": 15.53258422754675,
-        "coverage": 0.68,
+        "mean_abs_deviation": 3.6869158027914657,
+        "tm_spread": 8.08913536417316,
+        "coverage": 0.5,
         "lengths": [
           10
         ]
@@ -668,12 +668,12 @@
     "pool": "mixed-length k=9-12",
     "stage2_tm_weight": 0.0,
     "repeats": 7,
-    "distinct_panels": 2,
+    "distinct_panels": 3,
     "mean_abs_deviation_median": 6.481,
     "mean_abs_deviation_min": 5.895,
-    "mean_abs_deviation_max": 6.481,
+    "mean_abs_deviation_max": 7.334,
     "coverage_median": 0.86,
-    "coverage_min": 0.84,
+    "coverage_min": 0.82,
     "coverage_max": 0.86,
     "tm_spread_median": 26.3,
     "best_jaccard_to_a_baseline_panel_median": 1.0,
@@ -681,9 +681,66 @@
       [
         9,
         10
+      ],
+      [
+        9,
+        10,
+        12
       ]
     ],
     "runs": [
+      {
+        "primers": [
+          "AAACTCACGT",
+          "ACACACAAG",
+          "ACTCATACT",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
+          "GTAAAGCAC"
+        ],
+        "mean_abs_deviation": 6.480540807392297,
+        "tm_spread": 26.296490614495156,
+        "coverage": 0.86,
+        "lengths": [
+          9,
+          10
+        ]
+      },
+      {
+        "primers": [
+          "AAAAAGGAAG",
+          "AAAAAGGCCG",
+          "AACCCTATCT",
+          "ACCGACCAAGCG",
+          "AGAGAGCTC",
+          "GTAAAGCAC"
+        ],
+        "mean_abs_deviation": 7.334202126799094,
+        "tm_spread": 27.51965907753356,
+        "coverage": 0.82,
+        "lengths": [
+          9,
+          10,
+          12
+        ]
+      },
+      {
+        "primers": [
+          "AAACTCACGT",
+          "ACACACAAG",
+          "ACTCATACT",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
+          "GTAAAGCAC"
+        ],
+        "mean_abs_deviation": 6.480540807392297,
+        "tm_spread": 26.296490614495156,
+        "coverage": 0.86,
+        "lengths": [
+          9,
+          10
+        ]
+      },
       {
         "primers": [
           "AAACTCACGT",
@@ -751,57 +808,6 @@
           9,
           10
         ]
-      },
-      {
-        "primers": [
-          "AAACTCACGT",
-          "ACACACAAG",
-          "ACTCATACT",
-          "ACTCCGCCCA",
-          "CGAACTCCA",
-          "GTAAAGCAC"
-        ],
-        "mean_abs_deviation": 6.480540807392297,
-        "tm_spread": 26.296490614495156,
-        "coverage": 0.86,
-        "lengths": [
-          9,
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAACTCACGT",
-          "ACACACAAG",
-          "ACTCATACT",
-          "ACTCCGCCCA",
-          "CGAACTCCA",
-          "GTAAAGCAC"
-        ],
-        "mean_abs_deviation": 6.480540807392297,
-        "tm_spread": 26.296490614495156,
-        "coverage": 0.86,
-        "lengths": [
-          9,
-          10
-        ]
-      },
-      {
-        "primers": [
-          "AAACTCACGT",
-          "ACACACAAG",
-          "ACTCATACT",
-          "ACTCCGCCCA",
-          "CGAACTCCA",
-          "GTAAAGCAC"
-        ],
-        "mean_abs_deviation": 6.480540807392297,
-        "tm_spread": 26.296490614495156,
-        "coverage": 0.86,
-        "lengths": [
-          9,
-          10
-        ]
       }
     ]
   },
@@ -810,146 +816,138 @@
     "stage2_tm_weight": 0.1,
     "repeats": 7,
     "distinct_panels": 1,
-    "mean_abs_deviation_median": 7.334,
-    "mean_abs_deviation_min": 7.334,
-    "mean_abs_deviation_max": 7.334,
-    "coverage_median": 0.82,
-    "coverage_min": 0.82,
-    "coverage_max": 0.82,
-    "tm_spread_median": 27.52,
-    "best_jaccard_to_a_baseline_panel_median": 0.091,
+    "mean_abs_deviation_median": 5.03,
+    "mean_abs_deviation_min": 5.03,
+    "mean_abs_deviation_max": 5.03,
+    "coverage_median": 0.76,
+    "coverage_min": 0.76,
+    "coverage_max": 0.76,
+    "tm_spread_median": 20.97,
+    "best_jaccard_to_a_baseline_panel_median": 0.714,
     "lengths_seen": [
       [
         9,
-        10,
-        12
+        10
       ]
     ],
     "runs": [
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       }
     ]
@@ -959,146 +957,138 @@
     "stage2_tm_weight": 0.25,
     "repeats": 7,
     "distinct_panels": 1,
-    "mean_abs_deviation_median": 7.334,
-    "mean_abs_deviation_min": 7.334,
-    "mean_abs_deviation_max": 7.334,
-    "coverage_median": 0.82,
-    "coverage_min": 0.82,
-    "coverage_max": 0.82,
-    "tm_spread_median": 27.52,
-    "best_jaccard_to_a_baseline_panel_median": 0.091,
+    "mean_abs_deviation_median": 5.03,
+    "mean_abs_deviation_min": 5.03,
+    "mean_abs_deviation_max": 5.03,
+    "coverage_median": 0.76,
+    "coverage_min": 0.76,
+    "coverage_max": 0.76,
+    "tm_spread_median": 20.97,
+    "best_jaccard_to_a_baseline_panel_median": 0.714,
     "lengths_seen": [
       [
         9,
-        10,
-        12
+        10
       ]
     ],
     "runs": [
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       }
     ]
@@ -1108,146 +1098,138 @@
     "stage2_tm_weight": 0.3,
     "repeats": 7,
     "distinct_panels": 1,
-    "mean_abs_deviation_median": 7.334,
-    "mean_abs_deviation_min": 7.334,
-    "mean_abs_deviation_max": 7.334,
-    "coverage_median": 0.82,
-    "coverage_min": 0.82,
-    "coverage_max": 0.82,
-    "tm_spread_median": 27.52,
-    "best_jaccard_to_a_baseline_panel_median": 0.091,
+    "mean_abs_deviation_median": 5.03,
+    "mean_abs_deviation_min": 5.03,
+    "mean_abs_deviation_max": 5.03,
+    "coverage_median": 0.76,
+    "coverage_min": 0.76,
+    "coverage_max": 0.76,
+    "tm_spread_median": 20.97,
+    "best_jaccard_to_a_baseline_panel_median": 0.714,
     "lengths_seen": [
       [
         9,
-        10,
-        12
+        10
       ]
     ],
     "runs": [
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
-          "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
-          "AGAGAGCTC",
+          "ACACACAAG",
+          "ACTCCGCCCA",
+          "CGAACTCCA",
           "GTAAAGCAC"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 5.030449770017602,
+        "tm_spread": 20.968409738532614,
+        "coverage": 0.76,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       }
     ]
@@ -1257,146 +1239,138 @@
     "stage2_tm_weight": 1.0,
     "repeats": 7,
     "distinct_panels": 1,
-    "mean_abs_deviation_median": 7.334,
-    "mean_abs_deviation_min": 7.334,
-    "mean_abs_deviation_max": 7.334,
-    "coverage_median": 0.82,
-    "coverage_min": 0.82,
-    "coverage_max": 0.82,
-    "tm_spread_median": 27.52,
-    "best_jaccard_to_a_baseline_panel_median": 0.091,
+    "mean_abs_deviation_median": 2.813,
+    "mean_abs_deviation_min": 2.813,
+    "mean_abs_deviation_max": 2.813,
+    "coverage_median": 0.74,
+    "coverage_min": 0.74,
+    "coverage_max": 0.74,
+    "tm_spread_median": 7.75,
+    "best_jaccard_to_a_baseline_panel_median": 0.333,
     "lengths_seen": [
       [
         9,
-        10,
-        12
+        10
       ]
     ],
     "runs": [
       {
         "primers": [
           "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
+          "ACACACAAG",
           "AGAGAGCTC",
-          "GTAAAGCAC"
+          "CGAACTCCA"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 2.8126909900673147,
+        "tm_spread": 7.745748566294992,
+        "coverage": 0.74,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
           "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
+          "ACACACAAG",
           "AGAGAGCTC",
-          "GTAAAGCAC"
+          "CGAACTCCA"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 2.8126909900673147,
+        "tm_spread": 7.745748566294992,
+        "coverage": 0.74,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
           "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
+          "ACACACAAG",
           "AGAGAGCTC",
-          "GTAAAGCAC"
+          "CGAACTCCA"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 2.8126909900673147,
+        "tm_spread": 7.745748566294992,
+        "coverage": 0.74,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
           "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
+          "ACACACAAG",
           "AGAGAGCTC",
-          "GTAAAGCAC"
+          "CGAACTCCA"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 2.8126909900673147,
+        "tm_spread": 7.745748566294992,
+        "coverage": 0.74,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
           "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
+          "ACACACAAG",
           "AGAGAGCTC",
-          "GTAAAGCAC"
+          "CGAACTCCA"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 2.8126909900673147,
+        "tm_spread": 7.745748566294992,
+        "coverage": 0.74,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
           "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
+          "ACACACAAG",
           "AGAGAGCTC",
-          "GTAAAGCAC"
+          "CGAACTCCA"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 2.8126909900673147,
+        "tm_spread": 7.745748566294992,
+        "coverage": 0.74,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       },
       {
         "primers": [
           "AAAAAGGAAG",
-          "AAAAAGGCCG",
+          "AAACTCACGT",
           "AACCCTATCT",
-          "ACCGACCAAGCG",
+          "ACACACAAG",
           "AGAGAGCTC",
-          "GTAAAGCAC"
+          "CGAACTCCA"
         ],
-        "mean_abs_deviation": 7.334202126799094,
-        "tm_spread": 27.51965907753356,
-        "coverage": 0.82,
+        "mean_abs_deviation": 2.8126909900673147,
+        "tm_spread": 7.745748566294992,
+        "coverage": 0.74,
         "lengths": [
           9,
-          10,
-          12
+          10
         ]
       }
     ]

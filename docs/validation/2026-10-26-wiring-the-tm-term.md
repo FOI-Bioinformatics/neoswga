@@ -29,8 +29,10 @@ key** and **off by default**:
 The two keys are deliberately separate, and that separation is the whole of the
 decision. All five `--application` profiles set `tm_weight` between 0.10 and
 0.30, and `--application` defaults to `enrichment` on the optimize parser, so
-feeding the profile into Stage 2 would have switched the term on for every CLI
-run. The measurement below does not support that.
+feeding the profile into Stage 2 would switch the term on for every CLI run. The
+measurement below shows the term trades coverage for Tm by the amount of the
+weight, and leaves specificity -- the quantity a design is accepted on --
+unmeasured, so it is a trade a user should opt into, not a default.
 
 ## How it works
 
@@ -109,68 +111,46 @@ for everyone and is its own decision with its own measurement.
 
 ## Result
 
-Medians over 7 repeats. **The medians reproduce exactly across independent
-runs of the script; the ranges and the jaccard column do not**, because the
-baseline they are measured against is itself one of 2 or 3 panels (see above).
-Two full runs of the script gave identical medians in every cell and different
-spreads, so read the medians as the result and the spread as an indication of
-the noise. `jaccard` is the best overlap with any panel that run's baseline
-produced, which is why it moves when the baseline does.
+End-to-end delivered panels at HEAD (the wiring AND the floor change below),
+medians over 7 repeats, `PYTHONHASHSEED=0`. **Medians reproduce exactly across
+independent runs; the per-cell ranges do not**, because Stage 2 is
+nondeterministic (above), so read the median as the result and the spread as
+the noise. Reproduce with `measure.py`.
 
 ### Single-length pool, k=10, 150 candidates
 
-| `stage2_tm_weight` | distinct panels | mean &#124;dTm&#124; | range | coverage | range | jaccard |
-|---|---|---|---|---|---|---|
-| 0.00 (default) | 2-3 | 5.229 | 5.23-5.86 | 0.7400 | 0.7400-0.7600 | 1.000 |
-| 0.10 | 1 | 5.229 | 5.23-5.23 | 0.7400 | 0.7400-0.7400 | 1.000 |
-| **0.25** | 1 | **4.857** | 4.86-4.86 | 0.7400 | 0.7400-0.7400 | 0.714 |
-| **0.30** | 1 | **4.857** | 4.86-4.86 | 0.7400 | 0.7400-0.7400 | 0.714 |
-| 1.00 | 1 | 5.615 | 5.62-5.62 | **0.6800** | 0.6800-0.6800 | 0.714 |
-
-**The term does its job here.** At 0.25 and 0.30 it improves mean Tm deviation
-from 5.23 to 4.86 C, a 7% reduction, and the coverage it delivers sits inside
-the baseline's own range. One primer in six changes. At 0.10 the term is present
-but too weak to outrank the other axes, and the panel is the baseline's.
-
-At 1.00 it is harmful: with the network and coverage weights driven to zero the
-removal is Tm-only, coverage falls from 0.74 to 0.68, and mean deviation ends up
-*worse* than the baseline's because the panel it reaches is then floored
-differently. A pure-Tm Stage 2 is not a useful setting.
+| `stage2_tm_weight` | mean &#124;dTm&#124; (med) | coverage (med) |
+|---|---|---|
+| 0.00 (default) | 5.229 | 0.7400 |
+| 0.10 | 5.229 | 0.7400 |
+| **0.25** | **4.857** | 0.7400 |
+| **0.30** | **4.857** | 0.7400 |
+| 1.00 | **3.687** | **0.5000** |
 
 ### Mixed-length pool, k=9 to 12, 600 candidates
 
-| `stage2_tm_weight` | distinct panels | mean &#124;dTm&#124; | range | coverage | range | jaccard |
-|---|---|---|---|---|---|---|
-| 0.00 (default) | 2-3 | 6.481 | 5.67-7.33 | 0.8600 | 0.8200-0.8600 | 1.000 |
-| 0.10 | 1 | 7.334 | 7.33-7.33 | 0.8200 | 0.8200-0.8200 | 0.09-1.00 |
-| 0.25 | 1 | 7.334 | 7.33-7.33 | 0.8200 | 0.8200-0.8200 | 0.09-1.00 |
-| 0.30 | 1 | 7.334 | 7.33-7.33 | 0.8200 | 0.8200-0.8200 | 0.09-1.00 |
-| 1.00 | 1 | 7.334 | 7.33-7.33 | 0.8200 | 0.8200-0.8200 | 0.09-1.00 |
-
-**No benefit, at any weight.** Every nonzero weight converges on the same panel,
-which is the Stage-1 prefix: mean deviation 7.33 at or beyond the worst end of
-the baseline's own range, and coverage at the bottom of it. The jaccard column
-spans 0.09 to 1.00 across runs precisely because the baseline sometimes lands on
-that prefix by itself and sometimes does not.
-
-The mechanism, traced by instrumenting the refinement:
-
-| `stage2_tm_weight` 0.25, mixed pool | mean &#124;dTm&#124; | coverage |
+| `stage2_tm_weight` | mean &#124;dTm&#124; (med) | coverage (med) |
 |---|---|---|
-| what the removal loop produced | 7.33 | 0.8200 |
-| the Stage-1 prefix it was floored against | 7.33 | 0.8200 |
-| what a Tm-optimal panel of this size would be | **2.81** | **0.7400** |
+| 0.00 (default) | 6.481 | 0.8600 |
+| 0.10 | **5.030** | 0.7600 |
+| 0.25 | **5.030** | 0.7600 |
+| 0.30 | **5.030** | 0.7600 |
+| 1.00 | **2.813** | 0.7400 |
 
-Stage 2 floors its output at the Stage-1 greedy prefix of the same size and
-**compares on coverage alone**. The Tm term trades coverage for Tm; that trips
-the floor; and the floor discards the refinement including its Tm gain. The
-Tm-optimal panel exists in this pool and is 3.7 C better, and the floor would
-reject it at every weight because it covers 12 points less.
+**The term lowers Tm deviation on both pools, and pays for it in coverage.**
+The weight sets the exchange rate. On the mixed pool a light 0.10 already moves
+mean deviation from 6.48 to 5.03 C for 10 points of coverage (0.86 to 0.76); a
+full 1.0 reaches 2.81 C at 0.74. On the single pool the trade is milder until
+1.0, which melts to 3.69 C at the cost of half the coverage (0.74 to 0.50). A
+pure-Tm Stage 2 (weight 1.0) is a corner, not a recommendation: it is what
+"optimise Tm and nothing else" delivers.
 
-So on a mixed-length pool the term cannot deliver as currently wired. It is not
-that the Tm preference is wrong; it is that a Tm term inside a stage gated on
-coverage can only help where it is nearly coverage-neutral, which is the
-single-length case.
+**This is HEAD, and it differs from the wiring commit alone.** At commit
+`91d7c9a` -- the Tm term wired but the floor still on raw coverage -- every
+nonzero weight on the mixed pool delivered the Stage-1 prefix unchanged (6.48
+to 7.33 C, no benefit), because the floor discarded the trade. The next section
+is the floor change that produced the mixed-pool numbers above, measured in
+isolation so the nondeterminism cannot confound it.
 
 A side effect worth recording: the term removes the nondeterminism it runs
 under, collapsing 2 or 3 distinct panels to 1, because the Tm axis breaks the
@@ -181,11 +161,16 @@ ties that iteration order was breaking. That is not an argument for enabling it.
 CLAUDE.md: "A capability with no demonstrated benefit ships off by default. Do
 not switch one on without a new measurement."
 
-The benefit is demonstrated on one pool shape and absent on the other, and the
-absent one is the shape the shipped `min_k=6`/`max_k=12` range produces. With
-`--application` defaulting to `enrichment` at `tm_weight 0.25`, routing the
-profile into this term would have changed every CLI optimize run on the
-strength of a single-length result. So:
+After the floor change below, the term lowers mean Tm deviation on BOTH pool
+shapes when it is weighted (mixed pool: 6.48 C at weight 0 to 2.81 at weight
+1.0), and it does so by trading coverage, by the amount of the weight. That is a
+trade a user should choose, not one a default should make for them: with
+`--application` defaulting to `enrichment` at `tm_weight 0.25`, reading the
+profile into this term would move every CLI optimize run off coverage toward Tm
+without anyone asking. The effect on specificity -- the quantity a design is
+actually accepted on -- is still unmeasured here (no background genome). So the
+rule stands: demonstrated to move a panel, not demonstrated to improve a design,
+therefore off by default. Concretely:
 
 - `stage2_tm_weight` defaults to None, and None is bit-identical to the
   pre-change Stage 2.
@@ -209,15 +194,77 @@ Tm term's effect on specificity rather than only on Tm deviation can be seen.
 That needs a reference genome and a k-mer counter, neither of which is in this
 container.
 
-## What this suggests next, and does not do
+## The floor was the binding constraint, and was changed
 
-- **The floor is the binding constraint, not the term.** A Stage-2 floor that
-  compared on the accepted objective rather than on raw coverage would let a
-  Tm-improving, slightly-coverage-costing refinement survive. That is a change
-  to the floor's contract and wants its own measurement.
+**Done, same day.** The section above traced the mixed-length "no benefit" to
+the Stage-1 floor: the removal loop produced a Tm-improved panel, the floor
+compared it to the Stage-1 prefix on raw coverage alone, saw only the coverage
+drop, and returned the prefix. So the floor, not the term, was discarding the
+result.
+
+The floor now keeps the prefix only when it PARETO-DOMINATES the refinement on
+the axes Stage 2 optimized -- the accepted coverage (raw, or an attached
+`pool_objective`'s), that objective's shortfall when one is attached, and mean
+Tm fitness when the Tm term is active. A refinement that trades one axis for
+another is incomparable and survives; one that is worse on every axis is still
+floored. With a single axis (a run that declares neither an objective nor the
+Tm term) dominance is the strict `>` it replaced, so that path is unchanged.
+`neoswga/core/stage2_ranking.prefix_floors_refinement`.
+
+### The floor decision, in isolation
+
+A/B-ing "floor on" against "floor off" end to end compares two different loop
+outputs, because Stage 2 is nondeterministic (below), so it measures the noise.
+`docs/validation/tm_term_2026-10-26/measure_floor.py` instead takes the ONE
+refinement the loop produced and asks what each floor rule does with that same
+pair. Reproduce with `PYTHONHASHSEED=0`, which the script pins along with an
+`algebraic_connectivity` seed; production stays unseeded.
+
+Mixed-length pool, the refinement the loop produced vs the Stage-1 prefix, and
+what each floor rule delivers (mean |dTm| to the 35 C optimum, lower better):
+
+| `stage2_tm_weight` | refinement cov / dev | prefix cov / dev | old floor delivers | new floor delivers |
+|---|---|---|---|---|
+| 0.00 | 0.86 / 6.48 | 0.82 / 7.33 | 6.48 (refined) | 6.48 (refined) |
+| 0.10 | 0.76 / 5.03 | 0.82 / 7.33 | **7.33 (prefix)** | **5.03 (refined)** |
+| 0.25 | 0.76 / 5.03 | 0.82 / 7.33 | **7.33 (prefix)** | **5.03 (refined)** |
+| 0.50 | 0.70 / 4.49 | 0.82 / 7.33 | 7.33 (prefix) | 4.49 (refined) |
+| 1.00 | 0.74 / 2.81 | 0.82 / 7.33 | 7.33 (prefix) | 2.81 (refined) |
+
+At weight 0 the two rules agree and keep the higher-coverage refinement: the
+single coverage axis makes the new rule identical to the old. At every nonzero
+weight the old rule returned the prefix and discarded the Tm gain; the new rule
+keeps the refinement. The single-length pool behaves the same way, with the old
+rule flooring the refinement at weight 0.50 and 1.0 where it costs coverage, and
+the new rule keeping it.
+
+**The coverage cost is real and the weight governs it.** On the mixed pool the
+delivered panel moves from 0.86 coverage / 6.48 C deviation at weight 0 to 0.74
+/ 2.81 at weight 1.0. A `stage2_tm_weight` run is choosing Tm over coverage by
+the amount of the weight; the floor change stops the floor from silently
+overriding that choice, it does not decide the trade. The term is still off by
+default, so a default run is unaffected.
+
+### What the floor change does not reach
+
+The floor only stops discarding a refinement; it cannot improve one the loop
+never produced. On a pool where the removal loop converges to the prefix on its
+own, the floor change is a no-op. And it is confined to the one place in
+`_network_refine` that was still on raw coverage: the swap path
+(`_swap_refine`) already compared on the attached objective.
+
+## What this still suggests, and does not do
+
 - **Stage 2's nondeterminism should be fixed on its own.** Passing a seed to
   `algebraic_connectivity` and ordering the loop's set iterations would make
-  `optimize` reproducible. It changes delivered panels, so it is a decision.
+  `optimize` reproducible. It changes delivered panels, so it is a decision,
+  and it is what forced the isolated floor measurement above.
+- **The dominance floor relaxes the coverage-monotonicity guarantee when
+  another axis is active.** `test_more_primers_do_not_reduce_coverage` still
+  holds because it sets no Tm term and attaches no objective, so it stays on
+  the single coverage axis. A run that sets `stage2_tm_weight` has opted into
+  trading coverage and is no longer promised that more primers never lower
+  coverage.
 - **`uniformity_weight` remains inert** and is a separate problem: it is a
-  property of a whole panel's gap distribution, not of one primer, so it does
-  not fit the per-primer removal axis the Tm term uses.
+  property of a whole panel's gap distribution, not of one primer, so it fits
+  neither the per-primer removal axis nor this per-panel floor axis directly.
