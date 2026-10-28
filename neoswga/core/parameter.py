@@ -894,6 +894,25 @@ def get_all_files(prefix_or_file):
     return total_files
 
 
+def _value_or(arg_value, data, key, default):
+    """`get_value_or_default`, but an ABSENT key takes `default`, not None.
+
+    Nothing injects params.schema.json's defaults at runtime, and get_params
+    assigns each key from `get_value_or_default`, which returns None for an
+    absent key -- the assignment then inserts the key, so the "fill absent
+    fields" blocks cannot reach it afterwards. Left alone, an omitted
+    `fg_circular` resolved to None, and `bool(None)` is False, so a circular
+    target (plasmid or bacterial chromosome -- the common SWGA case) silently
+    went LINEAR: no origin-spanning coverage wrap in the network/coverage
+    geometry of every design, and no origin-spanning gap merge in
+    `expand-primers --bam`. Schema/docs default is True for fg_circular, False
+    for bg_circular. An explicit true/false in the file is preserved untouched;
+    only a missing key (None) takes `default`.
+    """
+    value = get_value_or_default(arg_value, data, key)
+    return default if value is None else value
+
+
 def get_value_or_default(arg_value, data, key):
     """
     Helper function for getting the input values. If a command line argument value was given, just return arg_value.
@@ -1168,24 +1187,11 @@ def get_params(args):
     selection_metric = data["selection_metric"] = get_value_or_default(
         args.selection_metric, data, "selection_metric"
     )
-    # Apply the documented schema defaults when the key is ABSENT. Nothing
-    # injects params.schema.json's defaults at runtime, and the assignment
-    # below inserts the key, so the "fill absent fields" blocks further down
-    # cannot reach these two. Left alone, an omitted fg_circular resolved to
-    # None -- and bool(None) is False -- so a circular target (plasmid or
-    # bacterial chromosome, the common SWGA case) silently went LINEAR, in the
-    # coverage/network geometry of every design and in expand-primers --bam
-    # gap-finding (no origin-spanning gap merge). Schema/docs default is True
-    # for fg_circular, False for bg_circular. An explicit true/false in the
-    # file is preserved; only a missing key (None) takes the default.
-    fg_circular = get_value_or_default(args.fg_circular, data, "fg_circular")
-    if fg_circular is None:
-        fg_circular = True
-    data["fg_circular"] = fg_circular
-    bg_circular = get_value_or_default(args.bg_circular, data, "bg_circular")
-    if bg_circular is None:
-        bg_circular = False
-    data["bg_circular"] = bg_circular
+    # Absent fg_circular/bg_circular take their documented schema default via
+    # _value_or; an omitted fg_circular used to resolve to None -> bool(None)
+    # False -> a circular target silently went linear. See _value_or.
+    fg_circular = data["fg_circular"] = _value_or(args.fg_circular, data, "fg_circular", True)
+    bg_circular = data["bg_circular"] = _value_or(args.bg_circular, data, "bg_circular", False)
 
     # K-mer range parameters (with polymerase-aware defaults)
     # Supported range: 6-18bp
