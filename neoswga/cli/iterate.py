@@ -355,6 +355,22 @@ def run_expand_primers(args):
             logger.info(f"Coverage: {result.coverage_before:.1%} -> {result.coverage_after:.1%}")
             logger.info(f"Improvement: {result.predicted_improvement:.2f}x")
             logger.info(f"Gaps remaining: {result.gaps_remaining}")
+            if getattr(args, "bam", None):
+                # The Coverage/Improvement figures above are in-silico: they are
+                # computed from where the oligos bind the reference and the
+                # polymerase reach model (`_calculate_coverage`), NOT from the
+                # BAM's sequencing depth. A supplied BAM informs only WHERE
+                # expansion looked -- its low-depth regions are merged into the
+                # target gaps and written to merged_gaps.bed -- so these numbers
+                # are a prediction about the new set, not a measurement of the
+                # run that produced the BAM. Said here because a BAM run invites
+                # exactly the opposite reading.
+                logger.info("")
+                logger.info(
+                    "Note: Coverage/Improvement are in-silico predictions for the "
+                    "expanded set, not measured from the BAM. The BAM contributed "
+                    "the low-depth target regions only (see merged_gaps.bed)."
+                )
             logger.info("")
             logger.info("New primers:")
             for primer in result.new_primers:
