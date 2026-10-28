@@ -20,7 +20,7 @@ Version: 3.0 - Phase 2.1
 import logging
 import time
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from dataclasses import replace as _dc_replace
 
 import networkx as nx
@@ -129,62 +129,7 @@ def _get_polymerase_config(polymerase: str) -> PolymeraseConfig:
     return _dc_replace(preset)
 
 
-@dataclass
-class HybridResult:
-    """Result from hybrid optimization"""
-
-    # Final primer set
-    primers: list[str]
-
-    # Stage 1 (Coverage) results
-    stage1_primers: list[str]
-    stage1_coverage: float
-    stage1_regions_covered: int
-
-    # Stage 2 (Network) results
-    stage2_primers: list[str]
-    stage2_connectivity: float
-    stage2_predicted_amplification: float
-    stage2_largest_component: int
-
-    # Overall metrics
-    final_coverage: float
-    final_connectivity: float
-    final_predicted_amplification: float
-
-    # Stage-1 primers in greedy selection order. `stage1_primers` comes from a
-    # set and has no meaningful order; this does. Set-cover picks the largest
-    # marginal gain at each step, so its first N picks are the same N whatever
-    # `stage1_count` was, and coverage over that prefix is non-decreasing in N.
-    # Stage 2 is floored against it, which is what makes final coverage
-    # monotone in the requested count.
-    stage1_ordered_primers: list[str] = field(default_factory=list)
-
-    # Simulation validation (optional)
-    simulation_fitness: object | None = None  # SimulationFitness if validated
-
-    # Metadata
-    runtime_stage1: float = 0.0
-    runtime_stage2: float = 0.0
-    runtime_simulation: float = 0.0
-    total_runtime: float = 0.0
-
-    def __str__(self):
-        base = f"""Hybrid Optimization Result:
-  Final primers: {len(self.primers)}
-  Coverage: {self.final_coverage:.1%} (estimated, binned)
-  Connectivity: {self.final_connectivity:.2f}
-  Amplification: {self.final_predicted_amplification:.1f}×"""
-
-        if self.simulation_fitness:
-            base += f"""
-  Simulation validation:
-    Coverage: {self.simulation_fitness.mean_coverage:.1%} ± {self.simulation_fitness.std_coverage:.1%}
-    Uniformity: {self.simulation_fitness.coverage_uniformity:.2f}
-    Fitness: {self.simulation_fitness.fitness_score:.3f}"""
-
-        base += f"\n  Runtime: {self.total_runtime:.2f}s"
-        return base
+from neoswga.core.hybrid_result import HybridResult  # noqa: E402,F401
 
 
 class HybridOptimizer(ThermoScreenMixin):

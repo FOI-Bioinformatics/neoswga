@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import threading
-from dataclasses import dataclass
 from typing import Any, Optional
 
 import pandas as pd
@@ -75,51 +74,7 @@ _LAST_PRIMER_SETS: list[tuple[str, ...]] = []
 _LAST_CANDIDATE_REACH: dict[str, Any] | None = None
 
 
-@dataclass
-class OptimizationConfig:
-    """
-    Unified configuration for optimization runs.
-
-    Combines all parameters needed for optimization in one place.
-    """
-
-    # Optimizer selection
-    method: str = "hybrid"
-
-    # Target parameters
-    target_set_size: int = 6
-    max_iterations: int = 100
-
-    # File paths
-    data_dir: str = "."
-    step3_file: str = "step3_df.csv"
-    output_file: str = "step4_improved_df.csv"
-
-    # Genome info (loaded from pipeline if not provided)
-    fg_prefixes: list[str] | None = None
-    fg_seq_lengths: list[int] | None = None
-    bg_prefixes: list[str] | None = None
-    bg_seq_lengths: list[int] | None = None
-
-    # Performance options
-    use_position_cache: bool = True
-    use_background_filter: bool = True
-
-    # Output options
-    verbose: bool = True
-    quiet: bool = False
-
-    # Advanced options
-    allow_dimer_relaxation: bool = False
-    refinement_method: str = "network"
-    swap_max_evaluations: int = 10000
-    stage1_objective_width: int | None = None
-    stage2_tm_weight: float | None = None
-    stage2_background_weight: float | None = None
-    swap_max_seconds: float = 10.0
-    uniformity_weight: float = 0.0
-    minimize_primers: bool = False
-    target_coverage: float = 0.70
+from neoswga.core.optimization_config import OptimizationConfig  # noqa: E402,F401
 
 
 def list_available_optimizers() -> dict[str, str]:
