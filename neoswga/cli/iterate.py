@@ -195,6 +195,52 @@ def _bam_gaps_for_expansion(args, fg_prefixes, fg_seq_lengths, quiet):
     return gaps
 
 
+def _report_expansion_summary(result, args, quiet):
+    """Log the human-readable expand-primers summary (no-op when quiet).
+
+    Extracted from run_expand_primers to keep it under the function-length
+    ratchet; it is also where the BAM caveat lives.
+    """
+    if quiet:
+        return
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("EXPANSION COMPLETE")
+    logger.info("=" * 60)
+    logger.info(f"Fixed primers: {result.n_fixed}")
+    logger.info(f"New primers: {result.n_new}")
+    logger.info(f"Total set: {result.n_total}")
+    logger.info("")
+    logger.info(f"Coverage: {result.coverage_before:.1%} -> {result.coverage_after:.1%}")
+    logger.info(f"Improvement: {result.predicted_improvement:.2f}x")
+    logger.info(f"Gaps remaining: {result.gaps_remaining}")
+    if getattr(args, "bam", None):
+        # Coverage/Improvement are in-silico: computed from where the oligos
+        # bind the reference under the reach model (`_calculate_coverage`), NOT
+        # from the BAM's sequencing depth. A supplied BAM informs only WHERE
+        # expansion looked (its low-depth regions are merged into the gaps,
+        # written to merged_gaps.bed), so these numbers predict the new set
+        # rather than measure the run that produced the BAM. A BAM run invites
+        # exactly the opposite reading, so say so.
+        logger.info("")
+        logger.info(
+            "Note: Coverage/Improvement are in-silico predictions for the "
+            "expanded set, not measured from the BAM. The BAM contributed "
+            "the low-depth target regions only (see merged_gaps.bed)."
+        )
+    logger.info("")
+    logger.info("New primers:")
+    for primer in result.new_primers:
+        logger.info(f"  {primer}")
+    logger.info("")
+    logger.info(f"Results saved to: {args.output}")
+    logger.info("")
+    logger.info("Next steps:")
+    logger.info(f"  neoswga interpret -d {args.output}    # assess the expanded set")
+    logger.info(f"  neoswga report -d {args.output} --level full   # full report")
+    logger.info(f"  neoswga export -d {args.output} -o order/      # order for synthesis")
+
+
 def run_expand_primers(args):
     """
     Expand existing primer set with additional primers.
@@ -342,46 +388,7 @@ def run_expand_primers(args):
             }
         ).to_csv(primers_file, index=False)
 
-        # Print summary
-        if not quiet:
-            logger.info("")
-            logger.info("=" * 60)
-            logger.info("EXPANSION COMPLETE")
-            logger.info("=" * 60)
-            logger.info(f"Fixed primers: {result.n_fixed}")
-            logger.info(f"New primers: {result.n_new}")
-            logger.info(f"Total set: {result.n_total}")
-            logger.info("")
-            logger.info(f"Coverage: {result.coverage_before:.1%} -> {result.coverage_after:.1%}")
-            logger.info(f"Improvement: {result.predicted_improvement:.2f}x")
-            logger.info(f"Gaps remaining: {result.gaps_remaining}")
-            if getattr(args, "bam", None):
-                # The Coverage/Improvement figures above are in-silico: they are
-                # computed from where the oligos bind the reference and the
-                # polymerase reach model (`_calculate_coverage`), NOT from the
-                # BAM's sequencing depth. A supplied BAM informs only WHERE
-                # expansion looked -- its low-depth regions are merged into the
-                # target gaps and written to merged_gaps.bed -- so these numbers
-                # are a prediction about the new set, not a measurement of the
-                # run that produced the BAM. Said here because a BAM run invites
-                # exactly the opposite reading.
-                logger.info("")
-                logger.info(
-                    "Note: Coverage/Improvement are in-silico predictions for the "
-                    "expanded set, not measured from the BAM. The BAM contributed "
-                    "the low-depth target regions only (see merged_gaps.bed)."
-                )
-            logger.info("")
-            logger.info("New primers:")
-            for primer in result.new_primers:
-                logger.info(f"  {primer}")
-            logger.info("")
-            logger.info(f"Results saved to: {args.output}")
-            logger.info("")
-            logger.info("Next steps:")
-            logger.info(f"  neoswga interpret -d {args.output}    # assess the expanded set")
-            logger.info(f"  neoswga report -d {args.output} --level full   # full report")
-            logger.info(f"  neoswga export -d {args.output} -o order/      # order for synthesis")
+        _report_expansion_summary(result, args, quiet)
 
         _record_run_manifest(
             "expand-primers",
