@@ -12,7 +12,9 @@ and it governs Phase 5**: the coverage-inflation argument is read off
 `coverage.py:28`, `:117` and `:234` and has never been measured, so Phase 5
 begins with a measurement and not a fix.
 
-**Nothing in this plan is started.** The table below is the contract, not a
+**Status, 28 October 2026.** Phases 2 and 1 are implemented, in that order, for
+the reason given under *Sequencing* below. Everything else is unstarted; the
+table is the contract, and the `State` column is the only part of it that is a
 progress report.
 
 ## Startability in this container
@@ -30,21 +32,21 @@ can be written and unit-tested here and must be RUN where a counter exists.
 
 ## The contract
 
-| Task | Phase | Startable here | Pinned by |
+| Task | Phase | State | Pinned by |
 |---|---|---|---|
-| 1.1 Restore headroom in `parameter.py` | 1 | yes | size + headroom ratchets |
-| 1.2 Restore headroom in `unified_optimizer.py`, `hybrid_optimizer.py` | 1 | yes | as above |
-| 2.1 Disclose the pre-2026-10-26 reaction defect | 2 | yes | `CHANGELOG`, `LIMITATIONS`, a `doctor` check |
-| 3.1 Ratchet the adapter/inner parameter diff | 3 | yes | new test over 4 adapters |
-| 3.2 Audit the two unaudited adapters against it | 3 | yes | same test, allowlist empty |
-| 3.3 Stop the run log asserting weights the engine lacks | 3 | yes | new test |
-| 4.1 Ratchet the doc link/orphan sweep | 4 | yes | new test |
-| 5.1 Measure the directional-coverage inflation | 5 | script only | dated record |
-| 5.2 Decide and, if warranted, fix + re-baseline | 5 | no | record + re-baselined summaries |
-| 6.1 Measure the two Stage-2 terms in a discriminating regime | 6 | no | dated record |
-| 7.1 Strand-balance report | 7 | yes | new test |
-| 7.2 Compute and report `off_gap_gini` | 7 | yes | new test |
-| 7.3 Record what `max_dimer_dg` does at the default | 7 | yes | prose + the SWOT's table |
+| 1.1 Restore headroom in `parameter.py` | 1 | **Done** `e8962e1` — 1596→1453, headroom 148 | size + headroom ratchets |
+| 1.2 Restore headroom in `unified_optimizer.py`, `hybrid_optimizer.py` | 1 | **Done** `e8962e1` — headroom 48 and 59 | as above |
+| 2.1 Disclose the pre-2026-10-26 reaction defect | 2 | **Done** `3f648f3` | `test_reaction_provenance_is_reported.py`, CHANGELOG, LIMITATIONS |
+| 3.1 Ratchet the adapter/inner parameter diff | 3 | startable | new test over 4 adapters |
+| 3.2 Audit the two unaudited adapters against it | 3 | startable | same test, allowlist empty |
+| 3.3 Stop the run log asserting weights the engine lacks | 3 | startable | new test |
+| 4.1 Ratchet the doc link/orphan sweep | 4 | startable | new test |
+| 5.1 Measure the directional-coverage inflation | 5 | script only; needs a counter to run | dated record |
+| 5.2 Decide and, if warranted, fix + re-baseline | 5 | blocked on 5.1 | record + re-baselined summaries |
+| 6.1 Measure the two Stage-2 terms in a discriminating regime | 6 | needs a counter | dated record |
+| 7.1 Strand-balance report | 7 | startable | new test |
+| 7.2 Compute and report `off_gap_gini` | 7 | startable | new test |
+| 7.3 Record what `max_dimer_dg` does at the default | 7 | startable | prose + the SWOT's table |
 
 ---
 
