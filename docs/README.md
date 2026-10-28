@@ -138,6 +138,7 @@ F1b) directly.
 | Document | Description |
 |----------|-------------|
 | [SWOT: pool-design trustworthiness](reports/SWOT_2026-10-28_pool_design_trustworthiness.md) | 2026-10. The gap between what a run asserts and what it establishes, read through the four reachability defects of 26 October. Carries the provenance warning for pre-2026-10-26 equiphi29/bst designs. |
+| [Plan against that SWOT](reports/PLAN_2026-10-28_pool_design_trustworthiness.md) | 2026-10. Seven phases, resequenced by dependency. Nothing started; each task carries a test or a dated record as its acceptance criterion, and three phases are marked as needing a k-mer counter. |
 | [Chemistry in pool design](reports/AUDIT_2026-10-26_chemistry_in_pool_design.md) | 2026-10. Audit/gap/SWOT of how the enzyme, temperature, buffer and additives reach pool SELECTION. Probe scripts in `reports/chemistry_audit_2026-10-26/`. |
 | [Four-step pipeline audit](reports/AUDIT_pipeline_four_steps_2026-09-06.md) | 2026-09. count-kmers through optimize, measured on three whole-genome designs. Defines findings B4, B5, A6 and E6. |
 | [Optimize-step audit](reports/AUDIT_optimize_step_2026-09-03.md) | 2026-09. Step 4 in depth. Defines findings F0 and F1b. |
