@@ -897,17 +897,9 @@ def get_all_files(prefix_or_file):
 def _value_or(arg_value, data, key, default):
     """`get_value_or_default`, but an ABSENT key takes `default`, not None.
 
-    Nothing injects params.schema.json's defaults at runtime, and get_params
-    assigns each key from `get_value_or_default`, which returns None for an
-    absent key -- the assignment then inserts the key, so the "fill absent
-    fields" blocks cannot reach it afterwards. Left alone, an omitted
-    `fg_circular` resolved to None, and `bool(None)` is False, so a circular
-    target (plasmid or bacterial chromosome -- the common SWGA case) silently
-    went LINEAR: no origin-spanning coverage wrap in the network/coverage
-    geometry of every design, and no origin-spanning gap merge in
-    `expand-primers --bam`. Schema/docs default is True for fg_circular, False
-    for bg_circular. An explicit true/false in the file is preserved untouched;
-    only a missing key (None) takes `default`.
+    Nothing injects params.schema.json's defaults at runtime; an omitted
+    `fg_circular` resolved to None and `bool(None)` is False, so a circular
+    target silently went linear. Rationale in full: commit d887246 / PR #145.
     """
     value = get_value_or_default(arg_value, data, key)
     return default if value is None else value
@@ -1187,9 +1179,7 @@ def get_params(args):
     selection_metric = data["selection_metric"] = get_value_or_default(
         args.selection_metric, data, "selection_metric"
     )
-    # Absent fg_circular/bg_circular take their documented schema default via
-    # _value_or; an omitted fg_circular used to resolve to None -> bool(None)
-    # False -> a circular target silently went linear. See _value_or.
+    # Absent keys take their schema default (True / False); see _value_or.
     fg_circular = data["fg_circular"] = _value_or(args.fg_circular, data, "fg_circular", True)
     bg_circular = data["bg_circular"] = _value_or(args.bg_circular, data, "bg_circular", False)
 
