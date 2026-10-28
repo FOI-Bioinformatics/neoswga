@@ -119,10 +119,11 @@ class ExpansionResult:
         new_primers: Newly designed primers
         combined_set: Fixed + new primers
         fixed_primers: Original fixed primers
-        coverage_before: Coverage with fixed primers only
-        coverage_after: Coverage with combined set
+        coverage_before: In-silico coverage with fixed primers only (binding
+            against the reference under the reach model, never a BAM depth)
+        coverage_after: In-silico coverage with combined set (same basis)
         gap_coverage: Fraction of gap regions now covered
-        predicted_improvement: Estimated improvement in amplification
+        predicted_improvement: Estimated (in-silico) improvement in amplification
         gaps_remaining: Number of significant gaps still present
         optimization_method: Method used for optimization
     """
