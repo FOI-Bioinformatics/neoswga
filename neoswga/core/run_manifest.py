@@ -246,3 +246,119 @@ def read_effective_conditions(data_dir: str, step: str | None = None) -> dict[st
         if isinstance(entry.get("effective_conditions"), dict):
             return entry["effective_conditions"]
     return None
+
+
+#: The date the configured polymerase and reaction temperature began reaching
+#: the optimizer. Before it, `unified_optimizer` passed neither to any
+#: optimizer -- it mentions neither name -- and both hybrid wrappers defaulted
+#: `polymerase` to the literal string "phi29", so every `hybrid` and
+#: `background-aware` run built a phi29 preset at 30 C whatever params.json
+#: declared. The fix landed on 2026-10-26; this boundary is the day after, so a
+#: run stamped on the 26th itself is reported rather than cleared. Over-
+#: reporting is the safe direction for a provenance warning.
+#: `docs/validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md`.
+REACTION_REACHED_OPTIMIZER = datetime(2026, 10, 27, tzinfo=UTC)
+
+#: The reaction every pre-fix optimizer run actually used, whatever was asked
+#: for: phi29's preset temperature.
+_PRE_FIX_TEMP = 30.0
+
+#: Steps whose delivered panel the optimizer chose. `count-kmers`, `filter` and
+#: `prepare-candidates` resolved their own Tm window from `conditions` and are
+#: not affected by this defect.
+_OPTIMIZER_STEPS = ("optimize", "expand-primers")
+
+
+def steps_predating_the_reaction_fix(data_dir: str) -> list[dict[str, Any]]:
+    """Manifest steps whose panel was selected before the reaction reached it.
+
+    One entry per affected step, newest last, each naming what the step asked
+    for and what it got. An empty list means this directory holds nothing
+    affected -- including the common case of a phi29 design at 30 C, which the
+    defect left correct.
+
+    Two distinct consequences are reported separately, because they differ in
+    severity:
+
+    `screen_skipped` -- the polymerase's preset sets ``thermo_filter=True``
+    (equiphi29 and bst) while phi29's does not, and `optimize` gates its whole
+    Stage-0 thermodynamic pre-screen on that flag. So the screen that rejects
+    candidates on hairpin, homodimer and heterodimer energies and on the Tm
+    window did not run at all. Measured under the shipped
+    `examples/equiphi29_scenario` reaction, that screen keeps 299 of 500
+    candidates, so 500/500 reached selection unscreened.
+
+    `temp_used` against `temp_intended` -- Stage 2's dimer screen and its Tm
+    term both read the reaction temperature, so both ran at 30 C. This bites
+    any design whose reaction was not 30 C, phi29 included: an explicitly
+    configured `reaction_temp` did not reach the optimizer either.
+
+    The boundary is a timestamp, not an ancestry check: the manifest records
+    `git_sha`, but resolving whether a SHA predates the fix needs the
+    repository, and a date needs only the manifest.
+    """
+    from neoswga.core.registry import POLYMERASES
+
+    manifest_path = os.path.join(data_dir or ".", MANIFEST_FILENAME)
+    if not os.path.exists(manifest_path):
+        return []
+    try:
+        with open(manifest_path) as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.debug(f"Could not read manifest for reaction provenance: {e}")
+        return []
+
+    steps = data.get("steps") if isinstance(data, dict) else None
+    if not isinstance(steps, list):
+        return []
+
+    affected: list[dict[str, Any]] = []
+    for entry in steps:
+        if not isinstance(entry, dict) or entry.get("step") not in _OPTIMIZER_STEPS:
+            continue
+        stamp = _parse_timestamp(entry.get("timestamp_utc"))
+        if stamp is None or stamp >= REACTION_REACHED_OPTIMIZER:
+            continue
+
+        conditions = entry.get("effective_conditions")
+        conditions = conditions if isinstance(conditions, dict) else {}
+        # An absent polymerase means the default, which is the one case the
+        # defect left correct -- so absence must read as phi29, not as unknown.
+        polymerase = conditions.get("polymerase") or "phi29"
+        spec = POLYMERASES.get(polymerase)
+        intended = conditions.get("reaction_temp")
+        if intended is None:
+            intended = getattr(spec, "preset_reaction_temp", None)
+
+        screen_skipped = bool(getattr(spec, "thermo_filter", False))
+        temp_wrong = intended is not None and float(intended) != _PRE_FIX_TEMP
+        if not (screen_skipped or temp_wrong):
+            continue
+
+        affected.append(
+            {
+                "step": entry.get("step"),
+                "timestamp_utc": entry.get("timestamp_utc"),
+                "polymerase": polymerase,
+                "temp_intended": intended,
+                "temp_used": _PRE_FIX_TEMP,
+                "screen_skipped": screen_skipped,
+            }
+        )
+    return affected
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    """A manifest timestamp as an aware datetime, or None if unreadable.
+
+    An entry whose stamp cannot be parsed is left out of the provenance report
+    rather than assumed old: a fabricated date would be a fabricated finding.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)

@@ -97,6 +97,35 @@ The lever that changes this is the reaction, not the candidate filter: an
 occupancy gate was measured and made delivered panels worse on both axes. See
 [occupancy_and_discrimination_2026-09-19.md](validation/occupancy_and_discrimination_2026-09-19.md).
 
+## A panel designed before 2026-10-26 may not match the reaction it declares
+
+If you hold a design produced before 2026-10-26, check it with `neoswga doctor
+-j params.json` before trusting its panel. Until then `unified_optimizer` passed
+neither `polymerase` nor `reaction_temp` to any optimizer, and both hybrid
+wrappers defaulted the polymerase to the literal `"phi29"`, so `hybrid` and
+`background-aware` selected every panel as **phi29 at 30 C** whatever
+params.json said.
+
+What that means depends on the reaction declared:
+
+- **`equiphi29` or `bst`**: their presets set `thermo_filter=True` where phi29's
+  does not, and `optimize` gates its whole Stage-0 thermodynamic pre-screen on
+  that flag — so the screen never ran. Under the shipped
+  `examples/equiphi29_scenario` reaction it keeps 299 of 500 candidates, so
+  500/500 reached selection unscreened.
+- **`klenow`, or `phi29` at any temperature other than 30 C**: no screen was
+  skipped, but Stage 2's dimer screen and its Tm term both ran at 30 C instead
+  of the configured temperature. An explicitly configured `reaction_temp` did
+  not reach the optimizer either.
+- **`phi29` at 30 C**: unaffected. That is what every pre-fix run resolved to,
+  so these designs got the reaction they asked for.
+
+The code is fixed and the resolution is now `explicit > conditions > preset`.
+Nothing retroactively repairs a panel already selected: re-running the design is
+the only remedy.
+[2026-10-26-hybrid-ran-every-reaction-as-phi29.md](validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md)
+has the measurement.
+
 ## Spacing statistics are reported and never ranked
 
 `max_gap`, mean gap and gap evenness reach the summary and the reports, and no

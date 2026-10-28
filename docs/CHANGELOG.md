@@ -4,6 +4,50 @@ All notable changes to NeoSWGA are documented in this file.
 
 ## [Unreleased]
 
+### The configured reaction now reaches the optimizer
+
+#### FIXED — action may be needed on designs produced before 2026-10-26
+
+- **`hybrid` and `background-aware` ran every reaction as phi29 at 30 C.**
+  `unified_optimizer` passed neither `polymerase` nor `reaction_temp` to any
+  optimizer, and both hybrid wrappers defaulted `polymerase` to the literal
+  string `"phi29"`, so the inner engine built a phi29 preset whatever
+  params.json declared. Two consequences, both silent:
+  - For `equiphi29` and `bst`, whose presets set `thermo_filter=True` where
+    phi29's does not, `optimize` **skipped its entire Stage-0 thermodynamic
+    pre-screen** — the screen that rejects candidates on hairpin, homodimer and
+    heterodimer energies and on the Tm window. Measured under the shipped
+    `examples/equiphi29_scenario` reaction, that screen keeps 299 of 500
+    candidates, so 500/500 reached selection unscreened.
+  - Stage 2's dimer screen and its Tm term both read the reaction temperature,
+    so both ran at 30 C. This also affects a **phi29** design at any configured
+    temperature other than 30 C, because an explicit `reaction_temp` did not
+    reach the optimizer either.
+
+  Resolution is now `explicit > conditions > preset`, in one place both
+  wrappers pass through (`stage2_ranking.resolve_reaction`). phi29 at 30 C is
+  unchanged, and it is the default.
+  `docs/validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md`.
+
+- **To find out whether a design you already have is affected**, run
+  `neoswga doctor -j params.json`. It reads the polymerase and temperature each
+  step recorded in `run_manifest.json` and names any step that selected a panel
+  before the fix under a reaction other than phi29 at 30 C. Those designs were
+  not selected under the reaction they declare and should be re-run.
+
+- **The dimer screen follows the reaction on `dominating-set` too.** Its adapter
+  forwarded `max_dimer_dg` and not `dimer_temp`, so the free-energy floor was
+  evaluated at 37 C under every reaction.
+  `docs/validation/2026-10-26-dominating-set-dimer-temperature.md`.
+
+- **`clique` applies the free-energy floor at all.** It read `max_dimer_dg`
+  nowhere, so the method documented as the only one guaranteeing no dimerising
+  pair screened on base-pair count alone.
+  `docs/validation/2026-10-26-clique-applied-no-free-energy-floor.md`. Note that
+  at the shipped `max_dimer_bp` of 3 a floor of −6.0 or −3.0 rejects nothing the
+  base-pair screen has not already rejected, so this changes a panel only for a
+  user who also loosens `max_dimer_bp`.
+
 ### Documentation: CLAUDE.md is a summary, and the record moved to docs/development
 
 - `CLAUDE.md` was reduced from 2,744 lines to a working summary. Its long-form

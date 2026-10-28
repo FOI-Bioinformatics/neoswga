@@ -89,6 +89,73 @@ def _run_validate_installation(args):
     sys.exit(0 if success else 1)
 
 
+def _jellyfish_info():
+    """``(info, blocking, warning)`` for the jellyfish counter.
+
+    Extracted from `run_doctor`, which sits at its function-length budget, so
+    the next check added there has somewhere to go. Behaviour is unchanged,
+    including that an absent jellyfish is still BLOCKING here even though
+    `select_backend` prefers KMC3 and falls back -- changing that is a decision
+    about what `doctor` considers fatal, not part of an extraction.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    jelly = _shutil.which("jellyfish")
+    if not jelly:
+        return (
+            None,
+            "jellyfish is not on PATH. Install with: conda install -c bioconda jellyfish",
+            None,
+        )
+    try:
+        version = _subprocess.run([jelly, "--version"], capture_output=True, text=True, timeout=5)
+    except Exception as e:
+        return {"path": jelly, "error": str(e)}, None, f"jellyfish --version failed: {e}"
+    first = (version.stdout or version.stderr or "").splitlines()
+    return {"path": jelly, "version": first[0] if first else "unknown"}, None, None
+
+
+def _reaction_provenance(data_dir):
+    """Steps that selected a panel before the configured reaction reached it.
+
+    Returns ``(findings, warning_or_None)``. A panel chosen before 2026-10-26
+    was selected as phi29 at 30 C whatever params.json declared, so it does not
+    match the reaction it documents. The manifest records the polymerase and
+    temperature each step ran under, which is what makes this answerable at all
+    rather than a blanket caveat.
+    """
+    try:
+        from neoswga.core.run_manifest import steps_predating_the_reaction_fix
+
+        stale = steps_predating_the_reaction_fix(data_dir)
+    except Exception as e:  # pragma: no cover - defensive
+        return [], f"Could not check reaction provenance: {e}"
+    if not stale:
+        return [], None
+
+    detail = ", ".join(
+        f"{s['step']} at {s['timestamp_utc']} asked for "
+        f"{s['polymerase']} at {s['temp_intended']}C"
+        for s in stale[:3]
+    )
+    skipped = [s for s in stale if s["screen_skipped"]]
+    warning = (
+        f"{len(stale)} recorded step(s) selected a panel before the configured "
+        f"reaction reached the optimizer (fixed 2026-10-26): {detail}"
+        + ("\u2026" if len(stale) > 3 else "")
+        + ". Every one ran as phi29 at 30C."
+    )
+    if skipped:
+        warning += (
+            f" {len(skipped)} of them also skipped the Stage-0 thermodynamic "
+            f"pre-screen entirely."
+        )
+    return stale, warning + (
+        " Re-run those designs to get the reaction you configured; " "see docs/LIMITATIONS.md."
+    )
+
+
 def run_doctor(args):
     """Diagnostic health check.
 
@@ -117,27 +184,13 @@ def run_doctor(args):
     }
 
     # Jellyfish
-    jelly = _shutil.which("jellyfish")
-    if jelly:
-        try:
-            version = _subprocess.run(
-                [jelly, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            first = (version.stdout or version.stderr or "").splitlines()
-            summary["tools"]["jellyfish"] = {
-                "path": jelly,
-                "version": first[0] if first else "unknown",
-            }
-        except Exception as e:
-            summary["tools"]["jellyfish"] = {"path": jelly, "error": str(e)}
-            warnings.append(f"jellyfish --version failed: {e}")
-    else:
-        blocking.append(
-            "jellyfish is not on PATH. Install with: conda install -c bioconda jellyfish"
-        )
+    info, blocker, warned = _jellyfish_info()
+    if info is not None:
+        summary["tools"]["jellyfish"] = info
+    if blocker:
+        blocking.append(blocker)
+    if warned:
+        warnings.append(warned)
 
     # Optimizer capability matrix. Each entry declares whether the optimizer
     # is registered with the factory and whether its scoring path meaningfully
@@ -227,6 +280,12 @@ def run_doctor(args):
                         + ("…" if len(missing_files) > 5 else "")
                     )
                     params_summary["missing_kmer_files"] = missing_files[:20]
+
+                stale, provenance_warning = _reaction_provenance(raw.get("data_dir") or ".")
+                if stale:
+                    summary["reaction_provenance"] = stale
+                if provenance_warning:
+                    warnings.append(provenance_warning)
                 summary["params"] = params_summary
             except Exception as e:
                 blocking.append(f"Could not parse params.json: {e}")
