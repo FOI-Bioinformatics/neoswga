@@ -514,7 +514,57 @@ def _build_optimizer_config(
 _SELECTION_WEIGHT_KEYS = ("tm_weight", "uniformity_weight", "dimer_penalty")
 
 
-def _resolve_selection_weights(kwargs: dict, application, verbose: bool) -> None:
+#: Which of the three `--application` profile weights reach no selection
+#: decision, per method. Verified against each engine's source on 2026-10-29:
+#:
+#: - `network` scores candidates with all three, so nothing is listed.
+#: - `hybrid` and `background-aware` hand `tm_weight` and `uniformity_weight` to
+#:   a `NetworkOptimizer` that nothing reads back for selection, and Stage 2 is
+#:   `_network_refine`, a different method with no Tm or uniformity term.
+#:   `dimer_penalty` IS read there and is that stage's only dimer consideration.
+#:   `docs/validation/selection_weights_are_inert_2026-09-21.md`.
+#: - `dominating-set` and `clique` accept none of the three and mention none of
+#:   them anywhere in their source, so `--application` changes nothing they do.
+_ALL_SELECTION_WEIGHTS = ("tm_weight", "uniformity_weight", "dimer_penalty")
+_WEIGHTS_INERT_ON = {
+    "hybrid": ("tm_weight", "uniformity_weight"),
+    "background-aware": ("tm_weight", "uniformity_weight"),
+    "dominating-set": _ALL_SELECTION_WEIGHTS,
+    "clique": _ALL_SELECTION_WEIGHTS,
+}
+
+
+def _selection_weight_note(method, kwargs) -> str:
+    """How to describe the resolved weights without overclaiming.
+
+    The previous message said "selection weights applied: tm=0.30,
+    uniformity=0.05, dimer_penalty=0.45" whatever the method, while the object
+    doing the selecting on `hybrid` -- the DEFAULT -- used 0.0 for two of the
+    three. A log line that asserts the opposite of what the code does is worse
+    than silence: it is the reason the inert-weights defect went unnoticed
+    through several audits. So name the ones that do not reach this method.
+    """
+    figures = (
+        f"tm={kwargs['tm_weight']:.2f}, "
+        f"uniformity={kwargs['uniformity_weight']:.2f}, "
+        f"dimer_penalty={kwargs['dimer_penalty']:.2f}"
+    )
+    inert = _WEIGHTS_INERT_ON.get(str(method), ())
+    if not inert:
+        return f"selection weights applied: {figures}"
+    if set(inert) == set(_ALL_SELECTION_WEIGHTS):
+        return (
+            f"selection weights resolved: {figures}"
+            f" (none of them reach any selection decision on '{method}')"
+        )
+    return (
+        f"selection weights resolved: {figures}"
+        f" (on '{method}', {' and '.join(inert)} reach no selection decision"
+        f" and are not applied)"
+    )
+
+
+def _resolve_selection_weights(kwargs: dict, application, verbose: bool, method=None) -> None:
     """Fill the selection weights from the `--application` profile in place.
 
     These three knobs shape the greedy selection inside NetworkOptimizer, so
@@ -544,12 +594,7 @@ def _resolve_selection_weights(kwargs: dict, application, verbose: bool) -> None
         for key, value in profile.items():
             kwargs.setdefault(key, value)
         if verbose:
-            logger.info(
-                f"application='{application}' → selection weights applied: "
-                f"tm={kwargs['tm_weight']:.2f}, "
-                f"uniformity={kwargs['uniformity_weight']:.2f}, "
-                f"dimer_penalty={kwargs['dimer_penalty']:.2f}"
-            )
+            logger.info(f"application='{application}' → {_selection_weight_note(method, kwargs)}")
     except KeyError as exc:
         # `--application clinical` that quietly has no effect optimizes under
         # weights the user did not ask for and reports normally. The profile
@@ -1000,7 +1045,7 @@ def run_optimization(
     _target_coverage = _resolve_target_coverage(kwargs)
 
     _application = kwargs.pop("application", None)
-    _resolve_selection_weights(kwargs, _application, verbose)
+    _resolve_selection_weights(kwargs, _application, verbose, method=method)
 
     # Ensemble path: run several methods on the SAME position cache and keep
     # the best by normalized_score. Falls through to the shared

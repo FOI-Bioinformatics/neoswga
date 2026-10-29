@@ -39,7 +39,7 @@ can be written and unit-tested here and must be RUN where a counter exists.
 | 2.1 Disclose the pre-2026-10-26 reaction defect | 2 | **Done** `3f648f3` | `test_reaction_provenance_is_reported.py`, CHANGELOG, LIMITATIONS |
 | 3.1 Ratchet the adapter/inner parameter diff | 3 | **Done** `925916f` — covers 8 seams, not 4 | `test_no_adapter_drops_an_inner_parameter.py` |
 | 3.2 Audit the two unaudited adapters against it | 3 | **Done** `925916f` — found 4 dropped values in `background-aware`; allowlist empty for all method adapters | same test + behavioural pin |
-| 3.3 Stop the run log asserting weights the engine lacks | 3 | startable | new test |
+| 3.3 Stop the run log asserting weights the engine lacks | 3 | **Done** `f4fd1af` — also found all three inert on `dominating-set` and `clique` | `test_the_weights_log_does_not_overclaim.py` |
 | 4.1 Ratchet the doc link/orphan sweep | 4 | startable | new test |
 | 5.1 Measure the directional-coverage inflation | 5 | script only; needs a counter to run | dated record |
 | 5.2 Decide and, if warranted, fix + re-baseline | 5 | blocked on 5.1 | record + re-baselined summaries |
