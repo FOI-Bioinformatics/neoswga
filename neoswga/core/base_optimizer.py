@@ -112,6 +112,9 @@ class PrimerSetMetrics:
     # site, `strand_alternation_gap_max` among them, which is the closest
     # quantity here to the convergent-pair mechanism SWGA runs on.
     strand_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+    # swga 2.0's `off_gap_gini`, reported and never scored. See
+    # `core/background_evenness.py` for the model and why no weight is taken.
+    off_gap_gini: float | None = None
 
     # Fraction of the time each delivered primer is bound, per primer. Empty
     # when no reaction conditions were attached, because without a temperature
@@ -227,6 +230,7 @@ class PrimerSetMetrics:
             "strand_alternation_score": self.strand_alternation_score,
             "strand_coverage_ratio": self.strand_coverage_ratio,
             "strand_stats": {k: dict(v) for k, v in self.strand_stats.items()},
+            "off_gap_gini": self.off_gap_gini,
             "primer_occupancy": dict(self.primer_occupancy),
             "per_target_coverage": dict(self.per_target_coverage),
             "extension_reach": self.extension_reach,
@@ -1263,6 +1267,7 @@ class BaseOptimizer(ABC):
         # Imported here rather than at module scope: this module deliberately
         # has no sibling imports, which is what keeps it free of cycles and out
         # of the CLI's import cost.
+        from .background_evenness import off_gap_gini as _off_gap_gini
         from .strand_metrics import (
             collect_strand_stats,
             headline_strand_scalars,
@@ -1305,6 +1310,7 @@ class BaseOptimizer(ABC):
             strand_alternation_score=strand_alt_score,
             strand_coverage_ratio=strand_cov_ratio,
             strand_stats=strand_stats,
+            off_gap_gini=_off_gap_gini(strand_stats, self.bg_prefixes),
             primer_occupancy=occupancy_by_primer,
             extension_reach=self.config.extension_reach,
         )

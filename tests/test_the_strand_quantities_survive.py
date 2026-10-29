@@ -1,6 +1,7 @@
 """Three of the five strand quantities were computed and thrown away.
 
-`PositionCache.compute_strand_alternation_stats` returns five figures. The call
+`PositionCache.compute_strand_alternation_stats` returns six figures (five
+until 2026-10-29). The call
 site in `base_optimizer._compute_metrics` read two of them, dropped
 `strand_alternation_gap_mean`, `strand_alternation_gap_max` and
 `longest_same_strand_run`, and `break`ed after the first foreground genome, so a
@@ -44,13 +45,14 @@ class _Cache:
         return dict(self._answers[prefix])
 
 
-def _stats(score=0.7, ratio=0.9, gap_max=41_000.0, gap_mean=6_000.0, run=3):
+def _stats(score=0.7, ratio=0.9, gap_max=41_000.0, gap_mean=6_000.0, run=3, strand_gini=0.42):
     return {
         "strand_alternation_gap_mean": gap_mean,
         "strand_alternation_gap_max": gap_max,
         "strand_alternation_score": score,
         "strand_coverage_ratio": ratio,
         "longest_same_strand_run": run,
+        "gap_gini_per_strand": strand_gini,
     }
 
 
@@ -58,13 +60,18 @@ PRIMERS = ["ACGTACGTAC", "TTGCATGCAT"]
 
 
 class TestEveryQuantityIsKept:
-    def test_all_five_keys_are_declared(self):
+    def test_every_key_is_declared(self):
+        """Six since 2026-10-29: the per-strand gap evenness joined the five,
+        because `compute_strand_alternation_stats` already holds the per-strand
+        positions it needs and a second pass through `get_positions` is the
+        cost this collection exists to avoid."""
         assert set(STRAND_KEYS) == {
             "strand_alternation_gap_mean",
             "strand_alternation_gap_max",
             "strand_alternation_score",
             "strand_coverage_ratio",
             "longest_same_strand_run",
+            "gap_gini_per_strand",
         }
 
     @pytest.mark.parametrize("key", sorted(STRAND_KEYS))

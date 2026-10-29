@@ -1,0 +1,72 @@
+{
+  "panels": [
+    {
+      "num_primers": 6,
+      "delivered": 6,
+      "seconds": 16.8,
+      "off_gap_gini": 0.3878891956988974,
+      "host_gap_gini_per_strand": 0.3878891956988974,
+      "target_gap_gini_per_strand": 0.5135664282358372,
+      "bg_coverage": 0.024,
+      "total_bg_sites": 12,
+      "selectivity_density": 4.151981846417531,
+      "gap_gini_pooled_target": 0.5284129380886212,
+      "fg_coverage": 0.26153149606299214
+    },
+    {
+      "num_primers": 12,
+      "delivered": 12,
+      "seconds": 16.9,
+      "off_gap_gini": 0.5177803954695296,
+      "host_gap_gini_per_strand": 0.5177803954695296,
+      "target_gap_gini_per_strand": 0.42675425094519126,
+      "bg_coverage": 0.0392525,
+      "total_bg_sites": 21,
+      "selectivity_density": 4.2935464617491625,
+      "gap_gini_pooled_target": 0.43515639006662626,
+      "fg_coverage": 0.4749259842519685
+    },
+    {
+      "num_primers": 18,
+      "delivered": 18,
+      "seconds": 17.3,
+      "off_gap_gini": 0.526790166428544,
+      "host_gap_gini_per_strand": 0.526790166428544,
+      "target_gap_gini_per_strand": 0.3835714086034797,
+      "bg_coverage": 0.0412525,
+      "total_bg_sites": 22,
+      "selectivity_density": 4.3114668826766955,
+      "gap_gini_pooled_target": 0.3921395248670839,
+      "fg_coverage": 0.5964181102362205
+    },
+    {
+      "num_primers": 24,
+      "delivered": 24,
+      "seconds": 17.5,
+      "off_gap_gini": 0.4906693334103823,
+      "host_gap_gini_per_strand": 0.4906693334103823,
+      "target_gap_gini_per_strand": 0.3621075741994622,
+      "bg_coverage": 0.0432525,
+      "total_bg_sites": 23,
+      "selectivity_density": 4.302427934680057,
+      "gap_gini_pooled_target": 0.3682654541421759,
+      "fg_coverage": 0.6911929133858268
+    }
+  ],
+  "direction_check": {
+    "sites_per_strand": 400,
+    "dispersed": 0.49712042422319846,
+    "clustered": 0.9665942782104583
+  },
+  "cost": {
+    "primers": 20,
+    "with_gini_ms": 0.07,
+    "without_gini_ms": 0.05
+  },
+  "rank_correlation_with_off_gap_gini": {
+    "bg_coverage": 0.4,
+    "total_bg_sites": 0.4,
+    "selectivity_density": 0.8,
+    "fg_coverage": 0.4
+  }
+}

@@ -7,9 +7,19 @@ designers, and an audit of whether NeoSWGA's own design options change the desig
 **Corrected 2026-10-26.** Three entries described NeoSWGA as it was in August
 and had since stopped being true, each in the direction of understating it: the
 k-mer counter (KMC3 now preferred, jellyfish a fallback), primer scoring (the
-random forest is retired from the default path), and `bg_coverage` (one opt-in
-selection reader since `stage2_background_weight`). The COATswga and swga
-columns are unchanged; nothing here re-examines them.
+random forest is retired from the default path), and `bg_coverage`, which that
+correction credited with one opt-in selection reader.
+
+**Corrected again 2026-10-29.** That third correction was wrong. The reader it
+named, `stage2_background_weight`, never ran on a real design -- it needs a
+host-coverage fraction the search objective deliberately does not carry -- and
+it now refuses
+([`2026-10-29-stage2-background-weight-does-not-run.md`](2026-10-29-stage2-background-weight-does-not-run.md)).
+`bg_coverage` has no selection reader and has never had one. The same day
+`off_gap_gini` was computed for the first time, which closes a gap recorded
+below three times over
+([`2026-10-29-off-gap-gini.md`](2026-10-29-off-gap-gini.md)). The COATswga and
+swga columns are unchanged; nothing here re-examines them.
 
 Related: [published_primer_sets.md](published_primer_sets.md), which validates the
 scoring against wet-lab outcomes rather than against other tools, and
@@ -224,23 +234,31 @@ surface and correspondingly the one with least external calibration.
 
 ## Gaps not closed
 
-- **`off_gap_gini` is still not computed**, and the reach calibration does not
-  change that: it carries the second-largest weight in swga 2.0's fitted model
-  and is the one predictor NeoSWGA cannot produce. Reporting it is worthwhile;
-  folding it into `normalized_score` is not, on the sample size available.
+- **`off_gap_gini` is computed since 2026-10-29**, which closes this gap as the
+  entry proposed: reported, and deliberately not folded into
+  `normalized_score`, on the sample size available. It is a sixth figure per
+  genome from `compute_strand_alternation_stats`, aggregated over the
+  background genomes by `core/background_evenness.py`, and it costs arithmetic
+  rather than a second pass through the position cache. On two synthetic hosts
+  with the SAME site count it reads 0.497 dispersed against 0.966 clustered,
+  where every count-based figure is identical, so it sees a geometry only
+  `bg_coverage` otherwise sees.
+  [`2026-10-29-off-gap-gini.md`](2026-10-29-off-gap-gini.md).
 - **No interval tiling.** COATswga's uniformity approach has no counterpart here.
   `tiling_optimizer.py` was deleted in the same commit as the clique optimizer and
   could be restored the same way.
-- **No background gap evenness.** `off_gap_gini` carries the second-largest weight in
-  swga 2.0's fitted model and is not computed anywhere in NeoSWGA. `PrimerSetMetrics`
-  has `gap_gini` for the foreground only, and nothing that SELECTS reads even that
-  one: it enters the post-hoc `normalized_score` at weight 0.10 and the selection
-  path uses a coefficient of variation of gaps instead. `bg_coverage` is the one
-  computed quantity that sees background site position, and **since 2026-10-26 it
-  has exactly one selection reader**: the swap Stage-2 score, as a weighted axis
-  under `stage2_background_weight`, off by default and unmeasured against a
-  reaction (`2026-10-26-stage2-background-weight.md`). Until then it had none,
-  which is what this entry said. `off_gap_gini` is still not computed anywhere.
+- **Background gap evenness is computed and not scored.** `off_gap_gini` reaches
+  `PrimerSetMetrics.off_gap_gini` and the panel criteria table as
+  `host_gap_evenness` since 2026-10-29, and enters no score; the earlier
+  versions of this entry recorded it as computed nowhere, which was true until
+  then. `PrimerSetMetrics.gap_gini` remains the FOREGROUND figure and pools both
+  strands, so the two are not comparable. Nothing that SELECTS reads either:
+  `gap_gini` enters the post-hoc `normalized_score` at weight 0.10 and the
+  selection path uses a coefficient of variation of gaps instead. `bg_coverage`
+  is still the only background quantity with any selection reader at all, and
+  **it has none**: the one attempt, `stage2_background_weight`, could not run
+  and now refuses
+  ([`2026-10-29-stage2-background-weight-does-not-run.md`](2026-10-29-stage2-background-weight-does-not-run.md)).
   See Known Issues 17 and 18.
 - **An external k-mer counter is required**, though no longer jellyfish
   specifically: this entry read "jellyfish is a hard dependency" and that

@@ -48,6 +48,7 @@ When adding a record, add it there and keep this file to a line or two.
 | `design_request.py`, `design_result.py`, `panel_evaluation.py` | The resolved frozen request and its hash; run state against termination reason against qualification; one `PanelAssessment` |
 | `pool_planner.py`, `pool_objective.py`, `panel_acceptance.py` | `plan-pool`, the shared objective and `shortfall`, the configured panel limits. `repair_panel` is the one bounded repair |
 | `bam_coverage.py`, `depth_policy.py` | `open_alignment` is the only door to a BAM or CRAM |
+| `background_evenness.py` | swga 2.0's `off_gap_gini`: the per-strand gap Gini, computed from positions the strand pass already fetched. Reported, in no score |
 | `delivered_set.py` | Which `set_index` a command reads (default 0) |
 | `concurrent_runs.py` | Translates the HDF5 lock error from two runs sharing a directory |
 | `registry/model_evidence.json` | Per chemistry constant, its evidence status and supported domain; checked in `resolve_design_request` |
@@ -360,6 +361,8 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
     belong in the objective. `bg_coverage` enters no score either: the attempt
     to weight it into swap Stage 2 could not run (see Known Issue 14), and the
     search objective does not carry it. Neither enters `normalized_score`.
+    `off_gap_gini` is computed since 2026-10-29 (`background_evenness.py`),
+    reported as `host_gap_evenness` and deliberately in no score.
     Strand figures are `None` when unmeasurable, and the report says "not
     measurable" rather than 0.00 since 2026-10-29; it renders all five per
     genome, labelled target or host, and flags only a fact and a mechanism

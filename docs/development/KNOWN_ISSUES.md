@@ -818,6 +818,19 @@ package, because nothing in the search uses it.
     `bg_len / graph_subgraph_weight`, and an earlier draft of this entry
     conflated the two.
 
+    **`off_gap_gini` is computed since 2026-10-29, and scored by nothing.** It
+    is a sixth figure per genome from `compute_strand_alternation_stats`
+    (`gap_gini_per_strand`), aggregated over the background genomes by
+    `core/background_evenness.py`, carried on
+    `PrimerSetMetrics.off_gap_gini` and reported as the `host_gap_evenness`
+    criterion. It costs arithmetic on positions the strand pass already
+    fetched, about 0.02 ms per `compute_metrics` call. On two synthetic hosts
+    with the SAME site count it reads 0.497 dispersed against 0.966 clustered,
+    where every count-based figure is identical, so it sees a geometry only
+    `bg_coverage` otherwise sees. It enters no score, for the reason the next
+    paragraph gives.
+    `docs/validation/2026-10-29-off-gap-gini.md`.
+
     **The field does not agree that gap statistics belong in the objective.**
     swga 2.0 fits both as `on_gap_gini` and `off_gap_gini`, where `off_gap_gini`
     carries the second largest recorded weight in the only set-level model

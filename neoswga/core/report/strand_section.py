@@ -48,6 +48,8 @@ _COLUMNS: tuple[tuple[str, str], ...] = (
     ("Widest convergent gap (bp)", "strand_alternation_gap_max"),
     ("Mean convergent gap (bp)", "strand_alternation_gap_mean"),
     ("Longest same-strand run", "longest_same_strand_run"),
+    # swga 2.0's `off_gap_gini` on a host, `on_gap_gini` on a target.
+    ("Gap evenness per strand", "gap_gini_per_strand"),
 )
 
 _UNMEASURED = "<em>not measurable</em>"
