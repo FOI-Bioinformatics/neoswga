@@ -46,7 +46,7 @@ can be written and unit-tested here and must be RUN where a counter exists.
 | 6.1 Measure the two Stage-2 terms in a discriminating regime | 6 | needs a counter | dated record |
 | 7.1 Strand-balance report | 7 | startable | new test |
 | 7.2 Compute and report `off_gap_gini` | 7 | startable | new test |
-| 7.3 Record what `max_dimer_dg` does at the default | 7 | startable | prose + the SWOT's table |
+| 7.3 Record what `max_dimer_dg` does at the default | 7 | **Done** `58cac68` | schema description + regenerated params-reference |
 
 ---
 
