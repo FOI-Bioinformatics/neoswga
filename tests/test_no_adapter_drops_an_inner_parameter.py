@@ -95,6 +95,22 @@ _EXPANSION = (
     "on it; what a full forwarding changes to a delivered expansion is not "
     "measured, so it is recorded here rather than silently fixed."
 )
+#: Deliberate, each with the reason in the code it refers to.
+_EXPANSION_BY_DESIGN = {
+    ("PrimerExpander", "HybridOptimizer", "max_extension"): (
+        "deliberately unset: `_build_hybrid_optimizer`'s docstring records that "
+        "this class used to pass its 3 kb coverage reach as `max_extension`, "
+        "running the Stage-2 network question at a reach 23x too short for "
+        "phi29. Leaving it unset takes the polymerase preset, which is the fix."
+    ),
+    ("PrimerExpander", "DominatingSetOptimizer", "max_dimer_bp"): (
+        "this construction is the CONTEXT-FREE path -- `_expand_dominating_set` "
+        "returns through `_expand_configured` whenever a DesignContext exists -- "
+        "so there is no resolved value to pass, and the inner re-resolving from "
+        "`parameter.max_dimer_bp` is the intended behaviour there."
+    ),
+}
+
 _IMPROVED = (
     "improved_pipeline is reached only from core/validation.py, not from any "
     "design command, and constructs a NetworkOptimizer for a utility call. Not "
@@ -102,6 +118,7 @@ _IMPROVED = (
 )
 
 ALLOWED_UNREACHED: dict[tuple[str, str, str], str] = {
+    **_EXPANSION_BY_DESIGN,
     **{
         ("PrimerExpander", "HybridOptimizer", name): _EXPANSION
         for name in (
@@ -110,14 +127,9 @@ ALLOWED_UNREACHED: dict[tuple[str, str, str], str] = {
             "background_weight",
             "dimer_penalty",
             "genome_gc_content",
-            "max_dimer_dg",
-            "max_tm",
             "mechanistic_weight",
             "min_coverage_drop",
             "min_coverage_threshold",
-            "min_tm",
-            "polymerase",
-            "reaction_temp",
             "stage1_objective_width",
             "stage2_tm_weight",
             "swap_max_evaluations",
@@ -199,13 +211,50 @@ def _reached(adapter_module, adapter_cls, inner_cls):
                 passed |= {kw.arg for kw in call.keywords if kw.arg}
                 splat = splat or any(kw.arg is None for kw in call.keywords)
             if isinstance(call, ast.Call) and getattr(call.func, "id", None) == "setattr":
-                if len(call.args) >= 2 and isinstance(call.args[1], ast.Constant):
-                    assigned.add(call.args[1].value)
-            if isinstance(call, ast.For) and isinstance(call.iter, ast.Tuple):
-                assigned |= {e.value for e in call.iter.elts if isinstance(e, ast.Constant)}
+                if len(call.args) >= 2 and _targets_the_inner(call.args[0]):
+                    if isinstance(call.args[1], ast.Constant):
+                        assigned.add(call.args[1].value)
+                    elif isinstance(call.args[1], ast.Name):
+                        # `for name in (...): setattr(inner, name, ...)` -- the
+                        # names are the loop's literals, not this call's.
+                        assigned |= _loop_names(node, call)
             if isinstance(call, ast.Assign):
-                assigned |= {t.attr for t in call.targets if isinstance(t, ast.Attribute)}
+                assigned |= {
+                    t.attr
+                    for t in call.targets
+                    if isinstance(t, ast.Attribute) and _targets_the_inner(t.value)
+                }
     return passed, assigned, splat
+
+
+def _targets_the_inner(expr) -> bool:
+    """Whether `expr` denotes the inner instance rather than the adapter itself.
+
+    `self._hybrid.x = ...` supplies `x` to the inner. `self.x = ...` does NOT --
+    it stores an attribute on the ADAPTER, and counting it was a bug in this
+    ratchet: `PrimerExpander.__init__` holds `self.max_dimer_dg`, which made the
+    check report that value as supplied to an inner it was never passed to. A
+    rule that reads an adapter's own bookkeeping as forwarding would mask
+    exactly the defect this file exists to catch.
+    """
+    if isinstance(expr, ast.Name):
+        return expr.id != "self"
+    if isinstance(expr, ast.Attribute):
+        # self._hybrid -> Attribute(value=Name('self')); anything nested deeper
+        # is also not the bare adapter.
+        return True
+    return False
+
+
+def _loop_names(class_node, setattr_call) -> set:
+    """Literal names from a `for` loop whose body contains `setattr_call`."""
+    names = set()
+    for loop in ast.walk(class_node):
+        if not (isinstance(loop, ast.For) and isinstance(loop.iter, ast.Tuple)):
+            continue
+        if any(n is setattr_call for n in ast.walk(loop)):
+            names |= {e.value for e in loop.iter.elts if isinstance(e, ast.Constant)}
+    return names
 
 
 @pytest.mark.parametrize(

@@ -252,6 +252,17 @@ class PrimerExpander:
         self.candidate_source = candidate_source
         self.conditions = getattr(context, "conditions", None)
         self.max_dimer_bp = getattr(context, "max_dimer_bp", None)
+        # The rest of what the context resolved. Retained because `_build_hybrid`
+        # constructs its optimizer directly rather than through the factory, so
+        # nothing else would carry them: before 2026-10-29 that builder passed
+        # neither the reaction nor the Tm window nor the dimer floor, and the
+        # expansion therefore designed under phi29 at 30 C with the preset Tm
+        # bounds whatever params.json said -- the configuration half this
+        # context exists to close.
+        self.polymerase = getattr(context, "polymerase", None)
+        self.max_dimer_dg = getattr(context, "max_dimer_dg", None)
+        self.min_tm = getattr(context, "min_tm", None)
+        self.max_tm = getattr(context, "max_tm", None)
         self.fg_circular = bool(getattr(context, "fg_circular", False))
         self.coverage_reach = (
             coverage_reach or getattr(context, "coverage_reach", None) or max_extension or 3000
@@ -772,6 +783,22 @@ class PrimerExpander:
             background_pruning=(
                 background_pruning if background_pruning is not None else bool(self.bg_prefixes)
             ),
+            # The resolved design values. `conditions` is what lets
+            # `stage2_ranking.resolve_reaction` recover the polymerase and the
+            # reaction temperature, so passing it is what stops this builder
+            # running every expansion as phi29 at 30 C; the explicit
+            # `polymerase` still wins where the context states one. The search
+            # and pruning knobs are deliberately NOT forwarded here: they change
+            # what the search does rather than what reaction it designs under,
+            # and that is a measurement rather than a repair. See
+            # `tests/test_no_adapter_drops_an_inner_parameter.py`.
+            conditions=self.conditions,
+            polymerase=self.polymerase,
+            reaction_temp=getattr(self.conditions, "temp", None),
+            max_dimer_bp=self.max_dimer_bp,
+            max_dimer_dg=self.max_dimer_dg,
+            min_tm=self.min_tm,
+            max_tm=self.max_tm,
         )
 
     def _expand_configured(

@@ -97,6 +97,45 @@ shrink:
   only from `core/validation.py` and no design command, so a dropped parameter
   there moves no delivered panel.
 
+## Addendum, same day: the expansion seam, and a flaw in the ratchet itself
+
+**`expand-primers` now designs under the reaction it was given.**
+`PrimerExpander._build_hybrid_optimizer` constructs its optimizer directly
+rather than through the factory, so nothing carried the resolved design values
+into it: the expansion ran as phi29 at 30 C with the preset Tm bounds and no
+dimer floor, whatever params.json said. That is the configuration half the
+`DesignContext` exists to close, and the class's own docstring says so while the
+builder did not do it.
+
+Five values now forwarded from the context, verified against a `bst` context at
+65 C: `polymerase`, `reaction_temp`, `max_dimer_bp`, `max_dimer_dg`, `min_tm`
+and `max_tm` all arrive, and `poly_config.thermo_filter` is True, so the Stage-0
+screen runs on an expansion for the polymerases that ask for it. Passing
+`conditions` is what does most of the work: `stage2_ranking.resolve_reaction`
+recovers the polymerase and the temperature from it, so the door built on
+2026-10-26 is reused rather than duplicated.
+
+The search and pruning knobs are deliberately NOT forwarded and stay
+allowlisted. They change what the search does rather than what reaction it
+designs under, which is a measurement and not a repair.
+
+**The ratchet was fooled by the adapter's own attributes.** Collecting every
+`X.attr = ...` in the class counted `self.max_dimer_dg = ...` in
+`PrimerExpander.__init__` as supplying `max_dimer_dg` to an inner it was never
+passed to. A rule that reads an adapter's own bookkeeping as forwarding masks
+exactly the defect it exists to catch, and it was masking two: `max_extension`
+on the hybrid builder and `max_dimer_bp` on the dominating-set one. The rule now
+counts an assignment only when its target is not the bare adapter, and a
+negative check confirms the permissive version is fooled where the tightened one
+is not.
+
+Both unmasked cases turned out to be deliberate and are now recorded as such:
+`max_extension` is left unset on purpose, because passing the 3 kb coverage
+reach there ran the Stage-2 network question at a reach 23x too short for phi29;
+and the dominating-set construction is the context-free path, which
+`_expand_dominating_set` only reaches when there is no `DesignContext`, so there
+is no resolved value to pass.
+
 ## Verification
 
 Three negative checks, each confirmed to fire:
