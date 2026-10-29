@@ -340,6 +340,13 @@ class UniformityMetrics:
     # that alternate strands; strand_coverage_ratio: min/max fwd-vs-rev balance.
     strand_alternation_score: float | None = None
     strand_coverage_ratio: float | None = None
+    # Every strand figure the optimizer measured, per genome, and whether each
+    # genome is a target or a host. The two scalars above describe the FIRST
+    # target only; a run with a host measures five more and they used to reach
+    # disk and no reader. The role matters because the readings are opposite:
+    # see `report/strand_section.py`.
+    strand_stats: dict[str, dict[str, float | None]] = field(default_factory=dict)
+    strand_roles: dict[str, str] = field(default_factory=dict)
     # Set-level binding-evenness Gini measured by the optimizer (None = not
     # available). This is the quantity `quality_thresholds.GINI` is calibrated
     # on -- published sets, not individual primers -- so grading prefers it
@@ -640,6 +647,30 @@ def _genome_size(params: dict, prefix: str) -> int:
     if isinstance(lengths, (list, tuple)):
         return sum(_safe_int(length) for length in lengths)
     return 0
+
+
+def _strand_roles(params: dict) -> dict[str, str]:
+    """Which prefix is a target and which is a host, from params.json.
+
+    The strand figures read in opposite directions on the two. A target whose
+    reverse-strand sites are missing holds no convergent pair and amplifies
+    linearly at best; a HOST in the same state amplifies less, which is the
+    result a design wants. Without the role a multi-genome table is a column
+    of numbers with no reading.
+
+    A prefix params.json does not place is left out, so the renderer labels it
+    `unknown` rather than defaulting it to either role.
+    """
+    roles: dict[str, str] = {}
+    for key, role in (("fg_prefixes", "target"), ("bg_prefixes", "host")):
+        value = params.get(key) or []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, (list, tuple)):
+            continue
+        for prefix in value:
+            roles.setdefault(str(prefix), role)
+    return roles
 
 
 def _extract_genome_info(params: dict, prefix: str) -> GenomeInfo | None:
@@ -1057,6 +1088,39 @@ def _extract_reaction_conditions(params: dict[str, Any]) -> dict[str, Any]:
     return conditions
 
 
+def _apply_uniformity_metrics(metrics, opt_metrics: dict) -> None:
+    """The strand figures and the set-level evenness, read off the summary.
+
+    `default=None`, not the literal 0.0 the conversion defaults to. Alternation
+    is the fraction of ADJACENT site pairs on opposite strands, so a panel with
+    fewer than two sites on a genome is 0/0 and the optimizer writes `null`.
+    Converted with the literal default that rendered as "0.00" -- "could not be
+    measured" shown as "measured: no alternation at all", in the
+    favourable-looking direction. Known Issues 5, 6 and 13.
+
+    `strand_stats` carries all five figures for every genome, which used to
+    reach disk and no reader. An absent prefix stays absent.
+    """
+    if metrics.uniformity is None:
+        return
+    for key in ("strand_alternation_score", "strand_coverage_ratio"):
+        if key in opt_metrics:
+            setattr(metrics.uniformity, key, _safe_float(opt_metrics[key], default=None))
+            metrics.uniformity.from_optimizer = True
+    if isinstance(opt_metrics.get("strand_stats"), dict):
+        metrics.uniformity.strand_stats = {
+            str(prefix): dict(figures)
+            for prefix, figures in opt_metrics["strand_stats"].items()
+            if isinstance(figures, dict)
+        }
+        metrics.uniformity.strand_roles = _strand_roles(metrics.parameters)
+    # The set-level evenness the grade is calibrated against.
+    for key in ("gap_gini", "coverage_uniformity"):
+        if key in opt_metrics:
+            metrics.uniformity.measured_gini = _safe_float(opt_metrics[key])
+            break
+
+
 def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
     """
     Collect all metrics from a pipeline results directory.
@@ -1175,22 +1239,8 @@ def collect_pipeline_metrics(results_dir: str) -> PipelineMetrics:
         if "total_bg_sites" in opt_metrics:
             metrics.specificity.background_sites = _safe_int(opt_metrics["total_bg_sites"])
 
-        # Measured strand-interleaving metrics.
-        if metrics.uniformity is not None:
-            if "strand_alternation_score" in opt_metrics:
-                metrics.uniformity.strand_alternation_score = _safe_float(
-                    opt_metrics["strand_alternation_score"]
-                )
-                metrics.uniformity.from_optimizer = True
-            if "strand_coverage_ratio" in opt_metrics:
-                metrics.uniformity.strand_coverage_ratio = _safe_float(
-                    opt_metrics["strand_coverage_ratio"]
-                )
-            # The set-level evenness the grade is calibrated against.
-            for key in ("gap_gini", "coverage_uniformity"):
-                if key in opt_metrics:
-                    metrics.uniformity.measured_gini = _safe_float(opt_metrics[key])
-                    break
+        # Measured strand-interleaving metrics and the set-level evenness.
+        _apply_uniformity_metrics(metrics, opt_metrics)
         logger.info("Using real optimizer metrics for coverage/specificity/strand data")
 
     # Top-level optimizer extras: ensemble per-method comparison and Pareto front.

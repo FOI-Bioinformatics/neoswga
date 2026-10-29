@@ -528,13 +528,14 @@ package, because nothing in the search uses it.
     the host term had been left behind. Combining them means putting the host
     term into the swap score as a weighted axis rather than its
     lexicographic tie-break. That axis now exists, driven by
-    `stage2_background_weight` and off by default (weight 0/None is the old
-    lexicographic tuple, bit for bit): a weight > 0 trades foreground coverage
-    against host coverage on one axis, so a host-aware swap refinement can rank
-    on both the shared objective and the host term at once. The trade is still
-    unmeasured against a reaction, which is why it ships off; the key, its
-    off-by-default behaviour and the Known Issue 8 forwarding gap it closed are
-    recorded in `docs/validation/2026-10-26-stage2-background-weight.md`.
+    `stage2_background_weight`. **That attempt never ran.** The axis reads a
+    host-coverage fraction and `PoolMetrics` deliberately carries none, so a
+    value above zero raised `AttributeError` mid-search and now refuses before
+    the search instead. The host term remains the lexicographic tie-break, which
+    is what every design uses, and this issue is NOT closed. Closing it needs a
+    host quantity the search can afford, which is a question about cost rather
+    than about a weight.
+    `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`.
 
     `examples/plasmid_example` cannot demonstrate any of this. Six primers
     already cover its 5.4 kb target completely at 3 kb reach, so expansion adds
@@ -713,15 +714,16 @@ package, because nothing in the search uses it.
     `normalized_score`, and `max_gap` appears in no optimizer's scoring, and
     deliberately still does not -- see "the field does not agree" below.
 
-    **`bg_coverage` is the exception since 2026-10-26, and only opt-in.** It is
-    now an axis of the SWAP Stage-2 score, weighted by
-    `stage2_background_weight` and off by default, so a weight > 0 trades
-    foreground coverage against host coverage during the swap refinement
-    (`plan-pool`, `expand-primers`, `hybrid` with `refinement_method=swap`).
-    That was Known Issue 14's other half; it does NOT give `bg_coverage` a
-    default, a threshold, or any place in `normalized_score`, and the trade is
-    unmeasured against a reaction, which is why it ships off.
-    `docs/validation/2026-10-26-stage2-background-weight.md`. The paragraph
+    **`bg_coverage` enters no score either, and an attempt to change that
+    failed.** `stage2_background_weight` (2026-10-26) would have made it a
+    weighted axis of the SWAP Stage-2 score, trading foreground coverage against
+    host coverage. It never ran: the axis reads a host-coverage fraction and
+    `PoolMetrics` deliberately carries none, so a value above zero raised
+    `AttributeError` mid-search. It refuses before the search since 2026-10-29,
+    and `bg_coverage` has no default, no threshold and no place in
+    `normalized_score`.
+    `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`. The
+    paragraph
     below still governs `max_gap`, and the evidence argument it makes is the
     reason that key has no counterpart for the gap.
 
@@ -764,11 +766,32 @@ package, because nothing in the search uses it.
     which encodes "no convergent pair anywhere" rather than a missing
     measurement, and `worst_convergent_gap` reads it that way.
 
-    Every consumer was checked and none needed changing: `panel_regime._as_float`
-    and `report/metrics._safe_float` preserve None, `headline_strand_scalars`
-    already returned `(None, None)`, and the technical report skips a row whose
-    value is None. Pinned by
-    `tests/test_strand_scores_say_when_they_are_unmeasurable.py`.
+    **That consumer audit was wrong about the report, and stayed wrong for
+    forty days.** It claimed `report/metrics._safe_float` preserves None.
+    `_safe_float` preserves None only when asked to -- its default is the
+    literal `0.0` -- and the two strand keys were read without
+    `default=None`, which the gap keys three lines above them do pass. So a
+    `null` alternation score rendered as `Strand alternation score 0.00`:
+    "could not be measured" shown as "measured: no alternation at all", in the
+    direction that looks like a finding. Fixed 2026-10-29, and the report now
+    says "not measurable" instead. `panel_regime._as_float` and
+    `headline_strand_scalars` were correct as described.
+    `docs/validation/2026-10-29-the-strand-report.md`.
+
+    **The report read two of the ten figures until 2026-10-29.** Collecting
+    all five per genome put them in `step4_improved_df_summary.json` and
+    nowhere else: the quality report rendered the alternation score and the
+    site-count balance of the FIRST target and dropped the rest, so the host's
+    strand structure reached disk and no reader. `report/strand_section.py` now
+    renders every figure for every genome that answered, labelled target or
+    host from `fg_prefixes`/`bg_prefixes` because the readings are opposite --
+    a target with one starved strand amplifies linearly there, a host in the
+    same state amplifies less. It introduces no threshold: it flags one fact
+    (a genome with sites on a single strand) and one mechanism (the widest
+    stretch with no convergent pair, in units of the reach), each marked "no
+    reference". Pinned by
+    `tests/test_strand_scores_say_when_they_are_unmeasurable.py` and
+    `tests/test_the_strand_report_reads_every_genome.py`.
 
     They are still NOT constrainable, but the reason is now different: no
     threshold has a reference, which is why `max_worst_hole` and

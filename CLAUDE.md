@@ -53,7 +53,7 @@ When adding a record, add it there and keep this file to a line or two.
 | `registry/model_evidence.json` | Per chemistry constant, its evidence status and supported domain; checked in `resolve_design_request` |
 | `gpu_acceleration.py` | Not reached by any pipeline stage; `--use-gpu` says so |
 | `advanced_features.py`, `gc_adaptive_strategy.py` | Read as optional but are wired into kept paths |
-| `report/` | Quality reports. Reads the saved panel assessment last, and `effective_conditions` from the run manifest in preference to params.json |
+| `report/` | Quality reports. Reads the saved panel assessment last, and `effective_conditions` from the run manifest in preference to params.json. `strand_section.py` renders every strand figure for every genome that answered |
 | `models/random_forest_filter.skops` | Retired from the default path; reachable through `--amp-model` |
 
 ### Data flow
@@ -345,9 +345,10 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
     `MissingPositionsError` instead of answering with an empty array.
 14. **Reading the background is not acting on it**. `_network_refine` carries
     the host term and `_swap_refine` reads the objective; neither carried both.
-    The swap score can now carry both via `stage2_background_weight` (off by
-    default; the host term is a lexicographic tie-break until then). Unmeasured
-    against a reaction: `docs/validation/2026-10-26-stage2-background-weight.md`.
+    `stage2_background_weight` was an attempt at both and never ran: it needs a
+    host-coverage fraction the search objective deliberately lacks, so a value
+    above zero is now REFUSED. The host term stays a lexicographic tie-break.
+    `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`.
 15. **`require_entries`** asks for an entry on every prefix, not a hit on any.
 16. **Stage 1 objective**: wired as `stage1_objective_width`, off by default;
     it gains coverage and costs specificity and runtime.
@@ -356,9 +357,13 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
     the regime and does not enforce it.
 18. **`max_gap` and `bg_coverage`** are constrainable. `max_gap` enters no
     score and deliberately does not: the field does not agree gap statistics
-    belong in the objective. `bg_coverage` enters the swap Stage-2 score only
-    when `stage2_background_weight` is set (off by default); neither enters
-    `normalized_score`. Strand figures are `None` when unmeasurable.
+    belong in the objective. `bg_coverage` enters no score either: the attempt
+    to weight it into swap Stage 2 could not run (see Known Issue 14), and the
+    search objective does not carry it. Neither enters `normalized_score`.
+    Strand figures are `None` when unmeasurable, and the report says "not
+    measurable" rather than 0.00 since 2026-10-29; it renders all five per
+    genome, labelled target or host, and flags only a fact and a mechanism
+    because no strand threshold has a reference.
 19. **One set, not every alternative**: see `delivered_set.py`.
 20. **Mixed oligo lengths** work; on the one pair measured they bought nothing.
 21. **HDF5 lock error (errno 35)** is two processes sharing a data directory.

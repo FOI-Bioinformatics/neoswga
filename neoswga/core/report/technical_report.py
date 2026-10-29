@@ -586,32 +586,16 @@ def _render_per_target_coverage(per_target: dict[str, float]) -> str:
     )
 
 
-def _render_strand_balance(uniformity) -> str:
-    """Render strand-interleaving metrics when measured by the optimizer."""
-    if uniformity is None or not getattr(uniformity, "from_optimizer", False):
-        return ""
-    alt = uniformity.strand_alternation_score
-    ratio = uniformity.strand_coverage_ratio
-    if alt is None and ratio is None:
-        return ""
-    rows = ""
-    if alt is not None:
-        rows += (
-            f"<tr><td>Strand alternation score</td><td>{alt:.2f}</td>"
-            "<td>fraction of adjacent sites that alternate strands "
-            "(higher = better exponential amplification)</td></tr>"
-        )
-    if ratio is not None:
-        rows += (
-            f"<tr><td>Strand coverage ratio</td><td>{ratio:.2f}</td>"
-            "<td>forward/reverse site balance (1.0 = balanced)</td></tr>"
-        )
-    return (
-        '<div class="section"><h2>Strand Balance '
-        '<span class="badge measured">MEASURED</span></h2>'
-        "<table><tr><th>Metric</th><th>Value</th><th>Meaning</th></tr>"
-        f"{rows}</table></div>"
-    )
+def _render_strand_balance(uniformity, reach: int | None = None) -> str:
+    """Every strand figure, per genome; see `report/strand_section.py`.
+
+    Extracted because the section grew from two scalars for the first target
+    genome to the five the optimizer measures for each, and this module is at
+    its size budget. Same object, same name.
+    """
+    from .strand_section import render_strand_balance
+
+    return render_strand_balance(uniformity, reach)
 
 
 def _render_reaction_conditions(conditions: dict) -> str:
@@ -1156,7 +1140,10 @@ def render_technical_report(data: TechnicalReportData, interactive: bool = False
             metrics.coverage.per_target_coverage if metrics.coverage else {}
         ),
         coverage_gaps_html=_render_coverage_gaps(metrics.coverage_gaps),
-        strand_balance_html=_render_strand_balance(metrics.uniformity),
+        strand_balance_html=_render_strand_balance(
+            metrics.uniformity,
+            metrics.coverage.extension_reach if metrics.coverage else None,
+        ),
         funnel_html=render_funnel(data.filtering_stages)
         + render_candidate_reach(data.candidate_reach),
         # Coverage
