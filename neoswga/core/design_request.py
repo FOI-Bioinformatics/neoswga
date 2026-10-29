@@ -135,6 +135,10 @@ class DesignRequest:
     polymerase: str
     conditions: Any
     coverage_reach: int
+    # Where a site reaches. Recorded on the request, so the hash moves with it
+    # and a run can be told from one under the other geometry. The reach was
+    # fitted alongside it, which is why `_resolve_reach` reads this.
+    coverage_geometry: str
     min_tm: float
     max_tm: float
 
@@ -386,13 +390,58 @@ def _reject_unknown_and_retired(params: Mapping[str, Any]) -> None:
         )
 
 
-def _resolve_reach(params: Mapping[str, Any], polymerase: str, sources: dict[str, str]) -> int:
+def _resolve_geometry(params: Mapping[str, Any], sources: dict[str, str]) -> str:
+    """Where a binding site reaches, validated before any index is opened.
+
+    `coverage.site_spans` raises on an unrecognised value, but it raises
+    mid-search, after the counting and the filtering have been paid for. The
+    schema's enum only reaches a caller that validates against the schema.
+    """
+    from .coverage import COVERAGE_GEOMETRIES
+
+    value = params.get("coverage_geometry")
+    if value is None:
+        sources["coverage_geometry"] = "default:symmetric"
+        return "symmetric"
+    geometry = str(value)
+    if geometry not in COVERAGE_GEOMETRIES:
+        raise InvalidDesignRequest(
+            "coverage_geometry",
+            f"must be one of {', '.join(sorted(COVERAGE_GEOMETRIES))}",
+            value,
+        )
+    sources["coverage_geometry"] = "request"
+    return geometry
+
+
+def _resolve_reach(
+    params: Mapping[str, Any],
+    polymerase: str,
+    sources: dict[str, str],
+    geometry: str = "symmetric",
+) -> int:
     """The selection reach, refusing an explicit zero rather than replacing it.
 
     `design_context_from_params` used `override or params.get(...)`, so an
     explicit 0 was falsy and silently became the polymerase default. Zero is
     not a reach and the user who wrote it meant something; either way, applying
     3 kb instead and reporting coverage at it is the outcome to avoid.
+
+    **The polymerase defaults belong to the SYMMETRIC geometry**, which is why
+    `geometry` is an argument here. They were fitted against it: 2,866-4,551 bp
+    enters and leaves the published breadth band under symmetric windows and
+    4,354-6,710 bp does under directional ones, so the shipped phi29 3,000
+    sits just inside the symmetric band and well below the directional one. A
+    directional run at 3,000 reads 0.48 on the set whose wet-lab outcome
+    recorded 60-75%, so it is not a more correct model, it is a model
+    mis-calibrated by construction
+    (`docs/validation/2026-09-23-reach-refit-directional.md`).
+
+    So a directional run with no explicit reach is REFUSED rather than given a
+    substitute. The substitute is the tempting move and it cannot be made
+    honestly: the directional band was fitted for phi29 against one published
+    outcome, and no directional band exists for `bst`, `equiphi29` or
+    `klenow`, so defaulting would invent three numbers from one measurement.
     """
     from .coverage import polymerase_extension_reach
 
@@ -404,6 +453,20 @@ def _resolve_reach(params: Mapping[str, Any], polymerase: str, sources: dict[str
             )
         sources["coverage_reach"] = "request"
         return int(value)
+
+    if geometry == "directional":
+        raise InvalidDesignRequest(
+            "coverage_reach",
+            "is required when coverage_geometry is 'directional'. The "
+            "polymerase defaults were fitted under symmetric windows, so "
+            "pairing one with directional windows is mis-calibrated by "
+            "construction rather than more correct. On phi29 against the one "
+            "published outcome the calibrated directional band is 4,354-6,710 "
+            "bp, against 2,866-4,551 bp symmetric; no directional band has "
+            "been fitted for bst, equiphi29 or klenow, which is why no value "
+            "is substituted here. See "
+            "docs/validation/2026-09-23-reach-refit-directional.md",
+        )
 
     sources["coverage_reach"] = f"polymerase:{polymerase}"
     return int(polymerase_extension_reach(polymerase, coverage_metric="realistic"))
@@ -568,7 +631,8 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
     # ahead of something the request merely omits. Raises `UnsupportedModelError`
     # for an enzyme with no recorded reach, which is a different remedy from a
     # bad field: the name may be spelled correctly and simply not be modelled.
-    reach = _resolve_reach(params, polymerase, sources)
+    geometry = _resolve_geometry(params, sources)
+    reach = _resolve_reach(params, polymerase, sources, geometry)
     _require_references(params)
 
     from .reaction_conditions import build_reaction_conditions
@@ -608,6 +672,7 @@ def resolve_design_request(params: Mapping[str, Any]) -> DesignRequest:
         polymerase=polymerase,
         conditions=conditions,
         coverage_reach=reach,
+        coverage_geometry=geometry,
         min_tm=float(params.get("min_tm", 20)),
         max_tm=float(params.get("max_tm", 50)),
         data_dir=str(params.get("data_dir") or "."),

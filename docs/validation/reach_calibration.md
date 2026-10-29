@@ -196,6 +196,17 @@ the fix; `num_primers` in params.json is the way to ask for more meanwhile.
   than doubling. The symmetric rebuild matches the table above to 0.005, which
   is what makes the two comparable. See
   [2026-09-23-reach-refit-directional.md](2026-09-23-reach-refit-directional.md).*
+  **Every value fitted on this page belongs to the symmetric geometry.** Since
+  2026-10-29 a run that sets `coverage_geometry: "directional"` must name its
+  own `coverage_reach` and is refused without one, because pairing a reach
+  fitted here with directional windows is mis-calibrated by construction rather
+  than more correct -- `TmL/Even` reads 0.48 at 3,000 bp directionally, outside
+  the 60-75% its wet-lab outcome recorded. No directional band has been fitted
+  for `bst`, `equiphi29` or `klenow`, so nothing is substituted. The magnitude
+  on a delivered panel is in
+  [2026-10-29-directional-coverage-measured.md](2026-10-29-directional-coverage-measured.md)
+  and the decision in
+  [2026-10-29-the-coverage-geometry-decision.md](2026-10-29-the-coverage-geometry-decision.md).
 - **A BAM narrows this, but does not settle it.** `calibrate-reach --bam` fits
   the reach from sequencing depth directly, without the breadth-at-depth proxy
   or the single-outcome dependence. What it returns is still a model parameter

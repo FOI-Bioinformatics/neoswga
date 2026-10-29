@@ -662,7 +662,7 @@
         "symmetric",
         "directional"
       ],
-      "description": "Where a binding site reaches when coverage is computed. 'symmetric' credits [pos - reach, pos + reach); 'directional' credits the one way the polymerase can extend. Default 'symmetric', which every recorded figure was produced under. The reach was fitted alongside it, so changing this without coverage_reach recalibrates silently."
+      "description": "Where a binding site reaches when coverage is computed. 'symmetric' credits [pos - reach, pos + reach); 'directional' credits the one way the polymerase can extend. Default 'symmetric', which every recorded figure was produced under. The reach was fitted alongside it: 2866-4551 bp enters and leaves the published breadth band under symmetric windows and 4354-6710 bp does under directional ones, so 'directional' REQUIRES an explicit coverage_reach and is refused without one. No value is substituted because the directional band was fitted for phi29 against one published outcome and none exists for bst, equiphi29 or klenow. The delivered panel's coverage is reported under BOTH geometries in step4_improved_df_summary.json under 'coverage_geometries', labelled with the one the run scored on."
     }
   }
 }

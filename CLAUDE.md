@@ -19,7 +19,7 @@ the measurements, was moved out on 2026-10-01 and is read on demand:
 |---|---|
 | [docs/development/implementation-notes.md](docs/development/implementation-notes.md) | Per module, output file, command and params.json key: what it does and why |
 | [docs/development/design-contracts.md](docs/development/design-contracts.md) | The rules a design run enforces, each with the failure it was written for |
-| [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md) | Known Issues 1-24 in full. The numbering is stable; code and tests cite it |
+| [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md) | Known Issues 1-25 in full. The numbering is stable; code and tests cite it |
 | [docs/params-reference.md](docs/params-reference.md) | Every params.json key, generated from the schema by `scripts/render_schema.py` |
 | `docs/validation/` | One measurement record per claim or default |
 | `.claude/skills/neoswga-cli/SKILL.md` | Commands outside the four-step pipeline; loads on demand |
@@ -48,6 +48,7 @@ When adding a record, add it there and keep this file to a line or two.
 | `design_request.py`, `design_result.py`, `panel_evaluation.py` | The resolved frozen request and its hash; run state against termination reason against qualification; one `PanelAssessment` |
 | `pool_planner.py`, `pool_objective.py`, `panel_acceptance.py` | `plan-pool`, the shared objective and `shortfall`, the configured panel limits. `repair_panel` is the one bounded repair |
 | `bam_coverage.py`, `depth_policy.py` | `open_alignment` is the only door to a BAM or CRAM |
+| `coverage_geometries.py` | Both coverage windows for the DELIVERED panel, once after the search, labelled with the one the run scored on. The symmetric column is `fg_coverage` |
 | `background_evenness.py` | swga 2.0's `off_gap_gini`: the per-strand gap Gini, computed from positions the strand pass already fetched. Reported, in no score |
 | `delivered_set.py` | Which `set_index` a command reads (default 0) |
 | `concurrent_runs.py` | Translates the HDF5 lock error from two runs sharing a directory |
@@ -133,6 +134,16 @@ Raw `score` is not comparable across methods; `normalized_score` is.
 per-primer reach (about 3 kb for phi29), while network connectivity uses
 processivity (about 70 kb). A hybrid run prints two coverage figures, labelled
 `(estimated, binned)` and `(measured)`; the measured one is authoritative.
+
+**Coverage geometry**: `coverage_geometry` is `symmetric` by default, which
+credits `[pos-r, pos+r)` and is what every recorded figure was produced under
+and what the reach was fitted against. `directional` credits the one way the
+polymerase extends and **requires an explicit `coverage_reach`** -- it is
+refused without one, and no value is substituted because the directional band
+(4,354-6,710 bp) was fitted for phi29 alone. `optimize` reports the delivered
+panel under BOTH windows, in the log and in `coverage_geometries` in the
+summary; the symmetric figure overstates the directional one by 1.27x to 1.85x
+on real panels. `docs/validation/2026-10-29-the-coverage-geometry-decision.md`.
 
 ### Choosing the set size
 
@@ -379,6 +390,11 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 24. **KMC3 preferred**, tables read as databases. About 7x faster and about
     18x the memory of jellyfish on hg38 at k=12. A host with no table is
     scanned by `query_scan`.
+25. **The symmetric coverage window overstates `fg_coverage` by 1.3x to 1.9x**
+    on real panels at 3 kb. Disclosed, not fixed: the reach was fitted against
+    it, every recorded figure uses it, and a real fix changes selection.
+    `optimize` reports both windows; `directional` requires an explicit
+    `coverage_reach` and is refused without one.
 
 ## Reference genomes available locally
 

@@ -1316,3 +1316,55 @@ package, because nothing in the search uses it.
     exercises, since CI installs no KMC -- which is why the text-fallback
     tests are written to run without a counter rather than skipping with the
     rest.
+
+25. **The symmetric coverage window overstates `fg_coverage` by 1.3x to 1.9x,
+    and that is disclosed rather than fixed** -- measured 2026-10-29, decided
+    the same day.
+
+    `coverage._mark_window` marks `occupied[pos - reach : pos + reach]`, a
+    window `2r` wide centred on every site, and both coverage entry points
+    default to `strand="both"`, so the position list holds the oligo's own
+    occurrences and its reverse complement's together. Every occurrence
+    therefore earns coverage in the direction it cannot extend in.
+    `polymerase_extension_reach` returns an EXTENSION distance and the code
+    spends it as a RADIUS. The chemistry allows one direction per occurrence:
+    the oligo at `i` extends toward increasing coordinates, its reverse
+    complement at `j` toward decreasing ones.
+
+    **Measured on three real panels** at the shipped 3 kb reach: 1.85x, 1.56x
+    and 1.27x at 6, 12 and 24 primers, 21.0, 25.8 and 19.5 percentage points.
+    The ratio tends to 2.0 as windows stop overlapping and to 1.0 as the genome
+    saturates, so the worst ABSOLUTE error is at the intermediate site density
+    where a real SWGA design sits.
+    `docs/validation/2026-10-29-directional-coverage-measured.md`.
+
+    **The default stays `symmetric`, by decision.** The reach was fitted
+    against it -- 2,866-4,551 bp symmetric against 4,354-6,710 bp directional
+    on the same five published sets -- so switching the geometry alone yields a
+    model mis-calibrated by construction rather than a more correct one; every
+    `fg_coverage` recorded in this repository was produced under it; and a real
+    fix changes SELECTION, since Stage 1's set cover would have to learn that a
+    site reaches `r` and not `2r`. What a switch would need is listed in
+    `docs/validation/2026-10-29-the-coverage-geometry-decision.md`.
+
+    **What was done instead.** `optimize` reports the delivered panel under
+    BOTH windows -- in the log and as `coverage_geometries` in
+    `step4_improved_df_summary.json`, with the inflation ratio and a note
+    saying which window the run scored on. The symmetric column IS
+    `fg_coverage`, asserted against `compute_metrics` rather than against a
+    re-derivation. Computed once after the search, never per candidate: the
+    second orientation is fetched only when the configured geometry asks for
+    it, and `get_positions` is the hottest method in the package.
+
+    **A directional run must name its own `coverage_reach`** and is refused
+    without one, with nothing substituted: the directional band was fitted for
+    phi29 against one published outcome and none exists for `bst`, `equiphi29`
+    or `klenow`, so a default would invent three numbers from one measurement.
+    The geometry is also validated up front rather than mid-search, and it is
+    recorded on `DesignRequest` so the request hash moves with it.
+
+    The other column bounds how much the reported figure overstates THIS panel,
+    not how much coverage a directional run would deliver: these panels were
+    selected under the symmetric model, and a set cover that knew better would
+    choose differently.
+    `docs/validation/2026-09-23-does-the-panel-move.md` measured that it does.

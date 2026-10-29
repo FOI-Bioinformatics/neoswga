@@ -30,6 +30,7 @@ import pandas as pd
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .candidate_source import describe_reach, order_candidates_by_background
+from .coverage_geometries import for_delivered_panel
 from .design_result import panel_validation_is_ok
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .ensemble_comparison import _ensemble_error_row, _select_ensemble_winner
@@ -1574,6 +1575,10 @@ def optimize_step4(
         )
         log_regime(regime)
 
+        # Both coverage geometries for the delivered panel, labelled, plus the
+        # cache this function returns. See `core/coverage_geometries.py`.
+        cache, geometries = for_delivered_panel(parameter, result)
+
         save_results(
             result,
             output_path,
@@ -1581,13 +1586,8 @@ def optimize_step4(
             primer_sets=_LAST_PRIMER_SETS or None,
             regime=regime,
             candidate_reach=_LAST_CANDIDATE_REACH,
+            coverage_geometries=geometries,
         )
-
-        # Return cache placeholder (for compatibility)
-        from .position_cache import PositionCache
-
-        fg_prefixes = getattr(parameter, "fg_prefixes", [])
-        cache = PositionCache(fg_prefixes, list(result.primers)) if fg_prefixes else None
 
         return primer_sets, scores, cache
     else:
