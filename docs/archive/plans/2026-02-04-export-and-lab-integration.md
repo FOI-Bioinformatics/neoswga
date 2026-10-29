@@ -25,7 +25,7 @@ This plan addresses 5 critical gaps:
 - `neoswga/core/export.py` - Export module with FASTA, CSV, protocol generation
 - `neoswga export` CLI command
 - Enhanced report with primer sequences section
-- `docs/FROM_RESULTS_TO_LAB.md` - Complete lab workflow guide
+- `docs/guides/FROM_RESULTS_TO_LAB.md` - Complete lab workflow guide
 - Updated documentation index
 
 ---
@@ -1149,7 +1149,7 @@ git commit -m "feat(cli): add 'neoswga export' command for synthesis ordering"
 ## Task 6: Create Lab Workflow Documentation
 
 **Files:**
-- Create: `docs/FROM_RESULTS_TO_LAB.md`
+- Create: `docs/guides/FROM_RESULTS_TO_LAB.md`
 
 **Step 1: Create the documentation file**
 
@@ -1559,7 +1559,7 @@ This plan delivers:
    neoswga export -d ./results/ -o ./order/ --project MyProject
    ```
 
-3. **`docs/FROM_RESULTS_TO_LAB.md`** - Complete guide covering:
+3. **`docs/guides/FROM_RESULTS_TO_LAB.md`** - Complete guide covering:
    - Understanding results
    - Export commands
    - Vendor ordering instructions
@@ -1570,7 +1570,7 @@ This plan delivers:
 
 ---
 
-**Plan complete and saved to `docs/plans/2026-02-04-export-and-lab-integration.md`. Two execution options:**
+**Plan complete and saved to `docs/archive/plans/2026-02-04-export-and-lab-integration.md`. Two execution options:**
 
 **1. Subagent-Driven (this session)** - I dispatch fresh subagent per task, review between tasks, fast iteration
 

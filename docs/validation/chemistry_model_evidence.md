@@ -9,7 +9,7 @@ machine-readable form is `neoswga/core/registry/model_evidence.json`, which
 
 The plan asks for an audit of the original papers. **That did not happen here.**
 Every `source` in the registry is the attribution this repository already
-carried, in `docs/SCIENCE_CITATIONS.md`, `registry/INCONSISTENCIES.md` or the
+carried, in `docs/SCIENCE_CITATIONS.md`, `neoswga/core/registry/INCONSISTENCIES.md` or the
 module comments. The primary literature was not re-read while compiling it.
 
 Saying so is the point rather than a caveat on it. The rule the registry exists

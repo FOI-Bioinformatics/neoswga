@@ -485,7 +485,7 @@ reads would pass.
 
 ### Gap 15 — the strongest known predictor enters no score
 
-`registry/INCONSISTENCIES.md` entry 7, open by deliberate choice. On the only
+`neoswga/core/registry/INCONSISTENCIES.md` entry 7, open by deliberate choice. On the only
 wet-lab-validated benchmark in the repository (six Prevotella sets, Dwivedi-Yu
 2023), `max_gap` is the strongest single predictor of measured enrichment
 (Spearman rho **-0.83**, and ranking by it alone reproduces the measured top

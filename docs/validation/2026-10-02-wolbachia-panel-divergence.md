@@ -1,7 +1,7 @@
 # The Wolbachia panel resolves three divergence levels, and the ordering agrees with the published supergroups
 
 2026-10-02. Phase 1 task 4 of
-`docs/superpowers/plans/2026-10-02-genomic-diversity-and-multi-host.md`: record
+the genomic-diversity and multi-host plan (2026-10): record
 pairwise divergence per target pair so later per-strain results can be read
 against it. Measured on the five target genomes of
 `tests/validation/genomes/diversity_panel.json` -- wMel, wRi, wPip, wAlbB and

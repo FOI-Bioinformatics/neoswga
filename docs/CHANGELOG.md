@@ -492,7 +492,7 @@ Full findings, including what measurement rejected:
 ### BREAKING CHANGES
 
 None. All 3.6 configurations continue to run; see
-`docs/migration-3.6-to-3.7.md` for behavioural differences.
+`docs/migrations/migration-3.6-to-3.7.md` for behavioural differences.
 
 ## [3.6.0] - 2026 - Optimizer Framework and Pipeline Hardening
 

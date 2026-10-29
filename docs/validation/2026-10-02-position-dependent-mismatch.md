@@ -1,7 +1,7 @@
 # Does a position-dependent mismatch model predict the measured outcomes better?
 
 Measured 2026-10-02. Phase 4b, validation items 1-4, of
-`docs/superpowers/plans/2026-10-02-genomic-diversity-and-multi-host.md`, which
+the genomic-diversity and multi-host plan (2026-10), which
 asks for the model to be scored against the wet-lab outcomes already in the
 repository, with the controls of
 [heldout_panel_discrimination_2026-09-16.md](heldout_panel_discrimination_2026-09-16.md).
