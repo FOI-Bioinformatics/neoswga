@@ -161,6 +161,22 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
             swap_max_evaluations=self.config.swap_max_evaluations,
             swap_max_seconds=self.config.swap_max_seconds,
             template_gc=kwargs.get("template_gc", 0.5),
+            # The same drift this argument list was already corrected for once:
+            # these three arrived at the `hybrid` wrapper and were dropped here,
+            # so the dimer stability floor, the Stage-1 objective and the
+            # Stage-2 Tm term were all inert on the method documented as the
+            # clinical one. Found 2026-10-29 by
+            # `tests/test_no_adapter_drops_an_inner_parameter.py`, which exists
+            # to stop the two lists diverging again.
+            max_dimer_dg=getattr(self.config, "max_dimer_dg", None),
+            stage1_objective_width=getattr(self.config, "stage1_objective_width", None),
+            stage2_tm_weight=getattr(self.config, "stage2_tm_weight", None),
+        )
+        # `stage2_background_weight` is not an inner constructor parameter, so
+        # it is set the way `HybridBaseOptimizer` sets it. Both weights are None
+        # unless params.json supplies them, so a default run is unchanged.
+        self._hybrid.stage2_background_weight = getattr(
+            self.config, "stage2_background_weight", None
         )
 
         # A second BackgroundAwareOptimizer was built here "for backward

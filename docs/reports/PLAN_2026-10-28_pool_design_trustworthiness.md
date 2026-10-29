@@ -37,8 +37,8 @@ can be written and unit-tested here and must be RUN where a counter exists.
 | 1.1 Restore headroom in `parameter.py` | 1 | **Done** `e8962e1` — 1596→1453, headroom 148 | size + headroom ratchets |
 | 1.2 Restore headroom in `unified_optimizer.py`, `hybrid_optimizer.py` | 1 | **Done** `e8962e1` — headroom 48 and 59 | as above |
 | 2.1 Disclose the pre-2026-10-26 reaction defect | 2 | **Done** `3f648f3` | `test_reaction_provenance_is_reported.py`, CHANGELOG, LIMITATIONS |
-| 3.1 Ratchet the adapter/inner parameter diff | 3 | startable | new test over 4 adapters |
-| 3.2 Audit the two unaudited adapters against it | 3 | startable | same test, allowlist empty |
+| 3.1 Ratchet the adapter/inner parameter diff | 3 | **Done** `925916f` — covers 8 seams, not 4 | `test_no_adapter_drops_an_inner_parameter.py` |
+| 3.2 Audit the two unaudited adapters against it | 3 | **Done** `925916f` — found 4 dropped values in `background-aware`; allowlist empty for all method adapters | same test + behavioural pin |
 | 3.3 Stop the run log asserting weights the engine lacks | 3 | startable | new test |
 | 4.1 Ratchet the doc link/orphan sweep | 4 | startable | new test |
 | 5.1 Measure the directional-coverage inflation | 5 | script only; needs a counter to run | dated record |

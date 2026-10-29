@@ -406,8 +406,9 @@ STAGE2_HYBRID_WEIGHTS = [
 ]
 
 
+@pytest.mark.parametrize("method", ["hybrid", "background-aware"])
 @pytest.mark.parametrize("name,value", STAGE2_HYBRID_WEIGHTS, ids=lambda p: str(p))
-def test_stage2_weights_reach_the_inner_hybrid(prefix, planted, name, value):
+def test_stage2_weights_reach_the_inner_hybrid(prefix, planted, method, name, value):
     """A Stage-2 weight set from config has to reach the inner HybridOptimizer.
 
     `stage2_tm_weight` and `stage2_background_weight` are read by the inner
@@ -417,16 +418,24 @@ def test_stage2_weights_reach_the_inner_hybrid(prefix, planted, name, value):
     when it builds the inner, or the keys are inert exactly as Known Issue 8
     describes. Both ship off by default, so this pins the plumbing, not a
     default behaviour change.
+
+    Parameterised over BOTH wrappers since 2026-10-29. They build the same inner
+    class from two separately maintained argument lists, and only the `hybrid`
+    one was taught to forward these: `background-aware` dropped both weights,
+    plus `max_dimer_dg` and `stage1_objective_width`. That is the second time
+    those two lists have diverged, which is why
+    `tests/test_no_adapter_drops_an_inner_parameter.py` now checks the seam
+    mechanically.
     """
-    optimizer = build(prefix, planted, "hybrid", **{name: value})
+    optimizer = build(prefix, planted, method, **{name: value})
     inner = getattr(optimizer, "_hybrid", None)
     assert inner is not None, (
-        f"hybrid adapter {type(optimizer).__name__} has no '_hybrid' inner; "
+        f"{method} adapter {type(optimizer).__name__} has no '_hybrid' inner; "
         "update this test if it was renamed."
     )
     actual = getattr(inner, name, None)
     assert actual == value, (
-        f"{name}={value} did not reach HybridOptimizer.{name}; it is using "
+        f"{method}: {name}={value} did not reach HybridOptimizer.{name}; it is using "
         f"{actual!r}. The value reaches the adapter's OptimizerConfig and is "
         f"dropped when the adapter builds its inner engine."
     )
