@@ -43,7 +43,7 @@ can be written and unit-tested here and must be RUN where a counter exists.
 | 4.1 Ratchet the doc link/orphan sweep | 4 | **Done** `b0dc6ed` — found 12 more dead references; 7 repointed, 5 reworded | `test_docs_links_resolve.py` |
 | 5.1 Measure the directional-coverage inflation | 5 | **Done** `58cdc00` — 1.27x-1.85x at 3 kb; synthetic genome, real panels | `docs/validation/2026-10-29-directional-coverage-measured.md` |
 | 5.2 Decide and, if warranted, fix + re-baseline | 5 | blocked on 5.1 | record + re-baselined summaries |
-| 6.1 Measure the two Stage-2 terms in a discriminating regime | 6 | needs a counter | dated record |
+| 6.1 Measure the two Stage-2 terms in a discriminating regime | 6 | **Done** `0fd2c2d` — Tm term: measured, benefit not demonstrated. Host term: could not run, now refuses | two dated records |
 | 7.1 Strand-balance report | 7 | startable | new test |
 | 7.2 Compute and report `off_gap_gini` | 7 | startable | new test |
 | 7.3 Record what `max_dimer_dg` does at the default | 7 | **Done** `58cac68` | schema description + regenerated params-reference |

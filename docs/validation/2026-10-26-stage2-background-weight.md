@@ -1,5 +1,15 @@
 # The host term as a weighted axis in swap Stage 2 (Known Issue 14)
 
+> **Corrected 2026-10-29: the key described below never ran on a real design.**
+> The weighted axis reads `metrics.bg_coverage`, which no production objective
+> carries — `PoolMetrics` has five fields and refuses a sixth on purpose. Any
+> value above zero raised `AttributeError` mid-search; it now refuses up front.
+> The discriminator table in this record is a measurement of the STUB objective
+> the tests used, not of the product. See
+> [`2026-10-29-stage2-background-weight-does-not-run.md`](2026-10-29-stage2-background-weight-does-not-run.md).
+> What remains accurate here: the lexicographic default is untouched, and Known
+> Issue 14 is not closed.
+
 Changed 26 October 2026, on `main` at `5dbe5dc` plus the change this document
 records, during the optimizer audit that also produced
 [`2026-10-26-clique-fixed-primer-dimers.md`](2026-10-26-clique-fixed-primer-dimers.md).

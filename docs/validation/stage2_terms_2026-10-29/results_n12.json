@@ -1,0 +1,103 @@
+{
+  "target_tm": 48.0,
+  "arms": {
+    "stage2_tm_weight": [
+      {
+        "weight": 0.0,
+        "fg_coverage": 0.2784889763779528,
+        "effective_fg_coverage": 0.0888391501297639,
+        "bg_coverage": 0.006,
+        "total_bg_sites": 3,
+        "selectivity_density": 4.2535022978254355,
+        "mean_tm_deviation": 7.006262774653062,
+        "panel_size": 12,
+        "panel": [
+          "AAAGTCACTACT",
+          "AGATAAGTCATC",
+          "ATTCAACAAAGA",
+          "ACAGTTTTCTAA",
+          "TCGATAAGGTAA",
+          "ATCACAGTTCTA",
+          "GCTGCAATTTCA",
+          "GTCATCAACAAA",
+          "CTCCAAAGCATA",
+          "CAAGTTCCATTC",
+          "AAAGGGTAAGTT",
+          "CCTAAAGAGTCA"
+        ]
+      },
+      {
+        "weight": 0.25,
+        "fg_coverage": 0.28308503937007873,
+        "effective_fg_coverage": 0.09131339614627688,
+        "bg_coverage": 0.002,
+        "total_bg_sites": 1,
+        "selectivity_density": 4.042352980213085,
+        "mean_tm_deviation": 6.567573556374555,
+        "panel_size": 12,
+        "panel": [
+          "AAAGTCACTACT",
+          "AGATAAGTCATC",
+          "ATTCAACAAAGA",
+          "CTCCAAAGCATA",
+          "TCGATAAGGTAA",
+          "ATCACAGTTCTA",
+          "CCTAAAGAGTCA",
+          "TAAGAGCCTACA",
+          "ATTTTCATCAGG",
+          "GCTGCAATTTCA",
+          "TAACACCACGTA",
+          "TCTCCAATAAGA"
+        ]
+      },
+      {
+        "weight": 0.5,
+        "fg_coverage": 0.27810944881889765,
+        "effective_fg_coverage": 0.0955462055024674,
+        "bg_coverage": 0.002,
+        "total_bg_sites": 1,
+        "selectivity_density": 4.096940429995931,
+        "mean_tm_deviation": 6.325909726340782,
+        "panel_size": 12,
+        "panel": [
+          "AAAGTCACTACT",
+          "AGATAAGTCATC",
+          "ATTCAACAAAGA",
+          "CTCCAAAGCATA",
+          "TCGATAAGGTAA",
+          "ATCACAGTTCTA",
+          "CAAGTTCCATTC",
+          "CCTAAAGAGTCA",
+          "TAAGAGCCTACA",
+          "ATTTTCATCAGG",
+          "GCTGCAATTTCA",
+          "TAACACCACGTA"
+        ]
+      },
+      {
+        "weight": 1.0,
+        "fg_coverage": 0.24618503937007874,
+        "effective_fg_coverage": 0.10119649869187103,
+        "bg_coverage": 0.004,
+        "total_bg_sites": 2,
+        "selectivity_density": 4.119493930424886,
+        "mean_tm_deviation": 5.888331210982902,
+        "panel_size": 12,
+        "panel": [
+          "AAAGTCACTACT",
+          "TCGATAAGGTAA",
+          "ATCACAGTTCTA",
+          "GTCATCAACAAA",
+          "CAAGTTCCATTC",
+          "AAAGGGTAAGTT",
+          "CCTAAAGAGTCA",
+          "TAAGAGCCTACA",
+          "CTCCAAAGCATA",
+          "TAACACCACGTA",
+          "GCTGCAATTTCA",
+          "TCTCCAATAAGA"
+        ]
+      }
+    ]
+  }
+}

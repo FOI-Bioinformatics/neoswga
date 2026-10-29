@@ -275,6 +275,45 @@ def _refine_with_bounded_scan(
             )
 
 
+def _require_host_coverage(objective, panel) -> None:
+    """Refuse a weighted host axis the objective cannot measure.
+
+    `stage2_background_weight` was added on 2026-10-26 against a stub objective
+    that supplied `bg_coverage`. No production objective does:
+    `PoolMetrics` carries five fields and its module docstring says a caller
+    reaching for a sixth gets an `AttributeError` "rather than a default that
+    would be indistinguishable from a measurement". The field is absent because
+    computing background coverage was 27.6 s of the 29.7 s that module exists to
+    remove from the search loop.
+
+    So the weighted axis as specified cannot run on the production path, and the
+    first real design to set the key crashed inside Stage 2. It refuses here
+    instead, before any search, which is what the rule about a required
+    calculation that fails asks for: do not catch it and substitute. The
+    lexicographic tie-break -- the shipped default -- is unaffected.
+    """
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    if objective is None:
+        raise InvalidDesignRequest(
+            "stage2_background_weight",
+            "it weighs host coverage against foreground coverage, and this "
+            "refinement was given no objective to measure either on",
+        )
+    metrics = objective.metrics(list(panel))
+    if not hasattr(metrics, "bg_coverage"):
+        raise InvalidDesignRequest(
+            "stage2_background_weight",
+            "it requires a host-coverage fraction and "
+            f"{type(metrics).__name__} does not carry one: the search objective "
+            "reads five quantities and background coverage is deliberately not "
+            "among them, because computing it dominated the search loop. Unset "
+            "the key to keep the lexicographic host tie-break, which is the "
+            "shipped default. See "
+            "docs/validation/2026-10-29-stage2-background-weight-does-not-run.md",
+        )
+
+
 def refine_by_swaps(
     selected,
     candidates,
@@ -340,6 +379,8 @@ def refine_by_swaps(
     binless = _validate_inputs(
         bins_by_primer, bin_weights, objective, objective_scan_width, max_evaluations, max_seconds
     )
+    if background_weight and background_weight > 0:
+        _require_host_coverage(objective, selected)
     bounded = objective_scan_width is not None
     bins_by_primer = {} if bins_by_primer is None else bins_by_primer
     bin_weights = {} if bin_weights is None else bin_weights
@@ -368,20 +409,23 @@ def refine_by_swaps(
 
         With `background_weight > 0` the host term becomes a WEIGHTED axis rather
         than the lexicographic tie-break below (Known Issue 14): fg coverage is
-        traded against host coverage, both 0..1 fractions so the weight is a
-        genuine trade and not a cross-scale fudge. Off by default
-        (`background_weight == 0`), the score is the lexicographic tuple it has
-        always been, bit for bit. The weighted form is applied only when the
-        objective can measure both coverages; an unmeasurable host coverage
-        (no background) falls back to the lexicographic form rather than
-        inventing a zero. The trade-off it introduces is UNMEASURED against a
-        reaction; see docs/validation/2026-10-26-stage2-background-weight.md.
+        traded against host coverage. Off by default (`background_weight == 0`),
+        the score is the lexicographic tuple it has always been, bit for bit.
+
+        The weighted form needs a host-coverage FRACTION, and the objective used
+        by every production caller cannot supply one -- see the refusal in
+        `_require_host_coverage`. An objective that does carry `bg_coverage` gets
+        the weighted axis; one that does not is refused before the search
+        starts, rather than reaching for a sixth field on `PoolMetrics` and
+        taking the AttributeError that module raises on purpose.
+        `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`.
         """
         shortfall = -objective.shortfall(panel)
         coverage = objective.coverage(panel)
         metrics = objective.metrics(panel)
-        if background_weight > 0 and coverage is not None and metrics.bg_coverage is not None:
-            return (shortfall, coverage - background_weight * metrics.bg_coverage, 0.0)
+        host = getattr(metrics, "bg_coverage", None)
+        if background_weight > 0 and coverage is not None and host is not None:
+            return (shortfall, coverage - background_weight * host, 0.0)
         return (shortfall, coverage, -metrics.total_bg_sites)
 
     if bounded:

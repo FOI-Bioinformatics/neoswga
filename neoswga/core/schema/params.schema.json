@@ -369,7 +369,7 @@
       ],
       "minimum": 0,
       "default": null,
-      "description": "Weight of the host term in the swap Stage-2 score (Known Issue 14). This is the swap refinement used by plan-pool, expand-primers, and hybrid when refinement_method is 'swap'. null (default) keeps background as the lexicographic tie-break the swap score has always used, bit for bit; a weight > 0 instead trades foreground coverage against host coverage as a single weighted axis (both are 0..1 fractions, so the weight is a genuine trade). It applies only when the objective can measure both coverages; with no background genome the score falls back to the lexicographic form rather than inventing a zero host coverage. The trade is UNMEASURED against a reaction and ships off; see docs/validation/2026-10-26-stage2-background-weight.md."
+      "description": "REFUSED above zero since 2026-10-29. The weighted host axis reads a host-coverage fraction from the search objective, and PoolMetrics carries five fields that deliberately exclude it, because computing background coverage per candidate panel is the cost that module exists to remove from the search loop. So this key never worked on a real design: it was inert on hybrid's default network refinement and raised AttributeError mid-search on the swap refinement. It now refuses before the search with that explanation. Leave it unset to keep the lexicographic host tie-break, which is the shipped behaviour and unaffected. Known Issue 14 is not closed. docs/validation/2026-10-29-stage2-background-weight-does-not-run.md."
     },
     "stage1_objective_width": {
       "type": [

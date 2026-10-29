@@ -164,3 +164,102 @@ def test_unmeasurable_host_coverage_falls_back_without_inventing_a_zero():
         background_weight=0.8,
     )
     assert result.primers == ("A",)
+
+
+# ----------------------------------------------------------------------
+# The weighted host axis refuses rather than crashing (2026-10-29)
+# ----------------------------------------------------------------------
+#
+# `stage2_background_weight` was added on 2026-10-26 against the stub objective
+# above, which supplies `bg_coverage`. No production objective does.
+# `PoolMetrics` carries five fields and its module docstring states that a
+# caller reaching for a sixth gets an AttributeError "rather than a default
+# that would be indistinguishable from a measurement" -- background coverage is
+# absent because computing it was 27.6 s of the 29.7 s that module exists to
+# remove from the search loop.
+#
+# So the first real design to set the key crashed inside Stage 2 with an
+# AttributeError. It now refuses before the search, which is what the rule
+# about a required calculation that fails asks for.
+
+
+class _ProductionShapedObjective(_TradeObjective):
+    """Metrics with the five fields the real search objective carries, no more.
+
+    Deliberately NOT a `SimpleNamespace`: the point is that `bg_coverage` is
+    absent, and an object that tolerates any attribute cannot express that.
+    """
+
+    class _Metrics:
+        __slots__ = (
+            "fg_coverage",
+            "effective_fg_coverage",
+            "selectivity_density",
+            "total_bg_sites",
+            "max_gap",
+        )
+
+        def __init__(self, total_bg_sites):
+            self.fg_coverage = 0.5
+            self.effective_fg_coverage = 0.5
+            self.selectivity_density = 1.0
+            self.total_bg_sites = total_bg_sites
+            self.max_gap = 0.0
+
+    def metrics(self, panel):
+        return self._Metrics(sum(self._TABLE[p][2] for p in panel))
+
+
+def test_a_weighted_host_axis_is_refused_when_the_objective_cannot_measure_it():
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    with pytest.raises(InvalidDesignRequest) as excinfo:
+        refine_by_swaps(
+            ["A"],
+            ["A", "B"],
+            None,
+            None,
+            Compatibility(),
+            objective=_ProductionShapedObjective(),
+            background_weight=0.5,
+        )
+    message = str(excinfo.value)
+    assert "stage2_background_weight" in message
+    assert "host-coverage fraction" in message, message
+    # It must say what to do, not only what went wrong.
+    assert "Unset the key" in message, message
+
+
+def test_the_refusal_names_the_metrics_type_it_found():
+    """So a reader knows which objective was in play, not just that one failed."""
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    with pytest.raises(InvalidDesignRequest, match="_Metrics"):
+        refine_by_swaps(
+            ["A"],
+            ["A", "B"],
+            None,
+            None,
+            Compatibility(),
+            objective=_ProductionShapedObjective(),
+            background_weight=0.5,
+        )
+
+
+def test_the_shipped_default_is_untouched_by_the_refusal():
+    """Weight 0 must still run against a production-shaped objective.
+
+    The refusal is scoped to the feature being switched ON. If it fired for
+    every caller it would break the default path, which is the lexicographic
+    tie-break every design uses.
+    """
+    result = refine_by_swaps(
+        ["A"],
+        ["A", "B"],
+        None,
+        None,
+        Compatibility(),
+        objective=_ProductionShapedObjective(),
+        background_weight=0.0,
+    )
+    assert result.primers == ("A",)

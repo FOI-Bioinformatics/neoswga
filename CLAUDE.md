@@ -189,11 +189,12 @@ measurements: implementation-notes.md.
   `stage1_objective_width` (None; off by default after measurement),
   `stage2_tm_weight` (None; the Tm axis in Stage 2's removal ranking, off by
   default after measurement, and deliberately not the profile's `tm_weight`),
-  `stage2_background_weight` (None; the host term as a weighted axis in the swap
-  Stage-2 score — `plan-pool`, `expand-primers`, `hybrid` with
-  `refinement_method=swap` — off by default. Weight 0/None keeps the
-  lexicographic tie-break; a weight > 0 trades fg coverage against host coverage.
-  Known Issue 14; unmeasured against a reaction).
+  `stage2_background_weight` (None, and **a value above zero is REFUSED**: the
+  weighted axis needs a host-coverage fraction and the search objective's
+  `PoolMetrics` deliberately carries none, so the key never worked on a real
+  design. Unset keeps the lexicographic host tie-break, which is what every
+  design uses. Known Issue 14 is NOT closed.
+  `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`).
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
   `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the
