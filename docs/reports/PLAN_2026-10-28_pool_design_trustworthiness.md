@@ -41,7 +41,7 @@ can be written and unit-tested here and must be RUN where a counter exists.
 | 3.2 Audit the two unaudited adapters against it | 3 | **Done** `925916f` — found 4 dropped values in `background-aware`; allowlist empty for all method adapters | same test + behavioural pin |
 | 3.3 Stop the run log asserting weights the engine lacks | 3 | **Done** `f4fd1af` — also found all three inert on `dominating-set` and `clique` | `test_the_weights_log_does_not_overclaim.py` |
 | 4.1 Ratchet the doc link/orphan sweep | 4 | **Done** `b0dc6ed` — found 12 more dead references; 7 repointed, 5 reworded | `test_docs_links_resolve.py` |
-| 5.1 Measure the directional-coverage inflation | 5 | script only; needs a counter to run | dated record |
+| 5.1 Measure the directional-coverage inflation | 5 | **Done** `58cdc00` — 1.27x-1.85x at 3 kb; synthetic genome, real panels | `docs/validation/2026-10-29-directional-coverage-measured.md` |
 | 5.2 Decide and, if warranted, fix + re-baseline | 5 | blocked on 5.1 | record + re-baselined summaries |
 | 6.1 Measure the two Stage-2 terms in a discriminating regime | 6 | needs a counter | dated record |
 | 7.1 Strand-balance report | 7 | startable | new test |

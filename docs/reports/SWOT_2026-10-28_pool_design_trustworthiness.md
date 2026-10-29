@@ -104,7 +104,13 @@ shipped default neither moves a panel. Consistent with
 [`dimer_stability_floor_2026-09-18.md`](../validation/dimer_stability_floor_2026-09-18.md),
 which reached the same conclusion from a different direction.
 
-**W4. The headline number is probably inflated, and by how much is unknown.**
+**W4. The headline number is inflated by 1.3x to 1.9x** (measured 2026-10-29;
+this entry said "probably inflated, and by how much is unknown" when written).
+At the shipped 3 kb reach a 12-primer panel reported at 0.72 coverage covers
+0.46 under the directional model. See
+[`2026-10-29-directional-coverage-measured.md`](../validation/2026-10-29-directional-coverage-measured.md);
+the magnitude is for synthetic site geometry, and the mechanism below is what
+generalises.
 Both coverage entry points default to `strand="both"` (`coverage.py:28`, `:117`)
 and `_mark_window` marks `occupied[pos-extension:pos+extension]`
 (`coverage.py:234`) — a symmetric window centred on each site, so every

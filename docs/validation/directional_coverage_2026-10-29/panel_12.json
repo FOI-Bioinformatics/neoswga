@@ -1,0 +1,60 @@
+{
+  "panel_size": 12,
+  "length": 1270000,
+  "rows": [
+    {
+      "reach": 250,
+      "symmetric": 0.09304645669291338,
+      "directional": 0.04777795275590551,
+      "inflation_pp": 4.526850393700787,
+      "ratio": 1.9474768449850026,
+      "forward_sites": 130,
+      "reverse_sites": 116
+    },
+    {
+      "reach": 500,
+      "symmetric": 0.1790488188976378,
+      "directional": 0.09285275590551181,
+      "inflation_pp": 8.619606299212599,
+      "ratio": 1.9283091508865955,
+      "forward_sites": 130,
+      "reverse_sites": 116
+    },
+    {
+      "reach": 1000,
+      "symmetric": 0.32966220472440944,
+      "directional": 0.1785283464566929,
+      "inflation_pp": 15.113385826771653,
+      "ratio": 1.8465538457467219,
+      "forward_sites": 130,
+      "reverse_sites": 116
+    },
+    {
+      "reach": 2000,
+      "symmetric": 0.5616283464566929,
+      "directional": 0.33236220472440947,
+      "inflation_pp": 22.926614173228344,
+      "ratio": 1.6898081023454157,
+      "forward_sites": 130,
+      "reverse_sites": 116
+    },
+    {
+      "reach": 3000,
+      "symmetric": 0.7218496062992126,
+      "directional": 0.4636866141732284,
+      "inflation_pp": 25.81629921259842,
+      "ratio": 1.556761796081388,
+      "forward_sites": 130,
+      "reverse_sites": 116
+    },
+    {
+      "reach": 6000,
+      "symmetric": 0.9308787401574803,
+      "directional": 0.7103929133858268,
+      "inflation_pp": 22.048582677165353,
+      "ratio": 1.3103716585808673,
+      "forward_sites": 130,
+      "reverse_sites": 116
+    }
+  ]
+}
