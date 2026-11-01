@@ -179,12 +179,17 @@ measurements: implementation-notes.md.
   `min_tm`/`max_tm`, and the additives `dmso_percent`, `betaine_m`,
   `trehalose_m`, `ethanol_percent`, `urea_m`, `tmac_m`, `formamide_percent`.
   A design that sets glycerol is refused: nothing computes its Tm effect.
-  `--preset` goes through the `parameter` globals rather than the params FILE
-  `resolve_design_request` reads, so a preset's additives never met that
-  refusal: `q_solution` and `crude_sample` set glycerol and it was recorded in
-  `effective_conditions` while entering no Tm. `load_preset_conditions` now
-  drops any additive `model_evidence.refuses_additive` names, and says which
-  (`2026-11-01-a-preset-carried-an-additive-a-design-refuses.md`).
+  `--preset` used to reach only the `parameter` globals, so it met NO guard:
+  not `require_model_support` (which reads the params FILE) and not the
+  key-presence guards (which read `_json_data`). A preset's keys now join
+  `_json_data` via `parameter._preset_overlay`, and `run_step2` validates the
+  resolved configuration with `_common.validate_effective_chemistry`. Two
+  consequences this had: glycerol was recorded in `effective_conditions` while
+  entering no Tm, and eight of eleven presets set an enzyme whose oligo range
+  excludes the 6-12 window -- `--preset bst` ran 7-12mers at 63 C against a
+  15-25 nt parameter set. Those eight now refuse unless `min_k`/`max_k` match
+  the enzyme (`2026-11-01-the-preset-path-bypassed-every-guard.md`,
+  `2026-11-01-a-preset-carried-an-additive-a-design-refuses.md`).
 - **Selection**: `num_primers`/`target_set_size` (6), `max_dimer_bp` (3,
   maximum 7), `allow_dimer_relaxation` (false), `max_dimer_dg` (unset; can only
   tighten the screen — consulted only for pairs the base-pair screen already
@@ -358,9 +363,11 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
    wrapper/inner seam where an adapter drops a config value before the engine
    that decides, and in one method ignoring a base-config key every other
    method honoured (`clique` read no `max_dimer_dg`). A GUARD can miss a door
-   too: `--preset` reaches the `parameter` globals, not the params FILE
-   `resolve_design_request` reads, so a preset's glycerol met no refusal
-   (2026-11-01).
+   too (2026-11-01): `--preset` reached only the `parameter` globals, so it met
+   neither `require_model_support` (reads the params FILE) nor the
+   key-presence guards (read `_json_data`) -- eight of eleven presets ran an
+   enzyme outside its own oligo range, and one overrode the GC-adaptive
+   betaine it had just logged.
 9. **Evenness needs sites**: Gini is NaN below `min_gini_sites`.
 10. **The candidate loader** uses the same Tm as the gate.
 11. **Near-duplicate primers**: the redundancy threshold exists and is disabled

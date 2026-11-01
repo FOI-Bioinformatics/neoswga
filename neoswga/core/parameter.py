@@ -301,6 +301,24 @@ num_primers = 6
 target_set_size = 6
 _json_data = {}  # Store raw JSON data for access by CLI
 
+#: Configuration a `--preset` contributes, merged into `_json_data` by
+#: `get_params` as though params.json had carried it.
+#:
+#: A preset used to reach the module globals by `setattr` and nothing else, so
+#: it was invisible to every guard that asks "did the user say this" by testing
+#: key presence in `_json_data`. `_apply_adaptive_additives` asks exactly that,
+#: deliberately, to tell a user's explicit 0.0 from a key they never wrote --
+#: and a preset's explicit 0.0 therefore read as silence. GC-adaptive logged
+#: "Setting betaine to 1.0M" on a run that then used 0.0, because the preset
+#: overwrote it afterwards with nothing said.
+#:
+#: A preset IS a user choice, so it belongs where user choices live. Set by the
+#: CLI before `_initialize()` and consumed once; the values it carries are
+#: unchanged, so no delivered figure moves -- only the record stops
+#: contradicting the run.
+#: `docs/validation/2026-11-01-the-preset-path-bypassed-every-guard.md`.
+_preset_overlay: dict = {}
+
 
 # =============================================================================
 # Typed Configuration Class
@@ -989,6 +1007,11 @@ def get_params(args):
         # Check if json file exists and read it
         if os.path.isfile(data["json_file"]):
             data_extra = read_args_from_json(args.json_file)
+            # A preset's keys win over the file's, which is the precedence the
+            # CLI already applied by overwriting the globals afterwards; merged
+            # here so the key-presence guards see them. See `_preset_overlay`.
+            if _preset_overlay:
+                data_extra = {**data_extra, **_preset_overlay}
             # Clear stale entries before replacing so a second get_params() call in
             # the same process does not leak prior params.json values.
             _json_data.clear()

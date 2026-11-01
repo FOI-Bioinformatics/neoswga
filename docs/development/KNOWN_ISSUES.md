@@ -409,6 +409,28 @@ package, because nothing in the search uses it.
    Both halves were defensible alone, which is why neither looked wrong.
    `docs/validation/2026-11-01-a-preset-carried-an-additive-a-design-refuses.md`.
 
+   **Auditing the rest of that path found the general case**, same day. The
+   additive was one of four guards, and the cause was that a preset reached
+   only the module globals: not the params FILE `require_model_support` reads,
+   and not `_json_data`, which the key-presence guards read. So a preset also
+   met no oligo-length guard, and eight of the eleven presets name an enzyme
+   whose parameter range excludes the documented 6-12 window -- `--preset bst`
+   computed Tm for 7-12mers at 63 C against a 15-25 nt parameter set and
+   delivered 38 candidates where the baseline delivered 37, which is
+   `_require_length_support`'s own recorded defect. And a preset's explicit
+   0.0 read as silence to `_apply_adaptive_additives`, so
+   `--preset standard_phi29` overrode the betaine 1.0 it had just logged and
+   changed the shortlist, while being chemically identical to the file.
+
+   A preset's keys now join `_json_data` (`parameter._preset_overlay`), which
+   makes every key-presence guard work for presets and moves no delivered
+   value, and `run_step2` validates the resolved configuration through
+   `resolve_design_request` when a preset was applied. Two guards stay
+   structurally bypassable with no live instance: every preset names a
+   registered polymerase, and DMSO is the only additive with a temperature
+   domain and no preset leaves it.
+   `docs/validation/2026-11-01-the-preset-path-bypassed-every-guard.md`.
+
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when
    `gini.notna() & (gini < max_gini)`. The `.notna()` half was written for
