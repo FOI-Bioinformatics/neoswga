@@ -190,7 +190,11 @@ measurements: implementation-notes.md.
   `mismatch_model` (`uniform` default, `position-dependent`,
   `position-dependent-3prime`; params.json only, no flag, off by default). The
   figures are in `docs/validation/2026-10-02-position-dependent-mismatch.md`.
-  `max_mismatches` (1) bounds the depth; distance 2 costs about 19x.
+  `max_mismatches` (1) bounds the depth; distance 2 costs about 19x. The
+  mismatch classes are disjoint and a site falls in the class of its BEST
+  match: `mismatch_counts` walks them nearest first, because one stored k-mer
+  can be a 1-mismatch neighbour read one way and a 2-mismatch neighbour read
+  the other (`2026-11-01-mismatch-classes-across-strands.md`).
 - **Search control**: `objective_scan_width` (64; an internal `OptimizerConfig`
   default, NOT a params.json key, and read only by the `plan-pool` repair's
   objective-scored scan, which needs coverage bins — it is inert on the

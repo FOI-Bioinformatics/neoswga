@@ -70,6 +70,18 @@ position and are left there.
    a gate demanding zero host sites returns a single-site candidate pool rather than failing.
    See [docs/validation/additive_specificity.md](../validation/additive_specificity.md#the-background-was-one-chromosome-and-that-mattered).
 
+   **The occupancy-weighted load counted one site twice until 2026-11-01**, and
+   only above the default `max_mismatches` of 1. A count file holds one of each
+   k-mer and its reverse complement, so the same stored k-mer can be a
+   1-mismatch neighbour of a primer read one way and a 2-mismatch neighbour read
+   the other; both classes claimed it and `weighted_site_load` weighted it at
+   two occupancies a mismatch penalty apart. The classes are now walked nearest
+   first, so a site falls in the class of its best match. Incidence 1.3% of
+   random 10-mers; pool-level load error one part in five to ten thousand, up to
+   2% on the worst single primer. No default run is affected and no delivered
+   panel moves.
+   [docs/validation/2026-11-01-mismatch-classes-across-strands.md](../validation/2026-11-01-mismatch-classes-across-strands.md).
+
 7. **Genome coordinates are int64** (`position_cache.POSITION_DTYPE`), and must stay so.
    Positions were cast to `np.int32` on the way out of HDF5. int32 tops out at 2,147,483,647,
    so for human (3.1 Gb) and mouse (2.7 Gb) every site past that offset **saturated at the
