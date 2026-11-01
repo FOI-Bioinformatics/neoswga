@@ -384,11 +384,9 @@ class AdditiveOptimizer:
         `resolve_design_request` refuses. Logged rather than silent, so a run
         that asked for glycerol can see why its grid did not include it.
         """
-        from neoswga.core.model_evidence import _ADDITIVE_EVIDENCE, load_evidence
+        from neoswga.core.model_evidence import refuses_additive
 
-        quantity = _ADDITIVE_EVIDENCE.get(field)
-        record = load_evidence().get(quantity) if quantity else None
-        if record is not None and record.status == "absent":
+        if refuses_additive(field):
             logger.warning(
                 "%s is not included in the additive search: a design refuses it "
                 "because no term models its melting-temperature effect "

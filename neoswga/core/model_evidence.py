@@ -216,6 +216,31 @@ _NON_ADDITIVE_CONDITION_FIELDS = frozenset(
 )
 
 
+def refuses_additive(field: str) -> bool:
+    """Whether a design would refuse this `ReactionConditions` field above zero.
+
+    True only for evidence status `absent`: the literature expects a duplex
+    effect and no term here computes one, so reporting the same Tm with and
+    without it is the "known zero effect" the contract forbids. `assumed` with
+    no model (BSA, PEG) passes, because that absence is deliberate.
+
+    One door, because the question is asked from two places that must agree:
+    `_require_additive_support` below refuses on it, and the callers that have
+    to avoid OFFERING such an additive in the first place -- the additive
+    search's grid and `--preset` -- consult it. A preset that set glycerol
+    reached the `parameter` globals rather than the params file, which is the
+    one input `resolve_design_request` reads, so the refusal never saw it: the
+    additive was accepted, range-checked, recorded in the run manifest's
+    `effective_conditions`, and contributed exactly nothing to any Tm.
+    `docs/validation/2026-11-01-mismatch-classes-across-strands.md`.
+    """
+    quantity = _ADDITIVE_EVIDENCE.get(field)
+    if quantity is None:
+        return False
+    record = load_evidence().get(quantity)
+    return record is not None and record.status == "absent"
+
+
 def require_model_support(request) -> None:
     """Refuse a requested computation that falls outside a recorded domain.
 
@@ -302,6 +327,8 @@ def _require_additive_support(request, evidence: Mapping[str, EvidenceRecord]) -
             raise UnsupportedModelError(
                 "additive", field, "no evidence record; add one before using it"
             )
+        # Same predicate `refuses_additive` exposes, kept inline here because
+        # this loop already holds the record and the message needs the value.
         if record.status == "absent":
             raise UnsupportedModelError(
                 f"melting-temperature effect of {field}",

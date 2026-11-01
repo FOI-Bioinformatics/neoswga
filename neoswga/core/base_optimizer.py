@@ -1020,13 +1020,13 @@ class BaseOptimizer(ABC):
         reported as the uniform one.
         """
         from neoswga.core.mismatch_model import site_load_mode
-        from neoswga.core.occupancy import weighted_site_load
+        from neoswga.core.occupancy import resolve_max_mismatches, weighted_site_load
 
         conditions = getattr(self, "conditions", None)
         if conditions is None:
             return 0.0, 0.0, "exact"
 
-        max_mismatches = int(getattr(self.config, "max_mismatches", 1) or 0)
+        max_mismatches = resolve_max_mismatches(self.config)
 
         if not self.bg_prefixes:
             return self._modelled_site_load(primers, conditions, max_mismatches)

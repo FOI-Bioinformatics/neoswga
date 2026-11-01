@@ -47,6 +47,13 @@ from neoswga.core.utility import complement
 
 PRIMER = "ACCACAGATAGC"
 
+#: Primers with a canonical form reachable at BOTH distance 1 and distance 2.
+#: `PRIMER` and `MOSTLY_NON_CANONICAL` have none, so without these the depth-2
+#: parametrisations would add runtime and no power -- the trap this file already
+#: fell into once with the raw-versus-canonical mutation. The premise is
+#: asserted by `test_these_primers_really_do_collide_across_classes`.
+COLLIDES_ACROSS_CLASSES = ("CGAGCATACTCG", "TCTGAGCGCAGA")
+
 
 @pytest.fixture
 def conditions():
@@ -86,13 +93,22 @@ def counting_table(tmp_path_factory):
     One line per CANONICAL form, as `jellyfish -C` writes it, which means
     aggregating before writing: two neighbours sharing a canonical form are one
     row with one count, and that is exactly the case under test.
+
+    Carries distance-2 neighbours as well, because the counting invariant is
+    checked at depth 2 as well as depth 1 and a class whose every lookup misses
+    cannot distinguish a correct grouping from a wrong one.
     """
     from neoswga.core.mismatch_counts import _variants_at_distance
 
-    primers = (PRIMER, *MOSTLY_NON_CANONICAL)
+    primers = (PRIMER, *MOSTLY_NON_CANONICAL, *COLLIDES_ACROSS_CLASSES)
     rows: dict[str, int] = {}
     for primer in primers:
-        for kmer in (primer, *_variants_at_distance(primer, 1)):
+        neighbours = (
+            primer,
+            *_variants_at_distance(primer, 1),
+            *_variants_at_distance(primer, 2),
+        )
+        for kmer in neighbours:
             canonical = canonical_kmer(kmer)
             if canonical not in rows:
                 # Deterministic and never zero, so every group contributes to
@@ -381,6 +397,51 @@ def test_weighting_every_position_alike_reproduces_the_uniform_load(table, condi
     assert flattened == pytest.approx(uniform, rel=1e-9)
 
 
+@pytest.mark.parametrize("primer", COLLIDES_ACROSS_CLASSES)
+def test_the_two_paths_agree_at_depth_two_where_a_form_reaches_both_classes(
+    primer, counting_table, conditions
+):
+    """The contract that binds the two implementations, at the depth it can break.
+
+    Both the uniform and the per-neighbour path group sites by canonical form,
+    and until 2026-11-01 neither merged a form reached at two distances --
+    `mismatch_sites` documented that as a known limitation "inherited from the
+    uniform path". Fixing only the uniform path would have left them
+    disagreeing, which is the failure this project keeps paying for, and the
+    existing reduction test could not have caught it: it runs at depth 1, where
+    class 1 is the only mismatch class and there is nothing above it to collide
+    with.
+    """
+    uniform = occupancy.weighted_site_load(
+        [primer], [counting_table], conditions, 2, 4.0, mm.UNIFORM
+    )
+    flattened = mm.position_dependent_site_load(
+        [primer], [counting_table], conditions, 2, 4.0, uniform_delta_tm=True
+    )
+
+    assert uniform > 0
+    assert flattened == pytest.approx(uniform, rel=1e-9)
+
+
+@pytest.mark.parametrize("primer", COLLIDES_ACROSS_CLASSES)
+def test_a_form_reaching_two_classes_is_one_group_at_the_nearer_distance(primer, counting_table):
+    """One physical duplex, one group. The caller sums `count * weight` over
+    groups, so two groups would be two sites, and the nearer distance is the
+    one the site actually binds at."""
+    from neoswga.core.mismatch_counts import _variants_at_distance
+
+    groups = neighbour_sites(primer, [counting_table], 2)
+    shared = {canonical_kmer(v) for v in _variants_at_distance(primer, 1)} & {
+        canonical_kmer(v) for v in _variants_at_distance(primer, 2)
+    }
+    assert shared, "the premise: this primer has a form in both classes"
+
+    by_canonical = [g for g in groups if g.canonical in shared]
+    assert len(by_canonical) == len(shared)
+    for group in by_canonical:
+        assert group.distance == 1, group.canonical
+
+
 def test_the_position_dependent_load_differs_from_the_uniform_one(table, conditions):
     """If it did not, the key would be inert whatever it was wired to."""
     uniform = occupancy.weighted_site_load([PRIMER], [table], conditions, 1, 4.0, mm.UNIFORM)
@@ -464,8 +525,27 @@ def test_a_palindromic_neighbour_is_one_site_group_not_two():
 MOSTLY_NON_CANONICAL = ("ACGTACGTACGT", "ACGCGCGCGCGT", "ACGTTGCAACGT")
 
 
-@pytest.mark.parametrize("primer", (PRIMER, *MOSTLY_NON_CANONICAL))
-def test_the_group_counts_match_the_uniform_class_counts(primer, counting_table):
+@pytest.mark.parametrize("primer", COLLIDES_ACROSS_CLASSES)
+def test_these_primers_really_do_collide_across_classes(primer):
+    """The premise the depth-2 cases rest on, asserted so it cannot rot.
+
+    A count file holds one of each k-mer and its reverse complement, so the
+    same stored form can be a 1-mismatch neighbour of the primer read one way
+    and a 2-mismatch neighbour read the other. If these primers stop having
+    such a form, every depth-2 assertion below passes without reaching the
+    case it is written about.
+    """
+    from neoswga.core.mismatch_counts import _variants_at_distance
+
+    at_one = {canonical_kmer(v) for v in _variants_at_distance(primer, 1)}
+    at_two = {canonical_kmer(v) for v in _variants_at_distance(primer, 2)}
+
+    assert at_one & at_two
+
+
+@pytest.mark.parametrize("depth", (1, 2))
+@pytest.mark.parametrize("primer", (PRIMER, *MOSTLY_NON_CANONICAL, *COLLIDES_ACROSS_CLASSES))
+def test_the_group_counts_match_the_uniform_class_counts(primer, depth, counting_table):
     """The same counting, grouped differently. Checked per class, because that
     is the level at which the uniform path deduplicates.
 
@@ -485,12 +565,16 @@ def test_the_group_counts_match_the_uniform_class_counts(primer, counting_table)
     parametrised anyway because they exercise the two-reading grouping, which
     `test_a_palindromic_neighbour_is_one_site_group_not_two` is the test for.
     """
-    classes = mismatch_class_counts(primer, [counting_table], 1)
-    groups = neighbour_sites(primer, [counting_table], 1)
+    classes = mismatch_class_counts(primer, [counting_table], depth)
+    groups = neighbour_sites(primer, [counting_table], depth)
 
     for distance, total in classes.items():
         regrouped = sum(g.count for g in groups if g.distance == distance)
         assert regrouped == total, distance
+
+    # And nothing is lost or duplicated overall, which a per-class check alone
+    # would miss if both paths moved the same form to the same wrong class.
+    assert sum(g.count for g in groups) == sum(classes.values())
 
 
 @pytest.mark.parametrize("primer", MOSTLY_NON_CANONICAL)

@@ -631,8 +631,38 @@ def load_preset_conditions(preset_name):
         "mg_conc": conditions.mg_conc,
         "ssb": conditions.ssb,
     }
+    # An additive a design refuses is left OUT of the preset rather than
+    # carried silently.
+    #
+    # `resolve_design_request` reads the params FILE, and a preset reaches the
+    # `parameter` globals instead, so its additives never passed that refusal.
+    # `crude_sample` and `q_solution` both set `glycerol_percent`, whose duplex
+    # model the evidence registry records as `absent`: the value was accepted,
+    # range-checked, written into the run manifest's `effective_conditions`,
+    # and contributed exactly nothing to any Tm. The same number written into
+    # params.json is refused outright, so one chemistry had two answers
+    # depending on which door it came through.
+    #
+    # Dropped and named rather than refused: the rest of these presets is
+    # sound -- betaine, BSA and PEG for `crude_sample` -- and refusing the
+    # whole preset would withdraw a recommended configuration over one
+    # unmodelled component.
+    from neoswga.core.model_evidence import refuses_additive
+
     for name in PRESET_ADDITIVE_FIELDS:
-        out[name] = getattr(conditions, name)
+        value = getattr(conditions, name)
+        if value and refuses_additive(name):
+            logger.warning(
+                "Preset %r sets %s=%s, which is left out: no term models its "
+                "melting-temperature effect (evidence status 'absent'), and a "
+                "design refuses it. Every other setting in the preset is "
+                "applied.",
+                preset_name,
+                name,
+                value,
+            )
+            continue
+        out[name] = value
     return out
 
 

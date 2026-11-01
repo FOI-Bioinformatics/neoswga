@@ -108,6 +108,56 @@ which class claims a shared form is the caller's loop over distances, which is
 This subsumes the in-loop "drop variants canonicalising onto the primer"
 filter, because class 0 claims the primer's own form before class 1 runs.
 
+## The same defect in the position-dependent path
+
+`mismatch_sites.neighbour_sites` groups sites for the `mismatch_model` key's
+position-dependent path, and it had the same collision. Its docstring said so,
+and gave a reason for leaving it:
+
+> At `max_mismatches >= 2` one canonical form can appear in two distance
+> classes for a near-palindromic primer and would then be counted in both;
+> that is inherited from the uniform path rather than introduced here, and the
+> shipped default depth of 1 does not reach it.
+
+Fixing the uniform path removes that reason. Leaving it would have made the two
+implementations disagree about the counting, which is the failure this project
+keeps paying for, so both moved together.
+
+The merge is the same, with one difference the consumer dictates.
+`mismatch_model._group_weight` takes the MOST STABLE reading of a group rather
+than summing them -- "a site binds in whichever orientation binds better" --
+so the farther reading is carried on the group alongside the nearer one instead
+of being dropped. `max()` picks the nearer one anyway, since fewer mismatches
+means a higher Tm, and keeping both leaves that rule intact.
+
+**The reduction contract is what binds the two now.** With `uniform_delta_tm`
+the position-dependent load must equal the uniform load exactly, and
+`test_weighting_every_position_alike_reproduces_the_uniform_load` asserted that
+at depth 1 only -- where class 1 is the only mismatch class and there is
+nothing above it to collide with, so it could not have caught the divergence.
+It is asserted at depth 2 now, on primers verified to carry a shared form.
+None of the file's existing primers do, so the depth-2 parametrisation would
+otherwise have added runtime and no power -- the trap that file already
+documents falling into once.
+
+## Two companions, found in the same audit
+
+**An unset mismatch depth counted no mismatch class at all.**
+`base_optimizer._weighted_loads` read
+`int(getattr(self.config, "max_mismatches", 1) or 0)`. Zero is a value here --
+exact-match counting, the reduction the occupancy model is checked against --
+and None means unset, which the default makes 1. `or` collapses the two onto 0.
+The resolution moved to `occupancy.resolve_max_mismatches`, beside
+`default_mismatch_penalty`, so there is one resolver per mismatch knob. This is
+the sentinel-versus-value confusion `design_request._resolve_reach` and
+`_resolve_panel_size` each carry a dated record for, one function apart from
+the collision above. Reachable only from a caller building `OptimizerConfig` by
+hand: `_build_optimizer_config`'s `pick` already turns an unset params.json key
+into 1, so no pipeline run was affected.
+
+**A preset carried an additive a design refuses**, which is its own record:
+[`2026-11-01-a-preset-carried-an-additive-a-design-refuses.md`](2026-11-01-a-preset-carried-an-additive-a-design-refuses.md).
+
 ## Scope of the claim
 
 One k length, two genomes, one depth, 300 primers per genome. Nothing here is a

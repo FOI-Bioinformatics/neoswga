@@ -33,6 +33,28 @@ PRESET_NAMES = [
 ]
 
 
+def _preset_funcs():
+    """Preset name to the builder `load_preset_conditions` uses for it."""
+    from neoswga.core import reaction_conditions as rc
+
+    return {
+        "standard_phi29": rc.get_standard_conditions,
+        "enhanced_equiphi29": rc.get_enhanced_conditions,
+        "high_gc_genome": rc.get_high_gc_conditions,
+        "long_primers_15mer": rc.get_enhanced_conditions,
+        "q_solution": rc.get_q_solution_equivalent,
+        "gc_melt": rc.get_gc_melt_conditions,
+        "crude_sample": rc.get_crude_sample_conditions,
+        "low_temp": rc.get_low_temp_conditions,
+        "bst": rc.get_bst_conditions,
+        "klenow": rc.get_klenow_conditions,
+        "extreme_gc": rc.get_extreme_gc_conditions,
+    }
+
+
+_PRESET_FUNCS = _preset_funcs()
+
+
 def _reaction_conditions_additive_params():
     """Concentration knobs accepted by ReactionConditions, excluding salts/flags."""
     from neoswga.core.reaction_conditions import ReactionConditions
@@ -67,14 +89,65 @@ def test_preset_additive_fields_have_no_phantoms():
     assert not phantom, f"PRESET_ADDITIVE_FIELDS names non-existent field(s): {sorted(phantom)}"
 
 
+def _is_dropped(name, field):
+    """Whether this preset's value for `field` is one a design refuses.
+
+    Such a field is deliberately left OUT of the flattened dict since
+    2026-11-01, so the two assertions below exempt exactly it and nothing
+    else -- a preset that dropped `urea_m` still fails.
+    """
+    from neoswga.core.model_evidence import refuses_additive
+
+    conditions = _PRESET_FUNCS[name]()
+    return bool(getattr(conditions, field, 0.0)) and refuses_additive(field)
+
+
 @pytest.mark.parametrize("name", PRESET_NAMES)
 def test_every_preset_resolves_and_is_complete(name):
     got = load_preset_conditions(name)
     assert got, f"preset {name!r} did not resolve"
     for field in PRESET_ADDITIVE_FIELDS:
+        if _is_dropped(name, field):
+            continue
         assert field in got, f"preset {name!r} dropped {field}"
     for key in ("reaction_temp", "polymerase", "na_conc", "mg_conc"):
         assert key in got
+
+
+@pytest.mark.parametrize("name", PRESET_NAMES)
+def test_an_additive_a_design_refuses_is_absent_rather_than_zeroed(name):
+    """Left out, not carried as 0.0.
+
+    `resolve_design_request` reads the params FILE and a preset reaches the
+    `parameter` globals, so a preset's additives never passed that refusal:
+    `crude_sample` and `q_solution` set `glycerol_percent`, whose duplex model
+    the registry records as `absent`, and the value was accepted,
+    range-checked, written into the run manifest's `effective_conditions` and
+    applied to no Tm. Carrying it as 0.0 would be a different claim -- "this
+    reaction has no glycerol" rather than "this preset does not speak about
+    glycerol" -- and would leave an explicit value in params.json unable to
+    override it.
+    """
+    got = load_preset_conditions(name)
+
+    for field in PRESET_ADDITIVE_FIELDS:
+        if _is_dropped(name, field):
+            assert field not in got, f"{name!r} should not carry {field} at all"
+
+
+def test_at_least_one_preset_exercises_the_drop():
+    """Otherwise the two tests above are exempting nothing and prove nothing."""
+    dropped = [
+        (name, field)
+        for name in PRESET_NAMES
+        for field in PRESET_ADDITIVE_FIELDS
+        if _is_dropped(name, field)
+    ]
+
+    assert dropped, (
+        "no preset sets an additive a design refuses, so the drop path is "
+        "untested; if the registry or the presets changed, re-point this"
+    )
 
 
 def test_extreme_gc_preserves_its_defining_additives():
@@ -96,23 +169,10 @@ def test_preset_values_match_the_conditions_object(name):
     from neoswga.cli._common import load_preset_conditions as load
 
     got = load(name)
-    from neoswga.core import reaction_conditions as rc
-
-    preset_map = {
-        "standard_phi29": rc.get_standard_conditions,
-        "enhanced_equiphi29": rc.get_enhanced_conditions,
-        "high_gc_genome": rc.get_high_gc_conditions,
-        "long_primers_15mer": rc.get_enhanced_conditions,
-        "q_solution": rc.get_q_solution_equivalent,
-        "gc_melt": rc.get_gc_melt_conditions,
-        "crude_sample": rc.get_crude_sample_conditions,
-        "low_temp": rc.get_low_temp_conditions,
-        "bst": rc.get_bst_conditions,
-        "klenow": rc.get_klenow_conditions,
-        "extreme_gc": rc.get_extreme_gc_conditions,
-    }
-    conditions = preset_map[name]()
+    conditions = _PRESET_FUNCS[name]()
     for field in PRESET_ADDITIVE_FIELDS:
+        if _is_dropped(name, field):
+            continue
         assert got[field] == pytest.approx(getattr(conditions, field)), field
     assert got["reaction_temp"] == pytest.approx(conditions.temp)
     assert got["polymerase"] == conditions.polymerase

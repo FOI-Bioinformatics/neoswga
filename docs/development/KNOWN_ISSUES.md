@@ -81,6 +81,11 @@ position and are left there.
    2% on the worst single primer. No default run is affected and no delivered
    panel moves.
    [docs/validation/2026-11-01-mismatch-classes-across-strands.md](../validation/2026-11-01-mismatch-classes-across-strands.md).
+   `mismatch_sites.neighbour_sites` carried the same collision and documented
+   it as inherited from the uniform path; both moved together, because fixing
+   one would have left the two implementations disagreeing about the counting.
+   The reduction contract that binds them was asserted at depth 1 only, where
+   nothing can collide, and is asserted at depth 2 now.
 
 7. **Genome coordinates are int64** (`position_cache.POSITION_DTYPE`), and must stay so.
    Positions were cast to `np.int32` on the way out of HDF5. int32 tops out at 2,147,483,647,
@@ -386,6 +391,23 @@ package, because nothing in the search uses it.
    a monotonicity test pins that a floor only ever removes edges. Clique's
    guarantee is now strictly stronger rather than differently scoped.
    `docs/validation/2026-10-26-clique-applied-no-free-energy-floor.md`.
+
+   **A GUARD can fail to reach a door too, not only an option** -- found
+   2026-11-01, which is a new shape for this class. `require_model_support`
+   refuses an additive whose duplex effect nothing computes, and
+   `resolve_design_request` reads the params FILE, deliberately, so that a
+   request is a function of its input. `--preset` reaches the `parameter`
+   globals instead and therefore never met the refusal: `--preset
+   crude_sample` and `--preset q_solution` set `glycerol_percent`, which was
+   accepted, range-checked, written into the run manifest's
+   `effective_conditions`, and applied to no Tm, while the same value in
+   params.json was refused outright. One chemistry, two answers, and the
+   silent door was the one that wrote the record. The predicate is now public
+   as `model_evidence.refuses_additive` and asked by all three callers that
+   must agree -- the refusal, the additive search's grid, and the preset
+   loader, which drops such a field and names it rather than carrying it.
+   Both halves were defensible alone, which is why neither looked wrong.
+   `docs/validation/2026-11-01-a-preset-carried-an-additive-a-design-refuses.md`.
 
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when
