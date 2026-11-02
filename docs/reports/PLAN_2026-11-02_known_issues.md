@@ -25,7 +25,7 @@ schedules.
 | 6, 17, 20, 21 | **Established by measurement**; the entry is the finding | Nothing. 17's remedy is the reaction, and gating candidates was measured to make panels worse |
 | 11, 16, 18 | **Deliberate positions**, off or unscored after measurement | Nothing without a new measurement. §4 notes the one cheap strengthening available |
 | **3** | **Open**: `filter` holds every background k-mer in memory | **Phase 1** |
-| **14** | **Open and explicitly not closed**: the host term reaches no selection | **Phase 2** |
+| **14** | **Open and explicitly not closed**: the host term reaches no selection | **Phase 2.1 DONE** `112159b`+ — +48%/evaluation, and 2.05x cheaper than the fallback already in use. 2.2 is a decision |
 | **25** | **Open by decision**: the symmetric window overstates coverage 1.3-1.9x | **Phase 3**, and it needs your calls |
 
 ## Startability in this container

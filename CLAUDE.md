@@ -220,8 +220,14 @@ measurements: implementation-notes.md.
   weighted axis needs a host-coverage fraction and the search objective's
   `PoolMetrics` deliberately carries none, so the key never worked on a real
   design. Unset keeps the lexicographic host tie-break, which is what every
-  design uses. Known Issue 14 is NOT closed.
-  `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`).
+  design uses. Known Issue 14 is NOT closed. The field it needs would cost
+  +48% per evaluation and is 2.05x CHEAPER than the full `compute_metrics` the
+  search already falls back to for a host limit, measured 2026-11-02 -- so the
+  cost objection holds for the position lookups it was written about and not
+  for the field, whose positions are already gathered. Whether a weighted host
+  axis delivers a better panel is still unmeasured.
+  `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`,
+  `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`).
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
   `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the

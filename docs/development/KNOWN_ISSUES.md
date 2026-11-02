@@ -593,6 +593,26 @@ package, because nothing in the search uses it.
     than about a weight.
     `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`.
 
+    **The cost the five-field decision rests on, measured 2026-11-02.** This
+    entry asserted that `PoolMetrics` carries no host-coverage field because
+    `compute_metrics` was 27.6 s of a 29.7 s run, without a number for what the
+    field itself would cost. It is +48% per evaluation (3.56 ms to 5.26 ms on a
+    4 Mb host), because `compute_pool_metrics` ALREADY gathers and sorts every
+    background position for `total_bg_sites` and discards them -- so the
+    marginal work is one `_coverage_over_prefixes` call over a list in hand, not
+    the position lookups the decision was protecting against.
+
+    And the alternative was never "nothing": `panel_refinement` already falls
+    back to the full `compute_metrics` whenever `max_host_coverage`,
+    `max_mean_gap` or `max_evenness` is set, at 10.77 ms -- **2.05x** the cost
+    of the field. Giving `PoolMetrics` the field would make those runs faster,
+    not slower. The marginal scales linearly with the host's LENGTH (0.68 ms at
+    1 Mb to 33.5 ms at 64 Mb), so neither path is viable against hg38, but that
+    ceiling is `union_coverage`'s representation and belongs to Known Issues 1
+    and 3. Whether a weighted host axis delivers a better panel is still
+    unmeasured, and needs the field to exist first.
+    `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
+
     `examples/plasmid_example` cannot demonstrate any of this. Six primers
     already cover its 5.4 kb target completely at 3 kb reach, so expansion adds
     nothing and `optimize` early-returns before Stage 1.5. Pin this behaviour on
