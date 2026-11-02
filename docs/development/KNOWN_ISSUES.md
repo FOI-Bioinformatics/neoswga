@@ -33,7 +33,38 @@ position and are left there.
    untrusted depends on the installed version: a test driving the loader would
    exercise it on 0.15 and skip straight past it on 0.14.
 
-3. **Memory usage**: The filter command loads all background k-mers into memory. Use Bloom filter for large backgrounds.
+3. **Memory usage**: a background table is held as a dict on the occupancy
+   path. Use a Bloom filter for large backgrounds.
+
+   **The path this entry used to name was fixed on 2026-09-25.** It read "the
+   filter command loads all background k-mers into memory"; `filter`'s
+   background-frequency gate calls `kmer_tables.counts_for`, which asks KMC to
+   intersect the table with the candidate list, and the entry was not updated.
+   Measured 2026-11-02: of six places that read a whole table, four stream it
+   and hold nothing (both Bloom builds, which must see every k-mer; one
+   counting internal; the exclusion gate, which breaks on first match), and two
+   materialise a dict -- `mismatch_counts.load_kmer_counts` on the occupancy
+   path, and `MultiGenomeKmerCounter.count_kmers`, which only
+   `multi_genome_pipeline` reaches.
+
+   **A design reads 0.22% of what it holds.** 300 candidates against a 4 Mb
+   host at `max_mismatches` 1 look up 10,744 distinct canonical forms out of
+   4,929,525 in the tables. Held: 515 MB at about 109 bytes an entry. A large
+   host's k=12 table approaches 4^12/2 canonical forms, which projects to about
+   876 MB for k=12 alone and roughly 1.2 GB across k 10-12. A batched
+   `counts_for` over just those forms is 2.8-4.3x faster per read and the
+   counts agree exactly.
+
+   **The obvious fix is not the right one.** `load_kmer_counts` is `lru_cache`d
+   and the path is hot: one 12-primer hybrid run makes 43,392
+   `mismatch_class_counts` calls and 3,616 `weighted_site_load` calls, which the
+   cache turns into FOUR table reads. A per-call `counts_for` would be 43,392
+   KMC intersections, about eighteen hours. The real change is an accumulating
+   per-(prefix, k) cache that batches only the forms it has not seen -- larger
+   than "move the callers", and carrying an absent-as-zero hazard the present
+   code does not have. Its benefit is memory at host scale, which no container
+   here can measure.
+   `docs/validation/2026-11-02-what-a-design-reads-of-a-background-table.md`.
 
 4. **PositionCache strand parameter**: Uses 'forward', 'reverse', 'both' (not '+' or '-').
 

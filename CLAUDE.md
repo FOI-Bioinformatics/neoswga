@@ -353,7 +353,13 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
    k=12 is minutes and a 138 MB table. Measure before reaching for it.
 2. **skops**: the format is version-tolerant, its default trust list is not;
    `rf_preprocessing._TRUSTED_MODEL_TYPES` names what a model may reconstruct.
-3. **Memory**: `filter` loads all background k-mers.
+3. **Memory**: a background table is held as a dict on the OCCUPANCY path,
+   not by `filter`'s frequency gate, which has batched via `counts_for`
+   since 2026-09-25. A design reads 0.22% of what it holds (515 MB for
+   4.9M entries; ~1.2 GB projected at host scale). The `lru_cache` turns
+   43,392 calls into 4 table reads, so the fix is an accumulating batched
+   cache, not a caller move
+   (`2026-11-02-what-a-design-reads-of-a-background-table.md`).
 4. **PositionCache strand** is `'forward'`, `'reverse'` or `'both'`, not `+`/`-`.
 5. **pyahocorasick past 2 Gb** finds nothing, silently. The chunked scan works
    around it; a canary test fails when the installed version changes.
@@ -383,12 +389,15 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
 12. **CLI startup** no longer imports scikit-learn.
 13. **Unindexed prefix**: `PositionCache.get_positions` raises
     `MissingPositionsError` instead of answering with an empty array.
-14. **Reading the background is not acting on it**. `_network_refine` carries
-    the host term and `_swap_refine` reads the objective; neither carried both.
-    `stage2_background_weight` was an attempt at both and never ran: it needs a
-    host-coverage fraction the search objective deliberately lacks, so a value
-    above zero is now REFUSED. The host term stays a lexicographic tie-break.
-    `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`.
+14. **Reading the background is not acting on it** -- open, reason CHANGED
+    2026-11-02. `stage2_background_weight` could not run until `PoolMetrics`
+    carried a host-coverage fraction; it costs +48% per evaluation and is
+    cheaper than the fallback already in use, so the field is there and the key
+    RUNS. Measured, the axis does not reliably reduce what it weights: the sign
+    of its effect depends on the panel size. So it is no longer "reaches no
+    selection" but "reaching it does not demonstrably help", and the key stays
+    off. Still refused with no background genome.
+    `docs/validation/2026-11-02-a-weighted-host-axis-measured.md`.
 15. **`require_entries`** asks for an entry on every prefix, not a hit on any.
 16. **Stage 1 objective**: wired as `stage1_objective_width`, off by default;
     it gains coverage and costs specificity and runtime.
