@@ -485,6 +485,17 @@ the three hosts (*L. plantarum*, *Drosophila*, hg38), written by
 count and SHA-256 per genome. `scripts/fetch_reference_genomes.py` fetches the
 ones not already on disk and verifies them against a recorded checksum.
 
+**From a cloud container, most of those URLs are refused.** ftp.ncbi.nlm.nih.gov,
+hgdownload.soe.ucsc.edu, ftp.ebi.ac.uk and zenodo.org all answered 403 to
+CONNECT through the egress proxy on 2026-11-02; the AWS iGenomes mirror
+(`ngi-igenomes.s3.amazonaws.com`) did not. Three entries use it and carry their
+own checksums: `ecoli_k12` (4.64 Mb, real bacterial target), `human_chr1`
+(249 Mb, a host a 12-mer cannot avoid) and `human_chr21_igenomes` (a SEPARATE
+key: same bases as `human_chr21`, different bytes, so it cannot be mistaken for
+the UCSC file anything else was measured against). A 12-mer avoids 47 Mb and
+not 249 Mb, which is the difference between a dead and a live background axis
+(`2026-11-02-the-geometry-on-a-real-genome.md`).
+
 ## Testing
 
 ```bash
