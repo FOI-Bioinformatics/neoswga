@@ -1,0 +1,140 @@
+{
+  "lengths": [
+    10,
+    11,
+    12
+  ],
+  "sizes": [
+    8,
+    20
+  ],
+  "arms": [
+    {
+      "lengths": "10",
+      "size": 8,
+      "delivered": 8,
+      "oligo_lengths_delivered": [
+        10
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.7426874015748032,
+      "bg_coverage": 0.19877525,
+      "total_bg_sites": 111,
+      "selectivity_density": 2.6347219903683228
+    },
+    {
+      "lengths": "11",
+      "size": 8,
+      "delivered": 8,
+      "oligo_lengths_delivered": [
+        11
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.5025811023622048,
+      "bg_coverage": 0.042,
+      "total_bg_sites": 21,
+      "selectivity_density": 3.3722998837606046
+    },
+    {
+      "lengths": "12",
+      "size": 8,
+      "delivered": 8,
+      "oligo_lengths_delivered": [
+        12
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.279003937007874,
+      "bg_coverage": 0.01,
+      "total_bg_sites": 5,
+      "selectivity_density": 4.79055275428803
+    },
+    {
+      "lengths": "10-12",
+      "size": 8,
+      "delivered": 8,
+      "oligo_lengths_delivered": [
+        12
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.2774165354330709,
+      "bg_coverage": 0.008,
+      "total_bg_sites": 4,
+      "selectivity_density": 4.798906843591626
+    },
+    {
+      "lengths": "10",
+      "size": 20,
+      "delivered": 20,
+      "oligo_lengths_delivered": [
+        10
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.9687464566929134,
+      "bg_coverage": 0.44565125,
+      "total_bg_sites": 299,
+      "selectivity_density": 2.6554469398822715
+    },
+    {
+      "lengths": "11",
+      "size": 20,
+      "delivered": 20,
+      "oligo_lengths_delivered": [
+        11
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.8061062992125985,
+      "bg_coverage": 0.098352,
+      "total_bg_sites": 52,
+      "selectivity_density": 3.4733105907965456
+    },
+    {
+      "lengths": "12",
+      "size": 20,
+      "delivered": 20,
+      "oligo_lengths_delivered": [
+        12
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.5441165354330708,
+      "bg_coverage": 0.02,
+      "total_bg_sites": 10,
+      "selectivity_density": 4.8746450812649575
+    },
+    {
+      "lengths": "10-12",
+      "size": 20,
+      "delivered": 20,
+      "oligo_lengths_delivered": [
+        11,
+        12
+      ],
+      "candidates": 300,
+      "fg_coverage": 0.5526677165354331,
+      "bg_coverage": 0.034,
+      "total_bg_sites": 17,
+      "selectivity_density": 4.856625105064564
+    }
+  ],
+  "between_at_n8": {
+    "coverage": false,
+    "specificity": false
+  },
+  "between_at_n20": {
+    "coverage": true,
+    "specificity": true
+  },
+  "shortlist_composition_mixed_arm": {
+    "11": 2,
+    "12": 298,
+    "note": "from a k 10-12 range, max_primer 300; no 10-mers survived the cap"
+  },
+  "delivered_composition_mixed_arm": {
+    "n8": {
+      "12": 8
+    },
+    "n20": {
+      "11": 2,
+      "12": 18
+    }
+  }
+}

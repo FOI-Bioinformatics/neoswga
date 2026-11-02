@@ -416,7 +416,12 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
     genome, labelled target or host, and flags only a fact and a mechanism
     because no strand threshold has a reference.
 19. **One set, not every alternative**: see `delivered_set.py`.
-20. **Mixed oligo lengths** work; on the one pair measured they bought nothing.
+20. **Mixed oligo lengths** work; on two pairs they bought nothing, and on the
+    second the mixed arm did not mix: the k 10-12 shortlist held 0 ten-mers and
+    2 eleven-mers of 300, so the filter chose the length. Choosing k beats
+    choosing to mix by about 290x there. "Lands between the single lengths" is
+    the first pair's result, not a property
+    (`2026-11-02-mixed-length-on-a-second-pair.md`).
 21. **HDF5 lock error (errno 35)** is two processes sharing a data directory.
     Do not suggest `HDF5_USE_FILE_LOCKING=FALSE`.
 22. **Bloom path**: capacity bounds distinct k-mers; filters record their k

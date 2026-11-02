@@ -1014,8 +1014,9 @@ package, because nothing in the search uses it.
     `set_index` column is older output holding one set and every row is
     returned. Tests: `tests/test_commands_read_one_primer_set.py`.
 
-20. **Mixed oligo lengths work, and on the one pair measured they bought
-    nothing.** A design may mix lengths: the schema admits k of 4 to 30, the
+20. **Mixed oligo lengths work; on two pairs measured they bought nothing, and
+    on the second the filter had already chosen the length.** A design may mix
+    lengths: the schema admits k of 4 to 30, the
     scan writes one index per length, `PositionCache.load` groups by length and
     the dimer screen codes t-mers. No delivered panel here had ever mixed,
     so this was an argument until
@@ -1028,6 +1029,36 @@ package, because nothing in the search uses it.
     on specificity by the all-12-mer panel, which binds the host once against
     the mixed panel's seventeen at n=8. **Choosing k matters far more than
     choosing whether to mix.**
+
+    A second pair -- a synthetic 1.27 Mb target at 35% GC against a 4 Mb host
+    at 42% GC, equiphi29 43 C, `max_primer` 300, the same two panel sizes --
+    replicates the headline emphatically and overturns the "between" reading.
+    Across the single lengths coverage spans 0.46 at n=8 and 0.42 at n=20
+    while the mixed arm differs from the nearest single length by 0.0016 and
+    0.0086, so **the effect of choosing k is two to three orders of magnitude
+    larger than the effect of mixing** (about 290x on this pair). But the
+    mixed arm did not mix: it delivered `{12: 8}` at n=8 and `{11: 2, 12: 18}`
+    at n=20, because the k 10-12 SHORTLIST held 0 ten-mers, 2 eleven-mers and
+    298 twelve-mers. **A mixed-length design is decided at the filter, not at
+    the optimizer**: `max_primer` bounds the shortlist and the ranking fills it
+    with the length that has the best foreground-to-background ratio, which on
+    a large host is the longest. The single-length k=10 arm returned 300
+    candidates and the highest coverage of any arm, so short oligos can fill a
+    shortlist -- they lose the ranking when longer ones compete in the same
+    pool. Which of the cap and the ranking dominates was not isolated.
+
+    So "lands between the single-length designs" is a result on the first pair,
+    not a general property. The honest general statement is that **a length
+    RANGE is an option the pipeline may decline**, and whether it was exercised
+    is visible in the shortlist's length composition before any optimizer runs
+    -- a quantity the funnel does not currently report, which this measurement
+    had to compute separately
+    ([measurement](../validation/2026-11-02-mixed-length-on-a-second-pair.md)).
+    The second pair is synthetic, so its k-mer sites are Poisson rather than
+    clustered and the distinct-k-mer count at each length is near the maximum;
+    the direction (short oligos lose the ranking on a large host) follows from
+    the background frequency gate, the completeness of the 12-mer monopoly is
+    for that site geometry.
 
     The occupancy spread across lengths is governed by the Tm WINDOW, not by
     the length range, which a control established after a first draft concluded

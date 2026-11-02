@@ -23,7 +23,7 @@ schedules.
 | 4, 7, 23, 24 | **Invariant or environment** — int64 coordinates, the strand vocabulary, Python 3.13, KMC3 preference | Nothing. Each is enforced by a test or a refusal already |
 | 5 | **Upstream, unfixed** (pyahocorasick past 2 Gb) | Nothing beyond the canary that already fails on a version change. Not ours to fix |
 | 6, 17, 20, 21 | **Established by measurement**; the entry is the finding | Nothing. 17's remedy is the reaction, and gating candidates was measured to make panels worse |
-| 11, 16, 18 | **Deliberate positions**, off or unscored after measurement | Nothing without a new measurement. §4 notes the one cheap strengthening available |
+| 11, 16, 18 | **Deliberate positions**, off or unscored after measurement | Nothing without a new measurement. Phase 4 took the one cheap strengthening available |
 | **3** | **Open**, and the entry named the wrong path | **Phase 1.1 DONE** — 0.22% of the table is read, ~1.2 GB at host scale; but 1.2 as specified would be 43,392 KMC calls, so it is NOT written. See the record |
 | **14** | **Open and explicitly not closed**; reason now CHANGED | **Phase 2 DONE** — 2.1: field costs +48%/evaluation, 2.05x cheaper than the fallback already in use. 2.2: field added, key runs, axis measured — the sign of its effect depends on panel size, so it stays off |
 | **25** | **Open by decision**: the symmetric window overstates coverage 1.3-1.9x | **Phase 3**, and it needs your calls |
@@ -166,6 +166,19 @@ claims. A second pair either holds the claim at a larger size or overturns it.
 Cheap, startable, and low value — do it only if Phases 1 and 2 are done and
 something is waiting on a reference genome.
 
+**DONE 2026-11-02**, and it changed the entry more than expected. The headline
+("choosing k matters far more than choosing whether to mix") replicates on a
+second pair with a 290x ratio between the two effects. The subsidiary reading
+("lands between the single-length designs") does not generalise, because on the
+second pair the mixed arm did not mix: the k 10-12 shortlist held 0 ten-mers and
+2 eleven-mers out of 300, so `max_primer` plus the candidate ranking had chosen
+the length before any optimizer ran. Entry 20 now says a length RANGE is an
+option the pipeline may decline, and that whether it was exercised is visible in
+the shortlist's composition — which the funnel does not report.
+[The record](../validation/2026-11-02-mixed-length-on-a-second-pair.md). No code
+changed. The second pair is synthetic, since no reference genome is reachable
+here.
+
 ## Sequencing
 
 1. **Phase 2.1** first. It is startable today, it is one measurement, and it
@@ -175,7 +188,7 @@ something is waiting on a reference genome.
 3. **Phase 1.2-1.3** if 1.1 justifies it.
 4. **Phase 3** only once a reference genome is reachable, and only after you
    have answered its three decisions.
-5. **Phase 4** as filler.
+5. **Phase 4** as filler. **Done** — see that section.
 
 ## What this plan does not do
 
