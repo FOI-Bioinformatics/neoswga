@@ -216,18 +216,20 @@ measurements: implementation-notes.md.
   `stage1_objective_width` (None; off by default after measurement),
   `stage2_tm_weight` (None; the Tm axis in Stage 2's removal ranking, off by
   default after measurement, and deliberately not the profile's `tm_weight`),
-  `stage2_background_weight` (None, and **a value above zero is REFUSED**: the
-  weighted axis needs a host-coverage fraction and the search objective's
-  `PoolMetrics` deliberately carries none, so the key never worked on a real
-  design. Unset keeps the lexicographic host tie-break, which is what every
-  design uses. Known Issue 14 is NOT closed. The field it needs would cost
-  +48% per evaluation and is 2.05x CHEAPER than the full `compute_metrics` the
-  search already falls back to for a host limit, measured 2026-11-02 -- so the
-  cost objection holds for the position lookups it was written about and not
-  for the field, whose positions are already gathered. Whether a weighted host
-  axis delivers a better panel is still unmeasured.
-  `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`,
-  `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`).
+  `stage2_background_weight` (None; the host axis of the SWAP Stage-2 score,
+  inert on the default network refinement. Refused above zero from 2026-10-29
+  to 2026-11-02 because `PoolMetrics` carried no host-coverage fraction; that
+  field costs +48% per evaluation and is 2.05x CHEAPER than the full
+  `compute_metrics` the search already falls back to for a host limit, so it
+  carries it now and the key RUNS. Still refused above zero with no background
+  genome, where the fraction is absent rather than zero. Off by default because
+  the axis does not reliably reduce what it weights: at 12 primers 0.25/0.5 cut
+  host coverage 0.0220 to 0.0160 and 1.0 changed nothing, while at 24 primers
+  0.25/0.5 RAISED it and only 1.0 cut it -- the sign depends on the panel size.
+  Known Issue 14 is NOT closed, and its reason changed from "reaches no
+  selection" to "reaching it does not demonstrably help".
+  `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`,
+  `docs/validation/2026-11-02-a-weighted-host-axis-measured.md`).
 - **Panel limits**, all unset by default and params.json only:
   `min_selectivity_density`, `max_background_sites`, `max_worst_hole`,
   `max_mean_gap`, `max_evenness`, `max_host_coverage`. Set none and the

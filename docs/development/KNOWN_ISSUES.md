@@ -613,6 +613,30 @@ package, because nothing in the search uses it.
     unmeasured, and needs the field to exist first.
     `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
 
+    **So the key runs since 2026-11-02, and the axis was measured.**
+    `PoolMetrics` carries `bg_coverage`, pinned against `compute_metrics` like
+    the other five fields, and the blanket refusal is gone. One refusal
+    remains, which is the part the old one was right about: a weight above zero
+    with NO background genome, where the fraction is `None` rather than 0.0.
+    That replaced a silent fallback which returned a panel with the weight
+    ignored and nothing said -- a key accepted and read by nothing.
+
+    **The axis does not reliably reduce host coverage.** equiphi29 at 43 C,
+    1.27 Mb target against a 4 Mb host, swap refinement, two panel sizes. At 12
+    primers weights 0.25 and 0.5 cut host coverage 0.0220 to 0.0160 for 1.0 pp
+    of foreground coverage, and weight 1.0 returned the control panel
+    unchanged. At 24 primers the same 0.25 and 0.5 RAISED it, 0.0360 to 0.0380,
+    and only weight 1.0 cut it. The sign depends on the panel size, which is a
+    stronger negative than the Tm term's -- that one at least moved its own
+    axis in the claimed direction at full weight on both sizes. Selectivity
+    density is flat at twelve and up at twenty-four, so it supports nothing
+    either.
+
+    So this entry is still open and its reason has CHANGED: not "the host term
+    reaches no selection", which it now does, but that reaching it does not
+    demonstrably help. The key stays off by default.
+    `docs/validation/2026-11-02-a-weighted-host-axis-measured.md`.
+
     `examples/plasmid_example` cannot demonstrate any of this. Six primers
     already cover its 5.4 kb target completely at 3 kb reach, so expansion adds
     nothing and `optimize` early-returns before Stage 1.5. Pin this behaviour on

@@ -276,21 +276,25 @@ def _refine_with_bounded_scan(
 
 
 def _require_host_coverage(objective, panel) -> None:
-    """Refuse a weighted host axis the objective cannot measure.
+    """Refuse a weighted host axis with nothing to measure it against.
 
-    `stage2_background_weight` was added on 2026-10-26 against a stub objective
-    that supplied `bg_coverage`. No production objective does:
-    `PoolMetrics` carries five fields and its module docstring says a caller
-    reaching for a sixth gets an `AttributeError` "rather than a default that
-    would be indistinguishable from a measurement". The field is absent because
-    computing background coverage was 27.6 s of the 29.7 s that module exists to
-    remove from the search loop.
+    **What this refuses changed on 2026-11-02.** From 2026-10-29 it refused
+    every positive weight, because no production objective carried
+    `bg_coverage`: `PoolMetrics` had five fields on the grounds that computing
+    background coverage was 27.6 s of the 29.7 s that module exists to remove
+    from the search loop. Measured, the field costs +48% per evaluation and is
+    2.05x CHEAPER than the full `compute_metrics` the search already falls back
+    to whenever a host-coverage limit is set -- because the positions were
+    already gathered for `total_bg_sites`. So `PoolMetrics` carries it and the
+    blanket refusal is gone.
+    `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
 
-    So the weighted axis as specified cannot run on the production path, and the
-    first real design to set the key crashed inside Stage 2. It refuses here
-    instead, before any search, which is what the rule about a required
-    calculation that fails asks for: do not catch it and substitute. The
-    lexicographic tie-break -- the shipped default -- is unaffected.
+    What remains is the case the refusal was right about: a weight above zero
+    with **no background genome**. `bg_coverage` is `None` there rather than
+    0.0, and trading foreground coverage against a fabricated zero host
+    coverage is exactly the substitution the rules forbid. An objective
+    carrying no such attribute at all is still refused too, since a custom one
+    need not have it.
     """
     from neoswga.core.exceptions import InvalidDesignRequest
 
@@ -305,12 +309,20 @@ def _require_host_coverage(objective, panel) -> None:
         raise InvalidDesignRequest(
             "stage2_background_weight",
             "it requires a host-coverage fraction and "
-            f"{type(metrics).__name__} does not carry one: the search objective "
-            "reads five quantities and background coverage is deliberately not "
-            "among them, because computing it dominated the search loop. Unset "
-            "the key to keep the lexicographic host tie-break, which is the "
-            "shipped default. See "
-            "docs/validation/2026-10-29-stage2-background-weight-does-not-run.md",
+            f"{type(metrics).__name__} does not carry one. Unset the key to "
+            "keep the lexicographic host tie-break, which is the shipped "
+            "default. See "
+            "docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md",
+        )
+    if getattr(metrics, "bg_coverage", None) is None:
+        raise InvalidDesignRequest(
+            "stage2_background_weight",
+            "it trades foreground coverage against HOST coverage, and this "
+            "design has no background genome to measure host coverage "
+            "against, so the quantity is absent rather than zero. Weighting "
+            "against a fabricated zero would make every panel look equally "
+            "specific. Supply a background genome, or unset the key to keep "
+            "the lexicographic host tie-break",
         )
 
 
@@ -412,13 +424,13 @@ def refine_by_swaps(
         traded against host coverage. Off by default (`background_weight == 0`),
         the score is the lexicographic tuple it has always been, bit for bit.
 
-        The weighted form needs a host-coverage FRACTION, and the objective used
-        by every production caller cannot supply one -- see the refusal in
-        `_require_host_coverage`. An objective that does carry `bg_coverage` gets
-        the weighted axis; one that does not is refused before the search
-        starts, rather than reaching for a sixth field on `PoolMetrics` and
-        taking the AttributeError that module raises on purpose.
-        `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`.
+        The weighted form needs a host-coverage FRACTION, which `PoolMetrics`
+        has carried since 2026-11-02 -- measured at +48% per evaluation, and
+        cheaper than the full metrics the search already uses for a host limit.
+        Before that every positive weight was refused. What
+        `_require_host_coverage` still refuses is a weight with no background
+        genome, where the fraction is `None` rather than 0.0.
+        `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
         """
         shortfall = -objective.shortfall(panel)
         coverage = objective.coverage(panel)

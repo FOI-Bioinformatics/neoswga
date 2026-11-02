@@ -149,11 +149,37 @@ class _UnmeasuredHostObjective(_TradeObjective):
         )
 
 
-def test_unmeasurable_host_coverage_falls_back_without_inventing_a_zero():
-    # background_weight > 0 but bg_coverage is None: the weighted form is NOT
-    # applied (that would be `coverage - w*None`, a TypeError, or a fabricated
-    # zero). It falls back to the lexicographic tuple, which on unequal coverage
-    # keeps the higher-coverage A -- and, crucially, does not raise.
+def test_unmeasurable_host_coverage_is_refused_rather_than_silently_ignored():
+    """`bg_coverage is None` means there is no host to weigh against.
+
+    This used to fall back to the lexicographic tuple and return a panel. That
+    is the quieter failure of the two: the user set a weight, nothing weighed,
+    and nothing said so -- Known Issue 8's shape, a key that is accepted and
+    read by nothing. It now refuses, which is what the sibling case already
+    does: "a background-measured limit with no background genome is refused".
+
+    The weighted form could never have RUN here -- `coverage - w * None` is a
+    TypeError and a substituted zero would be fabricated -- so the only
+    question was whether to say so, and saying so is cheaper than a design
+    whose stated objective was not the one applied.
+    """
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    with pytest.raises(InvalidDesignRequest, match="no background genome"):
+        refine_by_swaps(
+            ["A"],
+            ["A", "B"],
+            None,
+            None,
+            Compatibility(),
+            objective=_UnmeasuredHostObjective(),
+            background_weight=0.8,
+        )
+
+
+def test_an_unmeasurable_host_is_fine_with_the_weight_off():
+    """The refusal is about the WEIGHT, not about having no host. With the
+    weight at its default the lexicographic tie-break runs as always."""
     result = refine_by_swaps(
         ["A"],
         ["A", "B"],
@@ -161,33 +187,42 @@ def test_unmeasurable_host_coverage_falls_back_without_inventing_a_zero():
         None,
         Compatibility(),
         objective=_UnmeasuredHostObjective(),
-        background_weight=0.8,
     )
+
     assert result.primers == ("A",)
 
 
 # ----------------------------------------------------------------------
-# The weighted host axis refuses rather than crashing (2026-10-29)
+# An objective carrying no host-coverage attribute at all (2026-10-29)
 # ----------------------------------------------------------------------
 #
 # `stage2_background_weight` was added on 2026-10-26 against the stub objective
-# above, which supplies `bg_coverage`. No production objective does.
-# `PoolMetrics` carries five fields and its module docstring states that a
-# caller reaching for a sixth gets an AttributeError "rather than a default
-# that would be indistinguishable from a measurement" -- background coverage is
-# absent because computing it was 27.6 s of the 29.7 s that module exists to
-# remove from the search loop.
+# above, which supplies `bg_coverage`. For three days no production objective
+# did: `PoolMetrics` carried five fields because computing background coverage
+# was 27.6 s of the 29.7 s that module exists to remove from the search loop,
+# so the first real design to set the key crashed inside Stage 2 with an
+# AttributeError, and from 2026-10-29 every positive weight was refused.
 #
-# So the first real design to set the key crashed inside Stage 2 with an
-# AttributeError. It now refuses before the search, which is what the rule
-# about a required calculation that fails asks for.
+# **`PoolMetrics` carries the field since 2026-11-02.** Measured, it costs +48%
+# per evaluation and is 2.05x cheaper than the full `compute_metrics` the
+# search already falls back to for a host-coverage limit, because the positions
+# were already gathered. So the blanket refusal is gone and the shipped path
+# weights the axis. See
+# `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
+#
+# The class below is therefore no longer the shape of the production objective.
+# It is kept because a CUSTOM objective need not carry the attribute, and a
+# weighted axis must refuse that rather than invent a zero -- which is what the
+# test under it pins.
 
 
 class _ProductionShapedObjective(_TradeObjective):
-    """Metrics with the five fields the real search objective carries, no more.
+    """Metrics carrying no `bg_coverage` attribute at all.
 
-    Deliberately NOT a `SimpleNamespace`: the point is that `bg_coverage` is
-    absent, and an object that tolerates any attribute cannot express that.
+    Deliberately NOT a `SimpleNamespace`: the point is that the attribute is
+    ABSENT, and an object that tolerates any attribute cannot express that.
+    This was the shape of the real search objective until 2026-11-02; it now
+    stands for a custom one that does not carry the field.
     """
 
     class _Metrics:
