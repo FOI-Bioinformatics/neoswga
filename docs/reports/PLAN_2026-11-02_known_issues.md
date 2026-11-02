@@ -147,13 +147,21 @@ directional one. Doing nothing here is a position, not a backlog item.
 
 ## Phase 4 — the cheap strengthening available on a deliberate position
 
-Not a fix; an honesty improvement, and the only one of its kind on the list.
+Not a fix; an honesty improvement.
 
-Entries 11 and 20 both rest on **one** measurement — "the redundancy threshold
-was measured and did not help", "on the one pair measured they bought nothing".
-The project's own convention says *one pair, one panel size or one seed is "no
-benefit demonstrated"*, which both entries correctly claim. A second pool or a
-second length pair would either hold the claim at a larger size or overturn it.
+**Corrected 2026-11-02, on starting it.** This section said entries 11 and 20
+"both rest on one measurement". That is wrong about entry 11, which rests on
+THREE real pools at ten combinations of tier and panel size, where a 0.9
+threshold fired 328,846 times and left the Hamming-1 pair count and the
+duplicate 3' hexamer count identical in all six comparable cases. That is a
+well-sized measurement and needs no strengthening; reading the index line
+("measurement did not support enabling it") rather than the entry is what
+produced the error.
+
+Entry 20 does rest on one pair: Prevotella against human chr21, mixed k 10-12
+against the single lengths, at panel sizes 8 and 20. The project's own
+convention calls one pair "no benefit demonstrated", which the entry correctly
+claims. A second pair either holds the claim at a larger size or overturns it.
 
 Cheap, startable, and low value — do it only if Phases 1 and 2 are done and
 something is waiting on a reference genome.
