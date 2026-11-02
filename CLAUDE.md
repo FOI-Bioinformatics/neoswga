@@ -143,7 +143,12 @@ refused without one, and no value is substituted because the directional band
 (4,354-6,710 bp) was fitted for phi29 alone. `optimize` reports the delivered
 panel under BOTH windows, in the log and in `coverage_geometries` in the
 summary; the symmetric figure overstates the directional one by 1.27x to 1.85x
-on real panels. `docs/validation/2026-10-29-the-coverage-geometry-decision.md`.
+on synthetic sequence and by 1.49x to 1.80x on a real one (*E. coli* against
+human chr1). Real sites CLUSTER, so the directional window costs 36% of target
+coverage rather than half, while isolated host sites halve exactly -- the
+geometry is not one factor applied to every coverage figure.
+`docs/validation/2026-10-29-the-coverage-geometry-decision.md`,
+`docs/validation/2026-11-02-the-geometry-on-a-real-genome.md`.
 
 ### Choosing the set size
 
@@ -433,10 +438,14 @@ Full text: [docs/development/KNOWN_ISSUES.md](docs/development/KNOWN_ISSUES.md).
     18x the memory of jellyfish on hg38 at k=12. A host with no table is
     scanned by `query_scan`.
 25. **The symmetric coverage window overstates `fg_coverage` by 1.3x to 1.9x**
-    on real panels at 3 kb. Disclosed, not fixed: the reach was fitted against
-    it, every recorded figure uses it, and a real fix changes selection.
-    `optimize` reports both windows; `directional` requires an explicit
-    `coverage_reach` and is refused without one.
+    on synthetic sequence, 1.49x to 1.80x on a real genome. Disclosed, not
+    fixed: the reach was fitted against it, every recorded figure uses it, and
+    a real fix changes selection. `optimize` reports both windows;
+    `directional` requires an explicit `coverage_reach` and is refused without
+    one. On a real target the directional window costs 36% of target coverage,
+    not half, because sites cluster, while isolated host sites halve exactly,
+    so no single factor rescales a coverage target and a host limit together
+    (`2026-11-02-the-geometry-on-a-real-genome.md`).
 
 ## Reference genomes available locally
 

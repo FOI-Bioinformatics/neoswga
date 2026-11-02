@@ -26,7 +26,7 @@ schedules.
 | 11, 16, 18 | **Deliberate positions**, off or unscored after measurement | Nothing without a new measurement. Phase 4 took the one cheap strengthening available |
 | **3** | **Open**, and the entry named the wrong path | **Phase 1.1 DONE** — 0.22% of the table is read, ~1.2 GB at host scale; but 1.2 as specified would be 43,392 KMC calls, so it is NOT written. See the record |
 | **14** | **Open and explicitly not closed**; reason now CHANGED | **Phase 2 DONE** — 2.1: field costs +48%/evaluation, 2.05x cheaper than the fallback already in use. 2.2: field added, key runs, axis measured — the sign of its effect depends on panel size, so it stays off |
-| **25** | **Open by decision**: the symmetric window overstates coverage 1.3-1.9x | **Phase 3**, and it needs your calls |
+| **25** | **Open by decision**: the symmetric window overstates coverage 1.3-1.9x | **Phase 3 MEASURED** on a real genome: 1.49-1.80x, the panel moves at 4 sizes of 4, and clustering makes the fg and bg figures scale differently. The three decisions are still yours, now with figures |
 
 ## Startability in this container
 
@@ -44,7 +44,11 @@ That gates the plan sharply:
 - Phase 2 is **fully startable**: it is a per-evaluation cost measurement on a
   synthetic pool, which is how 6.1 and 7.2 were done.
 - Phase 3 needs a real reference and, for its last step, a BAM. **Not
-  startable.**
+  startable** — *resolved 2026-11-02: NCBI, UCSC and EBI are refused by the
+  egress policy, but the AWS iGenomes mirror is not, so a real target and a
+  real host were fetched and verified (`scripts/fetch_reference_genomes.py`
+  carries the entries). The BAM remains unavailable and nothing here needs
+  one.*
 
 ## Phase 1 — `filter` stops holding the whole background (Known Issue 3)
 
@@ -140,6 +144,25 @@ Only step 1 of that record — teaching Stage 1 the directional geometry and
 measuring the panel it then delivers — is engineering, and it is blocked on a
 real reference genome.
 
+**DONE 2026-11-02, and step 1 needed no code.** Reading the code first found
+that Stage 1's set cover already selects directionally, which
+`2026-09-23-reach-refit-directional.md` and `2026-09-23-stage-one-alignment.md`
+had both recorded; aligning it the other way was implemented, measured and
+reverted on 2026-09-23. So what step 1 actually lacked was the MEASUREMENT on a
+real genome with a background that answers — the first pool's `bg_coverage`
+read exactly 0 in every run. That is what was run:
+[the record](../validation/2026-11-02-the-geometry-on-a-real-genome.md), on
+*E. coli* K-12 against human chr1, sixteen runs over four panel sizes and four
+arms. Findings: the inflation is 1.49-1.80x on real sequence (inside the
+entry's synthetic 1.3-1.9x); the panel moves at four sizes of four; real site
+clustering costs the directional window 36% of target coverage rather than half
+while isolated host sites halve exactly, so the fg/bg coverage ratio IMPROVES
+27-92% and no single factor rescales a coverage target and a host limit
+together; and a fourth arm the first pool did not have (`symmetric` at the
+refitted reach) shows the movement under the refitted pairing is the reach's
+doing rather than the geometry's. No default moved. The three decisions below
+are unchanged in substance and each now has the figure it was missing.
+
 **The status quo is defensible.** The defect is disclosed in every artifact
 (`coverage_geometries` in the summary, both figures in the log), a directional
 run must name its own reach, and nothing claims the symmetric figure is the
@@ -187,7 +210,8 @@ here.
    table tells you whether 1.2 is worth writing.
 3. **Phase 1.2-1.3** if 1.1 justifies it.
 4. **Phase 3** only once a reference genome is reachable, and only after you
-   have answered its three decisions.
+   have answered its three decisions. **Its measurement is now done**; the
+   decisions remain.
 5. **Phase 4** as filler. **Done** — see that section.
 
 ## What this plan does not do

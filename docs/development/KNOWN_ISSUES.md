@@ -1530,3 +1530,31 @@ package, because nothing in the search uses it.
     selected under the symmetric model, and a set cover that knew better would
     choose differently.
     `docs/validation/2026-09-23-does-the-panel-move.md` measured that it does.
+
+    **On a real genome, 2026-11-02.** The 1.3-1.9x above is from synthetic
+    sequence, where sites are Poisson-distributed. Measured on *E. coli* K-12
+    against human chr1 (12-mers, equiphi29 43 C, four panel sizes, sixteen
+    runs), the inflation is **1.49x to 1.80x, median 1.546** -- inside the
+    stated range, narrower and higher-centred. Two things that synthetic
+    sequence hid:
+
+    - **Clustering buffers the target and not the host.** Halving the window
+      costs only 36% of target coverage (ratio 0.635-0.653, against about 0.50
+      on synthetic sites) because real sites cluster and their spans already
+      overlapped, while the panel's two to four isolated host sites in 249 Mb
+      halve EXACTLY. So the coverage-based fg/bg ratio improves 27-92% under
+      the directional model: the geometry is not one factor applied to every
+      coverage figure, and a `max_host_coverage` limit and a coverage target
+      cannot be rescaled by the same number.
+    - **The panel moves at four sizes of four** at equal reach (Jaccard 0.600
+      to 0.920), against two of four on the first pool. But a fourth arm --
+      `symmetric` at the refitted reach, which the first pool's design did not
+      have -- shows that the movement under the refitted PAIRING is the reach's
+      doing, not the geometry's: at three sizes of four `directional`@6080
+      delivers what `symmetric`@6080 delivers.
+
+    The background axis answers here only because the host is large enough that
+    a 12-mer cannot avoid it; against chr21 the same target's shortlist fills
+    with zero-host candidates and `bg_coverage` returns to exactly 0, which is
+    the first pool's dead axis reproduced.
+    `docs/validation/2026-11-02-the-geometry-on-a-real-genome.md`.
