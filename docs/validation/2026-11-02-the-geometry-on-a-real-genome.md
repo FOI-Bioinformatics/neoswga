@@ -185,6 +185,36 @@ target it was fitted on, which
 `2026-09-23-reach-refit-directional.md` stated and this confirms on a third
 genome.
 
+## 6. The control: the same target against chr21, where the axis dies
+
+Sixteen more runs, identical but for the host -- human chr21 (46,709,983 bp)
+instead of chr1, which means a different `max_primer` shortlist because the
+ranking is by background load.
+[`results_ecoli_vs_chr21.json`](geometry_second_pool_2026-11-02/results_ecoli_vs_chr21.json).
+
+| | chr1 | chr21 |
+|---|---|---|
+| `bg_coverage`, every arm and size | 3.2e-05 to 2.0e-04 | **exactly 0.0, 0 host sites** |
+| inflation | 1.491-1.797 | 1.518-1.637 |
+| fg ratio, directional/symmetric at equal reach | 0.635-0.653 | 0.606-0.645 |
+| panel moves at equal reach | 4 sizes of 4 | 3 sizes of 4 |
+
+Two things this settles:
+
+- **The dead background axis is the host's size, not the first pool's bad
+  luck.** Against chr21 the shortlist again fills with candidates that bind
+  the host nowhere, and `bg_coverage` reads exactly 0 in all sixteen runs --
+  the first pool's result reproduced on a different target. A geometry
+  measurement that wants the background axis has to choose a host a k-mer
+  cannot avoid, and this is the second pair where that is the whole
+  difference.
+- **The 0.64 fg ratio is the target's property.** Two different candidate
+  pools over the same genome give 0.606-0.653, against about 0.50 on synthetic
+  Poisson sites. So the buffering is site clustering in *E. coli*, not an
+  artifact of one shortlist.
+
+Across both hosts the panel moves at **seven of eight** sizes at equal reach.
+
 ## What this changes for the three decisions
 
 Phase 3 lists three decisions that are the maintainer's. None is settled here;
@@ -209,8 +239,10 @@ each now has a figure it lacked.
 
 ## Scope of the claim
 
-One real pair, one background, one candidate pool, four panel sizes, one run
-per arm, 12-mers, equiphi29 at 43 C, `hybrid` only. Specific caveats:
+One real target against two real hosts, two candidate pools, four panel sizes,
+one run per arm, 12-mers, equiphi29 at 43 C, `hybrid` only -- thirty-two runs.
+The two pools share their target, so they are not two independent pairs.
+Specific caveats:
 
 - **The background axis answers, but quietly.** The delivered panels hold two
   to four chr1 sites, so `bg_coverage` is 1e-4 at most and the halving is the
