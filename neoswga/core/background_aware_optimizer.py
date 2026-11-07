@@ -175,8 +175,10 @@ class BackgroundAwareBaseOptimizer(BaseOptimizer):
         # `stage2_background_weight` is not an inner constructor parameter, so
         # it is set the way `HybridBaseOptimizer` sets it. Both weights are None
         # unless params.json supplies them, so a default run is unchanged.
-        self._hybrid.stage2_background_weight = getattr(
-            self.config, "stage2_background_weight", None
+        setattr(
+            self._hybrid,
+            "stage2_background_weight",
+            getattr(self.config, "stage2_background_weight", None),
         )
 
         # A second BackgroundAwareOptimizer was built here "for backward
