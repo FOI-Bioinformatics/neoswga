@@ -781,6 +781,17 @@ def get_all_files(prefix_or_file):
     return total_files
 
 
+def _value_or(arg_value, data, key, default):
+    """`get_value_or_default`, but an ABSENT key takes `default`, not None.
+
+    Nothing injects params.schema.json's defaults at runtime; an omitted
+    `fg_circular` resolved to None and `bool(None)` is False, so a circular
+    target silently went linear. Rationale in full: commit d887246 / PR #145.
+    """
+    value = get_value_or_default(arg_value, data, key)
+    return default if value is None else value
+
+
 def get_value_or_default(arg_value, data, key):
     """
     Helper function for getting the input values. If a command line argument value was given, just return arg_value.
@@ -1063,8 +1074,9 @@ def get_params(args):
     selection_metric = data["selection_metric"] = get_value_or_default(
         args.selection_metric, data, "selection_metric"
     )
-    fg_circular = data["fg_circular"] = get_value_or_default(args.fg_circular, data, "fg_circular")
-    bg_circular = data["bg_circular"] = get_value_or_default(args.bg_circular, data, "bg_circular")
+    # Absent keys take their schema default (True / False); see _value_or.
+    fg_circular = data["fg_circular"] = _value_or(args.fg_circular, data, "fg_circular", True)
+    bg_circular = data["bg_circular"] = _value_or(args.bg_circular, data, "bg_circular", False)
 
     # K-mer range parameters (with polymerase-aware defaults)
     # Supported range: 6-18bp
