@@ -33,12 +33,26 @@ no thermodynamics, no penalty and no 3'-end rule; those live in
 ``mismatch_model`` so that a change to the model cannot quietly change what was
 counted.
 
-**Depth.** Groups are deduplicated within a distance, exactly as
-``mismatch_class_counts`` deduplicates, so a load computed from them reduces to
-the uniform one at any depth. At ``max_mismatches >= 2`` one canonical form can
-appear in two distance classes for a near-palindromic primer and would then be
-counted in both; that is inherited from the uniform path rather than introduced
-here, and the shipped default depth of 1 does not reach it.
+**Depth.** Groups are deduplicated by canonical form exactly as
+``mismatch_class_counts`` deduplicates -- within a distance AND across them --
+so a load computed from them reduces to the uniform one at any depth. A form
+reached at two distances is one physical duplex, so it yields ONE group, at the
+nearest distance that reaches it, carrying every reading that does. The caller
+sums ``count * weight`` over groups, so two groups would be two sites; and
+``_group_weight`` takes the most stable reading rather than summing them, so
+carrying the farther reading costs nothing and keeps the "a site binds in
+whichever orientation binds better" rule intact.
+
+Both halves are needed. Within a distance, a variant and its reverse complement
+can both be neighbours of a near-palindromic primer. Across distances, the same
+stored k-mer can be a 1-mismatch neighbour read one way and a 2-mismatch
+neighbour read the other, because a count file holds only one of each k-mer and
+its reverse complement. Until 2026-11-01 this module documented the second case
+as a known limitation inherited from the uniform path; the uniform path was
+fixed the same day, so leaving it would have made the two disagree -- which is
+the "two implementations of one quantity" failure this project keeps paying for.
+Reachable only above the shipped default depth of 1.
+``docs/validation/2026-11-01-mismatch-classes-across-strands.md``.
 """
 
 from __future__ import annotations
@@ -188,25 +202,35 @@ def neighbour_sites(
         )
     ]
 
+    # One group per canonical form, at the NEAREST distance that reaches it,
+    # carrying every reading that does. Merged across distances and not only
+    # within one, because a form reached at two distances is still one physical
+    # duplex and the caller sums `count * weight` over groups.
+    #
+    # The primer's own form is dropped for the same reason: class 0 already
+    # holds it.
+    by_canonical: dict[str, tuple[int, list[str]]] = {}
     for distance in range(1, max(0, int(max_mismatches)) + 1):
-        # Deduplicated by canonical form inside the distance, and with the
-        # primer's own canonical form dropped, so the classes stay disjoint the
-        # way `mismatch_class_counts` keeps them disjoint.
-        by_canonical: dict[str, list[str]] = {}
         for variant in _variants_at_distance(primer, distance):
             canonical = canonical_kmer(variant)
             if canonical == primer_canonical:
                 continue
-            by_canonical.setdefault(canonical, []).append(variant)
+            found = by_canonical.get(canonical)
+            if found is None:
+                by_canonical[canonical] = (distance, [variant])
+            else:
+                found[1].append(variant)
 
-        for canonical, variants in sorted(by_canonical.items()):
-            groups.append(
-                NeighbourSite(
-                    canonical=canonical,
-                    count=_count_over(canonical, tables),
-                    distance=distance,
-                    readings=tuple(_read(primer, variant) for variant in sorted(variants)),
-                )
+    for canonical, (distance, variants) in sorted(
+        by_canonical.items(), key=lambda item: (item[1][0], item[0])
+    ):
+        groups.append(
+            NeighbourSite(
+                canonical=canonical,
+                count=_count_over(canonical, tables),
+                distance=distance,
+                readings=tuple(_read(primer, variant) for variant in sorted(variants)),
             )
+        )
 
     return tuple(groups)

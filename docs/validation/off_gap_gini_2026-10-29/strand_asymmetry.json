@@ -1,0 +1,12 @@
+{
+  "target": {
+    "forward_sites": 140,
+    "reverse_complement_sites": 1,
+    "entries_absent": 0
+  },
+  "host": {
+    "forward_sites": 23,
+    "reverse_complement_sites": 0,
+    "entries_absent": 0
+  }
+}

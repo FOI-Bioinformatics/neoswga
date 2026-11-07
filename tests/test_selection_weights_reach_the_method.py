@@ -20,9 +20,21 @@ this term, because this term is not applied.
 **These tests pin present behaviour, which is a defect.** Wiring the weights in
 would change every delivered panel, so it is a decision rather than a
 correction, and it needs the measurement recorded in
-`docs/validation/selection_weights_are_inert_2026-09-21.md` first. When that
-decision is taken, these tests are what will fail, and their failure is the
-signal that the wiring worked.
+`docs/validation/selection_weights_are_inert_2026-09-21.md` first.
+
+**Update, 2026-10-26.** The decision was taken for the Tm half, and these tests
+still pass, which the paragraph above did not anticipate. Stage 2 now carries a
+Tm axis, but it reads a separate key, `stage2_tm_weight`, which is None by
+default. `tm_weight` from an `--application` profile still reaches nothing on
+`hybrid`, so every assertion here is still true and still worth keeping.
+
+The separation is the point rather than an evasion. All five profiles set
+`tm_weight` between 0.10 and 0.30 and `--application` defaults to `enrichment`,
+so routing the profile into Stage 2 would have changed every CLI run; the
+measurement in `docs/validation/2026-10-26-wiring-the-tm-term.md` shows a 7%
+improvement in mean Tm deviation on a single-length pool and none at all on a
+mixed-length one, which is the shape the shipped k range produces. When the
+profile is eventually routed in, these tests are what will fail.
 """
 
 import json

@@ -27,8 +27,10 @@ what follows is only what the filenames do not tell you.
 
 - **Optimizers** are dispatched through `unified_optimizer.py`:
   `hybrid_optimizer`, `dominating_set_adapter` + `dominating_set_optimizer`,
-  `network_optimizer`, `background_aware_optimizer`, with
-  `minimal_primer_selector` as a post-process. The registered
+  `network_optimizer`, `background_aware_optimizer`, `clique_optimizer`. The
+  `--minimize-primers` post-process is `optimization_service.reduce_result` via
+  `run_panel_search(minimize=True)`, not a separate module (a dead
+  `minimal_primer_selector` was removed 2026-10-26). The registered
   `background-aware` method is `BackgroundAwareBaseOptimizer`, which delegates
   to `HybridOptimizer`. The standalone three-stage `BackgroundAwareOptimizer`
   and its module-level `optimize()` / `compare_optimizers()` were deleted on
@@ -1118,7 +1120,11 @@ relatively.
   primers with 25 violating pairs when true. Every admission is warned about by
   name. `clique` remains strict either way.
 - `objective_scan_width`: How many panels the swap repair scores with the full
-  objective per round (default 64; None restores an unbounded scan). The scan
+  objective per round (default 64; None restores an unbounded scan). It reaches
+  only the `plan-pool` repair (`pool_planner`), the one caller that supplies the
+  coverage bins the bounded scan needs; the `optimize` refinement passes no bins
+  and so runs unbounded whatever this is set to, which is why it is an internal
+  default rather than a params.json key. The scan
   is over candidates times panel, so a 2,000-candidate shortlist against a
   12-primer panel is 24,000 pairs. The cheap bin gain ranks them and only the
   leaders are scored, and the prescreen is not a new criterion -- it is what

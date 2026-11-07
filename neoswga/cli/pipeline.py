@@ -18,6 +18,7 @@ from neoswga.cli._common import (
     report_unimplemented_options,
     set_size_shortfall_advice,
     setup_gpu_acceleration,
+    validate_effective_chemistry,
     validate_params_json_file,
     warn_on_condition_drift,
 )
@@ -202,6 +203,10 @@ def run_step2(args):
         if hasattr(args, "json_file") and args.json_file:
             parameter.json_file = args.json_file
 
+        # A preset is a user choice; see `parameter._preset_overlay`.
+        _preset = getattr(args, "preset", None)
+        parameter._preset_overlay = load_preset_conditions(_preset) if _preset else {}
+
         # Initialize pipeline (lazy init, loads params from JSON)
         pipeline._initialize()
 
@@ -275,6 +280,10 @@ def run_step2(args):
         # Polymerase. A preset names one too, and both have to re-derive what
         # the enzyme decides; see apply_polymerase_choice.
         apply_polymerase_choice(parameter, args)
+
+        # After the polymerase is settled, before anything is counted.
+        if _preset:
+            validate_effective_chemistry(parameter, _preset)
 
         # Bloom filter for large background genomes
         use_bloom = getattr(args, "use_bloom_filter", False)

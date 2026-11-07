@@ -631,8 +631,38 @@ def load_preset_conditions(preset_name):
         "mg_conc": conditions.mg_conc,
         "ssb": conditions.ssb,
     }
+    # An additive a design refuses is left OUT of the preset rather than
+    # carried silently.
+    #
+    # `resolve_design_request` reads the params FILE, and a preset reaches the
+    # `parameter` globals instead, so its additives never passed that refusal.
+    # `crude_sample` and `q_solution` both set `glycerol_percent`, whose duplex
+    # model the evidence registry records as `absent`: the value was accepted,
+    # range-checked, written into the run manifest's `effective_conditions`,
+    # and contributed exactly nothing to any Tm. The same number written into
+    # params.json is refused outright, so one chemistry had two answers
+    # depending on which door it came through.
+    #
+    # Dropped and named rather than refused: the rest of these presets is
+    # sound -- betaine, BSA and PEG for `crude_sample` -- and refusing the
+    # whole preset would withdraw a recommended configuration over one
+    # unmodelled component.
+    from neoswga.core.model_evidence import refuses_additive
+
     for name in PRESET_ADDITIVE_FIELDS:
-        out[name] = getattr(conditions, name)
+        value = getattr(conditions, name)
+        if value and refuses_additive(name):
+            logger.warning(
+                "Preset %r sets %s=%s, which is left out: no term models its "
+                "melting-temperature effect (evidence status 'absent'), and a "
+                "design refuses it. Every other setting in the preset is "
+                "applied.",
+                preset_name,
+                name,
+                value,
+            )
+            continue
+        out[name] = value
     return out
 
 
@@ -701,6 +731,64 @@ def _apply_seed(args):
     except Exception as e:  # pragma: no cover - defensive
         logger.debug(f"k-mer sampling seed skipped: {e}")
     logger.info(f"Random seed set to {seed} for reproducibility")
+
+
+def validate_effective_chemistry(parameter, preset_name=None):
+    """Refuse an EFFECTIVE configuration outside a recorded model domain.
+
+    `resolve_design_request` validates the params FILE, which is right: a
+    request has to be a function of its input. But `--preset` reaches the
+    `parameter` globals and never the file, so none of the four guards in
+    `model_evidence.require_model_support` ever saw a preset's chemistry. The
+    additive guard was the instance found first -- glycerol, fixed 2026-11-01
+    by dropping it from the preset -- and it was not the only one.
+
+    The live one is oligo length. A preset sets the POLYMERASE while `min_k`
+    and `max_k` come from the file, and eight of the eleven presets name an
+    enzyme whose parameter range excludes the documented 6-12 window:
+    equiphi29 covers 10-18, bst 15-25, klenow 8-15. `--preset bst` therefore
+    computed Tm for 7-12mers at 63 C from a parameter set covering 15-25 nt,
+    and delivered a different shortlist -- which is the defect
+    `_require_length_support` was written for, word for word: "A Bst design
+    filtered through phi29's 6-12 bp window is a recorded defect in this
+    project."
+
+    The GC-adaptive clamp into the enzyme's own range would normally catch it,
+    and is skipped exactly when the user sets `min_k`/`max_k`, which the
+    documented workflow does.
+
+    Validated from the RESOLVED state rather than the file, because that is
+    what the step is about to compute with. Only called when a preset was
+    applied: without one the effective configuration IS the file, which
+    `optimize` already resolves, so no run that works today starts failing.
+
+    Raises:
+        DesignError subclass, from `resolve_design_request`, naming the field.
+
+    `docs/validation/2026-11-01-the-preset-path-bypassed-every-guard.md`.
+    """
+    from neoswga.core.design_request import resolve_design_request
+
+    effective = dict(getattr(parameter, "_json_data", None) or {})
+    effective.update(_effective_conditions(parameter) or {})
+    for key in ("min_k", "max_k"):
+        value = getattr(parameter, key, None)
+        if value is not None:
+            effective[key] = value
+
+    try:
+        resolve_design_request(effective)
+    except Exception as exc:
+        if preset_name:
+            logger.error(
+                "Preset %r produces a configuration this model cannot "
+                "evaluate: %s. The preset sets the polymerase; the oligo "
+                "length window comes from params.json, so set min_k/max_k to "
+                "the enzyme's range, or drop the preset.",
+                preset_name,
+                exc,
+            )
+        raise
 
 
 def _effective_conditions(parameter):

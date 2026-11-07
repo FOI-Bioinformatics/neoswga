@@ -32,10 +32,14 @@ FIELDS = (
     "selectivity_density",
     "total_bg_sites",
     "max_gap",
-    # Sixth from 2026-10-02. `min_per_target_coverage` is enforced against it,
+    # From 2026-10-02. `min_per_target_coverage` is enforced against it,
     # so the two evaluators disagreeing here would mean the search accepted a
     # panel the report refuses, or the reverse.
     "worst_target_coverage",
+    # Joined 2026-11-02. Pinned here like the rest, because the whole point of
+    # this file is that the focused evaluator and the full one cannot drift
+    # while each stays self-consistent.
+    "bg_coverage",
 )
 
 

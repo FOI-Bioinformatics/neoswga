@@ -1,5 +1,12 @@
 # `--application` does not change what `hybrid` selects
 
+> **Status, 2026-10-26.** Still true as written: `--application` still does not
+> change what `hybrid` selects. A Tm term now exists in Stage 2, driven by a
+> separate `stage2_tm_weight` key that is off by default, so the profile route
+> this document measures remains unconnected. The wiring and its measured
+> trade-off are in
+> [2026-10-26-wiring-the-tm-term.md](2026-10-26-wiring-the-tm-term.md).
+
 Measured 21 September 2026, on the shipped Wolbachia design and the plasmid
 example. Found while checking an external report's claim that the melting-
 temperature term "collapses a mixed-length panel by construction on every

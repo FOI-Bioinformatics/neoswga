@@ -74,6 +74,40 @@ def default_mismatch_penalty() -> float:
     return float(value)
 
 
+#: Mismatch depth when nothing says otherwise. Matches the params.json default
+#: and ``OptimizerConfig.max_mismatches``.
+DEFAULT_MAX_MISMATCHES = 1
+
+
+def resolve_max_mismatches(config) -> int:
+    """Highest mismatch class to count, from an optimizer config.
+
+    The companion to ``default_mismatch_penalty``: one resolver per mismatch
+    knob, so neither is re-derived at a call site.
+
+    **0 is a value and None is a sentinel.** Zero means exact-match counting,
+    which is the reduction the occupancy model is checked against; None means
+    unset and takes the default of 1. The call site read
+    ``int(getattr(config, "max_mismatches", 1) or 0)``, and ``or`` collapses
+    the two onto 0 -- an unset depth would have counted no mismatch class at
+    all, silently, which is the same sentinel-versus-value confusion
+    ``design_request._resolve_reach`` and ``_resolve_panel_size`` each carry a
+    dated record for (an explicit ``coverage_reach`` of 0 became 3 kb; a
+    ``num_primers`` of 0 became 6).
+
+    Reachable today only from a caller constructing ``OptimizerConfig`` by
+    hand: ``unified_optimizer._build_optimizer_config``'s ``pick`` already
+    resolves an unset params.json key to 1 before this sees it. Fixed with the
+    mismatch-class merge rather than separately, since both are the same
+    "what does absent mean" question one function apart.
+    ``docs/validation/2026-11-01-mismatch-classes-across-strands.md``.
+    """
+    configured = getattr(config, "max_mismatches", None)
+    if configured is None:
+        return DEFAULT_MAX_MISMATCHES
+    return max(0, int(configured))
+
+
 def mismatch_tm(tm: float, n_mismatches: int, penalty: float | None = None) -> float:
     """Melting temperature of a duplex carrying ``n_mismatches``.
 

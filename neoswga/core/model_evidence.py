@@ -190,7 +190,55 @@ _ADDITIVE_EVIDENCE = {
     "glycerol_percent": "tm_glycerol",
     "bsa_ug_ml": "tm_bsa",
     "peg_percent": "tm_peg",
+    "dtt_mm": "tm_dtt",
+    "ssb": "tm_ssb",
 }
+
+# Reaction fields that are NOT duplex additives and so are not expected in
+# `_ADDITIVE_EVIDENCE`: the buffer salts and dNTPs feed the salt correction,
+# `primer_conc` feeds the nearest-neighbour Tm directly, and `temp`/`polymerase`
+# are not concentrations. Named here so the completeness ratchet
+# (`tests/test_model_evidence_contract.py`) can assert that every OTHER
+# `ReactionConditions` field carries an evidence record -- the Known Issue 8
+# guard for additives: a new additive cannot be added to the reaction and then
+# reach a design unexamined, as `dtt_mm` and `ssb` did until 2026-10-26.
+_NON_ADDITIVE_CONDITION_FIELDS = frozenset(
+    {
+        "temp",
+        "polymerase",
+        "primer_conc",
+        "na_conc",
+        "mg_conc",
+        "k_conc",
+        "nh4_conc",
+        "dntp_conc",
+    }
+)
+
+
+def refuses_additive(field: str) -> bool:
+    """Whether a design would refuse this `ReactionConditions` field above zero.
+
+    True only for evidence status `absent`: the literature expects a duplex
+    effect and no term here computes one, so reporting the same Tm with and
+    without it is the "known zero effect" the contract forbids. `assumed` with
+    no model (BSA, PEG) passes, because that absence is deliberate.
+
+    One door, because the question is asked from two places that must agree:
+    `_require_additive_support` below refuses on it, and the callers that have
+    to avoid OFFERING such an additive in the first place -- the additive
+    search's grid and `--preset` -- consult it. A preset that set glycerol
+    reached the `parameter` globals rather than the params file, which is the
+    one input `resolve_design_request` reads, so the refusal never saw it: the
+    additive was accepted, range-checked, recorded in the run manifest's
+    `effective_conditions`, and contributed exactly nothing to any Tm.
+    `docs/validation/2026-11-01-mismatch-classes-across-strands.md`.
+    """
+    quantity = _ADDITIVE_EVIDENCE.get(field)
+    if quantity is None:
+        return False
+    record = load_evidence().get(quantity)
+    return record is not None and record.status == "absent"
 
 
 def require_model_support(request) -> None:
@@ -279,6 +327,8 @@ def _require_additive_support(request, evidence: Mapping[str, EvidenceRecord]) -
             raise UnsupportedModelError(
                 "additive", field, "no evidence record; add one before using it"
             )
+        # Same predicate `refuses_additive` exposes, kept inline here because
+        # this loop already holds the record and the message needs the value.
         if record.status == "absent":
             raise UnsupportedModelError(
                 f"melting-temperature effect of {field}",

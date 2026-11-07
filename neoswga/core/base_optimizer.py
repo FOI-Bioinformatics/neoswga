@@ -34,9 +34,7 @@ from .selectivity import (  # noqa: F401
     _selectivity_from_loads,
 )
 
-# Re-exported for the same reason and in the same shape: the per-prefix coverage
-# loop moved to `target_coverage` when adding the per-target figure here would
-# have pushed this module past its ceiling. Same objects, one implementation.
+# Re-exported likewise: the per-prefix coverage loop moved to `target_coverage`.
 from .target_coverage import TargetCoverage, coverage_by_target  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -117,6 +115,9 @@ class PrimerSetMetrics:
     # site, `strand_alternation_gap_max` among them, which is the closest
     # quantity here to the convergent-pair mechanism SWGA runs on.
     strand_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+    # swga 2.0's `off_gap_gini`, reported and never scored. See
+    # `core/background_evenness.py` for the model and why no weight is taken.
+    off_gap_gini: float | None = None
 
     # Fraction of the time each delivered primer is bound, per primer. Empty
     # when no reaction conditions were attached, because without a temperature
@@ -124,18 +125,13 @@ class PrimerSetMetrics:
     # can be validated against the outcome data available here.
     primer_occupancy: dict[str, float] = field(default_factory=dict)
 
-    # Per-target coverage: fg_prefix -> coverage fraction, so a multi-genome run
-    # surfaces "target A 95% / target B 40%" and not one aggregate. Produced by
-    # `compute_metrics` since 2026-10-02 so search, acceptance and the bounded
-    # repair all see it. RECORD-CONFINED, the figure `evaluate-set` reports and
-    # not `fg_coverage`'s unconfined one: audit finding F3. A target whose
-    # coverage could not be measured is ABSENT rather than 0.0.
+    # Per-target coverage, fg_prefix -> fraction, from `compute_metrics` since
+    # 2026-10-02. RECORD-CONFINED, as `evaluate-set` reports it and unlike
+    # `fg_coverage` (audit F3). An unmeasured target is ABSENT, not 0.0.
     per_target_coverage: dict[str, float] = field(default_factory=dict)
 
-    # The MINIMUM over `per_target_coverage`, which is what a per-target floor is
-    # evaluated against. `None`, never 0.0, when any target went unmeasured or
-    # there are no targets: a minimum over the members that answered reads as a
-    # worst case and is not one. `core/target_coverage.py` holds both rules.
+    # The MINIMUM over `per_target_coverage`, which a per-target floor reads.
+    # `None`, never 0.0, when any target went unmeasured; see `target_coverage`.
     worst_target_coverage: float | None = None
     effective_fg_sites: float = 0.0
     effective_bg_sites: float = 0.0
@@ -241,9 +237,9 @@ class PrimerSetMetrics:
             "strand_alternation_score": self.strand_alternation_score,
             "strand_coverage_ratio": self.strand_coverage_ratio,
             "strand_stats": {k: dict(v) for k, v in self.strand_stats.items()},
+            "off_gap_gini": self.off_gap_gini,
             "primer_occupancy": dict(self.primer_occupancy),
             "per_target_coverage": dict(self.per_target_coverage),
-            # The minimum over the dict above; null when a target went unmeasured.
             "worst_target_coverage": self.worst_target_coverage,
             "extension_reach": self.extension_reach,
         }
@@ -553,9 +549,7 @@ class OptimizerConfig:
     max_dimer_dg: float | None = None
     allow_dimer_relaxation: bool = False
     coverage_metric: str | None = None  # None: objective_for_optimizer chooses
-    # The per-target floor in force, so `compute_metrics` knows whether anything
-    # in this run reads the per-target figure. It is a bitmap per target per
-    # evaluation; see `target_coverage.confined_coverage_by_target`.
+    # The per-target floor; `compute_metrics` computes per-target figures only when set.
     min_per_target_coverage: float | None = None
     refinement_method: str = "network"
     swap_max_evaluations: int = 10000
@@ -591,6 +585,19 @@ class OptimizerConfig:
     # None keeps the unweighted bin count; an integer turns it on and bounds
     # it. Off by default: docs/validation/stage_one_objective_2026-09-19.md.
     stage1_objective_width: int | None = None
+    # Stage 2's Tm axis, wired 2026-10-26. None keeps the removal ranking
+    # exactly as it was; a weight in [0, 1] makes it prefer dropping the primer
+    # whose effective Tm sits furthest from reaction_temp + 5 C. Off by default
+    # and deliberately NOT fed from the `--application` profile's `tm_weight`:
+    # docs/validation/2026-10-26-wiring-the-tm-term.md records a gain on a
+    # single-length pool and none on a mixed-length one.
+    stage2_tm_weight: float | None = None
+    # Weight of the host term in the SWAP Stage-2 score (Known Issue 14). None
+    # keeps background as the lexicographic tie-break the swap score has always
+    # used; a weight > 0 trades fg coverage against host coverage as a single
+    # axis. Off by default, and the trade is unmeasured against a reaction:
+    # docs/validation/2026-10-26-stage2-background-weight.md.
+    stage2_background_weight: float | None = None
     # How many times a size row may widen the candidate frontier when it cannot
     # satisfy its constraints. The inventory holds every candidate that cleared
     # hard QC -- 20,670 on the Wolbachia design against a 2,000 shortlist -- and
@@ -1023,13 +1030,13 @@ class BaseOptimizer(ABC):
         reported as the uniform one.
         """
         from neoswga.core.mismatch_model import site_load_mode
-        from neoswga.core.occupancy import weighted_site_load
+        from neoswga.core.occupancy import resolve_max_mismatches, weighted_site_load
 
         conditions = getattr(self, "conditions", None)
         if conditions is None:
             return 0.0, 0.0, "exact"
 
-        max_mismatches = int(getattr(self.config, "max_mismatches", 1) or 0)
+        max_mismatches = resolve_max_mismatches(self.config)
 
         if not self.bg_prefixes:
             return self._modelled_site_load(primers, conditions, max_mismatches)
@@ -1177,10 +1184,8 @@ class BaseOptimizer(ABC):
         fg_positions = [pos for prefix in self.fg_prefixes for pos in fg_by_prefix[prefix]]
         bg_positions = [pos for prefix in self.bg_prefixes for pos in bg_by_prefix[prefix]]
 
-        # Coverage, two figures under two geometries, deliberately: the
-        # aggregate unconfined and unchanged, the per-target ones
-        # record-confined because a floor is compared against them and the
-        # unconfined reading credits bases on contigs no site is on (audit F3).
+        # Coverage: the aggregate unconfined and unchanged, the per-target
+        # figures record-confined because a floor reads them (audit F3).
         fg_coverage = self._coverage_over_prefixes(
             fg_fwd if directional else fg_by_prefix,
             self.fg_prefixes,
@@ -1274,6 +1279,7 @@ class BaseOptimizer(ABC):
         # Imported here rather than at module scope: this module deliberately
         # has no sibling imports, which is what keeps it free of cycles and out
         # of the CLI's import cost.
+        from .background_evenness import off_gap_gini as _off_gap_gini
         from .strand_metrics import (
             collect_strand_stats,
             headline_strand_scalars,
@@ -1316,6 +1322,7 @@ class BaseOptimizer(ABC):
             strand_alternation_score=strand_alt_score,
             strand_coverage_ratio=strand_cov_ratio,
             strand_stats=strand_stats,
+            off_gap_gini=_off_gap_gini(strand_stats, self.bg_prefixes),
             primer_occupancy=occupancy_by_primer,
             per_target_coverage=dict(fg_target_coverage.per_target),
             worst_target_coverage=fg_target_coverage.worst,
@@ -1348,9 +1355,7 @@ class BaseOptimizer(ABC):
         ).aggregate
 
     def _confined_coverage_by_target(self, positions_by_prefix):
-        """Each target's coverage, window-confined to its own record, WHEN a
-        configured floor needs it. `target_coverage` holds the gate, the
-        geometry refusal and audit F3."""
+        """Each target's record-confined coverage, when a floor needs it."""
         from .target_coverage import confined_coverage_by_target
 
         return confined_coverage_by_target(self, positions_by_prefix)
@@ -1495,12 +1500,15 @@ class BaseOptimizer(ABC):
 
         Without conditions there is no buffer to correct for, but that is not a
         reason to fall back to something worse than nearest-neighbour.
-        """
-        from neoswga.core.thermodynamics import calculate_tm_basic
 
-        if self.conditions is not None:
-            return self.conditions.calculate_effective_tm(primer)
-        return calculate_tm_basic(primer)
+        Delegated to `selection_weights.effective_tm` on 2026-10-26, when
+        hybrid's Stage-2 Tm term needed the same number from a class that does
+        not inherit this one. The behaviour is unchanged, and the delegation is
+        what keeps the two stages on one definition.
+        """
+        from neoswga.core.selection_weights import effective_tm
+
+        return effective_tm(primer, self.conditions)
 
     def _estimate_dimer_risk(self, primers: list[str]) -> float:
         """
