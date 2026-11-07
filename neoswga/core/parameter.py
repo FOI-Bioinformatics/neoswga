@@ -1021,8 +1021,7 @@ def get_params(args):
             # A preset's keys win over the file's, which is the precedence the
             # CLI already applied by overwriting the globals afterwards; merged
             # here so the key-presence guards see them. See `_preset_overlay`.
-            if _preset_overlay:
-                data_extra = {**data_extra, **_preset_overlay}
+            data_extra = {**data_extra, **_preset_overlay}
             # Clear stale entries before replacing so a second get_params() call in
             # the same process does not leak prior params.json values.
             _json_data.clear()
