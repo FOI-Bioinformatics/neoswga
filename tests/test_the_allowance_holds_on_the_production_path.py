@@ -150,25 +150,34 @@ def test_alternatives_never_push_the_ledger_past_the_allowance(built, genome):
     assert budget.evaluations <= 2000
 
 
-@pytest.mark.parametrize("method", ["dominating-set", "hybrid"])
-def test_an_alternative_search_consults_no_objective_so_the_bound_is_inert(built, genome, method):
-    """Measured, and recorded because it contradicts a claim I made.
+@pytest.mark.parametrize(
+    "method,consults_objective",
+    [("dominating-set", False), ("hybrid", True)],
+)
+def test_which_methods_consult_the_objective_inside_optimize(
+    built, genome, method, consults_objective
+):
+    """Whether `optimize` spends the bound ledger, measured per method.
 
-    `collect_alternative_sets` was given the run's ledger on 2026-09-27, and the
-    commit said alternatives then "spend the run's allowance instead of none".
-    The BINDING is real; the spending is not. An alternative search calls
-    `optimizer.optimize` and nothing else, and neither shipped method evaluates
-    the shared objective inside `optimize`: measured at 0 objective evaluations
-    for both, with ample allowance.
+    History. `collect_alternative_sets` was given the run's ledger on
+    2026-09-27, and that commit said alternatives then "spend the run's
+    allowance instead of none". The BINDING was real; the spending was not. An
+    alternative search calls `optimizer.optimize` and nothing else, and on
+    2026-09-27 neither shipped method evaluated the shared objective inside
+    `optimize` -- 0 for both -- so the ledger bounded nothing and the function's
+    `except SearchBudgetExhausted` clause was unreachable.
 
-    So binding the ledger closed a hole without bounding anything in production
-    yet, and that function's `except SearchBudgetExhausted` clause remains
-    unreachable on these methods. This is the same shape one layer deeper --
-    both ends exist and the path does not -- and it is what routing alternatives
-    through `run_panel_search`, the remaining Task 6 item, would close.
+    That changed for `hybrid` on 2026-10-26. Its Stage-1 floor now compares the
+    refinement against the Stage-1 prefix on the accepted objective instead of
+    raw covered bases, so `_network_refine` calls `pool_objective` -- once per
+    panel, cached -- and those evaluations count against a bound ledger. So a
+    `hybrid` alternative search is now bounded for real, and can reach that
+    `except` clause. `dominating-set` has no such floor and still consults the
+    objective zero times inside `optimize`.
 
-    This test exists to fail when that happens, so the claim gets corrected in
-    the same change that earns it.
+    The record is `docs/development/design-contracts.md` and
+    `docs/validation/2026-10-26-wiring-the-tm-term.md`. This test fails if
+    either method's behaviour flips, so the claim and the code move together.
     """
     from neoswga.core.search_control import budgeted_objective
 
@@ -179,11 +188,18 @@ def test_an_alternative_search_consults_no_objective_so_the_bound_is_inert(built
     with budgeted_objective(objective, budget):
         optimizer.optimize(genome["primers"], 5)
 
-    assert budget.evaluations == 0, (
-        f"{method}.optimize now evaluates the shared objective. That is an "
-        f"improvement: update this test and the alternatives claim together, "
-        f"because the ledger now bounds an alternative search for real"
-    )
+    if consults_objective:
+        assert budget.evaluations > 0, (
+            f"{method}.optimize stopped evaluating the shared objective. If that "
+            f"is deliberate, the Stage-1 floor no longer compares on the "
+            f"objective and design-contracts.md is now wrong"
+        )
+    else:
+        assert budget.evaluations == 0, (
+            f"{method}.optimize now evaluates the shared objective. That is an "
+            f"improvement: update this test and the alternatives claim together, "
+            f"because the ledger now bounds an alternative search for real"
+        )
 
 
 def test_every_stage_records_a_reason_and_what_it_had_spent(built, genome):

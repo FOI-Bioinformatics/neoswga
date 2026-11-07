@@ -1,7 +1,7 @@
 # A variant table against one reference does not substitute for a strain genome across supergroups, and it fails in the optimistic direction
 
 2026-10-02. Phase 5 of
-`docs/superpowers/plans/2026-10-02-genomic-diversity-and-multi-host.md`:
+the genomic-diversity and multi-host plan (2026-10):
 decision gate B. Measured on the five *Wolbachia* genomes of
 `tests/validation/genomes/diversity_panel.json` with wMel (`wolbachia`,
 1,267,782 bp, one record, treated as circular) as the reference, and on the

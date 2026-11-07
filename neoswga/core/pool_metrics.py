@@ -20,9 +20,27 @@ else. `tests/test_pool_metrics_agree_with_the_full_evaluation.py` pins it
 against `compute_metrics` on randomised panels, which is what stops the two
 definitions drifting while each stays self-consistent.
 
-The returned object carries only those five fields on purpose. A caller that
-reaches for a sixth gets an `AttributeError` rather than a default that would be
-indistinguishable from a measurement.
+The returned object carries only the fields something reads on purpose. A
+caller reaching for one nothing computes gets an `AttributeError` rather than a
+default that would be indistinguishable from a measurement.
+
+**`bg_coverage` joined them on 2026-11-02, and the cost objection did not apply
+to it.** This docstring used to say a caller reaching for a SIXTH field would
+take that `AttributeError`, and `stage2_background_weight` was refused on those
+grounds. Measured, the field costs +48% per evaluation (3.56 ms to 5.26 ms on a
+4 Mb host) and is **2.05x cheaper** than the full `compute_metrics` that
+`panel_refinement` already falls back to whenever a host-coverage limit is set
+-- so for a host-limited design it is a speedup, not a tax. The reason it is
+cheap is that this function ALREADY gathers and sorts every background position
+for `total_bg_sites` and then discarded them: the marginal work is one
+`_coverage_over_prefixes` call over a list in hand, not the position lookups the
+27.6 s profile was about.
+`docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
+
+It stays `None` with no background genome, where `compute_metrics` reports 0.0.
+That divergence is deliberate: a host coverage measured against no host is not
+zero, and a weighted host axis must refuse it rather than trade against a
+fabricated zero.
 """
 
 from __future__ import annotations
@@ -39,6 +57,10 @@ class PoolMetrics:
     selectivity_density: float
     total_bg_sites: int
     max_gap: float
+    #: Fraction of the background the panel reaches. `None` with no background
+    #: genome -- not 0.0, which is what a weighted host axis would trade
+    #: against. Defaulted so the five-field constructor calls still read.
+    bg_coverage: float | None = None
 
 
 def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
@@ -53,7 +75,13 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
     from .base_optimizer import _selectivity_density_from_loads
 
     if not primers:
-        return PoolMetrics(0.0, None, 0.0, 0, float("inf"))
+        # An empty panel covers 0.0 of a background that EXISTS, which is a
+        # measurement like the 0.0 foreground coverage beside it. Absence is
+        # reserved for having no background to measure against at all.
+        empty_bg = (
+            0.0 if optimizer.bg_prefixes and int(sum(optimizer.bg_seq_lengths or [])) > 0 else None
+        )
+        return PoolMetrics(0.0, None, 0.0, 0, float("inf"), empty_bg)
 
     fg_by_prefix = {prefix: set() for prefix in optimizer.fg_prefixes}
     bg_by_prefix = {prefix: set() for prefix in optimizer.bg_prefixes}
@@ -106,6 +134,15 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
         int(sum(optimizer.bg_seq_lengths or [])),
     )
 
+    # One call over `bg_by_prefix`, which is already gathered and sorted above
+    # for `total_bg_sites`. `None` rather than 0.0 with no background: see the
+    # module docstring.
+    bg_coverage = None
+    if optimizer.bg_prefixes and int(sum(optimizer.bg_seq_lengths or [])) > 0:
+        bg_coverage = optimizer._coverage_over_prefixes(
+            bg_by_prefix, optimizer.bg_prefixes, optimizer.bg_seq_lengths
+        )
+
     gaps = []
     for prefix, length in zip(optimizer.fg_prefixes, optimizer.fg_seq_lengths, strict=True):
         gaps.extend(optimizer._compute_gaps(fg_by_prefix.get(prefix, []), length))
@@ -116,4 +153,5 @@ def compute_pool_metrics(optimizer, primers: list[str]) -> PoolMetrics:
         selectivity_density=selectivity_density,
         total_bg_sites=total_bg,
         max_gap=max(gaps) if gaps else float("inf"),
+        bg_coverage=bg_coverage,
     )

@@ -1,0 +1,101 @@
+{
+  "size": 12,
+  "arms": [
+    {
+      "weight": null,
+      "primers": 12,
+      "fg_coverage": 0.401003937007874,
+      "effective_fg_coverage": 0.3033879775070625,
+      "bg_coverage": 0.022,
+      "total_bg_sites": 11,
+      "selectivity_density": 4.795315018600772,
+      "panel": [
+        "AAAACCACACC",
+        "AAACCCAACACC",
+        "AACACCAACCAC",
+        "ACAACCCTCACC",
+        "ACCCAAACACAA",
+        "ACCCCAAAACAC",
+        "CAGAAAACACCA",
+        "CATAACCCAACC",
+        "CATCACTCCAAC",
+        "CCAAACCAACAC",
+        "CCTAAACCCAAC",
+        "TCCCACCAAACA"
+      ],
+      "panel_differs_from_control": false
+    },
+    {
+      "weight": 0.25,
+      "primers": 12,
+      "fg_coverage": 0.3905716535433071,
+      "effective_fg_coverage": 0.30911222439645425,
+      "bg_coverage": 0.016,
+      "total_bg_sites": 8,
+      "selectivity_density": 4.8091553244122185,
+      "panel": [
+        "AAACCCAACACC",
+        "AACACCAACCAC",
+        "ACAACCCTCACC",
+        "ACCCAAACACAA",
+        "ACCCCAAAACAC",
+        "CAAAACCACACC",
+        "CAGAAAACACCA",
+        "CATAACCCAACC",
+        "CATCACTCCAAC",
+        "CCAAACCAACAC",
+        "CCTAAACCCAAC",
+        "TCCCACCAAACA"
+      ],
+      "panel_differs_from_control": true
+    },
+    {
+      "weight": 0.5,
+      "primers": 12,
+      "fg_coverage": 0.3905716535433071,
+      "effective_fg_coverage": 0.30911222439645425,
+      "bg_coverage": 0.016,
+      "total_bg_sites": 8,
+      "selectivity_density": 4.8091553244122185,
+      "panel": [
+        "AAACCCAACACC",
+        "AACACCAACCAC",
+        "ACAACCCTCACC",
+        "ACCCAAACACAA",
+        "ACCCCAAAACAC",
+        "CAAAACCACACC",
+        "CAGAAAACACCA",
+        "CATAACCCAACC",
+        "CATCACTCCAAC",
+        "CCAAACCAACAC",
+        "CCTAAACCCAAC",
+        "TCCCACCAAACA"
+      ],
+      "panel_differs_from_control": true
+    },
+    {
+      "weight": 1.0,
+      "primers": 12,
+      "fg_coverage": 0.401003937007874,
+      "effective_fg_coverage": 0.3033879775070625,
+      "bg_coverage": 0.022,
+      "total_bg_sites": 11,
+      "selectivity_density": 4.795315018600772,
+      "panel": [
+        "AAAACCACACC",
+        "AAACCCAACACC",
+        "AACACCAACCAC",
+        "ACAACCCTCACC",
+        "ACCCAAACACAA",
+        "ACCCCAAAACAC",
+        "CAGAAAACACCA",
+        "CATAACCCAACC",
+        "CATCACTCCAAC",
+        "CCAAACCAACAC",
+        "CCTAAACCCAAC",
+        "TCCCACCAAACA"
+      ],
+      "panel_differs_from_control": false
+    }
+  ]
+}

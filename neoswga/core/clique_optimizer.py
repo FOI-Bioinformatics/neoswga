@@ -85,6 +85,11 @@ def build_compatibility_graph(
     max_dimer_bp: int = 4,
     max_self_dimer_bp: int = 5,
     check_self_dimers: bool = True,
+    # The optional free-energy floor, and the temperature it is evaluated at.
+    # None leaves the graph exactly as the base-pair screen builds it, which is
+    # the default everywhere: `max_dimer_dg` ships unset.
+    max_dimer_dg: float | None = None,
+    temp: float = 37.0,
 ) -> "nx.Graph":
     """
     Build a graph where edges connect dimer-free primer pairs.
@@ -104,8 +109,7 @@ def build_compatibility_graph(
     """
     if not HAS_NETWORKX:
         raise ImportError(
-            "networkx is required for the clique optimizer. "
-            "Install it with: pip install networkx"
+            "networkx is required for the clique optimizer. Install it with: pip install networkx"
         )
 
     n = len(primers)
@@ -120,26 +124,50 @@ def build_compatibility_graph(
         valid_primers.append(primer)
         G.add_node(primer)
 
-    logger.info(
-        f"Compatibility graph: {len(valid_primers)}/{n} primers " f"passed self-dimer check"
-    )
+    logger.info(f"Compatibility graph: {len(valid_primers)}/{n} primers passed self-dimer check")
 
     # Build dimer matrix for valid primers
     het_matrix = heterodimer_matrix_fast(valid_primers, max_dimer_bp)
 
+    # The free-energy floor, when one is configured. It can only TIGHTEN the
+    # screen, so it is asked only about pairs the base-pair matrix already
+    # cleared -- the same order `LazyDimerCompatibility._pair` composes the two
+    # tests in. `dimer_screen` is the one door for dimer screening, and routing
+    # through it is what keeps clique's answer to "what counts as a dimer here"
+    # the same as every other method's. A floor forces the pairwise screen, so
+    # the object this returns is pool-independent.
+    floor = None
+    if max_dimer_dg is not None:
+        from neoswga.core.lazy_dimer import dimer_screen
+
+        floor = dimer_screen(valid_primers, max_dimer_bp, max_dimer_dg=max_dimer_dg, temp=temp)
+
     # Add edges where primers are compatible (no dimer)
     edge_count = 0
+    floor_rejected = 0
     for i in range(len(valid_primers)):
         for j in range(i + 1, len(valid_primers)):
-            if het_matrix[i, j] == 0:
-                G.add_edge(valid_primers[i], valid_primers[j])
-                edge_count += 1
+            if het_matrix[i, j] != 0:
+                continue
+            one, two = valid_primers[i], valid_primers[j]
+            if floor is not None and floor.dimerises(one, [two]):
+                floor_rejected += 1
+                continue
+            G.add_edge(one, two)
+            edge_count += 1
+
+    if floor is not None:
+        logger.info(
+            "Dimer stability floor of %.2f kcal/mol at %.1f C removed %d edges the "
+            "base-pair screen had cleared.",
+            max_dimer_dg,
+            temp,
+            floor_rejected,
+        )
 
     total_pairs = len(valid_primers) * (len(valid_primers) - 1) // 2
     density = edge_count / total_pairs if total_pairs > 0 else 0
-    logger.info(
-        f"Compatibility graph: {edge_count}/{total_pairs} edges " f"(density={density:.2f})"
-    )
+    logger.info(f"Compatibility graph: {edge_count}/{total_pairs} edges (density={density:.2f})")
 
     return G
 
@@ -281,6 +309,81 @@ class CliqueOptimizer(BaseOptimizer):
     def description(self) -> str:
         return "Clique-based exhaustive dimer-free set discovery"
 
+    def _screen_inputs(self):
+        """`(max_dimer_dg, temp)` for this run's heterodimer screen.
+
+        `max_dimer_dg` lives on the base `OptimizerConfig`, not on
+        `CliqueOptimizerConfig`, and this optimizer read it nowhere at all until
+        2026-10-26: the method sold as "the only one that guarantees no
+        dimerising pair" applied no free-energy floor, so a user who set one and
+        chose `clique` got base-pair screening alone (Known Issue 8).
+
+        The temperature comes off the attached `ReactionConditions`, because a
+        free-energy floor evaluated at the wrong temperature is the defect
+        `docs/validation/2026-10-26-dominating-set-dimer-temperature.md` records
+        -- delta-G is strongly temperature-dependent and 37 C under a 30 C
+        reaction under-calls dimers, the permissive direction.
+        """
+        return (
+            getattr(self.config, "max_dimer_dg", None),
+            float(getattr(self.conditions, "temp", 37.0) or 37.0),
+        )
+
+    def _heterodimer_test(self, pool, max_dimer_bp):
+        """`(one, two) -> bool`, the configured heterodimer screen for a pair.
+
+        Base pairs first, then the optional free-energy floor, which can only
+        tighten. With no floor configured this is the bare base-pair test and
+        nothing changes; with one, it goes through `lazy_dimer.dimer_screen` so
+        the two tests compose here exactly as they do everywhere else.
+        """
+        max_dimer_dg, temp = self._screen_inputs()
+        if max_dimer_dg is None:
+            return lambda one, two: bool(is_dimer_fast(one, two, max_dimer_bp))
+
+        from .lazy_dimer import dimer_screen
+
+        screen = dimer_screen(list(pool), max_dimer_bp, max_dimer_dg=max_dimer_dg, temp=temp)
+        return lambda one, two: bool(screen.dimerises(one, [two]))
+
+    def _reject_undimerfree_fixed(self, fixed, max_dimer_bp, dimerises=None):
+        """Refuse fixed primers that cannot belong to a dimer-free set.
+
+        Returns an `OptimizationResult.failure` to return, or None to proceed.
+        Fixed primers are held to the same guarantee as the rest of the set: a
+        self-dimering one (gated on `check_self_dimers`, as candidates are) or a
+        mutually dimering pair cannot be part of any dimer-free set, so the
+        method refuses rather than deliver one that silently breaks its
+        guarantee.
+
+        `dimerises` is the pair test from `_heterodimer_test`, so a fixed pair
+        is held to the SAME screen as the candidates, free-energy floor
+        included. It defaults to the base-pair test so a direct caller that
+        passes nothing keeps the old behaviour. The self-dimer check stays on
+        base pairs: `max_self_dimer_bp` is its own knob and `lazy_dimer` has no
+        self-dimer free-energy notion to route through.
+        """
+        if dimerises is None:
+
+            def dimerises(one, two):
+                return bool(is_dimer_fast(one, two, max_dimer_bp))
+
+        if self.clique_config.check_self_dimers:
+            max_self = getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1)
+            for fp in fixed:
+                if is_dimer_fast(fp, fp, max_self):
+                    return OptimizationResult.failure(
+                        self.name,
+                        f"Fixed primer {fp} forms a self-dimer; no dimer-free set can contain it",
+                    )
+        for i in range(len(fixed)):
+            for j in range(i + 1, len(fixed)):
+                if dimerises(fixed[i], fixed[j]):
+                    return OptimizationResult.failure(
+                        self.name, f"Fixed primers {fixed[i]} and {fixed[j]} form a dimer"
+                    )
+        return None
+
     def optimize(
         self,
         candidates: list[str],
@@ -313,14 +416,13 @@ class CliqueOptimizer(BaseOptimizer):
 
         # Handle fixed primers
         fixed = list(fixed_primers) if fixed_primers else []
+        # One pair test for every heterodimer question this run asks, so the
+        # fixed primers and the candidates are held to the same screen.
+        dimerises = self._heterodimer_test(list(candidates) + fixed, max_dimer_bp)
         if fixed:
-            # Validate fixed primers are mutually compatible
-            for i in range(len(fixed)):
-                for j in range(i + 1, len(fixed)):
-                    if is_dimer_fast(fixed[i], fixed[j], max_dimer_bp):
-                        return OptimizationResult.failure(
-                            self.name, f"Fixed primers {fixed[i]} and {fixed[j]} " f"form a dimer"
-                        )
+            refusal = self._reject_undimerfree_fixed(fixed, max_dimer_bp, dimerises)
+            if refusal is not None:
+                return refusal
             # Remove fixed primers from candidate pool
             fixed_set = set(fixed)
             candidates = [p for p in candidates if p not in fixed_set]
@@ -343,37 +445,42 @@ class CliqueOptimizer(BaseOptimizer):
         if len(candidates) < target:
             return OptimizationResult.failure(
                 self.name,
-                f"Not enough candidates ({len(candidates)}) for " f"target size ({target})",
+                f"Not enough candidates ({len(candidates)}) for target size ({target})",
             )
 
-        logger.info(f"Clique optimizer: {len(candidates)} candidates, " f"target size {target}")
+        logger.info(f"Clique optimizer: {len(candidates)} candidates, target size {target}")
 
         # Step 1: Build compatibility graph
         start_time = time.time()
+        graph_max_dimer_dg, graph_temp = self._screen_inputs()
         G = build_compatibility_graph(
             candidates,
             max_dimer_bp=max_dimer_bp,
             max_self_dimer_bp=getattr(self.config, "max_self_dimer_bp", max_dimer_bp + 1),
             check_self_dimers=self.clique_config.check_self_dimers,
+            max_dimer_dg=graph_max_dimer_dg,
+            temp=graph_temp,
         )
         graph_time = time.time() - start_time
         logger.info(f"Compatibility graph built in {graph_time:.1f}s")
 
-        # If fixed primers are specified, restrict graph to their neighbors
+        # Keep only candidates compatible with EVERY fixed primer.
+        #
+        # Screened directly against each fixed primer, NOT through the graph.
+        # Fixed primers were removed from the candidate pool above, so they are
+        # never nodes in `G` and `G.neighbors(fp)` found nothing -- the old
+        # `if fp in G` was always False, its `else` branch "proceeded anyway",
+        # and the filter silently did nothing. A candidate that heterodimers
+        # with a fixed primer then survived into the delivered `fixed +
+        # primer_set`, a dimerising pair this optimizer exists to forbid. The
+        # self-dimer case the old warning guessed at is handled up front, where
+        # a self-dimering fixed primer is refused.
         if fixed:
-            # Only keep nodes compatible with ALL fixed primers
-            compatible_nodes = set(G.nodes())
-            for fp in fixed:
-                if fp in G:
-                    fp_neighbors = set(G.neighbors(fp))
-                    compatible_nodes &= fp_neighbors
-                else:
-                    # Fixed primer not in graph (self-dimer?) - proceed anyway
-                    logger.warning(
-                        f"Fixed primer {fp} excluded from graph " f"(possible self-dimer)"
-                    )
+            compatible_nodes = [
+                node for node in G.nodes() if not any(dimerises(node, fp) for fp in fixed)
+            ]
             G = G.subgraph(compatible_nodes).copy()
-            logger.info(f"After fixed primer filtering: {len(G.nodes())} " f"compatible candidates")
+            logger.info(f"After fixed primer filtering: {len(G.nodes())} compatible candidates")
 
         # Step 2: Enumerate cliques
         start_time = time.time()
@@ -381,7 +488,7 @@ class CliqueOptimizer(BaseOptimizer):
             G, target, max_cliques=self.clique_config.max_cliques
         )
         enum_time = time.time() - start_time
-        logger.info(f"Enumerated {len(dimer_free_sets)} dimer-free sets " f"in {enum_time:.1f}s")
+        logger.info(f"Enumerated {len(dimer_free_sets)} dimer-free sets in {enum_time:.1f}s")
 
         if not dimer_free_sets:
             return OptimizationResult.failure(

@@ -13,6 +13,7 @@ import pandas as pd
 from neoswga.core import filter as filter_module
 from neoswga.core import kmer_tables, parameter, rf_preprocessing, string_search, utility
 from neoswga.core.filter import check_gini_stage_kept_something
+
 # Extracted 2026-10-02 when recording `background_aggregate` beside
 # `occupancy_ranking_mode` put this module against its size ceiling.
 # Re-exported under the name it had here, which is what reads it.

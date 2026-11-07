@@ -1,6 +1,6 @@
 # What the available observations can and cannot validate
 
-Task 8 of the [condition-aware pool design plan](../superpowers/plans/2026-09-15-condition-aware-pool-design.md).
+Task 8 of the condition-aware pool design work (2026-09).
 Compiled by inspecting the datasets already in `tests/validation/data/` before
 requesting anything new.
 

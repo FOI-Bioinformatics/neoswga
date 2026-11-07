@@ -110,6 +110,15 @@ benchmarks/checkpoint.json
 # Jellyfish k-mer database files (large, regenerated)
 *.jf
 
+# KMC k-mer database files (large, regenerated). A KMC table is a PAIR of
+# files, and KMC3 is the preferred counter since 2026-09, so a full test run
+# that primes the plasmid example writes these wherever jellyfish would have
+# written *.jf. Added 2026-10-29: the entry above predates the KMC backend,
+# so until now installing the documented default counter left a dirty tree
+# after `pytest tests/`, which CLAUDE.md promises it does not.
+*.kmc_pre
+*.kmc_suf
+
 # Coverage reports (regenerated)
 htmlcov/
 .coverage

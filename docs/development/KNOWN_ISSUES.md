@@ -33,7 +33,38 @@ position and are left there.
    untrusted depends on the installed version: a test driving the loader would
    exercise it on 0.15 and skip straight past it on 0.14.
 
-3. **Memory usage**: The filter command loads all background k-mers into memory. Use Bloom filter for large backgrounds.
+3. **Memory usage**: a background table is held as a dict on the occupancy
+   path. Use a Bloom filter for large backgrounds.
+
+   **The path this entry used to name was fixed on 2026-09-25.** It read "the
+   filter command loads all background k-mers into memory"; `filter`'s
+   background-frequency gate calls `kmer_tables.counts_for`, which asks KMC to
+   intersect the table with the candidate list, and the entry was not updated.
+   Measured 2026-11-02: of six places that read a whole table, four stream it
+   and hold nothing (both Bloom builds, which must see every k-mer; one
+   counting internal; the exclusion gate, which breaks on first match), and two
+   materialise a dict -- `mismatch_counts.load_kmer_counts` on the occupancy
+   path, and `MultiGenomeKmerCounter.count_kmers`, which only
+   `multi_genome_pipeline` reaches.
+
+   **A design reads 0.22% of what it holds.** 300 candidates against a 4 Mb
+   host at `max_mismatches` 1 look up 10,744 distinct canonical forms out of
+   4,929,525 in the tables. Held: 515 MB at about 109 bytes an entry. A large
+   host's k=12 table approaches 4^12/2 canonical forms, which projects to about
+   876 MB for k=12 alone and roughly 1.2 GB across k 10-12. A batched
+   `counts_for` over just those forms is 2.8-4.3x faster per read and the
+   counts agree exactly.
+
+   **The obvious fix is not the right one.** `load_kmer_counts` is `lru_cache`d
+   and the path is hot: one 12-primer hybrid run makes 43,392
+   `mismatch_class_counts` calls and 3,616 `weighted_site_load` calls, which the
+   cache turns into FOUR table reads. A per-call `counts_for` would be 43,392
+   KMC intersections, about eighteen hours. The real change is an accumulating
+   per-(prefix, k) cache that batches only the forms it has not seen -- larger
+   than "move the callers", and carrying an absent-as-zero hazard the present
+   code does not have. Its benefit is memory at host scale, which no container
+   here can measure.
+   `docs/validation/2026-11-02-what-a-design-reads-of-a-background-table.md`.
 
 4. **PositionCache strand parameter**: Uses 'forward', 'reverse', 'both' (not '+' or '-').
 
@@ -69,6 +100,23 @@ position and are left there.
    backgrounds. At k=12 note that 99.7% of all canonical 12-mers occur in the human genome, so
    a gate demanding zero host sites returns a single-site candidate pool rather than failing.
    See [docs/validation/additive_specificity.md](../validation/additive_specificity.md#the-background-was-one-chromosome-and-that-mattered).
+
+   **The occupancy-weighted load counted one site twice until 2026-11-01**, and
+   only above the default `max_mismatches` of 1. A count file holds one of each
+   k-mer and its reverse complement, so the same stored k-mer can be a
+   1-mismatch neighbour of a primer read one way and a 2-mismatch neighbour read
+   the other; both classes claimed it and `weighted_site_load` weighted it at
+   two occupancies a mismatch penalty apart. The classes are now walked nearest
+   first, so a site falls in the class of its best match. Incidence 1.3% of
+   random 10-mers; pool-level load error one part in five to ten thousand, up to
+   2% on the worst single primer. No default run is affected and no delivered
+   panel moves.
+   [docs/validation/2026-11-01-mismatch-classes-across-strands.md](../validation/2026-11-01-mismatch-classes-across-strands.md).
+   `mismatch_sites.neighbour_sites` carried the same collision and documented
+   it as inherited from the uniform path; both moved together, because fixing
+   one would have left the two implementations disagreeing about the counting.
+   The reduction contract that binds them was asserted at depth 1 only, where
+   nothing can collide, and is asserted at depth 2 now.
 
 7. **Genome coordinates are int64** (`position_cache.POSITION_DTYPE`), and must stay so.
    Positions were cast to `np.int32` on the way out of HDF5. int32 tops out at 2,147,483,647,
@@ -309,6 +357,111 @@ package, because nothing in the search uses it.
    `tests/test_the_configured_cpu_count_reaches_jellyfish.py`, which walks the
    AST of step 1 rather than asserting a thread count.
 
+   **A fourth variant, 2026-10-26: the wrapper/inner forwarding seam.** Three
+   methods are an outer adapter over an inner engine that actually decides
+   (`hybrid` -> `HybridOptimizer`, `dominating-set` -> `DominatingSetOptimizer`,
+   `background-aware` -> the same inner as hybrid). A value can reach the
+   adapter's `OptimizerConfig`, be asserted there by a test, and still be
+   dropped when the adapter constructs the inner. Two instances, found by
+   diffing each inner's `__init__` parameters against what its adapter actually
+   passes:
+
+   - `stage2_tm_weight` reached the config and the wrapper never set it on the
+     inner, so the Stage-2 Tm term shipped on 2026-10-26 was inert on every
+     factory/CLI `hybrid` run and fired only when a `HybridOptimizer` was built
+     directly -- as its own measurement script does, which is why the
+     measurement was real and the feature still did nothing.
+     `docs/validation/2026-10-26-stage2-background-weight.md`.
+   - `dimer_temp` was never forwarded by `DominatingSetAdapter`, while
+     `max_dimer_dg` beside it was, so the free-energy dimer screen ran at the
+     inner's 37 C default under every reaction. The error is in the PERMISSIVE
+     direction on the phi29 30 C default -- at the Rychlik -6.0 floor, 171 of
+     30,000 random pairs are dimers at 30 C and not at 37 C.
+     `docs/validation/2026-10-26-dominating-set-dimer-temperature.md`.
+   - **`polymerase` and `reaction_temp` never reached the hybrid inner at all.**
+     `unified_optimizer` passes `conditions` to every optimizer and mentions
+     neither name, and both hybrid wrappers defaulted `polymerase` to the
+     literal `"phi29"` -- a real default beating the configured value, the
+     shape this issue opened with. So every CLI `hybrid` and `background-aware`
+     run built a phi29 preset at 30 C whatever params.json said. phi29's preset
+     sets `thermo_filter=False` and equiphi29's and bst's set it True, so the
+     Stage-0 thermodynamic pre-screen was SKIPPED for the hot polymerases that
+     ask for it: under the shipped `examples/equiphi29_scenario` reaction the
+     pre-screen keeps 299 of 500 candidates, so 500/500 reached selection
+     unscreened. Both Stage-2 temperatures were wrong by the same route.
+     `network_optimizer` already carried this fallback for `reaction_temp`;
+     `hybrid` never gained it. Now one door,
+     `stage2_ranking.resolve_reaction`, with precedence explicit > conditions >
+     preset. phi29 is unchanged and is carried as the test's control row.
+     `docs/validation/2026-10-26-hybrid-ran-every-reaction-as-phi29.md`.
+
+   Why the ratchets missed both: `test_optimizer_config_reaches_optimizers.py`
+   asserted on the innermost engine only for the parameters a `NetworkOptimizer`
+   reads, via `_SCORING_ENGINE_PATH`. Anything read by the inner
+   `HybridOptimizer` itself, or by the dominating-set inner, had no such
+   assertion. It now has one per seam
+   (`test_stage2_weights_reach_the_inner_hybrid`,
+   `test_the_reaction_temperature_reaches_the_dominating_set_dimer_screen`), and
+   both fail with the forwarding removed. **The general check is cheap and worth
+   repeating when a wrapper gains a parameter: diff the inner's constructor
+   parameters against what the adapter passes or sets.**
+
+   **Also from the same sweep, and not a forwarding bug: `clique` applied no
+   free-energy floor.** `clique_optimizer` read `max_dimer_dg` nowhere at all
+   (zero occurrences; `CliqueOptimizerConfig` has no such field), so the method
+   advertised as the only one guaranteeing no dimerising pair screened on base
+   pairs alone. All three of its heterodimer questions -- graph edges, the fixed
+   pair check, and the fixed-compatibility filter -- went through
+   `is_dimer_fast`. Fixed on 2026-10-26: one pair test
+   (`CliqueOptimizer._heterodimer_test`) answers all three, routed through
+   `lazy_dimer.dimer_screen`, with the floor consulted only for pairs the
+   base-pair screen already cleared, which is what keeps it purely additive. The
+   temperature is the reaction's, read off `conditions` -- the lesson of the two
+   fixes above. Nothing moves by default (`max_dimer_dg` ships unset) and a
+   control test pins that the same candidate is still delivered with no floor;
+   a monotonicity test pins that a floor only ever removes edges. Clique's
+   guarantee is now strictly stronger rather than differently scoped.
+   `docs/validation/2026-10-26-clique-applied-no-free-energy-floor.md`.
+
+   **A GUARD can fail to reach a door too, not only an option** -- found
+   2026-11-01, which is a new shape for this class. `require_model_support`
+   refuses an additive whose duplex effect nothing computes, and
+   `resolve_design_request` reads the params FILE, deliberately, so that a
+   request is a function of its input. `--preset` reaches the `parameter`
+   globals instead and therefore never met the refusal: `--preset
+   crude_sample` and `--preset q_solution` set `glycerol_percent`, which was
+   accepted, range-checked, written into the run manifest's
+   `effective_conditions`, and applied to no Tm, while the same value in
+   params.json was refused outright. One chemistry, two answers, and the
+   silent door was the one that wrote the record. The predicate is now public
+   as `model_evidence.refuses_additive` and asked by all three callers that
+   must agree -- the refusal, the additive search's grid, and the preset
+   loader, which drops such a field and names it rather than carrying it.
+   Both halves were defensible alone, which is why neither looked wrong.
+   `docs/validation/2026-11-01-a-preset-carried-an-additive-a-design-refuses.md`.
+
+   **Auditing the rest of that path found the general case**, same day. The
+   additive was one of four guards, and the cause was that a preset reached
+   only the module globals: not the params FILE `require_model_support` reads,
+   and not `_json_data`, which the key-presence guards read. So a preset also
+   met no oligo-length guard, and eight of the eleven presets name an enzyme
+   whose parameter range excludes the documented 6-12 window -- `--preset bst`
+   computed Tm for 7-12mers at 63 C against a 15-25 nt parameter set and
+   delivered 38 candidates where the baseline delivered 37, which is
+   `_require_length_support`'s own recorded defect. And a preset's explicit
+   0.0 read as silence to `_apply_adaptive_additives`, so
+   `--preset standard_phi29` overrode the betaine 1.0 it had just logged and
+   changed the shortlist, while being chemically identical to the file.
+
+   A preset's keys now join `_json_data` (`parameter._preset_overlay`), which
+   makes every key-presence guard work for presets and moves no delivered
+   value, and `run_step2` validates the resolved configuration through
+   `resolve_design_request` when a preset was applied. Two guards stay
+   structurally bypassable with no live instance: every preset names a
+   registered polymerase, and DMSO is the only additive with a temperature
+   domain and no preset leaves it.
+   `docs/validation/2026-11-01-the-preset-path-bypassed-every-guard.md`.
+
 9. **Evenness is not measurable from one or two sites** -- FIXED 2026-09-10
    (audit finding B4). `filter.get_gini` keeps a primer when
    `gini.notna() & (gini < max_gini)`. The `.notna()` half was written for
@@ -460,8 +613,60 @@ package, because nothing in the search uses it.
     first attempt and `tests/test_expansion_uses_the_background.py` caught it
     immediately: background-aware and hybrid returned the same panel, because
     the host term had been left behind. Combining them means putting the host
-    term into the swap score as a weighted axis rather than its current
-    lexicographic tie-break, which is unmeasured.
+    term into the swap score as a weighted axis rather than its
+    lexicographic tie-break. That axis now exists, driven by
+    `stage2_background_weight`. **That attempt never ran.** The axis reads a
+    host-coverage fraction and `PoolMetrics` deliberately carries none, so a
+    value above zero raised `AttributeError` mid-search and now refuses before
+    the search instead. The host term remains the lexicographic tie-break, which
+    is what every design uses, and this issue is NOT closed. Closing it needs a
+    host quantity the search can afford, which is a question about cost rather
+    than about a weight.
+    `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`.
+
+    **The cost the five-field decision rests on, measured 2026-11-02.** This
+    entry asserted that `PoolMetrics` carries no host-coverage field because
+    `compute_metrics` was 27.6 s of a 29.7 s run, without a number for what the
+    field itself would cost. It is +48% per evaluation (3.56 ms to 5.26 ms on a
+    4 Mb host), because `compute_pool_metrics` ALREADY gathers and sorts every
+    background position for `total_bg_sites` and discards them -- so the
+    marginal work is one `_coverage_over_prefixes` call over a list in hand, not
+    the position lookups the decision was protecting against.
+
+    And the alternative was never "nothing": `panel_refinement` already falls
+    back to the full `compute_metrics` whenever `max_host_coverage`,
+    `max_mean_gap` or `max_evenness` is set, at 10.77 ms -- **2.05x** the cost
+    of the field. Giving `PoolMetrics` the field would make those runs faster,
+    not slower. The marginal scales linearly with the host's LENGTH (0.68 ms at
+    1 Mb to 33.5 ms at 64 Mb), so neither path is viable against hg38, but that
+    ceiling is `union_coverage`'s representation and belongs to Known Issues 1
+    and 3. Whether a weighted host axis delivers a better panel is still
+    unmeasured, and needs the field to exist first.
+    `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
+
+    **So the key runs since 2026-11-02, and the axis was measured.**
+    `PoolMetrics` carries `bg_coverage`, pinned against `compute_metrics` like
+    the other five fields, and the blanket refusal is gone. One refusal
+    remains, which is the part the old one was right about: a weight above zero
+    with NO background genome, where the fraction is `None` rather than 0.0.
+    That replaced a silent fallback which returned a panel with the weight
+    ignored and nothing said -- a key accepted and read by nothing.
+
+    **The axis does not reliably reduce host coverage.** equiphi29 at 43 C,
+    1.27 Mb target against a 4 Mb host, swap refinement, two panel sizes. At 12
+    primers weights 0.25 and 0.5 cut host coverage 0.0220 to 0.0160 for 1.0 pp
+    of foreground coverage, and weight 1.0 returned the control panel
+    unchanged. At 24 primers the same 0.25 and 0.5 RAISED it, 0.0360 to 0.0380,
+    and only weight 1.0 cut it. The sign depends on the panel size, which is a
+    stronger negative than the Tm term's -- that one at least moved its own
+    axis in the claimed direction at full weight on both sizes. Selectivity
+    density is flat at twelve and up at twenty-four, so it supports nothing
+    either.
+
+    So this entry is still open and its reason has CHANGED: not "the host term
+    reaches no selection", which it now does, but that reaching it does not
+    demonstrably help. The key stays off by default.
+    `docs/validation/2026-11-02-a-weighted-host-axis-measured.md`.
 
     `examples/plasmid_example` cannot demonstrate any of this. Six primers
     already cover its 5.4 kb target completely at 3 kb reach, so expansion adds
@@ -637,8 +842,21 @@ package, because nothing in the search uses it.
 18. **`max_gap` and `bg_coverage` are computed and read by nothing that
     selects** -- found 2026-09-18, partly acted on. Both reach
     `step4_improved_df_summary.json` and the reports. Neither appears in
-    `normalized_score` or in any optimizer's scoring, and deliberately still
-    does not.
+    `normalized_score`, and `max_gap` appears in no optimizer's scoring, and
+    deliberately still does not -- see "the field does not agree" below.
+
+    **`bg_coverage` enters no score either, and an attempt to change that
+    failed.** `stage2_background_weight` (2026-10-26) would have made it a
+    weighted axis of the SWAP Stage-2 score, trading foreground coverage against
+    host coverage. It never ran: the axis reads a host-coverage fraction and
+    `PoolMetrics` deliberately carries none, so a value above zero raised
+    `AttributeError` mid-search. It refuses before the search since 2026-10-29,
+    and `bg_coverage` has no default, no threshold and no place in
+    `normalized_score`.
+    `docs/validation/2026-10-29-stage2-background-weight-does-not-run.md`. The
+    paragraph
+    below still governs `max_gap`, and the evidence argument it makes is the
+    reason that key has no counterpart for the gap.
 
     What changed the same day: both are now **constrainable** via
     `max_worst_hole` and `max_host_coverage` (see **Panel limits** above) and
@@ -679,11 +897,32 @@ package, because nothing in the search uses it.
     which encodes "no convergent pair anywhere" rather than a missing
     measurement, and `worst_convergent_gap` reads it that way.
 
-    Every consumer was checked and none needed changing: `panel_regime._as_float`
-    and `report/metrics._safe_float` preserve None, `headline_strand_scalars`
-    already returned `(None, None)`, and the technical report skips a row whose
-    value is None. Pinned by
-    `tests/test_strand_scores_say_when_they_are_unmeasurable.py`.
+    **That consumer audit was wrong about the report, and stayed wrong for
+    forty days.** It claimed `report/metrics._safe_float` preserves None.
+    `_safe_float` preserves None only when asked to -- its default is the
+    literal `0.0` -- and the two strand keys were read without
+    `default=None`, which the gap keys three lines above them do pass. So a
+    `null` alternation score rendered as `Strand alternation score 0.00`:
+    "could not be measured" shown as "measured: no alternation at all", in the
+    direction that looks like a finding. Fixed 2026-10-29, and the report now
+    says "not measurable" instead. `panel_regime._as_float` and
+    `headline_strand_scalars` were correct as described.
+    `docs/validation/2026-10-29-the-strand-report.md`.
+
+    **The report read two of the ten figures until 2026-10-29.** Collecting
+    all five per genome put them in `step4_improved_df_summary.json` and
+    nowhere else: the quality report rendered the alternation score and the
+    site-count balance of the FIRST target and dropped the rest, so the host's
+    strand structure reached disk and no reader. `report/strand_section.py` now
+    renders every figure for every genome that answered, labelled target or
+    host from `fg_prefixes`/`bg_prefixes` because the readings are opposite --
+    a target with one starved strand amplifies linearly there, a host in the
+    same state amplifies less. It introduces no threshold: it flags one fact
+    (a genome with sites on a single strand) and one mechanism (the widest
+    stretch with no convergent pair, in units of the reach), each marked "no
+    reference". Pinned by
+    `tests/test_strand_scores_say_when_they_are_unmeasurable.py` and
+    `tests/test_the_strand_report_reads_every_genome.py`.
 
     They are still NOT constrainable, but the reason is now different: no
     threshold has a reference, which is why `max_worst_hole` and
@@ -709,6 +948,19 @@ package, because nothing in the search uses it.
     binding distance; that quantity is what the search emits, as
     `bg_len / graph_subgraph_weight`, and an earlier draft of this entry
     conflated the two.
+
+    **`off_gap_gini` is computed since 2026-10-29, and scored by nothing.** It
+    is a sixth figure per genome from `compute_strand_alternation_stats`
+    (`gap_gini_per_strand`), aggregated over the background genomes by
+    `core/background_evenness.py`, carried on
+    `PrimerSetMetrics.off_gap_gini` and reported as the `host_gap_evenness`
+    criterion. It costs arithmetic on positions the strand pass already
+    fetched, about 0.02 ms per `compute_metrics` call. On two synthetic hosts
+    with the SAME site count it reads 0.497 dispersed against 0.966 clustered,
+    where every count-based figure is identical, so it sees a geometry only
+    `bg_coverage` otherwise sees. It enters no score, for the reason the next
+    paragraph gives.
+    `docs/validation/2026-10-29-off-gap-gini.md`.
 
     **The field does not agree that gap statistics belong in the objective.**
     swga 2.0 fits both as `on_gap_gini` and `off_gap_gini`, where `off_gap_gini`
@@ -762,8 +1014,9 @@ package, because nothing in the search uses it.
     `set_index` column is older output holding one set and every row is
     returned. Tests: `tests/test_commands_read_one_primer_set.py`.
 
-20. **Mixed oligo lengths work, and on the one pair measured they bought
-    nothing.** A design may mix lengths: the schema admits k of 4 to 30, the
+20. **Mixed oligo lengths work; on two pairs measured they bought nothing, and
+    on the second the filter had already chosen the length.** A design may mix
+    lengths: the schema admits k of 4 to 30, the
     scan writes one index per length, `PositionCache.load` groups by length and
     the dimer screen codes t-mers. No delivered panel here had ever mixed,
     so this was an argument until
@@ -776,6 +1029,36 @@ package, because nothing in the search uses it.
     on specificity by the all-12-mer panel, which binds the host once against
     the mixed panel's seventeen at n=8. **Choosing k matters far more than
     choosing whether to mix.**
+
+    A second pair -- a synthetic 1.27 Mb target at 35% GC against a 4 Mb host
+    at 42% GC, equiphi29 43 C, `max_primer` 300, the same two panel sizes --
+    replicates the headline emphatically and overturns the "between" reading.
+    Across the single lengths coverage spans 0.46 at n=8 and 0.42 at n=20
+    while the mixed arm differs from the nearest single length by 0.0016 and
+    0.0086, so **the effect of choosing k is two to three orders of magnitude
+    larger than the effect of mixing** (about 290x on this pair). But the
+    mixed arm did not mix: it delivered `{12: 8}` at n=8 and `{11: 2, 12: 18}`
+    at n=20, because the k 10-12 SHORTLIST held 0 ten-mers, 2 eleven-mers and
+    298 twelve-mers. **A mixed-length design is decided at the filter, not at
+    the optimizer**: `max_primer` bounds the shortlist and the ranking fills it
+    with the length that has the best foreground-to-background ratio, which on
+    a large host is the longest. The single-length k=10 arm returned 300
+    candidates and the highest coverage of any arm, so short oligos can fill a
+    shortlist -- they lose the ranking when longer ones compete in the same
+    pool. Which of the cap and the ranking dominates was not isolated.
+
+    So "lands between the single-length designs" is a result on the first pair,
+    not a general property. The honest general statement is that **a length
+    RANGE is an option the pipeline may decline**, and whether it was exercised
+    is visible in the shortlist's length composition before any optimizer runs
+    -- a quantity the funnel does not currently report, which this measurement
+    had to compute separately
+    ([measurement](../validation/2026-11-02-mixed-length-on-a-second-pair.md)).
+    The second pair is synthetic, so its k-mer sites are Poisson rather than
+    clustered and the distinct-k-mer count at each length is near the maximum;
+    the direction (short oligos lose the ranking on a large host) follows from
+    the background frequency gate, the completeness of the 12-mer monopoly is
+    for that site geometry.
 
     The occupancy spread across lengths is governed by the Tm WINDOW, not by
     the length range, which a control established after a first draft concluded
@@ -1195,3 +1478,83 @@ package, because nothing in the search uses it.
     exercises, since CI installs no KMC -- which is why the text-fallback
     tests are written to run without a counter rather than skipping with the
     rest.
+
+25. **The symmetric coverage window overstates `fg_coverage` by 1.3x to 1.9x,
+    and that is disclosed rather than fixed** -- measured 2026-10-29, decided
+    the same day.
+
+    `coverage._mark_window` marks `occupied[pos - reach : pos + reach]`, a
+    window `2r` wide centred on every site, and both coverage entry points
+    default to `strand="both"`, so the position list holds the oligo's own
+    occurrences and its reverse complement's together. Every occurrence
+    therefore earns coverage in the direction it cannot extend in.
+    `polymerase_extension_reach` returns an EXTENSION distance and the code
+    spends it as a RADIUS. The chemistry allows one direction per occurrence:
+    the oligo at `i` extends toward increasing coordinates, its reverse
+    complement at `j` toward decreasing ones.
+
+    **Measured on three real panels** at the shipped 3 kb reach: 1.85x, 1.56x
+    and 1.27x at 6, 12 and 24 primers, 21.0, 25.8 and 19.5 percentage points.
+    The ratio tends to 2.0 as windows stop overlapping and to 1.0 as the genome
+    saturates, so the worst ABSOLUTE error is at the intermediate site density
+    where a real SWGA design sits.
+    `docs/validation/2026-10-29-directional-coverage-measured.md`.
+
+    **The default stays `symmetric`, by decision.** The reach was fitted
+    against it -- 2,866-4,551 bp symmetric against 4,354-6,710 bp directional
+    on the same five published sets -- so switching the geometry alone yields a
+    model mis-calibrated by construction rather than a more correct one; every
+    `fg_coverage` recorded in this repository was produced under it; and a real
+    fix changes SELECTION, since Stage 1's set cover would have to learn that a
+    site reaches `r` and not `2r`. What a switch would need is listed in
+    `docs/validation/2026-10-29-the-coverage-geometry-decision.md`.
+
+    **What was done instead.** `optimize` reports the delivered panel under
+    BOTH windows -- in the log and as `coverage_geometries` in
+    `step4_improved_df_summary.json`, with the inflation ratio and a note
+    saying which window the run scored on. The symmetric column IS
+    `fg_coverage`, asserted against `compute_metrics` rather than against a
+    re-derivation. Computed once after the search, never per candidate: the
+    second orientation is fetched only when the configured geometry asks for
+    it, and `get_positions` is the hottest method in the package.
+
+    **A directional run must name its own `coverage_reach`** and is refused
+    without one, with nothing substituted: the directional band was fitted for
+    phi29 against one published outcome and none exists for `bst`, `equiphi29`
+    or `klenow`, so a default would invent three numbers from one measurement.
+    The geometry is also validated up front rather than mid-search, and it is
+    recorded on `DesignRequest` so the request hash moves with it.
+
+    The other column bounds how much the reported figure overstates THIS panel,
+    not how much coverage a directional run would deliver: these panels were
+    selected under the symmetric model, and a set cover that knew better would
+    choose differently.
+    `docs/validation/2026-09-23-does-the-panel-move.md` measured that it does.
+
+    **On a real genome, 2026-11-02.** The 1.3-1.9x above is from synthetic
+    sequence, where sites are Poisson-distributed. Measured on *E. coli* K-12
+    against human chr1 (12-mers, equiphi29 43 C, four panel sizes, sixteen
+    runs), the inflation is **1.49x to 1.80x, median 1.546** -- inside the
+    stated range, narrower and higher-centred. Two things that synthetic
+    sequence hid:
+
+    - **Clustering buffers the target and not the host.** Halving the window
+      costs only 36% of target coverage (ratio 0.635-0.653, against about 0.50
+      on synthetic sites) because real sites cluster and their spans already
+      overlapped, while the panel's two to four isolated host sites in 249 Mb
+      halve EXACTLY. So the coverage-based fg/bg ratio improves 27-92% under
+      the directional model: the geometry is not one factor applied to every
+      coverage figure, and a `max_host_coverage` limit and a coverage target
+      cannot be rescaled by the same number.
+    - **The panel moves at four sizes of four** at equal reach (Jaccard 0.600
+      to 0.920), against two of four on the first pool. But a fourth arm --
+      `symmetric` at the refitted reach, which the first pool's design did not
+      have -- shows that the movement under the refitted PAIRING is the reach's
+      doing, not the geometry's: at three sizes of four `directional`@6080
+      delivers what `symmetric`@6080 delivers.
+
+    The background axis answers here only because the host is large enough that
+    a 12-mer cannot avoid it; against chr21 the same target's shortlist fills
+    with zero-host candidates and `bg_coverage` returns to exactly 0, which is
+    the first pool's dead axis reproduced.
+    `docs/validation/2026-11-02-the-geometry-on-a-real-genome.md`.

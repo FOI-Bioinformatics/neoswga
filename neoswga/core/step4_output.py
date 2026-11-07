@@ -46,6 +46,7 @@ def save_results(
     primer_sets=None,
     regime=None,
     candidate_reach=None,
+    coverage_geometries=None,
 ) -> None:
     """
     Save optimization results to CSV.
@@ -61,6 +62,11 @@ def save_results(
             and which ones had no reference. `None` when it could not be
             assessed, and then nothing is written rather than a fabricated
             limit.
+        coverage_geometries: Both coverage figures for the delivered panel,
+            from `coverage_geometries.compare_geometries`, so a reader can see
+            which window produced the headline and by how much the other one
+            differs. `None` when neither could be computed, and then nothing is
+            written rather than one figure labelled as both.
         candidate_reach: What the search could have examined against what it
             did, from `candidate_source.describe_reach`. `None` when the pool
             was a plain list and the question has no answer, which is absence
@@ -156,6 +162,8 @@ def save_results(
         # answer, and a zero would read as "reached nothing".
         if candidate_reach:
             summary["candidate_reach"] = dict(candidate_reach)
+        if coverage_geometries:
+            summary["coverage_geometries"] = dict(coverage_geometries)
 
         # The worst pair in the pool being delivered, recorded unconditionally
         # so a reader can see it without re-deriving it. Whether it is a problem

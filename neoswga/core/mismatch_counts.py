@@ -23,10 +23,17 @@ shape (it tests ``parts[0] in primer_set``) and is latent there only because the
 default candidate list is itself read out of these files, and so is already
 canonical.
 
-**Double counting.** Sums run over distinct canonical forms. Two different
-1-mismatch variants can share a canonical form when a primer is near
-palindromic, and the exact match is excluded from the mismatch classes so a
-site is never weighted at two different occupancies.
+**Double counting.** Sums run over distinct canonical forms, and the classes
+are walked nearest first so a site is counted once, in the class of its best
+match. Both halves are needed, and canonicalisation is why. Within a class, two
+different variants can share a canonical form when a primer is near
+palindromic. Across classes, the same stored k-mer can be a 1-mismatch
+neighbour read one way and a 2-mismatch neighbour read the other -- a count
+file holds only one of each k-mer and its reverse complement -- and until
+2026-11-01 that site landed in both classes and was weighted at two different
+occupancies by ``occupancy.weighted_site_load``. It fires on 1.4% of random
+10-mers, and only above the default ``max_mismatches`` of 1, where class 1 is
+the only mismatch class and nothing is above it to collide with.
 
 Memory: ``load_kmer_counts`` holds one dict per (prefix, k). That is the same
 order as the exact path already uses and is fine to bacterial scale; a
@@ -112,10 +119,29 @@ def load_kmer_counts(prefix: str, k: int) -> dict[str, int]:
     return dict(kmer_tables.iter_table(prefix, k))
 
 
-def _count_of(kmers: Iterable[str], tables: list[dict[str, int]]) -> int:
-    """Total count over distinct canonical forms, across all genomes."""
+def _count_of(
+    kmers: Iterable[str],
+    tables: list[dict[str, int]],
+    claimed: set[str] | None = None,
+) -> int:
+    """Total count over distinct canonical forms, across all genomes.
+
+    ``claimed`` carries the canonical forms already counted in a NEARER
+    mismatch class. A form in it is skipped, and every form counted here is
+    added to it, so a site enters exactly one class -- the class of its best
+    match. Passing ``None`` counts every form and keeps no record, which is the
+    right behaviour for a caller asking about one class in isolation.
+
+    The totals do not depend on iteration order: within one call each distinct
+    canonical form is visited once either way, and the ordering that decides
+    which class claims a shared form is the caller's loop over distances.
+    """
     total = 0
     for canonical in {canonical_kmer(kmer) for kmer in kmers}:
+        if claimed is not None:
+            if canonical in claimed:
+                continue
+            claimed.add(canonical)
         for table in tables:
             total += table.get(canonical, 0)
     return total
@@ -137,18 +163,31 @@ def mismatch_class_counts(
 
     Returns:
         ``{mismatch_count: sites}`` for 0..max_mismatches. Classes are
-        disjoint: the exact match never appears in class 1.
+        disjoint, and a site falls in the class of its BEST match.
     """
     k = len(primer)
     tables = [load_kmer_counts(prefix, k) for prefix in prefixes]
 
-    counts = {0: _count_of([primer], tables)}
+    # Walked nearest class first, carrying the canonical forms already counted.
+    #
+    # A site is one physical duplex and must be weighted at one occupancy, so
+    # it belongs to the class of its best match. Canonicalisation is what makes
+    # that non-obvious: the same stored k-mer can be a 1-mismatch neighbour of
+    # the primer read one way and a 2-mismatch neighbour read the other, since
+    # a count file holds only one of each k-mer and its reverse complement. Two
+    # classes then counted one site and `weighted_site_load` weighted it twice,
+    # at two different occupancies. Measured on random 10-mers, 1.4% have a
+    # canonical form shared between the distance-1 and distance-2 classes.
+    #
+    # This subsumes the explicit "drop variants canonicalising onto the primer"
+    # filter that used to sit in the loop: class 0 claims the primer's own form
+    # first, so a near-palindrome's 1-mismatch neighbour that reads as the
+    # primer on the other strand is skipped exactly as before. At the default
+    # `max_mismatches=1` the result is unchanged, bit for bit -- only classes 0
+    # and 1 exist, and that pair was already disjoint.
+    claimed: set[str] = set()
+    counts = {0: _count_of([primer], tables, claimed)}
     for distance in range(1, max_mismatches + 1):
-        variants = _variants_at_distance(primer, distance)
-        # A variant can canonicalise onto the primer itself for a palindromic
-        # sequence; dropping it keeps the classes disjoint.
-        primer_canonical = canonical_kmer(primer)
-        variants = {v for v in variants if canonical_kmer(v) != primer_canonical}
-        counts[distance] = _count_of(variants, tables)
+        counts[distance] = _count_of(_variants_at_distance(primer, distance), tables, claimed)
 
     return counts

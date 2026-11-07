@@ -239,7 +239,7 @@ different tool" class.
 | No wall-clock budget in any optimizer | F5 | Documentation half done (`optimizers.md:343` corrected, `--max-optimization-time` no longer advertises an unenforced default). No optimizer checks a clock. |
 | Two vacuous tests in `test_design_options_have_effect.py` | F10 | `test_removed_flags_are_not_offered` and `test_scoring_weights_is_not_offered` assert against `create_parser().format_help()`, which lists subcommand names only, so neither inspects the flags it guards. |
 | `get_coverage_score` dead code with tests pinning the superseded denominator | F8 | Delete or align; tests currently assert the defect. |
-| Retired methods in the benchmark table | F11 | `docs/optimization_guide.md` lists `greedy`, `genetic`, `moea`, `milp`; none are selectable. |
+| Retired methods in the benchmark table | F11 | `docs/guides/optimization_guide.md` lists `greedy`, `genetic`, `moea`, `milp`; none are selectable. |
 
 `sampled_index_path` was worth doing early regardless of its severity, because
 `filter.py:301`'s own error message instructs the user to set it in params.json

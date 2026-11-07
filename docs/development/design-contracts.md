@@ -402,6 +402,18 @@ through the bare `optimize` and 2,988 through the contract. Panel quality is a
 wash at about 5x the wall clock, paid only when `max_sets` exceeds 1
 ([measurement](../validation/alternatives_through_the_contract_2026-09-28.md)).
 
+**Update, 2026-10-26: `hybrid.optimize` now does evaluate the shared objective
+when one is attached, so for `hybrid` the binding bounds a bare alternative
+search for real.** The Stage-1 floor was changed to compare the refinement
+against the Stage-1 prefix on the accepted objective (shortfall and coverage)
+rather than raw covered bases, so `_network_refine` calls `pool_objective`
+twice per invocation -- once per panel, cached -- and those evaluations count
+against a bound ledger. `dominating-set` has no such floor and still evaluates
+0. So the two shipped methods now differ: a `hybrid` alternative search can
+reach `collect_alternative_sets`'s `except SearchBudgetExhausted` clause, a
+`dominating-set` one still cannot. The floor change itself is recorded in
+[2026-10-26-wiring-the-tm-term.md](../validation/2026-10-26-wiring-the-tm-term.md).
+
 **That measurement found a separate defect, recorded and not fixed.** An
 alternative violating a configured limit is offered either way -- set 4 sat at
 density 17.05 against a floor of 20 -- and `export_is_blocked` takes a directory

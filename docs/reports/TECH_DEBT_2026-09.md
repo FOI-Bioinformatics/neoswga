@@ -405,7 +405,7 @@ The rest is not safe to delete unexamined. Each is a feature that was built and
 tested but never connected, so the choice for each is to wire it up or retire it,
 and that is a product decision rather than a cleanup. `swga_simulator.py` and
 `simulation_analysis.py` are 1,228 lines with four test files and a user-facing
-guide at `docs/simulator-guide.md`; that is an unfinished feature, not debris.
+guide at `docs/guides/simulator-guide.md`; that is an unfinished feature, not debris.
 
 ---
 
