@@ -32,6 +32,10 @@ FIELDS = (
     "selectivity_density",
     "total_bg_sites",
     "max_gap",
+    # Joined 2026-11-02. Pinned here like the rest, because the whole point of
+    # this file is that the focused evaluator and the full one cannot drift
+    # while each stays self-consistent.
+    "bg_coverage",
 )
 
 

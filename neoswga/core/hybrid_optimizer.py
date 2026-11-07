@@ -20,7 +20,7 @@ Version: 3.0 - Phase 2.1
 import logging
 import time
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from dataclasses import replace as _dc_replace
 
 import networkx as nx
@@ -32,131 +32,43 @@ from neoswga.core.hybrid_thermo_screen import ThermoScreenMixin
 from neoswga.core.network_optimizer import AmplificationNetwork, NetworkOptimizer
 from neoswga.core.registry import POLYMERASES as _POLYMERASES
 from neoswga.core.selection_weights import (
+    OPTIMAL_TM_OFFSET_C,
     build_unread_network_optimizer,
+    effective_tm,
+    tm_fitness,
     warn_about_inert_selection_weights,
 )
 
 logger = logging.getLogger(__name__)
 
-# How much Stage-2 removal weighs the coverage a removal costs against the
-# amplification-network score it leaves behind. Both terms are normalised
-# within each removal step, so this is a genuine 0-1 trade-off rather than a
-# coefficient between incommensurable units. Half and half: Stage 2 exists to
-# improve connectivity, so coverage must not simply dominate it and turn the
-# stage into a second set-cover pass.
-_STAGE2_COVERAGE_WEIGHT = 0.5
-
-# Share of the Stage-2 ranking given to host binding, and applied ONLY when the
-# optimizer was built background-aware (`background_pruning=True`, which is what
-# `--optimization-method background-aware` and `expand-primers` against a host
-# genome both set). At 0.0 the expression below reduces exactly to the two-term
-# one, so plain `hybrid` is untouched.
+# Fixed seed for every `algebraic_connectivity` call in Stage-2 refinement.
 #
-# Stage 1.5 pruning alone does not make a panel specific, because Stage 2 is
-# what chooses the panel. Measured on a 40-candidate expansion over a 300 kb
-# synthetic target and host, enabling pruning moved delivered host binding from
-# 32 sites to 45: pruning only shrank the pool Stage 2 drew from, and a
-# background-blind choice over a smaller pool is not a better choice. The
-# background has to be one of the axes the deciding stage ranks on.
-#
-# The remaining 0.75 is split between connectivity and coverage in the existing
-# 50/50 ratio, so adding this term re-weights the two rather than displacing
-# either.
-#
-# Measured on the three GC-tier designs against hg38, host sites in the
-# delivered panel before and after this term, with `hybrid` unchanged in every
-# case (identical panels):
-#
-#     design            bg-aware before   after   coverage before -> after
-#     low_saureus n=24             1674    1361      0.4014 -> 0.3830
-#     low_saureus n=36             2381    2003      0.5348 -> 0.5144
-#     mid_ecoli   n=24              746     669      0.4867 -> 0.4809
-#     mid_ecoli   n=36              928     787      0.5965 -> 0.5951
-#     high_mtb    n=24              215     199      0.7411 -> 0.7246
-#     high_mtb    n=36              336     218      0.8358 -> 0.8052
-#
-# Host binding falls 7-35% and coverage falls 0.1-3.1 points. That trade is the
-# reason the term is gated: it is what `background-aware` is for, and it is not
-# what a `hybrid` user asked for.
-#
-# At n=12 nothing moves on any of the three pools. Stage 1 returns 18-19
-# primers there, so almost every one is carrying coverage no other primer
-# supplies, and the coverage term decides every removal on its own. The
-# background only gets a say once the set has enough redundancy for the
-# coverage differences to narrow.
-_STAGE2_BACKGROUND_WEIGHT = 0.25
+# `tracemin_lu` starts its eigenvalue iteration from a RANDOM vector, drawn from
+# numpy's global state, which advances per call. So the connectivity figure the
+# removal ranking reads differed between two runs of the same input, and the
+# delivered panel with it: measured 2-3 distinct panels over 6 repeats of one
+# fixed design, within a single process. The second-smallest Laplacian
+# eigenvalue is mathematically independent of the starting vector; pinning the
+# vector removes the numerical wobble that was flipping near-ties in the
+# ranking without changing what the value means. The graph's node order is
+# already deterministic (`_build_network` adds nodes in primer-then-position
+# order), so a fixed seed is the whole of what this stage needs to reproduce.
+# See `docs/validation/2026-10-26-stage2-determinism.md`.
+_CONNECTIVITY_SEED = 0
 
-
-def _rank_removal_candidates(
-    candidates: list[tuple[str, float, int, int]], background_aware: bool
-) -> tuple[str | None, float]:
-    """Pick which primer Stage 2 should drop this step.
-
-    Each candidate is `(primer, network_score, unique_bins, bg_sites)`. Rank
-    within the step rather than adding raw values: algebraic connectivity, a bin
-    count and a host-site count share no scale, and a fixed coefficient between
-    them would be arbitrary and input-dependent. Normalising per step keeps the
-    trade-off meaningful whatever the magnitudes happen to be.
-
-    Returns `(None, -inf)` for an empty candidate list, which the caller reads
-    as "nothing left that may be removed".
-    """
-    if not candidates:
-        return None, -float("inf")
-
-    net_values = [c[1] for c in candidates]
-    cost_values = [c[2] for c in candidates]
-    bg_values = [c[3] for c in candidates]
-    net_lo, net_hi = min(net_values), max(net_values)
-    cost_lo, cost_hi = min(cost_values), max(cost_values)
-    bg_lo, bg_hi = min(bg_values), max(bg_values)
-    net_span = (net_hi - net_lo) or 1.0
-    cost_span = (cost_hi - cost_lo) or 1.0
-    bg_span = (bg_hi - bg_lo) or 1.0
-
-    # The two original weights keep their ratio to each other and share whatever
-    # the background term leaves. With `bg_weight == 0` this is the previous
-    # two-term expression exactly, which is what keeps plain `hybrid` still.
-    bg_weight = _STAGE2_BACKGROUND_WEIGHT if background_aware else 0.0
-    net_weight = (1.0 - _STAGE2_COVERAGE_WEIGHT) * (1.0 - bg_weight)
-    cov_weight = _STAGE2_COVERAGE_WEIGHT * (1.0 - bg_weight)
-
-    best_primer = None
-    best_combined = -float("inf")
-    for primer, network_score, unique_bins, bg_sites in candidates:
-        norm_net = (network_score - net_lo) / net_span
-        # Cheap to remove == loses few unique bins == score 1.
-        norm_keep = 1.0 - (unique_bins - cost_lo) / cost_span
-        # Binds the host most == best to remove == score 1.
-        norm_bg = (bg_sites - bg_lo) / bg_span
-        combined = net_weight * norm_net + cov_weight * norm_keep + bg_weight * norm_bg
-        if combined > best_combined:
-            best_combined = combined
-            best_primer = primer
-
-    return best_primer, best_combined
-
-
-def _removal_network_score(connectivity: float, largest_component: int) -> float:
-    """How good the amplification network left behind by a removal is.
-
-    This was `connectivity + predicted_fold / 100`, and the predicted fold is
-    capped at 2**20. Any component past roughly 200 sites reaches that cap --
-    which is every real bacterial genome -- so every candidate removal scored
-    the identical constant and the term ranked nothing. On a M. tuberculosis
-    run the largest component was 410 sites and algebraic connectivity read
-    0.00 throughout, because the site graph is disconnected; between them
-    Stage 2 had no signal at all, spent 150 s, and produced a set covering
-    53.2% against Stage 1's 54.8%, which the guard then threw away.
-
-    Ranking on the component size instead costs nothing: fold is a monotone
-    function of it, so the ordering is identical everywhere the fold is
-    informative, and it stays an ordering where the fold has saturated. The
-    fold itself is unchanged and still what gets reported -- capping a
-    predicted yield is reasonable, ranking on a capped value is not.
-    """
-    return connectivity + largest_component
-
+# Stage-2's removal ranking moved to `stage2_ranking` on 2026-10-26, when the
+# Tm axis took this module past its size budget. Re-exported here, as the
+# same objects, so every existing import keeps working.
+from neoswga.core.stage2_ranking import (  # noqa: E402
+    _STAGE2_BACKGROUND_WEIGHT,
+    _STAGE2_COVERAGE_WEIGHT,
+    _rank_removal_candidates,
+    _removal_network_score,
+    prefix_floors_refinement,
+    resolve_reaction,
+    resolve_tm_inputs,
+    tm_axis_for,
+)
 
 # =========================================================================
 # Polymerase presets for polymerase-aware optimization
@@ -217,62 +129,7 @@ def _get_polymerase_config(polymerase: str) -> PolymeraseConfig:
     return _dc_replace(preset)
 
 
-@dataclass
-class HybridResult:
-    """Result from hybrid optimization"""
-
-    # Final primer set
-    primers: list[str]
-
-    # Stage 1 (Coverage) results
-    stage1_primers: list[str]
-    stage1_coverage: float
-    stage1_regions_covered: int
-
-    # Stage 2 (Network) results
-    stage2_primers: list[str]
-    stage2_connectivity: float
-    stage2_predicted_amplification: float
-    stage2_largest_component: int
-
-    # Overall metrics
-    final_coverage: float
-    final_connectivity: float
-    final_predicted_amplification: float
-
-    # Stage-1 primers in greedy selection order. `stage1_primers` comes from a
-    # set and has no meaningful order; this does. Set-cover picks the largest
-    # marginal gain at each step, so its first N picks are the same N whatever
-    # `stage1_count` was, and coverage over that prefix is non-decreasing in N.
-    # Stage 2 is floored against it, which is what makes final coverage
-    # monotone in the requested count.
-    stage1_ordered_primers: list[str] = field(default_factory=list)
-
-    # Simulation validation (optional)
-    simulation_fitness: object | None = None  # SimulationFitness if validated
-
-    # Metadata
-    runtime_stage1: float = 0.0
-    runtime_stage2: float = 0.0
-    runtime_simulation: float = 0.0
-    total_runtime: float = 0.0
-
-    def __str__(self):
-        base = f"""Hybrid Optimization Result:
-  Final primers: {len(self.primers)}
-  Coverage: {self.final_coverage:.1%} (estimated, binned)
-  Connectivity: {self.final_connectivity:.2f}
-  Amplification: {self.final_predicted_amplification:.1f}×"""
-
-        if self.simulation_fitness:
-            base += f"""
-  Simulation validation:
-    Coverage: {self.simulation_fitness.mean_coverage:.1%} ± {self.simulation_fitness.std_coverage:.1%}
-    Uniformity: {self.simulation_fitness.coverage_uniformity:.2f}
-    Fitness: {self.simulation_fitness.fitness_score:.3f}"""
-
-        base += f"\n  Runtime: {self.total_runtime:.2f}s"
-        return base
+from neoswga.core.hybrid_result import HybridResult  # noqa: E402,F401
 
 
 class HybridOptimizer(ThermoScreenMixin):
@@ -307,7 +164,7 @@ class HybridOptimizer(ThermoScreenMixin):
         uniformity_weight: float = 0.0,
         min_tm: float | None = None,
         max_tm: float | None = None,
-        polymerase: str = "phi29",
+        polymerase: str | None = None,
         genome_gc_content: float | None = None,
         background_pruning: bool = False,
         background_weight: float = 2.0,
@@ -344,6 +201,7 @@ class HybridOptimizer(ThermoScreenMixin):
         swap_max_evaluations: int = 10000,
         swap_max_seconds: float = 10.0,
         stage1_objective_width: int | None = None,
+        stage2_tm_weight: float | None = None,
     ):
         """
         Initialize hybrid optimizer.
@@ -369,8 +227,8 @@ class HybridOptimizer(ThermoScreenMixin):
                 Higher values favor more aggressive background removal.
             min_coverage_threshold: Minimum coverage to maintain during
                 background pruning (0.0-1.0).
-            reaction_temp: Reaction temperature (C) for Stage-2 Tm scoring.
-            tm_weight: Weight for the Tm term in Stage-2 selection.
+            reaction_temp: Reaction temperature (C); the preset supplies it.
+            tm_weight: NetworkOptimizer only, inert here. See stage2_tm_weight.
             dimer_penalty: Weight for the dimer term in Stage-2 selection. This
                 is the only dimer consideration in Stage-2, so a value of 0.0
                 means refinement weighs dimers not at all.
@@ -390,9 +248,10 @@ class HybridOptimizer(ThermoScreenMixin):
         self.bin_size = bin_size
         self.uniformity_weight = uniformity_weight
 
-        # Polymerase-aware configuration
-        self.polymerase = polymerase
-        self.poly_config = _get_polymerase_config(polymerase)
+        # Polymerase-aware configuration; `conditions` supplies what was unstated
+        self.polymerase, reaction_temp = resolve_reaction(polymerase, reaction_temp, conditions)
+        self.poly_config = _get_polymerase_config(self.polymerase)
+        self._set_stage2_tm_inputs(stage2_tm_weight, reaction_temp)
         self.genome_gc_content = genome_gc_content
 
         # Apply polymerase preset for max_extension (caller can override).
@@ -492,6 +351,19 @@ class HybridOptimizer(ThermoScreenMixin):
         self._thermo_filter_cache = None
 
         self._log_configuration(polymerase, bin_size, background_pruning, background_weight)
+
+    def _set_stage2_tm_inputs(self, stage2_tm_weight, reaction_temp) -> None:
+        """Retain the Stage-2 Tm term's two inputs.
+
+        A method rather than two lines in `__init__` because `__init__` is at
+        its length budget, and `tests/test_function_length_ratchet.py` is the
+        line that says so. `stage2_ranking.resolve_tm_inputs` holds the
+        precedence rule and the reason the weight is its own key rather than
+        the `--application` profile's `tm_weight`.
+        """
+        self.stage2_tm_weight, self.reaction_temp = resolve_tm_inputs(
+            stage2_tm_weight, reaction_temp, self.poly_config
+        )
 
     def _log_configuration(self, polymerase, bin_size, background_pruning, background_weight):
         """What this optimizer was constructed with, at INFO."""
@@ -1009,6 +881,15 @@ class HybridOptimizer(ThermoScreenMixin):
             else {}
         )
 
+        # The Tm axis: off unless asked for, and keyed on `stage2_tm_weight`.
+        tm_by_primer, tm_weight = tm_axis_for(
+            current_primers,
+            self.conditions,
+            getattr(self, "reaction_temp", None),
+            getattr(self, "stage2_tm_weight", None),
+            verbose=verbose,
+        )
+
         while len(current_primers) > target_count:
             candidates = []
 
@@ -1029,7 +910,9 @@ class HybridOptimizer(ThermoScreenMixin):
                     connectivity = 0.0
                 else:
                     try:
-                        connectivity = nx.algebraic_connectivity(subgraph, method="tracemin_lu")
+                        connectivity = nx.algebraic_connectivity(
+                            subgraph, method="tracemin_lu", seed=_CONNECTIVITY_SEED
+                        )
                     except (nx.NetworkXError, ValueError, np.linalg.LinAlgError):
                         connectivity = 0.0
 
@@ -1041,9 +924,23 @@ class HybridOptimizer(ThermoScreenMixin):
                 unique_bins = sum(
                     1 for b in bins_by_primer.get(primer, ()) if bin_counts[self._bin_key(b)] == 1
                 )
-                candidates.append((primer, network_score, unique_bins, bg_by_primer.get(primer, 0)))
+                candidates.append(
+                    (
+                        primer,
+                        network_score,
+                        unique_bins,
+                        bg_by_primer.get(primer, 0),
+                        # 1.0 when the term is off: uniform across candidates,
+                        # so it cannot rank, which is what off has to mean.
+                        tm_by_primer.get(primer, 1.0),
+                    )
+                )
 
-            best_to_remove, _best_score = _rank_removal_candidates(candidates, background_aware)
+            best_to_remove, _best_score = _rank_removal_candidates(
+                candidates,
+                background_aware,
+                tm_weight=tm_weight,
+            )
 
             if best_to_remove:
                 current_primers.remove(best_to_remove)
@@ -1067,7 +964,9 @@ class HybridOptimizer(ThermoScreenMixin):
         if verbose:
             try:
                 final_connectivity = (
-                    nx.algebraic_connectivity(final_subgraph, method="tracemin_lu")
+                    nx.algebraic_connectivity(
+                        final_subgraph, method="tracemin_lu", seed=_CONNECTIVITY_SEED
+                    )
                     if len(final_subgraph) >= 2
                     else 0.0
                 )
@@ -1078,29 +977,83 @@ class HybridOptimizer(ThermoScreenMixin):
                 f"Connectivity improved: {initial_stats['connectivity']:.2f} → {final_connectivity:.2f}"
             )
 
-        # Floor the result at the Stage-1 greedy prefix of the same size.
-        #
-        # Coverage-aware removal makes Stage 2 much less destructive, but "much
-        # less destructive" is a tendency, not a guarantee -- it holds on the
-        # inputs someone happened to try. Greedy set cover selects in a
-        # deterministic order, so its first N picks are the same N whatever
-        # stage1_count was, and coverage over that prefix is non-decreasing in
-        # N. Refusing to return anything worse than it turns the tendency into
-        # a floor that is itself monotone in the requested count.
-        if coverage_floor_set:
-            baseline = list(coverage_floor_set)[:target_count]
-            if len(baseline) == target_count:
-                refined_coverage = self._calculate_coverage(current_primers)
-                baseline_coverage = self._calculate_coverage(baseline)
-                if baseline_coverage > refined_coverage + 1e-12:
-                    if verbose:
-                        logger.info(
-                            f"  Refinement covered {refined_coverage:.1%} against "
-                            f"{baseline_coverage:.1%} for the stage-1 prefix; "
-                            f"keeping the prefix."
-                        )
-                    return baseline
+        return self._apply_stage1_floor(
+            current_primers, coverage_floor_set, target_count, tm_by_primer, verbose
+        )
 
+    def _floor_axes(self, primers: list[str], tm_by_primer: dict) -> tuple:
+        """The axes Stage 2 judges a panel on, oriented higher-is-better.
+
+        This is what the Stage-1 floor compares two panels on. It is built from
+        the same objective the rest of this stage optimizes, so the floor and
+        the search agree on what "better" means:
+
+        - With a `pool_objective` attached (a design that declares what it is
+          judged on, e.g. `plan-pool`), the axes are `-shortfall` and the
+          accepted coverage. A refinement that reduces constraint shortfall at
+          a coverage cost is then not dominated, so it survives, which the old
+          raw-coverage floor discarded -- the two-rule split the swap path
+          already removed, now closed here too.
+        - With none, the axis is raw `_calculate_coverage`, so a run that
+          declares no objective keeps the figure it always floored on.
+        - When the Tm term is active, mean Tm fitness is appended. This is the
+          axis that lets a `stage2_tm_weight` refinement survive a coverage
+          cost it was asked to pay.
+
+        A single axis (the no-objective, no-Tm case) makes the dominance test
+        in `prefix_floors_refinement` identical to the `>` it replaced.
+        """
+        objective = getattr(self, "pool_objective", None)
+        if objective is not None:
+            coverage = objective.coverage(primers)
+            axes = [
+                -objective.shortfall(primers),
+                coverage if coverage is not None else float("-inf"),
+            ]
+        else:
+            axes = [self._calculate_coverage(primers)]
+
+        if tm_by_primer:
+            axes.append(sum(tm_by_primer[p] for p in primers) / len(primers))
+        return tuple(axes)
+
+    def _apply_stage1_floor(
+        self, current_primers, coverage_floor_set, target_count, tm_by_primer, verbose
+    ) -> list[str]:
+        """Replace the refinement with the Stage-1 prefix only if it dominates.
+
+        The floor exists because Stage-2 removal is destructive on some inputs:
+        its greedy set-cover prefix is a safe fallback, selected in a fixed
+        order so its first N picks are the same N at any size. The guarantee is
+        "never return a panel the prefix beats".
+
+        What changed on 2026-10-26 is "beats". It was strictly-higher raw
+        coverage, a single number. That vetoed a refinement which traded a
+        little coverage for a better melting-temperature profile -- precisely
+        what a `stage2_tm_weight` run performs -- because the one number it
+        compared could not see the trade. The floor now compares on every axis
+        Stage 2 optimized (`_floor_axes`) and keeps the prefix only when it
+        PARETO-DOMINATES the refinement. With one axis this is the old
+        comparison exactly; with more, an incomparable refinement survives.
+        """
+        if not coverage_floor_set:
+            return current_primers
+        baseline = list(coverage_floor_set)[:target_count]
+        if len(baseline) != target_count:
+            return current_primers
+
+        prefix_axes = self._floor_axes(baseline, tm_by_primer)
+        refined_axes = self._floor_axes(current_primers, tm_by_primer)
+        if prefix_floors_refinement(prefix_axes, refined_axes):
+            if verbose:
+                logger.info(
+                    "  Stage-1 prefix dominates the refinement on %s; keeping the "
+                    "prefix (prefix axes %s vs refined %s).",
+                    "coverage" if len(prefix_axes) == 1 else "every optimized axis",
+                    tuple(round(a, 4) for a in prefix_axes),
+                    tuple(round(a, 4) for a in refined_axes),
+                )
+            return baseline
         return current_primers
 
     def _coverage_bins_by_primer(self, primers: list[str]) -> dict[str, set]:
@@ -1521,7 +1474,7 @@ class HybridBaseOptimizer(BaseOptimizer):
             # unified_optimizer (OptimizerConfig.extension_reach), so selection
             # and the scored metrics.fg_coverage share one coverage definition.
             coverage_reach=getattr(self.config, "extension_reach", None),
-            polymerase=kwargs.get("polymerase", "phi29"),
+            polymerase=kwargs.get("polymerase"),
             min_tm=getattr(self.config, "min_tm", None),
             max_tm=getattr(self.config, "max_tm", None),
             genome_gc_content=kwargs.get("genome_gc_content"),
@@ -1551,6 +1504,13 @@ class HybridBaseOptimizer(BaseOptimizer):
             stage1_objective_width=getattr(self.config, "stage1_objective_width", None),
             template_gc=kwargs.get("template_gc", 0.5),
         )
+        # The two Stage-2 scoring weights, set here not as inner constructor
+        # params (its __init__ is at budget). Both None unless params.json sets
+        # them, so a default run is unchanged; before this, config carried them
+        # but the inner did not, leaving stage2_tm_weight inert on every CLI
+        # hybrid run (Known Issue 8). docs/validation/2026-10-26-stage2-background-weight.md.
+        for _weight in ("stage2_tm_weight", "stage2_background_weight"):
+            setattr(self._hybrid, _weight, getattr(self.config, _weight, None))
 
     @property
     def name(self) -> str:

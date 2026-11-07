@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from neoswga.core import position_index
+from neoswga.core.background_evenness import per_strand_gap_gini
 from neoswga.core.exceptions import ReferenceDataError
 from neoswga.core.thermodynamics import reverse_complement
 
@@ -924,9 +925,27 @@ class PositionCache:
               count ratio (1.0 = balanced).
             - longest_same_strand_run: Longest consecutive run of sites
               on the same strand (lower is better).
+            - gap_gini_per_strand: Gini index of the distances between
+              CONSECUTIVE SAME-STRAND sites, computed per strand and then
+              averaged over the strands that have a distance at all. `None`
+              when neither strand has two sites. On a background genome this
+              is swga 2.0's `off_gap_gini` and on a target its `on_gap_gini`;
+              see `core/background_evenness.py` for what that model does with
+              it and what this project does not.
+
+              It is not `gap_gini` on `PrimerSetMetrics`, which pools the two
+              strands and adds the leading and trailing segments. This one
+              takes only the inter-site distances, which is the quantity the
+              fitted model used.
         """
-        # Collect all binding sites with strand labels
+        # Collect all binding sites with strand labels.
+        #
+        # The two per-strand lists are kept as well as the labelled pool. The
+        # per-strand gap evenness below is computed from exactly these
+        # positions, so it costs arithmetic and not a second pass through
+        # `get_positions`, which is the hottest method in the package.
         sites: list[tuple[int, str]] = []
+        by_strand: dict[str, list[int]] = {"forward": [], "reverse": []}
         total_fwd = 0
         total_rev = 0
 
@@ -938,8 +957,10 @@ class PositionCache:
 
             for pos in fwd_pos:
                 sites.append((int(pos), "forward"))
+                by_strand["forward"].append(int(pos))
             for pos in rev_pos:
                 sites.append((int(pos), "reverse"))
+                by_strand["reverse"].append(int(pos))
 
         if len(sites) < 2:
             # Alternation is the fraction of ADJACENT site pairs on opposite
@@ -964,6 +985,8 @@ class PositionCache:
                 "strand_alternation_score": None,
                 "strand_coverage_ratio": 0.0 if sites else None,
                 "longest_same_strand_run": len(sites),
+                # One site has no distance to a next one on its own strand.
+                "gap_gini_per_strand": None,
             }
 
         # Sort by position
@@ -1007,6 +1030,7 @@ class PositionCache:
             "strand_alternation_score": alternation_score,
             "strand_coverage_ratio": strand_ratio,
             "longest_same_strand_run": longest_run,
+            "gap_gini_per_strand": per_strand_gap_gini(by_strand),
         }
 
     def _report_statistics(self) -> None:

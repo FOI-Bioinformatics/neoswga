@@ -1,0 +1,194 @@
+{
+  "probe_1_which_knobs_move_tm": {
+    "dmso_percent": {
+      "dose": 5.0,
+      "delta_tm": 2.7926273186400437,
+      "verdict": "moves Tm"
+    },
+    "betaine_m": {
+      "dose": 1.0,
+      "delta_tm": 1.9825946244414467,
+      "verdict": "moves Tm"
+    },
+    "trehalose_m": {
+      "dose": 0.6,
+      "delta_tm": 1.8166893829199324,
+      "verdict": "moves Tm"
+    },
+    "formamide_percent": {
+      "dose": 2.0,
+      "delta_tm": 1.324218644511788,
+      "verdict": "moves Tm"
+    },
+    "glycerol_percent": {
+      "dose": 5.0,
+      "delta_tm": 0.0,
+      "verdict": "no Tm term"
+    },
+    "bsa_ug_ml": {
+      "dose": 100.0,
+      "delta_tm": 0.0,
+      "verdict": "no Tm term"
+    },
+    "peg_percent": {
+      "dose": 5.0,
+      "delta_tm": 0.0,
+      "verdict": "no Tm term"
+    },
+    "ethanol_percent": {
+      "dose": 3.0,
+      "delta_tm": 1.2163537538452118,
+      "verdict": "moves Tm"
+    },
+    "urea_m": {
+      "dose": 0.5,
+      "delta_tm": 1.3904769632496823,
+      "verdict": "moves Tm"
+    },
+    "tmac_m": {
+      "dose": 0.05,
+      "delta_tm": 0.09182096016946417,
+      "verdict": "moves Tm"
+    },
+    "propanediol_m": {
+      "dose": 1.0,
+      "delta_tm": 5.466860481238612,
+      "verdict": "moves Tm"
+    },
+    "dtt_mm": {
+      "dose": 5.0,
+      "delta_tm": 0.0,
+      "verdict": "no Tm term"
+    },
+    "ssb": {
+      "dose": true,
+      "delta_tm": 0.0,
+      "verdict": "no Tm term"
+    },
+    "na_conc": {
+      "dose": 100.0,
+      "delta_tm": 0.5958716465391944,
+      "verdict": "moves Tm"
+    },
+    "k_conc": {
+      "dose": 50.0,
+      "delta_tm": 0.5958716465391944,
+      "verdict": "moves Tm"
+    },
+    "nh4_conc": {
+      "dose": 10.0,
+      "delta_tm": 0.1250294338183835,
+      "verdict": "moves Tm"
+    },
+    "dntp_conc": {
+      "dose": 1.0,
+      "delta_tm": 0.219196358142824,
+      "verdict": "moves Tm"
+    }
+  },
+  "probe_2_salt_and_concentration": {
+    "resolved_mg_conc_when_none": 10.0,
+    "mg_sweep_mM": {
+      "0.0": 44.592474898940964,
+      "2.0": 50.7209733744624,
+      "5.0": 52.3682818532659,
+      "10.0": 53.72182878201356,
+      "20.0": 55.151000917266
+    },
+    "primer_conc_sweep_M": {
+      "5e-08": 48.57042605604636,
+      "5e-07": 53.72182878201356,
+      "5e-06": 59.04117163078389,
+      "5e-05": 64.53681804345871
+    }
+  },
+  "probe_3_tm_is_temperature_invariant": {
+    "30.0": 53.72182878201356,
+    "42.0": 53.72182878201356,
+    "45.0": 53.72182878201356
+  },
+  "probe_4_dimer_model_sees_salt_not_additives": {
+    "GCGCGCGCGCGC": {
+      "baseline": {
+        "energy_kcal_mol": -41.50928500000006,
+        "tm_c": 225.6163495329063,
+        "binding_length_bp": 12,
+        "forms_dimer": true
+      },
+      "mg_0mM": {
+        "energy_kcal_mol": -41.50928500000006,
+        "tm_c": 214.60617962939642,
+        "binding_length_bp": 12,
+        "forms_dimer": true
+      },
+      "mg_20mM": {
+        "energy_kcal_mol": -41.50928500000006,
+        "tm_c": 227.28443527581612,
+        "binding_length_bp": 12,
+        "forms_dimer": true
+      },
+      "dmso_10pct": {
+        "energy_kcal_mol": -41.50928500000006,
+        "tm_c": 225.6163495329063,
+        "binding_length_bp": 12,
+        "forms_dimer": true
+      },
+      "betaine_2M": {
+        "energy_kcal_mol": -41.50928500000006,
+        "tm_c": 225.6163495329063,
+        "binding_length_bp": 12,
+        "forms_dimer": true
+      },
+      "dmso_10pct_betaine_2M": {
+        "energy_kcal_mol": -41.50928500000006,
+        "tm_c": 225.6163495329063,
+        "binding_length_bp": 12,
+        "forms_dimer": true
+      }
+    },
+    "GCGCGGTTCTAC": {
+      "baseline": {
+        "energy_kcal_mol": 0.20363999999997517,
+        "tm_c": -29.378706168028,
+        "binding_length_bp": 6,
+        "forms_dimer": false
+      },
+      "mg_0mM": {
+        "energy_kcal_mol": 0.20363999999997517,
+        "tm_c": -40.388876071537894,
+        "binding_length_bp": 6,
+        "forms_dimer": false
+      },
+      "mg_20mM": {
+        "energy_kcal_mol": 0.20363999999997517,
+        "tm_c": -27.710620425118194,
+        "binding_length_bp": 6,
+        "forms_dimer": false
+      },
+      "dmso_10pct": {
+        "energy_kcal_mol": 0.20363999999997517,
+        "tm_c": -29.378706168028,
+        "binding_length_bp": 6,
+        "forms_dimer": false
+      },
+      "betaine_2M": {
+        "energy_kcal_mol": 0.20363999999997517,
+        "tm_c": -29.378706168028,
+        "binding_length_bp": 6,
+        "forms_dimer": false
+      },
+      "dmso_10pct_betaine_2M": {
+        "energy_kcal_mol": 0.20363999999997517,
+        "tm_c": -29.378706168028,
+        "binding_length_bp": 6,
+        "forms_dimer": false
+      }
+    }
+  },
+  "probe_5_what_this_clone_cannot_answer": {
+    "h5py_importable": false,
+    "kmc_on_path": false,
+    "jellyfish_on_path": false,
+    "note": "Whether a chemistry change moves the DELIVERED panel needs step3_df.csv and the position indexes. Neither is in a fresh clone, and no reference genome is either, so that question is open here rather than answered."
+  }
+}

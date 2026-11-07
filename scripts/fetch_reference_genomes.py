@@ -52,6 +52,9 @@ class Reference:
     # see --print-checksums. A wrong genome silently producing plausible
     # numbers is the failure this guards against.
     sha256: Optional[str] = None
+    # Whether the URL serves a gzip. The NCBI and UCSC paths do; the AWS
+    # iGenomes mirror serves plain FASTA.
+    compressed: bool = True
 
 
 REFERENCES: Dict[str, Reference] = {
@@ -169,6 +172,57 @@ REFERENCES: Dict[str, Reference] = {
         filename="human_full.fna",
         approx_mb=3100,
     ),
+    # The three below are served by the AWS iGenomes mirror as plain FASTA.
+    # They are here because the canonical hosts are not always reachable: a
+    # cloud session's egress policy answered 403 to ftp.ncbi.nlm.nih.gov,
+    # hgdownload.soe.ucsc.edu and ftp.ebi.ac.uk, which is every source the
+    # entries above use. Each carries its own checksum, measured on download.
+    "ecoli_k12": Reference(
+        key="ecoli_k12",
+        description="E. coli K-12 MG1655, 4,639,675 bp (real bacterial target)",
+        url=(
+            "https://ngi-igenomes.s3.amazonaws.com/igenomes/"
+            "Escherichia_coli_K_12_MG1655/NCBI/2001-10-15/Sequence/"
+            "WholeGenomeFasta/genome.fa"
+        ),
+        filename="ecoli_k12.fna",
+        approx_mb=5,
+        sha256="f6240859803fd3ebe6332fa14cc4783e29cf010d7c3529195b4afa1688f5b910",
+        compressed=False,
+    ),
+    "human_chr1": Reference(
+        key="human_chr1",
+        description=(
+            "Human chr1, hg38, 248,956,422 bp (background large enough that a "
+            "12-mer cannot avoid it; 7.4% N)"
+        ),
+        url=(
+            "https://ngi-igenomes.s3.amazonaws.com/igenomes/"
+            "Homo_sapiens/UCSC/hg38/Sequence/Chromosomes/chr1.fa"
+        ),
+        filename="human_chr1.fna",
+        approx_mb=254,
+        sha256="04ee6db2e94ccc4daddc168453189d8c17a01454ba67ac0443a73a0401408ee0",
+        compressed=False,
+    ),
+    # A SEPARATE key from `human_chr21`, deliberately. Same 46,709,983 bases of
+    # hg38 chr21 in the same 50-column soft-masked layout, but NOT the same
+    # bytes as UCSC's current chr21.fa.gz, so it would fail `human_chr21`'s
+    # recorded checksum. Anything written against the UCSC file (for instance
+    # `scripts/benchmarking/mismatch_model_ranking.py`) keeps asking for
+    # `human_chr21.fna` and is not silently handed this one.
+    "human_chr21_igenomes": Reference(
+        key="human_chr21_igenomes",
+        description="Human chr21, hg38, via AWS iGenomes (see the note above)",
+        url=(
+            "https://ngi-igenomes.s3.amazonaws.com/igenomes/"
+            "Homo_sapiens/UCSC/hg38/Sequence/Chromosomes/chr21.fa"
+        ),
+        filename="human_chr21_igenomes.fna",
+        approx_mb=48,
+        sha256="a44cf4cd4f6cb2565f7fc4520f3f3d908ec3dfa05de1f50d4ed655b0f640a207",
+        compressed=False,
+    ),
 }
 
 
@@ -187,14 +241,16 @@ def fetch(reference: Reference, directory: str, force: bool = False) -> str:
         return target
 
     os.makedirs(directory, exist_ok=True)
-    archive = target + ".gz"
     print(f"  {reference.key}: downloading ~{reference.approx_mb} Mb ...")
-    urllib.request.urlretrieve(reference.url, archive)
-
-    print(f"  {reference.key}: decompressing ...")
-    with gzip.open(archive, "rb") as src, open(target, "wb") as dst:
-        shutil.copyfileobj(src, dst)
-    os.remove(archive)
+    if reference.compressed:
+        archive = target + ".gz"
+        urllib.request.urlretrieve(reference.url, archive)
+        print(f"  {reference.key}: decompressing ...")
+        with gzip.open(archive, "rb") as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        os.remove(archive)
+    else:
+        urllib.request.urlretrieve(reference.url, target)
 
     checksum = sha256_of(target)
     if reference.sha256 and checksum != reference.sha256:

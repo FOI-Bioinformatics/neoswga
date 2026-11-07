@@ -112,6 +112,9 @@ class PrimerSetMetrics:
     # site, `strand_alternation_gap_max` among them, which is the closest
     # quantity here to the convergent-pair mechanism SWGA runs on.
     strand_stats: dict[str, dict[str, float]] = field(default_factory=dict)
+    # swga 2.0's `off_gap_gini`, reported and never scored. See
+    # `core/background_evenness.py` for the model and why no weight is taken.
+    off_gap_gini: float | None = None
 
     # Fraction of the time each delivered primer is bound, per primer. Empty
     # when no reaction conditions were attached, because without a temperature
@@ -227,6 +230,7 @@ class PrimerSetMetrics:
             "strand_alternation_score": self.strand_alternation_score,
             "strand_coverage_ratio": self.strand_coverage_ratio,
             "strand_stats": {k: dict(v) for k, v in self.strand_stats.items()},
+            "off_gap_gini": self.off_gap_gini,
             "primer_occupancy": dict(self.primer_occupancy),
             "per_target_coverage": dict(self.per_target_coverage),
             "extension_reach": self.extension_reach,
@@ -571,6 +575,19 @@ class OptimizerConfig:
     # None keeps the unweighted bin count; an integer turns it on and bounds
     # it. Off by default: docs/validation/stage_one_objective_2026-09-19.md.
     stage1_objective_width: int | None = None
+    # Stage 2's Tm axis, wired 2026-10-26. None keeps the removal ranking
+    # exactly as it was; a weight in [0, 1] makes it prefer dropping the primer
+    # whose effective Tm sits furthest from reaction_temp + 5 C. Off by default
+    # and deliberately NOT fed from the `--application` profile's `tm_weight`:
+    # docs/validation/2026-10-26-wiring-the-tm-term.md records a gain on a
+    # single-length pool and none on a mixed-length one.
+    stage2_tm_weight: float | None = None
+    # Weight of the host term in the SWAP Stage-2 score (Known Issue 14). None
+    # keeps background as the lexicographic tie-break the swap score has always
+    # used; a weight > 0 trades fg coverage against host coverage as a single
+    # axis. Off by default, and the trade is unmeasured against a reaction:
+    # docs/validation/2026-10-26-stage2-background-weight.md.
+    stage2_background_weight: float | None = None
     # How many times a size row may widen the candidate frontier when it cannot
     # satisfy its constraints. The inventory holds every candidate that cleared
     # hard QC -- 20,670 on the Wolbachia design against a 2,000 shortlist -- and
@@ -1003,13 +1020,13 @@ class BaseOptimizer(ABC):
         reported as the uniform one.
         """
         from neoswga.core.mismatch_model import site_load_mode
-        from neoswga.core.occupancy import weighted_site_load
+        from neoswga.core.occupancy import resolve_max_mismatches, weighted_site_load
 
         conditions = getattr(self, "conditions", None)
         if conditions is None:
             return 0.0, 0.0, "exact"
 
-        max_mismatches = int(getattr(self.config, "max_mismatches", 1) or 0)
+        max_mismatches = resolve_max_mismatches(self.config)
 
         if not self.bg_prefixes:
             return self._modelled_site_load(primers, conditions, max_mismatches)
@@ -1250,6 +1267,7 @@ class BaseOptimizer(ABC):
         # Imported here rather than at module scope: this module deliberately
         # has no sibling imports, which is what keeps it free of cycles and out
         # of the CLI's import cost.
+        from .background_evenness import off_gap_gini as _off_gap_gini
         from .strand_metrics import (
             collect_strand_stats,
             headline_strand_scalars,
@@ -1292,6 +1310,7 @@ class BaseOptimizer(ABC):
             strand_alternation_score=strand_alt_score,
             strand_coverage_ratio=strand_cov_ratio,
             strand_stats=strand_stats,
+            off_gap_gini=_off_gap_gini(strand_stats, self.bg_prefixes),
             primer_occupancy=occupancy_by_primer,
             extension_reach=self.config.extension_reach,
         )
@@ -1480,12 +1499,15 @@ class BaseOptimizer(ABC):
 
         Without conditions there is no buffer to correct for, but that is not a
         reason to fall back to something worse than nearest-neighbour.
-        """
-        from neoswga.core.thermodynamics import calculate_tm_basic
 
-        if self.conditions is not None:
-            return self.conditions.calculate_effective_tm(primer)
-        return calculate_tm_basic(primer)
+        Delegated to `selection_weights.effective_tm` on 2026-10-26, when
+        hybrid's Stage-2 Tm term needed the same number from a class that does
+        not inherit this one. The behaviour is unchanged, and the delegation is
+        what keeps the two stages on one definition.
+        """
+        from neoswga.core.selection_weights import effective_tm
+
+        return effective_tm(primer, self.conditions)
 
     def _estimate_dimer_risk(self, primers: list[str]) -> float:
         """

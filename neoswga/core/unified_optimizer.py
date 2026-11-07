@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import threading
-from dataclasses import dataclass
 from typing import Any, Optional
 
 import pandas as pd
@@ -31,6 +30,7 @@ import pandas as pd
 from . import parameter
 from .base_optimizer import OptimizationResult, OptimizationStatus, OptimizerConfig
 from .candidate_source import describe_reach, order_candidates_by_background
+from .coverage_geometries import for_delivered_panel
 from .design_result import panel_validation_is_ok
 from .dimer import dimer_validation_issue, worst_heterodimer
 from .ensemble_comparison import _ensemble_error_row, _select_ensemble_winner
@@ -75,49 +75,7 @@ _LAST_PRIMER_SETS: list[tuple[str, ...]] = []
 _LAST_CANDIDATE_REACH: dict[str, Any] | None = None
 
 
-@dataclass
-class OptimizationConfig:
-    """
-    Unified configuration for optimization runs.
-
-    Combines all parameters needed for optimization in one place.
-    """
-
-    # Optimizer selection
-    method: str = "hybrid"
-
-    # Target parameters
-    target_set_size: int = 6
-    max_iterations: int = 100
-
-    # File paths
-    data_dir: str = "."
-    step3_file: str = "step3_df.csv"
-    output_file: str = "step4_improved_df.csv"
-
-    # Genome info (loaded from pipeline if not provided)
-    fg_prefixes: list[str] | None = None
-    fg_seq_lengths: list[int] | None = None
-    bg_prefixes: list[str] | None = None
-    bg_seq_lengths: list[int] | None = None
-
-    # Performance options
-    use_position_cache: bool = True
-    use_background_filter: bool = True
-
-    # Output options
-    verbose: bool = True
-    quiet: bool = False
-
-    # Advanced options
-    allow_dimer_relaxation: bool = False
-    refinement_method: str = "network"
-    swap_max_evaluations: int = 10000
-    stage1_objective_width: int | None = None
-    swap_max_seconds: float = 10.0
-    uniformity_weight: float = 0.0
-    minimize_primers: bool = False
-    target_coverage: float = 0.70
+from neoswga.core.optimization_config import OptimizationConfig  # noqa: E402,F401
 
 
 def list_available_optimizers() -> dict[str, str]:
@@ -539,6 +497,8 @@ def _build_optimizer_config(
         refinement_method=pick("refinement_method", "network"),
         swap_max_evaluations=pick("swap_max_evaluations", 10000),
         stage1_objective_width=pick("stage1_objective_width", None),
+        stage2_tm_weight=pick("stage2_tm_weight", None),
+        stage2_background_weight=pick("stage2_background_weight", None),
         swap_max_seconds=pick("swap_max_seconds", 10.0),
         max_self_dimer_bp=pick("max_self_dimer_bp", 5),
         # `parameter.max_mismatches` is assigned by _apply_params_only_keys and
@@ -555,7 +515,57 @@ def _build_optimizer_config(
 _SELECTION_WEIGHT_KEYS = ("tm_weight", "uniformity_weight", "dimer_penalty")
 
 
-def _resolve_selection_weights(kwargs: dict, application, verbose: bool) -> None:
+#: Which of the three `--application` profile weights reach no selection
+#: decision, per method. Verified against each engine's source on 2026-10-29:
+#:
+#: - `network` scores candidates with all three, so nothing is listed.
+#: - `hybrid` and `background-aware` hand `tm_weight` and `uniformity_weight` to
+#:   a `NetworkOptimizer` that nothing reads back for selection, and Stage 2 is
+#:   `_network_refine`, a different method with no Tm or uniformity term.
+#:   `dimer_penalty` IS read there and is that stage's only dimer consideration.
+#:   `docs/validation/selection_weights_are_inert_2026-09-21.md`.
+#: - `dominating-set` and `clique` accept none of the three and mention none of
+#:   them anywhere in their source, so `--application` changes nothing they do.
+_ALL_SELECTION_WEIGHTS = ("tm_weight", "uniformity_weight", "dimer_penalty")
+_WEIGHTS_INERT_ON = {
+    "hybrid": ("tm_weight", "uniformity_weight"),
+    "background-aware": ("tm_weight", "uniformity_weight"),
+    "dominating-set": _ALL_SELECTION_WEIGHTS,
+    "clique": _ALL_SELECTION_WEIGHTS,
+}
+
+
+def _selection_weight_note(method, kwargs) -> str:
+    """How to describe the resolved weights without overclaiming.
+
+    The previous message said "selection weights applied: tm=0.30,
+    uniformity=0.05, dimer_penalty=0.45" whatever the method, while the object
+    doing the selecting on `hybrid` -- the DEFAULT -- used 0.0 for two of the
+    three. A log line that asserts the opposite of what the code does is worse
+    than silence: it is the reason the inert-weights defect went unnoticed
+    through several audits. So name the ones that do not reach this method.
+    """
+    figures = (
+        f"tm={kwargs['tm_weight']:.2f}, "
+        f"uniformity={kwargs['uniformity_weight']:.2f}, "
+        f"dimer_penalty={kwargs['dimer_penalty']:.2f}"
+    )
+    inert = _WEIGHTS_INERT_ON.get(str(method), ())
+    if not inert:
+        return f"selection weights applied: {figures}"
+    if set(inert) == set(_ALL_SELECTION_WEIGHTS):
+        return (
+            f"selection weights resolved: {figures}"
+            f" (none of them reach any selection decision on '{method}')"
+        )
+    return (
+        f"selection weights resolved: {figures}"
+        f" (on '{method}', {' and '.join(inert)} reach no selection decision"
+        f" and are not applied)"
+    )
+
+
+def _resolve_selection_weights(kwargs: dict, application, verbose: bool, method=None) -> None:
     """Fill the selection weights from the `--application` profile in place.
 
     These three knobs shape the greedy selection inside NetworkOptimizer, so
@@ -585,12 +595,7 @@ def _resolve_selection_weights(kwargs: dict, application, verbose: bool) -> None
         for key, value in profile.items():
             kwargs.setdefault(key, value)
         if verbose:
-            logger.info(
-                f"application='{application}' → selection weights applied: "
-                f"tm={kwargs['tm_weight']:.2f}, "
-                f"uniformity={kwargs['uniformity_weight']:.2f}, "
-                f"dimer_penalty={kwargs['dimer_penalty']:.2f}"
-            )
+            logger.info(f"application='{application}' → {_selection_weight_note(method, kwargs)}")
     except KeyError as exc:
         # `--application clinical` that quietly has no effect optimizes under
         # weights the user did not ask for and reports normally. The profile
@@ -1041,7 +1046,7 @@ def run_optimization(
     _target_coverage = _resolve_target_coverage(kwargs)
 
     _application = kwargs.pop("application", None)
-    _resolve_selection_weights(kwargs, _application, verbose)
+    _resolve_selection_weights(kwargs, _application, verbose, method=method)
 
     # Ensemble path: run several methods on the SAME position cache and keep
     # the best by normalized_score. Falls through to the shared
@@ -1083,13 +1088,12 @@ def run_optimization(
 
     # --minimize-primers / --target-coverage post-processing.
     #
-    # Both flags were reaching this function and going no further: they were
-    # stored on OptimizationConfig, forwarded through **kwargs, and read by no
-    # optimizer. `MinimalPrimerSelector` -- which exists precisely to trim a set
-    # to the smallest one still meeting a coverage target -- had no callers
-    # anywhere outside its own module. So `--minimize-primers` did nothing,
-    # which also made the default path look like it was minimising when the
-    # real cause was the coverage-binning bug in dominating_set_optimizer.
+    # Both flags were reaching this function and going no further: stored on
+    # OptimizationConfig, forwarded through **kwargs, read by no optimizer. A
+    # standalone `MinimalPrimerSelector` existed to trim a set but had no
+    # callers and scored coverage by a windowless rule the codebase does not
+    # use; it was removed 2026-10-26. The real trim is the
+    # `run_panel_search(minimize=True)` below (`optimization_service.reduce_result`).
     if _minimize_primers and result.primers and optimizer is None:
         logger.warning(
             "--minimize-primers was requested but no optimizer is available to "
@@ -1339,6 +1343,8 @@ def run_optimization_from_config(config: OptimizationConfig) -> OptimizationResu
         swap_max_evaluations=config.swap_max_evaluations,
         swap_max_seconds=config.swap_max_seconds,
         stage1_objective_width=config.stage1_objective_width,
+        stage2_tm_weight=config.stage2_tm_weight,
+        stage2_background_weight=config.stage2_background_weight,
         fg_prefixes=config.fg_prefixes,
         fg_seq_lengths=config.fg_seq_lengths,
         bg_prefixes=config.bg_prefixes,
@@ -1569,6 +1575,10 @@ def optimize_step4(
         )
         log_regime(regime)
 
+        # Both coverage geometries for the delivered panel, labelled, plus the
+        # cache this function returns. See `core/coverage_geometries.py`.
+        cache, geometries = for_delivered_panel(parameter, result)
+
         save_results(
             result,
             output_path,
@@ -1576,13 +1586,8 @@ def optimize_step4(
             primer_sets=_LAST_PRIMER_SETS or None,
             regime=regime,
             candidate_reach=_LAST_CANDIDATE_REACH,
+            coverage_geometries=geometries,
         )
-
-        # Return cache placeholder (for compatibility)
-        from .position_cache import PositionCache
-
-        fg_prefixes = getattr(parameter, "fg_prefixes", [])
-        cache = PositionCache(fg_prefixes, list(result.primers)) if fg_prefixes else None
 
         return primer_sets, scores, cache
     else:

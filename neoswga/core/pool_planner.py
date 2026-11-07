@@ -146,6 +146,7 @@ def repair_panel(
         objective=objective,
         fixed_primers=fixed_primers,
         objective_scan_width=width,
+        background_weight=float(getattr(config, "stage2_background_weight", None) or 0.0),
         max_evaluations=config.swap_max_evaluations,
         max_seconds=config.swap_max_seconds,
     )

@@ -1,0 +1,28 @@
+{
+  "panels": 40,
+  "panel_size": 12,
+  "pool": 300,
+  "fg_bp": 1270000,
+  "bg_bp": 4000000,
+  "median_ms": {
+    "A_compute_pool_metrics": 3.556,
+    "B_with_host_coverage": 5.262,
+    "C_compute_metrics": 10.773,
+    "marginal_host_coverage": 1.707
+  },
+  "B_over_A": 1.48,
+  "C_over_A": 3.03,
+  "C_over_B": 2.047,
+  "marginal_share_of_B": 0.3243,
+  "marginal_ms_by_host_bp": {
+    "1000000": 0.681,
+    "4000000": 2.098,
+    "16000000": 8.087,
+    "64000000": 33.501
+  },
+  "projected_over_4040_calls_s": {
+    "A": 14.36,
+    "B": 21.26,
+    "C": 43.52
+  }
+}

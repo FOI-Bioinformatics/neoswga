@@ -392,6 +392,268 @@ def test_the_scoring_engine_uses_the_configured_value(
     )
 
 
+#: The two Stage-2 scoring weights. Unlike SCORING_PARAMETERS they are NOT read
+#: by the NetworkOptimizer -- they drive hybrid's own Stage-2 ranking and the
+#: swap score -- so they live on the inner `HybridOptimizer` (`_hybrid`), not on
+#: the network engine. The wrapper `HybridBaseOptimizer` builds the inner and
+#: then sets them; before that assignment both were carried on OptimizerConfig
+#: and dropped at the inner's constructor, so `stage2_tm_weight` was inert on
+#: every factory/CLI hybrid run (Known Issue 8). This asserts the value survives
+#: the wrapper.
+STAGE2_HYBRID_WEIGHTS = [
+    ("stage2_tm_weight", 1.0),
+    ("stage2_background_weight", 0.5),
+]
+
+
+@pytest.mark.parametrize("method", ["hybrid", "background-aware"])
+@pytest.mark.parametrize("name,value", STAGE2_HYBRID_WEIGHTS, ids=lambda p: str(p))
+def test_stage2_weights_reach_the_inner_hybrid(prefix, planted, method, name, value):
+    """A Stage-2 weight set from config has to reach the inner HybridOptimizer.
+
+    `stage2_tm_weight` and `stage2_background_weight` are read by the inner
+    `HybridOptimizer` -- the first by its removal ranking, the second by the
+    swap score -- not by the NetworkOptimizer the scoring-engine test covers.
+    They reach the wrapper on `OptimizerConfig`; the wrapper has to forward them
+    when it builds the inner, or the keys are inert exactly as Known Issue 8
+    describes. Both ship off by default, so this pins the plumbing, not a
+    default behaviour change.
+
+    Parameterised over BOTH wrappers since 2026-10-29. They build the same inner
+    class from two separately maintained argument lists, and only the `hybrid`
+    one was taught to forward these: `background-aware` dropped both weights,
+    plus `max_dimer_dg` and `stage1_objective_width`. That is the second time
+    those two lists have diverged, which is why
+    `tests/test_no_adapter_drops_an_inner_parameter.py` now checks the seam
+    mechanically.
+    """
+    optimizer = build(prefix, planted, method, **{name: value})
+    inner = getattr(optimizer, "_hybrid", None)
+    assert inner is not None, (
+        f"{method} adapter {type(optimizer).__name__} has no '_hybrid' inner; "
+        "update this test if it was renamed."
+    )
+    actual = getattr(inner, name, None)
+    assert actual == value, (
+        f"{method}: {name}={value} did not reach HybridOptimizer.{name}; it is using "
+        f"{actual!r}. The value reaches the adapter's OptimizerConfig and is "
+        f"dropped when the adapter builds its inner engine."
+    )
+
+
+# ----------------------------------------------------------------------
+# The same question, asked of the methods that are NOT network-scored
+# ----------------------------------------------------------------------
+#
+# `_SCORING_ENGINE_PATH` above only covers the methods whose selection ends in a
+# `NetworkOptimizer`. Asking it of the other two is what found the defect below:
+#
+#   - `dominating-set` is an ADAPTER over `DominatingSetOptimizer`, the same
+#     wrapper/inner shape as hybrid, so anything the adapter fails to forward is
+#     inert exactly as `stage2_tm_weight` was.
+#   - `clique` is its own decider (no inner), so it has no forwarding seam. It
+#     screens on base-pair count only and reads no `max_dimer_dg` at all, which
+#     is a separate question from this one and not pinned here.
+
+
+@pytest.mark.parametrize("temp", [30.0, 65.0])
+def test_the_reaction_temperature_reaches_the_dominating_set_dimer_screen(temp):
+    """The free-energy dimer screen has to run at the reaction temperature.
+
+    `max_dimer_dg` was forwarded to the inner optimizer and `dimer_temp`, the
+    temperature that floor is evaluated at, was not -- so the inner kept its
+    37 C constructor default while every other dimer-screen call site
+    (`network_optimizer`, `refine_hybrid_stage2`, `panel_refinement`) passes the
+    reaction temperature. Delta-G is strongly temperature-dependent and the
+    verdict genuinely flips: a pair that passes the base-pair screen can be a
+    dimer at 30 C and not at 65 C. On the phi29 30 C default, screening at 37 C
+    is the PERMISSIVE direction, which is how a dimerising pair reaches a
+    delivered panel.
+
+    Parameterised below AND above 37 C so a fix that pinned the value to one
+    polymerase's preset, or re-derived it from a default rather than from the
+    supplied conditions, still fails.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    polymerase = "phi29" if temp < 37.0 else "bst"
+    optimizer = OptimizerFactory.create(
+        name="dominating-set",
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6, max_dimer_bp=3, max_dimer_dg=-6.0),
+        conditions=ReactionConditions(polymerase=polymerase, temp=temp),
+    )
+
+    assert optimizer._optimizer.dimer_temp == temp, (
+        f"reaction temperature {temp} C did not reach "
+        f"DominatingSetOptimizer.dimer_temp, the temperature the max_dimer_dg "
+        f"floor is evaluated at; it is using "
+        f"{optimizer._optimizer.dimer_temp!r}. The adapter forwards "
+        f"max_dimer_dg and must forward the temperature with it."
+    )
+
+
+#: (configured polymerase, a legal reaction temperature for it, its preset's
+#: `thermo_filter`). phi29 is the default and the one case that was already
+#: right, so it is the control: it must stay exactly as it was.
+_REACTIONS = [
+    ("phi29", 30.0, False),
+    ("equiphi29", 45.0, True),
+    ("bst", 65.0, True),
+]
+
+
+@pytest.mark.parametrize("method", ["hybrid", "background-aware"])
+@pytest.mark.parametrize("polymerase,temp,thermo_filter", _REACTIONS, ids=lambda p: str(p))
+def test_the_configured_reaction_reaches_the_hybrid_inner(method, polymerase, temp, thermo_filter):
+    """`hybrid` ran every reaction as phi29 at 30 C.
+
+    `unified_optimizer` hands every optimizer its `conditions` and hands it
+    neither `polymerase` nor `reaction_temp` (it mentions neither), while both
+    hybrid wrappers defaulted `polymerase` to the literal string "phi29" -- a
+    real default beating the configured value, which is Known Issue 8's usual
+    shape. So the inner built a phi29 preset at 30 C whatever params.json said.
+
+    Two things rode on it, both silent. phi29's preset sets
+    `thermo_filter=False` while `bst`'s and `equiphi29`'s set it True, so the
+    Stage-0 thermodynamic screen never ran for the hot polymerases that ask for
+    it. And Stage 2's dimer screen and Tm term both read `reaction_temp`, so
+    they ran at 30 C against a 63 C or 42 C reaction.
+
+    Parameterised over both wrappers because they build the same inner from two
+    separate argument lists that have drifted apart before, and over phi29 as a
+    control: the default path must be unchanged.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    optimizer = OptimizerFactory.create(
+        name=method,
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6),
+        conditions=ReactionConditions(polymerase=polymerase, temp=temp),
+    )
+    inner = optimizer._hybrid
+
+    assert inner.polymerase == polymerase, (
+        f"{method}: configured polymerase {polymerase!r} did not reach the inner "
+        f"HybridOptimizer; it is using {inner.polymerase!r}. The wrapper must not "
+        f"pass a literal default that beats the attached conditions."
+    )
+    assert inner.reaction_temp == temp, (
+        f"{method}: configured reaction temperature {temp} C did not reach the "
+        f"inner; it is using {inner.reaction_temp!r}. Stage 2's dimer screen and "
+        f"Tm term both read this."
+    )
+    assert inner.poly_config.thermo_filter is thermo_filter, (
+        f"{method}: {polymerase} resolved to a preset whose thermo_filter is "
+        f"{inner.poly_config.thermo_filter}, expected {thermo_filter}. A wrong "
+        f"preset silently turns the Stage-0 thermodynamic screen off."
+    )
+
+
+def test_an_explicit_polymerase_still_beats_the_attached_conditions():
+    """Precedence is explicit > conditions > preset.
+
+    The fallback must not become an override: a caller that states a polymerase
+    gets it, even when the attached conditions disagree. Without this, fixing
+    the default would simply have inverted which value was ignored.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+    from neoswga.core.reaction_conditions import ReactionConditions
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    optimizer = OptimizerFactory.create(
+        name="hybrid",
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6),
+        conditions=ReactionConditions(polymerase="bst", temp=65.0),
+        polymerase="klenow",
+        reaction_temp=40.0,
+    )
+    inner = optimizer._hybrid
+    assert inner.polymerase == "klenow", inner.polymerase
+    assert inner.reaction_temp == 40.0, inner.reaction_temp
+
+
+def test_no_conditions_leaves_the_dominating_set_screen_temperature_alone():
+    """With nothing to read, the inner's own default stands.
+
+    The fix above must not invent a temperature. `max_dimer_dg` is unset by
+    default, so for a default run the screen never consults a temperature at
+    all; this pins that attaching no conditions changes nothing rather than
+    substituting a polymerase preset.
+    """
+    import numpy as np
+
+    from neoswga.core import unified_optimizer as uo
+    from neoswga.core.base_optimizer import OptimizerConfig
+    from neoswga.core.optimizer_factory import OptimizerFactory
+
+    uo._ensure_optimizers_registered()
+
+    class _Cache:
+        def get_positions(self, *args, **kwargs):
+            return np.array([], dtype=np.int64)
+
+    optimizer = OptimizerFactory.create(
+        name="dominating-set",
+        position_cache=_Cache(),
+        fg_prefixes=["fg"],
+        fg_seq_lengths=[10_000],
+        bg_prefixes=[],
+        bg_seq_lengths=[],
+        config=OptimizerConfig(target_set_size=6),
+        conditions=None,
+    )
+    assert optimizer._optimizer.dimer_temp == 37.0, (
+        "with no conditions attached the inner's 37 C default must stand, not a "
+        f"polymerase preset; it is using {optimizer._optimizer.dimer_temp!r}"
+    )
+
+
 # ----------------------------------------------------------------------
 # Optimizer-specific configuration
 # ----------------------------------------------------------------------

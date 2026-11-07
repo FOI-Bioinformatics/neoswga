@@ -1,0 +1,45 @@
+{
+  "max_mismatches": 1,
+  "bg_bp": 4000000,
+  "per_k": [
+    {
+      "k": 11,
+      "candidates": 2,
+      "table_kmers": 1770838,
+      "looked_up": 68,
+      "fraction_of_table": 3.8e-05,
+      "stream_whole_table_s": 0.5,
+      "batched_vs_stream": {
+        "table_kmers": 1770838,
+        "stream_s": 2.56,
+        "batched_s": 0.6,
+        "speedup": 4.26,
+        "whole_table_rss_mb": 174.4,
+        "bytes_per_entry": 103,
+        "counts_agree": true
+      }
+    },
+    {
+      "k": 12,
+      "candidates": 298,
+      "table_kmers": 3158687,
+      "looked_up": 10676,
+      "fraction_of_table": 0.00338,
+      "stream_whole_table_s": 0.85,
+      "batched_vs_stream": {
+        "table_kmers": 3158687,
+        "stream_s": 4.52,
+        "batched_s": 1.59,
+        "speedup": 2.85,
+        "whole_table_rss_mb": 232.6,
+        "bytes_per_entry": 77,
+        "counts_agree": true
+      }
+    }
+  ],
+  "totals": {
+    "table_kmers": 4929525,
+    "looked_up": 10744,
+    "fraction_of_table": 0.00218
+  }
+}

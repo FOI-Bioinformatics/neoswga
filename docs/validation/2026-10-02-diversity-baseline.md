@@ -1,6 +1,6 @@
 # A single-reference design loses most of its coverage on another supergroup, and the host it is given decides its specificity against a host 1,000 times larger
 
-Phase 3 of `docs/superpowers/plans/2026-10-02-genomic-diversity-and-multi-host.md`.
+Phase 3 of the genomic-diversity and multi-host plan (2026-10).
 This record reports measurements, answers Q1 to Q5, and reads decision gate A
 against them. Both halves of the gate are now decided, and neither criterion
 for skipping work is met.

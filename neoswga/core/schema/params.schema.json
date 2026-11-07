@@ -352,6 +352,25 @@
       "minimum": 0,
       "default": 10000
     },
+    "stage2_tm_weight": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1,
+      "default": null,
+      "description": "Weight of the Tm term in hybrid's Stage-2 removal ranking, which prefers dropping the primer whose effective Tm sits furthest from reaction_temp + 5 C. null (default) leaves Stage 2 as it was before the term was wired, bit for bit. This is NOT the tm_weight an --application profile supplies: that one feeds the network method, and --application defaults to enrichment, so honouring it here would switch this term on for every run. Measured: on a single-length pool it improves mean Tm deviation from 5.86 to 4.86 C and costs 2 points of coverage; on a mixed-length pool it costs coverage, trips the Stage-1 coverage floor, and the floor discards the Tm gain with the refinement. See docs/validation/2026-10-26-wiring-the-tm-term.md."
+    },
+    "stage2_background_weight": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "default": null,
+      "description": "Weight of the HOST-coverage axis in the swap refinement's Stage-2 score: foreground coverage is traded against background coverage instead of the host term being a lexicographic tie-break. None (the default) keeps that tie-break, which is what every recorded design used. Refused above zero from 2026-10-29 to 2026-11-02, because the axis needs a host-coverage fraction and PoolMetrics deliberately carried five fields without one; measured, that field costs +48% per evaluation and is 2.05x cheaper than the full compute_metrics the search already falls back to for a host-coverage limit, so it carries it now and the key runs. Still refused above zero with NO background genome: the fraction is absent rather than zero there, and weighting against a fabricated zero would make every panel look equally specific. Reads only on the swap refinement, so set refinement_method to swap; it is inert on hybrid's default network refinement. Off by default after measurement, and the measurement is why: the direction on its own axis does not replicate across panel size. At 12 primers weights 0.25 and 0.5 cut host coverage from 0.0220 to 0.0160 while weight 1.0 returned the control panel unchanged; at 24 primers the same 0.25 and 0.5 RAISED host coverage from 0.0360 to 0.0380 and only weight 1.0 cut it. So the term does not reliably reduce the quantity it weights. Known Issue 14. docs/validation/2026-11-02-a-weighted-host-axis-measured.md."
+    },
     "stage1_objective_width": {
       "type": [
         "integer",
@@ -592,7 +611,7 @@
     "max_dimer_dg": {
       "type": "number",
       "maximum": 0,
-      "description": "Optional ADDITIONAL dimer floor, in kcal/mol, on the free energy of the longest complementary region between two primers at the reaction temperature. Unset by default. It can only make the screen stricter: max_dimer_bp is applied first and a pair failing it is rejected whatever this says. Do not treat it as a way to relax max_dimer_bp on its own -- measured, a -6 floor with no length cap admits 8 bp complementary runs. Its use is to raise max_dimer_bp for a larger panel while keeping a stability bound: at run <= 3 a 200-primer pool supports a greedy panel of 14-20, and at run <= 5 with a -4 floor it supports 52-79. -6.0 follows Rychlik (1995) Mol Biotechnol 3:129-134; nothing here validates it against a reaction."
+      "description": "Optional ADDITIONAL dimer floor, in kcal/mol, on the free energy of the longest complementary region between two primers at the reaction temperature. Unset by default. It can only make the screen stricter: max_dimer_bp is applied first and a pair failing it is rejected whatever this says. Do not treat it as a way to relax max_dimer_bp on its own -- measured, a -6 floor with no length cap admits 8 bp complementary runs. Its use is to raise max_dimer_bp for a larger panel while keeping a stability bound: at run <= 3 a 200-primer pool supports a greedy panel of 14-20, and at run <= 5 with a -4 floor it supports 52-79. -6.0 follows Rychlik (1995) Mol Biotechnol 3:129-134; nothing here validates it against a reaction. AT THE SHIPPED max_dimer_bp OF 3 THIS KEY REJECTS NOTHING: measured over 20,000 random 12-mer pairs, a -6.0 and a -3.0 floor each reject 0 pairs that the base-pair screen has not already rejected, because at a 3 bp cap the only runs reaching the floor are too short to be unstable. It first bites at max_dimer_bp 4 (-3.0) and 5 (-6.0). So setting it without also loosening max_dimer_bp changes no panel. Every method honours it; clique only since 2026-10-26. docs/reports/SWOT_2026-10-28_pool_design_trustworthiness.md, W3."
     },
     "min_per_target_coverage": {
       "type": "number",
@@ -643,7 +662,7 @@
         "symmetric",
         "directional"
       ],
-      "description": "Where a binding site reaches when coverage is computed. 'symmetric' credits [pos - reach, pos + reach); 'directional' credits the one way the polymerase can extend. Default 'symmetric', which every recorded figure was produced under. The reach was fitted alongside it, so changing this without coverage_reach recalibrates silently."
+      "description": "Where a binding site reaches when coverage is computed. 'symmetric' credits [pos - reach, pos + reach); 'directional' credits the one way the polymerase can extend. Default 'symmetric', which every recorded figure was produced under. The reach was fitted alongside it: 2866-4551 bp enters and leaves the published breadth band under symmetric windows and 4354-6710 bp does under directional ones, so 'directional' REQUIRES an explicit coverage_reach and is refused without one. No value is substituted because the directional band was fitted for phi29 against one published outcome and none exists for bst, equiphi29 or klenow. The delivered panel's coverage is reported under BOTH geometries in step4_improved_df_summary.json under 'coverage_geometries', labelled with the one the run scored on."
     }
   }
 }

@@ -1,5 +1,7 @@
 """Swap search improves a greedy local choice without relaxing compatibility."""
 
+from types import SimpleNamespace
+
 import pytest
 
 from neoswga.core.swap_refinement import refine_by_swaps
@@ -75,3 +77,224 @@ def test_short_bins_use_base_weights():
 def test_missing_fixed_primer_is_rejected():
     with pytest.raises(ValueError, match="Fixed primers"):
         run(fixed_primers=["C"])
+
+
+# ----------------------------------------------------------------------
+# The host term as a weighted axis (Known Issue 14)
+# ----------------------------------------------------------------------
+#
+# Without `background_weight` the host load is the lexicographic tie-break the
+# score has always carried: it only decides between panels of EQUAL foreground
+# coverage. With `background_weight > 0` the host term instead becomes a
+# weighted axis, so a swap to a less-covering but much-less-host-binding primer
+# is taken even though it loses foreground coverage. Both coverages are 0..1
+# fractions, so the weight is a genuine trade. The feature ships off; these pin
+# that off is unchanged and on does what it says. The score runs only when an
+# `objective` is supplied, so these use a minimal stub.
+
+
+class _TradeObjective:
+    """Feasible everywhere, with a foreground and a host coverage per primer so
+    a swap trades one against the other. ``total_bg_sites`` is the lexicographic
+    fallback's tie-breaker, kept distinct from ``bg_coverage`` so a test can
+    tell which axis decided."""
+
+    #: primer -> (fg_coverage, bg_coverage, total_bg_sites)
+    _TABLE = {"A": (0.60, 0.90, 9), "B": (0.50, 0.10, 1)}
+
+    def shortfall(self, panel):
+        return 0.0
+
+    def coverage(self, panel):
+        return max(self._TABLE[p][0] for p in panel)
+
+    def metrics(self, panel):
+        return SimpleNamespace(
+            bg_coverage=max(self._TABLE[p][1] for p in panel),
+            total_bg_sites=sum(self._TABLE[p][2] for p in panel),
+        )
+
+
+def _trade_run(background_weight):
+    return refine_by_swaps(
+        ["A"],
+        ["A", "B"],
+        None,
+        None,
+        Compatibility(),
+        objective=_TradeObjective(),
+        background_weight=background_weight,
+    )
+
+
+def test_off_by_default_keeps_the_higher_coverage_primer():
+    # B covers less (0.50 < 0.60), so on pure coverage A is never dropped --
+    # the host difference is invisible to the lexicographic score.
+    assert _trade_run(0.0).primers == ("A",)
+
+
+def test_a_weighted_host_term_trades_coverage_for_a_lower_host_panel():
+    # 0.60 - 0.8*0.90 = -0.12 for A; 0.50 - 0.8*0.10 = 0.42 for B. The weighted
+    # axis now prefers B even though it covers less foreground.
+    assert _trade_run(0.8).primers == ("B",)
+
+
+class _UnmeasuredHostObjective(_TradeObjective):
+    """Host coverage cannot be measured (no background genome)."""
+
+    def metrics(self, panel):
+        return SimpleNamespace(
+            bg_coverage=None,
+            total_bg_sites=sum(self._TABLE[p][2] for p in panel),
+        )
+
+
+def test_unmeasurable_host_coverage_is_refused_rather_than_silently_ignored():
+    """`bg_coverage is None` means there is no host to weigh against.
+
+    This used to fall back to the lexicographic tuple and return a panel. That
+    is the quieter failure of the two: the user set a weight, nothing weighed,
+    and nothing said so -- Known Issue 8's shape, a key that is accepted and
+    read by nothing. It now refuses, which is what the sibling case already
+    does: "a background-measured limit with no background genome is refused".
+
+    The weighted form could never have RUN here -- `coverage - w * None` is a
+    TypeError and a substituted zero would be fabricated -- so the only
+    question was whether to say so, and saying so is cheaper than a design
+    whose stated objective was not the one applied.
+    """
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    with pytest.raises(InvalidDesignRequest, match="no background genome"):
+        refine_by_swaps(
+            ["A"],
+            ["A", "B"],
+            None,
+            None,
+            Compatibility(),
+            objective=_UnmeasuredHostObjective(),
+            background_weight=0.8,
+        )
+
+
+def test_an_unmeasurable_host_is_fine_with_the_weight_off():
+    """The refusal is about the WEIGHT, not about having no host. With the
+    weight at its default the lexicographic tie-break runs as always."""
+    result = refine_by_swaps(
+        ["A"],
+        ["A", "B"],
+        None,
+        None,
+        Compatibility(),
+        objective=_UnmeasuredHostObjective(),
+    )
+
+    assert result.primers == ("A",)
+
+
+# ----------------------------------------------------------------------
+# An objective carrying no host-coverage attribute at all (2026-10-29)
+# ----------------------------------------------------------------------
+#
+# `stage2_background_weight` was added on 2026-10-26 against the stub objective
+# above, which supplies `bg_coverage`. For three days no production objective
+# did: `PoolMetrics` carried five fields because computing background coverage
+# was 27.6 s of the 29.7 s that module exists to remove from the search loop,
+# so the first real design to set the key crashed inside Stage 2 with an
+# AttributeError, and from 2026-10-29 every positive weight was refused.
+#
+# **`PoolMetrics` carries the field since 2026-11-02.** Measured, it costs +48%
+# per evaluation and is 2.05x cheaper than the full `compute_metrics` the
+# search already falls back to for a host-coverage limit, because the positions
+# were already gathered. So the blanket refusal is gone and the shipped path
+# weights the axis. See
+# `docs/validation/2026-11-02-what-host-coverage-would-cost-the-search.md`.
+#
+# The class below is therefore no longer the shape of the production objective.
+# It is kept because a CUSTOM objective need not carry the attribute, and a
+# weighted axis must refuse that rather than invent a zero -- which is what the
+# test under it pins.
+
+
+class _ProductionShapedObjective(_TradeObjective):
+    """Metrics carrying no `bg_coverage` attribute at all.
+
+    Deliberately NOT a `SimpleNamespace`: the point is that the attribute is
+    ABSENT, and an object that tolerates any attribute cannot express that.
+    This was the shape of the real search objective until 2026-11-02; it now
+    stands for a custom one that does not carry the field.
+    """
+
+    class _Metrics:
+        __slots__ = (
+            "fg_coverage",
+            "effective_fg_coverage",
+            "selectivity_density",
+            "total_bg_sites",
+            "max_gap",
+        )
+
+        def __init__(self, total_bg_sites):
+            self.fg_coverage = 0.5
+            self.effective_fg_coverage = 0.5
+            self.selectivity_density = 1.0
+            self.total_bg_sites = total_bg_sites
+            self.max_gap = 0.0
+
+    def metrics(self, panel):
+        return self._Metrics(sum(self._TABLE[p][2] for p in panel))
+
+
+def test_a_weighted_host_axis_is_refused_when_the_objective_cannot_measure_it():
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    with pytest.raises(InvalidDesignRequest) as excinfo:
+        refine_by_swaps(
+            ["A"],
+            ["A", "B"],
+            None,
+            None,
+            Compatibility(),
+            objective=_ProductionShapedObjective(),
+            background_weight=0.5,
+        )
+    message = str(excinfo.value)
+    assert "stage2_background_weight" in message
+    assert "host-coverage fraction" in message, message
+    # It must say what to do, not only what went wrong.
+    assert "Unset the key" in message, message
+
+
+def test_the_refusal_names_the_metrics_type_it_found():
+    """So a reader knows which objective was in play, not just that one failed."""
+    from neoswga.core.exceptions import InvalidDesignRequest
+
+    with pytest.raises(InvalidDesignRequest, match="_Metrics"):
+        refine_by_swaps(
+            ["A"],
+            ["A", "B"],
+            None,
+            None,
+            Compatibility(),
+            objective=_ProductionShapedObjective(),
+            background_weight=0.5,
+        )
+
+
+def test_the_shipped_default_is_untouched_by_the_refusal():
+    """Weight 0 must still run against a production-shaped objective.
+
+    The refusal is scoped to the feature being switched ON. If it fired for
+    every caller it would break the default path, which is the lexicographic
+    tie-break every design uses.
+    """
+    result = refine_by_swaps(
+        ["A"],
+        ["A", "B"],
+        None,
+        None,
+        Compatibility(),
+        objective=_ProductionShapedObjective(),
+        background_weight=0.0,
+    )
+    assert result.primers == ("A",)

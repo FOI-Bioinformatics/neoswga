@@ -311,6 +311,17 @@ def _spacing_criteria(metrics: Any, reach: int, genome_length: int | None) -> li
             "fraction",
             "adjacent sites on opposite strands, no reference",
         ),
+        _reported(
+            "host_gap_evenness",
+            _as_float(getattr(metrics, "off_gap_gini", None)),
+            "Gini",
+            "swga 2.0's `off_gap_gini`: distances between host sites, per "
+            "strand, averaged over strands then hosts. HIGHER is better here, "
+            "since clustered host sites leave most of the host out of reach. "
+            "No reference: it carries the second-largest weight in the one "
+            "set-level model fitted against sequencing breadth, over 46 sets, "
+            "and that coefficient sits in a table nobody here could open",
+        ),
     ]
 
 

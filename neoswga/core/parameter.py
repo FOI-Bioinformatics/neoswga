@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-from dataclasses import dataclass, field
 
 from neoswga.core import utility as _utility
 from neoswga.core.registry import views as _registry_views
@@ -302,6 +301,24 @@ num_primers = 6
 target_set_size = 6
 _json_data = {}  # Store raw JSON data for access by CLI
 
+#: Configuration a `--preset` contributes, merged into `_json_data` by
+#: `get_params` as though params.json had carried it.
+#:
+#: A preset used to reach the module globals by `setattr` and nothing else, so
+#: it was invisible to every guard that asks "did the user say this" by testing
+#: key presence in `_json_data`. `_apply_adaptive_additives` asks exactly that,
+#: deliberately, to tell a user's explicit 0.0 from a key they never wrote --
+#: and a preset's explicit 0.0 therefore read as silence. GC-adaptive logged
+#: "Setting betaine to 1.0M" on a run that then used 0.0, because the preset
+#: overwrote it afterwards with nothing said.
+#:
+#: A preset IS a user choice, so it belongs where user choices live. Set by the
+#: CLI before `_initialize()` and consumed once; the values it carries are
+#: unchanged, so no delivered figure moves -- only the record stops
+#: contradicting the run.
+#: `docs/validation/2026-11-01-the-preset-path-bypassed-every-guard.md`.
+_preset_overlay: dict = {}
+
 
 # =============================================================================
 # Typed Configuration Class
@@ -310,149 +327,7 @@ _json_data = {}  # Store raw JSON data for access by CLI
 # New code should use get_current_config() instead of accessing globals directly.
 
 
-@dataclass
-class PipelineParameters:
-    """
-    Typed configuration for the SWGA pipeline.
-
-    This class provides type-safe access to all pipeline parameters.
-    Use get_current_config() to get the current parameter state.
-
-    Example:
-        config = get_current_config()
-        if config.min_fg_freq > 1e-4:
-            print("Frequency threshold is high")
-    """
-
-    # K-mer range (supports 6-18bp, 15-18bp requires long_primer_mode optimizations)
-    min_k: int = 6
-    max_k: int = 12
-
-    # Long primer mode: enables optimizations for 15-18bp primers
-    # Auto-enabled when max_k >= 15, includes:
-    # - K-mer sampling (default 2% for 18bp)
-    # - GPU acceleration (if available)
-    # - 2-bit k-mer encoding (memory reduction)
-    # - Hybrid prefix filtering (optional)
-    long_primer_mode: bool = False
-
-    # Filtering thresholds
-    min_fg_freq: float = 1e-5
-    max_bg_freq: float = 5e-6
-    min_tm: float = 15.0
-    max_tm: float = 45.0
-    max_gini: float = 0.7
-    min_gini_sites: int = 3
-    max_primer: int = 500
-    # Unitless amplification prediction score (scale ~0-20). Combines Tm
-    # optimality, GC content, 3' stability, and binding energy features.
-    # Higher values indicate stronger predicted amplification; the default
-    # of 10.0 retains above-average primers.
-    min_amp_pred: float = 10.0
-
-    # Dimer constraints
-    max_dimer_bp: int = 3
-    allow_dimer_relaxation: bool = False
-    refinement_method: str = "network"
-
-    swap_max_evaluations: int = 10000
-    swap_max_seconds: float = 10.0
-    max_self_dimer_bp: int = 4
-
-    # GC content filtering
-    gc_min: float = 0.375
-    gc_max: float = 0.625
-    gc_tolerance: float = 0.15
-    genome_gc: float | None = None
-
-    # Per-primer extension reach for set-cover selection and reported coverage.
-    # None means "use the polymerase's realistic reach"; an explicit value here
-    # or on --coverage-reach overrides it.
-    coverage_reach: int | None = None
-
-    # Candidate ranking in step 2. None means "use the read site's default",
-    # which keeps one source of truth for it (pipeline.py).
-    occupancy_ranking: bool = True
-    occupancy_shortlist: int | None = None
-    max_mismatches: int | None = None
-
-    # Polymerase and reaction conditions
-    polymerase: str = "phi29"
-    reaction_temp: float | None = None
-    na_conc: float = 50.0
-    mg_conc: float = 2.0
-    primer_conc: float = 0.5e-6
-
-    # Thermodynamic additives
-    dmso_percent: float = 0.0
-    betaine_m: float = 0.0
-    trehalose_m: float = 0.0
-    formamide_percent: float = 0.0
-    ethanol_percent: float = 0.0
-    urea_m: float = 0.0
-    tmac_m: float = 0.0
-    propanediol_m: float = 0.0
-
-    # Enzyme-acting additives (no Tm model; recorded and passed through)
-    glycerol_percent: float = 0.0
-    peg_percent: float = 0.0
-    bsa_ug_ml: float = 0.0
-    ssb: bool = False
-
-    # Buffer species beyond Na+/Mg2+
-    k_conc: float = 0.0
-    nh4_conc: float = 0.0
-    dntp_conc: float = 0.0
-    dtt_mm: float = 0.0
-
-    # Optimization settings
-    iterations: int = 8
-    max_sets: int = 5
-    retries: int = 5
-    top_set_count: int = 10
-    drop_iterations: int = 5
-    selection_metric: str = "deterministic"
-
-    # Genome topology
-    fg_circular: bool = True
-    bg_circular: bool = False
-
-    # K-mer sampling (for performance)
-    sample_rate: float | None = None
-    min_sample_count: int = 5
-
-    # Bloom filter (for large backgrounds)
-    use_bloom_filter: bool = False
-    bloom_filter_path: str | None = None
-    sampled_index_path: str | None = None
-
-    # Paths
-    data_dir: str = ""
-    src_dir: str = ""
-
-    # Genome data
-    fg_genomes: list[str] = field(default_factory=list)
-    bg_genomes: list[str] = field(default_factory=list)
-    fg_prefixes: list[str] = field(default_factory=list)
-    bg_prefixes: list[str] = field(default_factory=list)
-    fg_seq_lengths: list[int] = field(default_factory=list)
-    bg_seq_lengths: list[int] = field(default_factory=list)
-
-    # Exclusion genomes (zero-tolerance filtering)
-    excl_genomes: list[str] = field(default_factory=list)
-    excl_prefixes: list[str] = field(default_factory=list)
-    excl_threshold: int = 0  # Max allowed hits in exclusion genome (0 = any hit rejects)
-
-    # Blacklist genomes (penalty-weighted filtering)
-    bl_genomes: list[str] = field(default_factory=list)
-    bl_prefixes: list[str] = field(default_factory=list)
-    bl_seq_lengths: list[int] = field(default_factory=list)
-    bl_penalty: float = 5.0
-    max_bl_freq: float = 0.0
-
-    # Runtime
-    cpus: int = 1
-    verbose: bool = False
+from neoswga.core.parameter_config import PipelineParameters  # noqa: E402
 
 
 def get_current_config() -> PipelineParameters:
@@ -753,6 +628,18 @@ coverage_metric = None
 #: `coverage.COVERAGE_GEOMETRIES`; the default is what every recorded figure
 #: was produced under and the reach was fitted alongside it.
 coverage_geometry = "symmetric"
+#: Weight of the Tm term in hybrid's Stage-2 removal ranking. None (the
+#: default) leaves Stage 2 exactly as it was before the term was wired on
+#: 2026-10-26. NOT the `tm_weight` an `--application` profile supplies: that
+#: one feeds `NetworkOptimizer`, and since `--application` defaults to
+#: `enrichment` it would otherwise switch this term on for every run.
+#: Measurement, including the case where it makes a panel worse on both axes:
+#: `docs/validation/2026-10-26-wiring-the-tm-term.md`.
+stage2_tm_weight = None
+#: Weight of the host term in the swap Stage-2 score (Known Issue 14); None keeps
+#: the lexicographic tie-break. Off by default; unmeasured against a reaction.
+#: docs/validation/2026-10-26-stage2-background-weight.md.
+stage2_background_weight = None
 
 # Panel-level limits; all unset by default and they must stay that way.
 # Reasoning in `panel_acceptance`'s docstring.
@@ -966,7 +853,8 @@ def _apply_params_only_keys(data: dict) -> None:
     """
     global refinement_method
     global total_search_evaluations, total_search_seconds, max_frontier_refills
-    global swap_max_evaluations, stage1_objective_width
+    global swap_max_evaluations, stage1_objective_width, stage2_tm_weight
+    global stage2_background_weight
     global swap_max_seconds
     global allow_dimer_relaxation
     global coverage_reach
@@ -1006,6 +894,8 @@ def _apply_params_only_keys(data: dict) -> None:
     swap_max_evaluations = _search["swap_max_evaluations"]
     swap_max_seconds = _search["swap_max_seconds"]
     stage1_objective_width = _search["stage1_objective_width"]
+    stage2_tm_weight = _search["stage2_tm_weight"]
+    stage2_background_weight = _search["stage2_background_weight"]
     coverage_reach = _search["coverage_reach"]
     coverage_metric = _search["coverage_metric"]
     coverage_geometry = data.get("coverage_geometry", "symmetric")
@@ -1128,6 +1018,10 @@ def get_params(args):
         # Check if json file exists and read it
         if os.path.isfile(data["json_file"]):
             data_extra = read_args_from_json(args.json_file)
+            # A preset's keys win over the file's, which is the precedence the
+            # CLI already applied by overwriting the globals afterwards; merged
+            # here so the key-presence guards see them. See `_preset_overlay`.
+            data_extra = {**data_extra, **_preset_overlay}
             # Clear stale entries before replacing so a second get_params() call in
             # the same process does not leak prior params.json values.
             _json_data.clear()
